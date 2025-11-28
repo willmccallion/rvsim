@@ -7,11 +7,11 @@
 #
 # Description:
 #   The Bootloader Entry Point.
-#   1. Copies the kernel image from the virtual disk to RAM.
-#   2. Configures privilege delegation (M-mode to S-mode).
-#   3. Sets up mstatus to switch to Supervisor mode.
-#   4. Sets mepc to the kernel entry point.
-#   5. Executes mret to jump to the kernel.
+#    Copies the kernel image from the virtual disk to RAM.
+#    Configures privilege delegation (M-mode to S-mode).
+#    Sets up mstatus to switch to Supervisor mode.
+#    Sets mepc to the kernel entry point.
+#    Executes mret to jump to the kernel.
 #
 # Args:
 #   None
@@ -35,7 +35,7 @@ _start:
     slli s0, s0, 28                           # s0 <- 0x90000000 (Disk Base)
 
     # Number of bytes to copy from disk to RAM.
-    li s2, 4096                               # s2 <- 4096 (Kernel Size)
+    li s2, 16384                              # s2 <- 4096 (Kernel Size)
 
 copy_loop:
     # Simple byte-wise copy loop. Keeps boot code small and reliable.

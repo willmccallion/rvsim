@@ -2,15 +2,16 @@
 struct CacheLine {
     tag: u64,
     valid: bool,
-    last_used: u64, // For LRU policy
+    dirty: bool,
+    last_used: u64,
 }
 
 pub struct CacheSim {
-    sets: Vec<Vec<CacheLine>>, // [set_index][way_index]
+    lines: Vec<CacheLine>, // index = (set * ways) + way
     num_sets: usize,
     ways: usize,
     line_bytes: usize,
-    access_counter: u64, // Global time for LRU
+    access_counter: u64,
 }
 
 impl CacheSim {
@@ -18,11 +19,10 @@ impl CacheSim {
         let num_lines = size_bytes / line_bytes;
         let num_sets = num_lines / ways;
 
-        // Initialize sets with empty lines
-        let sets = vec![vec![CacheLine::default(); ways]; num_sets];
+        let lines = vec![CacheLine::default(); num_sets * ways];
 
         Self {
-            sets,
+            lines,
             num_sets,
             ways,
             line_bytes,
@@ -30,42 +30,53 @@ impl CacheSim {
         }
     }
 
-    pub fn access(&mut self, addr: u64) -> bool {
+    pub fn access(&mut self, addr: u64, is_write: bool, next_level_latency: u64) -> (bool, u64) {
         self.access_counter += 1;
-
-        let index = ((addr as usize) / self.line_bytes) % self.num_sets;
+        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
         let tag = addr / (self.line_bytes * self.num_sets) as u64;
 
-        // Check for Hit
+        let base_idx = set_index * self.ways;
+
         for i in 0..self.ways {
-            if self.sets[index][i].valid && self.sets[index][i].tag == tag {
-                self.sets[index][i].last_used = self.access_counter; // Update LRU
-                return true; // Hit
+            let idx = base_idx + i;
+            if self.lines[idx].valid && self.lines[idx].tag == tag {
+                self.lines[idx].last_used = self.access_counter;
+                if is_write {
+                    self.lines[idx].dirty = true;
+                }
+                return (true, 0);
             }
         }
 
-        // Find Invalid line OR Least Recently Used (LRU)
-        let mut replace_idx = 0;
+        let mut replace_offset = 0;
         let mut min_lru = u64::MAX;
 
         for i in 0..self.ways {
-            if !self.sets[index][i].valid {
-                replace_idx = i;
-                break; // Found empty slot, use it
+            let idx = base_idx + i;
+            if !self.lines[idx].valid {
+                replace_offset = i;
+                break;
             }
-            if self.sets[index][i].last_used < min_lru {
-                min_lru = self.sets[index][i].last_used;
-                replace_idx = i;
+            if self.lines[idx].last_used < min_lru {
+                min_lru = self.lines[idx].last_used;
+                replace_offset = i;
             }
         }
 
-        // Replace
-        self.sets[index][replace_idx] = CacheLine {
+        let victim_idx = base_idx + replace_offset;
+        let mut penalty = 0;
+
+        if self.lines[victim_idx].valid && self.lines[victim_idx].dirty {
+            penalty += next_level_latency;
+        }
+
+        self.lines[victim_idx] = CacheLine {
             tag,
             valid: true,
+            dirty: is_write,
             last_used: self.access_counter,
         };
 
-        false // Miss
+        (false, penalty)
     }
 }

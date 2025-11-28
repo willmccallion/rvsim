@@ -33,9 +33,9 @@ _start:
     li    sp, 0x00000000801FF000              # Initialize Stack Pointer
 
     # n value to calculate
-    li a0, 10                                 # a0 <- 10
+    li a0, 20                                 # a0 <- 20
     add s1, a0, zero                          # s1 <- a0 (save n for printing)
-    jal ra, fib                               # Call fib(10)
+    jal ra, fib                               # Call fib(20)
     add s0, a0, zero                          # s0 <- a0 (save result)
 
     # print "fib("

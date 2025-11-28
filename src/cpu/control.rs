@@ -1,3 +1,5 @@
+use crate::cpu::pipeline::{EXMEM, IDEx, MEMWB};
+
 #[derive(Clone, Copy, Debug, Default)]
 pub enum AluOp {
     #[default]
@@ -47,7 +49,6 @@ pub enum OpBSrc {
     Zero,
 }
 
-// CSR operation kind (drives execute-stage behavior)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CsrOp {
     None,
@@ -84,20 +85,18 @@ pub struct ControlSignals {
     pub csr_op: CsrOp,
 }
 
-pub fn need_stall_load_use(id_ex: &crate::cpu::pipeline::IDEx, if_id_inst: u32) -> bool {
+pub fn need_stall_load_use(id_ex: &IDEx, if_id_inst: u32) -> bool {
     if !id_ex.ctrl.mem_read || id_ex.rd == 0 {
         return false;
     }
+
     let next_rs1 = ((if_id_inst >> 15) & 0x1f) as usize;
     let next_rs2 = ((if_id_inst >> 20) & 0x1f) as usize;
+
     id_ex.rd == next_rs1 || id_ex.rd == next_rs2
 }
 
-pub fn forward_rs(
-    id_ex: &crate::cpu::pipeline::IDEx,
-    ex_mem: &crate::cpu::pipeline::EXMEM,
-    mem_wb: &crate::cpu::pipeline::MEMWB,
-) -> (u64, u64) {
+pub fn forward_rs(id_ex: &IDEx, ex_mem: &EXMEM, mem_wb: &MEMWB) -> (u64, u64) {
     let mut a = id_ex.rv1;
     let mut b = id_ex.rv2;
 
@@ -109,6 +108,7 @@ pub fn forward_rs(
         } else {
             mem_wb.alu
         };
+
         if mem_wb.rd == id_ex.rs1 {
             a = wb_val;
         }
@@ -117,12 +117,13 @@ pub fn forward_rs(
         }
     }
 
-    if ex_mem.ctrl.reg_write && ex_mem.rd != 0 {
+    if ex_mem.ctrl.reg_write && ex_mem.rd != 0 && !ex_mem.ctrl.mem_read {
         let ex_val = if ex_mem.ctrl.jump {
             ex_mem.pc.wrapping_add(4)
         } else {
             ex_mem.alu
         };
+
         if ex_mem.rd == id_ex.rs1 {
             a = ex_val;
         }
@@ -130,5 +131,6 @@ pub fn forward_rs(
             b = ex_val;
         }
     }
+
     (a, b)
 }

@@ -103,7 +103,21 @@ fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
 }
 
 pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
-    let id = cpu.id_ex;
+    let id = cpu.id_ex.clone();
+
+    if let Some(trap_msg) = id.trap {
+        cpu.ex_mem = EXMEM {
+            pc: id.pc,
+            inst: id.inst,
+            rd: id.rd,
+            alu: 0,
+            store_data: 0,
+            ctrl: id.ctrl,
+            trap: Some(trap_msg),
+        };
+        return Ok(());
+    }
+
     if cpu.trace {
         eprintln!(
             "EX  pc={:#x} inst={:#010x} (rs1={}, rs2={}, rd={})",
@@ -113,24 +127,6 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
     }
 
     let (fwd_a, fwd_b) = crate::cpu::control::forward_rs(&cpu.id_ex, &cpu.ex_mem, &cpu.wb_latch);
-
-    if cpu.trace && (id.rs1 != 0 || id.rs2 != 0) {
-        let (fwd_a_dbg, fwd_b_dbg) =
-            crate::cpu::control::forward_rs(&cpu.id_ex, &cpu.ex_mem, &cpu.wb_latch);
-
-        if fwd_a_dbg != id.rv1 {
-            eprintln!(
-                "    FORWARD: rs1 ({}) value {:#x} -> {:#x}",
-                id.rs1, id.rv1, fwd_a_dbg
-            );
-        }
-        if fwd_b_dbg != id.rv2 {
-            eprintln!(
-                "    FORWARD: rs2 ({}) value {:#x} -> {:#x}",
-                id.rs2, id.rv2, fwd_b_dbg
-            );
-        }
-    }
 
     let store_data_val = fwd_b;
 
@@ -149,8 +145,27 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
     if id.ctrl.is_system {
         if id.ctrl.is_mret {
             cpu.do_mret();
+            cpu.id_ex = Default::default();
+            return Ok(());
         } else if id.ctrl.is_sret {
             cpu.do_sret();
+            cpu.id_ex = Default::default();
+            return Ok(());
+        }
+
+        // Handle ECALL
+        if id.inst == 0x0000_0073 {
+            if cpu.privilege == 0 {
+                // User Mode ECALL -> Trap to Kernel (Supervisor)
+                cpu.trap(8, id.pc);
+                return Ok(());
+            } else {
+                // Machine Mode ECALL -> Simulator Exit
+                if cpu.regs.read(17) == 93 {
+                    cpu.exit_code = Some(cpu.regs.read(10));
+                }
+                return Ok(());
+            }
         }
 
         if id.ctrl.csr_op != CsrOp::None
@@ -172,6 +187,22 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
             };
             cpu.csr_write(addr, new);
 
+            if id.ctrl.csr_op == CsrOp::RW
+                || id.ctrl.csr_op == CsrOp::RS
+                || id.ctrl.csr_op == CsrOp::RC
+                || id.ctrl.csr_op == CsrOp::RWI
+                || id.ctrl.csr_op == CsrOp::RSI
+                || id.ctrl.csr_op == CsrOp::RCI
+            {
+                if cpu.trace {
+                    eprintln!("EX  CSR Write -> Pipeline Flush");
+                }
+                cpu.if_id = Default::default();
+                cpu.id_ex = Default::default();
+                cpu.pc = id.pc.wrapping_add(4);
+                cpu.stats.stalls_control += 2;
+            }
+
             cpu.ex_mem = EXMEM {
                 pc: id.pc,
                 inst: id.inst,
@@ -179,6 +210,7 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
                 alu: old,
                 store_data: store_data_val,
                 ctrl: id.ctrl,
+                trap: None,
             };
             return Ok(());
         }
@@ -197,31 +229,87 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
             _ => false,
         };
 
-        // Branch Prediction Logic
-        let prediction = cpu.branch_predictor.predict(id.pc);
+        let actual_target = id.pc.wrapping_add(id.imm as u64);
+        let fallthrough = id.pc.wrapping_add(4);
+
+        let (pred_taken, pred_target) = cpu.branch_predictor.predict_branch(id.pc);
         cpu.stats.branch_predictions += 1;
-        if prediction != taken {
-            cpu.stats.branch_mispredictions += 1;
-        }
-        cpu.branch_predictor.update(id.pc, taken);
+
+        let mut mispred = false;
+        let mut redirect_pc = cpu.pc;
 
         if taken {
-            cpu.pc = id.pc.wrapping_add(id.imm as u64);
+            if !pred_taken || pred_target != Some(actual_target) {
+                mispred = true;
+                redirect_pc = actual_target;
+            }
+        } else {
+            if pred_taken {
+                mispred = true;
+                redirect_pc = fallthrough;
+            }
+        }
+
+        cpu.branch_predictor.update_branch(
+            id.pc,
+            taken,
+            if taken { Some(actual_target) } else { None },
+        );
+
+        if mispred {
+            cpu.stats.branch_mispredictions += 1;
+            cpu.stats.stalls_control += 2;
+            cpu.pc = redirect_pc;
             cpu.if_id = Default::default();
             cpu.id_ex = Default::default();
         }
     }
 
     if id.ctrl.jump {
-        let is_jalr = (id.inst & 0x7f) == opcodes::OP_JALR;
-        let target = if is_jalr {
+        let opcode = id.inst & 0x7f;
+        let rd = ((id.inst >> 7) & 0x1f) as usize;
+        let rs1 = ((id.inst >> 15) & 0x1f) as usize;
+
+        let is_jalr = opcode == opcodes::OP_JALR;
+        let is_call = opcode == opcodes::OP_JAL && rd == 1;
+        let is_ret = is_jalr && rd == 0 && rs1 == 1;
+
+        let actual_target = if is_jalr {
             (fwd_a.wrapping_add(id.imm as u64)) & !1
         } else {
             id.pc.wrapping_add(id.imm as u64)
         };
-        cpu.pc = target;
-        cpu.if_id = Default::default();
-        cpu.id_ex = Default::default();
+
+        let pred_target = if is_ret {
+            cpu.branch_predictor.predict_return()
+        } else {
+            cpu.branch_predictor.predict_btb(id.pc)
+        };
+
+        cpu.stats.branch_predictions += 1;
+
+        let mispred = pred_target != Some(actual_target);
+
+        if is_call {
+            let ra = id.pc.wrapping_add(4);
+            cpu.branch_predictor.on_call(id.pc, ra, actual_target);
+        } else if is_ret {
+            cpu.branch_predictor.on_return();
+        } else {
+            if let Some(tgt) = pred_target
+                && tgt != actual_target
+            {
+                // non-call jump; BTB could be updated here if needed
+            }
+        }
+
+        if mispred {
+            cpu.stats.branch_mispredictions += 1;
+            cpu.stats.stalls_control += 2;
+            cpu.pc = actual_target;
+            cpu.if_id = Default::default();
+            cpu.id_ex = Default::default();
+        }
     }
 
     cpu.ex_mem = EXMEM {
@@ -231,6 +319,7 @@ pub fn execute_stage(cpu: &mut Cpu) -> Result<(), String> {
         alu: alu_out,
         store_data: store_data_val,
         ctrl: id.ctrl,
+        trap: None,
     };
     Ok(())
 }

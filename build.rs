@@ -7,76 +7,137 @@ use std::{
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let boot_dir = manifest.join("boot");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    if let Ok(entries) = fs::read_dir(&boot_dir) {
-        for e in entries.flatten() {
-            println!("cargo:rerun-if-changed={}", e.path().display());
-        }
-    }
+    // Define the new directory structure
+    let software_dir = manifest.join("software");
+    let bootloader_dir = software_dir.join("bootloader");
+    let kernel_dir = software_dir.join("kernel");
+
+    // Watch for changes in the new locations
+    println!("cargo:rerun-if-changed=software/bootloader/boot.s");
+    println!("cargo:rerun-if-changed=software/kernel/entry.s");
+    println!("cargo:rerun-if-changed=software/kernel/main.c");
     println!("cargo:rerun-if-changed=build.rs");
 
+    assemble_link_bin(
+        &bootloader_dir.join("boot.s"),
+        &out_dir.join("bootloader.bin"),
+        "_start",
+    )
+    .expect("bootloader build");
+
+    build_kernel_c(&kernel_dir, &out_dir.join("kernel.bin")).expect("kernel build");
+}
+
+fn build_kernel_c(kernel_dir: &Path, dst_bin: &Path) -> Result<(), String> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let bootloader_src = boot_dir.join("bootloader.s");
-    let kernel_src = boot_dir.join("kernel.s");
+    let (cc, ld, objcopy) = find_tools().ok_or("No RISC-V toolchain found")?;
 
-    let bootloader_bin = out_dir.join("bootloader.bin");
-    let kernel_bin = out_dir.join("kernel.bin");
+    let entry_src = kernel_dir.join("entry.s");
+    let c_src = kernel_dir.join("main.c");
 
-    assemble_link_bin(&bootloader_src, &bootloader_bin, "_start").expect("bootloader build");
-    assemble_link_bin(&kernel_src, &kernel_bin, "_start").expect("kernel build");
+    let entry_obj = out_dir.join("kernel_entry.o");
+    let c_obj = out_dir.join("kernel.o");
+    let elf = out_dir.join("kernel.elf");
+    let lds = out_dir.join("kernel.ld");
+
+    // Linker Script for Kernel (Base 0x80100000)
+    fs::File::create(&lds)
+        .and_then(|mut f| {
+            write!(
+                f,
+                r#"
+ENTRY(_start)
+SECTIONS {{
+    . = 0x80100000;
+    .text : {{ *(.text.entry) *(.text .text.*) }}
+    .rodata : {{ *(.rodata .rodata.*) }}
+    .data : {{ *(.data .data.*) }}
+    .bss : {{ *(.bss .bss.*) }}
+}}
+"#
+            )
+        })
+        .map_err(|e| e.to_string())?;
+
+    run(
+        Command::new(&cc)
+            .arg("-march=rv64g")
+            .arg("-mabi=lp64")
+            .arg("-c")
+            .arg(&entry_src)
+            .arg("-o")
+            .arg(&entry_obj),
+        "as (entry)",
+    )?;
+
+    run(
+        Command::new(&cc)
+            .arg("-march=rv64g")
+            .arg("-mabi=lp64")
+            .arg("-ffreestanding")
+            .arg("-nostdlib")
+            .arg("-O2")
+            .arg("-c")
+            .arg(&c_src)
+            .arg("-o")
+            .arg(&c_obj),
+        "cc (kernel)",
+    )?;
+
+    run(
+        Command::new(&ld)
+            .arg("-nostdlib")
+            .arg("-T")
+            .arg(&lds)
+            .arg("-o")
+            .arg(&elf)
+            .arg(&entry_obj)
+            .arg(&c_obj),
+        "ld",
+    )?;
+
+    run(
+        Command::new(&objcopy)
+            .arg("-O")
+            .arg("binary")
+            .arg(&elf)
+            .arg(dst_bin),
+        "objcopy",
+    )?;
+
+    Ok(())
 }
 
 fn assemble_link_bin(src: &Path, dst_bin: &Path, entry: &str) -> Result<(), String> {
-    if !src.exists() {
-        return Err(format!("source not found: {}", src.display()));
-    }
+    let (cc, ld, objcopy) = find_tools().ok_or("No tools")?;
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let stem = src.file_stem().unwrap().to_string_lossy();
     let obj = out_dir.join(format!("{stem}.o"));
     let elf = out_dir.join(format!("{stem}.elf"));
     let lds = out_dir.join(format!("{stem}.ld"));
 
-    // Minimal linker script: base at 0x0
-    fs::File::create(&lds)
-        .and_then(|mut f| {
-            write!(
-                f,
-                r#"
+    fs::File::create(&lds).and_then(|mut f| write!(f, r#"
 ENTRY({entry})
-SECTIONS {{
-  . = 0x0;
-  .text : {{ *(.text .text.*) }}
-  .rodata : {{ *(.rodata .rodata.*) }}
-  .data : {{ *(.data .data.*) }}
-  .bss  : {{ *(.bss .bss.* COMMON) }}
-}}
-"#
-            )
-        })
-        .map_err(|e| format!("write linker script: {e}"))?;
+SECTIONS {{ . = 0x0; .text : {{ *(.text .text.*) }} .rodata : {{ *(.rodata .rodata.*) }} .data : {{ *(.data .data.*) }} .bss : {{ *(.bss .bss.*) }} }}
+"#)).map_err(|e| e.to_string())?;
 
-    let (as_cmd, ld_cmd, objcopy_cmd) = find_tools().ok_or_else(|| {
-        "RISC-V binutils not found. Install riscv64-unknown-elf toolchain or set RISCV_PREFIX."
-            .to_string()
-    })?;
-
-    // Assemble (no compressed)
     run(
-        Command::new(&as_cmd)
-            .arg("-march=rv64imafd")
+        Command::new(&cc)
+            .arg("-march=rv64g")
             .arg("-mabi=lp64")
+            .arg("-ffreestanding")
+            .arg("-c")
             .arg(src)
             .arg("-o")
             .arg(&obj),
         "as",
     )?;
 
-    // Link at 0x0, no libs
     run(
-        Command::new(&ld_cmd)
+        Command::new(&ld)
             .arg("-nostdlib")
-            .arg("-static")
             .arg("-T")
             .arg(&lds)
             .arg("-o")
@@ -87,7 +148,7 @@ SECTIONS {{
 
     // Binary
     run(
-        Command::new(&objcopy_cmd)
+        Command::new(&objcopy)
             .arg("-O")
             .arg("binary")
             .arg(&elf)
@@ -95,47 +156,31 @@ SECTIONS {{
         "objcopy",
     )?;
 
-    // Validate non-empty
-    let meta = fs::metadata(dst_bin).map_err(|e| format!("{}: {}", dst_bin.display(), e))?;
-    if meta.len() == 0 {
-        return Err(format!("{} produced empty binary", dst_bin.display()));
-    }
-
     Ok(())
 }
 
 fn find_tools() -> Option<(String, String, String)> {
-    let prefix = env::var("RISCV_PREFIX").ok();
-    let prefixes = match prefix {
-        Some(p) => vec![p],
-        None => vec![
-            "riscv64-unknown-elf-".into(),
-            "riscv64-linux-gnu-".into(),
-            "riscv64-elf-".into(),
-        ],
-    };
+    let prefixes = ["riscv64-unknown-elf-", "riscv64-linux-gnu-", "riscv64-elf-"];
     for p in prefixes {
-        let as_cmd = format!("{p}as");
-        let ld_cmd = format!("{p}ld");
-        let objcopy_cmd = format!("{p}objcopy");
-        if which::which(&as_cmd).is_ok()
-            && which::which(&ld_cmd).is_ok()
-            && which::which(&objcopy_cmd).is_ok()
-        {
-            return Some((as_cmd, ld_cmd, objcopy_cmd));
+        if which::which(format!("{}gcc", p)).is_ok() {
+            return Some((
+                format!("{}gcc", p),
+                format!("{}ld", p),
+                format!("{}objcopy", p),
+            ));
         }
     }
     None
 }
 
 fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
-    let out = cmd.output().map_err(|e| format!("spawn {what}: {e}"))?;
+    let out = cmd.output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(format!(
-            "{what} failed\ncmd: {:?}\nstdout:\n{}\nstderr:\n{}",
-            cmd,
+            "{} failed:\n{}\n{}",
+            what,
             String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stderr)
         ));
     }
     Ok(())

@@ -1,16 +1,30 @@
 use crate::cpu::Cpu;
-use crate::isa::abi;
 
-pub fn wb_stage(cpu: &mut Cpu) {
-    let wb = cpu.mem_wb;
+pub fn wb_stage(cpu: &mut Cpu) -> Result<(), String> {
+    let wb = cpu.mem_wb.clone();
+
+    if let Some(trap_msg) = wb.trap {
+        return Err(trap_msg);
+    }
+
     if cpu.trace {
         eprintln!("WB  pc={:#x} inst={:#010x}", wb.pc, wb.inst);
     }
 
-    // Count retired instructions
-    // We ignore bubbles (inst == 0x13 is NOP, 0 is bubble/flush)
     if wb.inst != 0x0000_0000 && wb.inst != 0x0000_0013 {
         cpu.stats.instructions_retired += 1;
+
+        if wb.ctrl.mem_read {
+            cpu.stats.inst_load += 1;
+        } else if wb.ctrl.mem_write {
+            cpu.stats.inst_store += 1;
+        } else if wb.ctrl.branch || wb.ctrl.jump {
+            cpu.stats.inst_branch += 1;
+        } else if wb.ctrl.is_system {
+            cpu.stats.inst_system += 1;
+        } else {
+            cpu.stats.inst_alu += 1;
+        }
     }
 
     if wb.ctrl.reg_write && wb.rd != 0 {
@@ -24,11 +38,5 @@ pub fn wb_stage(cpu: &mut Cpu) {
         cpu.regs.write(wb.rd, val);
     }
 
-    // Minimal ecall handling: a7=93 means exit with code in a0
-    if wb.inst == 0x00000073 {
-        // ECALL
-        if cpu.regs.read(abi::A7) == 93 {
-            cpu.exit_code = Some(cpu.regs.read(abi::A0));
-        }
-    }
+    Ok(())
 }

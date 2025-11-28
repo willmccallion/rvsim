@@ -53,8 +53,3 @@ pub mod funct7 {
     pub const SRA: u32 = 0b0100000;
     pub const M_EXTENSION: u32 = 0b0000001;
 }
-
-pub mod abi {
-    pub const A0: usize = 10;
-    pub const A7: usize = 17;
-}
