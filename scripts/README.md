@@ -1,34 +1,30 @@
 # Scripts
 
-Configuration is **Python-first**: the library provides only a base config; you define machines in **machine directories** (e.g. `scripts/p550/`, `scripts/m1/`).
+Python utilities for benchmarking, analysis, and system setup.
 
 ## Directory Structure
 
-- **p550/**: P550-style machine (3-wide, 32KB L1, 256KB L2).
-  - `config.py`: The machine definition (edit this).
-  - `run.py`: Runner script.
-- **m1/**: M1-style machine (4-wide, 128KB L1, 4MB L2).
-  - `config.py`: The machine definition.
-  - `run.py`: Runner script.
-- **setup/**: Setup scripts.
-  - `boot_linux.py`: Downloads Buildroot, builds Linux, and boots it.
-- **tests/**: Tests and comparisons.
-  - `compare_p550_m1.py`: Runs a benchmark on both configs and compares stats.
-  - `smoke_test.py`: Minimal check.
+- **benchmarks/**: Performance benchmarking and analysis
+  - `p550/`: P550-style machine config (3-wide, 32KB L1, 256KB L2)
+  - `m1/`: M1-style machine config (4-wide, 128KB L1, 4MB L2)
+  - `tests/`: Comparison and smoke tests
+- **setup/**: Installation and setup utilities
+  - `boot_linux.py`: Downloads Buildroot, builds Linux kernel
+- **analysis/**: Performance analysis tools (TODO: add genetic algorithm, etc.)
 
 ---
 
 ## Usage
 
-**Run a machine script:**
+**Run a machine benchmark:**
 ```bash
-./target/release/sim script scripts/p550/run.py
-./target/release/sim script scripts/m1/run.py [binary]
+./target/release/sim script scripts/benchmarks/p550/run.py
+./target/release/sim script scripts/benchmarks/m1/run.py [binary]
 ```
 
 **Run a comparison:**
 ```bash
-./target/release/sim script scripts/tests/compare_p550_m1.py
+./target/release/sim script scripts/benchmarks/tests/compare_p550_m1.py
 ```
 
 **Boot Linux:**
@@ -40,11 +36,11 @@ Configuration is **Python-first**: the library provides only a base config; you 
 
 ## Python API
 
-You can import configs from the machine packages if `scripts/` is on your PYTHONPATH (or if running via `sim script` which adds it).
+You can import configs from the benchmark packages if `scripts/` is on your PYTHONPATH (or if running via `sim script` which adds it).
 
 ```python
-from p550.config import p550_config
-from m1.config import m1_config
+from benchmarks.p550.config import p550_config
+from benchmarks.m1.config import m1_config
 
 # Use with Environment
 env = Environment(binary="...", config=p550_config())

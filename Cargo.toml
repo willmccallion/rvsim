@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "hardware",
-    "cli",
-    "bindings"
+    "crates/hardware",
+    "crates/cli",
+    "crates/bindings"
 ]
 resolver = "2"
 

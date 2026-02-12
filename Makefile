@@ -1,34 +1,129 @@
-# Top-level Makefile: build all software and the simulator.
-# Use this to build everything; use software/Makefile for software-only.
+# RISC-V System Simulator - Top-level Makefile
+# Build the simulator (Rust) and example software (C/Assembly)
 
-.PHONY: all software hardware linux clean run-bare run-linux
+.PHONY: all help simulator software examples linux clean check test run-example run-linux
 
-# Default: build simulator and all bare-metal software (kernel, user, benchmarks, disk).
-# Linux (Image + rootfs) is separate: make linux
-all: hardware software
+# Default target
+all: simulator software
 
-# RISC-V simulator (release binary at target/release/sim)
-hardware:
-	cargo build --release
+# ============================================================================
+# Help Target
+# ============================================================================
+help:
+	@echo "RISC-V System Simulator - Build Targets"
+	@echo "========================================"
+	@echo ""
+	@echo "Main Targets:"
+	@echo "  all              Build simulator and software (default)"
+	@echo "  simulator        Build Rust simulator (release binary at target/release/sim)"
+	@echo "  software         Build libc and example programs"
+	@echo "  examples         Alias for 'software'"
+	@echo "  linux            Download and build Linux kernel + rootfs"
+	@echo ""
+	@echo "Development:"
+	@echo "  check            Run cargo check on all Rust crates"
+	@echo "  test             Run Rust tests (cargo test)"
+	@echo "  clippy           Run cargo clippy linter"
+	@echo "  fmt              Format Rust code with cargo fmt"
+	@echo ""
+	@echo "Running:"
+	@echo "  run-example      Build and run quicksort benchmark"
+	@echo "  run-linux        Build and boot Linux (requires linux target first)"
+	@echo ""
+	@echo "Maintenance:"
+	@echo "  clean            Remove all build artifacts"
+	@echo "  clean-rust       Remove Rust build artifacts only"
+	@echo "  clean-software   Remove software build artifacts only"
+	@echo ""
+	@echo "Python:"
+	@echo "  python-dev       Install Python package in development mode"
+	@echo "  python-test      Run Python tests/scripts"
+	@echo ""
 
-# Bare-metal: kernel, user programs, benchmarks, disk image.
-# Does not build Linux; use 'make linux' for that.
+# ============================================================================
+# Build Targets
+# ============================================================================
+
+# Build Rust simulator (creates CLI tool at target/release/sim)
+simulator:
+	@echo "[Simulator] Building Rust simulator (release)..."
+	@cargo build --release
+
+# Build example software (benchmarks and programs)
 software:
-	$(MAKE) -C software
+	@echo "[Software] Building libc and examples..."
+	@$(MAKE) -C software
 
-# Linux: Buildroot Image + rootfs (downloads Buildroot, builds kernel + rootfs).
-# Output: software/linux/output/Image, disk.img, fw_jump.bin
+examples: software
+
+# Download and build Linux kernel + rootfs via Buildroot
 linux:
-	$(MAKE) -C software linux
+	@echo "[Linux] Building Linux kernel and rootfs..."
+	@$(MAKE) -C software linux
 
-# Convenience: run a bare-metal binary (builds if needed)
-run-bare: hardware software
-	./target/release/sim run -f software/bin/benchmarks/qsort.bin
+# ============================================================================
+# Development Targets
+# ============================================================================
 
-# Convenience: build Linux then boot (builds if needed)
-run-linux: hardware
-	./target/release/sim script scripts/setup/boot_linux.py
+# Check Rust code without building
+check:
+	@echo "[Check] Running cargo check..."
+	@cargo check --workspace --all-targets
 
-clean:
-	$(MAKE) -C software clean
-	cargo clean
+# Run Rust tests
+test:
+	@echo "[Test] Running cargo test..."
+	@cargo test --workspace
+
+# Run clippy linter
+clippy:
+	@echo "[Clippy] Running cargo clippy..."
+	@cargo clippy --workspace --all-targets -- -D warnings
+
+# Format Rust code
+fmt:
+	@echo "[Format] Running cargo fmt..."
+	@cargo fmt --all
+
+# ============================================================================
+# Python Development
+# ============================================================================
+
+# Install Python package in development mode
+python-dev:
+	@echo "[Python] Installing riscv_sim in development mode..."
+	@pip install -e .
+
+# Run Python benchmark scripts
+python-test:
+	@echo "[Python] Running benchmark scripts..."
+	@./target/release/sim script scripts/benchmarks/tests/smoke_test.py
+
+# ============================================================================
+# Running Targets
+# ============================================================================
+
+# Quick test: run quicksort benchmark
+run-example: simulator software
+	@echo "[Run] Running quicksort benchmark..."
+	@./target/release/sim run -f software/bin/benchmarks/qsort.bin
+
+# Boot Linux (requires linux target to be built first)
+run-linux: simulator
+	@echo "[Run] Booting Linux..."
+	@./target/release/sim script scripts/setup/boot_linux.py
+
+# ============================================================================
+# Cleaning
+# ============================================================================
+
+clean: clean-rust clean-software
+	@echo "[Clean] All build artifacts removed"
+
+clean-rust:
+	@echo "[Clean] Removing Rust build artifacts..."
+	@cargo clean
+
+clean-software:
+	@echo "[Clean] Removing software build artifacts..."
+	@$(MAKE) -C software clean
