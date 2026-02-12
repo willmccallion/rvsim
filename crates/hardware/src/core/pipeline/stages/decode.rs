@@ -6,7 +6,7 @@
 //! 3. **Register Read:** Reads source operands (rs1, rs2, rs3) from the Register File.
 //! 4. **Control Generation:** Generates ALU, Memory, and CSR control signals for the Execute stage.
 
-use crate::common::error::Trap;
+use crate::common::error::{ExceptionStage, Trap};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::IdExEntry;
 use crate::core::pipeline::signals::{
@@ -75,6 +75,8 @@ pub fn decode_stage(cpu: &mut Cpu) {
     let mut consumed_count = 0;
     let mut bundle_writes: Vec<(usize, bool)> = Vec::with_capacity(cpu.pipeline_width);
 
+    let mut broke_on_trap = false;
+
     for if_entry in &if_entries {
         if let Some(trap) = &if_entry.trap {
             id_ex_entries.push(IdExEntry {
@@ -82,10 +84,12 @@ pub fn decode_stage(cpu: &mut Cpu) {
                 inst: if_entry.inst,
                 inst_size: if_entry.inst_size,
                 trap: Some(trap.clone()),
+                exception_stage: if_entry.exception_stage,
                 ..Default::default()
             });
             consumed_count += 1;
-            continue;
+            broke_on_trap = true;
+            break;
         }
 
         let inst = if_entry.inst;
@@ -409,9 +413,13 @@ pub fn decode_stage(cpu: &mut Cpu) {
             Ok(c)
         };
 
-        let (ctrl, trap) = match decode_result(&d) {
-            Ok(c) => (c, None),
-            Err(t) => (ControlSignals::default(), Some(t)),
+        let (ctrl, trap, ex_stage) = match decode_result(&d) {
+            Ok(c) => (c, None, None),
+            Err(t) => (
+                ControlSignals::default(),
+                Some(t),
+                Some(ExceptionStage::Decode),
+            ),
         };
 
         let mut hazard = false;
@@ -459,6 +467,8 @@ pub fn decode_stage(cpu: &mut Cpu) {
             0
         };
 
+        let has_trap = trap.is_some();
+
         id_ex_entries.push(IdExEntry {
             pc: if_entry.pc,
             inst,
@@ -473,14 +483,20 @@ pub fn decode_stage(cpu: &mut Cpu) {
             rv3,
             ctrl,
             trap,
+            exception_stage: ex_stage,
             pred_taken: if_entry.pred_taken,
             pred_target: if_entry.pred_target,
         });
 
         consumed_count += 1;
+
+        if has_trap {
+            broke_on_trap = true;
+            break;
+        }
     }
 
-    if consumed_count < if_entries.len() {
+    if !broke_on_trap && consumed_count < if_entries.len() {
         let remaining = if_entries.split_off(consumed_count);
         cpu.if_id.entries = remaining;
     }

@@ -41,6 +41,7 @@ fn alu_wb(rd: usize, alu: u64) -> MemWbEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -60,6 +61,7 @@ fn load_wb(rd: usize, load_data: u64) -> MemWbEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -78,6 +80,7 @@ fn jump_wb(rd: usize, pc: u64) -> MemWbEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -96,6 +99,7 @@ fn store_wb() -> MemWbEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -196,6 +200,7 @@ fn load_data_preferred_over_alu() {
         inst_size: INST_SIZE,
         pc: PC,
         trap: None,
+        exception_stage: None,
     };
     wb_one(&mut tc, entry);
     assert_eq!(

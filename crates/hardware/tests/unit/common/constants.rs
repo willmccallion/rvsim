@@ -23,8 +23,7 @@ fn test_page_shift_matches_page_size() {
 fn test_page_offset_mask_correct_value() {
     // This test catches mutants that replace - with + or /
     assert_eq!(
-        PAGE_OFFSET_MASK,
-        0xFFF,
+        PAGE_OFFSET_MASK, 0xFFF,
         "PAGE_OFFSET_MASK should be 0xFFF (4095)"
     );
     assert_eq!(
@@ -44,7 +43,11 @@ fn test_page_offset_mask_extracts_offset() {
     assert!(offset < PAGE_SIZE, "Offset should be less than PAGE_SIZE");
 
     // The offset should preserve the lower 12 bits
-    assert_eq!(offset, address & 0xFFF, "Mask should preserve lower 12 bits");
+    assert_eq!(
+        offset,
+        address & 0xFFF,
+        "Mask should preserve lower 12 bits"
+    );
 }
 
 #[test]
@@ -58,8 +61,7 @@ fn test_page_offset_mask_clears_upper_bits() {
 #[test]
 fn test_vpn_mask_value() {
     assert_eq!(
-        VPN_MASK,
-        0x7FFFFFF,
+        VPN_MASK, 0x7FFFFFF,
         "VPN_MASK should be 0x7FFFFFF (27 bits)"
     );
 }
@@ -78,13 +80,11 @@ fn test_compressed_instruction_constants() {
     assert_eq!(INSTRUCTION_SIZE_16, 2, "Compressed instruction is 2 bytes");
     assert_eq!(INSTRUCTION_SIZE_32, 4, "Standard instruction is 4 bytes");
     assert_eq!(
-        COMPRESSED_INSTRUCTION_MASK,
-        0x3,
+        COMPRESSED_INSTRUCTION_MASK, 0x3,
         "Compressed check uses lower 2 bits"
     );
     assert_eq!(
-        COMPRESSED_INSTRUCTION_VALUE,
-        0x3,
+        COMPRESSED_INSTRUCTION_VALUE, 0x3,
         "Compressed instruction has both lower bits set"
     );
 }
@@ -145,8 +145,7 @@ fn test_cause_interrupt_bit() {
 #[test]
 fn test_wfi_instruction_value() {
     assert_eq!(
-        WFI_INSTRUCTION,
-        0x10500073,
+        WFI_INSTRUCTION, 0x10500073,
         "WFI instruction has specific encoding"
     );
 }
@@ -154,13 +153,11 @@ fn test_wfi_instruction_value() {
 #[test]
 fn test_simulation_constants() {
     assert_eq!(
-        HANG_DETECTION_THRESHOLD,
-        5000,
+        HANG_DETECTION_THRESHOLD, 5000,
         "Hang detection triggers after 5000 cycles"
     );
     assert_eq!(
-        STATUS_UPDATE_INTERVAL,
-        5_000_000,
+        STATUS_UPDATE_INTERVAL, 5_000_000,
         "Status updates every 5 million cycles"
     );
 }

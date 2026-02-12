@@ -6,7 +6,7 @@
 //! 3. **Branch Resolution:** Verifies branch/jump predictions and redirects the PC if needed.
 //! 4. **System Execution:** Handles CSR access, privilege transitions, and environment calls.
 
-use crate::common::error::Trap;
+use crate::common::error::{ExceptionStage, Trap};
 use crate::core::Cpu;
 use crate::core::pipeline::hazards;
 use crate::core::pipeline::latches::{ExMem, ExMemEntry, IfId};
@@ -103,7 +103,9 @@ pub fn execute_stage(cpu: &mut Cpu) {
                 store_data: 0,
                 ctrl: id.ctrl,
                 trap: Some(trap),
+                exception_stage: id.exception_stage,
             });
+            flush_remaining = true;
             continue;
         }
 
@@ -154,6 +156,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                 store_data: 0,
                 ctrl: id.ctrl,
                 trap: None,
+                exception_stage: None,
             });
             continue;
         }
@@ -211,6 +214,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                         store_data: 0,
                         ctrl: id.ctrl,
                         trap: Some(Trap::IllegalInstruction(id.inst)),
+                        exception_stage: Some(ExceptionStage::Execute),
                     });
                     flush_remaining = true;
                     continue;
@@ -231,6 +235,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                     store_data: 0,
                     ctrl: id.ctrl,
                     trap: None,
+                    exception_stage: None,
                 });
                 continue;
             }
@@ -338,6 +343,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                     store_data,
                     ctrl: id.ctrl,
                     trap: None,
+                    exception_stage: None,
                 });
                 continue;
             }
@@ -405,6 +411,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                     store_data: 0,
                     ctrl: id.ctrl,
                     trap: Some(trap),
+                    exception_stage: Some(ExceptionStage::Execute),
                 });
                 flush_remaining = true;
                 continue;
@@ -498,6 +505,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
                     store_data,
                     ctrl: id.ctrl,
                     trap: None,
+                    exception_stage: None,
                 });
                 continue;
             }
@@ -667,6 +675,7 @@ pub fn execute_stage(cpu: &mut Cpu) {
             store_data,
             ctrl: id.ctrl,
             trap: None,
+            exception_stage: None,
         });
     }
 

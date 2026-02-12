@@ -26,5 +26,5 @@ pub mod reg;
 pub use addr::{PhysAddr, VirtAddr};
 pub use constants::{PAGE_SHIFT, VPN_MASK};
 pub use data::AccessType;
-pub use error::{TranslationResult, Trap};
+pub use error::{ExceptionStage, TranslationResult, Trap};
 pub use reg::RegisterFile;

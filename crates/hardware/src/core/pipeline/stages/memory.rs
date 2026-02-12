@@ -5,6 +5,7 @@
 //! translation via the MMU, and executes Atomic Memory Operations (AMOs).
 //! It also manages data alignment and access faults.
 
+use crate::common::error::ExceptionStage;
 use crate::common::{AccessType, TranslationResult, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::MemWbEntry;
@@ -42,12 +43,33 @@ pub fn mem_stage(cpu: &mut Cpu) {
             break;
         }
 
-        let mut ld = 0;
-        let mut trap = ex.trap.clone();
-
-        if trap.is_some() && cpu.trace {
-            eprintln!("MEM pc={:#x} # TRAP: {:?}", ex.pc, trap.as_ref().unwrap());
+        // Early exit: if a prior stage already detected a trap, skip all memory processing
+        if ex.trap.is_some() {
+            if cpu.trace {
+                eprintln!(
+                    "MEM pc={:#x} # TRAP: {:?}",
+                    ex.pc,
+                    ex.trap.as_ref().unwrap()
+                );
+            }
+            mem_results.push(MemWbEntry {
+                pc: ex.pc,
+                inst: ex.inst,
+                inst_size: ex.inst_size,
+                rd: ex.rd,
+                alu: ex.alu,
+                load_data: 0,
+                ctrl: ex.ctrl,
+                trap: ex.trap,
+                exception_stage: ex.exception_stage,
+            });
+            flush_remaining = true;
+            continue;
         }
+
+        let mut ld = 0;
+        let mut trap: Option<crate::common::error::Trap> = None;
+        let mut exception_stage: Option<ExceptionStage> = None;
 
         if ex.ctrl.mem_read || ex.ctrl.mem_write {
             let size = unaligned::width_to_bytes(ex.ctrl.width);
@@ -68,7 +90,7 @@ pub fn mem_stage(cpu: &mut Cpu) {
             }
         }
 
-        if trap.is_none() && (ex.ctrl.mem_read || ex.ctrl.mem_write) {
+        if ex.ctrl.mem_read || ex.ctrl.mem_write {
             let access_type = if ex.ctrl.mem_write {
                 AccessType::Write
             } else {
@@ -87,6 +109,7 @@ pub fn mem_stage(cpu: &mut Cpu) {
                     eprintln!("MEM pc={:#x} # TRAP: {:?} (addr={:#x})", ex.pc, t, ex.alu);
                 }
                 trap = Some(t);
+                exception_stage = Some(ExceptionStage::Memory);
             } else {
                 if cpu.trace {
                     if ex.ctrl.mem_read {
@@ -301,6 +324,7 @@ pub fn mem_stage(cpu: &mut Cpu) {
             load_data: ld,
             ctrl: ex.ctrl,
             trap: trap.clone(),
+            exception_stage,
         });
 
         if trap.is_some() {

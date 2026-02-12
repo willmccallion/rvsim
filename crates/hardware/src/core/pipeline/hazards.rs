@@ -43,6 +43,10 @@ use crate::core::pipeline::latches::{IdEx, IdExEntry, IfId, MemWb};
 /// ```
 pub fn need_stall_load_use(id_ex: &IdEx, if_id: &IfId) -> bool {
     for ex_inst in &id_ex.entries {
+        if ex_inst.trap.is_some() {
+            continue;
+        }
+
         if !ex_inst.ctrl.mem_read {
             continue;
         }

@@ -46,6 +46,7 @@ fn load_entry(rd: usize, addr: u64, width: MemWidth, signed: bool) -> ExMemEntry
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -64,6 +65,7 @@ fn store_entry(addr: u64, data: u64, width: MemWidth) -> ExMemEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -81,6 +83,7 @@ fn passthrough_entry(rd: usize, alu: u64) -> ExMemEntry {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -107,6 +110,7 @@ fn atomic_entry(
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     }
 }
 
@@ -291,6 +295,7 @@ fn passthrough_preserves_metadata() {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     };
     let wb = mem_one(&mut tc, entry);
     assert_eq!(wb.pc, 0xABCD_1234, "PC preserved");
@@ -338,6 +343,7 @@ fn trap_does_not_perform_memory_access() {
             ..Default::default()
         },
         trap: Some(trap),
+        exception_stage: None,
     };
     mem_one(&mut tc, entry);
 
@@ -761,6 +767,7 @@ fn fp_single_load_nan_boxes() {
             ..Default::default()
         },
         trap: None,
+        exception_stage: None,
     };
     let wb = mem_one(&mut tc, entry);
 

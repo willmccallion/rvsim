@@ -9,6 +9,23 @@ use std::fmt;
 
 use super::addr::PhysAddr;
 
+/// Pipeline stage where an exception was first detected.
+///
+/// Used to track exception origin through the pipeline for accurate
+/// trap handling and diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ExceptionStage {
+    /// Exception detected during instruction fetch.
+    #[default]
+    Fetch,
+    /// Exception detected during instruction decode.
+    Decode,
+    /// Exception detected during execution.
+    Execute,
+    /// Exception detected during memory access.
+    Memory,
+}
+
 /// RISC-V trap types representing exceptions and interrupts.
 ///
 /// Traps cause the processor to transfer control to a predefined trap handler.
@@ -190,6 +207,56 @@ impl fmt::Display for Trap {
             Trap::UserExternalInterrupt => write!(f, "UserExternalInterrupt"),
             Trap::RequestedTrap(code) => write!(f, "RequestedTrap({})", code),
             Trap::DoubleFault(addr) => write!(f, "DoubleFault({:#x})", addr),
+        }
+    }
+}
+
+impl Trap {
+    /// Returns the exception priority per RISC-V Privileged Spec Table 3.7.
+    ///
+    /// Lower values indicate higher priority. Synchronous exceptions have
+    /// priorities 0-11, while interrupts have priority 12+.
+    pub fn exception_priority(&self) -> u8 {
+        match self {
+            // Highest priority: instruction address breakpoint
+            Trap::Breakpoint(_) => 0,
+
+            // Instruction fetch exceptions
+            Trap::InstructionPageFault(_) => 1,
+            Trap::InstructionAccessFault(_) => 2,
+
+            // Illegal instruction / decode errors
+            Trap::IllegalInstruction(_) => 3,
+            Trap::InstructionAddressMisaligned(_) => 4,
+
+            // Environment calls
+            Trap::EnvironmentCallFromUMode => 5,
+            Trap::EnvironmentCallFromSMode => 5,
+            Trap::EnvironmentCallFromMMode => 5,
+
+            // Store/AMO address misaligned
+            Trap::StoreAddressMisaligned(_) => 6,
+            Trap::LoadAddressMisaligned(_) => 7,
+
+            // Store/AMO page fault & access fault
+            Trap::StorePageFault(_) => 8,
+            Trap::LoadPageFault(_) => 9,
+            Trap::StoreAccessFault(_) => 10,
+            Trap::LoadAccessFault(_) => 11,
+
+            // Interrupts (lower priority than synchronous exceptions)
+            Trap::MachineExternalInterrupt => 12,
+            Trap::MachineSoftwareInterrupt => 13,
+            Trap::MachineTimerInterrupt => 14,
+            Trap::SupervisorExternalInterrupt => 15,
+            Trap::SupervisorSoftwareInterrupt => 16,
+            Trap::SupervisorTimerInterrupt => 17,
+            Trap::UserExternalInterrupt => 18,
+            Trap::UserSoftwareInterrupt => 19,
+
+            // Simulator-specific traps (lowest priority)
+            Trap::RequestedTrap(_) => 20,
+            Trap::DoubleFault(_) => 21,
         }
     }
 }

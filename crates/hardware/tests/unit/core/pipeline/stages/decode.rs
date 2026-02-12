@@ -40,6 +40,7 @@ fn decode_one(tc: &mut TestContext, inst: u32) -> riscv_core::core::pipeline::la
         pred_taken: false,
         pred_target: 0,
         trap: None,
+        exception_stage: None,
     }];
     decode_stage(&mut tc.cpu);
     assert!(
@@ -60,6 +61,7 @@ fn decode_expect_nop(tc: &mut TestContext, inst: u32) {
         pred_taken: false,
         pred_target: 0,
         trap: None,
+        exception_stage: None,
     }];
     decode_stage(&mut tc.cpu);
     assert!(
@@ -521,6 +523,7 @@ fn fetch_trap_propagates_to_id_ex() {
         pred_taken: false,
         pred_target: 0,
         trap: Some(trap.clone()),
+        exception_stage: None,
     }];
 
     decode_stage(&mut tc.cpu);
@@ -583,6 +586,7 @@ fn branch_prediction_metadata_forwarded() {
         pred_taken: true,
         pred_target: 0x8000_0008,
         trap: None,
+        exception_stage: None,
     }];
 
     decode_stage(&mut tc.cpu);
@@ -617,6 +621,7 @@ fn multiple_independent_instructions_decoded() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -625,6 +630,7 @@ fn multiple_independent_instructions_decoded() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 
@@ -659,6 +665,7 @@ fn intra_bundle_raw_hazard_stalls_second() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -667,6 +674,7 @@ fn intra_bundle_raw_hazard_stalls_second() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 
@@ -704,6 +712,7 @@ fn intra_bundle_no_hazard_on_different_registers() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -712,6 +721,7 @@ fn intra_bundle_no_hazard_on_different_registers() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 
@@ -740,6 +750,7 @@ fn intra_bundle_hazard_on_rs2() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -748,6 +759,7 @@ fn intra_bundle_hazard_on_rs2() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 
@@ -778,6 +790,7 @@ fn writes_to_x0_do_not_cause_hazard() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -786,6 +799,7 @@ fn writes_to_x0_do_not_cause_hazard() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 
@@ -821,6 +835,7 @@ fn pc_and_inst_size_forwarded() {
         pred_taken: false,
         pred_target: 0,
         trap: None,
+        exception_stage: None,
     }];
 
     decode_stage(&mut tc.cpu);
@@ -849,6 +864,7 @@ fn nop_between_real_instructions_is_skipped() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
         IfIdEntry {
             pc: 0x8000_0004,
@@ -857,6 +873,7 @@ fn nop_between_real_instructions_is_skipped() {
             pred_taken: false,
             pred_target: 0,
             trap: None,
+            exception_stage: None,
         },
     ];
 

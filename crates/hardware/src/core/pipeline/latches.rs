@@ -5,7 +5,7 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
-use crate::common::error::Trap;
+use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::signals::ControlSignals;
 
 /// Entry in the IF/ID pipeline latch (Fetch to Decode stage).
@@ -26,6 +26,8 @@ pub struct IfIdEntry {
     pub pred_target: u64,
     /// Trap that occurred during fetch, if any.
     pub trap: Option<Trap>,
+    /// Pipeline stage where the exception was first detected.
+    pub exception_stage: Option<ExceptionStage>,
 }
 
 /// Entry in the ID/EX pipeline latch (Decode to Execute stage).
@@ -60,6 +62,8 @@ pub struct IdExEntry {
     pub ctrl: ControlSignals,
     /// Trap that occurred during decode, if any.
     pub trap: Option<Trap>,
+    /// Pipeline stage where the exception was first detected.
+    pub exception_stage: Option<ExceptionStage>,
     /// Whether the branch predictor predicted this instruction as taken.
     pub pred_taken: bool,
     /// Predicted target address for branch/jump instructions.
@@ -87,6 +91,8 @@ pub struct ExMemEntry {
     pub ctrl: ControlSignals,
     /// Trap that occurred during execute, if any.
     pub trap: Option<Trap>,
+    /// Pipeline stage where the exception was first detected.
+    pub exception_stage: Option<ExceptionStage>,
 }
 
 /// Entry in the MEM/WB pipeline latch (Memory to Writeback stage).
@@ -110,6 +116,8 @@ pub struct MemWbEntry {
     pub ctrl: ControlSignals,
     /// Trap that occurred during memory access, if any.
     pub trap: Option<Trap>,
+    /// Pipeline stage where the exception was first detected.
+    pub exception_stage: Option<ExceptionStage>,
 }
 
 /// IF/ID pipeline latch (Fetch to Decode stage).

@@ -34,17 +34,36 @@ use crate::core::pipeline::signals::AluOp;
 /// - Flushes pipeline on trap events
 pub fn wb_stage(cpu: &mut Cpu) {
     let mut trap_event: Option<(crate::common::error::Trap, u64)> = None;
+    let had_entries = !cpu.mem_wb.entries.is_empty();
+    let first_entry_pc = if had_entries {
+        cpu.mem_wb.entries[0].pc
+    } else {
+        0
+    };
 
-    if !cpu.mem_wb.entries.is_empty() || cpu.wfi_waiting {
+    // Phase 1: Scan for synchronous exceptions WITHOUT committing.
+    // This determines how many entries we can commit before we must stop.
+    let sync_trap_idx = cpu.mem_wb.entries.iter().position(|wb| wb.trap.is_some());
+
+    if let Some(idx) = sync_trap_idx {
+        // Synchronous exception found - it takes priority over any interrupt.
+        let wb = &cpu.mem_wb.entries[idx];
+        if cpu.trace {
+            eprintln!(
+                "WB  pc={:#x} * TRAP DETECTED: {:?}",
+                wb.pc,
+                wb.trap.as_ref().unwrap()
+            );
+        }
+        trap_event = Some((wb.trap.clone().unwrap(), wb.pc));
+    }
+
+    // Phase 2: If no synchronous exception, check interrupts BEFORE committing.
+    // On interrupt, we don't commit any entries - they re-execute after MRET.
+    if trap_event.is_none() && (had_entries || cpu.wfi_waiting) {
         if cpu.interrupt_inhibit_cycles > 0 {
             cpu.interrupt_inhibit_cycles -= 1;
         } else {
-            let interrupt_pc = if !cpu.mem_wb.entries.is_empty() {
-                cpu.mem_wb.entries[0].pc
-            } else {
-                0
-            };
-
             let mip = cpu.csrs.mip;
             let mie = cpu.csrs.mie;
             let mstatus = cpu.csrs.mstatus;
@@ -92,7 +111,7 @@ pub fn wb_stage(cpu: &mut Cpu) {
                 let epc = if cpu.wfi_waiting {
                     cpu.wfi_pc
                 } else {
-                    interrupt_pc
+                    first_entry_pc
                 };
                 cpu.wfi_waiting = false;
                 if cpu.trace {
@@ -116,24 +135,19 @@ pub fn wb_stage(cpu: &mut Cpu) {
         }
     }
 
-    let mut processed_count = 0;
-    for (idx, wb) in cpu.mem_wb.entries.iter().enumerate() {
-        if trap_event.is_some() {
-            break;
-        }
+    // Phase 3: Commit entries.
+    // - Sync exception: commit entries before the faulting one
+    // - Interrupt: commit 0 entries (they re-execute after MRET)
+    // - No trap: commit all entries
+    let commit_count = if let Some(idx) = sync_trap_idx {
+        idx // commit entries [0..idx), not the faulting one
+    } else if trap_event.is_some() {
+        0 // interrupt: don't commit any entries
+    } else {
+        cpu.mem_wb.entries.len() // no trap: commit all
+    };
 
-        if let Some(trap) = &wb.trap {
-            if cpu.trace {
-                eprintln!("WB  pc={:#x} * TRAP DETECTED: {:?}", wb.pc, trap);
-            }
-            trap_event = Some((trap.clone(), wb.pc));
-
-            cpu.mem_wb.entries.truncate(idx);
-            break;
-        }
-
-        processed_count = idx + 1;
-
+    for wb in cpu.mem_wb.entries[..commit_count].iter() {
         if cpu.trace {
             eprintln!("WB  pc={:#x}", wb.pc);
         }
@@ -215,10 +229,11 @@ pub fn wb_stage(cpu: &mut Cpu) {
         }
     }
 
-    if processed_count < cpu.mem_wb.entries.len() {
-        cpu.mem_wb.entries.truncate(processed_count);
+    if commit_count < cpu.mem_wb.entries.len() {
+        cpu.mem_wb.entries.truncate(commit_count);
     }
 
+    // Phase 4: Handle trap event (flush pipeline, invoke trap handler).
     if let Some((trap, pc)) = trap_event {
         if cpu.trace {
             eprintln!("WB  * HANDLING TRAP: {:?} at PC {:#x}", trap, pc);

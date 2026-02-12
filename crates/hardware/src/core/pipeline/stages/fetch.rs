@@ -9,7 +9,7 @@ use crate::common::constants::{
     COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, INSTRUCTION_SIZE_16,
     INSTRUCTION_SIZE_32, OPCODE_MASK, RD_MASK, RD_SHIFT, RS1_MASK, RS1_SHIFT,
 };
-use crate::common::{AccessType, TranslationResult, Trap, VirtAddr};
+use crate::common::{AccessType, ExceptionStage, TranslationResult, Trap, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::IfIdEntry;
 use crate::core::units::bru::BranchPredictor;
@@ -79,6 +79,7 @@ pub fn fetch_stage(cpu: &mut Cpu) {
                     pred_taken: false,
                     pred_target: 0,
                     trap: Some(trap_cause.clone()),
+                    exception_stage: Some(ExceptionStage::Fetch),
                 });
                 break;
             } else {
@@ -162,6 +163,7 @@ pub fn fetch_stage(cpu: &mut Cpu) {
                 pred_taken: false,
                 pred_target: 0,
                 trap: Some(t),
+                exception_stage: Some(ExceptionStage::Fetch),
             });
             break;
         }
@@ -223,6 +225,7 @@ pub fn fetch_stage(cpu: &mut Cpu) {
             pred_taken,
             pred_target,
             trap: None,
+            exception_stage: None,
         });
 
         current_pc = next_pc_calc;
