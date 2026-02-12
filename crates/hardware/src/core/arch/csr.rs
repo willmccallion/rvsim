@@ -261,6 +261,31 @@ pub const MSTATUS_DEFAULT_RV64: u64 = 0xa000_00000;
 /// Default `misa` value for RV64IMAFDC architecture.
 pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_1101;
 
+/// CSR serialization requirement classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CsrSerializationType {
+    /// CSR requires full memory fence and cache/TLB invalidation
+    FenceRequired,
+    /// CSR requires pipeline drain before execution
+    Serializing,
+    /// CSR has no special serialization requirements
+    Relaxed,
+}
+
+/// Returns the serialization requirement for a given CSR address.
+pub fn csr_serialization_type(addr: u32) -> CsrSerializationType {
+    match addr {
+        // Fence-requiring CSRs
+        SATP => CsrSerializationType::FenceRequired,
+
+        // Serializing CSRs
+        MSTATUS | SSTATUS | MTVEC | STVEC | MEDELEG | MIDELEG => CsrSerializationType::Serializing,
+
+        // Relaxed CSRs (default)
+        _ => CsrSerializationType::Relaxed,
+    }
+}
+
 /// Control and Status Register file.
 ///
 /// Contains all machine-level and supervisor-level CSRs that control processor state,

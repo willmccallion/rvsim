@@ -137,6 +137,9 @@ impl Cpu {
                 self.csrs.satp = new_val;
                 self.clear_reservation(); // SATP write invalidates reservations
                 self.flush_pipeline_stores();
+
+                // Flush BOTH instruction and data caches
+                self.l1_i_cache.flush();
                 self.l1_d_cache.flush();
 
                 self.mmu.dtlb.flush();

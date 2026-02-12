@@ -39,6 +39,49 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 pub fn execute_stage(cpu: &mut Cpu) {
     let mut entries = std::mem::take(&mut cpu.id_ex.entries);
 
+    // Check if the first instruction is a fence-requiring CSR (SATP) that needs full pipeline drain
+    if !entries.is_empty() {
+        let first = &entries[0];
+        if first.ctrl.csr_op != CsrOp::None && first.trap.is_none() {
+            use crate::core::arch::csr::{CsrSerializationType, csr_serialization_type};
+            let serialization_type = csr_serialization_type(first.ctrl.csr_addr);
+
+            // Only SATP (FenceRequired) needs full pipeline drain.
+            // Other serializing CSRs (MTVEC, MSTATUS, etc.) use the normal flush mechanism
+            // (clearing IF/ID and advancing PC), which prevents new instructions from mixing
+            // with the CSR operation.
+            if serialization_type == CsrSerializationType::FenceRequired {
+                // Check if pipeline is drained (no instructions in flight in EX/MEM stage)
+                // We only care about EX/MEM since those are in-flight instructions.
+                // MEM/WB may have the previous cycle's data but that's okay.
+                let pipeline_drained = cpu.ex_mem.entries.is_empty();
+
+                if !pipeline_drained {
+                    if cpu.trace {
+                        eprintln!(
+                            "EX  pc={:#x} SATP stalled - waiting for pipeline drain (ex_mem={})",
+                            first.pc,
+                            cpu.ex_mem.entries.len()
+                        );
+                    }
+                    // Pipeline not drained - stall ALL instructions this cycle
+                    // Put everything back and let the pipeline drain
+                    cpu.id_ex.entries = entries;
+                    cpu.if_id = IfId::default(); // Don't fetch new instructions
+
+                    // Still need to update ex_mem to empty so previous stages drain
+                    cpu.ex_mem = ExMem {
+                        entries: Vec::new(),
+                    };
+                    return;
+                }
+                if cpu.trace {
+                    eprintln!("EX  pc={:#x} SATP proceeding - pipeline drained", first.pc);
+                }
+            }
+        }
+    }
+
     let mut ex_results = Vec::with_capacity(entries.len());
     let mut flush_remaining = false;
 
