@@ -208,7 +208,7 @@ def main():
     image_path = os.path.join(out_dir, "Image")
     disk_path = os.path.join(out_dir, "disk.img")
     dtb_path = os.path.join(linux_dir, "system.dtb")
-    sim_bin = os.path.join(root, "target", "release", "inspectre")
+    sim_bin = os.path.join(root, ".venv", "bin", "inspectre")
 
     ap = argparse.ArgumentParser(
         description="Download Buildroot, build Linux, optionally boot in sim"
@@ -261,7 +261,7 @@ def main():
         return 1
 
     try:
-        from inspectre import Simulator, SimConfig
+        from inspectre import SimConfig, Simulator
     except ImportError:
         print(
             "Error: Could not import inspectre. Run 'make python' to build the bindings."

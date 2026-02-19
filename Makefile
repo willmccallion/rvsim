@@ -30,7 +30,7 @@ endif
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: run-example run-linux
-.PHONY: clean clean-rust clean-software
+.PHONY: clean clean-rust clean-python clean-software
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Help
@@ -59,6 +59,7 @@ help:
 	@printf "\n  $(CYAN)Housekeeping$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Remove all build artifacts\n" "make clean"
 	@printf "    %-$(HELP_W)s  Remove Rust artifacts only\n" "make clean-rust"
+	@printf "    %-$(HELP_W)s  Remove Python build artifacts\n" "make clean-python"
 	@printf "    %-$(HELP_W)s  Remove software artifacts only\n" "make clean-software"
 	@printf "\n"
 
@@ -147,8 +148,14 @@ run-linux:
 #  Housekeeping
 # ═══════════════════════════════════════════════════════════════════════════════
 
-clean: clean-rust clean-software
+clean: clean-rust clean-python clean-software
 	@printf "$(GREEN)All build artifacts removed.$(RESET)\n"
+
+clean-python:
+	@printf "$(GREEN)Removing Python build artifacts…$(RESET)\n"
+	find inspectre -name '*.so' -delete 2>/dev/null || true
+	find . -path ./.venv -prune -o -path ./software -prune -o -name '__pycache__' -type d -print -exec rm -rf {} + 2>/dev/null || true
+	rm -rf dist build *.egg-info
 
 clean-rust:
 	@printf "$(GREEN)Removing Rust build artifacts…$(RESET)\n"
