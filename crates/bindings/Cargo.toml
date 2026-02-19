@@ -18,7 +18,7 @@ default = []
 extension = ["pyo3/extension-module"]
 
 [dependencies]
-inspectre = { path = "../hardware", version = "0.9.6" }
+inspectre = { path = "../hardware", version = "0.9.7" }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 pyo3       = { workspace = true, features = ["abi3-py310"] }

@@ -39,8 +39,7 @@ A cycle-accurate system simulator for the RISC-V 64-bit architecture (RV64IMAFD)
 inspectre/
 ├── crates/              # Rust workspace
 │   ├── hardware/        # CPU simulator core
-│   ├── bindings/        # Python bindings (PyO3)
-│   └── cli/             # CLI tool (inspectre)
+│   └── bindings/        # Python bindings (PyO3)
 ├── inspectre/           # Python package for scripting
 ├── software/            # System software
 │   ├── libc/            # Custom C standard library
@@ -55,11 +54,6 @@ inspectre/
 ```
 
 ## Installation
-
-**CLI tool** (via Cargo):
-```bash
-cargo install inspectre-cli
-```
 
 **Python bindings** (via pip):
 ```bash
@@ -94,7 +88,6 @@ inspectre --script scripts/benchmarks/tests/smoke_test.py
 
 ```bash
 make help           # Show all available targets
-make simulator      # Build Rust simulator only (release)
 make python         # Build and install Python bindings (editable)
 make software       # Build libc and example programs
 make test           # Run Rust tests

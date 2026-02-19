@@ -7,9 +7,8 @@
 #   3. Tests
 #   4. All version strings match across every manifest
 #   5. Local version is strictly ahead of PyPI
-#   6. Local version is strictly ahead of crates.io
+#   6. Local version is strictly ahead of crates.io (inspectre only)
 #   7. Wheel builds cleanly (maturin)
-#   8. CLI builds cleanly (cargo release)
 
 set -euo pipefail
 
@@ -98,11 +97,11 @@ else
     fail "version mismatch — pyproject.toml=$PY_VER, Cargo.toml workspace=$CARGO_VER"
 fi
 
-# Check that path dependencies in bindings and cli have the correct version pinned.
+# Check that path dependencies in bindings have the correct version pinned.
 # crates.io requires explicit versions on path deps.
 info "checking path dependency versions"
 PATH_DEP_FAIL=0
-for toml in "$ROOT/crates/bindings/Cargo.toml" "$ROOT/crates/cli/Cargo.toml"; do
+for toml in "$ROOT/crates/bindings/Cargo.toml"; do
     while IFS= read -r line; do
         # Match lines like: some-crate = { path = "...", version = "x.y.z" }
         if [[ "$line" =~ path\ *=.*version\ *=\ *\"([^\"]+)\" ]]; then
@@ -165,10 +164,9 @@ check_crate() {
     fi
 }
 
-check_crate "inspectre"     "$CARGO_VER"
-check_crate "inspectre-cli" "$CARGO_VER"
+check_crate "inspectre" "$CARGO_VER"
 
-# ── 7 & 8. Build checks ────────────────────────────────────────────────────
+# ── 7. Build checks ────────────────────────────────────────────────────────
 section "Build checks"
 
 MATURIN="$([ -f "$ROOT/.venv/bin/maturin" ] && echo "$ROOT/.venv/bin/maturin" || command -v maturin 2>/dev/null || echo "")"
@@ -201,35 +199,6 @@ if [[ -n "$MATURIN" ]]; then
     fi
 else
     fail "maturin not found — run 'make python' first"
-fi
-
-# ── CLI binary (cargo) ────────────────────────────────────────────────────
-info "cargo build --release (native)"
-if cargo build --release --package inspectre-cli 2>&1; then
-    pass "cargo release build (native)"
-else
-    fail "cargo release build (native)"
-fi
-
-# Cross-compile aarch64 CLI binary — requires arm64 Python dev headers.
-# On CI these are installed via: dpkg --add-architecture arm64 && apt-get install libpython3.10-dev:arm64
-# Locally this is skipped unless /usr/lib/aarch64-linux-gnu/libpython3.10.so exists.
-AARCH64_PYLIB="/usr/lib/aarch64-linux-gnu"
-if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 && \
-   rustup target list --installed | grep -q aarch64-unknown-linux-gnu && \
-   ls "$AARCH64_PYLIB"/libpython3*.so* >/dev/null 2>&1; then
-    info "cargo build --release (aarch64-unknown-linux-gnu)"
-    if CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-       PYO3_CROSS_LIB_DIR="$AARCH64_PYLIB" \
-       PYO3_CROSS_PYTHON_VERSION=3.10 \
-       cargo build --release --target aarch64-unknown-linux-gnu \
-           --package inspectre-cli 2>&1; then
-        pass "cargo release build (aarch64-unknown-linux-gnu)"
-    else
-        fail "cargo release build (aarch64-unknown-linux-gnu)"
-    fi
-else
-    info "skipping aarch64 binary (CI only — arm64 Python dev headers not found locally)"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────

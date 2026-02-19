@@ -13,8 +13,6 @@ CARGO           ?= cargo
 MATURIN         ?= $(shell [ -f .venv/bin/maturin ] && echo .venv/bin/maturin || echo maturin)
 PYTHON          ?= $(shell [ -f .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3)
 
-SIM             := ./target/release/inspectre
-
 # ── Colors (only when stdout is a terminal) ───────────────────────────────────
 ifneq ($(TERM),)
   GREEN  := \033[32m
@@ -29,7 +27,7 @@ else
 endif
 
 # ── Phony ─────────────────────────────────────────────────────────────────────
-.PHONY: help build simulator software examples linux python python-wheel
+.PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: run-example run-linux
 .PHONY: clean clean-rust clean-software
@@ -41,8 +39,7 @@ HELP_W := 28
 help:
 	@printf "\n$(BOLD)Inspectre$(RESET) — RISC-V cycle-accurate simulator\n\n"
 	@printf "  $(CYAN)Build$(RESET)\n"
-	@printf "    %-$(HELP_W)s  Build Rust simulator + Python bindings\n" "make build"
-	@printf "    %-$(HELP_W)s  Build Rust simulator CLI only (release)\n" "make simulator"
+	@printf "    %-$(HELP_W)s  Build Python bindings (editable, maturin)\n" "make build"
 	@printf "    %-$(HELP_W)s  Install Python bindings (editable, maturin)\n" "make python"
 	@printf "    %-$(HELP_W)s  Build distributable Python wheel\n" "make python-wheel"
 	@printf "    %-$(HELP_W)s  Build libc and example RISC-V programs\n" "make software"
@@ -69,11 +66,7 @@ help:
 #  Build
 # ═══════════════════════════════════════════════════════════════════════════════
 
-build: simulator python
-
-simulator:
-	@printf "$(GREEN)Building Rust simulator (release)…$(RESET)\n"
-	$(CARGO) build --release
+build: python
 
 software:
 	@printf "$(GREEN)Building libc and example programs…$(RESET)\n"
@@ -142,13 +135,13 @@ prerelease:
 #  Run
 # ═══════════════════════════════════════════════════════════════════════════════
 
-run-example: simulator software
+run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
-	$(SIM) -f software/bin/benchmarks/qsort.bin
+	.venv/bin/inspectre -f software/bin/benchmarks/qsort.bin
 
-run-linux: simulator
+run-linux:
 	@printf "$(GREEN)Booting Linux…$(RESET)\n"
-	$(SIM) --script scripts/setup/boot_linux.py
+	.venv/bin/inspectre --script scripts/setup/boot_linux.py
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Housekeeping

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "inspectre-sim"
-version = "0.9.6"
+version = "0.9.7"
 description = "High-performance RISC-V cycle-accurate system simulator"
 readme = "README.md"
 requires-python = ">=3.10"

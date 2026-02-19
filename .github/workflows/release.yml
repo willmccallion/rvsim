@@ -83,8 +83,6 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           cargo publish -p inspectre --no-verify
-          sleep 15
-          cargo publish -p inspectre-cli --no-verify
 
   # ── Publish to PyPI ────────────────────────────────────────────────────────
   publish-pypi:
