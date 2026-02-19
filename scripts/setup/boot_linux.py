@@ -18,6 +18,8 @@ import sys
 import tarfile
 import urllib.request
 
+from inspectre import SimConfig, Simulator
+
 BUILDROOT_VER = "2024.08"
 BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.gz"
 DEFCONFIG = """BR2_riscv=y
@@ -145,7 +147,22 @@ def write_defconfig(buildroot_dir: str) -> None:
     print("[Linux] Wrote", path)
 
 
+def compile_dtb(linux_dir: str) -> int:
+    """Write the DTS and compile it to DTB via dtc. Returns 0 on success."""
+    dts_path = os.path.join(linux_dir, "system.dts")
+    dtb_path = os.path.join(linux_dir, "system.dtb")
+    with open(dts_path, "w") as f:
+        f.write(SYSTEM_DTS)
+    print("[Linux] Compiling device tree...")
+    r = subprocess.run(
+        ["dtc", "-I", "dts", "-O", "dtb", "-o", dtb_path, dts_path],
+        cwd=linux_dir,
+    )
+    return r.returncode
+
+
 def build(linux_dir: str) -> int:
+    """Download, configure, and build Buildroot + compile DTB. Returns 0 on success."""
     buildroot_dir = os.path.join(linux_dir, f"buildroot-{BUILDROOT_VER}")
     download_buildroot(linux_dir, buildroot_dir)
     write_defconfig(buildroot_dir)
@@ -186,19 +203,93 @@ def build(linux_dir: str) -> int:
     )
     print("[Linux] Copied Image, disk.img, fw_jump.bin to", out_dir)
 
-    dts_path = os.path.join(linux_dir, "system.dts")
-    dtb_path = os.path.join(linux_dir, "system.dtb")
-    with open(dts_path, "w") as f:
-        f.write(SYSTEM_DTS)
-    print("[Linux] Compiling device tree...")
-    r = subprocess.run(
-        ["dtc", "-I", "dts", "-O", "dtb", "-o", dtb_path, dts_path],
-        cwd=linux_dir,
-    )
-    if r.returncode != 0:
-        return r.returncode
+    rc = compile_dtb(linux_dir)
+    if rc != 0:
+        return rc
     print("[Linux] Build complete.")
     return 0
+
+
+def optimized_config() -> SimConfig:
+    """Machine config for Linux boot: 256MB RAM, full cache hierarchy, TAGE predictor."""
+    c = SimConfig.default()
+
+    # General
+    c.general.trace_instructions = False
+    c.general.start_pc = 0x80000000
+
+    # System
+    c.system.ram_base = 0x80000000
+    c.system.uart_base = 0x10000000
+    c.system.disk_base = 0x10001000
+    c.system.clint_base = 0x02000000
+    c.system.syscon_base = 0x00100000
+    c.system.kernel_offset = 0x200000
+    c.system.bus_width = 8
+    c.system.bus_latency = 1
+    c.system.clint_divider = 100
+
+    # Memory
+    c.memory.ram_size = 256 * 1024 * 1024
+    c.memory.controller = "Simple"
+    c.memory.row_miss_latency = 10
+    c.memory.tlb_size = 64
+
+    # L1 Instruction Cache
+    c.cache.l1_i.enabled = True
+    c.cache.l1_i.size_bytes = 65536
+    c.cache.l1_i.line_bytes = 64
+    c.cache.l1_i.ways = 8
+    c.cache.l1_i.policy = "PLRU"
+    c.cache.l1_i.latency = 1
+    c.cache.l1_i.prefetcher = "NextLine"
+    c.cache.l1_i.prefetch_degree = 2
+
+    # L1 Data Cache
+    c.cache.l1_d.enabled = True
+    c.cache.l1_d.size_bytes = 65536
+    c.cache.l1_d.line_bytes = 64
+    c.cache.l1_d.ways = 8
+    c.cache.l1_d.policy = "PLRU"
+    c.cache.l1_d.latency = 1
+    c.cache.l1_d.prefetcher = "Stride"
+    c.cache.l1_d.prefetch_table_size = 128
+    c.cache.l1_d.prefetch_degree = 2
+
+    # L2 Cache
+    c.cache.l2.enabled = True
+    c.cache.l2.size_bytes = 1048576
+    c.cache.l2.line_bytes = 64
+    c.cache.l2.ways = 16
+    c.cache.l2.policy = "PLRU"
+    c.cache.l2.latency = 8
+    c.cache.l2.prefetcher = "NextLine"
+    c.cache.l2.prefetch_degree = 1
+
+    # L3 Cache
+    c.cache.l3.enabled = True
+    c.cache.l3.size_bytes = 8 * 1024 * 1024
+    c.cache.l3.line_bytes = 64
+    c.cache.l3.ways = 16
+    c.cache.l3.policy = "PLRU"
+    c.cache.l3.latency = 28
+    c.cache.l3.prefetcher = "None"
+
+    # Pipeline
+    c.pipeline.branch_predictor = "TAGE"
+    c.pipeline.width = 1
+    c.pipeline.btb_size = 4096
+    c.pipeline.ras_size = 48
+
+    # TAGE
+    c.pipeline.tage.num_banks = 4
+    c.pipeline.tage.table_size = 2048
+    c.pipeline.tage.loop_table_size = 256
+    c.pipeline.tage.reset_interval = 2000
+    c.pipeline.tage.history_lengths = [5, 15, 44, 130]
+    c.pipeline.tage.tag_widths = [9, 9, 10, 10]
+
+    return c
 
 
 def main():
@@ -208,7 +299,6 @@ def main():
     image_path = os.path.join(out_dir, "Image")
     disk_path = os.path.join(out_dir, "disk.img")
     dtb_path = os.path.join(linux_dir, "system.dtb")
-    sim_bin = os.path.join(root, ".venv", "bin", "inspectre")
 
     ap = argparse.ArgumentParser(
         description="Download Buildroot, build Linux, optionally boot in sim"
@@ -242,116 +332,17 @@ def main():
     if args.no_boot:
         return 0
 
-    dts_path = os.path.join(linux_dir, "system.dts")
-    with open(dts_path, "w") as f:
-        f.write(SYSTEM_DTS)
-    r = subprocess.run(
-        ["dtc", "-I", "dts", "-O", "dtb", "-o", dtb_path, dts_path],
-        cwd=linux_dir,
-    )
-    if r.returncode != 0:
-        return r.returncode
+    # Recompile DTB in case DTS changed (e.g. editing this script)
+    if compile_dtb(linux_dir) != 0:
+        return 1
 
     if not os.path.exists(disk_path):
         print("Error: disk image not found:", disk_path)
         return 1
-    if not os.path.isfile(sim_bin):
-        print("Error: simulator not found:", sim_bin)
-        print("Run from repo root: cargo build --release  or  make hardware")
-        return 1
-
-    try:
-        from inspectre import SimConfig, Simulator
-    except ImportError:
-        print(
-            "Error: Could not import inspectre. Run 'make python' to build the bindings."
-        )
-        return 1
 
     os.chdir(root)
 
-    print("[boot_linux] Booting with Simulator (Optimized User Config)...")
-
-    # Optimized configuration based on user's previous TOML config
-    def optimized_config():
-        c = SimConfig.default()
-
-        # General
-        c.general.trace_instructions = False
-        c.general.start_pc = 0x80000000
-
-        # System
-        c.system.ram_base = 0x80000000
-        c.system.uart_base = 0x10000000
-        c.system.disk_base = 0x10001000  # Matches user config & DTS
-        c.system.clint_base = 0x02000000
-        c.system.syscon_base = 0x00100000
-        c.system.kernel_offset = 0x200000
-        c.system.bus_width = 8
-        c.system.bus_latency = 1
-        c.system.clint_divider = 100  # Reduced from 1000 (too slow) but kept higher than default (10) for stability
-
-        # Memory
-        c.memory.ram_size = 256 * 1024 * 1024  # 256MB
-        c.memory.controller = "Simple"
-        c.memory.row_miss_latency = 10
-        c.memory.tlb_size = 64
-
-        # L1 Instruction Cache
-        c.cache.l1_i.enabled = True
-        c.cache.l1_i.size_bytes = 65536
-        c.cache.l1_i.line_bytes = 64
-        c.cache.l1_i.ways = 8
-        c.cache.l1_i.policy = "PLRU"
-        c.cache.l1_i.latency = 1
-        c.cache.l1_i.prefetcher = "NextLine"
-        c.cache.l1_i.prefetch_degree = 2
-
-        # L1 Data Cache
-        c.cache.l1_d.enabled = True
-        c.cache.l1_d.size_bytes = 65536
-        c.cache.l1_d.line_bytes = 64
-        c.cache.l1_d.ways = 8
-        c.cache.l1_d.policy = "PLRU"
-        c.cache.l1_d.latency = 1
-        c.cache.l1_d.prefetcher = "Stride"
-        c.cache.l1_d.prefetch_table_size = 128
-        c.cache.l1_d.prefetch_degree = 2
-
-        # L2 Cache
-        c.cache.l2.enabled = True
-        c.cache.l2.size_bytes = 1048576  # 1MB
-        c.cache.l2.line_bytes = 64
-        c.cache.l2.ways = 16
-        c.cache.l2.policy = "PLRU"
-        c.cache.l2.latency = 8
-        c.cache.l2.prefetcher = "NextLine"
-        c.cache.l2.prefetch_degree = 1
-
-        # L3 Cache
-        c.cache.l3.enabled = True
-        c.cache.l3.size_bytes = 8 * 1024 * 1024  # 8MB
-        c.cache.l3.line_bytes = 64
-        c.cache.l3.ways = 16
-        c.cache.l3.policy = "PLRU"
-        c.cache.l3.latency = 28
-        c.cache.l3.prefetcher = "None"
-
-        # Pipeline
-        c.pipeline.branch_predictor = "TAGE"
-        c.pipeline.width = 1
-        c.pipeline.btb_size = 4096
-        c.pipeline.ras_size = 48
-
-        # TAGE
-        c.pipeline.tage.num_banks = 4
-        c.pipeline.tage.table_size = 2048
-        c.pipeline.tage.loop_table_size = 256
-        c.pipeline.tage.reset_interval = 2000
-        c.pipeline.tage.history_lengths = [5, 15, 44, 130]
-        c.pipeline.tage.tag_widths = [9, 9, 10, 10]
-
-        return c
+    print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
     sim = (
         Simulator()
