@@ -4,8 +4,8 @@
 //! and IER configuration. Note: we can't easily test stdin integration
 //! in unit tests, so we focus on register-level behaviour.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::uart::Uart;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::uart::Uart;
 
 #[test]
 fn uart_name() {

@@ -3,8 +3,8 @@
 //! Tests for UART data transmission, receive buffer, interrupt handling,
 //! and various register configurations.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::uart::Uart;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::uart::Uart;
 
 // ══════════════════════════════════════════════════════════
 // Data Transmission Tests

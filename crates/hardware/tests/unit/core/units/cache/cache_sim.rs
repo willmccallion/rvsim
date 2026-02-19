@@ -8,10 +8,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use inspectre::config::{
-    CacheConfig, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType,
-};
-use inspectre::core::units::cache::CacheSim;
+use rvsim_core::config::{CacheConfig, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType};
+use rvsim_core::core::units::cache::CacheSim;
 
 // ──────────────────────────────────────────────────────────
 // Helper: build a simple test cache

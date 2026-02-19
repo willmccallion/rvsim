@@ -2,8 +2,8 @@
 //!
 //! Tests for the Platform-Level Interrupt Controller device.
 
-use inspectre::config::Config;
-use inspectre::soc::System;
+use rvsim_core::config::Config;
+use rvsim_core::soc::System;
 
 #[test]
 fn test_plic_name() {

@@ -1,5 +1,5 @@
-use inspectre::core::pipeline::signals::AluOp;
-use inspectre::core::units::fpu::Fpu;
+use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::units::fpu::Fpu;
 
 #[test]
 fn test_box_f32() {

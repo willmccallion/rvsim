@@ -3,7 +3,7 @@
 //! Verifies FENCE instruction decoding, predecessor/successor
 //! ordering set extraction, TSO recognition, and no-op detection.
 
-use inspectre::core::units::lsu::ordering::{Fence, FenceSet};
+use rvsim_core::core::units::lsu::ordering::{Fence, FenceSet};
 
 // ══════════════════════════════════════════════════════════
 // 1. FenceSet basics

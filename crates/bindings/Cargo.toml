@@ -1,6 +1,6 @@
 [package]
-name = "inspectre-bindings"
-description = "Python bindings for the inspectre RISC-V simulator"
+name = "rvsim-bindings"
+description = "Python bindings for the rvsim RISC-V simulator"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -18,7 +18,7 @@ default = []
 extension = ["pyo3/extension-module"]
 
 [dependencies]
-inspectre = { path = "../hardware", version = "0.9.7" }
+rvsim-core = { path = "../hardware", version = "0.10.0" }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 pyo3       = { workspace = true, features = ["abi3-py310"] }

@@ -8,7 +8,7 @@ How the Rust simulator is exposed to Python via PyO3.
 
 ## Overview
 
-The **bindings** crate builds a Python extension module **`inspectre`** that the CLI injects into `sys.modules` when running `sim script <path>`. It wraps the Rust `Cpu` and `System`, converts Python config dicts to Rust `Config`, and exposes stats and device access. Scripts use the high-level Python API in `inspectre/` (e.g., `Simulator`, `Environment`, `run_experiment`), which call into these bindings.
+The **bindings** crate builds a Python extension module **`rvsim`** that the CLI injects into `sys.modules` when running `sim script <path>`. It wraps the Rust `Cpu` and `System`, converts Python config dicts to Rust `Config`, and exposes stats and device access. Scripts use the high-level Python API in `rvsim/` (e.g., `Simulator`, `Environment`, `run_experiment`), which call into these bindings.
 
 ---
 
@@ -54,7 +54,7 @@ bindings/src/
 
 ## PyStats (`stats.rs`)
 
-Wraps the Rust stats (e.g., cycles, instructions_retired, ipc, cache hits/misses, branch stats, stalls, instruction counts). Exposed to Python as a dict-like object; the Python layer wraps it in **StatsObject** with **`.query(pattern)`** for filtering (e.g., `query("miss")`, `query("branch")`). See `inspectre/stats.py`.
+Wraps the Rust stats (e.g., cycles, instructions_retired, ipc, cache hits/misses, branch stats, stalls, instruction counts). Exposed to Python as a dict-like object; the Python layer wraps it in **StatsObject** with **`.query(pattern)`** for filtering (e.g., `query("miss")`, `query("branch")`). See `rvsim/stats.py`.
 
 ---
 
@@ -72,7 +72,7 @@ Exposes memory/loader interface to Python (e.g., for loading binaries or inspect
 
 ## Usage from Python
 
-Scripts run with `sim script scripts/...` get `inspectre` on `sys.path` and use `inspectre` objects that ultimately call **PySystem**, **PyCpu**, **PyStats**. They do not typically construct **PyCpu** or **PySystem** directly; they use **Simulator**, **Environment**, and **run_experiment** in [simulation_objects](../python/simulation_objects.md) and [scripting](../python/scripting.md).
+Scripts run with `sim script scripts/...` get `rvsim` on `sys.path` and use `rvsim` objects that ultimately call **PySystem**, **PyCpu**, **PyStats**. They do not typically construct **PyCpu** or **PySystem** directly; they use **Simulator**, **Environment**, and **run_experiment** in [simulation_objects](../python/simulation_objects.md) and [scripting](../python/scripting.md).
 
 ---
 

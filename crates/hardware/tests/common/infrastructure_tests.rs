@@ -3,8 +3,8 @@ use super::builder::pipeline_state::{ExMemBuilder, IdExBuilder, IfIdBuilder, Mem
 use super::harness::TestContext;
 use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
-use inspectre::core::pipeline::signals::ControlSignals;
-use inspectre::isa::rv64i::opcodes::*;
+use rvsim_core::core::pipeline::signals::ControlSignals;
+use rvsim_core::isa::rv64i::opcodes::*;
 
 // ─── InstructionBuilder: R-type encoding ───────────────────────────────────
 
@@ -338,14 +338,14 @@ fn memwb_builder() {
 #[test]
 fn harness_boot_default_pc() {
     let ctx = TestContext::new();
-    assert_eq!(ctx.cpu.pc, 0x8000_0000, "CPU should start at RAM base");
+    assert_eq!(ctx.cpu().pc, 0x8000_0000, "CPU should start at RAM base");
 }
 
 #[test]
 fn harness_with_memory_adds_device() {
     let mut ctx = TestContext::new().with_memory(4096, 0x1000);
-    ctx.cpu.bus.bus.write_u32(0x1000, 0xDEADBEEF);
-    assert_eq!(ctx.cpu.bus.bus.read_u32(0x1000), 0xDEADBEEF);
+    ctx.cpu_mut().bus.bus.write_u32(0x1000, 0xDEADBEEF);
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1000), 0xDEADBEEF);
 }
 
 #[test]
@@ -358,9 +358,9 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
         .with_memory(4096, 0x1000)
         .load_program(0x1000, &program);
 
-    assert_eq!(ctx.cpu.pc, 0x1000, "PC should be set to program base");
-    assert_eq!(ctx.cpu.bus.bus.read_u32(0x1000), nop);
-    assert_eq!(ctx.cpu.bus.bus.read_u32(0x1004), addi);
+    assert_eq!(ctx.cpu().pc, 0x1000, "PC should be set to program base");
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1000), nop);
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1004), addi);
 }
 
 #[test]
@@ -381,7 +381,7 @@ fn harness_x0_always_zero() {
 
 #[test]
 fn mock_memory_read_write_all_widths() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mut mem = MockMemory::new(1024, 0x0);
     mem.write_u8(0, 0xAB);
@@ -399,7 +399,7 @@ fn mock_memory_read_write_all_widths() {
 
 #[test]
 fn mock_memory_out_of_bounds_reads_zero() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mut mem = MockMemory::new(16, 0x0);
     assert_eq!(mem.read_u32(20), 0, "Out-of-bounds read should return 0");
@@ -409,7 +409,7 @@ fn mock_memory_out_of_bounds_reads_zero() {
 #[test]
 #[should_panic(expected = "Bus Error")]
 fn mock_memory_fault_injection_panics() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mut mem = MockMemory::new(1024, 0x1000);
     mem.inject_fault(0x1010);
@@ -418,7 +418,7 @@ fn mock_memory_fault_injection_panics() {
 
 #[test]
 fn mock_memory_fault_only_affects_target_address() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mut mem = MockMemory::new(1024, 0x1000);
     mem.inject_fault(0x1010);
@@ -429,7 +429,7 @@ fn mock_memory_fault_only_affects_target_address() {
 
 #[test]
 fn mock_memory_address_range() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mem = MockMemory::new(4096, 0x8000_0000);
     let (base, size) = mem.address_range();
@@ -439,7 +439,7 @@ fn mock_memory_address_range() {
 
 #[test]
 fn mock_memory_name() {
-    use inspectre::soc::devices::Device;
+    use rvsim_core::soc::devices::Device;
 
     let mem = MockMemory::new(64, 0);
     assert_eq!(mem.name(), "MockMemory");

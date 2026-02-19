@@ -4,8 +4,8 @@
 //! branch accuracy, and instruction mix; `print` / `print_sections` for human-readable
 //! output; `to_dict` for JSON-serializable export (multisim, scripting).
 
-use inspectre::stats::SimStats;
 use pyo3::prelude::*;
+use rvsim_core::stats::SimStats;
 
 /// Python-exposed statistics: wraps `SimStats` for read and print from Python.
 #[pyclass]

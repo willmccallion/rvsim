@@ -3,7 +3,7 @@
 //! Verifies lookup/update semantics, tag matching, aliasing behaviour,
 //! and capacity-related edge cases for the direct-mapped BTB.
 
-use inspectre::core::units::bru::btb::Btb;
+use rvsim_core::core::units::bru::btb::Btb;
 
 // ══════════════════════════════════════════════════════════
 // 1. Basic lookup/update

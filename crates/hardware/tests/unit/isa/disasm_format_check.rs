@@ -1,6 +1,6 @@
 //! Quick test to verify disasm output format
 
-use inspectre::isa::disasm::disassemble;
+use rvsim_core::isa::disasm::disassemble;
 
 #[test]
 fn check_formats() {

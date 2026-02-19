@@ -8,6 +8,7 @@
 //!
 //! Configuration is supplied via JSON from the Python API (`SimConfig`) or use `Config::default()` for the CLI.
 
+use crate::core::pipeline::engine::BackendType;
 use serde::Deserialize;
 
 /// Default configuration constants for the simulator.
@@ -120,6 +121,12 @@ mod defaults {
 
     /// Default TAGE predictor table size (2048 entries per bank).
     pub const TAGE_TABLE_SIZE: usize = 2048;
+
+    /// Default Reorder Buffer size (64 entries).
+    pub const ROB_SIZE: usize = 64;
+
+    /// Default Store Buffer size (16 entries).
+    pub const STORE_BUFFER_SIZE: usize = 16;
 
     /// Default TAGE loop predictor table size (256 entries).
     pub const TAGE_LOOP_SIZE: usize = 256;
@@ -272,7 +279,7 @@ pub enum BranchPredictor {
 /// Creating a default configuration:
 ///
 /// ```
-/// use inspectre::config::Config;
+/// use rvsim_core::config::Config;
 ///
 /// let config = Config::default();
 /// assert_eq!(config.general.trace_instructions, false);
@@ -282,7 +289,7 @@ pub enum BranchPredictor {
 /// Deserializing from JSON (typical Python API usage):
 ///
 /// ```
-/// use inspectre::config::{Config, BranchPredictor, Prefetcher};
+/// use rvsim_core::config::{Config, BranchPredictor, Prefetcher};
 ///
 /// let json = r#"{
 ///     "general": {
@@ -752,6 +759,18 @@ pub struct PipelineConfig {
     /// Tournament predictor configuration
     #[serde(default)]
     pub tournament: TournamentConfig,
+
+    /// Backend type (InOrder or OutOfOrder)
+    #[serde(default)]
+    pub backend: BackendType,
+
+    /// Reorder Buffer size
+    #[serde(default = "PipelineConfig::default_rob_size")]
+    pub rob_size: usize,
+
+    /// Store Buffer size
+    #[serde(default = "PipelineConfig::default_store_buffer_size")]
+    pub store_buffer_size: usize,
 }
 
 impl PipelineConfig {
@@ -768,6 +787,16 @@ impl PipelineConfig {
     /// Returns the default Return Address Stack size.
     fn default_ras_size() -> usize {
         defaults::RAS_SIZE
+    }
+
+    /// Returns the default ROB size.
+    fn default_rob_size() -> usize {
+        defaults::ROB_SIZE
+    }
+
+    /// Returns the default store buffer size.
+    fn default_store_buffer_size() -> usize {
+        defaults::STORE_BUFFER_SIZE
     }
 }
 
@@ -786,6 +815,9 @@ impl Default for PipelineConfig {
             tage: TageConfig::default(),
             perceptron: PerceptronConfig::default(),
             tournament: TournamentConfig::default(),
+            backend: BackendType::default(),
+            rob_size: defaults::ROB_SIZE,
+            store_buffer_size: defaults::STORE_BUFFER_SIZE,
         }
     }
 }

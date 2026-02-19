@@ -4,7 +4,7 @@
 //! encodings to human-readable mnemonics for RV64I, RV64M, RV64A,
 //! RV64F/D, and privileged instructions.
 
-use inspectre::isa::disasm::disassemble;
+use rvsim_core::isa::disasm::disassemble;
 
 // ══════════════════════════════════════════════════════════
 // 1. RV64I: Register-Register (R-type)

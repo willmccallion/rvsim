@@ -3,9 +3,9 @@
 //! Tests for disk I/O operations, queue descriptor handling,
 //! and more advanced VirtIO functionality.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::virtio_disk::VirtioBlock;
-use inspectre::soc::memory::buffer::DramBuffer;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
+use rvsim_core::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
 fn make_virtio() -> VirtioBlock {

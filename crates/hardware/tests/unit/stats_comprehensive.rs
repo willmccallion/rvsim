@@ -1,6 +1,6 @@
 //! Comprehensive tests for simulation statistics.
 
-use inspectre::stats::SimStats;
+use rvsim_core::stats::SimStats;
 
 #[test]
 fn test_stats_default() {
@@ -261,7 +261,7 @@ fn test_stats_invalid_section_name() {
 
 #[test]
 fn test_stats_sections_constant() {
-    use inspectre::stats::STATS_SECTIONS;
+    use rvsim_core::stats::STATS_SECTIONS;
 
     assert!(STATS_SECTIONS.contains(&"summary"));
     assert!(STATS_SECTIONS.contains(&"core"));

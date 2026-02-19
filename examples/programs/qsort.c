@@ -1,6 +1,6 @@
 #include "stdio.h"
 
-#define SIZE 32768
+#define SIZE 4096
 
 long arr[SIZE];
 

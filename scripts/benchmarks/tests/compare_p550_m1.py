@@ -9,7 +9,7 @@ import os
 _scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _scripts)
 
-from inspectre import Environment, run_experiment
+from rvsim import Environment, run_experiment
 from p550.config import p550_config
 from m1.config import m1_config
 
@@ -26,10 +26,10 @@ def main():
     name = os.path.basename(binary)
 
     # P550
-    env_p550 = Environment(binary=binary, config=p550_config(branch_predictor="TAGE"))
+    env_p550 = Environment(binary=binary, config=p550_config())
     r550 = run_experiment(env_p550, quiet=True)
     # M1
-    env_m1 = Environment(binary=binary, config=m1_config(branch_predictor="TAGE"))
+    env_m1 = Environment(binary=binary, config=m1_config())
     r_m1 = run_experiment(env_m1, quiet=True)
 
     print("Compare P550 vs M1:", name)
@@ -56,12 +56,12 @@ def main():
     )
     print()
 
-    # Query "miss" – cache/branch misses
+    # Query "miss" - cache/branch misses
     miss550 = r550.stats.query("miss")
     miss_m1 = r_m1.stats.query("miss")
-    print(".query('miss') – P550:")
+    print(".query('miss') - P550:")
     print(miss550)
-    print(".query('miss') – M1:")
+    print(".query('miss') - M1:")
     print(miss_m1)
     print("Difference (M1 - P550):")
     for k in sorted(set(miss550) | set(miss_m1)):
@@ -75,10 +75,10 @@ def main():
     bp550 = r550.stats.query("branch")
     bp_m1 = r_m1.stats.query("branch")
     print(
-        ".query('branch') – P550 branch_accuracy_pct:", bp550.get("branch_accuracy_pct")
+        ".query('branch') - P550 branch_accuracy_pct:", bp550.get("branch_accuracy_pct")
     )
     print(
-        ".query('branch') – M1  branch_accuracy_pct:", bp_m1.get("branch_accuracy_pct")
+        ".query('branch') - M1  branch_accuracy_pct:", bp_m1.get("branch_accuracy_pct")
     )
 
 

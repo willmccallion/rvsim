@@ -2,7 +2,7 @@
 //!
 //! Tests for the RISC-V general-purpose register file implementation.
 
-use inspectre::core::arch::gpr::Gpr;
+use rvsim_core::core::arch::gpr::Gpr;
 
 #[test]
 fn test_gpr_new_initializes_to_zero() {

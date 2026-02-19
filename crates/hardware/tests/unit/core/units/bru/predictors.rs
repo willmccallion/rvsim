@@ -7,13 +7,13 @@
 //!
 //! Reference: Phase 2 — Pipeline Logic & Hazards.
 
-use inspectre::config::{PerceptronConfig, TageConfig, TournamentConfig};
-use inspectre::core::units::bru::BranchPredictor;
-use inspectre::core::units::bru::gshare::GSharePredictor;
-use inspectre::core::units::bru::perceptron::PerceptronPredictor;
-use inspectre::core::units::bru::static_bp::StaticPredictor;
-use inspectre::core::units::bru::tage::TagePredictor;
-use inspectre::core::units::bru::tournament::TournamentPredictor;
+use rvsim_core::config::{PerceptronConfig, TageConfig, TournamentConfig};
+use rvsim_core::core::units::bru::BranchPredictor;
+use rvsim_core::core::units::bru::gshare::GSharePredictor;
+use rvsim_core::core::units::bru::perceptron::PerceptronPredictor;
+use rvsim_core::core::units::bru::static_bp::StaticPredictor;
+use rvsim_core::core::units::bru::tage::TagePredictor;
+use rvsim_core::core::units::bru::tournament::TournamentPredictor;
 
 // ══════════════════════════════════════════════════════════
 // Helpers

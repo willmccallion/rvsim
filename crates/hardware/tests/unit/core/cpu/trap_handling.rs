@@ -3,14 +3,14 @@
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
 
-use inspectre::common::Trap;
-use inspectre::config::Config;
-use inspectre::core::Cpu;
-use inspectre::core::arch::mode::PrivilegeMode;
+use rvsim_core::common::Trap;
+use rvsim_core::config::Config;
+use rvsim_core::core::Cpu;
+use rvsim_core::core::arch::mode::PrivilegeMode;
 
 fn create_test_cpu() -> Cpu {
     let config = Config::default();
-    let system = inspectre::soc::System::new(&config, "");
+    let system = rvsim_core::soc::System::new(&config, "");
     let mut cpu = Cpu::new(system, &config);
     cpu.direct_mode = false;
     cpu
@@ -679,4 +679,4 @@ fn test_trap_updates_sepc_on_delegation() {
     assert_eq!(cpu.csrs.sepc, trap_pc);
 }
 
-use inspectre::common::constants::CAUSE_INTERRUPT_BIT;
+use rvsim_core::common::constants::CAUSE_INTERRUPT_BIT;

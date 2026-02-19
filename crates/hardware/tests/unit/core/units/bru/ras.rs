@@ -3,7 +3,7 @@
 //! Verifies push/pop/top semantics, overflow behaviour, underflow safety,
 //! and correct LIFO ordering for return address prediction.
 
-use inspectre::core::units::bru::ras::Ras;
+use rvsim_core::core::units::bru::ras::Ras;
 
 // ══════════════════════════════════════════════════════════
 // 1. Basic push/pop

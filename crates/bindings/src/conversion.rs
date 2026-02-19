@@ -3,8 +3,8 @@
 //! Converts Python dicts (e.g., from `SimConfig.to_dict()`) into the core `Config` type
 //! via JSON serialization, so the same schema is used from both Python and CLI.
 
-use inspectre::config::Config;
 use pyo3::prelude::*;
+use rvsim_core::config::Config;
 use serde_json;
 
 /// Converts a Python dict to a simulator `Config`.
@@ -15,7 +15,7 @@ use serde_json;
 /// # Arguments
 ///
 /// * `py` - Python interpreter handle.
-/// * `dict` - A Python dict (e.g., from `inspectre.config.SimConfig.to_dict()`).
+/// * `dict` - A Python dict (e.g., from `rvsim.config.SimConfig.to_dict()`).
 ///
 /// # Returns
 ///

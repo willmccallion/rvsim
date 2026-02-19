@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Inspectre — Build, Test, and Run
+#  rvsim — Build, Test, and Run
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Run from repo root.  make help  for all targets.
 #  Override tools:  CARGO=cargo  MATURIN=maturin  PYTHON=python3
@@ -37,7 +37,7 @@ endif
 # ═══════════════════════════════════════════════════════════════════════════════
 HELP_W := 28
 help:
-	@printf "\n$(BOLD)Inspectre$(RESET) — RISC-V cycle-accurate simulator\n\n"
+	@printf "\n$(BOLD)rvsim$(RESET) — RISC-V cycle-accurate simulator\n\n"
 	@printf "  $(CYAN)Build$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build Python bindings (editable, maturin)\n" "make build"
 	@printf "    %-$(HELP_W)s  Install Python bindings (editable, maturin)\n" "make python"
@@ -138,11 +138,11 @@ prerelease:
 
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
-	.venv/bin/inspectre -f software/bin/benchmarks/qsort.bin
+	.venv/bin/rvsim -f software/bin/benchmarks/qsort.bin
 
 run-linux:
 	@printf "$(GREEN)Booting Linux…$(RESET)\n"
-	.venv/bin/inspectre --script scripts/setup/boot_linux.py
+	.venv/bin/rvsim --script scripts/setup/boot_linux.py
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Housekeeping
@@ -153,7 +153,7 @@ clean: clean-rust clean-python clean-software
 
 clean-python:
 	@printf "$(GREEN)Removing Python build artifacts…$(RESET)\n"
-	find inspectre -name '*.so' -delete 2>/dev/null || true
+	find rvsim -name '*.so' -delete 2>/dev/null || true
 	find . -path ./.venv -prune -o -path ./software -prune -o -name '__pycache__' -type d -print -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dist build *.egg-info
 

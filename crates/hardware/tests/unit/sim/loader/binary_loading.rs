@@ -3,19 +3,19 @@
 //! This module contains unit tests for the binary loading functionality,
 //! including loading binaries from disk and setting up kernel boot configurations.
 
-use inspectre::config::Config;
-use inspectre::core::Cpu;
-use inspectre::core::arch::csr;
-use inspectre::core::arch::mode::PrivilegeMode;
-use inspectre::isa::abi;
-use inspectre::sim::loader;
+use rvsim_core::config::Config;
+use rvsim_core::core::Cpu;
+use rvsim_core::core::arch::csr;
+use rvsim_core::core::arch::mode::PrivilegeMode;
+use rvsim_core::isa::abi;
+use rvsim_core::sim::loader;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> Cpu {
     let config = Config::default();
-    let system = inspectre::soc::System::new(&config, "");
+    let system = rvsim_core::soc::System::new(&config, "");
     Cpu::new(system, &config)
 }
 
@@ -181,11 +181,11 @@ fn test_setup_kernel_load_different_ram_bases() {
     let mut config2 = Config::default();
     config2.system.ram_base = 0x90000000;
 
-    let system1 = inspectre::soc::System::new(&config1, "");
+    let system1 = rvsim_core::soc::System::new(&config1, "");
     let mut cpu1 = Cpu::new(system1, &config1);
     loader::setup_kernel_load(&mut cpu1, &config1, "", None, None);
 
-    let system2 = inspectre::soc::System::new(&config2, "");
+    let system2 = rvsim_core::soc::System::new(&config2, "");
     let mut cpu2 = Cpu::new(system2, &config2);
     loader::setup_kernel_load(&mut cpu2, &config2, "", None, None);
 

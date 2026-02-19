@@ -3,9 +3,9 @@
 //! These tests verify that `Fpu::execute_full()` returns both the
 //! result and the correct accrued exception flags (NV, DZ, OF, NX).
 
-use inspectre::core::pipeline::signals::AluOp;
-use inspectre::core::units::fpu::Fpu;
-use inspectre::core::units::fpu::exception_flags::FpFlags;
+use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::units::fpu::Fpu;
+use rvsim_core::core::units::fpu::exception_flags::FpFlags;
 
 #[test]
 fn test_exception_dz() {

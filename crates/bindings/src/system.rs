@@ -4,10 +4,10 @@
 //! load binaries at address, then pass the system to `PyCpu` (consuming the reference).
 
 use crate::conversion::py_dict_to_config;
-use inspectre::config::Config;
-use inspectre::soc::System;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use rvsim_core::config::Config;
+use rvsim_core::soc::System;
 
 /// Python-exposed system: wraps the core `System` (bus, memory controller, devices). Consumed by `PyCpu::new`.
 #[pyclass]

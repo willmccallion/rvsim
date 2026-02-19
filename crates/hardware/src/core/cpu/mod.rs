@@ -1,11 +1,10 @@
 //! CPU Core Definition and Initialization.
 //!
-//! This module defines the central `Cpu` structure, which serves as the container for the
-//! entire processor state. It coordinates the following:
-//! 1. **State Management:** Maintains registers, program counter, and privilege modes.
-//! 2. **Pipeline Control:** Manages latches and shadow buffers for five-stage execution.
-//! 3. **Memory Hierarchy:** Integrates MMU, TLBs, and multi-level cache simulations.
-//! 4. **System Integration:** Interfaces with the system bus, devices, and RAM.
+//! This module defines the central `Cpu` structure, which holds all architectural
+//! processor state. The pipeline lives separately in `Simulator`; this struct owns:
+//! 1. **State Management:** Registers, program counter, and privilege modes.
+//! 2. **Memory Hierarchy:** MMU, TLBs, and multi-level cache simulations.
+//! 3. **System Integration:** System bus, devices, and RAM.
 
 /// Control and Status Register access and management.
 pub mod csr;
@@ -23,19 +22,16 @@ use crate::common::RegisterFile;
 use crate::config::Config;
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
-use crate::core::pipeline::latches::{
-    ExMem, ExMemEntry, IdEx, IdExEntry, IfId, IfIdEntry, MemWb, MemWbEntry,
-};
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::CacheSim;
 use crate::core::units::mmu::Mmu;
 use crate::soc::System;
 use crate::stats::SimStats;
 
-/// Main CPU structure containing all processor state and components.
+/// CPU architectural state: registers, caches, MMU, bus, and statistics.
 ///
-/// The CPU orchestrates instruction execution through the five-stage pipeline,
-/// manages memory hierarchy, handles traps, and tracks performance statistics.
+/// The pipeline is owned by `Simulator`, not by `Cpu`. This struct holds only
+/// the architectural state that the pipeline reads and writes.
 pub struct Cpu {
     /// General Purpose and Floating Point Registers.
     pub regs: RegisterFile,
@@ -63,16 +59,6 @@ pub struct Cpu {
     /// Base address for MMIO (used to bypass cache).
     pub mmio_base: u64,
 
-    /// IF/ID Latch.
-    pub if_id: IfId,
-    /// ID/EX Latch.
-    pub id_ex: IdEx,
-    /// EX/MEM Latch.
-    pub ex_mem: ExMem,
-    /// MEM/WB Latch.
-    pub mem_wb: MemWb,
-    /// Writeback Latch (for forwarding).
-    pub wb_latch: MemWb,
     /// Branch Predictor Unit.
     pub branch_predictor: BranchPredictorWrapper,
     /// Pipeline width (superscalar degree).
@@ -86,10 +72,6 @@ pub struct Cpu {
     pub stats: SimStats,
     /// Direct mode (no translation, flat memory).
     pub direct_mode: bool,
-    /// Stall counter.
-    pub stall_cycles: u64,
-    /// ALU operation timer (for multi-cycle ops).
-    pub alu_timer: u64,
     /// CLINT time divider.
     pub clint_divider: u64,
     /// Last PC (for hang detection).
@@ -100,11 +82,6 @@ pub struct Cpu {
     pub wfi_waiting: bool,
     /// PC when WFI was entered.
     pub wfi_pc: u64,
-    /// Interrupt inhibit counter (cycles to skip interrupt checks).
-    /// Set to 1 after CSR writes, 2 after SRET/MRET to let pre-return
-    /// instructions drain from the pipeline before allowing interrupts.
-    pub interrupt_inhibit_cycles: u8,
-
     /// Raw pointer to the start of simulated RAM.
     ///
     /// # Safety Invariants
@@ -123,15 +100,6 @@ pub struct Cpu {
     pub ram_start: u64,
     /// Physical address where RAM ends (exclusive).
     pub ram_end: u64,
-
-    /// Shadow buffer for IF/ID pipeline latch to avoid allocation churn.
-    pub if_id_shadow: Vec<IfIdEntry>,
-    /// Shadow buffer for ID/EX pipeline latch.
-    pub id_ex_shadow: Vec<IdExEntry>,
-    /// Shadow buffer for EX/MEM pipeline latch.
-    pub ex_mem_shadow: Vec<ExMemEntry>,
-    /// Shadow buffer for MEM/WB pipeline latch.
-    pub mem_wb_shadow: Vec<MemWbEntry>,
 
     /// Ring buffer of (pc, inst) for last N retired instructions (for invalid-PC debug trace).
     pub pc_trace: Vec<(u64, u32)>,
@@ -247,19 +215,12 @@ impl Cpu {
             privilege,
             direct_mode,
             mmio_base: config.system.ram_base,
-            if_id: IfId::default(),
-            id_ex: IdEx::default(),
-            ex_mem: ExMem::default(),
-            mem_wb: MemWb::default(),
-            wb_latch: MemWb::default(),
             stats: SimStats::default(),
             branch_predictor: bp,
             l1_i_cache: CacheSim::new(&config.cache.l1_i),
             l1_d_cache: CacheSim::new(&config.cache.l1_d),
             l2_cache: CacheSim::new(&config.cache.l2),
             l3_cache: CacheSim::new(&config.cache.l3),
-            stall_cycles: 0,
-            alu_timer: 0,
             mmu: Mmu::new(config.memory.tlb_size),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
@@ -268,14 +229,9 @@ impl Cpu {
             same_pc_count: 0,
             wfi_waiting: false,
             wfi_pc: 0,
-            interrupt_inhibit_cycles: 0,
             ram_ptr,
             ram_start,
             ram_end,
-            if_id_shadow: Vec::with_capacity(config.pipeline.width),
-            id_ex_shadow: Vec::with_capacity(config.pipeline.width),
-            ex_mem_shadow: Vec::with_capacity(config.pipeline.width),
-            mem_wb_shadow: Vec::with_capacity(config.pipeline.width),
             pc_trace: Vec::with_capacity(PC_TRACE_MAX),
             last_invalid_pc_debug: None,
         }

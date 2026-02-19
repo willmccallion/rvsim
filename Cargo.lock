@@ -329,33 +329,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inspectre"
-version = "0.9.7"
-dependencies = [
- "env_logger",
- "libc",
- "log",
- "mockall",
- "pretty_assertions",
- "proptest",
- "rstest",
- "serde",
- "serde_json",
- "tempfile",
- "which",
-]
-
-[[package]]
-name = "inspectre-bindings"
-version = "0.9.7"
-dependencies = [
- "inspectre",
- "pyo3",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -824,6 +797,33 @@ dependencies = [
  "quick-error",
  "tempfile",
  "wait-timeout",
+]
+
+[[package]]
+name = "rvsim-bindings"
+version = "0.10.0"
+dependencies = [
+ "pyo3",
+ "rvsim-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rvsim-core"
+version = "0.10.0"
+dependencies = [
+ "env_logger",
+ "libc",
+ "log",
+ "mockall",
+ "pretty_assertions",
+ "proptest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "which",
 ]
 
 [[package]]

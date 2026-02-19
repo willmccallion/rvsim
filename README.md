@@ -1,5 +1,7 @@
 # RISC-V 64-bit System Simulator
 
+**WARNING:** This project is currently broken due to ongoing refactors from version 0.9.0. Version 1.0.0 will be released once these refactors are complete and stable.
+
 A cycle-accurate system simulator for the RISC-V 64-bit architecture (RV64IMAFD). Features a 5-stage pipelined CPU, comprehensive memory hierarchy, and can boot Linux (experimental).
 
 ## Technologies Used
@@ -36,11 +38,11 @@ A cycle-accurate system simulator for the RISC-V 64-bit architecture (RV64IMAFD)
 ## Project Structure
 
 ```
-inspectre/
+rvsim/
 ├── crates/              # Rust workspace
 │   ├── hardware/        # CPU simulator core
 │   └── bindings/        # Python bindings (PyO3)
-├── inspectre/           # Python package for scripting
+├── rvsim/               # Python package for scripting
 ├── software/            # System software
 │   ├── libc/            # Custom C standard library
 │   └── linux/           # Linux boot configuration
@@ -57,7 +59,7 @@ inspectre/
 
 **Python bindings** (via pip):
 ```bash
-pip install inspectre-sim
+pip install rvsim
 ```
 
 ## Build from Source
@@ -76,12 +78,12 @@ make build
 
 **Run a benchmark:**
 ```bash
-inspectre -f software/bin/benchmarks/qsort.bin
+rvsim -f software/bin/benchmarks/qsort.bin
 ```
 
 **Run a Python script:**
 ```bash
-inspectre --script scripts/benchmarks/tests/smoke_test.py
+rvsim --script scripts/benchmarks/tests/smoke_test.py
 ```
 
 ### Available Make Targets
@@ -101,7 +103,7 @@ make clean          # Remove all build artifacts
 The simulator supports Python scripting for hardware configuration and performance analysis:
 
 ```python
-from inspectre import SimConfig, Simulator
+from rvsim import SimConfig, Simulator
 
 # Configure a machine model
 config = SimConfig.default()
@@ -125,7 +127,7 @@ See **[docs/](docs/README.md)** for full API documentation and architecture deta
 
 ## Linux Boot (Experimental)
 
-The simulator can boot Linux, though full boot is still in progress:
+⚠️ **Experimental Feature** — The simulator can boot Linux, though full boot is still in progress:
 
 ```bash
 make linux          # Download and build Linux (takes time)

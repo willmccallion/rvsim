@@ -82,7 +82,7 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p inspectre --no-verify
+          cargo publish -p rvsim --no-verify
 
   # ── Publish to PyPI ────────────────────────────────────────────────────────
   publish-pypi:

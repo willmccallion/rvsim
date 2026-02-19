@@ -1,22 +1,22 @@
 //! CPU Python binding.
 //!
-//! Exposes the simulator CPU to Python: create from config dict, tick, run until exit,
+//! Exposes the simulator to Python: create from config dict, tick, run until exit,
 //! load kernel, and retrieve stats. Handles Python signal checks and stdout flush for UART visibility.
 
 use crate::conversion::py_dict_to_config;
 use crate::stats::PyStats;
 use crate::system::PySystem;
-use inspectre::core::Cpu;
-use inspectre::core::arch::mode::PrivilegeMode;
-use inspectre::sim::loader;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use rvsim_core::Simulator;
+use rvsim_core::core::arch::mode::PrivilegeMode;
+use rvsim_core::sim::loader;
 use std::io::Write;
 
-/// Python-exposed CPU: wraps the core `Cpu` for stepping and running from Python.
+/// Python-exposed CPU: wraps the `Simulator` (CPU + pipeline) for stepping and running from Python.
 #[pyclass]
 pub struct PyCpu {
-    pub inner: Cpu,
+    pub inner: Simulator,
 }
 
 #[pymethods]
@@ -42,9 +42,9 @@ impl PyCpu {
 
         let config = py_dict_to_config(py, config_dict)?;
 
-        let cpu = Cpu::new(sys, &config);
+        let sim = Simulator::new(sys, &config);
 
-        Ok(PyCpu { inner: cpu })
+        Ok(PyCpu { inner: sim })
     }
 
     /// Loads a kernel into memory and prepares the CPU for execution.
@@ -71,8 +71,14 @@ impl PyCpu {
     ) -> PyResult<()> {
         let config = py_dict_to_config(py, config_dict)?;
 
-        loader::setup_kernel_load(&mut self.inner, &config, "", dtb_path, Some(kernel_path));
-        self.inner.direct_mode = false;
+        loader::setup_kernel_load(
+            &mut self.inner.cpu,
+            &config,
+            "",
+            dtb_path,
+            Some(kernel_path),
+        );
+        self.inner.cpu.direct_mode = false;
         Ok(())
     }
 
@@ -92,12 +98,12 @@ impl PyCpu {
     /// This method clones the internal statistics and converts them into a [`PyStats`]
     /// object, typically for exposure to Python.
     pub fn get_stats(&self) -> PyStats {
-        PyStats::from(self.inner.stats.clone())
+        PyStats::from(self.inner.cpu.stats.clone())
     }
 
     /// Returns the current value of the program counter (PC).
     pub fn get_pc(&self) -> u64 {
-        self.inner.pc
+        self.inner.cpu.pc
     }
 
     /// Runs the simulation until the program exits (e.g., via SysCon power-off) or until the optional cycle limit is reached.
@@ -113,17 +119,17 @@ impl PyCpu {
     /// The exit code returned by the simulated program if it exited, or None if the cycle limit was reached.
     #[pyo3(signature = (limit=None))]
     pub fn run(&mut self, py: Python, limit: Option<u64>) -> PyResult<Option<u64>> {
-        let start_cycles = self.inner.stats.cycles;
+        let start_cycles = self.inner.cpu.stats.cycles;
         loop {
             // Check if we've hit the cycle limit (if specified)
             if let Some(max_cycles) = limit
-                && self.inner.stats.cycles - start_cycles >= max_cycles
+                && self.inner.cpu.stats.cycles - start_cycles >= max_cycles
             {
                 let _ = std::io::stdout().flush();
                 return Ok(None);
             }
 
-            if self.inner.stats.cycles.is_multiple_of(10000) {
+            if self.inner.cpu.stats.cycles.is_multiple_of(10000) {
                 py.check_signals()?;
                 let _ = std::io::stdout().flush();
             }
@@ -142,28 +148,28 @@ impl PyCpu {
 
     /// Enable or disable direct (bare-metal) mode. When enabled, traps cause exit instead of jumping to trap handler.
     pub fn set_direct_mode(&mut self, enabled: bool) {
-        self.inner.direct_mode = enabled;
+        self.inner.cpu.direct_mode = enabled;
         if enabled {
-            self.inner.privilege = PrivilegeMode::User;
+            self.inner.cpu.privilege = PrivilegeMode::User;
         }
     }
 
     /// Set the program counter.
     pub fn set_pc(&mut self, pc: u64) {
-        self.inner.pc = pc;
+        self.inner.cpu.pc = pc;
     }
 
     /// Write a general-purpose register (0–31). x0 is read-only and ignored.
     pub fn write_register(&mut self, reg: u8, value: u64) {
         if reg < 32 {
-            self.inner.regs.write(reg as usize, value);
+            self.inner.cpu.regs.write(reg as usize, value);
         }
     }
 
     /// Read a general-purpose register (0–31).
     pub fn read_register(&self, reg: u8) -> u64 {
         if reg < 32 {
-            self.inner.regs.read(reg as usize)
+            self.inner.cpu.regs.read(reg as usize)
         } else {
             0
         }
@@ -171,17 +177,17 @@ impl PyCpu {
 
     /// Read a 32-bit value from a physical memory address.
     pub fn read_memory_u32(&mut self, paddr: u64) -> u32 {
-        self.inner.bus.bus.read_u32(paddr)
+        self.inner.cpu.bus.bus.read_u32(paddr)
     }
 
     /// Read a 64-bit value from a physical memory address.
     pub fn read_memory_u64(&mut self, paddr: u64) -> u64 {
-        self.inner.bus.bus.read_u64(paddr)
+        self.inner.cpu.bus.bus.read_u64(paddr)
     }
 
     /// Read a CSR by name. Returns None if unknown.
     pub fn read_csr(&self, name: &str) -> Option<u64> {
-        let c = &self.inner.csrs;
+        let c = &self.inner.cpu.csrs;
         match name {
             "mstatus" => Some(c.mstatus),
             "misa" => Some(c.misa),
@@ -207,7 +213,7 @@ impl PyCpu {
 
     /// Get the current privilege mode as a string ("M", "S", or "U").
     pub fn get_privilege(&self) -> &'static str {
-        match self.inner.privilege {
+        match self.inner.cpu.privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
             PrivilegeMode::User => "U",
@@ -216,11 +222,64 @@ impl PyCpu {
 
     /// Enable or disable instruction tracing.
     pub fn set_trace(&mut self, enabled: bool) {
-        self.inner.trace = enabled;
+        self.inner.cpu.trace = enabled;
     }
 
     /// Return the last N committed (pc, instruction) pairs from the ring buffer.
     pub fn get_pc_trace(&self) -> Vec<(u64, u32)> {
-        self.inner.pc_trace.clone()
+        self.inner.cpu.pc_trace.clone()
+    }
+
+    /// Advance the simulation until one new instruction commits, then return it.
+    ///
+    /// Returns `(pc, raw_inst, disasm_str)` for the committed instruction, or
+    /// `None` if the program exited before an instruction could commit.
+    ///
+    /// Useful for instruction-level single-stepping in debug scripts without
+    /// having to guess how many cycles a single instruction takes.
+    ///
+    /// Checks Python signals every 10 000 cycles to remain interruptible.
+    #[pyo3(signature = (max_cycles=100_000))]
+    pub fn step_instruction(
+        &mut self,
+        py: Python,
+        max_cycles: u64,
+    ) -> PyResult<Option<(u64, u32, String)>> {
+        let before_len = self.inner.cpu.pc_trace.len();
+        let before_last = self.inner.cpu.pc_trace.last().copied();
+        let mut cycles_run: u64 = 0;
+
+        loop {
+            if cycles_run >= max_cycles {
+                return Ok(None);
+            }
+
+            if cycles_run.is_multiple_of(10000) {
+                py.check_signals()?;
+            }
+
+            match self.inner.tick() {
+                Ok(_) => {
+                    if let Some(code) = self.inner.take_exit() {
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                        // Return the exit as None (program ended)
+                        let _ = code;
+                        return Ok(None);
+                    }
+                }
+                Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+            }
+            cycles_run += 1;
+
+            // A new instruction committed if the trace grew or the last entry changed
+            let new_len = self.inner.cpu.pc_trace.len();
+            let new_last = self.inner.cpu.pc_trace.last().copied();
+            if (new_last != before_last || new_len > before_len)
+                && let Some((pc, inst)) = new_last
+            {
+                let disasm = rvsim_core::isa::disasm::disassemble(inst);
+                return Ok(Some((pc, inst, disasm)));
+            }
+        }
     }
 }

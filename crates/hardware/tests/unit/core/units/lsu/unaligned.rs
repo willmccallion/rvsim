@@ -3,8 +3,8 @@
 //! Verifies alignment checks, trap generation, split loads, split stores,
 //! cache line crossing detection, and latency calculations.
 
-use inspectre::common::error::Trap;
-use inspectre::core::units::lsu::unaligned;
+use rvsim_core::common::error::Trap;
+use rvsim_core::core::units::lsu::unaligned;
 
 // ══════════════════════════════════════════════════════════
 // 1. Alignment checking

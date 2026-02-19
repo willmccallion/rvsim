@@ -3,9 +3,9 @@
 //! These tests verify that `Fpu::execute_with_rm()` correctly applies
 //! each of the five RISC-V rounding modes.
 
-use inspectre::core::pipeline::signals::AluOp;
-use inspectre::core::units::fpu::Fpu;
-use inspectre::core::units::fpu::rounding_modes::RoundingMode;
+use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::units::fpu::Fpu;
+use rvsim_core::core::units::fpu::rounding_modes::RoundingMode;
 
 /// Helper: box two f32 values, execute with rounding mode, unbox result.
 fn fadd_f32_rm(a: f32, b: f32, rm: RoundingMode) -> f32 {

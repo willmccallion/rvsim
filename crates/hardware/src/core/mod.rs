@@ -10,7 +10,7 @@ pub mod arch;
 /// CPU core implementation and execution orchestration.
 pub mod cpu;
 
-/// Instruction pipeline implementation (stages, latches, hazards, signals).
+/// Instruction pipeline implementation (10-stage, latches, signals).
 pub mod pipeline;
 
 /// Execution units (ALU, FPU, LSU, MMU, branch predictor, cache, prefetcher).

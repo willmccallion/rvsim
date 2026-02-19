@@ -5,7 +5,7 @@
 //! page offset calculations, and comparison logic to ensure robust memory
 //! management within the RISC-V emulator.
 
-use inspectre::common::addr::{PhysAddr, VirtAddr};
+use rvsim_core::common::addr::{PhysAddr, VirtAddr};
 
 /// Tests the creation of a [`VirtAddr`] and verifies that the stored value
 /// can be retrieved correctly.

@@ -1,5 +1,5 @@
 [package]
-name = "inspectre"
+name = "rvsim-core"
 description = "RISC-V cycle-accurate simulator core library"
 version.workspace = true
 edition.workspace = true

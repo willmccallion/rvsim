@@ -8,7 +8,7 @@
 //! - Trap vector base address configuration (`mtvec`, `stvec`) for both direct and vectored modes.
 //! - Machine status management (`mstatus`), including interrupt enables, privilege modes, and extension states.
 
-use inspectre::core::arch::csr::{self, Csrs};
+use rvsim_core::core::arch::csr::{self, Csrs};
 
 /// Tests the delegation of exceptions from M-mode to S-mode using the `medeleg` register.
 ///

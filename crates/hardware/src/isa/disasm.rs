@@ -15,7 +15,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use inspectre::isa::disasm::disassemble;
+//! use rvsim_core::isa::disasm::disassemble;
 //! let text = disassemble(0x00A00513); // ADDI x10, x0, 10
 //! assert_eq!(text, "addi x10, x0, 10");
 //! ```
@@ -27,6 +27,7 @@ use crate::isa::rv64d::funct7 as d_f7;
 use crate::isa::rv64f::{funct3 as f_f3, funct7 as f_f7, opcodes as f_op};
 use crate::isa::rv64i::{funct3 as i_f3, funct7 as i_f7, opcodes as i_op};
 use crate::isa::rv64m::{funct3 as m_f3, opcodes as m_op};
+use crate::isa::rvc;
 
 /// ABI register names for x0–x31.
 const REG_NAMES: [&str; 32] = [
@@ -63,6 +64,16 @@ fn freg(idx: usize) -> &'static str {
 ///
 /// * `inst` - The raw 32-bit instruction encoding.
 pub fn disassemble(inst: u32) -> String {
+    // Compressed instructions: expand to 32-bit equivalent first.
+    if inst & 0x3 != 0x3 {
+        let c_inst = inst as u16;
+        let expanded = rvc::expand::expand(c_inst);
+        if expanded == 0 {
+            return format!("unknown ({inst:#010x})");
+        }
+        return disassemble(expanded);
+    }
+
     let opcode = inst.opcode();
     let rd = inst.rd();
     let rs1 = inst.rs1();

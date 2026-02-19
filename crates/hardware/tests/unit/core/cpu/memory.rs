@@ -2,13 +2,13 @@
 //!
 //! Tests for address translation, cache simulation, and memory access.
 
-use inspectre::common::{AccessType, VirtAddr};
-use inspectre::config::Config;
-use inspectre::core::Cpu;
+use rvsim_core::common::{AccessType, VirtAddr};
+use rvsim_core::config::Config;
+use rvsim_core::core::Cpu;
 
 fn create_test_cpu() -> Cpu {
     let config = Config::default();
-    let system = inspectre::soc::System::new(&config, "");
+    let system = rvsim_core::soc::System::new(&config, "");
     let mut cpu = Cpu::new(system, &config);
     cpu.direct_mode = true; // Use direct addressing for simple tests
     cpu
@@ -95,8 +95,7 @@ fn test_cache_access_returns_latency() {
     let mut cpu = create_test_cpu();
     let paddr = 0x8000_0000u64;
 
-    let latency =
-        cpu.simulate_memory_access(inspectre::common::PhysAddr::new(paddr), AccessType::Read);
+    let latency = cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
 
     // Latency should be a valid value
     assert!(latency < u64::MAX);
@@ -108,7 +107,7 @@ fn test_cache_access_instruction_fetch() {
     let paddr = 0x8000_0000u64;
 
     let latency =
-        cpu.simulate_memory_access(inspectre::common::PhysAddr::new(paddr), AccessType::Fetch);
+        cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Fetch);
 
     assert!(latency < u64::MAX);
 }
@@ -119,7 +118,7 @@ fn test_cache_access_write() {
     let paddr = 0x8000_0000u64;
 
     let latency =
-        cpu.simulate_memory_access(inspectre::common::PhysAddr::new(paddr), AccessType::Write);
+        cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Write);
 
     assert!(latency < u64::MAX);
 }
@@ -132,8 +131,7 @@ fn test_cache_disabled() {
 
     let paddr = 0x8000_0000u64;
 
-    let latency =
-        cpu.simulate_memory_access(inspectre::common::PhysAddr::new(paddr), AccessType::Read);
+    let latency = cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
 
     // Should still return valid latency
     assert!(latency < u64::MAX);
@@ -146,7 +144,7 @@ fn test_multiple_memory_accesses() {
     for i in 0..5 {
         let paddr = 0x8000_0000u64 + i as u64 * 0x1000;
         let latency =
-            cpu.simulate_memory_access(inspectre::common::PhysAddr::new(paddr), AccessType::Read);
+            cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
 
         assert!(latency < u64::MAX);
     }
@@ -156,7 +154,7 @@ fn test_multiple_memory_accesses() {
 fn test_memory_access_with_different_access_types() {
     let mut cpu = create_test_cpu();
     let paddr = 0x8000_0000u64;
-    let paddr_obj = inspectre::common::PhysAddr::new(paddr);
+    let paddr_obj = rvsim_core::common::PhysAddr::new(paddr);
 
     let fetch_latency = cpu.simulate_memory_access(paddr_obj, AccessType::Fetch);
     let read_latency = cpu.simulate_memory_access(paddr_obj, AccessType::Read);
@@ -174,7 +172,7 @@ fn test_cache_stats_updated() {
     let initial_hits = cpu.stats.icache_hits;
 
     cpu.simulate_memory_access(
-        inspectre::common::PhysAddr::new(0x8000_0000u64),
+        rvsim_core::common::PhysAddr::new(0x8000_0000u64),
         AccessType::Fetch,
     );
 
@@ -191,7 +189,7 @@ fn test_l1_icache_enabled_hit_tracking() {
     let initial_misses = cpu.stats.icache_misses;
 
     // Access the same address twice - first should miss, second should hit
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
     cpu.simulate_memory_access(paddr, AccessType::Fetch);
     let after_first = cpu.stats.icache_misses;
 
@@ -211,7 +209,7 @@ fn test_l1_dcache_enabled_hit_tracking() {
     let initial_misses = cpu.stats.dcache_misses;
 
     // Access the same address twice - first should miss, second should hit
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
     cpu.simulate_memory_access(paddr, AccessType::Read);
     let after_first = cpu.stats.dcache_misses;
 
@@ -231,7 +229,7 @@ fn test_l2_cache_enabled() {
     let initial_l2_hits = cpu.stats.l2_hits;
     let initial_l2_misses = cpu.stats.l2_misses;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
     cpu.simulate_memory_access(paddr, AccessType::Read);
 
     // L2 stats should be updated
@@ -248,7 +246,7 @@ fn test_l3_cache_enabled() {
     let initial_l3_hits = cpu.stats.l3_hits;
     let initial_l3_misses = cpu.stats.l3_misses;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
     cpu.simulate_memory_access(paddr, AccessType::Read);
 
     // L3 stats should be updated
@@ -263,7 +261,7 @@ fn test_all_caches_enabled() {
     cpu.l2_cache.enabled = true;
     cpu.l3_cache.enabled = true;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
 
     // Test instruction fetch
     let fetch_latency = cpu.simulate_memory_access(paddr, AccessType::Fetch);
@@ -322,7 +320,7 @@ fn test_cache_write_access_tracking() {
     let mut cpu = create_test_cpu();
     cpu.l1_d_cache.enabled = true;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
 
     // Perform multiple writes
     for _ in 0..3 {
@@ -340,7 +338,7 @@ fn test_cache_hierarchy_miss_propagation() {
     cpu.l2_cache.enabled = true;
     cpu.l3_cache.enabled = true;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
 
     // First access should miss in all levels
     cpu.simulate_memory_access(paddr, AccessType::Read);
@@ -356,7 +354,7 @@ fn test_different_addresses_different_cache_lines() {
 
     // Access addresses that should map to different cache lines
     for i in 0..10 {
-        let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64 + i * 64);
+        let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64 + i * 64);
         cpu.simulate_memory_access(paddr, AccessType::Read);
     }
 
@@ -370,7 +368,7 @@ fn test_instruction_and_data_caches_independent() {
     cpu.l1_i_cache.enabled = true;
     cpu.l1_d_cache.enabled = true;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
 
     let initial_icache_stats = cpu.stats.icache_hits + cpu.stats.icache_misses;
     let initial_dcache_stats = cpu.stats.dcache_hits + cpu.stats.dcache_misses;
@@ -398,7 +396,7 @@ fn test_memory_access_latency_increases_with_cache_misses() {
     cpu.l1_d_cache.enabled = true;
     cpu.l2_cache.enabled = true;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
 
     // First access (should miss and have higher latency)
     let first_latency = cpu.simulate_memory_access(paddr, AccessType::Read);
@@ -436,7 +434,7 @@ fn test_cache_disabled_no_stats_update() {
     let initial_icache_hits = cpu.stats.icache_hits;
     let initial_dcache_hits = cpu.stats.dcache_hits;
 
-    let paddr = inspectre::common::PhysAddr::new(0x8000_0000u64);
+    let paddr = rvsim_core::common::PhysAddr::new(0x8000_0000u64);
     cpu.simulate_memory_access(paddr, AccessType::Fetch);
     cpu.simulate_memory_access(paddr, AccessType::Read);
 

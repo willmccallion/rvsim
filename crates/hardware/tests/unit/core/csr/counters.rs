@@ -9,7 +9,7 @@
 //! - Counters handle maximum `u64` values.
 //! - Counters wrap around correctly on overflow.
 
-use inspectre::core::arch::csr::Csrs;
+use rvsim_core::core::arch::csr::Csrs;
 
 /// Tests basic increment functionality for cycle and instruction counters.
 #[test]

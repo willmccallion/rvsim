@@ -13,8 +13,8 @@
 //! Note: AND, OR, XOR have no *W variants in the base ISA — they always
 //! operate on full XLEN bits. SLT/SLTU likewise have no *W variants.
 
-use inspectre::core::pipeline::signals::AluOp;
-use inspectre::core::units::alu::Alu;
+use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::units::alu::Alu;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

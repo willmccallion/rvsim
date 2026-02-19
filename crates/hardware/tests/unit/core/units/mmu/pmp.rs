@@ -3,7 +3,7 @@
 //! Verifies address matching (TOR, NA4, NAPOT), permission checks,
 //! M-mode bypass logic, and locking behaviour per RISC-V spec §3.7.
 
-use inspectre::core::units::mmu::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
+use rvsim_core::core::units::mmu::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
 
 // ══════════════════════════════════════════════════════════
 // Constants

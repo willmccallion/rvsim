@@ -1,13 +1,14 @@
 use crate::common::mocks::memory::{MockMemory, MockMemoryController};
-use inspectre::config::Config;
-use inspectre::core::Cpu;
-use inspectre::soc::System;
-use inspectre::soc::interconnect::Bus;
+use rvsim_core::Simulator;
+use rvsim_core::config::Config;
+use rvsim_core::core::Cpu;
+use rvsim_core::soc::System;
+use rvsim_core::soc::interconnect::Bus;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 pub struct TestContext {
-    pub cpu: Cpu,
+    pub sim: Simulator,
 }
 
 impl Default for TestContext {
@@ -29,7 +30,7 @@ impl TestContext {
             exit_request: Arc::new(AtomicU64::new(u64::MAX)),
         };
 
-        let mut cpu = Cpu::new(system, &config);
+        let mut sim = Simulator::new(system, &config);
 
         // In tests, bypass the expensive simulate_memory_access path.
         // The default mmio_base == ram_base (0x8000_0000), which routes all
@@ -37,14 +38,24 @@ impl TestContext {
         // adding ~10 stall cycles per access and starving the pipeline.
         // Setting mmio_base to MAX ensures all addresses use the fast
         // bus transit time path instead.
-        cpu.mmio_base = u64::MAX;
+        sim.cpu.mmio_base = u64::MAX;
 
-        Self { cpu }
+        Self { sim }
+    }
+
+    /// Convenience accessor for the CPU.
+    pub fn cpu(&self) -> &Cpu {
+        &self.sim.cpu
+    }
+
+    /// Mutable convenience accessor for the CPU.
+    pub fn cpu_mut(&mut self) -> &mut Cpu {
+        &mut self.sim.cpu
     }
 
     pub fn with_memory(mut self, size: usize, base: u64) -> Self {
         let mem = MockMemory::new(size, base);
-        self.cpu.bus.bus.add_device(Box::new(mem));
+        self.sim.cpu.bus.bus.add_device(Box::new(mem));
         self
     }
 
@@ -52,30 +63,30 @@ impl TestContext {
     pub fn load_program(mut self, addr: u64, instructions: &[u32]) -> Self {
         for (i, inst) in instructions.iter().enumerate() {
             let offset = addr + (i as u64) * 4;
-            self.cpu.bus.bus.write_u32(offset, *inst);
+            self.sim.cpu.bus.bus.write_u32(offset, *inst);
         }
-        self.cpu.pc = addr;
+        self.sim.cpu.pc = addr;
         self
     }
 
     /// Set a general-purpose register value.
     pub fn set_reg(&mut self, reg: usize, val: u64) {
-        self.cpu.regs.write(reg, val);
+        self.sim.cpu.regs.write(reg, val);
     }
 
     /// Read a general-purpose register value.
     pub fn get_reg(&self, reg: usize) -> u64 {
-        self.cpu.regs.read(reg)
+        self.sim.cpu.regs.read(reg)
     }
 
     /// Run the CPU for a specific number of cycles.
     pub fn run(&mut self, cycles: u64) {
         for _ in 0..cycles {
-            if let Err(e) = self.cpu.tick() {
+            if let Err(e) = self.sim.tick() {
                 eprintln!("CPU tick error: {}", e);
                 break;
             }
-            if self.cpu.exit_code.is_some() {
+            if self.sim.cpu.exit_code.is_some() {
                 break;
             }
         }

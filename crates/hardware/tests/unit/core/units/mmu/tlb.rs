@@ -7,7 +7,7 @@
 //! - Capacity and full associativity (or lack thereof - TLB is direct mapped)
 //! - Flushing
 
-use inspectre::core::units::mmu::tlb::Tlb;
+use rvsim_core::core::units::mmu::tlb::Tlb;
 
 // ══════════════════════════════════════════════════════════
 // Helpers

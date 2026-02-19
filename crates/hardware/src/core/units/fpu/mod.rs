@@ -76,8 +76,8 @@ impl Fpu {
     /// # Examples
     ///
     /// ```
-    /// use inspectre::core::units::fpu::Fpu;
-    /// use inspectre::core::pipeline::signals::AluOp;
+    /// use rvsim_core::core::units::fpu::Fpu;
+    /// use rvsim_core::core::pipeline::signals::AluOp;
     ///
     /// // Single-precision addition with NaN boxing
     /// let a = Fpu::box_f32(2.5_f32);

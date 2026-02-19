@@ -3,9 +3,9 @@
 //! Verifies register identification (magic, version, device ID),
 //! status register, queue configuration, and interrupt status.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::virtio_disk::VirtioBlock;
-use inspectre::soc::memory::buffer::DramBuffer;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
+use rvsim_core::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
 fn make_virtio() -> VirtioBlock {

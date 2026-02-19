@@ -4,21 +4,21 @@
 //! 32-bit equivalent. Tests cover all three quadrants (Q0, Q1, Q2)
 //! and check register mappings, immediate extraction, and edge cases.
 
-use inspectre::isa::decode::decode;
-use inspectre::isa::rvc::expand::expand;
+use rvsim_core::isa::decode::decode;
+use rvsim_core::isa::rvc::expand::expand;
 
-use inspectre::isa::privileged::opcodes as sys_op;
-use inspectre::isa::rv64f::opcodes as f_op;
-use inspectre::isa::rv64i::funct3 as i_f3;
-use inspectre::isa::rv64i::funct7 as i_f7;
-use inspectre::isa::rv64i::opcodes as i_op;
+use rvsim_core::isa::privileged::opcodes as sys_op;
+use rvsim_core::isa::rv64f::opcodes as f_op;
+use rvsim_core::isa::rv64i::funct3 as i_f3;
+use rvsim_core::isa::rv64i::funct7 as i_f7;
+use rvsim_core::isa::rv64i::opcodes as i_op;
 
 // ──────────────────────────────────────────────────────────
 // Helper: decode expanded instruction for field checks
 // ──────────────────────────────────────────────────────────
 
 /// Expand a 16-bit compressed instruction and decode the resulting 32-bit instruction.
-fn expand_and_decode(cinst: u16) -> inspectre::isa::instruction::Decoded {
+fn expand_and_decode(cinst: u16) -> rvsim_core::isa::instruction::Decoded {
     let expanded = expand(cinst);
     assert_ne!(
         expanded, 0,

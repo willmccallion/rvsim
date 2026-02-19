@@ -3,8 +3,8 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "inspectre-sim"
-version = "0.9.7"
+name = "rvsim"
+version = "0.10.0"
 description = "High-performance RISC-V cycle-accurate system simulator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,10 +22,10 @@ classifiers = [
 ]
 
 [project.scripts]
-inspectre = "inspectre.__main__:main"
+rvsim = "rvsim.__main__:main"
 
 [tool.maturin]
 manifest-path = "crates/bindings/Cargo.toml"
 features = ["extension"]
-module-name = "inspectre._core"
+module-name = "rvsim._core"
 include = ["LICENSE-APACHE", "LICENSE-MIT"]

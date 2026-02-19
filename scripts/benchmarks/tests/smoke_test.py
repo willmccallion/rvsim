@@ -6,7 +6,7 @@ import os
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_root, "python"))
 
-from inspectre import Environment, run_experiment, SimConfig
+from rvsim import Environment, run_experiment, Config
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
     if not os.path.exists(binary):
         print("Skip: binary not found:", binary)
         return 0
-    env = Environment(binary=binary, config=SimConfig.default())
+    env = Environment(binary=binary, config=Config())
     result = run_experiment(env, quiet=True)
     print(
         "smoke_test: exit_code=%s ipc=%s" % (result.exit_code, result.stats.get("ipc"))

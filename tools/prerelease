@@ -7,7 +7,7 @@
 #   3. Tests
 #   4. All version strings match across every manifest
 #   5. Local version is strictly ahead of PyPI
-#   6. Local version is strictly ahead of crates.io (inspectre only)
+#   6. Local version is strictly ahead of crates.io (rvsim only)
 #   7. Wheel builds cleanly (maturin)
 
 set -euo pipefail
@@ -111,10 +111,10 @@ for toml in "$ROOT/crates/bindings/Cargo.toml"; do
                 fail "path dep '$dep_name' in $(basename $toml) pinned to $dep_ver, expected $CARGO_VER"
                 PATH_DEP_FAIL=1
             fi
-        elif [[ "$line" =~ ^inspectre.*path\ *= ]]; then
+        elif [[ "$line" =~ ^rvsim.*path\ *= ]]; then
             # path dep exists but has no version — only flag if it's a published crate
             dep_name=$(echo "$line" | sed 's/\s*=.*//' | tr -d ' ')
-            if [[ "$dep_name" != "inspectre-bindings" ]]; then
+            if [[ "$dep_name" != "rvsim-bindings" ]]; then
                 fail "path dep '$dep_name' in $(basename $toml) is missing a version — crates.io requires one"
                 PATH_DEP_FAIL=1
             fi
@@ -137,8 +137,8 @@ sys.exit(0 if parse('$1') > parse('$2') else 1)
 "
 }
 
-info "Checking PyPI (inspectre-sim)"
-PYPI_VER=$(curl -sf "https://pypi.org/pypi/inspectre-sim/json" \
+info "Checking PyPI (rvsim-sim)"
+PYPI_VER=$(curl -sf "https://pypi.org/pypi/rvsim-sim/json" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])" \
     2>/dev/null || echo "0.0.0")
 printf "    %-30s local=%-12s published=%s\n" "PyPI" "$PY_VER" "$PYPI_VER"
@@ -153,7 +153,7 @@ check_crate() {
     info "Checking crates.io ($crate)"
     local pub_ver
     pub_ver=$(curl -sf "https://crates.io/api/v1/crates/$crate" \
-        -H "User-Agent: inspectre-prerelease-check" \
+        -H "User-Agent: rvsim-prerelease-check" \
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['crate']['newest_version'])" \
         2>/dev/null || echo "0.0.0")
     printf "    %-30s local=%-12s published=%s\n" "$crate" "$local_ver" "$pub_ver"
@@ -164,7 +164,7 @@ check_crate() {
     fi
 }
 
-check_crate "inspectre" "$CARGO_VER"
+check_crate "rvsim" "$CARGO_VER"
 
 # ── 7. Build checks ────────────────────────────────────────────────────────
 section "Build checks"
@@ -172,7 +172,7 @@ section "Build checks"
 MATURIN="$([ -f "$ROOT/.venv/bin/maturin" ] && echo "$ROOT/.venv/bin/maturin" || command -v maturin 2>/dev/null || echo "")"
 
 # ── Wheels (maturin) ──────────────────────────────────────────────────────
-WHEEL_OUT="/tmp/inspectre-check-dist"
+WHEEL_OUT="/tmp/rvsim-check-dist"
 rm -rf "$WHEEL_OUT"
 mkdir -p "$WHEEL_OUT"
 

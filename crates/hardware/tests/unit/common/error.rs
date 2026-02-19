@@ -3,7 +3,7 @@
 //! This module contains unit tests for trap types, translation results,
 //! and error handling mechanisms.
 
-use inspectre::common::{PhysAddr, TranslationResult, Trap};
+use rvsim_core::common::{PhysAddr, TranslationResult, Trap};
 
 #[test]
 fn test_trap_instruction_address_misaligned_display() {

@@ -2,7 +2,7 @@
 //!
 //! This module contains unit tests for RISC-V privilege mode conversions and representations.
 
-use inspectre::core::arch::mode::PrivilegeMode;
+use rvsim_core::core::arch::mode::PrivilegeMode;
 
 #[test]
 fn test_privilege_mode_from_u8_user() {

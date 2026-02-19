@@ -18,7 +18,14 @@ import sys
 import tarfile
 import urllib.request
 
-from inspectre import SimConfig, Simulator
+from rvsim import (
+    Config,
+    Cache,
+    BranchPredictor,
+    ReplacementPolicy,
+    Prefetcher,
+    Simulator,
+)
 
 BUILDROOT_VER = "2024.08"
 BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.gz"
@@ -210,86 +217,65 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def optimized_config() -> SimConfig:
+def optimized_config() -> Config:
     """Machine config for Linux boot: 256MB RAM, full cache hierarchy, TAGE predictor."""
-    c = SimConfig.default()
-
-    # General
-    c.general.trace_instructions = False
-    c.general.start_pc = 0x80000000
-
-    # System
-    c.system.ram_base = 0x80000000
-    c.system.uart_base = 0x10000000
-    c.system.disk_base = 0x10001000
-    c.system.clint_base = 0x02000000
-    c.system.syscon_base = 0x00100000
-    c.system.kernel_offset = 0x200000
-    c.system.bus_width = 8
-    c.system.bus_latency = 1
-    c.system.clint_divider = 100
-
-    # Memory
-    c.memory.ram_size = 256 * 1024 * 1024
-    c.memory.controller = "Simple"
-    c.memory.row_miss_latency = 10
-    c.memory.tlb_size = 64
-
-    # L1 Instruction Cache
-    c.cache.l1_i.enabled = True
-    c.cache.l1_i.size_bytes = 65536
-    c.cache.l1_i.line_bytes = 64
-    c.cache.l1_i.ways = 8
-    c.cache.l1_i.policy = "PLRU"
-    c.cache.l1_i.latency = 1
-    c.cache.l1_i.prefetcher = "NextLine"
-    c.cache.l1_i.prefetch_degree = 2
-
-    # L1 Data Cache
-    c.cache.l1_d.enabled = True
-    c.cache.l1_d.size_bytes = 65536
-    c.cache.l1_d.line_bytes = 64
-    c.cache.l1_d.ways = 8
-    c.cache.l1_d.policy = "PLRU"
-    c.cache.l1_d.latency = 1
-    c.cache.l1_d.prefetcher = "Stride"
-    c.cache.l1_d.prefetch_table_size = 128
-    c.cache.l1_d.prefetch_degree = 2
-
-    # L2 Cache
-    c.cache.l2.enabled = True
-    c.cache.l2.size_bytes = 1048576
-    c.cache.l2.line_bytes = 64
-    c.cache.l2.ways = 16
-    c.cache.l2.policy = "PLRU"
-    c.cache.l2.latency = 8
-    c.cache.l2.prefetcher = "NextLine"
-    c.cache.l2.prefetch_degree = 1
-
-    # L3 Cache
-    c.cache.l3.enabled = True
-    c.cache.l3.size_bytes = 8 * 1024 * 1024
-    c.cache.l3.line_bytes = 64
-    c.cache.l3.ways = 16
-    c.cache.l3.policy = "PLRU"
-    c.cache.l3.latency = 28
-    c.cache.l3.prefetcher = "None"
-
-    # Pipeline
-    c.pipeline.branch_predictor = "TAGE"
-    c.pipeline.width = 1
-    c.pipeline.btb_size = 4096
-    c.pipeline.ras_size = 48
-
-    # TAGE
-    c.pipeline.tage.num_banks = 4
-    c.pipeline.tage.table_size = 2048
-    c.pipeline.tage.loop_table_size = 256
-    c.pipeline.tage.reset_interval = 2000
-    c.pipeline.tage.history_lengths = [5, 15, 44, 130]
-    c.pipeline.tage.tag_widths = [9, 9, 10, 10]
-
-    return c
+    return Config(
+        width=1,
+        branch_predictor=BranchPredictor.TAGE(
+            num_banks=4,
+            table_size=2048,
+            loop_table_size=256,
+            reset_interval=2000,
+            history_lengths=[5, 15, 44, 130],
+            tag_widths=[9, 9, 10, 10],
+        ),
+        btb_size=4096,
+        ras_size=48,
+        start_pc=0x80000000,
+        ram_base=0x80000000,
+        uart_base=0x10000000,
+        disk_base=0x10001000,
+        clint_base=0x02000000,
+        syscon_base=0x00100000,
+        kernel_offset=0x200000,
+        bus_width=8,
+        bus_latency=1,
+        clint_divider=100,
+        ram_size=256 * 1024 * 1024,
+        memory_controller=None,  # Simple
+        tlb_size=64,
+        l1i=Cache(
+            size="64KB",
+            line="64B",
+            ways=8,
+            policy=ReplacementPolicy.PLRU(),
+            latency=1,
+            prefetcher=Prefetcher.NextLine(degree=2),
+        ),
+        l1d=Cache(
+            size="64KB",
+            line="64B",
+            ways=8,
+            policy=ReplacementPolicy.PLRU(),
+            latency=1,
+            prefetcher=Prefetcher.Stride(degree=2, table_size=128),
+        ),
+        l2=Cache(
+            size="1MB",
+            line="64B",
+            ways=16,
+            policy=ReplacementPolicy.PLRU(),
+            latency=8,
+            prefetcher=Prefetcher.NextLine(degree=1),
+        ),
+        l3=Cache(
+            size="8MB",
+            line="64B",
+            ways=16,
+            policy=ReplacementPolicy.PLRU(),
+            latency=28,
+        ),
+    )
 
 
 def main():

@@ -1,24 +1,37 @@
 //! Instruction pipeline implementation.
 //!
-//! This module contains the implementation of the five-stage instruction pipeline.
-//! It includes the following components:
-//! 1. **Hazards:** Detection and resolution of data and structural hazards.
-//! 2. **Latches:** Inter-stage buffers for communication between pipeline stages.
-//! 3. **Signals:** Control signals generated during instruction decoding.
-//! 4. **Stages:** Implementation of Fetch, Decode, Execute, Memory, and Writeback stages.
-//! 5. **Traits:** Common interfaces for pipeline components and stages.
+//! This module contains the 10-stage pipeline infrastructure including:
+//! 1. **Engine:** Traits for pluggable backends (in-order, out-of-order).
+//! 2. **ROB:** Reorder buffer for in-order commit.
+//! 3. **Store Buffer:** Deferred store writes with forwarding.
+//! 4. **Frontend:** Fetch1, Fetch2, Decode, and Rename stages (shared across backends).
+//! 5. **Backend:** Issue, Execute, Memory1, Memory2, Writeback, and Commit stages.
+//! 6. **Latches:** Inter-stage buffers for communication between pipeline stages.
+//! 7. **Signals:** Control signals generated during instruction decoding.
 
-/// Pipeline hazard detection and forwarding logic.
-pub mod hazards;
+/// Execution engine traits and pipeline dispatch.
+pub mod engine;
 
-/// Inter-stage pipeline latches (IF/ID, ID/EX, EX/MEM, MEM/WB).
+/// Inter-stage pipeline latches.
 pub mod latches;
+
+/// Reorder buffer for in-order commit.
+pub mod rob;
 
 /// Control signals generated during instruction decode.
 pub mod signals;
 
-/// Pipeline stage implementations (fetch, decode, execute, memory, writeback).
-pub mod stages;
+/// Tag-based register scoreboard.
+pub mod scoreboard;
+
+/// Store buffer with forwarding.
+pub mod store_buffer;
 
 /// Traits for pipeline stage components.
 pub mod traits;
+
+/// Frontend pipeline stages.
+pub mod frontend;
+
+/// Backend pipeline stages.
+pub mod backend;

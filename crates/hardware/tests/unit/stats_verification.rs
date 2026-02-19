@@ -3,7 +3,7 @@
 //! Verifies default initialization, field mutation, and derived metric
 //! computation for the simulation statistics structure.
 
-use inspectre::stats::SimStats;
+use rvsim_core::stats::SimStats;
 
 #[test]
 fn default_stats_all_zero() {
@@ -145,7 +145,7 @@ fn stats_fp_instruction_categories() {
 
 #[test]
 fn stats_sections_constant_available() {
-    use inspectre::stats::STATS_SECTIONS;
+    use rvsim_core::stats::STATS_SECTIONS;
     assert!(STATS_SECTIONS.contains(&"summary"));
     assert!(STATS_SECTIONS.contains(&"core"));
     assert!(STATS_SECTIONS.contains(&"instruction_mix"));

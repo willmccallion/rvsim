@@ -44,7 +44,7 @@ pub mod sim;
 
 /// Unit tests for simulation statistics verification.
 ///
-/// This module contains tests that ensure the [`SimStats`](inspectre::stats::SimStats) structure
+/// This module contains tests that ensure the [`SimStats`](rvsim_core::stats::SimStats) structure
 /// correctly tracks and calculates various performance metrics, including
 /// instruction mixes, cache hit rates, and stall breakdowns.
 pub mod stats_verification;

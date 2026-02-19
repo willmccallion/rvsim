@@ -1,4 +1,4 @@
-use inspectre::isa::rv64i::opcodes::*;
+use rvsim_core::isa::rv64i::opcodes::*;
 
 pub struct InstructionBuilder {
     opcode: u32,

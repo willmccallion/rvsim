@@ -4,12 +4,10 @@
 //! It performs the following:
 //! 1. **Address Translation:** Interfaces with the MMU to convert virtual to physical addresses.
 //! 2. **Cache Simulation:** Models the behavior of L1, L2, and L3 caches during memory access.
-//! 3. **Pipeline Synchronization:** Handles the flushing of pending store operations to memory.
-//! 4. **Latency Modeling:** Calculates timing penalties for cache hits, misses, and bus transit.
+//! 3. **Latency Modeling:** Calculates timing penalties for cache hits, misses, and bus transit.
 
 use super::Cpu;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
-use crate::core::pipeline::signals;
 
 impl Cpu {
     /// Translates a virtual address to a physical address using the MMU.
@@ -57,6 +55,19 @@ impl Cpu {
         let next_lat = ram_latency;
         let is_inst = matches!(access, AccessType::Fetch);
         let is_write = matches!(access, AccessType::Write);
+
+        // Determine which L1 cache applies
+        let l1_enabled = if is_inst {
+            self.l1_i_cache.enabled
+        } else {
+            self.l1_d_cache.enabled
+        };
+
+        // If no cache level is enabled, there is no memory hierarchy to
+        // simulate — the pipeline structural latency is the only cost.
+        if !l1_enabled && !self.l2_cache.enabled && !self.l3_cache.enabled {
+            return 0;
+        }
 
         let (l1_hit, l1_pen) = if is_inst {
             if self.l1_i_cache.enabled {
@@ -111,95 +122,5 @@ impl Cpu {
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);
         total_penalty
-    }
-
-    /// Flushes pending stores in the pipeline to memory.
-    ///
-    /// Translates virtual addresses to physical addresses before writing,
-    /// just as the memory stage would normally do.
-    pub(crate) fn flush_pipeline_stores(&mut self) {
-        // Take entries out so we can access other fields of self for translation.
-        let mut entries = std::mem::take(&mut self.ex_mem.entries);
-
-        for entry in &mut entries {
-            if entry.ctrl.mem_write {
-                let vaddr = entry.alu;
-                let src = entry.store_data;
-                let width = entry.ctrl.width;
-
-                // Translate virtual address to physical address
-                let paddr = if self.direct_mode {
-                    vaddr
-                } else {
-                    let result = self.mmu.translate(
-                        VirtAddr::new(vaddr),
-                        AccessType::Write,
-                        self.privilege,
-                        &self.csrs,
-                        &mut self.bus.bus,
-                    );
-                    if result.trap.is_some() {
-                        if self.trace {
-                            println!(
-                                "[Pipeline Flush] Translation failed for store to vaddr={:#x}, skipping",
-                                vaddr
-                            );
-                        }
-                        entry.ctrl.mem_write = false;
-                        continue;
-                    }
-                    result.paddr.val()
-                };
-
-                if paddr >= self.ram_start && paddr < self.ram_end {
-                    let offset = (paddr - self.ram_start) as usize;
-                    // SAFETY: This write operation is safe because:
-                    // 1. `paddr` is validated to be within RAM bounds (>= ram_start && < ram_end)
-                    // 2. `offset` is computed from validated bounds, ensuring valid memory access
-                    // 3. `ram_ptr` points to valid, mutable memory allocated during CPU construction
-                    // 4. `write_unaligned()` safely handles potential misalignment for multi-byte writes
-                    // 5. Each write size (1/2/4/8 bytes) is guaranteed not to overflow the buffer
-                    // 6. Memory access permissions have been validated by MMU/PMP prior to this call
-                    // 7. This is only called for atomic operations which have exclusive access semantics
-                    unsafe {
-                        match width {
-                            signals::MemWidth::Byte => *self.ram_ptr.add(offset) = src as u8,
-                            signals::MemWidth::Half => {
-                                let ptr = self.ram_ptr.add(offset) as *mut u16;
-                                ptr.write_unaligned(src as u16);
-                            }
-                            signals::MemWidth::Word => {
-                                let ptr = self.ram_ptr.add(offset) as *mut u32;
-                                ptr.write_unaligned(src as u32);
-                            }
-                            signals::MemWidth::Double => {
-                                let ptr = self.ram_ptr.add(offset) as *mut u64;
-                                ptr.write_unaligned(src);
-                            }
-                            _ => {}
-                        }
-                    }
-                } else {
-                    match width {
-                        signals::MemWidth::Byte => self.bus.bus.write_u8(paddr, src as u8),
-                        signals::MemWidth::Half => self.bus.bus.write_u16(paddr, src as u16),
-                        signals::MemWidth::Word => self.bus.bus.write_u32(paddr, src as u32),
-                        signals::MemWidth::Double => self.bus.bus.write_u64(paddr, src),
-                        _ => {}
-                    }
-                }
-
-                entry.ctrl.mem_write = false;
-
-                if self.trace {
-                    println!(
-                        "[Pipeline Flush] Forced Store to vaddr={:#x} paddr={:#x} val={:#x}",
-                        vaddr, paddr, src
-                    );
-                }
-            }
-        }
-
-        self.ex_mem.entries = entries;
     }
 }

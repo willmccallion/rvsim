@@ -64,7 +64,7 @@ Each machine dir has:
 
 ## Writing Your Own Script
 
-1. **Imports:** Start with `from inspectre import Environment, run_experiment, SimConfig`.
+1. **Imports:** Start with `from rvsim import Environment, run_experiment, SimConfig`.
 2. **Path:** Add `scripts/` to `sys.path` if you want to import `p550` or `m1` configs.
 3. **Run:**
 ```python

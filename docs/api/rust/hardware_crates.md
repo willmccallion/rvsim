@@ -74,7 +74,7 @@ Interconnect (bus), memory controller and buffer, and MMIO devices. **builder.rs
 
 ## stats.rs
 
-Collects and exposes statistics: cycles, instructions retired, IPC, cache hits/misses (I-cache, D-cache, L2, L3), branch predictions/mispredictions, branch accuracy, stalls (mem, control, data), instruction counts by type, traps, etc. These are copied out and exposed to Python as **PyStats**; see [bindings](bindings.md) and Python [stats](https://github.com/.../inspectre/stats.py) (`.query("miss")`, `.query("branch")`).
+Collects and exposes statistics: cycles, instructions retired, IPC, cache hits/misses (I-cache, D-cache, L2, L3), branch predictions/mispredictions, branch accuracy, stalls (mem, control, data), instruction counts by type, traps, etc. These are copied out and exposed to Python as **PyStats**; see [bindings](bindings.md) and Python [stats](https://github.com/.../rvsim/stats.py) (`.query("miss")`, `.query("branch")`).
 
 ---
 

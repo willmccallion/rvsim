@@ -3,8 +3,8 @@
 //! Verifies timer operation, MSIP/MTIME/MTIMECMP register read/write,
 //! divider-based tick counting, and interrupt generation.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::clint::Clint;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::clint::Clint;
 
 #[test]
 fn clint_name() {

@@ -289,10 +289,6 @@ impl Cpu {
         }
 
         self.stats.traps_taken += 1;
-        self.if_id = Default::default();
-        self.id_ex = Default::default();
-        self.ex_mem = Default::default();
-        self.mem_wb = Default::default();
     }
 
     /// Executes the `MRET` instruction (Return from Machine Mode).
@@ -314,11 +310,6 @@ impl Cpu {
         new_mstatus &= !csr::MSTATUS_MPP;
 
         self.csrs.mstatus = new_mstatus;
-        self.if_id = Default::default();
-        self.id_ex = Default::default();
-        // Inhibit interrupts for 2 cycles to let pre-MRET instructions in
-        // MEM and EX drain through WB before allowing interrupt detection.
-        self.interrupt_inhibit_cycles = 2;
     }
 
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
@@ -360,13 +351,5 @@ impl Cpu {
         self.csrs.sstatus = new_sstatus;
         let mask = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
         self.csrs.mstatus = (self.csrs.mstatus & !mask) | (new_sstatus & mask);
-
-        self.if_id = Default::default();
-        self.id_ex = Default::default();
-        // Inhibit interrupts for 2 cycles to let pre-SRET instructions in
-        // MEM and EX drain through WB before allowing interrupt detection.
-        // Without this, an interrupt could fire using a trap handler PC as
-        // the EPC, corrupting SEPC and causing return to the wrong address.
-        self.interrupt_inhibit_cycles = 2;
     }
 }

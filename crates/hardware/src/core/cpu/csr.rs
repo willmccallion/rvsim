@@ -75,13 +75,11 @@ impl Cpu {
                     | csr::MSTATUS_SUM
                     | csr::MSTATUS_MXR;
                 self.csrs.sstatus = val & mask;
-                self.interrupt_inhibit_cycles = 1;
             }
             csr::MEDELEG => self.csrs.medeleg = val,
             csr::MIDELEG => self.csrs.mideleg = val,
             csr::MIE => {
                 self.csrs.mie = val;
-                self.interrupt_inhibit_cycles = 1;
             }
             csr::MTVEC => self.csrs.mtvec = val,
             csr::MISA => self.csrs.misa = val,
@@ -103,12 +101,10 @@ impl Cpu {
 
                 self.csrs.mstatus = (self.csrs.mstatus & !mask) | (val & mask);
                 self.csrs.sstatus = self.csrs.mstatus & mask;
-                self.interrupt_inhibit_cycles = 1;
             }
             csr::SIE => {
                 let mask = self.csrs.mideleg;
                 self.csrs.mie = (self.csrs.mie & !mask) | (val & mask);
-                self.interrupt_inhibit_cycles = 1;
             }
             csr::STVEC => {
                 self.csrs.stvec = val;
@@ -136,7 +132,6 @@ impl Cpu {
 
                 self.csrs.satp = new_val;
                 self.clear_reservation(); // SATP write invalidates reservations
-                self.flush_pipeline_stores();
 
                 // Flush BOTH instruction and data caches
                 self.l1_i_cache.flush();

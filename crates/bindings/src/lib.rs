@@ -46,6 +46,7 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<devices::virtio::PyVirtioBlock>()?;
 
     m.add_function(wrap_pyfunction!(utils::version, m)?)?;
+    m.add_function(wrap_pyfunction!(utils::disassemble, m)?)?;
 
     Ok(())
 }

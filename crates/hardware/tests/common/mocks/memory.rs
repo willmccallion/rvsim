@@ -1,6 +1,6 @@
-use inspectre::soc::devices::Device;
-use inspectre::soc::memory::Memory;
-use inspectre::soc::memory::controller::MemoryController;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::memory::Memory;
+use rvsim_core::soc::memory::controller::MemoryController;
 use std::sync::{Arc, Mutex};
 
 pub struct MockMemoryController {

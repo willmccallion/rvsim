@@ -3,9 +3,9 @@
 //! Verifies device registration, address routing, read/write operations,
 //! transit time calculation, and valid address checks.
 
-use inspectre::soc::interconnect::Bus;
-use inspectre::soc::memory::Memory;
-use inspectre::soc::memory::buffer::DramBuffer;
+use rvsim_core::soc::interconnect::Bus;
+use rvsim_core::soc::memory::Memory;
+use rvsim_core::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
 fn make_bus_with_ram(size: usize, base: u64) -> Bus {

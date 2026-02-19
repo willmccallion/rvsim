@@ -9,7 +9,7 @@
 //! narrower floating-point values (like 32-bit `f32`) are stored in wider registers
 //! (like 64-bit `f64`) by setting the upper bits to all ones.
 
-use inspectre::core::arch::fpr::Fpr;
+use rvsim_core::core::arch::fpr::Fpr;
 
 /// Ensures that all floating-point registers are initialized to zero upon creation.
 #[test]

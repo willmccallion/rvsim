@@ -1,5 +1,5 @@
-use inspectre::core::pipeline::latches::{ExMemEntry, IdExEntry, IfIdEntry, MemWbEntry};
-use inspectre::core::pipeline::signals::ControlSignals;
+use rvsim_core::core::pipeline::latches::{ExMemEntry, IdExEntry, IfIdEntry, MemWbEntry};
+use rvsim_core::core::pipeline::signals::ControlSignals;
 
 pub struct IfIdBuilder(IfIdEntry);
 

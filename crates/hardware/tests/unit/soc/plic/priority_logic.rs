@@ -3,8 +3,8 @@
 //! Verifies priority-based interrupt arbitration, enable/pending logic,
 //! threshold filtering, and claim/complete protocol.
 
-use inspectre::soc::devices::Device;
-use inspectre::soc::devices::plic::Plic;
+use rvsim_core::soc::devices::Device;
+use rvsim_core::soc::devices::plic::Plic;
 
 // ══════════════════════════════════════════════════════════
 // 1. Basic identification

@@ -5,8 +5,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use inspectre::core::units::prefetch::NextLinePrefetcher;
-use inspectre::core::units::prefetch::Prefetcher;
+use rvsim_core::core::units::prefetch::NextLinePrefetcher;
+use rvsim_core::core::units::prefetch::Prefetcher;
 
 // ══════════════════════════════════════════════════════════
 // 1. Basic operation

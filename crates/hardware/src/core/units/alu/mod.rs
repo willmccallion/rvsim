@@ -50,8 +50,8 @@ impl Alu {
     /// # Examples
     ///
     /// ```
-    /// use inspectre::core::units::alu::Alu;
-    /// use inspectre::core::pipeline::signals::AluOp;
+    /// use rvsim_core::core::units::alu::Alu;
+    /// use rvsim_core::core::pipeline::signals::AluOp;
     ///
     /// // 64-bit addition
     /// let result = Alu::execute(AluOp::Add, 42, 8, 0, false);

@@ -3,7 +3,7 @@
 //! Comprehensive tests for configuration structures, deserialization,
 //! defaults, and validation.
 
-use inspectre::config::*;
+use rvsim_core::config::*;
 
 #[test]
 fn test_config_default() {
