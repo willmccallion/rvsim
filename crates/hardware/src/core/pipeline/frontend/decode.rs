@@ -271,20 +271,24 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     c.rs1_fp = true;
-                    if d.rs2 == 0 || d.rs2 == 1 {
-                        AluOp::FCvtWS
-                    } else {
-                        AluOp::FCvtLS
+                    match d.rs2 {
+                        0 => AluOp::FCvtWS,
+                        1 => AluOp::FCvtWUS,
+                        2 => AluOp::FCvtLS,
+                        3 => AluOp::FCvtLUS,
+                        _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
                 f_funct7::FCVT_F_W | d_funct7::FCVT_D_W => {
                     c.rs1_fp = false;
                     c.fp_reg_write = true;
                     c.a_src = OpASrc::Reg1;
-                    if d.rs2 == 0 || d.rs2 == 1 {
-                        AluOp::FCvtSW
-                    } else {
-                        AluOp::FCvtSL
+                    match d.rs2 {
+                        0 => AluOp::FCvtSW,
+                        1 => AluOp::FCvtSWU,
+                        2 => AluOp::FCvtSL,
+                        3 => AluOp::FCvtSLU,
+                        _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
                 f_funct7::FCVT_DS => AluOp::FCvtDS,

@@ -122,6 +122,9 @@ pub fn commit_stage(
         if entry.ctrl.fp_reg_write {
             cpu.regs.write_f(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, true, entry.tag);
+            // Set FS to DIRTY when any FP register is written
+            cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             if cpu.trace {
                 eprintln!("CM  pc={:#x} f{} <= {:#x}", entry.pc, entry.rd, val);
             }
@@ -165,6 +168,11 @@ pub fn commit_stage(
         // Mark store buffer entry as committed (for stores)
         if entry.ctrl.mem_write {
             store_buffer.mark_committed(entry.tag);
+            // FP stores also set FS to DIRTY
+            if entry.ctrl.rs2_fp {
+                cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            }
         }
 
         // Ensure x0 stays zero
@@ -175,7 +183,10 @@ pub fn commit_stage(
     if let Some(store) = store_buffer.drain_one()
         && let Some(paddr) = store.paddr
     {
-        let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
+        let in_htif = cpu
+            .htif_range
+            .is_some_and(|(lo, hi)| paddr >= lo && paddr < hi);
+        let is_ram = !in_htif && paddr >= cpu.ram_start && paddr < cpu.ram_end;
         if is_ram {
             let offset = (paddr - cpu.ram_start) as usize;
             unsafe {
@@ -289,9 +300,13 @@ fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::R
             | AluOp::FLe
             | AluOp::FClass
             | AluOp::FCvtWS
+            | AluOp::FCvtWUS
             | AluOp::FCvtLS
+            | AluOp::FCvtLUS
             | AluOp::FCvtSW
+            | AluOp::FCvtSWU
             | AluOp::FCvtSL
+            | AluOp::FCvtSLU
             | AluOp::FCvtSD
             | AluOp::FCvtDS
             | AluOp::FMvToX

@@ -11,6 +11,17 @@
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 
+/// Result of store-to-load forwarding check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForwardResult {
+    /// Store fully covers the load — use the forwarded data.
+    Hit(u64),
+    /// No overlap with any pending store — safe to read from memory.
+    Miss,
+    /// Partial overlap — must stall until the store drains to memory.
+    Stall,
+}
+
 /// Lifecycle state of a store buffer entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StoreState {
@@ -136,10 +147,14 @@ impl StoreBuffer {
         }
     }
 
-    /// Attempts store-to-load forwarding. Returns the data if a matching
-    /// committed or ready store fully covers the load address and width.
-    pub fn forward_load(&self, paddr: u64, width: MemWidth) -> Option<u64> {
+    /// Attempts store-to-load forwarding.
+    ///
+    /// Returns `Hit(data)` if a pending store fully covers the load,
+    /// `Stall` if a store partially overlaps (must wait for drain),
+    /// or `Miss` if no overlap exists.
+    pub fn forward_load(&self, paddr: u64, width: MemWidth) -> ForwardResult {
         let load_size = width_to_bytes(width);
+        let load_start = paddr;
         let load_end = paddr + load_size as u64;
 
         // Search from newest to oldest for the most recent matching store
@@ -151,19 +166,28 @@ impl StoreBuffer {
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid && entry.paddr == Some(paddr) {
+            if entry.valid
+                && let Some(store_paddr) = entry.paddr
+            {
                 let store_size = width_to_bytes(entry.width);
-                let store_end = paddr + store_size as u64;
+                let store_start = store_paddr;
+                let store_end = store_paddr + store_size as u64;
 
-                // Full overlap: store completely covers the load
-                if load_end <= store_end {
-                    // Extract the relevant bytes from the store data
-                    let mask = if load_size >= 8 {
-                        u64::MAX
-                    } else {
-                        (1u64 << (load_size * 8)) - 1
-                    };
-                    return Some(entry.data & mask);
+                // Check for any overlap
+                if load_start < store_end && load_end > store_start {
+                    // Full overlap: store completely covers the load
+                    if store_start <= load_start && store_end >= load_end {
+                        let offset = (load_start - store_start) as u32;
+                        let shifted = entry.data >> (offset * 8);
+                        let mask = if load_size >= 8 {
+                            u64::MAX
+                        } else {
+                            (1u64 << (load_size * 8)) - 1
+                        };
+                        return ForwardResult::Hit(shifted & mask);
+                    }
+                    // Partial overlap: must stall
+                    return ForwardResult::Stall;
                 }
             }
             if idx == 0 {
@@ -173,7 +197,7 @@ impl StoreBuffer {
             }
         }
 
-        None
+        ForwardResult::Miss
     }
 
     /// Drains (removes) the oldest committed store. Returns it so the caller
@@ -275,6 +299,35 @@ impl StoreBuffer {
         self.count = 0;
     }
 
+    /// Cancels (removes) a store buffer entry that will not be written.
+    /// Used for failed SC (store-conditional) instructions.
+    pub fn cancel(&mut self, rob_tag: RobTag) {
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
+                // If this is the tail entry, we can simply retract it
+                let prev_tail = if self.tail == 0 {
+                    cap - 1
+                } else {
+                    self.tail - 1
+                };
+                if idx == prev_tail {
+                    self.entries[idx].valid = false;
+                    self.tail = prev_tail;
+                    self.count -= 1;
+                } else {
+                    // Not at tail — resolve as a committed no-op that drain_one will skip.
+                    // Mark it Ready+Committed so it can drain, but paddr stays None so
+                    // drain_one's `let Some(paddr) = store.paddr` guard skips the write.
+                    self.entries[idx].state = StoreState::Committed;
+                }
+                return;
+            }
+            idx = (idx + 1) % cap;
+        }
+    }
+
     /// Finds the entry with the given ROB tag.
     fn find_by_tag_mut(&mut self, rob_tag: RobTag) -> Option<&mut StoreBufferEntry> {
         let cap = self.entries.len();
@@ -345,11 +398,11 @@ mod tests {
 
         // Forward should find the store
         let result = sb.forward_load(0x8000_0000, MemWidth::Word);
-        assert_eq!(result, Some(0x12345678));
+        assert_eq!(result, ForwardResult::Hit(0x12345678));
 
         // Different address should miss
         let result = sb.forward_load(0x8000_0004, MemWidth::Word);
-        assert_eq!(result, None);
+        assert_eq!(result, ForwardResult::Miss);
     }
 
     #[test]
@@ -361,7 +414,7 @@ mod tests {
 
         // Forward a byte from the same address
         let result = sb.forward_load(0x8000_0000, MemWidth::Byte);
-        assert_eq!(result, Some(0x78));
+        assert_eq!(result, ForwardResult::Hit(0x78));
     }
 
     #[test]

@@ -64,9 +64,8 @@ pub fn rename_stage<E: ExecutionEngine>(
                 .set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
         }
 
-        // Allocate store buffer entry if this is a store
-        if id.ctrl.mem_write && id.ctrl.atomic_op == crate::core::pipeline::signals::AtomicOp::None
-        {
+        // Allocate store buffer entry if this is a store (including atomic SC/AMO)
+        if id.ctrl.mem_write {
             let width = id.ctrl.width;
             if !engine.store_buffer_mut().allocate(rob_tag, width) {
                 input.push(id);

@@ -469,6 +469,11 @@ pub struct SystemConfig {
     /// When true, UART output is suppressed entirely (for scripting / benchmarks).
     #[serde(default)]
     pub uart_quiet: bool,
+
+    /// HTIF tohost address (0 = disabled). When non-zero, an HTIF device is
+    /// registered at this address to intercept riscv-tests pass/fail writes.
+    #[serde(default)]
+    pub tohost_addr: u64,
 }
 
 impl SystemConfig {
@@ -536,6 +541,7 @@ impl Default for SystemConfig {
             clint_divider: defaults::CLINT_DIVIDER,
             uart_to_stderr: false,
             uart_quiet: false,
+            tohost_addr: 0,
         }
     }
 }

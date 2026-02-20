@@ -23,15 +23,146 @@ use crate::core::pipeline::signals::AluOp;
 
 use self::exception_flags::FpFlags;
 use self::nan_handling::{
-    box_f32, canonicalize_f32, canonicalize_f64, fmax_f32, fmax_f64, fmin_f32, fmin_f64, unbox_f32,
+    box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
+    unbox_f32,
 };
 use self::rounding_modes::RoundingMode;
+
+// Host FPU exception flag bits from <fenv.h> — used to detect inexact/overflow/etc.
+// These are the same on x86_64 and aarch64 Linux (POSIX standard values).
+const FE_INEXACT: i32 = 0x20;
+#[allow(dead_code)]
+const FE_UNDERFLOW: i32 = 0x10;
+const FE_OVERFLOW: i32 = 0x08;
+const FE_DIVBYZERO: i32 = 0x04;
+const FE_INVALID: i32 = 0x01;
+const FE_ALL_EXCEPT: i32 = FE_INEXACT | FE_UNDERFLOW | FE_OVERFLOW | FE_DIVBYZERO | FE_INVALID;
+
+unsafe extern "C" {
+    fn feclearexcept(excepts: i32) -> i32;
+    fn fetestexcept(excepts: i32) -> i32;
+}
+
+/// Reads and maps host FPU exception flags to RISC-V FpFlags.
+fn read_host_fp_flags() -> FpFlags {
+    let host = unsafe { fetestexcept(FE_ALL_EXCEPT) };
+    let mut flags = FpFlags::NONE;
+    if host & FE_INVALID != 0 {
+        flags = flags | FpFlags::NV;
+    }
+    if host & FE_DIVBYZERO != 0 {
+        flags = flags | FpFlags::DZ;
+    }
+    if host & FE_OVERFLOW != 0 {
+        flags = flags | FpFlags::OF;
+    }
+    if host & FE_INEXACT != 0 {
+        flags = flags | FpFlags::NX;
+    }
+    flags
+}
+
+/// Clears all host FPU exception flags.
+fn clear_host_fp_flags() {
+    unsafe {
+        feclearexcept(FE_ALL_EXCEPT);
+    }
+}
+
+/// RISC-V FCLASS result for f32: classify into one of 10 categories.
+fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
+    if exp == 0xFF && frac != 0 {
+        // NaN
+        if frac & 0x0040_0000 != 0 {
+            1 << 9 // qNaN
+        } else {
+            1 << 8 // sNaN
+        }
+    } else if exp == 0xFF && frac == 0 {
+        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
+    } else if exp == 0 && frac == 0 {
+        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
+    } else if exp == 0 {
+        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
+    } else if sign != 0 {
+        1 << 1
+    } else {
+        1 << 6
+    } // ±normal
+}
+
+/// RISC-V FCLASS result for f64: classify into one of 10 categories.
+fn classify_f64(sign: u64, exp: u64, frac: u64) -> u64 {
+    if exp == 0x7FF && frac != 0 {
+        if frac & 0x0008_0000_0000_0000 != 0 {
+            1 << 9 // qNaN
+        } else {
+            1 << 8 // sNaN
+        }
+    } else if exp == 0x7FF && frac == 0 {
+        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
+    } else if exp == 0 && frac == 0 {
+        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
+    } else if exp == 0 {
+        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
+    } else if sign != 0 {
+        1 << 1
+    } else {
+        1 << 6
+    } // ±normal
+}
 
 /// Bit mask for the sign bit in a 32-bit IEEE 754 float (bit 31).
 const F32_SIGN_BIT: u32 = 0x8000_0000;
 
 /// Bit mask for the sign bit in a 64-bit IEEE 754 float (bit 63).
 const F64_SIGN_BIT: u64 = 0x8000_0000_0000_0000;
+
+// Integer range boundaries as f64 for float-to-integer conversion range checks.
+// Values at or beyond these limits overflow the target integer type.
+
+/// i32::MAX + 1 as f64 (2^31). Values >= this overflow i32.
+const I32_MAX_P1_F64: f64 = (i32::MAX as f64) + 1.0;
+/// i32::MIN as f64 (-2^31). Values < this overflow i32.
+const I32_MIN_F64: f64 = i32::MIN as f64;
+/// u32::MAX + 1 as f64 (2^32). Values >= this overflow u32.
+const U32_MAX_P1_F64: f64 = (u32::MAX as f64) + 1.0;
+/// i64::MAX + 1 as f64 (2^63). Values >= this overflow i64.
+const I64_MAX_P1_F64: f64 = 9223372036854775808.0; // 2^63 exactly
+/// i64::MIN as f64 (-2^63). Values < this overflow i64.
+const I64_MIN_F64: f64 = i64::MIN as f64;
+
+// ---- RISC-V float-to-integer conversion helpers ----
+// Rust's `f as i32` saturates correctly for ±Inf and out-of-range values,
+// but produces 0 for NaN.  RISC-V requires positive-max for NaN.
+
+/// Convert f64 value to i32 per RISC-V spec (NaN → INT32_MAX).
+#[inline]
+fn f64_to_i32_rv(v: f64) -> i32 {
+    if v.is_nan() {
+        i32::MAX
+    } else {
+        v as i32 // Rust saturates: +Inf→MAX, -Inf→MIN, out-of-range→saturated
+    }
+}
+
+/// Convert f64 value to u32 per RISC-V spec (NaN → UINT32_MAX).
+#[inline]
+fn f64_to_u32_rv(v: f64) -> u32 {
+    if v.is_nan() { u32::MAX } else { v as u32 }
+}
+
+/// Convert f64 value to i64 per RISC-V spec (NaN → INT64_MAX).
+#[inline]
+fn f64_to_i64_rv(v: f64) -> i64 {
+    if v.is_nan() { i64::MAX } else { v as i64 }
+}
+
+/// Convert f64 value to u64 per RISC-V spec (NaN → UINT64_MAX).
+#[inline]
+fn f64_to_u64_rv(v: f64) -> u64 {
+    if v.is_nan() { u64::MAX } else { v as u64 }
+}
 
 /// Floating-Point Unit (FPU) for floating-point operations.
 ///
@@ -123,107 +254,125 @@ impl Fpu {
     /// A tuple `(result, flags)` where `result` is the 64-bit operation
     /// result and `flags` contains the raised exception flags.
     pub fn execute_full(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> (u64, FpFlags) {
+        // Use the host FPU exception flags for accurate detection of
+        // inexact, overflow, underflow, divide-by-zero, and invalid.
+        // This works because execute_f32/f64 use host FP arithmetic.
+        //
+        // For operations with custom flag semantics (comparisons, min/max,
+        // conversions) we compute flags manually per the RISC-V spec.
+
+        let is_arith = matches!(
+            op,
+            AluOp::FAdd
+                | AluOp::FSub
+                | AluOp::FMul
+                | AluOp::FDiv
+                | AluOp::FSqrt
+                | AluOp::FMAdd
+                | AluOp::FMSub
+                | AluOp::FNMAdd
+                | AluOp::FNMSub
+        );
+
+        if is_arith {
+            // Clear host FPU flags, execute, then read flags back
+            clear_host_fp_flags();
+            let result = if is32 {
+                Self::execute_f32(op, a, b, c)
+            } else {
+                Self::execute_f64(op, a, b, c)
+            };
+            let flags = read_host_fp_flags();
+            return (result, flags);
+        }
+
+        // Non-arithmetic operations: compute flags manually
         let mut flags = FpFlags::NONE;
 
-        if is32 {
-            let fa = unbox_f32(a);
-            let fb = unbox_f32(b);
-
-            // Check for sNaN inputs → NV (Invalid Operation)
-            let a_is_snan = Self::is_snan_f32(fa);
-            let b_is_snan = Self::is_snan_f32(fb);
-            if a_is_snan || b_is_snan {
-                flags = flags | FpFlags::NV;
-            }
-
-            match op {
-                AluOp::FDiv => {
-                    if fb == 0.0 && !fa.is_nan() {
-                        if fa == 0.0 {
-                            // 0/0 → NV
-                            flags = flags | FpFlags::NV;
-                        } else {
-                            // x/0 → DZ
-                            flags = flags | FpFlags::DZ;
-                        }
-                    }
-                }
-                AluOp::FSqrt => {
-                    if fa < 0.0 && !fa.is_nan() {
+        match op {
+            AluOp::FEq => {
+                // FEQ: NV only on signaling NaN
+                if is32 {
+                    if Self::is_snan_f32(unbox_f32(a)) || Self::is_snan_f32(unbox_f32(b)) {
                         flags = flags | FpFlags::NV;
                     }
+                } else if Self::is_snan_f64(f64::from_bits(a))
+                    || Self::is_snan_f64(f64::from_bits(b))
+                {
+                    flags = flags | FpFlags::NV;
                 }
-                _ => {}
             }
-
-            let result = Self::execute_f32(op, a, b, c);
-
-            // Check for overflow / inexact on arithmetic ops
-            let res_f32 = unbox_f32(result);
-            match op {
-                AluOp::FAdd
-                | AluOp::FSub
-                | AluOp::FMul
-                | AluOp::FMAdd
-                | AluOp::FMSub
-                | AluOp::FNMAdd
-                | AluOp::FNMSub => {
-                    if res_f32.is_infinite() && !fa.is_infinite() && !fb.is_infinite() {
-                        flags = flags | FpFlags::OF | FpFlags::NX;
-                    }
-                }
-                _ => {}
-            }
-
-            (result, flags)
-        } else {
-            let fa = f64::from_bits(a);
-            let fb = f64::from_bits(b);
-
-            let a_is_snan = Self::is_snan_f64(fa);
-            let b_is_snan = Self::is_snan_f64(fb);
-            if a_is_snan || b_is_snan {
-                flags = flags | FpFlags::NV;
-            }
-
-            match op {
-                AluOp::FDiv => {
-                    if fb == 0.0 && !fa.is_nan() {
-                        if fa == 0.0 {
-                            flags = flags | FpFlags::NV;
-                        } else {
-                            flags = flags | FpFlags::DZ;
-                        }
-                    }
-                }
-                AluOp::FSqrt => {
-                    if fa < 0.0 && !fa.is_nan() {
+            AluOp::FLt | AluOp::FLe => {
+                // FLT/FLE: NV on any NaN (signaling or quiet)
+                if is32 {
+                    if unbox_f32(a).is_nan() || unbox_f32(b).is_nan() {
                         flags = flags | FpFlags::NV;
                     }
+                } else if f64::from_bits(a).is_nan() || f64::from_bits(b).is_nan() {
+                    flags = flags | FpFlags::NV;
                 }
-                _ => {}
             }
+            AluOp::FMin | AluOp::FMax => {
+                // FMIN/FMAX: NV only on signaling NaN
+                if is32 {
+                    if Self::is_snan_f32(unbox_f32(a)) || Self::is_snan_f32(unbox_f32(b)) {
+                        flags = flags | FpFlags::NV;
+                    }
+                } else if Self::is_snan_f64(f64::from_bits(a))
+                    || Self::is_snan_f64(f64::from_bits(b))
+                {
+                    flags = flags | FpFlags::NV;
+                }
+            }
+            AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS => {
+                // Float-to-integer conversions: per RISC-V spec, the float is
+                // first rounded to an integer (using the instruction's rounding
+                // mode — currently always RTZ via trunc), then range-checked.
+                // NV (invalid) is set if the rounded value overflows the target.
+                // NX (inexact) is set if the original != rounded AND no NV.
+                clear_host_fp_flags();
+                let val = if is32 {
+                    unbox_f32(a) as f64
+                } else {
+                    f64::from_bits(a)
+                };
 
-            let result = Self::execute_f64(op, a, b, c);
+                if val.is_nan() || val.is_infinite() {
+                    flags = flags | FpFlags::NV;
+                } else {
+                    // Round to integer (RTZ — truncate towards zero)
+                    let rounded = val.trunc();
+                    let inexact = val != rounded;
 
-            let res_f64 = f64::from_bits(result);
-            match op {
-                AluOp::FAdd
-                | AluOp::FSub
-                | AluOp::FMul
-                | AluOp::FMAdd
-                | AluOp::FMSub
-                | AluOp::FNMAdd
-                | AluOp::FNMSub => {
-                    if res_f64.is_infinite() && !fa.is_infinite() && !fb.is_infinite() {
-                        flags = flags | FpFlags::OF | FpFlags::NX;
+                    // Range check uses the ROUNDED value, not the original
+                    let overflow = match op {
+                        AluOp::FCvtWS => !(I32_MIN_F64..I32_MAX_P1_F64).contains(&rounded),
+                        AluOp::FCvtWUS => !(0.0..U32_MAX_P1_F64).contains(&rounded),
+                        AluOp::FCvtLS => !(I64_MIN_F64..I64_MAX_P1_F64).contains(&rounded),
+                        AluOp::FCvtLUS => rounded < 0.0,
+                        _ => false,
+                    };
+
+                    if overflow {
+                        // NV takes priority — NX is NOT set when NV is raised
+                        flags = flags | FpFlags::NV;
+                    } else if inexact {
+                        flags = flags | FpFlags::NX;
                     }
                 }
-                _ => {}
             }
-
-            (result, flags)
+            _ => {
+                // Sign injection, classify, moves — no flags
+            }
         }
+
+        let result = if is32 {
+            Self::execute_f32(op, a, b, c)
+        } else {
+            Self::execute_f64(op, a, b, c)
+        };
+
+        (result, flags)
     }
 
     /// Executes a floating-point operation with an explicit rounding mode.
@@ -268,7 +417,7 @@ impl Fpu {
             };
 
             let rounded = Self::apply_rounding_f32(exact, rm);
-            box_f32(canonicalize_f32(rounded))
+            box_f32_canon(rounded)
         } else {
             // For f64, we don't have a higher-precision path easily available,
             // so we compute directly and apply rounding to the f64 result
@@ -290,7 +439,7 @@ impl Fpu {
             };
 
             let rounded = Self::apply_rounding_f64(exact, rm);
-            canonicalize_f64(rounded).to_bits()
+            canonicalize_f64_bits(rounded)
         }
     }
 
@@ -458,21 +607,21 @@ impl Fpu {
 
         match op {
             // --- Arithmetic (canonicalize NaN results) ---
-            AluOp::FAdd => box_f32(canonicalize_f32(fa + fb)),
-            AluOp::FSub => box_f32(canonicalize_f32(fa - fb)),
-            AluOp::FMul => box_f32(canonicalize_f32(fa * fb)),
-            AluOp::FDiv => box_f32(canonicalize_f32(fa / fb)),
-            AluOp::FSqrt => box_f32(canonicalize_f32(fa.sqrt())),
+            AluOp::FAdd => box_f32_canon(fa + fb),
+            AluOp::FSub => box_f32_canon(fa - fb),
+            AluOp::FMul => box_f32_canon(fa * fb),
+            AluOp::FDiv => box_f32_canon(fa / fb),
+            AluOp::FSqrt => box_f32_canon(fa.sqrt()),
 
             // --- Min/Max (IEEE 754-2008 minNum/maxNum) ---
             AluOp::FMin => box_f32(fmin_f32(fa, fb)),
             AluOp::FMax => box_f32(fmax_f32(fa, fb)),
 
             // --- Fused multiply-add family (canonicalize) ---
-            AluOp::FMAdd => box_f32(canonicalize_f32(fa.mul_add(fb, fc))),
-            AluOp::FMSub => box_f32(canonicalize_f32(fa.mul_add(fb, -fc))),
-            AluOp::FNMAdd => box_f32(canonicalize_f32((-fa).mul_add(fb, -fc))),
-            AluOp::FNMSub => box_f32(canonicalize_f32((-fa).mul_add(fb, fc))),
+            AluOp::FMAdd => box_f32_canon(fa.mul_add(fb, fc)),
+            AluOp::FMSub => box_f32_canon(fa.mul_add(fb, -fc)),
+            AluOp::FNMAdd => box_f32_canon((-fa).mul_add(fb, -fc)),
+            AluOp::FNMSub => box_f32_canon((-fa).mul_add(fb, fc)),
 
             // --- Sign injection (operates on raw bits, no canonicalization) ---
             AluOp::FSgnJ => box_f32(f32::from_bits(
@@ -488,16 +637,31 @@ impl Fpu {
             AluOp::FLt => (fa < fb) as u64,
             AluOp::FLe => (fa <= fb) as u64,
 
+            // --- Classify ---
+            AluOp::FClass => {
+                let bits = fa.to_bits();
+                let sign = (bits >> 31) & 1;
+                let exp = (bits >> 23) & 0xFF;
+                let frac = bits & 0x007F_FFFF;
+                classify_f32(sign, exp, frac) as u64
+            }
+
             // --- Conversions (float → integer) ---
-            AluOp::FCvtWS => (fa as i32) as i64 as u64,
-            AluOp::FCvtLS => (fa as i64) as u64,
+            // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
+            // NaN → positive max per RISC-V spec.
+            AluOp::FCvtWS => f64_to_i32_rv(fa as f64) as i64 as u64,
+            AluOp::FCvtWUS => f64_to_u32_rv(fa as f64) as i32 as i64 as u64,
+            AluOp::FCvtLS => f64_to_i64_rv(fa as f64) as u64,
+            AluOp::FCvtLUS => f64_to_u64_rv(fa as f64),
 
             // --- Conversions (double → single, identity in f32 path) ---
-            AluOp::FCvtSD => box_f32(canonicalize_f32(fa)),
+            AluOp::FCvtSD => box_f32_canon(fa),
 
             // --- Conversions (integer → float, use raw `a` for integer bits) ---
             AluOp::FCvtSW => ((a as i32) as f64).to_bits(),
+            AluOp::FCvtSWU => ((a as u32) as f64).to_bits(),
             AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
+            AluOp::FCvtSLU => (a as f64).to_bits(),
 
             // --- Conversions (single → double) ---
             AluOp::FCvtDS => (unbox_f32(a) as f64).to_bits(),
@@ -520,21 +684,21 @@ impl Fpu {
 
         match op {
             // --- Arithmetic (canonicalize NaN results) ---
-            AluOp::FAdd => canonicalize_f64(fa + fb).to_bits(),
-            AluOp::FSub => canonicalize_f64(fa - fb).to_bits(),
-            AluOp::FMul => canonicalize_f64(fa * fb).to_bits(),
-            AluOp::FDiv => canonicalize_f64(fa / fb).to_bits(),
-            AluOp::FSqrt => canonicalize_f64(fa.sqrt()).to_bits(),
+            AluOp::FAdd => canonicalize_f64_bits(fa + fb),
+            AluOp::FSub => canonicalize_f64_bits(fa - fb),
+            AluOp::FMul => canonicalize_f64_bits(fa * fb),
+            AluOp::FDiv => canonicalize_f64_bits(fa / fb),
+            AluOp::FSqrt => canonicalize_f64_bits(fa.sqrt()),
 
             // --- Min/Max (IEEE 754-2008 minNum/maxNum) ---
             AluOp::FMin => fmin_f64(fa, fb).to_bits(),
             AluOp::FMax => fmax_f64(fa, fb).to_bits(),
 
             // --- Fused multiply-add family (canonicalize) ---
-            AluOp::FMAdd => canonicalize_f64(fa.mul_add(fb, fc)).to_bits(),
-            AluOp::FMSub => canonicalize_f64(fa.mul_add(fb, -fc)).to_bits(),
-            AluOp::FNMAdd => canonicalize_f64((-fa).mul_add(fb, -fc)).to_bits(),
-            AluOp::FNMSub => canonicalize_f64((-fa).mul_add(fb, fc)).to_bits(),
+            AluOp::FMAdd => canonicalize_f64_bits(fa.mul_add(fb, fc)),
+            AluOp::FMSub => canonicalize_f64_bits(fa.mul_add(fb, -fc)),
+            AluOp::FNMAdd => canonicalize_f64_bits((-fa).mul_add(fb, -fc)),
+            AluOp::FNMSub => canonicalize_f64_bits((-fa).mul_add(fb, fc)),
 
             // --- Sign injection ---
             AluOp::FSgnJ => {
@@ -552,12 +716,27 @@ impl Fpu {
             AluOp::FLt => (fa < fb) as u64,
             AluOp::FLe => (fa <= fb) as u64,
 
+            // --- Classify ---
+            AluOp::FClass => {
+                let bits = fa.to_bits();
+                let sign = (bits >> 63) & 1;
+                let exp = (bits >> 52) & 0x7FF;
+                let frac = bits & 0x000F_FFFF_FFFF_FFFF;
+                classify_f64(sign, exp, frac)
+            }
+
             // --- Conversions ---
-            AluOp::FCvtWS => (fa as i32) as i64 as u64,
-            AluOp::FCvtLS => (fa as i64) as u64,
-            AluOp::FCvtSD => box_f32(canonicalize_f32(fa as f32)),
+            // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
+            // NaN → positive max per RISC-V spec.
+            AluOp::FCvtWS => f64_to_i32_rv(fa) as i64 as u64,
+            AluOp::FCvtWUS => f64_to_u32_rv(fa) as i32 as i64 as u64,
+            AluOp::FCvtLS => f64_to_i64_rv(fa) as u64,
+            AluOp::FCvtLUS => f64_to_u64_rv(fa),
+            AluOp::FCvtSD => box_f32_canon(fa as f32),
             AluOp::FCvtSW => ((a as i32) as f64).to_bits(),
+            AluOp::FCvtSWU => ((a as u32) as f64).to_bits(),
             AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
+            AluOp::FCvtSLU => (a as f64).to_bits(),
 
             // --- Move operations (64-bit path: no boxing needed) ---
             AluOp::FMvToF => a,

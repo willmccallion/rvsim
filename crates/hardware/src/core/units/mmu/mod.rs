@@ -137,41 +137,51 @@ impl Mmu {
             self.dtlb.lookup(vpn)
         };
 
-        if let Some((ppn, r, w, x, u)) = tlb_entry {
-            if access == AccessType::Write && !w {
-                return TranslationResult::fault(Trap::StorePageFault(vaddr.val()), 0);
-            }
-            if access == AccessType::Fetch && !x {
-                return TranslationResult::fault(Trap::InstructionPageFault(vaddr.val()), 0);
-            }
-            if access == AccessType::Read {
-                /// Bit position of MXR (Make eXecutable Readable) bit in sstatus register.
-                const SSTATUS_MXR_SHIFT: u64 = 19;
-                let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
-                let readable = r || (x && mxr);
-                if !readable {
-                    return TranslationResult::fault(Trap::LoadPageFault(vaddr.val()), 0);
+        if let Some((ppn, r, w, x, u, d)) = tlb_entry {
+            // If writing to a page with D=0, invalidate the TLB entry and
+            // fall through to the page table walk so the PTW sets the dirty
+            // bit in the PTE and re-caches with D=1.
+            if access == AccessType::Write && !d {
+                self.dtlb.invalidate(vpn);
+            } else {
+                if access == AccessType::Write && !w {
+                    return TranslationResult::fault(Trap::StorePageFault(vaddr.val()), 0);
                 }
-            }
-
-            if privilege == PrivilegeMode::User && !u {
-                return TranslationResult::fault(page_fault(vaddr.val(), access), 0);
-            }
-            if privilege == PrivilegeMode::Supervisor && u {
-                /// Bit position of SUM (Supervisor User Memory access) bit in sstatus register.
-                const SSTATUS_SUM_SHIFT: u64 = 18;
-                let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
-                if !sum {
-                    return TranslationResult::fault(page_fault(vaddr.val(), access), 0);
-                }
-                if access == AccessType::Fetch {
+                if access == AccessType::Fetch && !x {
                     return TranslationResult::fault(Trap::InstructionPageFault(vaddr.val()), 0);
                 }
-            }
+                if access == AccessType::Read {
+                    /// Bit position of MXR (Make eXecutable Readable) bit in sstatus register.
+                    const SSTATUS_MXR_SHIFT: u64 = 19;
+                    let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
+                    let readable = r || (x && mxr);
+                    if !readable {
+                        return TranslationResult::fault(Trap::LoadPageFault(vaddr.val()), 0);
+                    }
+                }
 
-            use crate::common::constants::PAGE_SHIFT;
-            let paddr = (ppn << PAGE_SHIFT) | vaddr.page_offset();
-            return TranslationResult::success(PhysAddr::new(paddr), 0);
+                if privilege == PrivilegeMode::User && !u {
+                    return TranslationResult::fault(page_fault(vaddr.val(), access), 0);
+                }
+                if privilege == PrivilegeMode::Supervisor && u {
+                    /// Bit position of SUM (Supervisor User Memory access) bit in sstatus register.
+                    const SSTATUS_SUM_SHIFT: u64 = 18;
+                    let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
+                    if !sum {
+                        return TranslationResult::fault(page_fault(vaddr.val(), access), 0);
+                    }
+                    if access == AccessType::Fetch {
+                        return TranslationResult::fault(
+                            Trap::InstructionPageFault(vaddr.val()),
+                            0,
+                        );
+                    }
+                }
+
+                use crate::common::constants::PAGE_SHIFT;
+                let paddr = (ppn << PAGE_SHIFT) | vaddr.page_offset();
+                return TranslationResult::success(PhysAddr::new(paddr), 0);
+            }
         }
 
         ptw::page_table_walk(self, vaddr, access, privilege, csrs, bus)

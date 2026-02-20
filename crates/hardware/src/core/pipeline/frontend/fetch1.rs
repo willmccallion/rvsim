@@ -10,6 +10,7 @@ use crate::common::constants::{
 };
 use crate::common::{AccessType, ExceptionStage, TranslationResult, Trap, VirtAddr};
 use crate::core::Cpu;
+use crate::core::arch::csr;
 use crate::core::pipeline::latches::Fetch1Fetch2Entry;
 use crate::core::units::bru::BranchPredictor;
 use crate::isa::abi;
@@ -23,11 +24,14 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
     output.clear();
 
     let mut current_pc = cpu.pc;
+    // When MISA[C]=0, compressed instructions are disabled; require 4-byte alignment.
+    let c_enabled = (cpu.csrs.misa & csr::MISA_EXT_C) != 0;
+    let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
     for _ in 0..cpu.pipeline_width {
         // Check alignment
         let mut fetch_trap = None;
-        if (current_pc & 1) != 0 {
+        if (current_pc & align_mask) != 0 {
             if output.is_empty() {
                 fetch_trap = Some(Trap::InstructionAddressMisaligned(current_pc));
             } else {

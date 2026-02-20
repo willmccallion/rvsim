@@ -132,7 +132,31 @@ pub fn execute_inorder(
             }
 
             // SRET: deferred to commit, but flush frontend
+            // In S-mode, SRET is illegal if mstatus.TSR=1
             if id.ctrl.is_sret {
+                let tsr = (cpu.csrs.mstatus >> 22) & 1;
+                if cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                    });
+                    continue;
+                }
+
                 flush_remaining = true;
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -204,6 +228,30 @@ pub fn execute_inorder(
 
             // SFENCE.VMA
             if (id.inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
+                // In S-mode, SFENCE.VMA is illegal if mstatus.TVM=1
+                let tvm = (cpu.csrs.mstatus >> 20) & 1;
+                if cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                    });
+                    continue;
+                }
+
                 cpu.clear_reservation();
                 cpu.mmu.dtlb.flush();
                 cpu.mmu.itlb.flush();
@@ -256,6 +304,90 @@ pub fn execute_inorder(
 
             // CSR operations: compute old/new but defer write to commit
             if id.ctrl.csr_op != CsrOp::None {
+                // In S-mode, SATP access is illegal if mstatus.TVM=1
+                if id.ctrl.csr_addr == crate::core::arch::csr::SATP
+                    && cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                    && ((cpu.csrs.mstatus >> 20) & 1) != 0
+                {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                    });
+                    continue;
+                }
+
+                // Privilege check: CSR bits [9:8] encode minimum privilege level.
+                let csr_priv = (id.ctrl.csr_addr >> 8) & 3;
+                if (cpu.privilege.to_u8() as u32) < csr_priv {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                    });
+                    continue;
+                }
+
+                // Read-only check: CSR bits [11:10] == 0b11 means read-only.
+                // CSRRW/CSRRWI always write. CSRRS/CSRRC/CSRRSI/CSRRCI write
+                // only when rs1 (or uimm) != 0.
+                let read_only = (id.ctrl.csr_addr >> 10) & 3 == 3;
+                if read_only {
+                    let would_write = match id.ctrl.csr_op {
+                        CsrOp::Rw | CsrOp::Rwi => true,
+                        CsrOp::Rs | CsrOp::Rc => id.rs1 != 0,
+                        CsrOp::Rsi | CsrOp::Rci => (id.rs1 & 0x1f) != 0,
+                        CsrOp::None => false,
+                    };
+                    if would_write {
+                        rob.fault(
+                            id.rob_tag,
+                            Trap::IllegalInstruction(id.inst),
+                            ExceptionStage::Execute,
+                        );
+                        flush_remaining = true;
+                        results.push(ExMem1Entry {
+                            rob_tag: id.rob_tag,
+                            pc: id.pc,
+                            inst: id.inst,
+                            inst_size: id.inst_size,
+                            rd: id.rd,
+                            alu: 0,
+                            store_data: 0,
+                            ctrl: id.ctrl,
+                            trap: None,
+                            exception_stage: None,
+                        });
+                        continue;
+                    }
+                }
+
                 let old = cpu.csr_read(id.ctrl.csr_addr);
                 let src = match id.ctrl.csr_op {
                     CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (id.rs1 as u64) & 0x1f,
@@ -299,8 +431,47 @@ pub fn execute_inorder(
             }
         }
 
+        // When mstatus.FS == OFF, all FP instructions trap as illegal.
+        // This check is in execute (not decode) because a preceding CSR write
+        // to mstatus may still be in-flight (deferred to commit) when the FP
+        // instruction is decoded, causing a false positive.
+        {
+            let fs = (cpu.csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
+            let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
+            if fs == 0 && is_fp {
+                rob.fault(
+                    id.rob_tag,
+                    Trap::IllegalInstruction(id.inst),
+                    ExceptionStage::Execute,
+                );
+                flush_remaining = true;
+                results.push(ExMem1Entry {
+                    rob_tag: id.rob_tag,
+                    pc: id.pc,
+                    inst: id.inst,
+                    inst_size: id.inst_size,
+                    rd: id.rd,
+                    alu: 0,
+                    store_data: 0,
+                    ctrl: id.ctrl,
+                    trap: None,
+                    exception_stage: None,
+                });
+                continue;
+            }
+        }
+
         // ALU / FPU execution
-        let alu_out = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
+        let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
+
+        // Accumulate FP exception flags into fcsr.fflags
+        if fp_flags != 0 {
+            cpu.csrs.fflags |= fp_flags as u64;
+            // Writing fflags makes FP state dirty
+            use crate::core::arch::csr;
+            cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+        }
 
         // Branch resolution
         if id.ctrl.branch {
@@ -400,46 +571,70 @@ pub fn execute_inorder(
     (results, flush_remaining)
 }
 
-/// Computes the ALU/FPU result (same logic as old execute stage).
-fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> u64 {
+/// Computes the ALU/FPU result and returns (result, fp_flags).
+/// fp_flags is non-zero only for floating-point arithmetic operations.
+fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> (u64, u8) {
     // FP conversions and moves that need special handling
-    if (alu_op as i32 >= AluOp::FCvtSW as i32 && alu_op as i32 <= AluOp::FCvtSL as i32)
-        || alu_op as i32 == AluOp::FMvToF as i32
-    {
-        return match alu_op {
-            AluOp::FCvtSW => {
-                if is_rv32 {
-                    Fpu::box_f32((op_a as i32) as f32)
-                } else {
-                    ((op_a as i32) as f64).to_bits()
+    match alu_op {
+        AluOp::FCvtSW
+        | AluOp::FCvtSL
+        | AluOp::FCvtSWU
+        | AluOp::FCvtSLU
+        | AluOp::FCvtSD
+        | AluOp::FCvtDS
+        | AluOp::FMvToF => {
+            let val = match alu_op {
+                AluOp::FCvtSW => {
+                    if is_rv32 {
+                        Fpu::box_f32((op_a as i32) as f32)
+                    } else {
+                        ((op_a as i32) as f64).to_bits()
+                    }
                 }
-            }
-            AluOp::FCvtSL => {
-                if is_rv32 {
-                    Fpu::box_f32((op_a as i64) as f32)
-                } else {
-                    ((op_a as i64) as f64).to_bits()
+                AluOp::FCvtSWU => {
+                    if is_rv32 {
+                        Fpu::box_f32((op_a as u32) as f32)
+                    } else {
+                        ((op_a as u32) as f64).to_bits()
+                    }
                 }
-            }
-            AluOp::FCvtSD => {
-                let val_d = f64::from_bits(op_a);
-                let val_s = val_d as f32;
-                Fpu::box_f32(val_s)
-            }
-            AluOp::FCvtDS => {
-                let val_s = f32::from_bits(op_a as u32);
-                let val_d = val_s as f64;
-                val_d.to_bits()
-            }
-            AluOp::FMvToF => {
-                if is_rv32 {
-                    Fpu::box_f32(f32::from_bits(op_a as u32))
-                } else {
-                    op_a
+                AluOp::FCvtSL => {
+                    if is_rv32 {
+                        Fpu::box_f32((op_a as i64) as f32)
+                    } else {
+                        ((op_a as i64) as f64).to_bits()
+                    }
                 }
-            }
-            _ => 0,
-        };
+                AluOp::FCvtSLU => {
+                    if is_rv32 {
+                        Fpu::box_f32(op_a as f32)
+                    } else {
+                        (op_a as f64).to_bits()
+                    }
+                }
+                AluOp::FCvtSD => {
+                    use crate::core::units::fpu::nan_handling::box_f32_canon;
+                    let val_d = f64::from_bits(op_a);
+                    let val_s = val_d as f32;
+                    box_f32_canon(val_s)
+                }
+                AluOp::FCvtDS => {
+                    let val_s = f32::from_bits(op_a as u32);
+                    let val_d = val_s as f64;
+                    val_d.to_bits()
+                }
+                AluOp::FMvToF => {
+                    if is_rv32 {
+                        Fpu::box_f32(f32::from_bits(op_a as u32))
+                    } else {
+                        op_a
+                    }
+                }
+                _ => 0,
+            };
+            return (val, 0);
+        }
+        _ => {}
     }
 
     let is_fp_op = matches!(
@@ -463,18 +658,16 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
             | AluOp::FLe
             | AluOp::FClass
             | AluOp::FCvtWS
+            | AluOp::FCvtWUS
             | AluOp::FCvtLS
-            | AluOp::FCvtSW
-            | AluOp::FCvtSL
-            | AluOp::FCvtSD
-            | AluOp::FCvtDS
+            | AluOp::FCvtLUS
             | AluOp::FMvToX
-            | AluOp::FMvToF
     );
 
     if is_fp_op {
-        Fpu::execute(alu_op, op_a, op_b, op_c, is_rv32)
+        let (result, fp_flags) = Fpu::execute_full(alu_op, op_a, op_b, op_c, is_rv32);
+        (result, fp_flags.bits())
     } else {
-        Alu::execute(alu_op, op_a, op_b, op_c, is_rv32)
+        (Alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0)
     }
 }

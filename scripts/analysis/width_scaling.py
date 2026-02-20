@@ -43,7 +43,7 @@ def main():
     bp = BP_MAP[args.bp]()
 
     for program in args.programs:
-        binary = f"software/bin/programs/{program}.bin"
+        binary = f"software/bin/programs/{program}.elf"
         rows = {}
         for width in args.widths:
             label = f"w{width}"

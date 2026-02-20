@@ -21,6 +21,8 @@ struct TlbEntry {
     x: bool,
     /// User mode accessible.
     u: bool,
+    /// Dirty bit from PTE.
+    d: bool,
 }
 
 /// Translation Lookaside Buffer structure.
@@ -58,7 +60,7 @@ impl Tlb {
     ///
     /// # Returns
     ///
-    /// `Some((ppn, r, w, x, u))` if found, otherwise `None`.
+    /// `Some((ppn, r, w, x, u, d))` if found, otherwise `None`.
     ///
     /// # Panics
     ///
@@ -66,7 +68,7 @@ impl Tlb {
     /// - `idx = vpn & self.mask` where `mask = size - 1` (size is power of 2)
     /// - This ensures `idx` is always `< size` and within bounds of `entries`
     #[inline(always)]
-    pub fn lookup(&self, vpn: u64) -> Option<(u64, bool, bool, bool, bool)> {
+    pub fn lookup(&self, vpn: u64) -> Option<(u64, bool, bool, bool, bool, bool)> {
         let idx = (vpn as usize) & self.mask;
 
         // SAFETY: idx is guaranteed to be < entries.len() by the mask operation above.
@@ -75,7 +77,7 @@ impl Tlb {
         let entry = unsafe { self.entries.get_unchecked(idx) };
 
         if entry.valid && entry.vpn == vpn {
-            return Some((entry.ppn, entry.r, entry.w, entry.x, entry.u));
+            return Some((entry.ppn, entry.r, entry.w, entry.x, entry.u, entry.d));
         }
         None
     }
@@ -92,6 +94,7 @@ impl Tlb {
         let w = (pte >> 2) & 1 != 0;
         let x = (pte >> 3) & 1 != 0;
         let u = (pte >> 4) & 1 != 0;
+        let d = (pte >> 7) & 1 != 0;
 
         let idx = (vpn as usize) & self.mask;
 
@@ -103,7 +106,16 @@ impl Tlb {
             w,
             x,
             u,
+            d,
         };
+    }
+
+    /// Invalidates a single TLB entry by VPN.
+    pub fn invalidate(&mut self, vpn: u64) {
+        let idx = (vpn as usize) & self.mask;
+        if self.entries[idx].valid && self.entries[idx].vpn == vpn {
+            self.entries[idx].valid = false;
+        }
     }
 
     /// Flushes all entries from the TLB.

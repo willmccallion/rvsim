@@ -25,6 +25,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::CacheSim;
 use crate::core::units::mmu::Mmu;
+use crate::core::units::mmu::pmp::Pmp;
 use crate::soc::System;
 use crate::stats::SimStats;
 
@@ -48,6 +49,8 @@ pub struct Cpu {
     pub bus: System,
     /// Memory Management Unit.
     pub mmu: Mmu,
+    /// Physical Memory Protection unit.
+    pub pmp: Pmp,
     /// L1 Instruction Cache.
     pub l1_i_cache: CacheSim,
     /// L1 Data Cache.
@@ -100,6 +103,10 @@ pub struct Cpu {
     pub ram_start: u64,
     /// Physical address where RAM ends (exclusive).
     pub ram_end: u64,
+
+    /// HTIF tohost address range (start, end). Stores in this range bypass the
+    /// RAM fast-path and go through the bus so the HTIF device can intercept them.
+    pub htif_range: Option<(u64, u64)>,
 
     /// Ring buffer of (pc, inst) for last N retired instructions (for invalid-PC debug trace).
     pub pc_trace: Vec<(u64, u32)>,
@@ -165,6 +172,7 @@ impl Cpu {
         use crate::core::arch::csr::{
             MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
             MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_XLEN_64, MSTATUS_DEFAULT_RV64,
+            MSTATUS_FS_INIT,
         };
         use crate::isa::abi;
 
@@ -184,8 +192,19 @@ impl Cpu {
             val
         };
 
+        let direct_mode = config.general.direct_mode;
+
+        // In direct (SE) mode, enable FP state so user programs can use
+        // floating-point instructions without an OS to set mstatus.FS.
+        // In full-system mode, firmware/OS is responsible for enabling FP.
+        let mstatus = if direct_mode {
+            MSTATUS_DEFAULT_RV64 | MSTATUS_FS_INIT
+        } else {
+            MSTATUS_DEFAULT_RV64
+        };
+
         let csrs = Csrs {
-            mstatus: MSTATUS_DEFAULT_RV64,
+            mstatus,
             misa: configured_misa,
             ..Default::default()
         };
@@ -197,19 +216,20 @@ impl Cpu {
                 .bus
                 .get_ram_info()
                 .unwrap_or((std::ptr::null_mut(), 0, 0));
-
-        let direct_mode = config.general.direct_mode;
-        let (privilege, regs) = if direct_mode {
+        let regs = if direct_mode {
             let sp = config
                 .general
                 .initial_sp
                 .unwrap_or(config.system.ram_base + 0x100_0000);
             let mut r = RegisterFile::new();
             r.write(abi::REG_SP, sp);
-            (PrivilegeMode::User, r)
+            r
         } else {
-            (PrivilegeMode::Machine, RegisterFile::new())
+            RegisterFile::new()
         };
+        // Always start in Machine mode. The riscv-tests switch to lower modes
+        // via their own trap handlers; bare-metal binaries need M-mode too.
+        let privilege = PrivilegeMode::Machine;
 
         Self {
             regs,
@@ -228,6 +248,7 @@ impl Cpu {
             l2_cache: CacheSim::new(&config.cache.l2),
             l3_cache: CacheSim::new(&config.cache.l3),
             mmu: Mmu::new(config.memory.tlb_size),
+            pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
             clint_divider: config.system.clint_divider,
@@ -238,6 +259,7 @@ impl Cpu {
             ram_ptr,
             ram_start,
             ram_end,
+            htif_range: None,
             pc_trace: Vec::with_capacity(PC_TRACE_MAX),
             last_invalid_pc_debug: None,
             redirect_pending: false,

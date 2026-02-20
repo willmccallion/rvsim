@@ -7,7 +7,7 @@ Invoked by the ``rvsim`` console script installed by pip, or directly via
 Usage::
 
     rvsim <file>                           Auto-detect mode by extension
-    rvsim -f <binary> [--limit N]          Bare-metal binary
+    rvsim -f <elf> [--limit N]             Bare-metal ELF
     rvsim --kernel <Image> [--disk <img>]  Boot a kernel
     rvsim --script <script.py> [args ...]  Run a Python script
     rvsim list                             List bundled programs
@@ -31,7 +31,7 @@ def _detect_mode(filepath: str) -> str:
     ext = ext.lower()
     if ext == ".py":
         return "script"
-    if ext in (".bin", ".elf"):
+    if ext == ".elf":
         return "binary"
     return "kernel"
 
@@ -72,11 +72,11 @@ def _cmd_list():
         sys.exit(1)
 
     print(f"\n{tag('programs')}")
-    for f in sorted(programs.glob("*.bin")):
+    for f in sorted(programs.glob("*.elf")):
         print(f"  {f.stem}")
 
     print(f"\n{tag('benchmarks')}")
-    for f in sorted(benchmarks.glob("*.bin")):
+    for f in sorted(benchmarks.glob("*.elf")):
         print(f"  {f.stem}")
     print()
 
@@ -122,9 +122,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  rvsim mandelbrot.bin                     run a bare-metal binary\n"
-            "  rvsim mandelbrot.bin --limit 5M           stop after 5M cycles\n"
-            "  rvsim mandelbrot.bin --width 4 --bp tage  4-wide with TAGE predictor\n"
+            "  rvsim mandelbrot.elf                     run a bare-metal ELF\n"
+            "  rvsim mandelbrot.elf --limit 5M           stop after 5M cycles\n"
+            "  rvsim mandelbrot.elf --width 4 --bp tage  4-wide with TAGE predictor\n"
             "  rvsim --kernel Image --disk root.img      boot a kernel\n"
             "  rvsim experiment.py --ipc 4               run a Python script\n"
             "  rvsim list                                list bundled programs\n"
@@ -144,7 +144,7 @@ def main() -> None:
         "--file",
         dest="file_flag",
         metavar="BINARY",
-        help="bare-metal ELF/binary to execute",
+        help="bare-metal ELF to execute",
     )
     parser.add_argument("--kernel", metavar="IMAGE", help="kernel image for OS boot")
     parser.add_argument(

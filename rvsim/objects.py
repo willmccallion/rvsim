@@ -404,17 +404,37 @@ class Simulator:
 
         # Load binary BEFORE creating CPU, because PyCpu consumes the system.
         # Kernel loading happens after CPU creation via cpu.load_kernel().
+        elf_entry = None
+        has_tohost = False
         if not self._is_kernel_mode and self._binary_path:
             print(
-                info("Simulator", f"Loading binary: {self._binary_path}", stderr=True),
+                info("Simulator", f"Loading ELF: {self._binary_path}", stderr=True),
                 file=sys.stderr,
             )
             with open(self._binary_path, "rb") as f:
-                sys_obj.rust_system.load_binary(f.read(), 0x80000000)
+                data = f.read()
+            entry, tohost = sys_obj.rust_system.load_elf(data)
+            elf_entry = entry
+            if tohost is not None:
+                has_tohost = True
+                print(
+                    info("Simulator", f"ELF tohost @ {tohost:#x}", stderr=True),
+                    file=sys.stderr,
+                )
         elif not self._is_kernel_mode and not self._kernel_path:
             print(warn("No binary or kernel specified."), file=sys.stderr)
 
         cpu = _create_cpu(sys_obj, config=self._config_obj)
+
+        # If ELF loading returned an entry point, set the PC.
+        if elf_entry is not None:
+            cpu.pc = elf_entry
+
+        # riscv-tests ELFs with tohost need M-mode trap handling, not direct mode.
+        # Also mark the HTIF range so stores bypass the RAM fast-path.
+        if has_tohost:
+            cpu.raw.set_direct_mode(False)
+            cpu.raw.set_htif_range(tohost, 16)
 
         if self._is_kernel_mode:
             if not self._kernel_path:

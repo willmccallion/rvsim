@@ -15,12 +15,12 @@ from m1.config import m1_config
 from rvsim import Environment
 
 _root = os.path.dirname(_scripts)
-BINARY = os.path.join("software", "bin", "benchmarks", "qsort.bin")
+BINARY = os.path.join("software", "bin", "benchmarks", "qsort.elf")
 
 
 def main():
     binary = (
-        sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".bin") else BINARY
+        sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".elf") else BINARY
     )
     if not os.path.isabs(binary):
         binary = os.path.join(_root, binary)

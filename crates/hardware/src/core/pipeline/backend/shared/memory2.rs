@@ -9,7 +9,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
-use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::store_buffer::{ForwardResult, StoreBuffer};
 use crate::core::units::lsu::Lsu;
 
 /// Executes the Memory2 stage: D-cache access + store buffer forwarding.
@@ -67,10 +67,19 @@ pub fn memory2_stage(
             // Atomic operations
             match mem.ctrl.atomic_op {
                 AtomicOp::Lr => {
-                    ld = match mem.ctrl.width {
-                        MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
-                        MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
-                        _ => 0,
+                    ld = match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
+                        ForwardResult::Hit(fwd) => fwd,
+                        ForwardResult::Stall => {
+                            input.push(mem);
+                            break;
+                        }
+                        ForwardResult::Miss => match mem.ctrl.width {
+                            MemWidth::Word => {
+                                (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
+                            }
+                            MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
+                            _ => 0,
+                        },
                     };
                     cpu.set_reservation(raw_paddr);
                 }
@@ -80,17 +89,28 @@ pub fn memory2_stage(
                         // Resolve the store buffer entry
                         store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, mem.store_data);
                         ld = 0; // success
+                        cpu.clear_reservation();
                     } else {
-                        ld = 1; // fail
+                        // SC failed — cancel the store buffer entry (no memory write)
+                        store_buffer.cancel(mem.rob_tag);
+                        ld = 1; // fail — do NOT clear reservation
                     }
-                    cpu.clear_reservation();
                 }
                 _ => {
-                    // AMO: read old value, compute new, store via store buffer
-                    let old_val = match mem.ctrl.width {
-                        MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
-                        MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
-                        _ => 0,
+                    // AMO: read old value (check store buffer first for forwarding)
+                    let old_val = match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
+                        ForwardResult::Hit(fwd) => fwd,
+                        ForwardResult::Stall => {
+                            input.push(mem);
+                            break;
+                        }
+                        ForwardResult::Miss => match mem.ctrl.width {
+                            MemWidth::Word => {
+                                (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
+                            }
+                            MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
+                            _ => 0,
+                        },
                     };
 
                     let new_val = Lsu::atomic_alu(
@@ -111,80 +131,90 @@ pub fn memory2_stage(
             }
         } else if mem.ctrl.mem_read {
             // Check store buffer for forwarding first
-            if let Some(forwarded) = store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
-                // Apply sign extension for signed loads (LB, LH, LW on RV64).
-                // The store buffer returns raw masked data without sign extension.
-                ld = if mem.ctrl.signed_load {
-                    match mem.ctrl.width {
-                        MemWidth::Byte => (forwarded as u8 as i8) as i64 as u64,
-                        MemWidth::Half => (forwarded as u16 as i16) as i64 as u64,
-                        MemWidth::Word => (forwarded as u32 as i32) as i64 as u64,
-                        _ => forwarded,
+            match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
+                ForwardResult::Hit(forwarded) => {
+                    // Apply sign extension for signed loads (LB, LH, LW on RV64).
+                    // The store buffer returns raw masked data without sign extension.
+                    ld = if mem.ctrl.signed_load {
+                        match mem.ctrl.width {
+                            MemWidth::Byte => (forwarded as u8 as i8) as i64 as u64,
+                            MemWidth::Half => (forwarded as u16 as i16) as i64 as u64,
+                            MemWidth::Word => (forwarded as u32 as i32) as i64 as u64,
+                            _ => forwarded,
+                        }
+                    } else {
+                        forwarded
+                    };
+                    // NaN-boxing for FP loads forwarded from store buffer
+                    if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
+                        ld |= 0xFFFF_FFFF_0000_0000;
                     }
-                } else {
-                    forwarded
-                };
-                // NaN-boxing for FP loads forwarded from store buffer
-                if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
-                    ld |= 0xFFFF_FFFF_0000_0000;
+                    if cpu.trace {
+                        eprintln!(
+                            "M2  pc={:#x} LOAD forwarded from store buffer: {:#x}",
+                            mem.pc, ld
+                        );
+                    }
                 }
-                if cpu.trace {
-                    eprintln!(
-                        "M2  pc={:#x} LOAD forwarded from store buffer: {:#x}",
-                        mem.pc, ld
-                    );
+                ForwardResult::Stall => {
+                    // Partial overlap — push back and stall
+                    input.push(mem);
+                    break;
                 }
-            } else {
-                // Read from memory/cache
-                ld = if is_ram {
-                    unsafe {
+                ForwardResult::Miss => {
+                    // Read from memory/cache
+                    ld = if is_ram {
+                        unsafe {
+                            match (mem.ctrl.width, mem.ctrl.signed_load) {
+                                (MemWidth::Byte, true) => {
+                                    (*cpu.ram_ptr.add(ram_offset) as i8) as i64 as u64
+                                }
+                                (MemWidth::Half, true) => {
+                                    ((cpu.ram_ptr.add(ram_offset) as *const u16).read_unaligned()
+                                        as i16) as i64 as u64
+                                }
+                                (MemWidth::Word, true) => {
+                                    ((cpu.ram_ptr.add(ram_offset) as *const u32).read_unaligned()
+                                        as i32) as i64 as u64
+                                }
+                                (MemWidth::Byte, false) => *cpu.ram_ptr.add(ram_offset) as u64,
+                                (MemWidth::Half, false) => {
+                                    (cpu.ram_ptr.add(ram_offset) as *const u16).read_unaligned()
+                                        as u64
+                                }
+                                (MemWidth::Word, false) => {
+                                    (cpu.ram_ptr.add(ram_offset) as *const u32).read_unaligned()
+                                        as u64
+                                }
+                                (MemWidth::Double, _) => {
+                                    (cpu.ram_ptr.add(ram_offset) as *const u64).read_unaligned()
+                                }
+                                _ => 0,
+                            }
+                        }
+                    } else {
                         match (mem.ctrl.width, mem.ctrl.signed_load) {
                             (MemWidth::Byte, true) => {
-                                (*cpu.ram_ptr.add(ram_offset) as i8) as i64 as u64
+                                (cpu.bus.bus.read_u8(raw_paddr) as i8) as i64 as u64
                             }
                             (MemWidth::Half, true) => {
-                                ((cpu.ram_ptr.add(ram_offset) as *const u16).read_unaligned()
-                                    as i16) as i64 as u64
+                                (cpu.bus.bus.read_u16(raw_paddr) as i16) as i64 as u64
                             }
                             (MemWidth::Word, true) => {
-                                ((cpu.ram_ptr.add(ram_offset) as *const u32).read_unaligned()
-                                    as i32) as i64 as u64
+                                (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
                             }
-                            (MemWidth::Byte, false) => *cpu.ram_ptr.add(ram_offset) as u64,
-                            (MemWidth::Half, false) => {
-                                (cpu.ram_ptr.add(ram_offset) as *const u16).read_unaligned() as u64
-                            }
-                            (MemWidth::Word, false) => {
-                                (cpu.ram_ptr.add(ram_offset) as *const u32).read_unaligned() as u64
-                            }
-                            (MemWidth::Double, _) => {
-                                (cpu.ram_ptr.add(ram_offset) as *const u64).read_unaligned()
-                            }
+                            (MemWidth::Byte, false) => cpu.bus.bus.read_u8(raw_paddr) as u64,
+                            (MemWidth::Half, false) => cpu.bus.bus.read_u16(raw_paddr) as u64,
+                            (MemWidth::Word, false) => cpu.bus.bus.read_u32(raw_paddr) as u64,
+                            (MemWidth::Double, _) => cpu.bus.bus.read_u64(raw_paddr),
                             _ => 0,
                         }
-                    }
-                } else {
-                    match (mem.ctrl.width, mem.ctrl.signed_load) {
-                        (MemWidth::Byte, true) => {
-                            (cpu.bus.bus.read_u8(raw_paddr) as i8) as i64 as u64
-                        }
-                        (MemWidth::Half, true) => {
-                            (cpu.bus.bus.read_u16(raw_paddr) as i16) as i64 as u64
-                        }
-                        (MemWidth::Word, true) => {
-                            (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
-                        }
-                        (MemWidth::Byte, false) => cpu.bus.bus.read_u8(raw_paddr) as u64,
-                        (MemWidth::Half, false) => cpu.bus.bus.read_u16(raw_paddr) as u64,
-                        (MemWidth::Word, false) => cpu.bus.bus.read_u32(raw_paddr) as u64,
-                        (MemWidth::Double, _) => cpu.bus.bus.read_u64(raw_paddr),
-                        _ => 0,
-                    }
-                };
+                    };
 
-                // NaN-boxing for FP loads
-                if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
-                    ld |= 0xFFFF_FFFF_0000_0000;
+                    // NaN-boxing for FP loads
+                    if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
+                        ld |= 0xFFFF_FFFF_0000_0000;
+                    }
                 }
             }
 

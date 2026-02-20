@@ -36,6 +36,40 @@ pub fn box_f32(f: f32) -> u64 {
     (f.to_bits() as u64) | NAN_BOX_MASK
 }
 
+/// Canonicalizes an f32 result and boxes it into a 64-bit NaN-boxed value.
+///
+/// Combines canonicalization and boxing in a single function that operates
+/// at the bit level. This prevents the optimizer from altering NaN payloads
+/// when a canonical NaN f32 flows from `canonicalize_f32` into `box_f32`.
+///
+/// Use this for arithmetic results that require NaN canonicalization.
+/// For sign injection and other non-canonicalizing operations, use plain
+/// [`box_f32`] instead.
+#[inline]
+pub fn box_f32_canon(f: f32) -> u64 {
+    let mut bits = f.to_bits();
+    // NaN: exponent all 1s AND mantissa nonzero → replace with canonical
+    if (bits & 0x7F80_0000) == 0x7F80_0000 && (bits & 0x007F_FFFF) != 0 {
+        bits = CANONICAL_NAN_F32;
+    }
+    (bits as u64) | NAN_BOX_MASK
+}
+
+/// Canonicalizes an f64 result and returns its bits.
+///
+/// Like [`box_f32_canon`] but for double-precision. Replaces any NaN with
+/// the canonical quiet NaN at the bit level.
+#[inline]
+pub fn canonicalize_f64_bits(f: f64) -> u64 {
+    let mut bits = f.to_bits();
+    if (bits & 0x7FF0_0000_0000_0000) == 0x7FF0_0000_0000_0000
+        && (bits & 0x000F_FFFF_FFFF_FFFF) != 0
+    {
+        bits = CANONICAL_NAN_F64;
+    }
+    bits
+}
+
 /// Unboxes a 64-bit register value to obtain an f32.
 ///
 /// Validates that the upper 32 bits are all 1s. If valid, returns the

@@ -6,6 +6,15 @@
 //! 3. **Register Storage:** The `Csrs` struct for maintaining architectural state.
 //! 4. **Access Logic:** Standardized read and write operations for register interaction.
 
+/// Floating-point accrued exceptions CSR address.
+pub const FFLAGS: u32 = 0x001;
+
+/// Floating-point dynamic rounding mode CSR address.
+pub const FRM: u32 = 0x002;
+
+/// Floating-point control and status register CSR address.
+pub const FCSR: u32 = 0x003;
+
 /// Machine vendor ID CSR address.
 pub const MVENDORID: u32 = 0xF11;
 
@@ -201,11 +210,18 @@ pub const MSTATUS_FS_CLEAN: u64 = 2 << 13;
 /// Floating-point state: dirty (FPU state has been modified).
 pub const MSTATUS_FS_DIRTY: u64 = 3 << 13;
 
+/// Modify PRiVilege bit in `mstatus` register (bit 17).
+/// When set, loads/stores use the privilege in MPP instead of current privilege.
+pub const MSTATUS_MPRV: u64 = 1 << 17;
+
 /// Supervisor user memory access bit in `mstatus` register.
 pub const MSTATUS_SUM: u64 = 1 << 18;
 
 /// Make executable readable bit in `mstatus` register.
 pub const MSTATUS_MXR: u64 = 1 << 19;
+
+/// User XLEN field in `mstatus` register (bits 33:32).
+pub const MSTATUS_UXL: u64 = 3 << 32;
 
 /// Bit shift for address translation mode field in `satp` register.
 pub const SATP_MODE_SHIFT: u64 = 60;
@@ -344,6 +360,14 @@ pub struct Csrs {
     pub minstret: u64,
     /// Supervisor timer compare (for timer interrupt).
     pub stimecmp: u64,
+    /// Floating-point accrued exception flags (5 bits: NV, DZ, OF, UF, NX).
+    pub fflags: u64,
+    /// Floating-point dynamic rounding mode (3 bits).
+    pub frm: u64,
+    /// Machine counter-enable register.
+    pub mcounteren: u64,
+    /// Supervisor counter-enable register.
+    pub scounteren: u64,
 }
 
 impl Csrs {
@@ -358,6 +382,9 @@ impl Csrs {
     /// The 64-bit value stored in the specified CSR, or 0 if the address is not recognized.
     pub fn read(&self, addr: u32) -> u64 {
         match addr {
+            FFLAGS => self.fflags & 0x1F,
+            FRM => self.frm & 0x7,
+            FCSR => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
             MSTATUS => self.mstatus,
             MISA => self.misa,
             MEDELEG => self.medeleg,
@@ -383,6 +410,8 @@ impl Csrs {
             INSTRET => self.instret,
             MCYCLE => self.mcycle,
             MINSTRET => self.minstret,
+            MCOUNTEREN => self.mcounteren,
+            SCOUNTEREN => self.scounteren,
             _ => 0,
         }
     }
@@ -395,6 +424,12 @@ impl Csrs {
     /// * `val` - The 64-bit value to write.
     pub fn write(&mut self, addr: u32, val: u64) {
         match addr {
+            FFLAGS => self.fflags = val & 0x1F,
+            FRM => self.frm = val & 0x7,
+            FCSR => {
+                self.fflags = val & 0x1F;
+                self.frm = (val >> 5) & 0x7;
+            }
             MSTATUS => self.mstatus = val,
             MISA => self.misa = val,
             MEDELEG => self.medeleg = val,
@@ -429,6 +464,8 @@ impl Csrs {
             INSTRET => self.instret = val,
             MCYCLE => self.mcycle = val,
             MINSTRET => self.minstret = val,
+            MCOUNTEREN => self.mcounteren = val,
+            SCOUNTEREN => self.scounteren = val,
             _ => {}
         }
     }

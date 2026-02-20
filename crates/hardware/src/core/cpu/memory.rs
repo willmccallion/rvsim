@@ -34,8 +34,20 @@ impl Cpu {
             return TranslationResult::success(PhysAddr::new(paddr), 0);
         }
 
+        // MPRV: when set and access is not Fetch, use MPP as effective privilege.
+        let effective_priv = if access != AccessType::Fetch
+            && (self.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
+        {
+            use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
+            use crate::core::arch::mode::PrivilegeMode;
+            let mpp = ((self.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
+            PrivilegeMode::from_u8(mpp)
+        } else {
+            self.privilege
+        };
+
         self.mmu
-            .translate(vaddr, access, self.privilege, &self.csrs, &mut self.bus.bus)
+            .translate(vaddr, access, effective_priv, &self.csrs, &mut self.bus.bus)
     }
 
     /// Simulates a memory access through the cache hierarchy.

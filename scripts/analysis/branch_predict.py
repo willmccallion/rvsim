@@ -30,7 +30,7 @@ def main():
     args = ap.parse_args()
 
     for program in args.programs:
-        binary = f"software/bin/programs/{program}.bin"
+        binary = f"software/bin/programs/{program}.elf"
         rows = {}
         for bp_name, bp_cls in PREDICTORS.items():
             print(f"  {program} {bp_name}...", flush=True)

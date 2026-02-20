@@ -58,7 +58,7 @@ fn insert_and_lookup_hit() {
     tlb.insert(vpn, ppn, pte);
 
     match tlb.lookup(vpn) {
-        Some((found_ppn, r, w, x, u)) => {
+        Some((found_ppn, r, w, x, u, _d)) => {
             assert_eq!(found_ppn, ppn);
             assert!(r);
             assert!(!w);
@@ -79,22 +79,22 @@ fn permissions_extracted_correctly() {
 
     // R-only
     tlb.insert(0x10, 0x100, make_pte(true, false, false, false));
-    let (_, r, w, x, u) = tlb.lookup(0x10).unwrap();
+    let (_, r, w, x, u, _d) = tlb.lookup(0x10).unwrap();
     assert_eq!((r, w, x, u), (true, false, false, false));
 
     // RW
     tlb.insert(0x11, 0x101, make_pte(true, true, false, false));
-    let (_, r, w, x, u) = tlb.lookup(0x11).unwrap();
+    let (_, r, w, x, u, _d) = tlb.lookup(0x11).unwrap();
     assert_eq!((r, w, x, u), (true, true, false, false));
 
     // RX
     tlb.insert(0x12, 0x102, make_pte(true, false, true, false));
-    let (_, r, w, x, u) = tlb.lookup(0x12).unwrap();
+    let (_, r, w, x, u, _d) = tlb.lookup(0x12).unwrap();
     assert_eq!((r, w, x, u), (true, false, true, false));
 
     // User bit
     tlb.insert(0x13, 0x103, make_pte(true, true, true, true));
-    let (_, _, _, _, u) = tlb.lookup(0x13).unwrap();
+    let (_, _, _, _, u, _d) = tlb.lookup(0x13).unwrap();
     assert!(u);
 }
 

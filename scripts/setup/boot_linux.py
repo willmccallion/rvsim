@@ -218,19 +218,19 @@ def build(linux_dir: str) -> int:
 
 
 def optimized_config() -> Config:
-    """Machine config for Linux boot: 256MB RAM, full cache hierarchy, TAGE predictor."""
+    """Machine config for Linux boot: width-4 superscalar, TAGE, aggressive caches."""
     return Config(
-        width=1,
+        width=4,
         branch_predictor=BranchPredictor.TAGE(
             num_banks=4,
-            table_size=2048,
-            loop_table_size=256,
+            table_size=4096,
+            loop_table_size=512,
             reset_interval=2000,
             history_lengths=[5, 15, 44, 130],
             tag_widths=[9, 9, 10, 10],
         ),
-        btb_size=4096,
-        ras_size=48,
+        btb_size=8192,
+        ras_size=64,
         start_pc=0x80000000,
         ram_base=0x80000000,
         uart_base=0x10000000,
@@ -240,10 +240,10 @@ def optimized_config() -> Config:
         kernel_offset=0x200000,
         bus_width=8,
         bus_latency=1,
-        clint_divider=100,
-        ram_size=256 * 1024 * 1024,
+        clint_divider=1,
+        ram_size="256MB",
         memory_controller=None,  # Simple
-        tlb_size=64,
+        tlb_size=128,
         l1i=Cache(
             size="64KB",
             line="64B",

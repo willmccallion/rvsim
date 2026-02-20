@@ -77,6 +77,22 @@ else
     fail "tests"
 fi
 
+# ── 3b. riscv-tests ISA suite ──────────────────────────────────────────────
+section "riscv-tests ISA suite"
+
+ISA_DIR="$ROOT/software/riscv-tests/isa"
+if [[ ! -d "$ISA_DIR" ]]; then
+    info "skipping — software/riscv-tests/ not found (run scripts/run_riscv_tests.py manually)"
+else
+    info "running scripts/run_riscv_tests.py"
+    PYTHON_BIN="$([ -f "$ROOT/.venv/bin/python3" ] && echo "$ROOT/.venv/bin/python3" || echo python3)"
+    if "$PYTHON_BIN" "$ROOT/scripts/run_riscv_tests.py" 2>&1; then
+        pass "riscv-tests"
+    else
+        fail "riscv-tests — ISA compliance failures"
+    fi
+fi
+
 # ── 4. Version alignment ───────────────────────────────────────────────────
 section "Version alignment"
 

@@ -109,6 +109,18 @@ pub enum AluOp {
     /// Convert single-precision float to long (signed).
     FCvtSL,
 
+    /// Convert float to word (unsigned).
+    FCvtWUS,
+
+    /// Convert float to long (unsigned).
+    FCvtLUS,
+
+    /// Convert unsigned word to float.
+    FCvtSWU,
+
+    /// Convert unsigned long to float.
+    FCvtSLU,
+
     /// Convert single-precision to double-precision float.
     FCvtSD,
 

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rvsim"
-version = "0.10.2"
+version = "0.11.0"
 description = "High-performance RISC-V cycle-accurate system simulator"
 readme = "README.md"
 requires-python = ">=3.10"

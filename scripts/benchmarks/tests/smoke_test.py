@@ -11,7 +11,7 @@ from rvsim import Config, Environment
 
 def main():
     root = _root
-    binary = os.path.join(root, "../" "software", "bin", "benchmarks", "qsort.bin")
+    binary = os.path.join(root, "../" "software", "bin", "benchmarks", "qsort.elf")
     if not os.path.exists(binary):
         print("Skip: binary not found:", binary)
         return 0

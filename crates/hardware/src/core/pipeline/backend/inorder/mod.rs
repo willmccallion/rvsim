@@ -61,6 +61,8 @@ impl ExecutionEngine for InOrderEngine {
     fn tick(&mut self, cpu: &mut Cpu, rename_output: &mut Vec<RenameIssueEntry>) {
         // Backend stages run in reverse order (drain from commit to issue)
 
+        let pc_before_commit = cpu.pc;
+
         // Commit: retire from ROB head
         let trap_event = commit::commit_stage(
             cpu,
@@ -78,6 +80,21 @@ impl ExecutionEngine for InOrderEngine {
             self.flush(cpu);
             cpu.redirect_pending = true;
             cpu.trap(trap, pc);
+            return;
+        }
+
+        // Handle MRET/SRET redirect: commit changed the PC, flush the
+        // entire backend so stale instructions fetched from the sequential
+        // path after MRET/SRET don't continue through the pipeline.
+        if cpu.pc != pc_before_commit {
+            if cpu.trace {
+                eprintln!(
+                    "BE  * MRET/SRET REDIRECT: {:#x} -> {:#x}, flushing backend",
+                    pc_before_commit, cpu.pc
+                );
+            }
+            self.flush(cpu);
+            rename_output.clear();
             return;
         }
 

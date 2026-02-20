@@ -11,6 +11,8 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
+use crate::soc::interconnect::Bus;
+use object::{Object, ObjectSymbol};
 use std::fs;
 use std::process;
 
@@ -96,4 +98,49 @@ pub fn setup_kernel_load(
         cpu.regs.write(abi::REG_A0, 0);
         cpu.regs.write(abi::REG_A1, dtb_addr);
     }
+}
+
+/// Result of loading an ELF file.
+pub struct ElfLoadResult {
+    /// Entry point address from the ELF header.
+    pub entry: u64,
+    /// Address of the `tohost` symbol, if present.
+    pub tohost_addr: Option<u64>,
+}
+
+/// Attempts to load an ELF file into memory via the bus.
+///
+/// If the file starts with the ELF magic (`\x7fELF`), parses the ELF,
+/// loads all `PT_LOAD` segments, and extracts the `tohost` symbol address.
+/// Returns `None` if the data is not a valid ELF.
+pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
+    if data.len() < 4 || &data[..4] != b"\x7fELF" {
+        return None;
+    }
+
+    let file = object::File::parse(data).ok()?;
+    let entry = file.entry();
+
+    // Load ELF segments into memory
+    for segment in file.segments() {
+        use object::ObjectSegment;
+        // We only care about loadable segments (PT_LOAD flags)
+        if segment.size() == 0 {
+            continue;
+        }
+        let paddr = segment.address();
+        if let Ok(seg_data) = segment.data()
+            && !seg_data.is_empty()
+        {
+            bus.load_binary_at(seg_data, paddr);
+        }
+    }
+
+    // Find tohost symbol
+    let tohost_addr = file
+        .symbols()
+        .find(|s| s.name() == Ok("tohost"))
+        .map(|s| s.address());
+
+    Some(ElfLoadResult { entry, tohost_addr })
 }

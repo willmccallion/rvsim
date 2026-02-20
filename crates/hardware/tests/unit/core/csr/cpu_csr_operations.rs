@@ -32,7 +32,9 @@ fn test_csr_read_write_mstatus() {
 
     let test_value = 0x1800; // MPP=11 (Machine mode)
     cpu.csr_write(csr::MSTATUS, test_value);
-    assert_eq!(cpu.csr_read(csr::MSTATUS), test_value);
+    // UXL and SXL bits (bits 35:32) are WARL and always preserved as 2 (RV64) in mstatus.
+    let expected = test_value | csr::MSTATUS_DEFAULT_RV64;
+    assert_eq!(cpu.csr_read(csr::MSTATUS), expected);
 }
 
 #[test]

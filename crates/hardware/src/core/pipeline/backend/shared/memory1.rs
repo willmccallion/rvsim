@@ -16,7 +16,8 @@ pub fn memory1_stage(
     stall_out: &mut u64,
 ) {
     let entries = std::mem::take(input);
-    output.clear();
+    // Do NOT clear output — memory2 may have pushed stalled entries back
+    // into this latch. We append new entries after any stalled ones.
 
     let mut flush_remaining = false;
 

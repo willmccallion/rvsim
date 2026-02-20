@@ -7,7 +7,7 @@
 //! 4. **Binary loading:** Optionally loads a disk image from path and kernel via `load_binary_at`.
 
 use crate::config::{Config, MemoryController as MemControllerType};
-use crate::soc::devices::{Clint, GoldfishRtc, Plic, SysCon, Uart, VirtioBlock};
+use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
 use crate::soc::interconnect::Bus;
 use crate::soc::memory::Memory;
 use crate::soc::memory::buffer::DramBuffer;
@@ -87,6 +87,11 @@ impl System {
         bus.add_device(Box::new(syscon));
         bus.add_device(Box::new(rtc));
 
+        if config.system.tohost_addr != 0 {
+            let htif = Htif::new(config.system.tohost_addr, exit_request.clone());
+            bus.add_device(Box::new(htif));
+        }
+
         let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller
         {
             MemControllerType::Dram => Box::new(DramController::new(
@@ -142,5 +147,14 @@ impl System {
     /// `true` if a kernel panic was detected, otherwise `false`.
     pub fn check_kernel_panic(&mut self) -> bool {
         self.bus.check_kernel_panic()
+    }
+
+    /// Registers an HTIF device at the given tohost address.
+    ///
+    /// Called after ELF loading discovers a `tohost` symbol. The device shares
+    /// the same `exit_request` atomic so the simulation loop picks up the exit.
+    pub fn add_htif(&mut self, tohost_addr: u64) {
+        let htif = Htif::new(tohost_addr, self.exit_request.clone());
+        self.bus.add_device(Box::new(htif));
     }
 }

@@ -16,12 +16,12 @@ pub const FMIN: u32 = 0b000;
 /// Floating-point Maximum.
 pub const FMAX: u32 = 0b001;
 
-/// Floating-point Equal (FEQ).
-pub const FEQ: u32 = 0b000;
+/// Floating-point Less Than or Equal (FLE).
+pub const FLE: u32 = 0b000;
 /// Floating-point Less Than (FLT).
 pub const FLT: u32 = 0b001;
-/// Floating-point Less Than or Equal (FLE).
-pub const FLE: u32 = 0b010;
+/// Floating-point Equal (FEQ).
+pub const FEQ: u32 = 0b010;
 
 /// Floating-point Classify (FCLASS).
 pub const FCLASS: u32 = 0b001;

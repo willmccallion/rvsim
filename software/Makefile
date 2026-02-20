@@ -5,7 +5,6 @@
 TARGET = riscv64-elf
 CC = $(TARGET)-gcc
 LD = $(TARGET)-ld
-OBJCOPY = $(TARGET)-objcopy
 
 # Directories
 BUILD_DIR = build
@@ -35,20 +34,20 @@ PROG_DIR = $(EXAM_DIR)/programs
 BENCH_DIR = $(EXAM_DIR)/benchmarks
 
 PROG_C_SRCS = $(wildcard $(PROG_DIR)/*.c)
-PROG_C_BINS = $(patsubst $(PROG_DIR)/%.c, bin/programs/%.bin, $(PROG_C_SRCS))
+PROG_C_ELFS = $(patsubst $(PROG_DIR)/%.c, bin/programs/%.elf, $(PROG_C_SRCS))
 PROG_S_SRCS = $(wildcard $(PROG_DIR)/*.s)
-PROG_S_BINS = $(patsubst $(PROG_DIR)/%.s, bin/programs/%.bin, $(PROG_S_SRCS))
+PROG_S_ELFS = $(patsubst $(PROG_DIR)/%.s, bin/programs/%.elf, $(PROG_S_SRCS))
 
 BENCH_MICRO_SRCS = $(wildcard $(BENCH_DIR)/microbenchmarks/*.c)
 BENCH_SYNTH_SRCS = $(wildcard $(BENCH_DIR)/synthetic/*.c)
 BENCH_KERN_SRCS  = $(wildcard $(BENCH_DIR)/kernels/*.c)
 BENCH_PROG_SRCS  = $(wildcard $(BENCH_DIR)/complete_prog/*.c)
 
-BENCH_BINS = \
-	$(patsubst $(BENCH_DIR)/microbenchmarks/%.c, bin/benchmarks/%.bin, $(BENCH_MICRO_SRCS)) \
-	$(patsubst $(BENCH_DIR)/synthetic/%.c, bin/benchmarks/%.bin, $(BENCH_SYNTH_SRCS)) \
-	$(patsubst $(BENCH_DIR)/kernels/%.c, bin/benchmarks/%.bin, $(BENCH_KERN_SRCS)) \
-	$(patsubst $(BENCH_DIR)/complete_prog/%.c, bin/benchmarks/%.bin, $(BENCH_PROG_SRCS))
+BENCH_ELFS = \
+	$(patsubst $(BENCH_DIR)/microbenchmarks/%.c, bin/benchmarks/%.elf, $(BENCH_MICRO_SRCS)) \
+	$(patsubst $(BENCH_DIR)/synthetic/%.c, bin/benchmarks/%.elf, $(BENCH_SYNTH_SRCS)) \
+	$(patsubst $(BENCH_DIR)/kernels/%.c, bin/benchmarks/%.elf, $(BENCH_KERN_SRCS)) \
+	$(patsubst $(BENCH_DIR)/complete_prog/%.c, bin/benchmarks/%.elf, $(BENCH_PROG_SRCS))
 
 .PHONY: all clean clean-no-linux dirs disk linux
 
@@ -73,42 +72,36 @@ $(STDLIB_OBJ): $(LIB_DIR)/stdlib.c
 	@$(CC) $(USER_CFLAGS) -c $< -o $@
 
 # --- Programs ---
-bin/programs/%.bin: $(PROG_DIR)/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+bin/programs/%.elf: $(PROG_DIR)/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 	@echo "  CC (Prog) $<"
 	@$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/programs/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/programs/$*.o -o $(BUILD_DIR)/programs/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/programs/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/programs/$*.o -o $@
 
-bin/programs/%.bin: $(PROG_DIR)/%.s
+bin/programs/%.elf: $(PROG_DIR)/%.s
 	@echo "  AS (Prog) $<"
 	@$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/programs/$*.o
-	@$(LD) -T $(LINKER_SCR) $(BUILD_DIR)/programs/$*.o -o $(BUILD_DIR)/programs/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/programs/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(BUILD_DIR)/programs/$*.o -o $@
 
 # --- Benchmarks ---
-bin/benchmarks/%.bin: $(BENCH_DIR)/microbenchmarks/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+bin/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 	@echo "  CC (Bench/Micro) $<"
 	@$(CC) $(MICRO_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $(BUILD_DIR)/benchmarks/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/benchmarks/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
 
-bin/benchmarks/%.bin: $(BENCH_DIR)/synthetic/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+bin/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 	@echo "  CC (Bench/Synth) $<"
 	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $(BUILD_DIR)/benchmarks/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/benchmarks/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
 
-bin/benchmarks/%.bin: $(BENCH_DIR)/kernels/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+bin/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 	@echo "  CC (Bench/Kern) $<"
 	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $(BUILD_DIR)/benchmarks/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/benchmarks/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
 
-bin/benchmarks/%.bin: $(BENCH_DIR)/complete_prog/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+bin/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 	@echo "  CC (Bench/Prog) $<"
 	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $(BUILD_DIR)/benchmarks/$*.elf
-	@$(OBJCOPY) -O binary $(BUILD_DIR)/benchmarks/$*.elf $@
+	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
 
 # --- Linux (download Buildroot + build via scripts/setup/boot_linux.py) ---
 linux:
@@ -116,8 +109,8 @@ linux:
 	@cd .. && python3 scripts/setup/boot_linux.py --no-boot
 
 # --- Disk Image ---
-disk: $(PROG_C_BINS) $(PROG_S_BINS) $(BENCH_BINS)
-	@echo "  Built $(words $(PROG_C_BINS) $(PROG_S_BINS) $(BENCH_BINS)) binaries"
+disk: $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS)
+	@echo "  Built $(words $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS)) ELFs"
 	@echo "  Programs: bin/programs/"
 	@echo "  Benchmarks: bin/benchmarks/"
 

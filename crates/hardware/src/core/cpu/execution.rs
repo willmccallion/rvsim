@@ -40,7 +40,7 @@ impl Cpu {
         if self.pc == self.last_pc {
             self.same_pc_count += 1;
             if self.same_pc_count == HANG_DETECTION_THRESHOLD {
-                let inst = if let Some((ppn, _, _, _, _)) =
+                let inst = if let Some((ppn, _, _, _, _, _)) =
                     self.mmu.dtlb.lookup((self.pc >> PAGE_SHIFT) & VPN_MASK)
                 {
                     let paddr = (ppn << PAGE_SHIFT) | (self.pc & PAGE_OFFSET_MASK);

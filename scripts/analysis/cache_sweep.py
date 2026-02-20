@@ -24,7 +24,7 @@ def main():
     args = ap.parse_args()
 
     for program in args.programs:
-        binary = f"software/bin/programs/{program}.bin"
+        binary = f"software/bin/programs/{program}.elf"
         rows = {}
         for size in args.sizes:
             print(f"  {program} dcache={size}...", flush=True)

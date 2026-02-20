@@ -149,9 +149,15 @@ impl PyCpu {
     /// Enable or disable direct (bare-metal) mode. When enabled, traps cause exit instead of jumping to trap handler.
     pub fn set_direct_mode(&mut self, enabled: bool) {
         self.inner.cpu.direct_mode = enabled;
-        if enabled {
-            self.inner.cpu.privilege = PrivilegeMode::User;
-        }
+        // Both modes start in Machine privilege. The riscv-tests boot in
+        // M-mode and switch to lower modes via their own trap handlers.
+        // Direct (bare-metal) binaries also need M-mode since there is no OS.
+        self.inner.cpu.privilege = PrivilegeMode::Machine;
+    }
+
+    /// Mark an address range as HTIF so stores bypass the RAM fast-path.
+    pub fn set_htif_range(&mut self, start: u64, size: u64) {
+        self.inner.cpu.htif_range = Some((start, start + size));
     }
 
     /// Set the program counter.

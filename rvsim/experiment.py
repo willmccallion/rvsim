@@ -62,8 +62,13 @@ class Environment:
         try:
             sys_obj = PySystem(config, self.disk)
             with open(self.binary, "rb") as f:
-                sys_obj.load_binary(f.read(), self.load_addr)
+                data = f.read()
+            entry, tohost = sys_obj.load_elf(data)
             cpu = Cpu(PyCpu(sys_obj, config))
+            cpu.pc = entry
+            if tohost is not None:
+                cpu._cpu.set_direct_mode(False)
+                cpu._cpu.set_htif_range(tohost, 16)
             exit_code = cpu.run(limit=limit, progress=progress)
             if exit_code is None and limit is None:
                 raise RuntimeError(

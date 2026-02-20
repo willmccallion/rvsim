@@ -146,7 +146,7 @@ prerelease:
 
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
-	.venv/bin/rvsim -f software/bin/benchmarks/qsort.bin
+	.venv/bin/rvsim -f software/bin/benchmarks/qsort.elf
 
 run-linux:
 	@printf "$(GREEN)Booting Linux…$(RESET)\n"

@@ -10,6 +10,9 @@ pub mod clint;
 /// Goldfish RTC (Real-Time Clock) device.
 pub mod goldfish_rtc;
 
+/// Host-Target Interface (HTIF) for riscv-tests.
+pub mod htif;
+
 /// Platform-Level Interrupt Controller (PLIC).
 pub mod plic;
 
@@ -24,6 +27,7 @@ pub mod virtio_disk;
 
 pub use clint::Clint;
 pub use goldfish_rtc::GoldfishRtc;
+pub use htif::Htif;
 pub use plic::Plic;
 pub use syscon::SysCon;
 pub use uart::Uart;

@@ -30,7 +30,12 @@ impl Cpu {
             // In direct mode, ecall is handled here at commit time so that
             // all preceding instructions have retired and the architectural
             // register file contains the correct syscall arguments.
-            if matches!(cause, Trap::EnvironmentCallFromUMode) {
+            if matches!(
+                cause,
+                Trap::EnvironmentCallFromUMode
+                    | Trap::EnvironmentCallFromSMode
+                    | Trap::EnvironmentCallFromMMode
+            ) {
                 let val_a7 = self.regs.read(abi::REG_A7);
                 let val_a0 = self.regs.read(abi::REG_A0);
 

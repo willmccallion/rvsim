@@ -79,6 +79,7 @@ class Config:
         clint_divider: int = 10,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
+        tohost_addr: int = 0,
     ):
         # Pipeline
         self.width = width
@@ -120,6 +121,7 @@ class Config:
         self.clint_divider = clint_divider
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
+        self.tohost_addr = tohost_addr
 
     def to_dict(self) -> Dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
@@ -145,6 +147,7 @@ class Config:
             "clint_divider": self.clint_divider,
             "uart_to_stderr": self.uart_to_stderr,
             "uart_quiet": self.uart_quiet,
+            "tohost_addr": self.tohost_addr,
         }
 
         # Memory — merge controller-specific params

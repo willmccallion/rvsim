@@ -22,6 +22,7 @@ pub struct Bus {
     last_device_idx: usize,
     ram_idx: Option<usize>,
     uart_idx: Option<usize>,
+    htif_idx: Option<usize>,
 }
 
 impl Bus {
@@ -43,6 +44,7 @@ impl Bus {
             last_device_idx: 0,
             ram_idx: None,
             uart_idx: None,
+            htif_idx: None,
         }
     }
 
@@ -56,6 +58,7 @@ impl Bus {
         self.devices.sort_by_key(|d| d.address_range().0);
         self.ram_idx = self.devices.iter().position(|d| d.name() == "DRAM");
         self.uart_idx = self.devices.iter().position(|d| d.name() == "UART0");
+        self.htif_idx = self.devices.iter().position(|d| d.name() == "HTIF");
         self.last_device_idx = 0;
     }
 
@@ -194,6 +197,16 @@ impl Bus {
     }
 
     fn find_device(&mut self, paddr: u64) -> Option<(&mut Box<dyn Device + Send + Sync>, u64)> {
+        // HTIF sits inside the RAM range so must be checked before any RAM
+        // fast-path (last_device_idx cache or ram_idx shortcut).
+        if let Some(idx) = self.htif_idx {
+            let (start, size) = self.devices[idx].address_range();
+            if paddr >= start && paddr < start + size {
+                self.last_device_idx = idx;
+                return Some((&mut self.devices[idx], paddr - start));
+            }
+        }
+
         if self.last_device_idx < self.devices.len() {
             let (start, size) = self.devices[self.last_device_idx].address_range();
             if paddr >= start && paddr < start + size {
