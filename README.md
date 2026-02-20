@@ -1,7 +1,5 @@
 # RISC-V 64-bit System Simulator
 
-**WARNING:** This project is currently broken due to ongoing refactors from version 0.9.0. Version 1.0.0 will be released once these refactors are complete and stable.
-
 A cycle-accurate system simulator for the RISC-V 64-bit architecture (RV64IMAFD). Features a 5-stage pipelined CPU, comprehensive memory hierarchy, and can boot Linux (experimental).
 
 ## Technologies Used

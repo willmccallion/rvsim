@@ -8,7 +8,9 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::config::{CacheConfig, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType};
+use rvsim_core::config::{
+    CacheConfig, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType,
+};
 use rvsim_core::core::units::cache::CacheSim;
 
 // ──────────────────────────────────────────────────────────

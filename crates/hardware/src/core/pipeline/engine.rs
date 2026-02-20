@@ -77,7 +77,17 @@ impl<E: ExecutionEngine> Pipeline<E> {
         // (The backend's own flush path clears rename_output for execute-detected
         // redirects, but the trap path in commit returns early before reaching
         // that code.)
-        if cpu.pc != pc_before {
+        // Check for PC redirect (branch misprediction, trap, FENCE.I, etc.).
+        // Use both the explicit redirect flag AND the PC comparison:
+        // - redirect_pending catches cases where the target PC coincidentally
+        //   equals the current fetch PC (e.g., sequential wrap-around).
+        // - pc != pc_before catches commit-stage redirects (MRET/SRET) that
+        //   don't go through the execute stage's flush path.
+        let needs_frontend_flush = cpu.redirect_pending || cpu.pc != pc_before;
+        if cpu.redirect_pending {
+            cpu.redirect_pending = false;
+        }
+        if needs_frontend_flush {
             self.frontend.flush();
             self.rename_output.clear();
         }

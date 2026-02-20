@@ -76,6 +76,7 @@ impl ExecutionEngine for InOrderEngine {
                 eprintln!("BE  * HANDLING TRAP: {:?} at PC {:#x}", trap, pc);
             }
             self.flush(cpu);
+            cpu.redirect_pending = true;
             cpu.trap(trap, pc);
             return;
         }

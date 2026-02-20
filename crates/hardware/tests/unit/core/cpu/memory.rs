@@ -95,7 +95,8 @@ fn test_cache_access_returns_latency() {
     let mut cpu = create_test_cpu();
     let paddr = 0x8000_0000u64;
 
-    let latency = cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
+    let latency =
+        cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
 
     // Latency should be a valid value
     assert!(latency < u64::MAX);
@@ -131,7 +132,8 @@ fn test_cache_disabled() {
 
     let paddr = 0x8000_0000u64;
 
-    let latency = cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
+    let latency =
+        cpu.simulate_memory_access(rvsim_core::common::PhysAddr::new(paddr), AccessType::Read);
 
     // Should still return valid latency
     assert!(latency < u64::MAX);

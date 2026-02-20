@@ -105,6 +105,12 @@ pub struct Cpu {
     pub pc_trace: Vec<(u64, u32)>,
     /// Last invalid PC we printed debug for (avoid duplicate dumps).
     pub last_invalid_pc_debug: Option<u64>,
+
+    /// Set by the backend when a PC redirect occurs (branch misprediction,
+    /// trap, FENCE.I, etc.). The pipeline uses this to flush the frontend,
+    /// rather than relying solely on `cpu.pc != pc_before` which can miss
+    /// redirects when the target happens to equal the current fetch PC.
+    pub redirect_pending: bool,
 }
 
 /// Maximum number of (pc, inst) entries kept for invalid-PC debug trace.
@@ -234,6 +240,7 @@ impl Cpu {
             ram_end,
             pc_trace: Vec::with_capacity(PC_TRACE_MAX),
             last_invalid_pc_debug: None,
+            redirect_pending: false,
         }
     }
 

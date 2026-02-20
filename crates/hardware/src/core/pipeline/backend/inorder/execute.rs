@@ -93,6 +93,7 @@ pub fn execute_inorder(
             cpu.l1_d_cache.flush();
             cpu.l1_i_cache.flush();
             cpu.pc = id.pc.wrapping_add(id.inst_size);
+            cpu.redirect_pending = true;
             flush_remaining = true;
 
             results.push(ExMem1Entry {
@@ -182,6 +183,7 @@ pub fn execute_inorder(
                 } else {
                     // Nothing enabled, nothing pending — NOP (advance past WFI)
                     cpu.pc = id.pc.wrapping_add(id.inst_size);
+                    cpu.redirect_pending = true;
                     flush_remaining = true;
                 }
 
@@ -291,6 +293,7 @@ pub fn execute_inorder(
 
                 // Flush frontend after CSR
                 cpu.pc = id.pc.wrapping_add(id.inst_size);
+                cpu.redirect_pending = true;
                 flush_remaining = true;
 
                 results.push(ExMem1Entry {
@@ -345,6 +348,7 @@ pub fn execute_inorder(
                 cpu.stats.branch_mispredictions += 1;
                 cpu.stats.stalls_control += 2;
                 cpu.pc = actual_next_pc;
+                cpu.redirect_pending = true;
                 flush_remaining = true;
             } else {
                 cpu.stats.branch_predictions += 1;
@@ -374,6 +378,7 @@ pub fn execute_inorder(
                 cpu.stats.branch_mispredictions += 1;
                 cpu.stats.stalls_control += 2;
                 cpu.pc = actual_target;
+                cpu.redirect_pending = true;
                 flush_remaining = true;
             } else {
                 cpu.stats.branch_predictions += 1;

@@ -26,7 +26,7 @@ from .types import (
     ReplacementPolicy,
 )
 
-__version__ = _metadata_version("rvsim-sim")
+__version__ = _metadata_version("rvsim")
 
 
 def version() -> str:
