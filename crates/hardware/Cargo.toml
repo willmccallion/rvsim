@@ -1,6 +1,6 @@
 [package]
 name = "rvsim-core"
-description = "RISC-V cycle-accurate simulator core library"
+description = "High-performance cycle-accurate RISC-V 64-bit system simulator with configurable pipelines, branch prediction, and memory hierarchy"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
