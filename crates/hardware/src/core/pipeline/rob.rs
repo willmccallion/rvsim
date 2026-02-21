@@ -411,6 +411,31 @@ impl Rob {
         let entry = &self.entries[idx];
         if entry.valid { Some(entry) } else { None }
     }
+
+    /// Returns true if all ROB entries older than `tag` are Completed or Faulted.
+    ///
+    /// Used by the issue queue to enforce serializing behavior: system/CSR
+    /// instructions must not issue until all older instructions have finished
+    /// executing (e.g., FP instructions that set fflags).
+    pub fn all_before_completed(&self, tag: RobTag) -> bool {
+        if self.count == 0 {
+            return true;
+        }
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid {
+                if entry.tag == tag {
+                    return true; // reached our entry — all older are done
+                }
+                if entry.state == RobState::Issued {
+                    return false; // older entry still executing
+                }
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        true // tag not found in ROB (shouldn't happen)
+    }
 }
 
 #[cfg(test)]

@@ -113,6 +113,7 @@ impl ExecutionEngine for InOrderEngine {
         // Memory1: address translation (gated by mem1_stall)
         if self.mem1_stall > 0 {
             self.mem1_stall -= 1;
+            cpu.stats.stalls_mem += 1;
         } else {
             memory1::memory1_stage(
                 cpu,
@@ -141,6 +142,9 @@ impl ExecutionEngine for InOrderEngine {
             (Vec::new(), false)
         } else {
             let issued = self.issuer.select(self.width, &self.rob, cpu);
+            if issued.is_empty() && self.issuer.len() > 0 {
+                cpu.stats.stalls_data += 1;
+            }
             execute::execute_inorder(cpu, issued, &mut self.rob)
         };
         self.execute_mem1.extend(results);

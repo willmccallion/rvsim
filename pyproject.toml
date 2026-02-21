@@ -8,6 +8,7 @@ version = "0.11.0"
 description = "High-performance RISC-V cycle-accurate system simulator"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = ["rich>=13"]
 license = { text = "MIT OR Apache-2.0" }
 license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
 classifiers = [

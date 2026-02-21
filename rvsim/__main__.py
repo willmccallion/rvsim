@@ -1,16 +1,10 @@
 """
 CLI entry point for rvsim.
 
-Invoked by the ``rvsim`` console script installed by pip, or directly via
-``python -m rvsim``.
-
 Usage::
 
-    rvsim <file>                           Auto-detect mode by extension
-    rvsim -f <elf> [--limit N]             Bare-metal ELF
-    rvsim --kernel <Image> [--disk <img>]  Boot a kernel
-    rvsim --script <script.py> [args ...]  Run a Python script
-    rvsim list                             List bundled programs
+    rvsim <file> [options]   Run an ELF binary, kernel image, or Python script
+    rvsim list               List bundled programs
 """
 
 import argparse
@@ -19,14 +13,24 @@ import pathlib
 import runpy
 import sys
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+_PROGRAM_DESCRIPTIONS = {
+    "chess": "alpha-beta chess engine, searches to fixed depth",
+    "fib": "fibonacci sequence, simple ALU benchmark",
+    "life": "Conway's Game of Life, memory-bound grid update",
+    "mandelbrot": "Mandelbrot set renderer, floating-point heavy",
+    "maze": "recursive maze generator, branch-heavy",
+    "merge_sort": "merge sort on random integers",
+    "qsort": "quicksort, cache and branch benchmark",
+    "raytracer": "software ray tracer, FP and memory intensive",
+    "sand": "falling sand simulation",
+    "sort": "sorting benchmark",
+    "twentyfortyeight": "2048 game logic",
+}
 
 
 def _detect_mode(filepath: str) -> str:
-    """Detect execution mode from file extension.
-
-    Returns ``"script"``, ``"binary"``, or ``"kernel"``.
-    """
     _, ext = os.path.splitext(filepath)
     ext = ext.lower()
     if ext == ".py":
@@ -37,31 +41,22 @@ def _detect_mode(filepath: str) -> str:
 
 
 def _find_bundled_binaries():
-    """Locate bundled binary directories.
-
-    Returns (programs_dir, benchmarks_dir) or (None, None).
-    """
-    # Try relative to package location (development install)
-    pkg_dir = pathlib.Path(__file__).resolve().parent  # rvsim/
+    pkg_dir = pathlib.Path(__file__).resolve().parent
     repo_root = pkg_dir.parent
     programs = repo_root / "software" / "bin" / "programs"
     benchmarks = repo_root / "software" / "bin" / "benchmarks"
     if programs.is_dir() and benchmarks.is_dir():
         return programs, benchmarks
-
-    # Try CWD
     cwd = pathlib.Path.cwd()
     programs = cwd / "software" / "bin" / "programs"
     benchmarks = cwd / "software" / "bin" / "benchmarks"
     if programs.is_dir() and benchmarks.is_dir():
         return programs, benchmarks
-
     return None, None
 
 
 def _cmd_list():
-    """List bundled programs and benchmarks."""
-    from ._cli import tag
+    from ._cli import BOLD, DIM, RESET, TEAL
 
     programs, benchmarks = _find_bundled_binaries()
     if programs is None:
@@ -71,44 +66,115 @@ def _cmd_list():
         )
         sys.exit(1)
 
-    print(f"\n{tag('programs')}")
-    for f in sorted(programs.glob("*.elf")):
-        print(f"  {f.stem}")
+    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
-    print(f"\n{tag('benchmarks')}")
+    def section(name):
+        if is_tty:
+            return f"\n{BOLD}{TEAL}[{name}]{RESET}"
+        return f"\n[{name}]"
+
+    def row(stem, desc):
+        if is_tty:
+            return f"  {BOLD}{stem:<18}{RESET}{DIM}{desc}{RESET}"
+        return f"  {stem:<18}{desc}"
+
+    print(section("programs"))
+    for f in sorted(programs.glob("*.elf")):
+        desc = _PROGRAM_DESCRIPTIONS.get(f.stem, "")
+        print(row(f.stem, desc))
+
+    print(section("benchmarks"))
     for f in sorted(benchmarks.glob("*.elf")):
-        print(f"  {f.stem}")
+        print(row(f.stem, ""))
+
     print()
 
 
-def _apply_cli_overrides(sim, args):
-    """Apply CLI flags that override config-file settings."""
-    from .config import Config
-    from .types import BranchPredictor
+def _print_help() -> None:
+    from rich.console import Console
+    from rich.padding import Padding
+    from rich.table import Table
+    from rich.text import Text
 
-    if sim._config_obj is None:
-        sim._config_obj = Config()
+    console = Console()
 
-    if args.trace:
-        sim._config_obj.trace = True
-    if args.width is not None:
-        sim._config_obj.width = args.width
-    if args.bp is not None:
-        bp_map = {
-            "static": BranchPredictor.Static,
-            "gshare": BranchPredictor.GShare,
-            "tage": BranchPredictor.TAGE,
-            "perceptron": BranchPredictor.Perceptron,
-            "tournament": BranchPredictor.Tournament,
-        }
-        sim._config_obj.branch_predictor = bp_map[args.bp]()
+    console.print()
+    console.print(
+        "  [bold cyan]rvsim[/] [dim]—[/] RISC-V cycle-accurate simulator",
+        highlight=False,
+    )
+    console.print()
+
+    # Usage
+    console.print("  [bold]Usage[/]", highlight=False)
+    console.print(
+        "    [cyan]rvsim[/] [green]<file>[/] [dim][[/][yellow]options[/][dim]][/]",
+        highlight=False,
+    )
+    console.print("    [cyan]rvsim[/] [green]list[/]", highlight=False)
+    console.print()
+
+    # Mode detection
+    console.print(
+        "  [bold]Modes[/]  [dim](auto-detected from file extension)[/]", highlight=False
+    )
+    mode_table = Table(show_header=False, box=None, padding=(0, 2))
+    mode_table.add_column(style="green", width=8)
+    mode_table.add_column(style="dim")
+    mode_table.add_row(".elf", "bare-metal ELF binary")
+    mode_table.add_row(".py", "Python script — use the rvsim API for full control")
+    mode_table.add_row("other", "kernel image")
+    console.print(Padding(mode_table, (0, 2)))
+    console.print()
+
+    # Options
+    console.print("  [bold]Options[/]", highlight=False)
+    opt_table = Table(show_header=False, box=None, padding=(0, 2))
+    opt_table.add_column(style="yellow", no_wrap=True)
+    opt_table.add_column(style="dim")
+    opt_table.add_row(
+        "--watch", "live dashboard — IPC, cache hit rates, branch accuracy, stalls"
+    )
+    opt_table.add_row(
+        "--limit [cyan]N[/cyan]", "stop after N cycles  [dim](e.g. 5M, 500K, 1G)[/dim]"
+    )
+    opt_table.add_row("--no-stats", "run without printing the stats table")
+    opt_table.add_row("--quiet", "suppress all output, including program stdout")
+    opt_table.add_row("--json [cyan]FILE[/cyan]", "write stats as JSON to FILE")
+    console.print(Padding(opt_table, (0, 2)))
+    console.print()
+
+    # Examples
+    console.print("  [bold]Examples[/]", highlight=False)
+    ex_table = Table(show_header=False, box=None, padding=(0, 2))
+    ex_table.add_column(style="cyan", no_wrap=True)
+    ex_table.add_column(style="dim")
+    ex_table.add_row("rvsim mandelbrot.elf", "run, print stats on exit")
+    ex_table.add_row("rvsim mandelbrot.elf --watch", "live dashboard while running")
+    ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
+    ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
+    ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
+    ex_table.add_row("rvsim experiment.py", "run a Python script via the rvsim API")
+    ex_table.add_row("rvsim list", "list bundled programs and benchmarks")
+    console.print(Padding(ex_table, (0, 2)))
+    console.print()
+
+    # Tip
+    console.print(
+        "  [dim]For pipeline config, cache tuning, sweeps — write a .py script and pass it here.[/]",
+        highlight=False,
+    )
+    console.print()
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 
 def main() -> None:
-    # Handle 'list' subcommand before argparse
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
+        _print_help()
+        sys.exit(0)
+
     if len(sys.argv) >= 2 and sys.argv[1] == "list":
         _cmd_list()
         return
@@ -118,189 +184,139 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="rvsim",
-        description="RISC-V cycle-accurate simulator",
+        description=(
+            "rvsim — RISC-V cycle-accurate simulator\n"
+            "\n"
+            "Run a bare-metal ELF, kernel image, or Python script.\n"
+            "The mode is auto-detected from the file extension:\n"
+            "  .elf  → bare-metal binary\n"
+            "  .py   → Python script (use the rvsim Python API for full control)\n"
+            "  other → kernel image\n"
+            "\n"
+            "For anything beyond a quick one-off run — configuring the pipeline,\n"
+            "cache hierarchy, branch predictor, sweeps — write a Python script\n"
+            "and pass it here instead."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  rvsim mandelbrot.elf                     run a bare-metal ELF\n"
-            "  rvsim mandelbrot.elf --limit 5M           stop after 5M cycles\n"
-            "  rvsim mandelbrot.elf --width 4 --bp tage  4-wide with TAGE predictor\n"
-            "  rvsim --kernel Image --disk root.img      boot a kernel\n"
-            "  rvsim experiment.py --ipc 4               run a Python script\n"
-            "  rvsim list                                list bundled programs\n"
+            "  rvsim mandelbrot.elf               run with default config, print stats\n"
+            "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
+            "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
+            "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
+            "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"
+            "  rvsim mandelbrot.elf --json out.json  save stats to JSON\n"
+            "  rvsim experiment.py                 run a Python script via the rvsim API\n"
+            "  rvsim list                          list bundled programs and benchmarks\n"
         ),
     )
 
-    # Version
     parser.add_argument(
-        "--version",
-        action="version",
-        version=f"rvsim {_meta_version('rvsim')}",
-    )
-
-    # Input selection (explicit flags for backward compat)
-    parser.add_argument(
-        "-f",
-        "--file",
-        dest="file_flag",
-        metavar="BINARY",
-        help="bare-metal ELF to execute",
-    )
-    parser.add_argument("--kernel", metavar="IMAGE", help="kernel image for OS boot")
-    parser.add_argument(
-        "--script", metavar="SCRIPT", help="Python script to run (gem5-style)"
-    )
-
-    # Configuration
-    parser.add_argument("--config", metavar="FILE", help="Python config file")
-
-    # Simulation
-    parser.add_argument("--disk", metavar="IMG", help="disk image (requires --kernel)")
-    parser.add_argument(
-        "--dtb", metavar="DTB", help="device tree blob (requires --kernel)"
+        "--version", action="version", version=f"rvsim {_meta_version('rvsim')}"
     )
     parser.add_argument(
         "--limit",
         metavar="N",
         type=_parse_cycles,
         default=None,
-        help="max cycles to simulate (supports K/M/G, e.g. 5M)",
+        help="stop after N cycles (e.g. 5M, 500K)",
     )
     parser.add_argument(
-        "--progress",
-        metavar="N",
-        type=_parse_cycles,
-        default=0,
-        help="print progress every N cycles (supports K/M/G, e.g. 500K)",
+        "--watch",
+        action="store_true",
+        default=False,
+        help="live dashboard while the simulation runs",
     )
     parser.add_argument(
-        "--trace", action="store_true", default=False, help="enable instruction tracing"
-    )
-
-    # Stats control
-    parser.add_argument(
-        "--stats",
-        nargs="?",
-        const="all",
-        default="all",
-        metavar="SECTIONS",
-        help="stats sections to print (comma-separated: summary,core,instruction_mix,branch,memory)",
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="suppress all output (program stdout and stats)",
     )
     parser.add_argument(
-        "--no-stats", action="store_true", default=False, help="suppress stats output"
+        "--no-stats",
+        action="store_true",
+        default=False,
+        help="suppress stats table but still show program output",
     )
     parser.add_argument(
-        "--output-stats",
+        "--json",
         metavar="FILE",
         default=None,
         help="write stats as JSON to FILE",
     )
-
-    # Pipeline overrides
-    parser.add_argument(
-        "--width", type=int, metavar="N", default=None, help="pipeline width override"
-    )
-    parser.add_argument(
-        "--bp",
-        choices=["static", "gshare", "tage", "perceptron", "tournament"],
-        default=None,
-        metavar="TYPE",
-        help="branch predictor override (static, gshare, tage, perceptron, tournament)",
-    )
-
-    # Positional: file + optional script args
     parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
-
-    # ── Parse ────────────────────────────────────────────────────────────────
 
     args, remaining = parser.parse_known_args()
 
-    # Resolve input file and mode
-    explicit_count = sum(1 for x in [args.file_flag, args.kernel, args.script] if x)
-    if explicit_count > 1:
-        parser.error("only one of -f/--file, --kernel, --script can be specified")
+    if not args.positional_args:
+        _print_help()
+        sys.exit(0)
 
-    if args.file_flag:
-        target = args.file_flag
-        mode = "binary"
-        extra_args = args.positional_args + remaining
-    elif args.kernel:
-        target = args.kernel
-        mode = "kernel"
-        extra_args = args.positional_args + remaining
-    elif args.script:
-        target = args.script
-        mode = "script"
-        extra_args = args.positional_args + remaining
-    elif args.positional_args:
-        target = args.positional_args[0]
-        mode = _detect_mode(target)
-        extra_args = args.positional_args[1:] + remaining
-    else:
-        parser.error(
-            "no input file specified\nusage: rvsim <file> [options]\n       rvsim list"
-        )
-        return  # unreachable, but keeps type checker happy
+    target = args.positional_args[0]
+    mode = _detect_mode(target)
+    extra_args = args.positional_args[1:] + remaining
 
-    # Validation
     if mode != "script" and extra_args:
         parser.error(f"unrecognized arguments: {' '.join(extra_args)}")
-    if args.disk and mode != "kernel":
-        parser.error("--disk requires --kernel or a kernel image")
-    if args.dtb and mode != "kernel":
-        parser.error("--dtb requires --kernel or a kernel image")
 
-    # Resolve stats sections
-    if args.no_stats:
-        stats_sections = None
-    elif args.stats and args.stats != "all":
-        stats_sections = [s.strip() for s in args.stats.split(",")]
-    else:
-        stats_sections = []  # empty = all sections
-
-    # ── Execute ──────────────────────────────────────────────────────────────
+    # ── Execute ───────────────────────────────────────────────────────────────
 
     if mode == "script":
         sys.argv = [target] + extra_args
         runpy.run_path(target, run_name="__main__")
+        return
 
+    from .config import Config
+    from .objects import Simulator
+
+    cfg = Config()
+    if args.quiet:
+        cfg.uart_quiet = True
+    elif args.watch:
+        # Redirect program output to stderr so Live doesn't see stdout being
+        # written mid-render (which causes the duplicate frame).
+        cfg.uart_to_stderr = True
     elif mode == "kernel":
-        from .objects import Simulator
+        cfg.uart_to_stderr = True
 
-        sim = Simulator()
-        if args.config:
-            sim = sim.config(args.config)
-        _apply_cli_overrides(sim, args)
+    sim = Simulator().config(cfg)
+
+    if mode == "kernel":
         sim = sim.kernel(target)
-        if args.disk:
-            sim = sim.disk(args.disk)
-        if args.dtb:
-            sim = sim.dtb(args.dtb)
-        sys.exit(
-            sim.run(
-                limit=args.limit,
-                progress=args.progress,
-                stats_sections=stats_sections,
-                output_stats=args.output_stats,
-            )
-        )
-
-    else:  # binary
-        from .objects import Simulator
-
-        sim = Simulator()
-        if args.config:
-            sim = sim.config(args.config)
-        _apply_cli_overrides(sim, args)
+    else:
         sim = sim.binary(target)
-        sys.exit(
-            sim.run(
-                limit=args.limit,
-                progress=args.progress,
-                stats_sections=stats_sections,
-                output_stats=args.output_stats,
-            )
+
+    if args.watch:
+        import io
+        from ._watch import run_watch
+
+        # Suppress setup chatter so it doesn't appear above the dashboard.
+        _real_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            cpu = sim.build()
+        finally:
+            sys.stderr = _real_stderr
+        print_stats = not args.quiet and not args.no_stats
+        exit_code = run_watch(
+            cpu,
+            limit=args.limit,
+            binary=os.path.basename(target),
+            print_stats=print_stats,
         )
+    else:
+        stats_sections = None if (args.quiet or args.no_stats) else []
+        cpu = sim.build()
+        exit_code = cpu.run(limit=args.limit, stats_sections=stats_sections)
+
+    if args.json and exit_code is not None:
+        import json
+
+        with open(args.json, "w") as f:
+            json.dump(dict(cpu.stats), f, indent=2)
+
+    sys.exit(exit_code if exit_code is not None else 1)
 
 
 if __name__ == "__main__":

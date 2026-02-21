@@ -238,14 +238,21 @@ class Backend:
             return "Backend.InOrder()"
 
     class OutOfOrder:
-        def __init__(self, rob_size: int = 64, store_buffer_size: int = 16):
+        def __init__(
+            self,
+            rob_size: int = 128,
+            store_buffer_size: int = 32,
+            issue_queue_size: int = 32,
+        ):
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
+            self.issue_queue_size = issue_queue_size
 
         def __repr__(self) -> str:
             return (
                 f"Backend.OutOfOrder(rob_size={self.rob_size}, "
-                f"store_buffer_size={self.store_buffer_size})"
+                f"store_buffer_size={self.store_buffer_size}, "
+                f"issue_queue_size={self.issue_queue_size})"
             )
 
 

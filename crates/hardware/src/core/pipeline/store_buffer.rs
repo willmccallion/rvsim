@@ -152,7 +152,11 @@ impl StoreBuffer {
     /// Returns `Hit(data)` if a pending store fully covers the load,
     /// `Stall` if a store partially overlaps (must wait for drain),
     /// or `Miss` if no overlap exists.
-    pub fn forward_load(&self, paddr: u64, width: MemWidth) -> ForwardResult {
+    ///
+    /// `load_rob_tag` is the ROB tag of the load instruction. Only stores
+    /// older than the load (lower tag) are considered for forwarding. Stores
+    /// newer than the load in program order are skipped.
+    pub fn forward_load(&self, paddr: u64, width: MemWidth, load_rob_tag: RobTag) -> ForwardResult {
         let load_size = width_to_bytes(width);
         let load_start = paddr;
         let load_end = paddr + load_size as u64;
@@ -166,29 +170,44 @@ impl StoreBuffer {
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid
-                && let Some(store_paddr) = entry.paddr
-            {
-                let store_size = width_to_bytes(entry.width);
-                let store_start = store_paddr;
-                let store_end = store_paddr + store_size as u64;
-
-                // Check for any overlap
-                if load_start < store_end && load_end > store_start {
-                    // Full overlap: store completely covers the load
-                    if store_start <= load_start && store_end >= load_end {
-                        let offset = (load_start - store_start) as u32;
-                        let shifted = entry.data >> (offset * 8);
-                        let mask = if load_size >= 8 {
-                            u64::MAX
-                        } else {
-                            (1u64 << (load_size * 8)) - 1
-                        };
-                        return ForwardResult::Hit(shifted & mask);
+            if entry.valid {
+                // Skip stores that are newer than or same age as the load —
+                // they are after the load in program order and must not forward.
+                if entry.rob_tag.0 >= load_rob_tag.0 {
+                    if idx == 0 {
+                        idx = self.entries.len() - 1;
+                    } else {
+                        idx -= 1;
                     }
-                    // Partial overlap: must stall
-                    return ForwardResult::Stall;
+                    continue;
                 }
+
+                // Older store with resolved address — check for overlap.
+                if let Some(store_paddr) = entry.paddr {
+                    let store_size = width_to_bytes(entry.width);
+                    let store_start = store_paddr;
+                    let store_end = store_paddr + store_size as u64;
+
+                    // Check for any overlap
+                    if load_start < store_end && load_end > store_start {
+                        // Full overlap: store completely covers the load
+                        if store_start <= load_start && store_end >= load_end {
+                            let offset = (load_start - store_start) as u32;
+                            let shifted = entry.data >> (offset * 8);
+                            let mask = if load_size >= 8 {
+                                u64::MAX
+                            } else {
+                                (1u64 << (load_size * 8)) - 1
+                            };
+                            return ForwardResult::Hit(shifted & mask);
+                        }
+                        // Partial overlap: must stall
+                        return ForwardResult::Stall;
+                    }
+                }
+                // Older store with paddr=None: skip (handled by issue-time
+                // ordering — loads are not issued until all older stores have
+                // their addresses resolved).
             }
             if idx == 0 {
                 idx = self.entries.len() - 1;
@@ -198,6 +217,25 @@ impl StoreBuffer {
         }
 
         ForwardResult::Miss
+    }
+
+    /// Checks whether any store buffer entry older than `rob_tag` has an
+    /// unresolved address (paddr=None). Used by the issue queue to prevent
+    /// loads from issuing before older stores have their addresses resolved.
+    pub fn has_unresolved_store_before(&self, rob_tag: RobTag) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.rob_tag.0 < rob_tag.0 && entry.paddr.is_none() {
+                return true;
+            }
+            idx = (idx + 1) % cap;
+        }
+        false
     }
 
     /// Drains (removes) the oldest committed store. Returns it so the caller
@@ -396,12 +434,12 @@ mod tests {
         sb.allocate(tag, MemWidth::Word);
         sb.resolve(tag, 0x1000, 0x8000_0000, 0x12345678);
 
-        // Forward should find the store
-        let result = sb.forward_load(0x8000_0000, MemWidth::Word);
+        // Forward should find the store (load is younger: tag 2 > store tag 1)
+        let result = sb.forward_load(0x8000_0000, MemWidth::Word, RobTag(2));
         assert_eq!(result, ForwardResult::Hit(0x12345678));
 
         // Different address should miss
-        let result = sb.forward_load(0x8000_0004, MemWidth::Word);
+        let result = sb.forward_load(0x8000_0004, MemWidth::Word, RobTag(2));
         assert_eq!(result, ForwardResult::Miss);
     }
 
@@ -413,7 +451,7 @@ mod tests {
         sb.resolve(tag, 0x1000, 0x8000_0000, 0x12345678);
 
         // Forward a byte from the same address
-        let result = sb.forward_load(0x8000_0000, MemWidth::Byte);
+        let result = sb.forward_load(0x8000_0000, MemWidth::Byte, RobTag(2));
         assert_eq!(result, ForwardResult::Hit(0x78));
     }
 

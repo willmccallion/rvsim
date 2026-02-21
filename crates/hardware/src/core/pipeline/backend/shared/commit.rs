@@ -156,7 +156,13 @@ pub fn commit_stage(
             // between the execute-stage redirect and this commit used the
             // old page tables. Force a re-flush so the frontend re-fetches
             // with the new translation context.
+            //
+            // We must also reset cpu.pc to the instruction after this CSR,
+            // because Fetch1 has been advancing cpu.pc since the execute-stage
+            // redirect. Without this, the frontend would restart from the
+            // stale (advanced) cpu.pc, skipping instructions.
             if csr_update.addr == csr::SATP {
+                cpu.pc = entry.pc.wrapping_add(entry.inst_size);
                 cpu.redirect_pending = true;
             }
             // CSR instructions are serializing — drain before committing more
@@ -196,6 +202,18 @@ pub fn commit_stage(
         // after kernel code writes PTEs and issues SFENCE.VMA.
         if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence || entry.ctrl.is_fence_i {
             drain_all_committed(cpu, store_buffer);
+        }
+
+        // SFENCE.VMA: flush TLBs again at commit time.
+        //
+        // The execute stage already flushed the TLBs, but a preceding store
+        // in the same pipeline batch may have repopulated the TLB during its
+        // Memory1 address translation (between execute-stage flush and commit).
+        // The TLB entry would reflect the OLD PTE, not the one just drained.
+        // Flushing here ensures subsequent instructions see fresh translations.
+        if entry.ctrl.is_sfence_vma {
+            cpu.mmu.dtlb.flush();
+            cpu.mmu.itlb.flush();
         }
 
         // Ensure x0 stays zero

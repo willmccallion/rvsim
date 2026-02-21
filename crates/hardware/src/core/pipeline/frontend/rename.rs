@@ -21,9 +21,18 @@ pub fn rename_stage<E: ExecutionEngine>(
 ) {
     let entries = std::mem::take(input);
 
+    // Compute the dispatch budget once. can_accept() returns
+    // min(rob_free, sb_free, iq_free, width). During the loop below,
+    // ROB and SB allocations update their own free counts, but the
+    // issue queue free count does NOT change (entries go into
+    // rename_output, not the IQ). Without a budget counter, every
+    // iteration sees the same iq_free and can over-allocate, causing
+    // dispatch failures in the next backend tick.
+    let mut budget = engine.can_accept();
+
     for id in entries {
         // Check if engine can accept more instructions
-        if engine.can_accept() == 0 {
+        if budget == 0 {
             // Put unconsumed entries back
             input.push(id);
             continue;
@@ -103,5 +112,6 @@ pub fn rename_stage<E: ExecutionEngine>(
         }
 
         rename_output.push(entry);
+        budget -= 1;
     }
 }

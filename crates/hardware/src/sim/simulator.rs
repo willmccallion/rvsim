@@ -6,7 +6,8 @@
 use crate::config::Config;
 use crate::core::Cpu;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
-use crate::core::pipeline::engine::{Pipeline, PipelineDispatch};
+use crate::core::pipeline::backend::o3::O3Engine;
+use crate::core::pipeline::engine::{BackendType, Pipeline, PipelineDispatch};
 use crate::core::pipeline::frontend::Frontend;
 use crate::soc::System;
 
@@ -25,11 +26,18 @@ impl Simulator {
     /// Creates a new simulator with the given system and configuration.
     pub fn new(system: System, config: &Config) -> Self {
         let cpu = Cpu::new(system, config);
-        let pipeline = PipelineDispatch::InOrder(Box::new(Pipeline {
-            frontend: Frontend::new(config.pipeline.width),
-            engine: InOrderEngine::new(config),
-            rename_output: Vec::with_capacity(config.pipeline.width),
-        }));
+        let pipeline = match config.pipeline.backend {
+            BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
+                frontend: Frontend::new(config.pipeline.width),
+                engine: InOrderEngine::new(config),
+                rename_output: Vec::with_capacity(config.pipeline.width),
+            })),
+            BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
+                frontend: Frontend::new(config.pipeline.width),
+                engine: O3Engine::new(config),
+                rename_output: Vec::with_capacity(config.pipeline.width),
+            })),
+        };
         Self { cpu, pipeline }
     }
 

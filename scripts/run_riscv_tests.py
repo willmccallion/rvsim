@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run riscv-tests ISA compliance suite against rvsim.
 
+Tests both the in-order and out-of-order (o3) backends.
+
 Usage (from repo root):
     rvsim --script scripts/run_riscv_tests.py
 """
@@ -9,7 +11,7 @@ import glob
 import os
 import sys
 
-from rvsim import Config, Simulator
+from rvsim import Backend, Config, Simulator
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ISA_DIR = os.path.join(ROOT, "software", "riscv-tests", "isa")
@@ -28,6 +30,13 @@ SUITES = [
 
 CYCLE_LIMIT = 500_000
 
+PIPELINES = [
+    ("inorder w1", Config(width=1, backend=Backend.InOrder())),
+    ("inorder w4", Config(width=4, backend=Backend.InOrder())),
+    ("o3 w1", Config(width=1, backend=Backend.OutOfOrder())),
+    ("o3 w4", Config(width=4, backend=Backend.OutOfOrder())),
+]
+
 
 def find_tests():
     """Discover all -p- test ELFs, sorted by suite then name."""
@@ -39,26 +48,15 @@ def find_tests():
     return tests
 
 
-def run_test(path: str) -> int:
-    """Run a single test ELF. Returns exit code (0 = pass)."""
-    sim = (
-        Simulator()
-        .config(Config(width=1))
-        .binary(path)
-    )
+def run_test(path: str, cfg: Config) -> int:
+    """Run a single test ELF with the given config. Returns exit code (0 = pass)."""
+    sim = Simulator().config(cfg).binary(path)
     return sim.run(limit=CYCLE_LIMIT, stats_sections=None)
 
 
-def main():
-    os.chdir(ROOT)
-    tests = find_tests()
-    if not tests:
-        print(f"No tests found in {ISA_DIR}", file=sys.stderr)
-        print("Run: make RISCV_PREFIX=riscv64-elf- -C software/riscv-tests/isa XLEN=64", file=sys.stderr)
-        return 1
-
-    print(f"Running {len(tests)} riscv-tests (limit={CYCLE_LIMIT:,} cycles each)\n")
-
+def run_pipeline(label: str, cfg: Config, tests: list) -> tuple[int, list]:
+    """Run all tests for one pipeline. Returns (passed, failed_list)."""
+    print(f"=== Pipeline: {label} ===\n")
     passed = 0
     failed = []
 
@@ -67,7 +65,7 @@ def main():
         sys.stdout.write(f"  {name:40s} ")
         sys.stdout.flush()
 
-        rc = run_test(path)
+        rc = run_test(path, cfg)
 
         if rc == 0:
             print("PASS")
@@ -76,10 +74,39 @@ def main():
             print(f"FAIL (exit={rc})")
             failed.append((name, rc))
 
-    print(f"\nResults: {passed} passed, {len(failed)} failed out of {passed + len(failed)} run")
-    if failed:
+    print(
+        f"\n  Results: {passed} passed, {len(failed)} failed out of {passed + len(failed)} run\n"
+    )
+    return passed, failed
+
+
+def main():
+    os.chdir(ROOT)
+    tests = find_tests()
+    if not tests:
+        print(f"No tests found in {ISA_DIR}", file=sys.stderr)
+        print(
+            "Run: make RISCV_PREFIX=riscv64-elf- -C software/riscv-tests/isa XLEN=64",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        f"Running {len(tests)} riscv-tests x {len(PIPELINES)} pipelines "
+        f"(limit={CYCLE_LIMIT:,} cycles each)\n"
+    )
+
+    overall_failed = []
+
+    for label, cfg in PIPELINES:
+        passed, failed = run_pipeline(label, cfg, tests)
         for name, rc in failed:
-            print(f"  FAIL: {name} (exit={rc})")
+            overall_failed.append((label, name, rc))
+
+    if overall_failed:
+        print("=== Failures summary ===")
+        for label, name, rc in overall_failed:
+            print(f"  [{label}] FAIL: {name} (exit={rc})")
         return 1
     return 0
 

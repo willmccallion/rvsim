@@ -13,15 +13,15 @@ from typing import Any, Dict, Optional
 __all__ = ["Config"]
 
 from .types import (
-    _parse_size,
-    BranchPredictor,
-    ReplacementPolicy,
-    Prefetcher,
-    MemoryController,
-    Backend,
-    Cache,
     _DISABLED_CACHE_DICT,
     _DISABLED_CACHE_DICT_ZERO,
+    Backend,
+    BranchPredictor,
+    Cache,
+    MemoryController,
+    Prefetcher,
+    ReplacementPolicy,
+    _parse_size,
 )
 
 _START_PC_DEFAULT = 0x8000_0000
@@ -47,9 +47,9 @@ class Config:
     def __init__(
         self,
         # Pipeline
-        width: int = 1,
+        width: int = 4,
         branch_predictor=BranchPredictor.TAGE(),
-        backend=None,
+        backend=Backend.OutOfOrder(),
         btb_size: int = 4096,
         ras_size: int = 32,
         # Caches (None = disabled)
@@ -313,6 +313,13 @@ def _backend_store_buffer_size(be) -> int:
     return 16
 
 
+def _backend_issue_queue_size(be) -> int:
+    """Return the backend issue queue size."""
+    if isinstance(be, Backend.OutOfOrder):
+        return be.issue_queue_size
+    return 32
+
+
 def _cache_to_dict(c: Cache) -> Dict[str, Any]:
     """Serialize a Cache object to the dict format the Rust backend expects."""
     return {
@@ -397,18 +404,18 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
 
     # Caches
     cache = {
-        "l1_i": _cache_to_dict(cfg.l1i)
-        if cfg.l1i is not None
-        else _DISABLED_CACHE_DICT,
-        "l1_d": _cache_to_dict(cfg.l1d)
-        if cfg.l1d is not None
-        else _DISABLED_CACHE_DICT,
-        "l2": _cache_to_dict(cfg.l2)
-        if cfg.l2 is not None
-        else _DISABLED_CACHE_DICT_ZERO,
-        "l3": _cache_to_dict(cfg.l3)
-        if cfg.l3 is not None
-        else _DISABLED_CACHE_DICT_ZERO,
+        "l1_i": (
+            _cache_to_dict(cfg.l1i) if cfg.l1i is not None else _DISABLED_CACHE_DICT
+        ),
+        "l1_d": (
+            _cache_to_dict(cfg.l1d) if cfg.l1d is not None else _DISABLED_CACHE_DICT
+        ),
+        "l2": (
+            _cache_to_dict(cfg.l2) if cfg.l2 is not None else _DISABLED_CACHE_DICT_ZERO
+        ),
+        "l3": (
+            _cache_to_dict(cfg.l3) if cfg.l3 is not None else _DISABLED_CACHE_DICT_ZERO
+        ),
     }
 
     # Pipeline — always emit all three BP sub-configs with defaults
@@ -435,6 +442,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "backend": _backend_name(cfg.backend),
         "rob_size": _backend_rob_size(cfg.backend),
         "store_buffer_size": _backend_store_buffer_size(cfg.backend),
+        "issue_queue_size": _backend_issue_queue_size(cfg.backend),
         "tage": tage_dict,
         "perceptron": perceptron_dict,
         "tournament": tournament_dict,

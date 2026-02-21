@@ -128,6 +128,9 @@ mod defaults {
     /// Default Store Buffer size (16 entries).
     pub const STORE_BUFFER_SIZE: usize = 16;
 
+    /// Default Issue Queue size (32 entries) for out-of-order backend.
+    pub const ISSUE_QUEUE_SIZE: usize = 32;
+
     /// Default TAGE loop predictor table size (256 entries).
     pub const TAGE_LOOP_SIZE: usize = 256;
 
@@ -782,6 +785,10 @@ pub struct PipelineConfig {
     /// Store Buffer size
     #[serde(default = "PipelineConfig::default_store_buffer_size")]
     pub store_buffer_size: usize,
+
+    /// Issue Queue size (for O3 backend)
+    #[serde(default = "PipelineConfig::default_issue_queue_size")]
+    pub issue_queue_size: usize,
 }
 
 impl PipelineConfig {
@@ -809,6 +816,11 @@ impl PipelineConfig {
     fn default_store_buffer_size() -> usize {
         defaults::STORE_BUFFER_SIZE
     }
+
+    /// Returns the default issue queue size.
+    fn default_issue_queue_size() -> usize {
+        defaults::ISSUE_QUEUE_SIZE
+    }
 }
 
 impl Default for PipelineConfig {
@@ -829,6 +841,7 @@ impl Default for PipelineConfig {
             backend: BackendType::default(),
             rob_size: defaults::ROB_SIZE,
             store_buffer_size: defaults::STORE_BUFFER_SIZE,
+            issue_queue_size: defaults::ISSUE_QUEUE_SIZE,
         }
     }
 }

@@ -10,7 +10,7 @@ https://en.wikipedia.org/wiki/ARM_Cortex-A72
 - Branch Prediction: Sophisticated (Approx. TAGE-like)
 """
 
-from rvsim import BranchPredictor, Cache, Config, Prefetcher, Backend
+from rvsim import Backend, BranchPredictor, Cache, Config, Prefetcher
 
 
 def cortex_a72_config():
@@ -25,7 +25,7 @@ def cortex_a72_config():
             history_lengths=[8, 20, 50, 110],
             tag_widths=[8, 8, 9, 9],
         ),
-        backend=Backend.InOrder(),
+        backend=Backend.OutOfOrder(),
         btb_size=4096,
         ras_size=16,
         ram_size="256MB",
@@ -50,6 +50,7 @@ def cortex_a72_config():
             latency=12,
         ),
     )
+
 
 # Entry point for Simulator.config("scripts/cortex_a72/config.py")
 config = cortex_a72_config

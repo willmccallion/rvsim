@@ -113,7 +113,7 @@ pub enum PipelineDispatch {
     /// In-order pipeline.
     InOrder(Box<Pipeline<crate::core::pipeline::backend::inorder::InOrderEngine>>),
     /// Out-of-order pipeline.
-    OutOfOrder,
+    OutOfOrder(Box<Pipeline<crate::core::pipeline::backend::o3::O3Engine>>),
 }
 
 impl PipelineDispatch {
@@ -121,7 +121,7 @@ impl PipelineDispatch {
     pub fn tick(&mut self, cpu: &mut crate::core::Cpu) {
         match self {
             Self::InOrder(p) => p.tick(cpu),
-            Self::OutOfOrder => unimplemented!("out-of-order pipeline"),
+            Self::OutOfOrder(p) => p.tick(cpu),
         }
     }
 
@@ -129,7 +129,7 @@ impl PipelineDispatch {
     pub fn flush(&mut self, cpu: &mut crate::core::Cpu) {
         match self {
             Self::InOrder(p) => p.flush(cpu),
-            Self::OutOfOrder => unimplemented!("out-of-order pipeline"),
+            Self::OutOfOrder(p) => p.flush(cpu),
         }
     }
 
@@ -150,9 +150,19 @@ impl PipelineDispatch {
                 mem1_stall: p.engine.mem1_stall,
                 width,
             },
-            Self::OutOfOrder => PipelineSnapshot {
+            Self::OutOfOrder(p) => PipelineSnapshot {
+                fetch1_fetch2: p.frontend.fetch1_fetch2.clone(),
+                fetch2_decode: p.frontend.fetch2_decode.clone(),
+                decode_rename: p.frontend.decode_rename.clone(),
+                rename_issue: p.rename_output.clone(),
+                issue_queue: p.engine.issue_queue.queue_snapshot(),
+                execute_mem1: p.engine.execute_mem1.clone(),
+                mem1_mem2: p.engine.mem1_mem2.clone(),
+                mem2_wb: p.engine.mem2_wb.clone(),
+                fetch1_stall: p.frontend.fetch1_stall,
+                fetch2_stall: p.frontend.fetch2_stall,
+                mem1_stall: p.engine.mem1_stall,
                 width,
-                ..Default::default()
             },
         }
     }

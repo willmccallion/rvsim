@@ -66,8 +66,11 @@ pub fn memory2_stage(
             // Atomic operations
             match mem.ctrl.atomic_op {
                 AtomicOp::Lr => {
-                    ld = match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
-                        ForwardResult::Hit(fwd) => fwd,
+                    ld = match store_buffer.forward_load(raw_paddr, mem.ctrl.width, mem.rob_tag) {
+                        ForwardResult::Hit(fwd) => match mem.ctrl.width {
+                            MemWidth::Word => (fwd as u32 as i32) as i64 as u64,
+                            _ => fwd,
+                        },
                         ForwardResult::Stall => {
                             input.push(mem);
                             input.extend(iter);
@@ -98,21 +101,25 @@ pub fn memory2_stage(
                 }
                 _ => {
                     // AMO: read old value (check store buffer first for forwarding)
-                    let old_val = match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
-                        ForwardResult::Hit(fwd) => fwd,
-                        ForwardResult::Stall => {
-                            input.push(mem);
-                            input.extend(iter);
-                            return;
-                        }
-                        ForwardResult::Miss => match mem.ctrl.width {
-                            MemWidth::Word => {
-                                (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
+                    let old_val =
+                        match store_buffer.forward_load(raw_paddr, mem.ctrl.width, mem.rob_tag) {
+                            ForwardResult::Hit(fwd) => match mem.ctrl.width {
+                                MemWidth::Word => (fwd as u32 as i32) as i64 as u64,
+                                _ => fwd,
+                            },
+                            ForwardResult::Stall => {
+                                input.push(mem);
+                                input.extend(iter);
+                                return;
                             }
-                            MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
-                            _ => 0,
-                        },
-                    };
+                            ForwardResult::Miss => match mem.ctrl.width {
+                                MemWidth::Word => {
+                                    (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
+                                }
+                                MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
+                                _ => 0,
+                            },
+                        };
 
                     let new_val = Lsu::atomic_alu(
                         mem.ctrl.atomic_op,
@@ -132,7 +139,7 @@ pub fn memory2_stage(
             }
         } else if mem.ctrl.mem_read {
             // Check store buffer for forwarding first
-            match store_buffer.forward_load(raw_paddr, mem.ctrl.width) {
+            match store_buffer.forward_load(raw_paddr, mem.ctrl.width, mem.rob_tag) {
                 ForwardResult::Hit(forwarded) => {
                     // Apply sign extension for signed loads (LB, LH, LW on RV64).
                     // The store buffer returns raw masked data without sign extension.
