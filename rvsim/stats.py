@@ -13,6 +13,8 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+__all__ = ["Stats", "Table"]
+
 
 class Stats(dict):
     """
@@ -225,38 +227,72 @@ class Table:
     """Rendered comparison table.  Created by :func:`tabulate`, displayed via
     ``print()`` or REPL auto-repr."""
 
+    __slots__ = ("__labels", "__metrics", "__grid", "__title", "__col_header")
+
+    def __dir__(self):
+        return []
+
     def __init__(
         self,
         labels: List[str],
         metrics: List[str],
         grid: List[List[str]],
         title: str,
+        col_header: str = "",
     ):
-        self._labels = labels
-        self._metrics = metrics
-        self._grid = grid
-        self._title = title
+        self.__labels = labels
+        self.__metrics = metrics
+        self.__grid = grid
+        self.__title = title
+        self.__col_header = col_header
 
     def __repr__(self) -> str:
-        return self._render()
+        return self.__render()
 
     def __str__(self) -> str:
-        return self._render()
+        return self.__render()
 
-    def _render(self) -> str:
-        if not self._labels:
+    def __render(self) -> str:
+        if not self.__labels:
             return "(empty table)"
 
-        headers = [""] + self._metrics
-        rows = [[label] + cells for label, cells in zip(self._labels, self._grid)]
-        plain = _format_table(headers, rows)
+        # Partition labels/rows into data rows and speedup rows.
+        # Speedup rows are those that follow the sentinel row whose first cell
+        # starts with "vs " (inserted by _compare_matrix).
+        data_labels: List[str] = []
+        data_grid: List[List[str]] = []
+        speedup_labels: List[str] = []
+        speedup_grid: List[List[str]] = []
+        in_speedup = False
+        for label, cells in zip(self.__labels, self.__grid):
+            if label.startswith("baseline "):
+                in_speedup = True
+                speedup_labels.append(label)
+                speedup_grid.append(cells)
+            elif in_speedup:
+                speedup_labels.append(label)
+                speedup_grid.append(cells)
+            else:
+                data_labels.append(label)
+                data_grid.append(cells)
+
+        headers = [self.__col_header] + self.__metrics
+        data_rows = [[label] + cells for label, cells in zip(data_labels, data_grid)]
+        plain = _format_table(headers, data_rows)
 
         is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
         if not is_tty:
+            if speedup_labels:
+                spd_rows = [
+                    [label] + cells
+                    for label, cells in zip(speedup_labels, speedup_grid)
+                ]
+                plain += "\n" + _format_table(headers, spd_rows)
             return plain
 
         bold = "\033[1m"
         teal = "\033[36m"
+        dim = "\033[2m"
         rst = "\033[0m"
 
         lines = plain.split("\n")
@@ -264,14 +300,29 @@ class Table:
         rule = f"{bold}{teal}{'─' * (width + 4)}{rst}"
 
         parts = []
-        if self._title:
-            parts.append(f"  {bold}{self._title}{rst}")
+        if self.__title:
+            # Prominent section header above the rule
+            purple = "\033[35m"
+            parts.append("")
+            parts.append(f"  {bold}{purple}›  {self.__title}{rst}")
         parts.append(rule)
         parts.append(f"  {bold}{lines[0]}{rst}")
         parts.append(rule)
         for line in lines[2:]:
             parts.append(f"  {line}")
-        parts.append(rule)
+        if speedup_labels:
+            dim_rule = f"{dim}{teal}{'─' * (width + 4)}{rst}"
+            parts.append(dim_rule)
+            spd_rows = [
+                [label] + cells for label, cells in zip(speedup_labels, speedup_grid)
+            ]
+            spd_plain = _format_table(headers, spd_rows)
+            for line in spd_plain.split("\n")[2:]:  # skip repeated header/rule
+                parts.append(f"  {dim}{line}{rst}")
+            parts.append(rule)
+        else:
+            parts.append(rule)
+
         return "\n".join(parts)
 
 
@@ -280,6 +331,7 @@ def _compare_flat(
     *,
     metrics: Optional[List[str]] = None,
     baseline: Optional[str] = None,
+    col_header: str = "",
 ) -> None:
     """Compare single-binary, multiple-config results."""
     config_names = list(results.keys())
@@ -298,7 +350,7 @@ def _compare_flat(
         if not show_metrics:
             show_metrics = sorted(all_stat_keys)
 
-    headers = ["metric"] + config_names
+    headers = [col_header or "metric"] + config_names
     rows: List[List[str]] = []
     for m in show_metrics:
         row = [m]
@@ -307,11 +359,17 @@ def _compare_flat(
             row.append(_fmt(v))
         rows.append(row)
 
-    # Baseline speedup
+    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    bold = "\033[1m"
+    teal = "\033[36m"
+    dim = "\033[2m"
+    rst = "\033[0m"
+
+    plain = _format_table(headers, rows)
+
+    speedup_rows: List[List[str]] = []
     if baseline is not None and baseline in results:
         base_stats = results[baseline].stats
-        rows.append([""] * len(headers))
-        rows.append(["— speedup vs " + baseline] + [""] * len(config_names))
         for m in show_metrics:
             if m not in _RATE_METRICS and m != "cycles":
                 continue
@@ -331,9 +389,38 @@ def _compare_flat(
                     row.append(f"{ratio:.3f}x")
                 else:
                     row.append("—")
-            rows.append(row)
+            speedup_rows.append(row)
 
-    print(_format_table(headers, rows))
+    if not is_tty:
+        if speedup_rows and baseline is not None:
+            plain += f"\n\nspeedup vs {baseline}\n"
+            plain += _format_table(headers, speedup_rows)
+        print(plain)
+        return
+
+    lines = plain.split("\n")
+    width = max(len(line) for line in lines)
+    rule = f"{bold}{teal}{'─' * (width + 4)}{rst}"
+
+    parts = []
+    parts.append(rule)
+    parts.append(f"  {bold}{lines[0]}{rst}")
+    parts.append(rule)
+    for line in lines[2:]:
+        parts.append(f"  {line}")
+    parts.append(rule)
+
+    if speedup_rows:
+        dim_rule = f"{dim}{teal}{'─' * (width + 4)}{rst}"
+        parts.append(dim_rule)
+        spd_plain = _format_table(headers, speedup_rows)
+        for line in spd_plain.split("\n")[2:]:
+            parts.append(f"  {dim}{line}{rst}")
+        parts.append(rule)
+    else:
+        parts.append(rule)
+
+    print("\n".join(parts))
 
 
 def _compare_matrix(
@@ -341,6 +428,7 @@ def _compare_matrix(
     *,
     metrics: Optional[List[str]] = None,
     baseline: Optional[str] = None,
+    col_header: str = "",
 ) -> None:
     """Compare multi-binary x multi-config matrix."""
     binary_names = list(results.keys())
@@ -359,14 +447,14 @@ def _compare_matrix(
         metrics = ["ipc", "cycles"]
 
     for metric in metrics:
-        print(f"\n=== {metric} ===")
-        headers = ["binary"] + config_names
-        rows: List[List[str]] = []
+        labels: List[str] = []
+        grid: List[List[str]] = []
         values_per_config: Dict[str, List[float]] = {c: [] for c in config_names}
         weights_per_config: Dict[str, List[float]] = {c: [] for c in config_names}
 
         for bname in binary_names:
-            row = [bname]
+            labels.append(bname)
+            row: List[str] = []
             for cname in config_names:
                 r = results[bname].get(cname)
                 if r is None:
@@ -378,20 +466,66 @@ def _compare_matrix(
                     values_per_config[cname].append(float(v))
                     inst = r.stats.get("instructions_retired", 1)
                     weights_per_config[cname].append(float(inst))
-            rows.append(row)
+            grid.append(row)
 
         # Aggregate row
-        agg_row = ["AGGREGATE"]
         is_rate = metric in _RATE_METRICS
+        agg_cells: List[str] = []
         for cname in config_names:
             vals = values_per_config[cname]
             wgts = weights_per_config[cname]
             if not vals:
-                agg_row.append("—")
+                agg_cells.append("—")
             elif is_rate:
-                agg_row.append(f"{_weighted_harmonic_mean(vals, wgts):.4f}")
+                agg_cells.append(f"{_weighted_harmonic_mean(vals, wgts):.4f}")
             else:
-                agg_row.append(_fmt(int(sum(vals))))
-        rows.append(agg_row)
+                agg_cells.append(_fmt(int(sum(vals))))
+        labels.append("AGGREGATE")
+        grid.append(agg_cells)
 
-        print(_format_table(headers, rows))
+        # Baseline speedup rows — only for metrics with clear directionality
+        _LOWER_IS_BETTER = {
+            "cycles",
+            "stalls_mem",
+            "stalls_control",
+            "stalls_data",
+            "icache_misses",
+            "dcache_misses",
+            "l2_misses",
+            "l3_misses",
+            "branch_mispredictions",
+        }
+        show_speedup = (
+            baseline is not None
+            and baseline in config_names
+            and (metric in _RATE_METRICS or metric in _LOWER_IS_BETTER)
+        )
+        if show_speedup and baseline is not None:
+            higher_is_better = metric in _RATE_METRICS
+            tag = "baseline " + baseline
+            labels.append(tag)
+            grid.append([""] * len(config_names))
+            for bname in binary_names:
+                r_base = results[bname].get(baseline)
+                if r_base is None:
+                    continue
+                bv = r_base.stats.get(metric, 0)
+                if not isinstance(bv, (int, float)) or bv == 0:
+                    continue
+                speedup_row: List[str] = []
+                for cname in config_names:
+                    r = results[bname].get(cname)
+                    if r is None:
+                        speedup_row.append("—")
+                        continue
+                    v = r.stats.get(metric, 0)
+                    if isinstance(v, (int, float)) and v != 0:
+                        ratio = (v / bv) if higher_is_better else (bv / v)
+                        speedup_row.append(f"{ratio:.2f}x")
+                    else:
+                        speedup_row.append("—")
+                labels.append(bname)
+                grid.append(speedup_row)
+
+        table = Table(labels, config_names, grid, metric, col_header=col_header)
+        print(table)

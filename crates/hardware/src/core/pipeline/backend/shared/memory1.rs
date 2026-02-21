@@ -19,13 +19,9 @@ pub fn memory1_stage(
     // Do NOT clear output — memory2 may have pushed stalled entries back
     // into this latch. We append new entries after any stalled ones.
 
-    let mut flush_remaining = false;
+    let mut iter = entries.into_iter();
 
-    for ex in entries {
-        if flush_remaining {
-            break;
-        }
-
+    while let Some(ex) = iter.next() {
         // Propagate traps
         if let Some(ref trap) = ex.trap {
             if cpu.trace {
@@ -45,8 +41,10 @@ pub fn memory1_stage(
                 trap: ex.trap,
                 exception_stage: ex.exception_stage,
             });
-            flush_remaining = true;
-            continue;
+            // Remaining entries go back to input — they'll be flushed when
+            // the trap reaches commit, but must not be silently dropped.
+            input.extend(iter);
+            return;
         }
 
         let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
@@ -90,8 +88,9 @@ pub fn memory1_stage(
                     trap: Some(t),
                     exception_stage: Some(ExceptionStage::Memory),
                 });
-                flush_remaining = true;
-                continue;
+                // Remaining entries go back to input.
+                input.extend(iter);
+                return;
             }
 
             if cpu.trace {

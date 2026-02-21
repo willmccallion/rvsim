@@ -43,7 +43,7 @@ def run_test(path: str) -> int:
     """Run a single test ELF. Returns exit code (0 = pass)."""
     sim = (
         Simulator()
-        .with_config(Config(width=1))
+        .config(Config(width=1))
         .binary(path)
     )
     return sim.run(limit=CYCLE_LIMIT, stats_sections=None)

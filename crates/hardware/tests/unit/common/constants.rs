@@ -161,9 +161,3 @@ fn test_simulation_constants() {
         "Status updates every 5 million cycles"
     );
 }
-
-#[test]
-fn test_debug_pc_disabled() {
-    assert_eq!(DEBUG_PC_START, 0, "Debug PC start is disabled");
-    assert_eq!(DEBUG_PC_END, 0, "Debug PC end is disabled");
-}

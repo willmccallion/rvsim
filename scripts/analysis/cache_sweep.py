@@ -8,8 +8,9 @@ Usage:
 """
 
 import argparse
+import time
 
-from rvsim import Cache, Config, Environment, Stats
+from rvsim import Cache, Config, Sweep
 
 PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 SIZES = ["1KB", "2KB", "4KB", "8KB", "16KB", "32KB"]
@@ -23,28 +24,28 @@ def main():
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
     args = ap.parse_args()
 
-    for program in args.programs:
-        binary = f"software/bin/programs/{program}.elf"
-        rows = {}
-        for size in args.sizes:
-            print(f"  {program} dcache={size}...", flush=True)
-            config = Config(
-                uart_quiet=True,
-                l1d=Cache(size=size, ways=args.ways),
-            )
-            result = Environment(binary=binary, config=config).run(quiet=True, limit=args.limit)
-            s = result.stats
-            total_dc = s["dcache_hits"] + s["dcache_misses"]
-            miss_rate = s["dcache_misses"] / total_dc * 100 if total_dc > 0 else 0
-            rows[size] = Stats({
-                "cycles": s["cycles"],
-                "ipc": s["ipc"],
-                "dc_hits": s["dcache_hits"],
-                "dc_misses": s["dcache_misses"],
-                "dc_miss%": miss_rate,
-            })
-        print(Stats.tabulate(rows, title=f"{program} — D-cache sweep ({args.ways}-way)"))
-        print()
+    binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
+    configs = {
+        size: Config(uart_quiet=True, l1d=Cache(size=size, ways=args.ways))
+        for size in args.sizes
+    }
+
+    n_jobs = len(binaries) * len(configs)
+    print(f"D-cache sweep: {len(binaries)} binaries x {len(configs)} sizes "
+          f"({args.ways}-way, {n_jobs} runs, limit={args.limit:,})")
+
+    t0 = time.perf_counter()
+    results = Sweep(binaries=binaries, configs=configs).run(
+        parallel=True, limit=args.limit
+    )
+    elapsed = time.perf_counter() - t0
+    print(f"Completed in {elapsed:.1f}s\n")
+
+    results.compare(
+        metrics=["cycles", "ipc", "dcache_hits", "dcache_misses"],
+        baseline=args.sizes[0],
+        col_header="L1D size",
+    )
 
 
 if __name__ == "__main__":

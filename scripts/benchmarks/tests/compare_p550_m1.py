@@ -3,17 +3,18 @@ Run one benchmark on P550 and M1 configs, then show stat differences using .quer
 Run: sim script scripts/tests/compare_p550_m1.py [binary]
 """
 
-import sys
 import os
+import sys
 
 _scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _scripts)
 
-from rvsim import Environment
-from p550.config import p550_config
 from m1.config import m1_config
+from p550.config import p550_config
 
-_root = os.path.dirname(_scripts)
+from rvsim import Environment, Result, Stats
+
+_root = os.path.dirname(os.path.dirname(_scripts))
 BINARY = os.path.join("software", "bin", "benchmarks", "qsort.elf")
 
 
@@ -25,60 +26,31 @@ def main():
         binary = os.path.join(_root, binary)
     name = os.path.basename(binary)
 
-    # P550
-    env_p550 = Environment(binary=binary, config=p550_config())
-    r550 = env_p550.run(quiet=True)
-    # M1
-    env_m1 = Environment(binary=binary, config=m1_config())
-    r_m1 = env_m1.run(quiet=True)
+    # Run simulations
+    r550 = Environment(binary=binary, config=p550_config().replace(uart_quiet=True)).run()
+    r_m1 = Environment(binary=binary, config=m1_config().replace(uart_quiet=True)).run()
 
-    print("Compare P550 vs M1:", name)
+    print(f"Comparison: {name}\n")
+
+    # 1. High-level summary and speedup
+    Result.compare({"P550": r550, "M1": r_m1}, baseline="P550", col_header="config")
     print()
 
-    # Summary
-    print("Summary:")
-    print("         P550      M1       diff")
+    # 2. Detailed miss comparison
     print(
-        "  cycles ",
-        r550.stats.get("cycles", 0),
-        " ",
-        r_m1.stats.get("cycles", 0),
-        " ",
-        r_m1.stats.get("cycles", 0) - r550.stats.get("cycles", 0),
-    )
-    print(
-        "  ipc    ",
-        f"{r550.stats.get('ipc', 0):.4f}",
-        "  ",
-        f"{r_m1.stats.get('ipc', 0):.4f}",
-        " ",
-        f"{r_m1.stats.get('ipc', 0) - r550.stats.get('ipc', 0):.4f}",
+        Stats.tabulate(
+            {"P550": r550.stats.query("miss"), "M1": r_m1.stats.query("miss")},
+            title="Cache & Branch Misses",
+        )
     )
     print()
 
-    # Query "miss" - cache/branch misses
-    miss550 = r550.stats.query("miss")
-    miss_m1 = r_m1.stats.query("miss")
-    print(".query('miss') - P550:")
-    print(miss550)
-    print(".query('miss') - M1:")
-    print(miss_m1)
-    print("Difference (M1 - P550):")
-    for k in sorted(set(miss550) | set(miss_m1)):
-        v550 = miss550.get(k, 0)
-        v_m1 = miss_m1.get(k, 0)
-        if isinstance(v550, (int, float)) and isinstance(v_m1, (int, float)):
-            print(f"  {k}: {v_m1 - v550}")
-    print()
-
-    # Query "branch"
-    bp550 = r550.stats.query("branch")
-    bp_m1 = r_m1.stats.query("branch")
+    # 3. Branch prediction details
     print(
-        ".query('branch') - P550 branch_accuracy_pct:", bp550.get("branch_accuracy_pct")
-    )
-    print(
-        ".query('branch') - M1  branch_accuracy_pct:", bp_m1.get("branch_accuracy_pct")
+        Stats.tabulate(
+            {"P550": r550.stats.query("branch"), "M1": r_m1.stats.query("branch")},
+            title="Branch Predictor Performance",
+        )
     )
 
 

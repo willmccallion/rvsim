@@ -6,24 +6,19 @@ Usage:
     config = p550_config(branch_predictor=BranchPredictor.TAGE())
 """
 
-import sys
 import os
+import sys
 
 _repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, _repo)
 
-from rvsim import (
-    Config,
-    Cache,
-    BranchPredictor,
-    Prefetcher,
-)
+from rvsim import BranchPredictor, Cache, Config, Prefetcher
 
 
 def p550_config(
     *,
     branch_predictor=None,
-    ram_size_bytes=0x1000_0000,
+    ram_size_bytes="256MB",
     pipeline_width=3,
 ):
     """P550-style: 3-wide, 32KB L1-I/D, 256KB L2, TAGE."""
@@ -42,8 +37,6 @@ def p550_config(
         branch_predictor=branch_predictor,
         btb_size=4096,
         ras_size=32,
-        start_pc=0x8000_0000,
-        direct_mode=True,
         initial_sp=0x8010_0000,
         ram_size=ram_size_bytes,
         l1i=Cache(

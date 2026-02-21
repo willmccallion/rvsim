@@ -271,7 +271,7 @@ def main() -> None:
         if args.config:
             sim = sim.config(args.config)
         _apply_cli_overrides(sim, args)
-        sim = sim.kernel(target).kernel_mode()
+        sim = sim.kernel(target)
         if args.disk:
             sim = sim.disk(args.disk)
         if args.dtb:

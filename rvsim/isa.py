@@ -12,6 +12,8 @@ from typing import List, Optional, Tuple
 
 from ._core import disassemble
 
+__all__ = ["Disassemble", "reg", "csr"]
+
 
 class Disassemble:
     """Fluent disassembler for RISC-V binaries and raw bytes.

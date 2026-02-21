@@ -14,7 +14,7 @@ sys.path.insert(0, _scripts)
 from m1.config import m1_config
 from rvsim import Environment
 
-_root = os.path.dirname(_scripts)
+_root = os.path.dirname(os.path.dirname(_scripts))
 BINARY = os.path.join("software", "bin", "benchmarks", "qsort.elf")
 
 

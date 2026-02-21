@@ -7,99 +7,25 @@
 use pyo3::prelude::*;
 use rvsim_core::stats::SimStats;
 
-/// Python-exposed statistics: wraps `SimStats` for read and print from Python.
-#[pyclass]
+/// Internal statistics wrapper — not exposed to Python.
 #[derive(Clone)]
 pub struct PyStats {
     pub inner: SimStats,
 }
 
-#[pymethods]
 impl PyStats {
-    #[getter]
-    fn get_cycles(&self) -> u64 {
-        self.inner.cycles
-    }
-
-    #[getter]
-    fn get_instructions(&self) -> u64 {
-        self.inner.instructions_retired
-    }
-
     /// Print all stats (full dump).
-    fn print(&self) {
+    pub fn print(&self) {
         self.inner.print();
     }
 
-    /// Print only the given sections. Options: "summary", "core", "instruction_mix", "branch", "memory".
-    /// Pass an empty list for full dump. Example: print_sections(["summary", "memory"]) for cycles + caches.
-    fn print_sections(&self, sections: Vec<String>) {
+    /// Print only the given sections.
+    pub fn print_sections(&self, sections: Vec<String>) {
         self.inner.print_sections(&sections);
     }
 
-    #[getter]
-    fn cycles(&self) -> u64 {
-        self.inner.cycles
-    }
-    #[getter]
-    fn instructions_retired(&self) -> u64 {
-        self.inner.instructions_retired
-    }
-    #[getter]
-    fn icache_hits(&self) -> u64 {
-        self.inner.icache_hits
-    }
-    #[getter]
-    fn icache_misses(&self) -> u64 {
-        self.inner.icache_misses
-    }
-    #[getter]
-    fn dcache_hits(&self) -> u64 {
-        self.inner.dcache_hits
-    }
-    #[getter]
-    fn dcache_misses(&self) -> u64 {
-        self.inner.dcache_misses
-    }
-    #[getter]
-    fn l2_hits(&self) -> u64 {
-        self.inner.l2_hits
-    }
-    #[getter]
-    fn l2_misses(&self) -> u64 {
-        self.inner.l2_misses
-    }
-    #[getter]
-    fn l3_hits(&self) -> u64 {
-        self.inner.l3_hits
-    }
-    #[getter]
-    fn l3_misses(&self) -> u64 {
-        self.inner.l3_misses
-    }
-    #[getter]
-    fn stalls_mem(&self) -> u64 {
-        self.inner.stalls_mem
-    }
-    #[getter]
-    fn stalls_control(&self) -> u64 {
-        self.inner.stalls_control
-    }
-    #[getter]
-    fn stalls_data(&self) -> u64 {
-        self.inner.stalls_data
-    }
-    #[getter]
-    fn branch_predictions(&self) -> u64 {
-        self.inner.branch_predictions
-    }
-    #[getter]
-    fn branch_mispredictions(&self) -> u64 {
-        self.inner.branch_mispredictions
-    }
-
-    /// Export all stats as a Python dict (JSON-serializable) for reproducible experiments.
-    fn to_dict(&self, py: Python<'_>) -> pyo3::PyResult<pyo3::Py<pyo3::types::PyDict>> {
+    /// Export all stats as a Python dict (JSON-serializable).
+    pub fn to_dict(&self, py: Python<'_>) -> pyo3::PyResult<pyo3::Py<pyo3::types::PyDict>> {
         let d = pyo3::types::PyDict::new(py);
         let s = &self.inner;
         d.set_item("cycles", s.cycles)?;

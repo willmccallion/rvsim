@@ -26,9 +26,6 @@ use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 /// ADDI x0, x0, 0 instruction encoding (canonical NOP).
 const INSTRUCTION_NOP: u32 = 0x0000_0013;
 
-/// Zero instruction encoding (invalid instruction used as NOP).
-const INSTRUCTION_ZERO: u32 = 0;
-
 /// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
 const FUNCT7_ALT_BIT: u32 = 0x20;
 
@@ -321,7 +318,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                 sys_ops::MRET => c.is_mret = true,
                 sys_ops::SRET => c.is_sret = true,
                 sys_ops::WFI => {}
-                sys_ops::SFENCE_VMA => {}
+                sys_ops::SFENCE_VMA => c.is_sfence_vma = true,
                 _ => {
                     if d.funct3 != 0 {
                         c.csr_addr = inst.csr();
@@ -342,7 +339,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             }
         }
         i_opcodes::OP_MISC_MEM => match d.funct3 {
-            i_funct3::FENCE => {}
+            i_funct3::FENCE => c.is_fence = true,
             i_funct3::FENCE_I => c.is_fence_i = true,
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
@@ -377,7 +374,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
 
         let inst = if_entry.inst;
 
-        if inst == INSTRUCTION_NOP || inst == INSTRUCTION_ZERO {
+        if inst == INSTRUCTION_NOP {
             consumed_count += 1;
             continue;
         }

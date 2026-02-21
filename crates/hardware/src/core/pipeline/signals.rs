@@ -320,4 +320,8 @@ pub struct ControlSignals {
     pub atomic_op: AtomicOp,
     /// Instruction is `FENCE.I`.
     pub is_fence_i: bool,
+    /// Instruction is `SFENCE.VMA`.
+    pub is_sfence_vma: bool,
+    /// Instruction is `FENCE`.
+    pub is_fence: bool,
 }

@@ -8,8 +8,8 @@
 
 use super::Cpu;
 use crate::common::constants::{
-    DEBUG_PC_END, DEBUG_PC_START, HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT,
-    STATUS_UPDATE_INTERVAL, VPN_MASK, WFI_INSTRUCTION,
+    HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
+    WFI_INSTRUCTION,
 };
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
@@ -30,11 +30,6 @@ impl Cpu {
             eprintln!("\n[!] Kernel panic detected - exiting simulator");
             self.exit_code = Some(1);
             return Ok(true);
-        }
-
-        #[allow(clippy::absurd_extreme_comparisons)]
-        if self.pc >= DEBUG_PC_START && self.pc <= DEBUG_PC_END {
-            self.trace = true;
         }
 
         if self.pc == self.last_pc {

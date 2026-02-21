@@ -150,11 +150,13 @@ fn test_trap_double_fault_detection() {
     let handler_pc = 0x8000_0000;
     cpu.csrs.mtvec = handler_pc;
 
-    // Simulate a trap at the handler PC (double fault)
+    // A trap whose EPC happens to equal the handler address is NOT a double
+    // fault — it's a legitimate trap (e.g. WFI interrupted by a timer while
+    // executing at the handler entry point). The CPU should dispatch it
+    // normally rather than halting.
     cpu.trap(Trap::IllegalInstruction(0), handler_pc);
-
-    // Double fault should set exit code to 102
-    assert_eq!(cpu.exit_code, Some(102));
+    assert_eq!(cpu.exit_code, None);
+    assert_eq!(cpu.pc, handler_pc); // dispatched to M-mode handler
 }
 
 // === Interrupt Handling Tests ===

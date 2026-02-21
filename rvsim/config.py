@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+__all__ = ["Config"]
+
 from .types import (
     _parse_size,
     BranchPredictor,
@@ -21,6 +23,8 @@ from .types import (
     _DISABLED_CACHE_DICT,
     _DISABLED_CACHE_DICT_ZERO,
 )
+
+_START_PC_DEFAULT = 0x8000_0000
 
 
 class Config:
@@ -64,8 +68,6 @@ class Config:
         tlb_size: int = 32,
         # General
         trace: bool = False,
-        start_pc: int = 0x8000_0000,
-        direct_mode: bool = True,
         initial_sp: Optional[int] = None,
         # System (advanced)
         ram_base: int = 0x8000_0000,
@@ -79,7 +81,6 @@ class Config:
         clint_divider: int = 10,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
-        tohost_addr: int = 0,
     ):
         # Pipeline
         self.width = width
@@ -105,8 +106,6 @@ class Config:
 
         # General
         self.trace = trace
-        self.start_pc = start_pc
-        self.direct_mode = direct_mode
         self.initial_sp = initial_sp
 
         # System
@@ -121,108 +120,53 @@ class Config:
         self.clint_divider = clint_divider
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
-        self.tohost_addr = tohost_addr
 
     def to_dict(self) -> Dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
-        # General
-        general: Dict[str, Any] = {
-            "trace_instructions": self.trace,
-            "start_pc": self.start_pc,
-            "direct_mode": self.direct_mode,
-        }
-        if self.initial_sp is not None:
-            general["initial_sp"] = self.initial_sp
+        return _config_to_dict_impl(self)
 
-        # System
-        system = {
-            "ram_base": self.ram_base,
-            "uart_base": self.uart_base,
-            "disk_base": self.disk_base,
-            "clint_base": self.clint_base,
-            "syscon_base": self.syscon_base,
-            "kernel_offset": self.kernel_offset,
-            "bus_width": self.bus_width,
-            "bus_latency": self.bus_latency,
-            "clint_divider": self.clint_divider,
-            "uart_to_stderr": self.uart_to_stderr,
-            "uart_quiet": self.uart_quiet,
-            "tohost_addr": self.tohost_addr,
-        }
+    def replace(self, **kwargs) -> "Config":
+        """Return a new Config with the given fields overridden.
 
-        # Memory — merge controller-specific params
-        mc = self.memory_controller
-        memory: Dict[str, Any] = {
-            "ram_size": self.ram_size,
-            "controller": mc._to_dict_value(),
-            "tlb_size": self.tlb_size,
-        }
-        # Always emit DRAM timing keys (Rust expects them)
-        if isinstance(mc, MemoryController.DRAM):
-            memory.update(mc._sub_dict())
-        else:
-            memory["t_cas"] = 14
-            memory["t_ras"] = 14
-            memory["t_pre"] = 14
-            memory["row_miss_latency"] = 120
+        Example::
 
-        # Caches
-        cache = {
-            "l1_i": (
-                self.l1i._to_cache_dict()
-                if self.l1i is not None
-                else _DISABLED_CACHE_DICT
-            ),
-            "l1_d": (
-                self.l1d._to_cache_dict()
-                if self.l1d is not None
-                else _DISABLED_CACHE_DICT
-            ),
-            "l2": (
-                self.l2._to_cache_dict()
-                if self.l2 is not None
-                else _DISABLED_CACHE_DICT_ZERO
-            ),
-            "l3": (
-                self.l3._to_cache_dict()
-                if self.l3 is not None
-                else _DISABLED_CACHE_DICT_ZERO
-            ),
-        }
-
-        # Pipeline — always emit all three BP sub-configs with defaults
-        bp = self.branch_predictor
-        tage_dict = BranchPredictor.TAGE()._sub_dict()
-        perceptron_dict = BranchPredictor.Perceptron()._sub_dict()
-        tournament_dict = BranchPredictor.Tournament()._sub_dict()
-
-        if isinstance(bp, BranchPredictor.TAGE):
-            tage_dict = bp._sub_dict()
-        elif isinstance(bp, BranchPredictor.Perceptron):
-            perceptron_dict = bp._sub_dict()
-        elif isinstance(bp, BranchPredictor.Tournament):
-            tournament_dict = bp._sub_dict()
-
-        pipeline = {
-            "width": self.width,
-            "branch_predictor": bp._to_dict_value(),
-            "btb_size": self.btb_size,
-            "ras_size": self.ras_size,
-            "backend": self.backend._to_dict_value(),
-            "rob_size": self.backend._rob_size(),
-            "store_buffer_size": self.backend._store_buffer_size(),
-            "tage": tage_dict,
-            "perceptron": perceptron_dict,
-            "tournament": tournament_dict,
-        }
-
-        return {
-            "general": general,
-            "system": system,
-            "memory": memory,
-            "cache": cache,
-            "pipeline": pipeline,
-        }
+            base = Config(width=4, branch_predictor=BranchPredictor.TAGE())
+            wide = base.replace(width=8)
+            ooo  = base.replace(backend=Backend.OutOfOrder(rob_size=128))
+        """
+        # Collect all current field values
+        fields = dict(
+            width=self.width,
+            branch_predictor=self.branch_predictor,
+            backend=self.backend,
+            btb_size=self.btb_size,
+            ras_size=self.ras_size,
+            l1i=self.l1i,
+            l1d=self.l1d,
+            l2=self.l2,
+            l3=self.l3,
+            ram_size=self.ram_size,
+            memory_controller=self.memory_controller,
+            tlb_size=self.tlb_size,
+            trace=self.trace,
+            initial_sp=self.initial_sp,
+            ram_base=self.ram_base,
+            uart_base=self.uart_base,
+            disk_base=self.disk_base,
+            clint_base=self.clint_base,
+            syscon_base=self.syscon_base,
+            kernel_offset=self.kernel_offset,
+            bus_width=self.bus_width,
+            bus_latency=self.bus_latency,
+            clint_divider=self.clint_divider,
+            uart_to_stderr=self.uart_to_stderr,
+            uart_quiet=self.uart_quiet,
+        )
+        unknown = set(kwargs) - set(fields)
+        if unknown:
+            raise TypeError(f"Config.replace() got unexpected fields: {unknown}")
+        fields.update(kwargs)
+        return Config(**fields)  # type: ignore[arg-type]
 
     def __repr__(self) -> str:
         parts = [
@@ -248,3 +192,258 @@ def _config_to_dict(config) -> Dict[str, Any]:
     if isinstance(config, dict):
         return config
     raise TypeError("config must be Config or dict")
+
+
+# ── Serialization helpers (private) ──────────────────────────────────────────
+
+
+def _bp_name(bp) -> str:
+    """Return the branch predictor name string for the Rust backend."""
+    if isinstance(bp, BranchPredictor.Static):
+        return "Static"
+    if isinstance(bp, BranchPredictor.GShare):
+        return "GShare"
+    if isinstance(bp, BranchPredictor.TAGE):
+        return "TAGE"
+    if isinstance(bp, BranchPredictor.Perceptron):
+        return "Perceptron"
+    if isinstance(bp, BranchPredictor.Tournament):
+        return "Tournament"
+    raise TypeError(f"Unknown branch predictor type: {type(bp)}")
+
+
+def _bp_sub_dict(bp) -> dict:
+    """Return the branch predictor sub-config dict."""
+    if isinstance(bp, BranchPredictor.TAGE):
+        return {
+            "num_banks": bp.num_banks,
+            "table_size": bp.table_size,
+            "loop_table_size": bp.loop_table_size,
+            "reset_interval": bp.reset_interval,
+            "history_lengths": bp.history_lengths,
+            "tag_widths": bp.tag_widths,
+        }
+    if isinstance(bp, BranchPredictor.Perceptron):
+        return {
+            "history_length": bp.history_length,
+            "table_bits": bp.table_bits,
+        }
+    if isinstance(bp, BranchPredictor.Tournament):
+        return {
+            "global_size_bits": bp.global_size_bits,
+            "local_hist_bits": bp.local_hist_bits,
+            "local_pred_bits": bp.local_pred_bits,
+        }
+    return {}
+
+
+def _replacement_policy_name(policy) -> str:
+    """Return the replacement policy name string for the Rust backend."""
+    if isinstance(policy, ReplacementPolicy.LRU):
+        return "LRU"
+    if isinstance(policy, ReplacementPolicy.PLRU):
+        return "PLRU"
+    if isinstance(policy, ReplacementPolicy.FIFO):
+        return "FIFO"
+    if isinstance(policy, ReplacementPolicy.Random):
+        return "Random"
+    if isinstance(policy, ReplacementPolicy.MRU):
+        return "MRU"
+    raise TypeError(f"Unknown replacement policy type: {type(policy)}")
+
+
+def _prefetcher_name(pf) -> str:
+    """Return the prefetcher name string for the Rust backend."""
+    if isinstance(pf, Prefetcher.Off):
+        return "None"
+    if isinstance(pf, Prefetcher.NextLine):
+        return "NextLine"
+    if isinstance(pf, Prefetcher.Stride):
+        return "Stride"
+    if isinstance(pf, Prefetcher.Stream):
+        return "Stream"
+    if isinstance(pf, Prefetcher.Tagged):
+        return "Tagged"
+    raise TypeError(f"Unknown prefetcher type: {type(pf)}")
+
+
+def _prefetcher_degree(pf) -> int:
+    """Return the prefetcher degree."""
+    if isinstance(pf, (Prefetcher.NextLine, Prefetcher.Stride)):
+        return pf.degree
+    return 0
+
+
+def _prefetcher_table_size(pf) -> int:
+    """Return the prefetcher table size."""
+    if isinstance(pf, Prefetcher.Stride):
+        return pf.table_size
+    return 0
+
+
+def _mc_name(mc) -> str:
+    """Return the memory controller name string for the Rust backend."""
+    if isinstance(mc, MemoryController.Simple):
+        return "Simple"
+    if isinstance(mc, MemoryController.DRAM):
+        return "Dram"
+    raise TypeError(f"Unknown memory controller type: {type(mc)}")
+
+
+def _backend_name(be) -> str:
+    """Return the backend name string for the Rust backend."""
+    if isinstance(be, Backend.InOrder):
+        return "InOrder"
+    if isinstance(be, Backend.OutOfOrder):
+        return "OutOfOrder"
+    raise TypeError(f"Unknown backend type: {type(be)}")
+
+
+def _backend_rob_size(be) -> int:
+    """Return the backend ROB size."""
+    if isinstance(be, Backend.OutOfOrder):
+        return be.rob_size
+    return 64
+
+
+def _backend_store_buffer_size(be) -> int:
+    """Return the backend store buffer size."""
+    if isinstance(be, Backend.OutOfOrder):
+        return be.store_buffer_size
+    return 16
+
+
+def _cache_to_dict(c: Cache) -> Dict[str, Any]:
+    """Serialize a Cache object to the dict format the Rust backend expects."""
+    return {
+        "enabled": True,
+        "size_bytes": c.size_bytes,
+        "line_bytes": c.line_bytes,
+        "ways": c.ways,
+        "policy": _replacement_policy_name(c.policy),
+        "latency": c.latency,
+        "prefetcher": _prefetcher_name(c.prefetcher),
+        "prefetch_table_size": _prefetcher_table_size(c.prefetcher),
+        "prefetch_degree": _prefetcher_degree(c.prefetcher),
+    }
+
+
+_TAGE_DEFAULTS = {
+    "num_banks": 4,
+    "table_size": 2048,
+    "loop_table_size": 256,
+    "reset_interval": 2000,
+    "history_lengths": [5, 15, 44, 130],
+    "tag_widths": [9, 9, 10, 10],
+}
+
+_PERCEPTRON_DEFAULTS = {
+    "history_length": 32,
+    "table_bits": 10,
+}
+
+_TOURNAMENT_DEFAULTS = {
+    "global_size_bits": 12,
+    "local_hist_bits": 10,
+    "local_pred_bits": 10,
+}
+
+
+def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
+    """Produce the nested dict expected by the Rust backend."""
+    # General
+    general: Dict[str, Any] = {
+        "trace_instructions": cfg.trace,
+        "start_pc": _START_PC_DEFAULT,
+        "direct_mode": True,
+    }
+    if cfg.initial_sp is not None:
+        general["initial_sp"] = cfg.initial_sp
+
+    # System
+    system = {
+        "ram_base": cfg.ram_base,
+        "uart_base": cfg.uart_base,
+        "disk_base": cfg.disk_base,
+        "clint_base": cfg.clint_base,
+        "syscon_base": cfg.syscon_base,
+        "kernel_offset": cfg.kernel_offset,
+        "bus_width": cfg.bus_width,
+        "bus_latency": cfg.bus_latency,
+        "clint_divider": cfg.clint_divider,
+        "uart_to_stderr": cfg.uart_to_stderr,
+        "uart_quiet": cfg.uart_quiet,
+        "tohost_addr": 0,
+    }
+
+    # Memory — merge controller-specific params
+    mc = cfg.memory_controller
+    memory: Dict[str, Any] = {
+        "ram_size": cfg.ram_size,
+        "controller": _mc_name(mc),
+        "tlb_size": cfg.tlb_size,
+    }
+    # Always emit DRAM timing keys (Rust expects them)
+    if isinstance(mc, MemoryController.DRAM):
+        memory["t_cas"] = mc.t_cas
+        memory["t_ras"] = mc.t_ras
+        memory["t_pre"] = mc.t_pre
+        memory["row_miss_latency"] = mc.row_miss_latency
+    else:
+        memory["t_cas"] = 14
+        memory["t_ras"] = 14
+        memory["t_pre"] = 14
+        memory["row_miss_latency"] = 120
+
+    # Caches
+    cache = {
+        "l1_i": _cache_to_dict(cfg.l1i)
+        if cfg.l1i is not None
+        else _DISABLED_CACHE_DICT,
+        "l1_d": _cache_to_dict(cfg.l1d)
+        if cfg.l1d is not None
+        else _DISABLED_CACHE_DICT,
+        "l2": _cache_to_dict(cfg.l2)
+        if cfg.l2 is not None
+        else _DISABLED_CACHE_DICT_ZERO,
+        "l3": _cache_to_dict(cfg.l3)
+        if cfg.l3 is not None
+        else _DISABLED_CACHE_DICT_ZERO,
+    }
+
+    # Pipeline — always emit all three BP sub-configs with defaults
+    bp = cfg.branch_predictor
+    tage_dict = (
+        _bp_sub_dict(bp) if isinstance(bp, BranchPredictor.TAGE) else _TAGE_DEFAULTS
+    )
+    perceptron_dict = (
+        _bp_sub_dict(bp)
+        if isinstance(bp, BranchPredictor.Perceptron)
+        else _PERCEPTRON_DEFAULTS
+    )
+    tournament_dict = (
+        _bp_sub_dict(bp)
+        if isinstance(bp, BranchPredictor.Tournament)
+        else _TOURNAMENT_DEFAULTS
+    )
+
+    pipeline = {
+        "width": cfg.width,
+        "branch_predictor": _bp_name(bp),
+        "btb_size": cfg.btb_size,
+        "ras_size": cfg.ras_size,
+        "backend": _backend_name(cfg.backend),
+        "rob_size": _backend_rob_size(cfg.backend),
+        "store_buffer_size": _backend_store_buffer_size(cfg.backend),
+        "tage": tage_dict,
+        "perceptron": perceptron_dict,
+        "tournament": tournament_dict,
+    }
+
+    return {
+        "general": general,
+        "system": system,
+        "memory": memory,
+        "cache": cache,
+        "pipeline": pipeline,
+    }

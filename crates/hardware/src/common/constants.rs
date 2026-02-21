@@ -66,12 +66,6 @@ pub const DELEG_STIP_BIT: u64 = 5;
 /// Bit mask indicating that a trap cause represents an interrupt.
 pub const CAUSE_INTERRUPT_BIT: u64 = 1 << 63;
 
-/// Starting program counter address for debug mode (disabled when 0).
-pub const DEBUG_PC_START: u64 = 0;
-
-/// Ending program counter address for debug mode (disabled when 0).
-pub const DEBUG_PC_END: u64 = 0;
-
 /// Maximum number of cycles before hang detection triggers.
 pub const HANG_DETECTION_THRESHOLD: u64 = 5000;
 

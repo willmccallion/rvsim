@@ -6,19 +6,13 @@ Usage:
     config = m1_config(branch_predictor=BranchPredictor.TAGE())
 """
 
-import sys
 import os
+import sys
 
 _repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, _repo)
 
-from rvsim import (
-    Config,
-    Cache,
-    BranchPredictor,
-    ReplacementPolicy,
-    Prefetcher,
-)
+from rvsim import BranchPredictor, Cache, Config, Prefetcher, ReplacementPolicy
 
 
 def m1_config(
@@ -43,8 +37,6 @@ def m1_config(
         branch_predictor=branch_predictor,
         btb_size=8192,
         ras_size=64,
-        start_pc=0x8000_0000,
-        direct_mode=True,
         initial_sp=0x8010_0000,
         ram_size=ram_size_bytes,
         l1i=Cache(

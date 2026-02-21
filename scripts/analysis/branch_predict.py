@@ -8,8 +8,9 @@ Usage:
 """
 
 import argparse
+import time
 
-from rvsim import BranchPredictor, Config, Environment, Stats
+from rvsim import BranchPredictor, Config, Sweep
 
 PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 
@@ -29,23 +30,28 @@ def main():
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
     args = ap.parse_args()
 
-    for program in args.programs:
-        binary = f"software/bin/programs/{program}.elf"
-        rows = {}
-        for bp_name, bp_cls in PREDICTORS.items():
-            print(f"  {program} {bp_name}...", flush=True)
-            config = Config(branch_predictor=bp_cls(), uart_quiet=True, width=args.width)
-            result = Environment(binary=binary, config=config).run(quiet=True, limit=args.limit)
-            s = result.stats
-            rows[bp_name] = Stats({
-                "cycles": s["cycles"],
-                "ipc": s["ipc"],
-                "bp_acc%": s["branch_accuracy_pct"],
-                "mispred": s["branch_mispredictions"],
-                "correct": s["branch_predictions"],
-            })
-        print(Stats.tabulate(rows, title=f"{program} — w{args.width}"))
-        print()
+    binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
+    configs = {
+        name: Config(branch_predictor=bp_cls(), uart_quiet=True, width=args.width)
+        for name, bp_cls in PREDICTORS.items()
+    }
+
+    n_jobs = len(binaries) * len(configs)
+    print(f"Branch predictor comparison: {len(binaries)} binaries x {len(configs)} predictors "
+          f"(w{args.width}, {n_jobs} runs, limit={args.limit:,})")
+
+    t0 = time.perf_counter()
+    results = Sweep(binaries=binaries, configs=configs).run(
+        parallel=True, limit=args.limit
+    )
+    elapsed = time.perf_counter() - t0
+    print(f"Completed in {elapsed:.1f}s\n")
+
+    results.compare(
+        metrics=["cycles", "ipc", "branch_accuracy_pct", "branch_mispredictions", "branch_predictions"],
+        baseline="Static",
+        col_header="predictor",
+    )
 
 
 if __name__ == "__main__":

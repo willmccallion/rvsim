@@ -12,11 +12,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
+__all__ = ["Environment", "Result"]
+
 from .config import Config, _config_to_dict
 from .stats import Stats, _compare_flat, _compare_matrix
 
-from ._core import PySystem, PyCpu
-from .objects import Cpu
+from ._core import Cpu
 
 
 @dataclass
@@ -60,15 +61,9 @@ class Environment:
         config = self.get_config()
         t0 = time.perf_counter()
         try:
-            sys_obj = PySystem(config, self.disk)
             with open(self.binary, "rb") as f:
-                data = f.read()
-            entry, tohost = sys_obj.load_elf(data)
-            cpu = Cpu(PyCpu(sys_obj, config))
-            cpu.pc = entry
-            if tohost is not None:
-                cpu._cpu.set_direct_mode(False)
-                cpu._cpu.set_htif_range(tohost, 16)
+                elf_data = f.read()
+            cpu = Cpu(config, elf_data=elf_data, disk_path=self.disk)
             exit_code = cpu.run(limit=limit, progress=progress)
             if exit_code is None and limit is None:
                 raise RuntimeError(
@@ -110,6 +105,11 @@ class Result:
     binary: str = ""
     """Binary path (from Environment)."""
 
+    @property
+    def ok(self) -> bool:
+        """``True`` if the program exited with code 0."""
+        return self.exit_code == 0
+
     def to_dict(self) -> Dict[str, Any]:
         """JSON-serializable dict for saving and comparison."""
         return {
@@ -125,6 +125,7 @@ class Result:
         *,
         metrics: Optional[List[str]] = None,
         baseline: Optional[str] = None,
+        col_header: str = "",
     ) -> None:
         """
         Print a comparison table for experiment results.
@@ -134,11 +135,16 @@ class Result:
                      or ``dict[str, dict[str, Result]]`` (multi-binary x multi-config).
             metrics: Specific metric names to show. If None, shows a default set.
             baseline: Config name to normalize against (shows speedup ratios).
+            col_header: Label for the config-name column (e.g. "size", "width").
         """
         first_val = next(iter(results.values()))
         is_nested = isinstance(first_val, dict)
 
         if is_nested:
-            _compare_matrix(results, metrics=metrics, baseline=baseline)
+            _compare_matrix(
+                results, metrics=metrics, baseline=baseline, col_header=col_header
+            )
         else:
-            _compare_flat(results, metrics=metrics, baseline=baseline)
+            _compare_flat(
+                results, metrics=metrics, baseline=baseline, col_header=col_header
+            )

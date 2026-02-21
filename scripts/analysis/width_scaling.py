@@ -8,8 +8,9 @@ Usage:
 """
 
 import argparse
+import time
 
-from rvsim import BranchPredictor, Config, Environment, Stats
+from rvsim import BranchPredictor, Config, Sweep
 
 PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 WIDTHS = [1, 2, 4]
@@ -41,28 +42,28 @@ def main():
     args = ap.parse_args()
 
     bp = BP_MAP[args.bp]()
+    binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
+    configs = {
+        f"w{w}": Config(branch_predictor=bp, uart_quiet=True, width=w)
+        for w in args.widths
+    }
 
-    for program in args.programs:
-        binary = f"software/bin/programs/{program}.elf"
-        rows = {}
-        for width in args.widths:
-            label = f"w{width}"
-            print(f"  {program} {label}...", flush=True)
-            config = Config(branch_predictor=bp, uart_quiet=True, width=width)
-            result = Environment(binary=binary, config=config).run(
-                quiet=True, limit=args.limit
-            )
-            s = result.stats
-            rows[label] = Stats(
-                {
-                    "cycles": s["cycles"],
-                    "ipc": s["ipc"],
-                    "bp_acc%": s["branch_accuracy_pct"],
-                    "mispred": s["branch_mispredictions"],
-                }
-            )
-        print(Stats.tabulate(rows, title=f"{program} — {args.bp}"))
-        print()
+    n_jobs = len(binaries) * len(configs)
+    print(f"Width scaling: {len(binaries)} binaries x {len(configs)} widths "
+          f"({args.bp}, {n_jobs} runs, limit={args.limit:,})")
+
+    t0 = time.perf_counter()
+    results = Sweep(binaries=binaries, configs=configs).run(
+        parallel=True, limit=args.limit
+    )
+    elapsed = time.perf_counter() - t0
+    print(f"Completed in {elapsed:.1f}s\n")
+
+    results.compare(
+        metrics=["cycles", "ipc", "branch_accuracy_pct", "branch_mispredictions"],
+        baseline=f"w{args.widths[0]}",
+        col_header="width",
+    )
 
 
 if __name__ == "__main__":

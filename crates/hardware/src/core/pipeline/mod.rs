@@ -35,3 +35,6 @@ pub mod frontend;
 
 /// Backend pipeline stages.
 pub mod backend;
+
+/// Point-in-time pipeline state snapshot.
+pub mod snapshot;

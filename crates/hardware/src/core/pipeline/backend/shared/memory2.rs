@@ -23,13 +23,9 @@ pub fn memory2_stage(
     let entries = std::mem::take(input);
     output.clear();
 
-    let mut flush_remaining = false;
+    let mut iter = entries.into_iter();
 
-    for mem in entries {
-        if flush_remaining {
-            break;
-        }
-
+    while let Some(mem) = iter.next() {
         // Propagate traps
         if let Some(ref trap) = mem.trap {
             if cpu.trace {
@@ -47,8 +43,11 @@ pub fn memory2_stage(
                 trap: mem.trap,
                 exception_stage: mem.exception_stage,
             });
-            flush_remaining = true;
-            continue;
+            // Trap: remaining entries stay in the input latch for next cycle.
+            // They will be flushed by the commit-stage trap handler, but must
+            // not be silently dropped here or their ROB entries become orphans.
+            input.extend(iter);
+            return;
         }
 
         let raw_paddr = mem.paddr;
@@ -71,7 +70,8 @@ pub fn memory2_stage(
                         ForwardResult::Hit(fwd) => fwd,
                         ForwardResult::Stall => {
                             input.push(mem);
-                            break;
+                            input.extend(iter);
+                            return;
                         }
                         ForwardResult::Miss => match mem.ctrl.width {
                             MemWidth::Word => {
@@ -102,7 +102,8 @@ pub fn memory2_stage(
                         ForwardResult::Hit(fwd) => fwd,
                         ForwardResult::Stall => {
                             input.push(mem);
-                            break;
+                            input.extend(iter);
+                            return;
                         }
                         ForwardResult::Miss => match mem.ctrl.width {
                             MemWidth::Word => {
@@ -157,9 +158,10 @@ pub fn memory2_stage(
                     }
                 }
                 ForwardResult::Stall => {
-                    // Partial overlap — push back and stall
+                    // Partial overlap — push back current + remaining entries
                     input.push(mem);
-                    break;
+                    input.extend(iter);
+                    return;
                 }
                 ForwardResult::Miss => {
                     // Read from memory/cache
@@ -256,7 +258,8 @@ pub fn memory2_stage(
         });
 
         if trap.is_some() {
-            flush_remaining = true;
+            input.extend(iter);
+            return;
         }
     }
 }

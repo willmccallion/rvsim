@@ -138,12 +138,26 @@ pub fn commit_stage(
 
         // Apply deferred CSR write
         if let Some(csr_update) = entry.csr_update {
+            // SATP writes change the address translation mode. All preceding
+            // stores (page table setup, etc.) must be visible in physical
+            // memory before the new page tables are consulted. Drain the
+            // entire store buffer so the PTW reads up-to-date PTEs.
+            if csr_update.addr == csr::SATP {
+                drain_all_committed(cpu, store_buffer);
+            }
             cpu.csr_write(csr_update.addr, csr_update.new_val);
             if cpu.trace {
                 eprintln!(
                     "CM  pc={:#x} CSR {:#x} <= {:#x}",
                     entry.pc, csr_update.addr, csr_update.new_val
                 );
+            }
+            // SATP changes address translation: any instructions fetched
+            // between the execute-stage redirect and this commit used the
+            // old page tables. Force a re-flush so the frontend re-fetches
+            // with the new translation context.
+            if csr_update.addr == csr::SATP {
+                cpu.redirect_pending = true;
             }
             // CSR instructions are serializing — drain before committing more
             break;
@@ -175,51 +189,86 @@ pub fn commit_stage(
             }
         }
 
+        // SFENCE.VMA and FENCE are memory ordering barriers — all preceding
+        // stores must be visible in physical memory before they complete.
+        // Without this, the page table walker (which reads PTEs directly from
+        // RAM, bypassing the store buffer) can see stale page table entries
+        // after kernel code writes PTEs and issues SFENCE.VMA.
+        if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence || entry.ctrl.is_fence_i {
+            drain_all_committed(cpu, store_buffer);
+        }
+
         // Ensure x0 stays zero
         cpu.regs.write(0, 0);
     }
 
     // Drain one committed store to memory per cycle
+    drain_one_store(cpu, store_buffer);
+
+    trap_event
+}
+
+/// Writes a single committed store from the store buffer to memory.
+fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     if let Some(store) = store_buffer.drain_one()
         && let Some(paddr) = store.paddr
     {
-        let in_htif = cpu
-            .htif_range
-            .is_some_and(|(lo, hi)| paddr >= lo && paddr < hi);
-        let is_ram = !in_htif && paddr >= cpu.ram_start && paddr < cpu.ram_end;
-        if is_ram {
-            let offset = (paddr - cpu.ram_start) as usize;
-            unsafe {
-                match store.width {
-                    MemWidth::Byte => *cpu.ram_ptr.add(offset) = store.data as u8,
-                    MemWidth::Half => {
-                        (cpu.ram_ptr.add(offset) as *mut u16).write_unaligned(store.data as u16)
-                    }
-                    MemWidth::Word => {
-                        (cpu.ram_ptr.add(offset) as *mut u32).write_unaligned(store.data as u32)
-                    }
-                    MemWidth::Double => {
-                        (cpu.ram_ptr.add(offset) as *mut u64).write_unaligned(store.data)
-                    }
-                    _ => {}
-                }
-            }
-        } else {
-            match store.width {
-                MemWidth::Byte => cpu.bus.bus.write_u8(paddr, store.data as u8),
-                MemWidth::Half => cpu.bus.bus.write_u16(paddr, store.data as u16),
-                MemWidth::Word => cpu.bus.bus.write_u32(paddr, store.data as u32),
-                MemWidth::Double => cpu.bus.bus.write_u64(paddr, store.data),
-                _ => {}
-            }
-        }
-
+        write_store_to_memory(cpu, paddr, store.data, store.width);
         if cpu.trace {
             eprintln!("CM  STORE DRAIN paddr={:#x} data={:#x}", paddr, store.data);
         }
     }
+}
 
-    trap_event
+/// Drains **all** committed stores from the store buffer to memory.
+///
+/// Called before SATP writes to ensure page table entries set up by
+/// preceding stores are visible in physical memory before the page
+/// table walker consults them.
+fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
+    while let Some(store) = store_buffer.drain_one() {
+        if let Some(paddr) = store.paddr {
+            write_store_to_memory(cpu, paddr, store.data, store.width);
+            if cpu.trace {
+                eprintln!(
+                    "CM  STORE DRAIN (fence) paddr={:#x} data={:#x}",
+                    paddr, store.data
+                );
+            }
+        }
+    }
+}
+
+/// Writes a store's data to the correct memory target (RAM fast-path or bus).
+fn write_store_to_memory(cpu: &mut Cpu, paddr: u64, data: u64, width: MemWidth) {
+    let in_htif = cpu
+        .htif_range
+        .is_some_and(|(lo, hi)| paddr >= lo && paddr < hi);
+    let is_ram = !in_htif && paddr >= cpu.ram_start && paddr < cpu.ram_end;
+    if is_ram {
+        let offset = (paddr - cpu.ram_start) as usize;
+        unsafe {
+            match width {
+                MemWidth::Byte => *cpu.ram_ptr.add(offset) = data as u8,
+                MemWidth::Half => {
+                    (cpu.ram_ptr.add(offset) as *mut u16).write_unaligned(data as u16)
+                }
+                MemWidth::Word => {
+                    (cpu.ram_ptr.add(offset) as *mut u32).write_unaligned(data as u32)
+                }
+                MemWidth::Double => (cpu.ram_ptr.add(offset) as *mut u64).write_unaligned(data),
+                _ => {}
+            }
+        }
+    } else {
+        match width {
+            MemWidth::Byte => cpu.bus.bus.write_u8(paddr, data as u8),
+            MemWidth::Half => cpu.bus.bus.write_u16(paddr, data as u16),
+            MemWidth::Word => cpu.bus.bus.write_u32(paddr, data as u32),
+            MemWidth::Double => cpu.bus.bus.write_u64(paddr, data),
+            _ => {}
+        }
+    }
 }
 
 /// Checks for pending interrupts. Returns the trap if one should be taken.

@@ -9,6 +9,7 @@
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
+use crate::core::pipeline::snapshot::PipelineSnapshot;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use serde::Deserialize;
 
@@ -129,6 +130,30 @@ impl PipelineDispatch {
         match self {
             Self::InOrder(p) => p.flush(cpu),
             Self::OutOfOrder => unimplemented!("out-of-order pipeline"),
+        }
+    }
+
+    /// Capture a point-in-time snapshot of all inter-stage latch contents.
+    pub fn snapshot(&self, width: usize) -> PipelineSnapshot {
+        match self {
+            Self::InOrder(p) => PipelineSnapshot {
+                fetch1_fetch2: p.frontend.fetch1_fetch2.clone(),
+                fetch2_decode: p.frontend.fetch2_decode.clone(),
+                decode_rename: p.frontend.decode_rename.clone(),
+                rename_issue: p.rename_output.clone(),
+                issue_queue: p.engine.issuer.queue_snapshot(),
+                execute_mem1: p.engine.execute_mem1.clone(),
+                mem1_mem2: p.engine.mem1_mem2.clone(),
+                mem2_wb: p.engine.mem2_wb.clone(),
+                fetch1_stall: p.frontend.fetch1_stall,
+                fetch2_stall: p.frontend.fetch2_stall,
+                mem1_stall: p.engine.mem1_stall,
+                width,
+            },
+            Self::OutOfOrder => PipelineSnapshot {
+                width,
+                ..Default::default()
+            },
         }
     }
 }

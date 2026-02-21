@@ -3,24 +3,24 @@
 import os
 import sys
 
-_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(_root, "python"))
+_scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_root = os.path.dirname(os.path.dirname(_scripts))
 
 from rvsim import Config, Environment
 
 
 def main():
-    root = _root
-    binary = os.path.join(root, "../" "software", "bin", "benchmarks", "qsort.elf")
+    binary = os.path.join(_root, "software", "bin", "benchmarks", "qsort.elf")
     if not os.path.exists(binary):
-        print("Skip: binary not found:", binary)
+        print(f"Skip: binary not found: {binary}")
         return 0
-    env = Environment(binary=binary, config=Config())
-    result = env.run(quiet=True)
-    print(
-        "smoke_test: exit_code=%s ipc=%s" % (result.exit_code, result.stats.get("ipc"))
-    )
-    return 0 if result.exit_code == 0 else 1
+
+    print(f"[smoke] Running {os.path.basename(binary)}...")
+    res = Environment(binary=binary, config=Config(uart_quiet=True)).run()
+
+    print(f"\nResult: {'SUCCESS' if res.ok else 'FAILURE'} (exit {res.exit_code})")
+    print(res.stats.query("ipc|cycles"))
+    return 0 if res.ok else 1
 
 
 if __name__ == "__main__":

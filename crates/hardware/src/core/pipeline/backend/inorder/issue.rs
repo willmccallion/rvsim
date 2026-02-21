@@ -36,6 +36,14 @@ impl InOrderIssueUnit {
     /// Accept dispatched instructions from rename.
     pub fn dispatch(&mut self, entries: Vec<RenameIssueEntry>) {
         for entry in entries {
+            debug_assert!(
+                self.queue.len() < self.capacity,
+                "issue queue overflow: len={} capacity={} — entry rob_tag={} pc={:#x} would be silently dropped",
+                self.queue.len(),
+                self.capacity,
+                entry.rob_tag.0,
+                entry.pc,
+            );
             if self.queue.len() < self.capacity {
                 self.queue.push_back(entry);
             }
@@ -95,9 +103,19 @@ impl InOrderIssueUnit {
         selected
     }
 
+    /// Return a snapshot of the current issue queue contents (front = oldest).
+    pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry> {
+        self.queue.iter().cloned().collect()
+    }
+
     /// How many slots are available for dispatch?
     pub fn available_slots(&self) -> usize {
         self.capacity - self.queue.len()
+    }
+
+    /// How many instructions are in the issue queue?
+    pub fn len(&self) -> usize {
+        self.queue.len()
     }
 
     /// Flush all entries.

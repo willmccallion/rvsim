@@ -147,51 +147,13 @@ impl Cpu {
             && !delegate_to_s
             && (self.csrs.stvec & !3) != 0
         {
-            if !is_ecall {
+            if self.trace && !is_ecall {
                 eprintln!(
-                    "[TRAP DEBUG] User mode trap not delegated but STVEC is set. Forcing delegation. Cause={:?} Code={} MEDELEG={:#x} STVEC={:#x}",
+                    "[TRAP] User mode trap not delegated but STVEC is set. Forcing delegation. Cause={:?} Code={} MEDELEG={:#x} STVEC={:#x}",
                     cause, code, self.csrs.medeleg, self.csrs.stvec
                 );
             }
             delegate_to_s = true;
-        }
-
-        if delegate_to_s {
-            let stvec_base = self.csrs.stvec & !3;
-            let trap_handler_pc = stvec_base
-                + (if (self.csrs.stvec & 1) != 0 && is_interrupt {
-                    4 * code
-                } else {
-                    0
-                });
-
-            if epc == trap_handler_pc {
-                let fault = Trap::DoubleFault(epc);
-                eprintln!(
-                    "[FATAL] {} detected! CPU faulted at S-mode trap handler.",
-                    fault
-                );
-                self.exit_code = Some(102);
-                return;
-            }
-        } else {
-            let mtvec_base = self.csrs.mtvec & !3;
-            let trap_handler_pc = mtvec_base
-                + (if (self.csrs.mtvec & 1) != 0 && is_interrupt {
-                    4 * code
-                } else {
-                    0
-                });
-
-            if epc == trap_handler_pc {
-                let fault = Trap::DoubleFault(epc);
-                eprintln!(
-                    "[FATAL] {} detected! CPU faulted at M-mode trap handler.",
-                    fault
-                );
-                self.exit_code = Some(102);
-                return;
-            }
         }
 
         let tval = match cause {
@@ -215,39 +177,7 @@ impl Cpu {
                 code
             };
 
-            // Implementation Note: Kernel Relocation for SEPC
-            //
-            // When the MMU is enabled (SATP mode != Bare), the kernel is typically linked
-            // at a high virtual address (0xffffffff80000000) but loaded at a physical address
-            // (0x80200000). During early boot, before paging is fully initialized, PC values
-            // may be physical addresses.
-            //
-            // If a trap occurs during this transition (EPC points to physical kernel address),
-            // we need to adjust SEPC to the corresponding virtual address so that SRET returns
-            // to the correct location in the virtual address space.
-            //
-            // This adjustment applies when:
-            // 1. MMU is enabled (SATP mode != 0)
-            // 2. EPC is in kernel physical range [0x80200000, 0x82200000)
-            // 3. EPC is below the kernel virtual base (not already relocated)
-            //
-            // The relocation offset is: KERNEL_VIRT_BASE - KERNEL_PHYS_BASE
-            // This matches the linker script offset for typical RISC-V kernels.
-            let mut sepc_value = epc;
-            let mmu_enabled = (self.csrs.satp >> 60) != 0;
-            if mmu_enabled {
-                const KERNEL_PHYS_BASE: u64 = 0x80200000;
-                const KERNEL_VIRT_BASE: u64 = 0xffffffff80000000;
-                const RELOC_OFFSET: u64 = KERNEL_VIRT_BASE.wrapping_sub(KERNEL_PHYS_BASE);
-
-                if (KERNEL_PHYS_BASE..KERNEL_PHYS_BASE + 0x2000000).contains(&epc)
-                    && epc < KERNEL_VIRT_BASE
-                {
-                    sepc_value = epc.wrapping_add(RELOC_OFFSET);
-                }
-            }
-
-            self.csrs.sepc = sepc_value;
+            self.csrs.sepc = epc;
             self.csrs.stval = tval;
 
             let mut sstatus = self.csrs.sstatus;
@@ -348,21 +278,7 @@ impl Cpu {
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
     pub(crate) fn do_sret(&mut self) {
         self.clear_reservation(); // SRET invalidates reservations
-        let mut sepc = self.csrs.sepc & !1;
-        let mmu_enabled = (self.csrs.satp >> 60) != 0;
-        if mmu_enabled {
-            const KERNEL_PHYS_BASE: u64 = 0x80200000;
-            const KERNEL_VIRT_BASE: u64 = 0xffffffff80000000;
-            const RELOC_OFFSET: u64 = KERNEL_VIRT_BASE.wrapping_sub(KERNEL_PHYS_BASE);
-
-            if (KERNEL_PHYS_BASE..KERNEL_PHYS_BASE + 0x2000000).contains(&sepc)
-                && sepc < KERNEL_VIRT_BASE
-            {
-                sepc = sepc.wrapping_add(RELOC_OFFSET);
-            }
-        }
-
-        self.pc = sepc;
+        self.pc = self.csrs.sepc & !1;
         let sstatus = self.csrs.sstatus;
         let spp = (sstatus & csr::MSTATUS_SPP) != 0;
         let spie = (sstatus & csr::MSTATUS_SPIE) != 0;

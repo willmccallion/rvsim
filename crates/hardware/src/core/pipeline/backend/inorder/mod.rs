@@ -181,11 +181,16 @@ impl ExecutionEngine for InOrderEngine {
             self.scoreboard.rebuild_from_rob(&self.rob);
         }
 
-        // Accept dispatched instructions from rename.
-        // Skip dispatch when backpressured: if issue+execute can't run,
-        // dispatching would fill the ROB/issue queue with instructions whose
-        // operands can never be resolved (in-order deadlock).
-        if !needs_flush && !backpressured {
+        // Accept dispatched instructions from rename into the issue queue.
+        // We dispatch even during backpressure — the instructions sit in the
+        // FIFO until issue+execute can run again.  Skipping dispatch during
+        // backpressure would let rename keep allocating ROB entries (since
+        // can_accept() checks the *issue queue* size, not rename_output) while
+        // the issue queue stays the same size, eventually causing rename_output
+        // to outgrow the remaining issue capacity.  When dispatch finally runs,
+        // the excess entries are silently dropped, leaving their ROB slots
+        // permanently stuck in Issued state and deadlocking the pipeline.
+        if !needs_flush {
             let rename_entries = std::mem::take(rename_output);
             if !rename_entries.is_empty() {
                 self.issuer.dispatch(rename_entries);

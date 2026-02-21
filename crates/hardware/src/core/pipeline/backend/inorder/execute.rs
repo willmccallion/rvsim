@@ -258,6 +258,12 @@ pub fn execute_inorder(
                 cpu.l1_d_cache.flush();
                 cpu.l1_i_cache.flush();
 
+                // SFENCE.VMA is a serializing fence: flush the frontend
+                // so subsequent fetches use the updated TLB state.
+                cpu.pc = id.pc.wrapping_add(id.inst_size);
+                cpu.redirect_pending = true;
+                flush_remaining = true;
+
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,

@@ -4,7 +4,7 @@ Namespace types for simulator configuration.
 Provides structured, Pythonic alternatives to raw string enums:
 - BranchPredictor: Static, GShare, TAGE, Perceptron, Tournament
 - ReplacementPolicy: LRU, PLRU, FIFO, Random, MRU
-- Prefetcher: None_, NextLine, Stride, Stream, Tagged
+- Prefetcher: Off, NextLine, Stride, Stream, Tagged
 - MemoryController: Simple, DRAM
 - Backend: InOrder, OutOfOrder
 - Cache: cache level configuration with size parsing
@@ -14,6 +14,15 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+
+__all__ = [
+    "BranchPredictor",
+    "ReplacementPolicy",
+    "Prefetcher",
+    "MemoryController",
+    "Backend",
+    "Cache",
+]
 
 
 def _parse_size(s) -> int:
@@ -59,22 +68,10 @@ class BranchPredictor:
     """Namespace for branch predictor configurations."""
 
     class Static:
-        def _to_dict_value(self) -> str:
-            return "Static"
-
-        def _sub_dict(self) -> dict:
-            return {}
-
         def __repr__(self) -> str:
             return "BranchPredictor.Static()"
 
     class GShare:
-        def _to_dict_value(self) -> str:
-            return "GShare"
-
-        def _sub_dict(self) -> dict:
-            return {}
-
         def __repr__(self) -> str:
             return "BranchPredictor.GShare()"
 
@@ -97,19 +94,6 @@ class BranchPredictor:
             )
             self.tag_widths = tag_widths if tag_widths is not None else [9, 9, 10, 10]
 
-        def _to_dict_value(self) -> str:
-            return "TAGE"
-
-        def _sub_dict(self) -> dict:
-            return {
-                "num_banks": self.num_banks,
-                "table_size": self.table_size,
-                "loop_table_size": self.loop_table_size,
-                "reset_interval": self.reset_interval,
-                "history_lengths": self.history_lengths,
-                "tag_widths": self.tag_widths,
-            }
-
         def __repr__(self) -> str:
             return (
                 f"BranchPredictor.TAGE(num_banks={self.num_banks}, "
@@ -124,15 +108,6 @@ class BranchPredictor:
         def __init__(self, history_length: int = 32, table_bits: int = 10):
             self.history_length = history_length
             self.table_bits = table_bits
-
-        def _to_dict_value(self) -> str:
-            return "Perceptron"
-
-        def _sub_dict(self) -> dict:
-            return {
-                "history_length": self.history_length,
-                "table_bits": self.table_bits,
-            }
 
         def __repr__(self) -> str:
             return (
@@ -151,16 +126,6 @@ class BranchPredictor:
             self.local_hist_bits = local_hist_bits
             self.local_pred_bits = local_pred_bits
 
-        def _to_dict_value(self) -> str:
-            return "Tournament"
-
-        def _sub_dict(self) -> dict:
-            return {
-                "global_size_bits": self.global_size_bits,
-                "local_hist_bits": self.local_hist_bits,
-                "local_pred_bits": self.local_pred_bits,
-            }
-
         def __repr__(self) -> str:
             return (
                 f"BranchPredictor.Tournament(global_size_bits={self.global_size_bits}, "
@@ -176,37 +141,22 @@ class ReplacementPolicy:
     """Namespace for cache replacement policies."""
 
     class LRU:
-        def _to_dict_value(self) -> str:
-            return "LRU"
-
         def __repr__(self) -> str:
             return "ReplacementPolicy.LRU()"
 
     class PLRU:
-        def _to_dict_value(self) -> str:
-            return "PLRU"
-
         def __repr__(self) -> str:
             return "ReplacementPolicy.PLRU()"
 
     class FIFO:
-        def _to_dict_value(self) -> str:
-            return "FIFO"
-
         def __repr__(self) -> str:
             return "ReplacementPolicy.FIFO()"
 
     class Random:
-        def _to_dict_value(self) -> str:
-            return "Random"
-
         def __repr__(self) -> str:
             return "ReplacementPolicy.Random()"
 
     class MRU:
-        def _to_dict_value(self) -> str:
-            return "MRU"
-
         def __repr__(self) -> str:
             return "ReplacementPolicy.MRU()"
 
@@ -217,31 +167,13 @@ class ReplacementPolicy:
 class Prefetcher:
     """Namespace for prefetcher configurations."""
 
-    class None_:
-        def _to_dict_value(self) -> str:
-            return "None"
-
-        def _degree(self) -> int:
-            return 0
-
-        def _table_size(self) -> int:
-            return 0
-
+    class Off:
         def __repr__(self) -> str:
-            return "Prefetcher.None_()"
+            return "Prefetcher.Off()"
 
     class NextLine:
         def __init__(self, degree: int = 1):
             self.degree = degree
-
-        def _to_dict_value(self) -> str:
-            return "NextLine"
-
-        def _degree(self) -> int:
-            return self.degree
-
-        def _table_size(self) -> int:
-            return 0
 
         def __repr__(self) -> str:
             return f"Prefetcher.NextLine(degree={self.degree})"
@@ -251,43 +183,16 @@ class Prefetcher:
             self.degree = degree
             self.table_size = table_size
 
-        def _to_dict_value(self) -> str:
-            return "Stride"
-
-        def _degree(self) -> int:
-            return self.degree
-
-        def _table_size(self) -> int:
-            return self.table_size
-
         def __repr__(self) -> str:
             return (
                 f"Prefetcher.Stride(degree={self.degree}, table_size={self.table_size})"
             )
 
     class Stream:
-        def _to_dict_value(self) -> str:
-            return "Stream"
-
-        def _degree(self) -> int:
-            return 0
-
-        def _table_size(self) -> int:
-            return 0
-
         def __repr__(self) -> str:
             return "Prefetcher.Stream()"
 
     class Tagged:
-        def _to_dict_value(self) -> str:
-            return "Tagged"
-
-        def _degree(self) -> int:
-            return 0
-
-        def _table_size(self) -> int:
-            return 0
-
         def __repr__(self) -> str:
             return "Prefetcher.Tagged()"
 
@@ -299,12 +204,6 @@ class MemoryController:
     """Namespace for memory controller configurations."""
 
     class Simple:
-        def _to_dict_value(self) -> str:
-            return "Simple"
-
-        def _sub_dict(self) -> dict:
-            return {}
-
         def __repr__(self) -> str:
             return "MemoryController.Simple()"
 
@@ -321,17 +220,6 @@ class MemoryController:
             self.t_pre = t_pre
             self.row_miss_latency = row_miss_latency
 
-        def _to_dict_value(self) -> str:
-            return "Dram"
-
-        def _sub_dict(self) -> dict:
-            return {
-                "t_cas": self.t_cas,
-                "t_ras": self.t_ras,
-                "t_pre": self.t_pre,
-                "row_miss_latency": self.row_miss_latency,
-            }
-
         def __repr__(self) -> str:
             return (
                 f"MemoryController.DRAM(t_cas={self.t_cas}, t_ras={self.t_ras}, "
@@ -346,15 +234,6 @@ class Backend:
     """Namespace for pipeline backend configurations."""
 
     class InOrder:
-        def _to_dict_value(self) -> str:
-            return "InOrder"
-
-        def _rob_size(self) -> int:
-            return 64
-
-        def _store_buffer_size(self) -> int:
-            return 16
-
         def __repr__(self) -> str:
             return "Backend.InOrder()"
 
@@ -362,15 +241,6 @@ class Backend:
         def __init__(self, rob_size: int = 64, store_buffer_size: int = 16):
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
-
-        def _to_dict_value(self) -> str:
-            return "OutOfOrder"
-
-        def _rob_size(self) -> int:
-            return self.rob_size
-
-        def _store_buffer_size(self) -> int:
-            return self.store_buffer_size
 
         def __repr__(self) -> str:
             return (
@@ -399,20 +269,7 @@ class Cache:
         self.ways = ways
         self.policy = policy if policy is not None else ReplacementPolicy.LRU()
         self.latency = latency
-        self.prefetcher = prefetcher if prefetcher is not None else Prefetcher.None_()
-
-    def _to_cache_dict(self) -> Dict[str, Any]:
-        return {
-            "enabled": True,
-            "size_bytes": self.size_bytes,
-            "line_bytes": self.line_bytes,
-            "ways": self.ways,
-            "policy": self.policy._to_dict_value(),
-            "latency": self.latency,
-            "prefetcher": self.prefetcher._to_dict_value(),
-            "prefetch_table_size": self.prefetcher._table_size(),
-            "prefetch_degree": self.prefetcher._degree(),
-        }
+        self.prefetcher = prefetcher if prefetcher is not None else Prefetcher.Off()
 
     def __repr__(self) -> str:
         return (

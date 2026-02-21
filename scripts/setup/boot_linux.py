@@ -231,7 +231,6 @@ def optimized_config() -> Config:
         ),
         btb_size=8192,
         ras_size=64,
-        start_pc=0x80000000,
         ram_base=0x80000000,
         uart_base=0x10000000,
         disk_base=0x10001000,
@@ -330,18 +329,14 @@ def main():
 
     print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
-    sim = (
-        Simulator()
-        .with_config(optimized_config())
-        .kernel(image_path)
-        .disk(disk_path)
-        .kernel_mode()
-    )
+    sim = Simulator().config(optimized_config()).kernel(image_path).disk(disk_path)
     if os.path.isfile(dtb_path):
         sim.dtb(dtb_path)
 
     try:
-        return sim.run(limit=10_000_000_000, progress=5_000_000)
+        return sim.run(
+            limit=10_000_000_000
+        )  # Add progress = ... to this if it seems to hang.
     except Exception as e:
         print(f"Simulation failed: {e}")
         return 1
