@@ -26,6 +26,8 @@ Fetch1 → Fetch2 → Decode → Rename → Issue → Execute → Memory1 → Me
 
 RV64IMAFDC — base integer, multiply/divide, atomics, single/double float, compressed instructions. Privileged ISA with M/S/U modes, traps, CSRs, and CLINT timer.
 
+Passes all 134 tests in the [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) ISA suite (rv64ui, rv64um, rv64ua, rv64uf, rv64ud, rv64uc, rv64mi, rv64si).
+
 ## Quick Start
 
 **Install:**
@@ -37,14 +39,14 @@ pip install rvsim
 ```python
 from rvsim import Config, Environment
 
-result = Environment(binary="software/bin/programs/mandelbrot.bin").run()
+result = Environment(binary="software/bin/programs/mandelbrot.elf").run()
 print(result.stats.query("ipc|branch"))
 ```
 
 **From the command line:**
 ```bash
 make build
-rvsim -f software/bin/programs/qsort.bin
+rvsim -f software/bin/programs/qsort.elf
 ```
 
 ## Python API
@@ -59,7 +61,7 @@ config = Config(
     l2=Cache("512KB", ways=16, latency=10),
 )
 
-result = Environment(binary="software/bin/programs/qsort.bin", config=config).run()
+result = Environment(binary="software/bin/programs/qsort.elf", config=config).run()
 
 # Query specific stats
 print(result.stats.query("branch"))
@@ -69,7 +71,7 @@ print(result.stats.query("miss"))
 rows = {}
 for w in [1, 2, 4]:
     cfg = Config(width=w, uart_quiet=True)
-    r = Environment(binary="software/bin/programs/qsort.bin", config=cfg).run()
+    r = Environment(binary="software/bin/programs/qsort.elf", config=cfg).run()
     rows[f"w{w}"] = r.stats.query("ipc|cycles")
 print(Stats.tabulate(rows, title="Width Scaling"))
 ```
