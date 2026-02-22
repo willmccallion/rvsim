@@ -272,6 +272,9 @@ pub struct Mem1Mem2Entry {
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: u8,
+    /// Cycle at which this entry's memory operation completes (O3 per-op latency).
+    /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
+    pub complete_cycle: u64,
 }
 
 /// Entry from Memory2 -> Writeback latch.

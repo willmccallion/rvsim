@@ -66,8 +66,6 @@ pub struct O3Engine {
     pub mem1_mem2: Vec<Mem1Mem2Entry>,
     /// Memory2 -> Writeback latch.
     pub mem2_wb: Vec<Mem2WbEntry>,
-    /// Memory1 stall counter (D-TLB / D-cache latency).
-    pub mem1_stall: u64,
     /// Current simulation cycle (for FU latency tracking).
     pub cycle: u64,
 }
@@ -106,7 +104,6 @@ impl O3Engine {
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
-            mem1_stall: 0,
             cycle: 0,
         }
     }
@@ -232,16 +229,21 @@ impl ExecutionEngine for O3Engine {
         );
 
         // ── 4. Memory1 ────────────────────────────────────────────────
-        if self.mem1_stall > 0 {
-            self.mem1_stall -= 1;
+        // Per-operation latency: memory1 is gated by the max complete_cycle
+        // of recently produced entries. Two independent loads stall for
+        // max(latency) instead of sum(latency).
+        //
+        // Check if the memory1 pipeline is still busy (any entry from a
+        // previous memory1 call hasn't completed yet).
+        let mem1_busy = self.mem1_mem2.iter().any(|e| {
+            let is_mem = e.ctrl.mem_read || e.ctrl.mem_write;
+            is_mem && e.complete_cycle > now
+        });
+
+        if mem1_busy {
             cpu.stats.stalls_mem += 1;
         } else {
-            memory1::memory1_stage(
-                cpu,
-                &mut self.execute_mem1,
-                &mut self.mem1_mem2,
-                &mut self.mem1_stall,
-            );
+            memory1::memory1_stage(cpu, &mut self.execute_mem1, &mut self.mem1_mem2, now);
         }
 
         // ── 5. Backpressure check ──────────────────────────────────────
@@ -256,11 +258,10 @@ impl ExecutionEngine for O3Engine {
         });
         let backpressured = !self.execute_mem1.is_empty() || has_pending_mem;
 
-        if cpu.trace && (backpressured || self.mem1_stall > 0) {
+        if cpu.trace && backpressured {
             eprintln!(
-                "BE  backpressure={} mem1_stall={} ex_mem1={} iq={}",
+                "BE  backpressure={} ex_mem1={} iq={}",
                 backpressured,
-                self.mem1_stall,
                 self.execute_mem1.len(),
                 self.issue_queue.available_slots()
             );
@@ -418,7 +419,6 @@ impl ExecutionEngine for O3Engine {
         // ── 7. Handle flush on misprediction/serializing ───────────────
         if let Some(keep_tag) = flush_keep_tag {
             rename_output.clear();
-            self.mem1_stall = 0;
 
             // Check whether keep_tag is still in the ROB. It may have been
             // committed in step 1 of this same tick (e.g. a CSR that both
@@ -504,7 +504,6 @@ impl ExecutionEngine for O3Engine {
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
-        self.mem1_stall = 0;
     }
 
     fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: u32) -> u64 {

@@ -190,7 +190,7 @@ impl PipelineDispatch {
                 mem2_wb: p.engine.mem2_wb.clone(),
                 fetch1_stall: p.frontend.fetch1_stall,
                 fetch2_stall: p.frontend.fetch2_stall,
-                mem1_stall: p.engine.mem1_stall,
+                mem1_stall: 0, // O3 uses per-entry complete_cycle, no global stall
                 width,
             },
         }

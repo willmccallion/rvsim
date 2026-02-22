@@ -9,11 +9,16 @@ use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::units::lsu::unaligned;
 
 /// Executes the Memory1 stage: address translation.
+///
+/// `current_cycle` is the current simulation cycle. Each output entry's
+/// `complete_cycle` is set to `current_cycle + per_entry_latency`, allowing
+/// the O3 backend to track per-operation latency instead of a single global
+/// stall counter.
 pub fn memory1_stage(
     cpu: &mut Cpu,
     input: &mut Vec<ExMem1Entry>,
     output: &mut Vec<Mem1Mem2Entry>,
-    stall_out: &mut u64,
+    current_cycle: u64,
 ) {
     let entries = std::mem::take(input);
     // Do NOT clear output — memory2 may have pushed stalled entries back
@@ -42,6 +47,7 @@ pub fn memory1_stage(
                 trap: ex.trap,
                 exception_stage: ex.exception_stage,
                 fp_flags: ex.fp_flags,
+                complete_cycle: current_cycle,
             });
             // Remaining entries go back to input — they'll be flushed when
             // the trap reaches commit, but must not be silently dropped.
@@ -52,11 +58,13 @@ pub fn memory1_stage(
         let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
 
         if needs_translation {
+            let mut per_entry_latency: u64 = 0;
+
             // Check alignment
             let size = unaligned::width_to_bytes(ex.ctrl.width);
             if !unaligned::is_aligned(ex.alu, size) {
                 let latency_penalty = unaligned::calculate_unaligned_latency(ex.alu, size, 64);
-                *stall_out += latency_penalty;
+                per_entry_latency += latency_penalty;
             }
 
             let access_type = if ex.ctrl.mem_write {
@@ -70,7 +78,7 @@ pub fn memory1_stage(
                 cycles,
                 trap: fault,
             } = cpu.translate(VirtAddr::new(ex.alu), access_type);
-            *stall_out += cycles;
+            per_entry_latency += cycles;
 
             if let Some(t) = fault {
                 if cpu.trace {
@@ -91,6 +99,7 @@ pub fn memory1_stage(
                     trap: Some(t),
                     exception_stage: Some(ExceptionStage::Memory),
                     fp_flags: ex.fp_flags,
+                    complete_cycle: current_cycle + per_entry_latency,
                 });
                 // Remaining entries go back to input.
                 input.extend(iter);
@@ -120,7 +129,7 @@ pub fn memory1_stage(
             // caches entirely — they are uncacheable by nature.
             if paddr.val() >= cpu.cache_base {
                 let lat = cpu.simulate_memory_access(paddr, access_type);
-                *stall_out += lat;
+                per_entry_latency += lat;
             }
 
             output.push(Mem1Mem2Entry {
@@ -138,9 +147,10 @@ pub fn memory1_stage(
                 trap: None,
                 exception_stage: None,
                 fp_flags: ex.fp_flags,
+                complete_cycle: current_cycle + per_entry_latency,
             });
         } else {
-            // Non-memory instruction: pass through
+            // Non-memory instruction: pass through (ready immediately)
             if cpu.trace {
                 eprintln!("M1  pc={:#x} (pass-through)", ex.pc);
             }
@@ -159,6 +169,7 @@ pub fn memory1_stage(
                 trap: None,
                 exception_stage: None,
                 fp_flags: ex.fp_flags,
+                complete_cycle: current_cycle,
             });
         }
     }

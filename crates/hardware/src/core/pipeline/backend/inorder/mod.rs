@@ -129,8 +129,15 @@ impl ExecutionEngine for InOrderEngine {
                 cpu,
                 &mut self.execute_mem1,
                 &mut self.mem1_mem2,
-                &mut self.mem1_stall,
+                0, // in-order backend: current_cycle=0
             );
+            // Derive stall from the worst-case entry's complete_cycle
+            self.mem1_stall = self
+                .mem1_mem2
+                .iter()
+                .map(|e| e.complete_cycle)
+                .max()
+                .unwrap_or(0);
         }
 
         // Backpressure: if M1 hasn't consumed previous results, skip issue+execute
