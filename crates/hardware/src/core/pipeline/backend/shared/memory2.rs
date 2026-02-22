@@ -42,6 +42,8 @@ pub fn memory2_stage(
                 ctrl: mem.ctrl,
                 trap: mem.trap,
                 exception_stage: mem.exception_stage,
+                rd_phys: mem.rd_phys,
+                fp_flags: mem.fp_flags,
             });
             // Trap: remaining entries stay in the input latch for next cycle.
             // They will be flushed by the commit-stage trap handler, but must
@@ -257,11 +259,13 @@ pub fn memory2_stage(
             inst: mem.inst,
             inst_size: mem.inst_size,
             rd: mem.rd,
+            rd_phys: mem.rd_phys,
             alu: mem.alu,
             load_data: ld,
             ctrl: mem.ctrl,
             trap: trap.clone(),
             exception_stage,
+            fp_flags: mem.fp_flags,
         });
 
         if trap.is_some() {

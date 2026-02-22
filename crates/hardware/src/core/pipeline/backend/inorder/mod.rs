@@ -11,7 +11,9 @@ use crate::config::Config;
 use crate::core::Cpu;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::ExecutionEngine;
+use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
@@ -38,6 +40,10 @@ pub struct InOrderEngine {
     pub mem2_wb: Vec<Mem2WbEntry>,
     /// Memory1 stall counter (D-TLB / D-cache latency).
     pub mem1_stall: u64,
+    /// Committed rename map stub (unused; required by shared commit_stage signature).
+    committed_rename_map: RenameMap,
+    /// Free list stub (unused; required by shared commit_stage signature).
+    free_list: FreeList,
 }
 
 impl InOrderEngine {
@@ -53,6 +59,8 @@ impl InOrderEngine {
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             mem1_stall: 0,
+            committed_rename_map: RenameMap::new(),
+            free_list: FreeList::new(0, 0),
         }
     }
 }
@@ -69,6 +77,8 @@ impl ExecutionEngine for InOrderEngine {
             &mut self.rob,
             &mut self.store_buffer,
             &mut self.scoreboard,
+            &mut self.committed_rename_map,
+            &mut self.free_list,
             self.width,
         );
 

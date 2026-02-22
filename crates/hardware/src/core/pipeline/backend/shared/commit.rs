@@ -16,6 +16,8 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::cpu::PC_TRACE_MAX;
+use crate::core::pipeline::free_list::FreeList;
+use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, MemWidth};
@@ -31,6 +33,8 @@ pub fn commit_stage(
     rob: &mut Rob,
     store_buffer: &mut StoreBuffer,
     scoreboard: &mut Scoreboard,
+    committed_rename_map: &mut RenameMap,
+    free_list: &mut FreeList,
     width: usize,
 ) -> Option<(Trap, u64)> {
     let mut trap_event: Option<(Trap, u64)> = None;
@@ -122,6 +126,11 @@ pub fn commit_stage(
         if entry.ctrl.fp_reg_write {
             cpu.regs.write_f(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, true, entry.tag);
+            // Update committed rename map and recycle the old physical reg
+            if entry.old_phys_dst.0 != entry.phys_dst.0 {
+                free_list.reclaim(entry.old_phys_dst);
+            }
+            committed_rename_map.set(entry.rd, true, entry.phys_dst);
             // Set FS to DIRTY when any FP register is written
             cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
@@ -131,6 +140,11 @@ pub fn commit_stage(
         } else if entry.ctrl.reg_write && entry.rd != 0 {
             cpu.regs.write(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, false, entry.tag);
+            // Update committed rename map and recycle the old physical reg
+            if entry.old_phys_dst.0 != entry.phys_dst.0 {
+                free_list.reclaim(entry.old_phys_dst);
+            }
+            committed_rename_map.set(entry.rd, false, entry.phys_dst);
             if cpu.trace {
                 eprintln!("CM  pc={:#x} x{} <= {:#x}", entry.pc, entry.rd, val);
             }
@@ -145,7 +159,12 @@ pub fn commit_stage(
             if csr_update.addr == csr::SATP {
                 drain_all_committed(cpu, store_buffer);
             }
-            cpu.csr_write(csr_update.addr, csr_update.new_val);
+            // For the O3 backend, fflags/fcsr CSR writes are applied eagerly at
+            // complete time (in step 6a of tick()) to avoid races with younger
+            // speculative FP instructions. Skip re-applying them here.
+            if !csr_update.applied {
+                cpu.csr_write(csr_update.addr, csr_update.new_val);
+            }
             if cpu.trace {
                 eprintln!(
                     "CM  pc={:#x} CSR {:#x} <= {:#x}",

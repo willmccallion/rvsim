@@ -7,6 +7,7 @@
 //! 4. **Stalls:** Memory, control, and data hazard stall counts.
 //! 5. **Cache hierarchy:** Hit/miss counts for L1-I, L1-D, L2, and L3.
 
+use crate::core::pipeline::backend::o3::fu_pool::FU_TYPE_COUNT;
 use std::io::IsTerminal;
 use std::time::Instant;
 
@@ -82,6 +83,16 @@ pub struct SimStats {
     pub l3_hits: u64,
     /// L3 cache miss count.
     pub l3_misses: u64,
+
+    /// FU utilization: count of cycles each FuType was executing.
+    /// Indexed by `FuType as usize` (see fu_pool::FU_TYPE_COUNT).
+    pub fu_utilization: [u64; FU_TYPE_COUNT],
+
+    /// Stall cycles where a ready IQ entry could not issue (no free FU).
+    pub stalls_fu_structural: u64,
+
+    /// Total ROB entries squashed due to branch mispredictions.
+    pub misprediction_penalty: u64,
 }
 
 impl Default for SimStats {
@@ -118,6 +129,9 @@ impl Default for SimStats {
             l2_misses: 0,
             l3_hits: 0,
             l3_misses: 0,
+            fu_utilization: [0; FU_TYPE_COUNT],
+            stalls_fu_structural: 0,
+            misprediction_penalty: 0,
         }
     }
 }

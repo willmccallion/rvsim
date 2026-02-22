@@ -33,6 +33,7 @@ pub fn memory1_stage(
                 inst: ex.inst,
                 inst_size: ex.inst_size,
                 rd: ex.rd,
+                rd_phys: ex.rd_phys,
                 alu: ex.alu,
                 vaddr: ex.alu,
                 paddr: 0,
@@ -40,6 +41,7 @@ pub fn memory1_stage(
                 ctrl: ex.ctrl,
                 trap: ex.trap,
                 exception_stage: ex.exception_stage,
+                fp_flags: ex.fp_flags,
             });
             // Remaining entries go back to input — they'll be flushed when
             // the trap reaches commit, but must not be silently dropped.
@@ -80,6 +82,7 @@ pub fn memory1_stage(
                     inst: ex.inst,
                     inst_size: ex.inst_size,
                     rd: ex.rd,
+                    rd_phys: ex.rd_phys,
                     alu: ex.alu,
                     vaddr: ex.alu,
                     paddr: 0,
@@ -87,6 +90,7 @@ pub fn memory1_stage(
                     ctrl: ex.ctrl,
                     trap: Some(t),
                     exception_stage: Some(ExceptionStage::Memory),
+                    fp_flags: ex.fp_flags,
                 });
                 // Remaining entries go back to input.
                 input.extend(iter);
@@ -130,6 +134,7 @@ pub fn memory1_stage(
                 inst: ex.inst,
                 inst_size: ex.inst_size,
                 rd: ex.rd,
+                rd_phys: ex.rd_phys,
                 alu: ex.alu,
                 vaddr: ex.alu,
                 paddr: paddr.val(),
@@ -137,6 +142,7 @@ pub fn memory1_stage(
                 ctrl: ex.ctrl,
                 trap: None,
                 exception_stage: None,
+                fp_flags: ex.fp_flags,
             });
         } else {
             // Non-memory instruction: pass through
@@ -149,6 +155,7 @@ pub fn memory1_stage(
                 inst: ex.inst,
                 inst_size: ex.inst_size,
                 rd: ex.rd,
+                rd_phys: ex.rd_phys,
                 alu: ex.alu,
                 vaddr: 0,
                 paddr: 0,
@@ -156,6 +163,7 @@ pub fn memory1_stage(
                 ctrl: ex.ctrl,
                 trap: None,
                 exception_stage: None,
+                fp_flags: ex.fp_flags,
             });
         }
     }

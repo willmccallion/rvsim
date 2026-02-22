@@ -2,35 +2,29 @@
 //!
 //! Instructions dispatched from rename sit in the issue queue until all source
 //! operands are ready. The wakeup/select logic allows out-of-order issue:
-//! - **Wakeup**: when an instruction completes, its tag is broadcast to all
-//!   waiting entries, marking matching source operands as ready.
+//! - **Wakeup (PRF path)**: when an instruction completes, its PhysReg is broadcast
+//!   to all waiting entries, marking matching source operands as ready.
+//! - **Wakeup (legacy path)**: when an instruction completes, its ROB tag is broadcast.
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
+use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 
-/// State of a single source operand in an issue queue entry.
-#[derive(Clone, Debug)]
+/// State of a single source operand in an issue queue entry (PRF path).
+#[derive(Clone, Debug, Default)]
 pub struct OperandState {
-    /// ROB tag of the producer (None = architectural register, already ready).
+    /// Which physical register provides this operand value.
+    pub phys: PhysReg,
+    /// ROB tag of the producer (legacy path; None when using PRF).
     pub tag: Option<RobTag>,
     /// Whether the operand value is available.
     pub ready: bool,
     /// The operand value (valid when `ready` is true).
     pub value: u64,
-}
-
-impl Default for OperandState {
-    fn default() -> Self {
-        Self {
-            tag: None,
-            ready: true,
-            value: 0,
-        }
-    }
 }
 
 /// A single entry in the issue queue.
@@ -70,23 +64,49 @@ impl IssueQueue {
 
     /// Dispatch an instruction from rename into the first free slot.
     ///
-    /// Resolves already-ready operands by checking the ROB for Completed entries
-    /// or reading the architectural register file when tag is None.
-    pub fn dispatch(&mut self, entry: RenameIssueEntry, rob: &Rob, cpu: &Cpu) -> bool {
+    /// For the O3 (PRF) path, resolves operands via the PRF.
+    /// For the legacy (scoreboard) path, resolves operands via the ROB.
+    pub fn dispatch(
+        &mut self,
+        entry: RenameIssueEntry,
+        rob: &Rob,
+        cpu: &Cpu,
+        prf: Option<&PhysRegFile>,
+    ) -> bool {
         if self.count >= self.capacity {
             return false;
         }
 
-        let src1 = resolve_operand(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, cpu);
-        let src2 = resolve_operand(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, cpu);
-        let src3 = if entry.ctrl.rs3_fp {
-            resolve_operand(entry.rs3, true, entry.rs3_tag, rob, cpu)
+        let (src1, src2, src3) = if let Some(prf) = prf {
+            // PRF path: check ready bits in the physical register file
+            let s1 = resolve_operand_prf(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_phys, prf, cpu);
+            let s2 = resolve_operand_prf(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_phys, prf, cpu);
+            let s3 = if entry.ctrl.rs3_fp {
+                resolve_operand_prf(entry.rs3, true, entry.rs3_phys, prf, cpu)
+            } else {
+                OperandState {
+                    phys: PhysReg(0),
+                    tag: None,
+                    ready: true,
+                    value: 0,
+                }
+            };
+            (s1, s2, s3)
         } else {
-            OperandState {
-                tag: None,
-                ready: true,
-                value: 0,
-            }
+            // Legacy scoreboard path: check ROB completion
+            let s1 = resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, cpu);
+            let s2 = resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, cpu);
+            let s3 = if entry.ctrl.rs3_fp {
+                resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, cpu)
+            } else {
+                OperandState {
+                    phys: PhysReg(0),
+                    tag: None,
+                    ready: true,
+                    value: 0,
+                }
+            };
+            (s1, s2, s3)
         };
 
         let iq_entry = IssueQueueEntry {
@@ -108,7 +128,27 @@ impl IssueQueue {
         unreachable!("count < capacity but no free slot found");
     }
 
-    /// Broadcast a completed result: linear scan, mark matching source tags as ready.
+    /// Broadcast a completed result via physical register (PRF wakeup path).
+    pub fn wakeup_phys(&mut self, p: PhysReg, value: u64) {
+        for slot in &mut self.slots {
+            if let Some(iq) = slot {
+                if iq.src1.phys == p && !iq.src1.ready {
+                    iq.src1.ready = true;
+                    iq.src1.value = value;
+                }
+                if iq.src2.phys == p && !iq.src2.ready {
+                    iq.src2.ready = true;
+                    iq.src2.value = value;
+                }
+                if iq.src3.phys == p && !iq.src3.ready {
+                    iq.src3.ready = true;
+                    iq.src3.value = value;
+                }
+            }
+        }
+    }
+
+    /// Broadcast a completed result via ROB tag (legacy wakeup path).
     pub fn wakeup(&mut self, tag: RobTag, value: u64) {
         for slot in &mut self.slots {
             if let Some(iq) = slot {
@@ -139,8 +179,7 @@ impl IssueQueue {
     /// older store to the same address.
     ///
     /// System/CSR instructions are serializing: they must not issue until all
-    /// older ROB entries have completed. This ensures that CSR reads (e.g.,
-    /// fflags) see the effects of all preceding instructions.
+    /// older ROB entries have completed.
     pub fn select(
         &mut self,
         width: usize,
@@ -238,8 +277,53 @@ impl IssueQueue {
     }
 }
 
-/// Resolve an operand's initial state at dispatch time.
-fn resolve_operand(
+/// Resolve an operand via the PRF (O3 path).
+fn resolve_operand_prf(
+    reg: usize,
+    is_fp: bool,
+    phys: PhysReg,
+    prf: &PhysRegFile,
+    _cpu: &Cpu,
+) -> OperandState {
+    // x0 is hardwired zero
+    if !is_fp && reg == 0 {
+        return OperandState {
+            phys: PhysReg(0),
+            tag: None,
+            ready: true,
+            value: 0,
+        };
+    }
+
+    if prf.is_ready(phys) {
+        OperandState {
+            phys,
+            tag: None,
+            ready: true,
+            value: prf.read(phys),
+        }
+    } else {
+        // Not ready yet — will be woken up by wakeup_phys
+        // For x0 (phys == PhysReg(0)), always ready
+        if phys.0 == 0 {
+            return OperandState {
+                phys: PhysReg(0),
+                tag: None,
+                ready: true,
+                value: 0,
+            };
+        }
+        OperandState {
+            phys,
+            tag: None,
+            ready: false,
+            value: 0,
+        }
+    }
+}
+
+/// Resolve an operand's initial state at dispatch time (legacy scoreboard path).
+fn resolve_operand_legacy(
     reg: usize,
     is_fp: bool,
     tag: Option<RobTag>,
@@ -249,6 +333,7 @@ fn resolve_operand(
     // x0 is hardwired zero
     if !is_fp && reg == 0 {
         return OperandState {
+            phys: PhysReg(0),
             tag: None,
             ready: true,
             value: 0,
@@ -264,6 +349,7 @@ fn resolve_operand(
                 cpu.regs.read(reg)
             };
             OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value,
@@ -273,11 +359,13 @@ fn resolve_operand(
             // Check if ROB entry has completed
             match rob.find_entry(t) {
                 Some(entry) if entry.state == RobState::Completed => OperandState {
+                    phys: PhysReg(0),
                     tag: Some(t),
                     ready: true,
                     value: entry.result,
                 },
                 Some(_) => OperandState {
+                    phys: PhysReg(0),
                     tag: Some(t),
                     ready: false,
                     value: 0,
@@ -290,6 +378,7 @@ fn resolve_operand(
                         cpu.regs.read(reg)
                     };
                     OperandState {
+                        phys: PhysReg(0),
                         tag: None,
                         ready: true,
                         value,
@@ -304,6 +393,7 @@ fn resolve_operand(
 mod tests {
     use super::*;
     use crate::core::pipeline::latches::RenameIssueEntry;
+    use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
     use crate::core::pipeline::signals::ControlSignals;
 
@@ -324,6 +414,10 @@ mod tests {
             rs1_tag: None,
             rs2_tag: None,
             rs3_tag: None,
+            rs1_phys: PhysReg(0),
+            rs2_phys: PhysReg(0),
+            rs3_phys: PhysReg(0),
+            rd_phys: PhysReg(0),
             ctrl: ControlSignals::default(),
             trap: None,
             exception_stage: None,
@@ -331,13 +425,6 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: 0,
         }
-    }
-
-    fn make_entry_with_dep(rob_tag: u32, src1_tag: Option<u32>) -> RenameIssueEntry {
-        let mut entry = make_entry(rob_tag);
-        entry.rs1 = 5;
-        entry.rs1_tag = src1_tag.map(RobTag);
-        entry
     }
 
     #[test]
@@ -350,25 +437,24 @@ mod tests {
     #[test]
     fn test_dispatch_and_select_ready() {
         let mut iq = IssueQueue::new(16);
-        let rob = Rob::new(64);
-        // We need a Cpu but can't easily create one in tests.
-        // Instead, test the core logic with entries that have no tags (all ready).
-        // For unit tests, we'll manually create IssueQueueEntry.
 
         // Manually insert a ready entry
         iq.slots[0] = Some(IssueQueueEntry {
             entry: make_entry(1),
             src1: OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 42,
             },
             src2: OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 10,
             },
             src3: OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
@@ -385,24 +471,28 @@ mod tests {
     }
 
     #[test]
-    fn test_wakeup_chain() {
+    fn test_wakeup_phys_chain() {
         let mut iq = IssueQueue::new(16);
+        let p5 = PhysReg(5);
 
-        // Entry depends on tag 5
+        // Entry depends on phys reg 5
         let entry = make_entry(10);
         iq.slots[0] = Some(IssueQueueEntry {
             entry,
             src1: OperandState {
-                tag: Some(RobTag(5)),
+                phys: p5,
+                tag: None,
                 ready: false,
                 value: 0,
             },
             src2: OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
             },
             src3: OperandState {
+                phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
@@ -414,10 +504,47 @@ mod tests {
         let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
         assert_eq!(selected.len(), 0);
 
+        // Wakeup with phys reg 5
+        iq.wakeup_phys(p5, 999);
+
+        // Now should be selectable
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].rv1, 999);
+    }
+
+    #[test]
+    fn test_wakeup_legacy_chain() {
+        let mut iq = IssueQueue::new(16);
+
+        // Entry depends on tag 5
+        let entry = make_entry(10);
+        iq.slots[0] = Some(IssueQueueEntry {
+            entry,
+            src1: OperandState {
+                phys: PhysReg(0),
+                tag: Some(RobTag(5)),
+                ready: false,
+                value: 0,
+            },
+            src2: OperandState {
+                phys: PhysReg(0),
+                tag: None,
+                ready: true,
+                value: 0,
+            },
+            src3: OperandState {
+                phys: PhysReg(0),
+                tag: None,
+                ready: true,
+                value: 0,
+            },
+        });
+        iq.count = 1;
+
         // Wakeup with tag 5
         iq.wakeup(RobTag(5), 999);
 
-        // Now should be selectable
         let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rv1, 999);
@@ -432,16 +559,19 @@ mod tests {
             iq.slots[slot] = Some(IssueQueueEntry {
                 entry: make_entry(tag),
                 src1: OperandState {
+                    phys: PhysReg(0),
                     tag: None,
                     ready: true,
                     value: tag as u64,
                 },
                 src2: OperandState {
+                    phys: PhysReg(0),
                     tag: None,
                     ready: true,
                     value: 0,
                 },
                 src3: OperandState {
+                    phys: PhysReg(0),
                     tag: None,
                     ready: true,
                     value: 0,

@@ -62,6 +62,8 @@ pub fn execute_inorder(
                 ctrl: id.ctrl,
                 trap: None, // trap is in ROB now
                 exception_stage: None,
+                rd_phys: Default::default(),
+                fp_flags: 0,
             });
             flush_remaining = true;
             continue;
@@ -107,6 +109,8 @@ pub fn execute_inorder(
                 ctrl: id.ctrl,
                 trap: None,
                 exception_stage: None,
+                rd_phys: Default::default(),
+                fp_flags: 0,
             });
             continue;
         }
@@ -127,6 +131,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -153,6 +159,8 @@ pub fn execute_inorder(
                         ctrl: id.ctrl,
                         trap: None,
                         exception_stage: None,
+                        rd_phys: Default::default(),
+                        fp_flags: 0,
                     });
                     continue;
                 }
@@ -169,6 +177,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -222,6 +232,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -248,6 +260,8 @@ pub fn execute_inorder(
                         ctrl: id.ctrl,
                         trap: None,
                         exception_stage: None,
+                        rd_phys: Default::default(),
+                        fp_flags: 0,
                     });
                     continue;
                 }
@@ -275,6 +289,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -304,6 +320,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -332,6 +350,8 @@ pub fn execute_inorder(
                         ctrl: id.ctrl,
                         trap: None,
                         exception_stage: None,
+                        rd_phys: Default::default(),
+                        fp_flags: 0,
                     });
                     continue;
                 }
@@ -356,6 +376,8 @@ pub fn execute_inorder(
                         ctrl: id.ctrl,
                         trap: None,
                         exception_stage: None,
+                        rd_phys: Default::default(),
+                        fp_flags: 0,
                     });
                     continue;
                 }
@@ -389,6 +411,8 @@ pub fn execute_inorder(
                             ctrl: id.ctrl,
                             trap: None,
                             exception_stage: None,
+                            rd_phys: Default::default(),
+                            fp_flags: 0,
                         });
                         continue;
                     }
@@ -413,6 +437,7 @@ pub fn execute_inorder(
                         addr: id.ctrl.csr_addr,
                         old_val: old,
                         new_val: new,
+                        applied: false,
                     },
                 );
 
@@ -432,6 +457,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -462,6 +489,8 @@ pub fn execute_inorder(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: Default::default(),
+                    fp_flags: 0,
                 });
                 continue;
             }
@@ -571,6 +600,8 @@ pub fn execute_inorder(
             ctrl: id.ctrl,
             trap: None,
             exception_stage: None,
+            rd_phys: Default::default(),
+            fp_flags: 0,
         });
     }
 

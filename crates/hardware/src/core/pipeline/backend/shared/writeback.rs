@@ -39,6 +39,9 @@ pub fn writeback_stage(cpu: &mut Cpu, input: &mut Vec<Mem2WbEntry>, rob: &mut Ro
             wb.alu
         };
 
+        if wb.fp_flags != 0 {
+            rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
+        }
         rob.complete(wb.rob_tag, val);
 
         if cpu.trace {

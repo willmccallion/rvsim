@@ -8,6 +8,7 @@
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
 
@@ -189,6 +190,14 @@ pub struct RenameIssueEntry {
     pub rs2_tag: Option<RobTag>,
     /// Scoreboard tag for rs3 at rename time.
     pub rs3_tag: Option<RobTag>,
+    /// Physical register for rs1 (O3 PRF path; PhysReg(0) for in-order).
+    pub rs1_phys: PhysReg,
+    /// Physical register for rs2 (O3 PRF path).
+    pub rs2_phys: PhysReg,
+    /// Physical register for rs3 (O3 PRF path).
+    pub rs3_phys: PhysReg,
+    /// Physical destination register allocated at rename (O3 PRF path).
+    pub rd_phys: PhysReg,
     /// Control signals.
     pub ctrl: ControlSignals,
     /// Trap from earlier stages.
@@ -216,6 +225,8 @@ pub struct ExMem1Entry {
     pub inst_size: u64,
     /// Destination register.
     pub rd: usize,
+    /// Physical destination register (O3 PRF path).
+    pub rd_phys: PhysReg,
     /// ALU result / memory virtual address.
     pub alu: u64,
     /// Store data (rs2 value).
@@ -226,6 +237,8 @@ pub struct ExMem1Entry {
     pub trap: Option<Trap>,
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
+    /// FP exception flags from this instruction (deferred to commit).
+    pub fp_flags: u8,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -241,6 +254,8 @@ pub struct Mem1Mem2Entry {
     pub inst_size: u64,
     /// Destination register.
     pub rd: usize,
+    /// Physical destination register (O3 PRF path).
+    pub rd_phys: PhysReg,
     /// ALU result (original, for non-memory ops).
     pub alu: u64,
     /// Virtual address.
@@ -255,6 +270,8 @@ pub struct Mem1Mem2Entry {
     pub trap: Option<Trap>,
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
+    /// FP exception flags from this instruction (deferred to commit).
+    pub fp_flags: u8,
 }
 
 /// Entry from Memory2 -> Writeback latch.
@@ -270,6 +287,8 @@ pub struct Mem2WbEntry {
     pub inst_size: u64,
     /// Destination register.
     pub rd: usize,
+    /// Physical destination register (O3 PRF path).
+    pub rd_phys: PhysReg,
     /// ALU result (for non-load instructions).
     pub alu: u64,
     /// Loaded data (for load instructions).
@@ -280,4 +299,6 @@ pub struct Mem2WbEntry {
     pub trap: Option<Trap>,
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
+    /// FP exception flags from this instruction (deferred to commit).
+    pub fp_flags: u8,
 }

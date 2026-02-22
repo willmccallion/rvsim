@@ -8,6 +8,7 @@
 //!
 //! Configuration is supplied via JSON from the Python API (`SimConfig`) or use `Config::default()` for the CLI.
 
+use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
 use crate::core::pipeline::engine::BackendType;
 use serde::Deserialize;
 
@@ -130,6 +131,12 @@ mod defaults {
 
     /// Default Issue Queue size (32 entries) for out-of-order backend.
     pub const ISSUE_QUEUE_SIZE: usize = 32;
+
+    /// Default Physical Register File GPR size (256 entries).
+    pub const PRF_GPR_SIZE: usize = 256;
+
+    /// Default Physical Register File FPR size (128 entries).
+    pub const PRF_FPR_SIZE: usize = 128;
 
     /// Default TAGE loop predictor table size (256 entries).
     pub const TAGE_LOOP_SIZE: usize = 256;
@@ -789,6 +796,20 @@ pub struct PipelineConfig {
     /// Issue Queue size (for O3 backend)
     #[serde(default = "PipelineConfig::default_issue_queue_size")]
     pub issue_queue_size: usize,
+
+    /// Physical Register File GPR size (O3 backend).
+    /// Must satisfy: prf_gpr_size >= 32 + rob_size.
+    #[serde(default = "PipelineConfig::default_prf_gpr_size")]
+    pub prf_gpr_size: usize,
+
+    /// Physical Register File FPR size (O3 backend).
+    /// Must satisfy: prf_fpr_size >= 32 + rob_size.
+    #[serde(default = "PipelineConfig::default_prf_fpr_size")]
+    pub prf_fpr_size: usize,
+
+    /// Functional unit pool configuration (O3 backend).
+    #[serde(default)]
+    pub fu_config: FuConfig,
 }
 
 impl PipelineConfig {
@@ -821,6 +842,16 @@ impl PipelineConfig {
     fn default_issue_queue_size() -> usize {
         defaults::ISSUE_QUEUE_SIZE
     }
+
+    /// Returns the default PRF GPR size.
+    fn default_prf_gpr_size() -> usize {
+        defaults::PRF_GPR_SIZE
+    }
+
+    /// Returns the default PRF FPR size.
+    fn default_prf_fpr_size() -> usize {
+        defaults::PRF_FPR_SIZE
+    }
 }
 
 impl Default for PipelineConfig {
@@ -842,6 +873,9 @@ impl Default for PipelineConfig {
             rob_size: defaults::ROB_SIZE,
             store_buffer_size: defaults::STORE_BUFFER_SIZE,
             issue_queue_size: defaults::ISSUE_QUEUE_SIZE,
+            prf_gpr_size: defaults::PRF_GPR_SIZE,
+            prf_fpr_size: defaults::PRF_FPR_SIZE,
+            fu_config: FuConfig::default(),
         }
     }
 }

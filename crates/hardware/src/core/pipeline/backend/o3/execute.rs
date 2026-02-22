@@ -51,6 +51,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             ctrl: id.ctrl,
             trap: None,
             exception_stage: None,
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
         };
         return (result, true);
     }
@@ -94,6 +96,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             ctrl: id.ctrl,
             trap: None,
             exception_stage: None,
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
         };
         return (result, true);
     }
@@ -124,6 +128,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
                 ctrl: id.ctrl,
                 trap: None,
                 exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
             };
             return (result, true);
         }
@@ -131,14 +137,6 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
     // ALU / FPU execution
     let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
-
-    // Accumulate FP exception flags
-    if fp_flags != 0 {
-        cpu.csrs.fflags |= fp_flags as u64;
-        use crate::core::arch::csr;
-        cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-        cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-    }
 
     let mut needs_flush = false;
 
@@ -231,6 +229,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
         ctrl: id.ctrl,
         trap: None,
         exception_stage: None,
+        rd_phys: id.rd_phys,
+        fp_flags,
     };
 
     (result, needs_flush)
@@ -256,6 +256,8 @@ fn execute_system(
             ctrl,
             trap: None,
             exception_stage: None,
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
         };
 
     // MRET
@@ -319,6 +321,8 @@ fn execute_system(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: id.rd_phys,
+                    fp_flags: 0,
                 },
                 true,
             );
@@ -345,6 +349,8 @@ fn execute_system(
                 ctrl: id.ctrl,
                 trap: None,
                 exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
             },
             true,
         );
@@ -401,6 +407,8 @@ fn execute_csr(
                 ctrl: id.ctrl,
                 trap: None,
                 exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
             },
             true,
         );
@@ -426,6 +434,8 @@ fn execute_csr(
                 ctrl: id.ctrl,
                 trap: None,
                 exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
             },
             true,
         );
@@ -458,6 +468,8 @@ fn execute_csr(
                     ctrl: id.ctrl,
                     trap: None,
                     exception_stage: None,
+                    rd_phys: id.rd_phys,
+                    fp_flags: 0,
                 },
                 true,
             );
@@ -482,6 +494,7 @@ fn execute_csr(
             addr: id.ctrl.csr_addr,
             old_val: old,
             new_val: new,
+            applied: false,
         },
     );
 
@@ -500,6 +513,8 @@ fn execute_csr(
             ctrl: id.ctrl,
             trap: None,
             exception_stage: None,
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
         },
         true,
     )

@@ -27,6 +27,18 @@ pub mod scoreboard;
 /// Store buffer with forwarding.
 pub mod store_buffer;
 
+/// Physical register file with ready bits.
+pub mod prf;
+
+/// Physical register free list.
+pub mod free_list;
+
+/// Speculative rename map (arch reg → physical reg).
+pub mod rename_map;
+
+/// Load queue for memory ordering and violation detection.
+pub mod load_queue;
+
 /// Traits for pipeline stage components.
 pub mod traits;
 

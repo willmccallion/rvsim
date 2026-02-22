@@ -26,7 +26,7 @@ impl Simulator {
     /// Creates a new simulator with the given system and configuration.
     pub fn new(system: System, config: &Config) -> Self {
         let cpu = Cpu::new(system, config);
-        let pipeline = match config.pipeline.backend {
+        let mut pipeline = match config.pipeline.backend {
             BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
                 frontend: Frontend::new(config.pipeline.width),
                 engine: InOrderEngine::new(config),
@@ -38,6 +38,10 @@ impl Simulator {
                 rename_output: Vec::with_capacity(config.pipeline.width),
             })),
         };
+        // Sync initial architectural register values (sp, etc.) into the O3 PRF.
+        if let PipelineDispatch::OutOfOrder(ref mut p) = pipeline {
+            p.engine.sync_arch_regs(&cpu);
+        }
         Self { cpu, pipeline }
     }
 

@@ -6,7 +6,10 @@
 //! 3. **`ExecutionEngine`** — high-level trait covering the entire backend.
 //! 4. **`PipelineDispatch`** — enum dispatch for type-erased pipeline storage.
 
+use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::RenameIssueEntry;
+use crate::core::pipeline::prf::PhysRegFile;
+use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::snapshot::PipelineSnapshot;
@@ -51,6 +54,32 @@ pub trait ExecutionEngine {
     /// Access the store buffer (for rename to allocate, memory2 for forwarding).
     fn store_buffer(&self) -> &StoreBuffer;
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
+
+    /// Access the speculative rename map (O3 only).
+    fn rename_map(&self) -> &RenameMap {
+        unimplemented!("rename_map only available for O3 backend")
+    }
+    fn rename_map_mut(&mut self) -> &mut RenameMap {
+        unimplemented!("rename_map_mut only available for O3 backend")
+    }
+
+    /// Access the physical register file (O3 only).
+    fn prf(&self) -> &PhysRegFile {
+        unimplemented!("prf only available for O3 backend")
+    }
+    fn prf_mut(&mut self) -> &mut PhysRegFile {
+        unimplemented!("prf_mut only available for O3 backend")
+    }
+
+    /// Access the free list (O3 only).
+    fn free_list_mut(&mut self) -> &mut FreeList {
+        unimplemented!("free_list_mut only available for O3 backend")
+    }
+
+    /// Returns true if this backend uses physical register renaming.
+    fn has_prf(&self) -> bool {
+        false
+    }
 }
 
 /// The full pipeline combines a frontend and an engine.
