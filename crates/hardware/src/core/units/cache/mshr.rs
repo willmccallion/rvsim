@@ -362,4 +362,88 @@ mod tests {
         let resp = mf.request(0x1000, false, 100, 10, make_waiter(1));
         assert_eq!(resp, CacheResponse::MshrFull);
     }
+
+    #[test]
+    fn test_write_allocate_fire_and_forget() {
+        let mut mf = MshrFile::new(4, 64);
+
+        // Store miss: allocate with is_write=true, waiter has no parked entry
+        let waiter = MshrWaiter {
+            rob_tag: RobTag(1),
+            parked_entry: None,
+        };
+        let resp = mf.request(0x1000, true, 80, 10, waiter);
+        assert!(matches!(
+            resp,
+            CacheResponse::MshrAllocated { complete_cycle: 90 }
+        ));
+        assert_eq!(mf.active_count(), 1);
+
+        // Completion returns the entry with is_write=true and empty parked_entry
+        let completed = mf.drain_completions(90);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].is_write);
+        assert!(completed[0].waiters[0].parked_entry.is_none());
+    }
+
+    #[test]
+    fn test_reuse_after_completion() {
+        let mut mf = MshrFile::new(2, 64);
+
+        // Fill both MSHRs
+        mf.request(0x1000, false, 100, 10, make_waiter(1));
+        mf.request(0x2000, false, 100, 10, make_waiter(2));
+        assert!(mf.is_full());
+
+        // Complete one
+        let completed = mf.drain_completions(110);
+        assert_eq!(completed.len(), 2);
+        assert_eq!(mf.active_count(), 0);
+
+        // Slot should be reusable
+        let resp = mf.request(0x3000, false, 50, 200, make_waiter(3));
+        assert!(matches!(
+            resp,
+            CacheResponse::MshrAllocated {
+                complete_cycle: 250
+            }
+        ));
+        assert_eq!(mf.active_count(), 1);
+    }
+
+    #[test]
+    fn test_coalesce_store_upgrades_write_bit() {
+        let mut mf = MshrFile::new(4, 64);
+
+        // Load miss first (is_write=false)
+        mf.request(0x1000, false, 100, 10, make_waiter(1));
+
+        // Store to same line coalesces and sets is_write=true
+        mf.request(0x1008, true, 100, 15, make_waiter(2));
+
+        let completed = mf.drain_completions(110);
+        assert_eq!(completed.len(), 1);
+        assert!(completed[0].is_write); // upgraded to write
+        assert_eq!(completed[0].waiters.len(), 2);
+    }
+
+    #[test]
+    fn test_flush_after_preserves_entry_for_line_install() {
+        let mut mf = MshrFile::new(4, 64);
+
+        // Single waiter that will be flushed
+        mf.request(0x1000, false, 100, 10, make_waiter(5));
+
+        // Flush everything after tag 2 — waiter tag=5 is removed
+        mf.flush_after(RobTag(2));
+
+        // MSHR entry still valid (active_count unchanged) — line fetch in progress
+        assert_eq!(mf.active_count(), 1);
+
+        // Completion still fires, just with no waiters
+        let completed = mf.drain_completions(110);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].waiters.len(), 0);
+        assert_eq!(completed[0].line_addr, 0x1000);
+    }
 }
