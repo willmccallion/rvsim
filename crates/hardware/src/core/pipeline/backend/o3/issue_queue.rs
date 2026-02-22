@@ -176,11 +176,16 @@ impl IssueQueue {
     ///
     /// System/CSR instructions are serializing: they must not issue until all
     /// older ROB entries have completed.
+    ///
+    /// Memory port limits: at most `load_ports` loads and `store_ports` stores
+    /// are issued per cycle, modeling finite LSU bandwidth.
     pub fn select(
         &mut self,
         width: usize,
         store_buffer: &StoreBuffer,
         rob: &Rob,
+        load_ports: usize,
+        store_ports: usize,
     ) -> Vec<RenameIssueEntry> {
         // Collect indices of all ready entries
         let mut ready_indices: Vec<usize> = Vec::new();
@@ -209,12 +214,32 @@ impl IssueQueue {
         // Sort by rob_tag (oldest first = lowest tag value)
         ready_indices.sort_by_key(|&i| self.slots[i].as_ref().unwrap().entry.rob_tag.0);
 
-        // Take up to `width`
-        let take = ready_indices.len().min(width);
-        let mut result = Vec::with_capacity(take);
-        for &idx in &ready_indices[..take] {
+        // Take up to `width`, respecting per-type port limits
+        let mut result = Vec::with_capacity(width);
+        let mut loads_issued = 0usize;
+        let mut stores_issued = 0usize;
+        for &idx in &ready_indices {
+            if result.len() >= width {
+                break;
+            }
+            let ctrl = &self.slots[idx].as_ref().unwrap().entry.ctrl;
+            let is_load = ctrl.mem_read;
+            let is_store = ctrl.mem_write;
+            if is_load && loads_issued >= load_ports {
+                continue; // port limit reached; entry stays in IQ
+            }
+            if is_store && stores_issued >= store_ports {
+                continue;
+            }
+
             let iq = self.slots[idx].take().unwrap();
             self.count -= 1;
+            if is_load {
+                loads_issued += 1;
+            }
+            if is_store {
+                stores_issued += 1;
+            }
 
             let mut entry = iq.entry;
             // Populate operand values from resolved state
@@ -458,7 +483,13 @@ mod tests {
         });
         iq.count = 1;
 
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            4,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rob_tag.0, 1);
         assert_eq!(selected[0].rv1, 42);
@@ -497,14 +528,26 @@ mod tests {
         iq.count = 1;
 
         // Not ready yet
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            4,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 0);
 
         // Wakeup with phys reg 5
         iq.wakeup_phys(p5, 999);
 
         // Now should be selectable
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            4,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rv1, 999);
     }
@@ -541,7 +584,13 @@ mod tests {
         // Wakeup with tag 5
         iq.wakeup(RobTag(5), 999);
 
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            4,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rv1, 999);
     }
@@ -577,14 +626,26 @@ mod tests {
         iq.count = 3;
 
         // Select width=2 should get tags 1 and 2 (oldest first)
-        let selected = iq.select(2, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            2,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].rob_tag.0, 1);
         assert_eq!(selected[1].rob_tag.0, 2);
         assert_eq!(iq.len(), 1);
 
         // Remaining is tag 3
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64));
+        let selected = iq.select(
+            4,
+            &StoreBuffer::new(16),
+            &Rob::new(64),
+            usize::MAX,
+            usize::MAX,
+        );
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rob_tag.0, 3);
     }
@@ -653,5 +714,60 @@ mod tests {
         assert_eq!(snap[0].rob_tag.0, 1);
         assert_eq!(snap[1].rob_tag.0, 3);
         assert_eq!(snap[2].rob_tag.0, 5);
+    }
+
+    #[test]
+    fn test_port_limits() {
+        let mut iq = IssueQueue::new(16);
+
+        // Insert 3 loads (tags 1, 2, 3) and 2 stores (tags 4, 5), all ready
+        for (slot, tag, is_load, is_store) in [
+            (0, 1u32, true, false),
+            (1, 2, true, false),
+            (2, 3, true, false),
+            (3, 4, false, true),
+            (4, 5, false, true),
+        ] {
+            let mut entry = make_entry(tag);
+            entry.ctrl.mem_read = is_load;
+            entry.ctrl.mem_write = is_store;
+            iq.slots[slot] = Some(IssueQueueEntry {
+                entry,
+                src1: OperandState {
+                    ready: true,
+                    ..Default::default()
+                },
+                src2: OperandState {
+                    ready: true,
+                    ..Default::default()
+                },
+                src3: OperandState {
+                    ready: true,
+                    ..Default::default()
+                },
+            });
+        }
+        iq.count = 5;
+
+        // With load_ports=2, store_ports=1, width=4: should get 2 loads + 1 store = 3
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
+        assert_eq!(selected.len(), 3);
+        // Oldest first: tags 1 (load), 2 (load), 4 (store)
+        assert_eq!(selected[0].rob_tag.0, 1);
+        assert!(selected[0].ctrl.mem_read);
+        assert_eq!(selected[1].rob_tag.0, 2);
+        assert!(selected[1].ctrl.mem_read);
+        assert_eq!(selected[2].rob_tag.0, 4);
+        assert!(selected[2].ctrl.mem_write);
+
+        // Remaining: tag 3 (load), tag 5 (store)
+        assert_eq!(iq.len(), 2);
+
+        // Next cycle: should get remaining load + store
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].rob_tag.0, 3);
+        assert_eq!(selected[1].rob_tag.0, 5);
+        assert!(iq.is_empty());
     }
 }

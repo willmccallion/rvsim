@@ -63,6 +63,10 @@ pub struct O3Engine {
     pub pending_results: Vec<PendingResult>,
     /// Pipeline width (max instructions issued/committed per cycle).
     pub width: usize,
+    /// Maximum loads issued per cycle.
+    pub load_ports: usize,
+    /// Maximum stores issued per cycle.
+    pub store_ports: usize,
     /// Execute -> Memory1 latch.
     pub execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 -> Memory2 latch.
@@ -105,6 +109,8 @@ impl O3Engine {
             fu_pool,
             pending_results: Vec::new(),
             width: config.pipeline.width,
+            load_ports: config.pipeline.load_ports,
+            store_ports: config.pipeline.store_ports,
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
@@ -406,9 +412,13 @@ impl ExecutionEngine for O3Engine {
         let mut flush_keep_tag: Option<crate::core::pipeline::rob::RobTag> = None;
 
         if !backpressured {
-            let issued = self
-                .issue_queue
-                .select(self.width, &self.store_buffer, &self.rob);
+            let issued = self.issue_queue.select(
+                self.width,
+                &self.store_buffer,
+                &self.rob,
+                self.load_ports,
+                self.store_ports,
+            );
 
             let mut issued_count = 0;
             let mut stalled_fu = false;

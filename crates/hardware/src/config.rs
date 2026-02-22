@@ -135,6 +135,12 @@ mod defaults {
     /// Default Load Queue size (32 entries) for out-of-order backend.
     pub const LOAD_QUEUE_SIZE: usize = 32;
 
+    /// Default number of load ports (loads issued per cycle) for out-of-order backend.
+    pub const LOAD_PORTS: usize = 2;
+
+    /// Default number of store ports (stores issued per cycle) for out-of-order backend.
+    pub const STORE_PORTS: usize = 1;
+
     /// Default Physical Register File GPR size (256 entries).
     pub const PRF_GPR_SIZE: usize = 256;
 
@@ -814,6 +820,14 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_load_queue_size")]
     pub load_queue_size: usize,
 
+    /// Number of load ports (loads issued per cycle, O3 backend).
+    #[serde(default = "PipelineConfig::default_load_ports")]
+    pub load_ports: usize,
+
+    /// Number of store ports (stores issued per cycle, O3 backend).
+    #[serde(default = "PipelineConfig::default_store_ports")]
+    pub store_ports: usize,
+
     /// Functional unit pool configuration (O3 backend).
     #[serde(default)]
     pub fu_config: FuConfig,
@@ -864,6 +878,16 @@ impl PipelineConfig {
     fn default_load_queue_size() -> usize {
         defaults::LOAD_QUEUE_SIZE
     }
+
+    /// Returns the default number of load ports.
+    fn default_load_ports() -> usize {
+        defaults::LOAD_PORTS
+    }
+
+    /// Returns the default number of store ports.
+    fn default_store_ports() -> usize {
+        defaults::STORE_PORTS
+    }
 }
 
 impl Default for PipelineConfig {
@@ -888,6 +912,8 @@ impl Default for PipelineConfig {
             prf_gpr_size: defaults::PRF_GPR_SIZE,
             prf_fpr_size: defaults::PRF_FPR_SIZE,
             load_queue_size: defaults::LOAD_QUEUE_SIZE,
+            load_ports: defaults::LOAD_PORTS,
+            store_ports: defaults::STORE_PORTS,
             fu_config: FuConfig::default(),
         }
     }
