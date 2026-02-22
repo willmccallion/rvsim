@@ -108,6 +108,9 @@ mod defaults {
     /// Default prefetch degree (1 line per trigger).
     pub const PREFETCH_DEGREE: usize = 1;
 
+    /// Default MSHR count for L1D cache (0 = blocking cache).
+    pub const L1D_MSHR_COUNT: usize = 0;
+
     /// Default pipeline width (1 instruction per cycle).
     pub const PIPELINE_WIDTH: usize = 1;
 
@@ -701,6 +704,10 @@ pub struct CacheConfig {
     /// Prefetch degree (lines to prefetch per trigger)
     #[serde(default = "CacheConfig::default_prefetch_degree")]
     pub prefetch_degree: usize,
+
+    /// Number of MSHRs (Miss Status Holding Registers). 0 = blocking cache.
+    #[serde(default)]
+    pub mshr_count: usize,
 }
 
 impl CacheConfig {
@@ -751,6 +758,7 @@ impl Default for CacheConfig {
             prefetcher: Prefetcher::default(),
             prefetch_table_size: defaults::PREFETCH_TABLE_SIZE,
             prefetch_degree: defaults::PREFETCH_DEGREE,
+            mshr_count: defaults::L1D_MSHR_COUNT,
         }
     }
 }

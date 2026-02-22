@@ -40,6 +40,7 @@ fn test_config() -> CacheConfig {
         prefetcher: PrefetcherType::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
+        mshr_count: 0,
     }
 }
 
@@ -314,6 +315,7 @@ fn different_line_size_32b() {
         prefetcher: PrefetcherType::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
+        mshr_count: 0,
     };
     // num_lines = 256/32 = 8, num_sets = 8/2 = 4, line_bytes = 32.
     let mut cache = CacheSim::new(&config);
@@ -341,6 +343,7 @@ fn different_line_size_128b() {
         prefetcher: PrefetcherType::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
+        mshr_count: 0,
     };
     // num_lines = 1024/128 = 8, num_sets = 8/2 = 4, line_bytes = 128.
     let mut cache = CacheSim::new(&config);

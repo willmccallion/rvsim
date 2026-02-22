@@ -50,6 +50,46 @@ impl Cpu {
             .translate(vaddr, access, effective_priv, &self.csrs, &mut self.bus.bus)
     }
 
+    /// Computes the total latency for an L1D miss, walking L2 → L3 → DRAM.
+    ///
+    /// Does NOT modify the L1D cache. The caller (MSHR) is responsible for
+    /// installing the L1D line when the miss completes. L2/L3 accesses are
+    /// synchronous (blocking) — only L1D gets MSHRs.
+    pub fn simulate_l1d_miss_latency(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
+        let mut total_penalty = 0;
+        let raw_addr = addr.val();
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr);
+        let next_lat = ram_latency;
+        let is_write = matches!(access, AccessType::Write);
+
+        if self.l2_cache.enabled {
+            total_penalty += self.l2_cache.latency;
+            let (l2_hit, l2_pen) = self.l2_cache.access(raw_addr, is_write, next_lat);
+            total_penalty += l2_pen;
+            if l2_hit {
+                self.stats.l2_hits += 1;
+                return total_penalty;
+            }
+            self.stats.l2_misses += 1;
+        }
+
+        if self.l3_cache.enabled {
+            total_penalty += self.l3_cache.latency;
+            let (l3_hit, l3_pen) = self.l3_cache.access(raw_addr, is_write, next_lat);
+            total_penalty += l3_pen;
+            if l3_hit {
+                self.stats.l3_hits += 1;
+                return total_penalty;
+            }
+            self.stats.l3_misses += 1;
+        }
+
+        total_penalty += self.bus.bus.calculate_transit_time(8);
+        total_penalty += ram_latency;
+        total_penalty += self.bus.bus.calculate_transit_time(64);
+        total_penalty
+    }
+
     /// Simulates a memory access through the cache hierarchy.
     ///
     /// # Arguments

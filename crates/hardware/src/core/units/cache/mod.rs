@@ -8,6 +8,9 @@
 /// Cache replacement policy implementations (FIFO, LRU, MRU, PLRU, Random).
 pub mod policies;
 
+/// Miss Status Holding Registers (MSHRs) for non-blocking cache access.
+pub mod mshr;
+
 use self::policies::{
     FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
 };
@@ -239,6 +242,64 @@ impl CacheSim {
         }
 
         (hit, penalty)
+    }
+
+    /// Non-blocking cache access: checks for hit/miss without installing the line on miss.
+    ///
+    /// On hit: updates replacement policy and dirty bit, triggers prefetcher. Returns true.
+    /// On miss: triggers prefetcher but does NOT install the line. Returns false.
+    /// The caller (MSHR) is responsible for installing the line later.
+    pub fn access_check(&mut self, addr: u64, is_write: bool) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
+        let tag = addr / (self.line_bytes * self.num_sets) as u64;
+        let base_idx = set_index * self.ways;
+
+        let mut hit = false;
+        for i in 0..self.ways {
+            let idx = base_idx + i;
+            if self.lines[idx].valid && self.lines[idx].tag == tag {
+                self.policy.update(set_index, i);
+                if is_write {
+                    self.lines[idx].dirty = true;
+                }
+                hit = true;
+                break;
+            }
+        }
+
+        let mut prefetches = Vec::new();
+        if let Some(ref mut pref) = self.prefetcher {
+            prefetches = pref.observe(addr, hit);
+        }
+        for target in prefetches {
+            if !self.contains(target) {
+                self.install_line(target, false, 0);
+            }
+        }
+
+        hit
+    }
+
+    /// Install a cache line from outside (e.g. when an MSHR completes).
+    ///
+    /// Returns the write-back penalty if the evicted victim was dirty.
+    pub fn install_line_public(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> u64 {
+        self.install_line(addr, is_write, next_level_latency)
+    }
+
+    /// Returns the cache line size in bytes.
+    #[inline]
+    pub fn line_bytes(&self) -> usize {
+        self.line_bytes
     }
 
     /// Flushes all dirty cache lines, invalidating them.

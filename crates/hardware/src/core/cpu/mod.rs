@@ -24,6 +24,7 @@ use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::CacheSim;
+use crate::core::units::cache::mshr::MshrFile;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::Pmp;
 use crate::soc::System;
@@ -59,6 +60,8 @@ pub struct Cpu {
     pub l2_cache: CacheSim,
     /// L3 Unified Cache.
     pub l3_cache: CacheSim,
+    /// L1D MSHR file for non-blocking cache access (O3 backend only).
+    pub l1d_mshrs: MshrFile,
     /// Base address of RAM — addresses at or above this go through the
     /// cache hierarchy for latency simulation; addresses below are MMIO.
     pub cache_base: u64,
@@ -246,6 +249,7 @@ impl Cpu {
             branch_predictor: bp,
             l1_i_cache: CacheSim::new(&config.cache.l1_i),
             l1_d_cache: CacheSim::new(&config.cache.l1_d),
+            l1d_mshrs: MshrFile::new(config.cache.l1_d.mshr_count, config.cache.l1_d.line_bytes),
             l2_cache: CacheSim::new(&config.cache.l2),
             l3_cache: CacheSim::new(&config.cache.l3),
             mmu: Mmu::new(config.memory.tlb_size),

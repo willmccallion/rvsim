@@ -102,6 +102,15 @@ pub struct SimStats {
 
     /// Number of pipeline flushes (mispredictions + violations + CSR/FENCE redirects).
     pub pipeline_flushes: u64,
+
+    /// MSHR allocations (new L1D cache misses with available MSHR).
+    pub mshr_allocations: u64,
+    /// MSHR coalesces (miss to same line as an outstanding miss).
+    pub mshr_coalesces: u64,
+    /// Stalls due to all MSHRs being full.
+    pub stalls_mshr_full: u64,
+    /// Load replays due to speculative wakeup on L1D miss.
+    pub load_replays: u64,
 }
 
 impl Default for SimStats {
@@ -144,6 +153,10 @@ impl Default for SimStats {
             stalls_backpressure: 0,
             mem_ordering_violations: 0,
             pipeline_flushes: 0,
+            mshr_allocations: 0,
+            mshr_coalesces: 0,
+            stalls_mshr_full: 0,
+            load_replays: 0,
         }
     }
 }
@@ -326,6 +339,13 @@ impl SimStats {
             print_cache("L1-D", self.dcache_hits, self.dcache_misses);
             print_cache("L2", self.l2_hits, self.l2_misses);
             print_cache("L3", self.l3_hits, self.l3_misses);
+            if self.mshr_allocations > 0 || self.mshr_coalesces > 0 {
+                println!(
+                    "  mshr.allocs            {} | coalesces: {} | full_stalls: {}",
+                    self.mshr_allocations, self.mshr_coalesces, self.stalls_mshr_full
+                );
+                println!("  load.replays           {}", self.load_replays);
+            }
         }
         println!("{rule}");
     }
