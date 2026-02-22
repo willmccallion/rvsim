@@ -15,6 +15,7 @@ use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
@@ -42,6 +43,8 @@ pub struct O3Engine {
     pub rob: Rob,
     /// Store buffer.
     pub store_buffer: StoreBuffer,
+    /// Load queue for memory ordering violation detection.
+    pub load_queue: LoadQueue,
     /// Physical register file (64-bit values + ready bits).
     pub prf: PhysRegFile,
     /// Free list of available physical register indices.
@@ -92,6 +95,7 @@ impl O3Engine {
         Self {
             rob: Rob::new(rob_size),
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
+            load_queue: LoadQueue::new(config.pipeline.load_queue_size),
             prf,
             free_list: FreeList::new(prf_total, num_arch),
             rename_map: RenameMap::new(),
@@ -166,6 +170,7 @@ impl ExecutionEngine for O3Engine {
             &mut self.committed_rename_map,
             &mut self.free_list,
             self.width,
+            Some(&mut self.load_queue),
         );
 
         // Handle trap: flush everything
@@ -220,13 +225,60 @@ impl ExecutionEngine for O3Engine {
         }
 
         // ── 3. Memory2 ────────────────────────────────────────────────
-        memory2::memory2_stage(
+        let mem_violation = memory2::memory2_stage(
             cpu,
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
             &mut self.rob,
+            Some(&mut self.load_queue),
         );
+
+        // Handle memory ordering violation: a store resolved its address and
+        // overlapped with a younger load that already executed with stale data.
+        // Flush from the violating load onward and redirect to re-fetch it.
+        if let Some(violating_tag) = mem_violation {
+            if cpu.trace {
+                eprintln!(
+                    "BE  * MEMORY ORDERING VIOLATION: load rob_tag={}, flushing",
+                    violating_tag.0
+                );
+            }
+            // Find the violating load's PC from the ROB
+            let violation_pc = self
+                .rob
+                .find_entry(violating_tag)
+                .map(|e| e.pc)
+                .unwrap_or(cpu.pc);
+
+            // keep_tag = tag before the violating load (everything older is kept)
+            let keep_tag = crate::core::pipeline::rob::RobTag(violating_tag.0.saturating_sub(1));
+
+            // Reclaim physical registers for squashed entries
+            for entry in self.rob.iter_after(keep_tag) {
+                self.free_list.reclaim(entry.phys_dst);
+            }
+            cpu.stats.misprediction_penalty += self.rob.iter_after(keep_tag).count() as u64;
+
+            self.issue_queue.flush_after(keep_tag);
+            self.rob.flush_after(keep_tag);
+            self.store_buffer.flush_after(keep_tag);
+            self.load_queue.flush_after(keep_tag);
+
+            self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
+            self.mem2_wb.retain(|e| e.rob_tag.0 <= keep_tag.0);
+            self.pending_results
+                .retain(|p| p.entry.rob_tag.0 <= keep_tag.0);
+            self.execute_mem1.retain(|e| e.rob_tag.0 <= keep_tag.0);
+
+            self.rebuild_rename_map();
+            self.scoreboard.rebuild_from_rob(&self.rob);
+
+            cpu.pc = violation_pc;
+            cpu.redirect_pending = true;
+            rename_output.clear();
+            return;
+        }
 
         // ── 4. Memory1 ────────────────────────────────────────────────
         // Per-operation latency: memory1 is gated by the max complete_cycle
@@ -243,7 +295,13 @@ impl ExecutionEngine for O3Engine {
         if mem1_busy {
             cpu.stats.stalls_mem += 1;
         } else {
-            memory1::memory1_stage(cpu, &mut self.execute_mem1, &mut self.mem1_mem2, now);
+            memory1::memory1_stage(
+                cpu,
+                &mut self.execute_mem1,
+                &mut self.mem1_mem2,
+                now,
+                Some(&mut self.load_queue),
+            );
         }
 
         // ── 5. Backpressure check ──────────────────────────────────────
@@ -442,6 +500,7 @@ impl ExecutionEngine for O3Engine {
                 self.issue_queue.flush_after(keep_tag);
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
+                self.load_queue.flush_after(keep_tag);
             } else {
                 // keep_tag was already committed — flush ALL in-flight entries.
                 // Reclaim physical registers for all remaining ROB entries.
@@ -452,6 +511,7 @@ impl ExecutionEngine for O3Engine {
                 self.issue_queue.flush();
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
+                self.load_queue.flush();
             }
             // Filter stale (wrong-path) entries from inter-stage latches and pending.
             self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
@@ -479,10 +539,12 @@ impl ExecutionEngine for O3Engine {
     fn can_accept(&self) -> usize {
         let rob_free = self.rob.free_slots();
         let sb_free = self.store_buffer.free_slots();
+        let lq_free = self.load_queue.free_slots();
         let iq_free = self.issue_queue.available_slots();
         let prf_free = self.free_list.available();
         rob_free
             .min(sb_free)
+            .min(lq_free)
             .min(iq_free)
             .min(prf_free)
             .min(self.width)
@@ -498,6 +560,7 @@ impl ExecutionEngine for O3Engine {
 
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
+        self.load_queue.flush();
         self.scoreboard.flush();
         self.issue_queue.flush();
         self.pending_results.clear();
@@ -552,6 +615,10 @@ impl ExecutionEngine for O3Engine {
 
     fn free_list_mut(&mut self) -> &mut FreeList {
         &mut self.free_list
+    }
+
+    fn load_queue_mut(&mut self) -> Option<&mut LoadQueue> {
+        Some(&mut self.load_queue)
     }
 
     fn has_prf(&self) -> bool {

@@ -17,6 +17,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::cpu::PC_TRACE_MAX;
 use crate::core::pipeline::free_list::FreeList;
+use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
@@ -36,6 +37,7 @@ pub fn commit_stage(
     committed_rename_map: &mut RenameMap,
     free_list: &mut FreeList,
     width: usize,
+    mut load_queue: Option<&mut LoadQueue>,
 ) -> Option<(Trap, u64)> {
     let mut trap_event: Option<(Trap, u64)> = None;
 
@@ -211,6 +213,13 @@ pub fn commit_stage(
             if entry.ctrl.rs2_fp {
                 cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
                 cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            }
+        }
+
+        // Deallocate load queue entry (for loads)
+        if entry.ctrl.mem_read {
+            if let Some(ref mut lq) = load_queue {
+                lq.deallocate(entry.tag);
             }
         }
 

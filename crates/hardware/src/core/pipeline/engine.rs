@@ -8,6 +8,7 @@
 
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::RenameIssueEntry;
+use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
@@ -74,6 +75,11 @@ pub trait ExecutionEngine {
     /// Access the free list (O3 only).
     fn free_list_mut(&mut self) -> &mut FreeList {
         unimplemented!("free_list_mut only available for O3 backend")
+    }
+
+    /// Access the load queue (O3 only). Returns None for in-order backend.
+    fn load_queue_mut(&mut self) -> Option<&mut LoadQueue> {
+        None
     }
 
     /// Returns true if this backend uses physical register renaming.

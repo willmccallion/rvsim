@@ -108,6 +108,17 @@ pub fn rename_stage<E: ExecutionEngine>(
                 }
             }
 
+            // Allocate load queue entry if this is a load
+            if id.ctrl.mem_read {
+                if let Some(lq) = engine.load_queue_mut() {
+                    let width = id.ctrl.width;
+                    if !lq.allocate(rob_tag, width) {
+                        input.push(id);
+                        break;
+                    }
+                }
+            }
+
             // Build RenameIssueEntry with physical register identifiers
             // rs*_tag fields carry the physical reg as a packed tag for the IQ
             // (the IQ will look them up in the PRF at dispatch time)

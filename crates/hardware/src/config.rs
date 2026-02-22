@@ -132,6 +132,9 @@ mod defaults {
     /// Default Issue Queue size (32 entries) for out-of-order backend.
     pub const ISSUE_QUEUE_SIZE: usize = 32;
 
+    /// Default Load Queue size (32 entries) for out-of-order backend.
+    pub const LOAD_QUEUE_SIZE: usize = 32;
+
     /// Default Physical Register File GPR size (256 entries).
     pub const PRF_GPR_SIZE: usize = 256;
 
@@ -807,6 +810,10 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_prf_fpr_size")]
     pub prf_fpr_size: usize,
 
+    /// Load Queue size (O3 backend).
+    #[serde(default = "PipelineConfig::default_load_queue_size")]
+    pub load_queue_size: usize,
+
     /// Functional unit pool configuration (O3 backend).
     #[serde(default)]
     pub fu_config: FuConfig,
@@ -852,6 +859,11 @@ impl PipelineConfig {
     fn default_prf_fpr_size() -> usize {
         defaults::PRF_FPR_SIZE
     }
+
+    /// Returns the default load queue size.
+    fn default_load_queue_size() -> usize {
+        defaults::LOAD_QUEUE_SIZE
+    }
 }
 
 impl Default for PipelineConfig {
@@ -875,6 +887,7 @@ impl Default for PipelineConfig {
             issue_queue_size: defaults::ISSUE_QUEUE_SIZE,
             prf_gpr_size: defaults::PRF_GPR_SIZE,
             prf_fpr_size: defaults::PRF_FPR_SIZE,
+            load_queue_size: defaults::LOAD_QUEUE_SIZE,
             fu_config: FuConfig::default(),
         }
     }

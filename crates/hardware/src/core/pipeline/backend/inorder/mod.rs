@@ -80,6 +80,7 @@ impl ExecutionEngine for InOrderEngine {
             &mut self.committed_rename_map,
             &mut self.free_list,
             self.width,
+            None, // in-order backend: no load queue
         );
 
         // Handle trap: flush everything
@@ -112,12 +113,13 @@ impl ExecutionEngine for InOrderEngine {
         writeback::writeback_stage(cpu, &mut self.mem2_wb, &mut self.rob);
 
         // Memory2: D-cache access / store buffer resolution
-        memory2::memory2_stage(
+        let _ = memory2::memory2_stage(
             cpu,
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
             &mut self.rob,
+            None, // in-order backend: no load queue
         );
 
         // Memory1: address translation (gated by mem1_stall)
@@ -129,7 +131,8 @@ impl ExecutionEngine for InOrderEngine {
                 cpu,
                 &mut self.execute_mem1,
                 &mut self.mem1_mem2,
-                0, // in-order backend: current_cycle=0
+                0,    // in-order backend: current_cycle=0
+                None, // in-order backend: no load queue
             );
             // Derive stall from the worst-case entry's complete_cycle
             self.mem1_stall = self

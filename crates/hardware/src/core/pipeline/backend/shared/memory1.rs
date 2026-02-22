@@ -6,6 +6,7 @@
 use crate::common::{AccessType, ExceptionStage, TranslationResult, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
+use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::units::lsu::unaligned;
 
 /// Executes the Memory1 stage: address translation.
@@ -19,6 +20,7 @@ pub fn memory1_stage(
     input: &mut Vec<ExMem1Entry>,
     output: &mut Vec<Mem1Mem2Entry>,
     current_cycle: u64,
+    mut load_queue: Option<&mut LoadQueue>,
 ) {
     let entries = std::mem::take(input);
     // Do NOT clear output — memory2 may have pushed stalled entries back
@@ -121,6 +123,13 @@ pub fn memory1_stage(
                         ex.alu,
                         paddr.val()
                     );
+                }
+            }
+
+            // Fill load queue with translated address
+            if ex.ctrl.mem_read {
+                if let Some(ref mut lq) = load_queue {
+                    lq.fill_address(ex.rob_tag, ex.alu, paddr.val());
                 }
             }
 

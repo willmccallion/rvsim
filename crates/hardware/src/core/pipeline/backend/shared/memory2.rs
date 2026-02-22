@@ -7,19 +7,26 @@
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
-use crate::core::pipeline::rob::Rob;
+use crate::core::pipeline::load_queue::LoadQueue;
+use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::{ForwardResult, StoreBuffer};
 use crate::core::units::lsu::Lsu;
 
 /// Executes the Memory2 stage: D-cache access + store buffer forwarding.
+///
+/// Returns `Some(violating_rob_tag)` if a memory ordering violation is detected
+/// (a store resolved its address and overlapped with a younger already-executed load).
+/// The caller should flush from this tag onward.
 pub fn memory2_stage(
     cpu: &mut Cpu,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     store_buffer: &mut StoreBuffer,
     _rob: &mut Rob,
-) {
+    mut load_queue: Option<&mut LoadQueue>,
+) -> Option<RobTag> {
+    let mut violation: Option<RobTag> = None;
     let entries = std::mem::take(input);
     output.clear();
 
@@ -49,7 +56,7 @@ pub fn memory2_stage(
             // They will be flushed by the commit-stage trap handler, but must
             // not be silently dropped here or their ROB entries become orphans.
             input.extend(iter);
-            return;
+            return None;
         }
 
         let raw_paddr = mem.paddr;
@@ -76,7 +83,7 @@ pub fn memory2_stage(
                         ForwardResult::Stall => {
                             input.push(mem);
                             input.extend(iter);
-                            return;
+                            return None;
                         }
                         ForwardResult::Miss => match mem.ctrl.width {
                             MemWidth::Word => {
@@ -112,7 +119,7 @@ pub fn memory2_stage(
                             ForwardResult::Stall => {
                                 input.push(mem);
                                 input.extend(iter);
-                                return;
+                                return None;
                             }
                             ForwardResult::Miss => match mem.ctrl.width {
                                 MemWidth::Word => {
@@ -170,7 +177,7 @@ pub fn memory2_stage(
                     // Partial overlap — push back current + remaining entries
                     input.push(mem);
                     input.extend(iter);
-                    return;
+                    return None;
                 }
                 ForwardResult::Miss => {
                     // Read from memory/cache
@@ -229,6 +236,11 @@ pub fn memory2_stage(
                 }
             }
 
+            // Fill load queue with completed data
+            if let Some(ref mut lq) = load_queue {
+                lq.fill_data(mem.rob_tag, ld);
+            }
+
             if cpu.trace {
                 eprintln!(
                     "M2  pc={:#x} LOAD paddr={:#x} data={:#x}",
@@ -238,6 +250,29 @@ pub fn memory2_stage(
         } else if mem.ctrl.mem_write {
             // Stores: resolve store buffer with paddr + data, NO memory write
             store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, mem.store_data);
+
+            // Check for memory ordering violation: did a younger load already
+            // execute with stale data at this address?
+            if let Some(ref lq) = load_queue {
+                if let Some(violating_tag) =
+                    lq.check_ordering_violation(raw_paddr, mem.ctrl.width, mem.rob_tag)
+                {
+                    if cpu.trace {
+                        eprintln!(
+                            "M2  pc={:#x} STORE ordering violation: load rob_tag={}",
+                            mem.pc, violating_tag.0
+                        );
+                    }
+                    // Record the oldest violation
+                    match violation {
+                        None => violation = Some(violating_tag),
+                        Some(prev) if violating_tag.0 < prev.0 => {
+                            violation = Some(violating_tag);
+                        }
+                        _ => {}
+                    }
+                }
+            }
 
             if cpu.check_reservation(raw_paddr) {
                 cpu.clear_reservation();
@@ -270,7 +305,9 @@ pub fn memory2_stage(
 
         if trap.is_some() {
             input.extend(iter);
-            return;
+            return None;
         }
     }
+
+    violation
 }
