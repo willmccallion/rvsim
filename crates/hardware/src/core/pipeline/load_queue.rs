@@ -158,21 +158,20 @@ impl LoadQueue {
             if entry.valid
                 && entry.rob_tag.0 > store_rob_tag.0
                 && entry.state == LoadState::Executed
+                && let Some(load_paddr) = entry.paddr
             {
-                if let Some(load_paddr) = entry.paddr {
-                    let load_size = width_to_bytes(entry.width) as u64;
-                    let load_start = load_paddr;
-                    let load_end = load_paddr + load_size;
+                let load_size = width_to_bytes(entry.width) as u64;
+                let load_start = load_paddr;
+                let load_end = load_paddr + load_size;
 
-                    // Check for any overlap
-                    if load_start < store_end && load_end > store_start {
-                        match oldest_violator {
-                            None => oldest_violator = Some(entry.rob_tag),
-                            Some(prev) if entry.rob_tag.0 < prev.0 => {
-                                oldest_violator = Some(entry.rob_tag);
-                            }
-                            _ => {}
+                // Check for any overlap
+                if load_start < store_end && load_end > store_start {
+                    match oldest_violator {
+                        None => oldest_violator = Some(entry.rob_tag),
+                        Some(prev) if entry.rob_tag.0 < prev.0 => {
+                            oldest_violator = Some(entry.rob_tag);
                         }
+                        _ => {}
                     }
                 }
             }

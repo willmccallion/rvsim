@@ -29,6 +29,7 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 /// Retires up to `width` instructions from the ROB head per cycle.
 /// Handles register writes, CSR application, trap dispatch, and
 /// store buffer drain.
+#[allow(clippy::too_many_arguments)]
 pub fn commit_stage(
     cpu: &mut Cpu,
     rob: &mut Rob,
@@ -217,10 +218,10 @@ pub fn commit_stage(
         }
 
         // Deallocate load queue entry (for loads)
-        if entry.ctrl.mem_read {
-            if let Some(ref mut lq) = load_queue {
-                lq.deallocate(entry.tag);
-            }
+        if entry.ctrl.mem_read
+            && let Some(ref mut lq) = load_queue
+        {
+            lq.deallocate(entry.tag);
         }
 
         // SFENCE.VMA and FENCE.I always drain all committed stores — the

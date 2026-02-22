@@ -253,24 +253,23 @@ pub fn memory2_stage(
 
             // Check for memory ordering violation: did a younger load already
             // execute with stale data at this address?
-            if let Some(ref lq) = load_queue {
-                if let Some(violating_tag) =
+            if let Some(ref lq) = load_queue
+                && let Some(violating_tag) =
                     lq.check_ordering_violation(raw_paddr, mem.ctrl.width, mem.rob_tag)
-                {
-                    if cpu.trace {
-                        eprintln!(
-                            "M2  pc={:#x} STORE ordering violation: load rob_tag={}",
-                            mem.pc, violating_tag.0
-                        );
+            {
+                if cpu.trace {
+                    eprintln!(
+                        "M2  pc={:#x} STORE ordering violation: load rob_tag={}",
+                        mem.pc, violating_tag.0
+                    );
+                }
+                // Record the oldest violation
+                match violation {
+                    None => violation = Some(violating_tag),
+                    Some(prev) if violating_tag.0 < prev.0 => {
+                        violation = Some(violating_tag);
                     }
-                    // Record the oldest violation
-                    match violation {
-                        None => violation = Some(violating_tag),
-                        Some(prev) if violating_tag.0 < prev.0 => {
-                            violation = Some(violating_tag);
-                        }
-                        _ => {}
-                    }
+                    _ => {}
                 }
             }
 

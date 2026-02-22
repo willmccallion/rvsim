@@ -12,6 +12,7 @@ use crate::common::{AccessType, ExceptionStage, TranslationResult, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::load_queue::LoadQueue;
+use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::AtomicOp;
 use crate::core::units::cache::mshr::{CacheResponse, MshrWaiter};
 use crate::core::units::lsu::unaligned;
@@ -27,15 +28,18 @@ use crate::core::units::lsu::unaligned;
 /// (their `Mem1Mem2Entry` is stored inside the MSHR waiter). Stores that miss
 /// L1D allocate an MSHR for write-allocate but proceed immediately. Entries
 /// that cannot be processed (MSHR full) are pushed back into `input` for retry.
+/// Returns a list of physical registers whose speculative wakeup should be
+/// cancelled (loads that missed L1D and were parked in MSHRs).
 pub fn memory1_stage(
     cpu: &mut Cpu,
     input: &mut Vec<ExMem1Entry>,
     output: &mut Vec<Mem1Mem2Entry>,
     current_cycle: u64,
     mut load_queue: Option<&mut LoadQueue>,
-) {
+) -> Vec<PhysReg> {
     let entries = std::mem::take(input);
     let has_mshrs = cpu.l1d_mshrs.capacity() > 0;
+    let mut cancelled_wakeups: Vec<PhysReg> = Vec::new();
     // Do NOT clear output — memory2 may have pushed stalled entries back
     // into this latch. We append new entries after any stalled ones.
 
@@ -67,7 +71,7 @@ pub fn memory1_stage(
             // Remaining entries go back to input — they'll be flushed when
             // the trap reaches commit, but must not be silently dropped.
             input.extend(iter);
-            return;
+            return cancelled_wakeups;
         }
 
         let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
@@ -118,7 +122,7 @@ pub fn memory1_stage(
                 });
                 // Remaining entries go back to input.
                 input.extend(iter);
-                return;
+                return cancelled_wakeups;
             }
 
             if cpu.trace {
@@ -140,10 +144,10 @@ pub fn memory1_stage(
             }
 
             // Fill load queue with translated address
-            if ex.ctrl.mem_read {
-                if let Some(ref mut lq) = load_queue {
-                    lq.fill_address(ex.rob_tag, ex.alu, paddr.val());
-                }
+            if ex.ctrl.mem_read
+                && let Some(ref mut lq) = load_queue
+            {
+                lq.fill_address(ex.rob_tag, ex.alu, paddr.val());
             }
 
             // D-cache/bus latency: only cacheable addresses (RAM) go through
@@ -261,6 +265,9 @@ pub fn memory1_stage(
                         match resp {
                             CacheResponse::MshrAllocated { .. } => {
                                 cpu.stats.mshr_allocations += 1;
+                                // Cancel speculative wakeup — load won't complete at L1D latency
+                                cancelled_wakeups.push(ex.rd_phys);
+                                cpu.stats.load_replays += 1;
                                 if cpu.trace {
                                     eprintln!(
                                         "M1  pc={:#x} MSHR allocated for paddr={:#x}",
@@ -272,6 +279,9 @@ pub fn memory1_stage(
                             }
                             CacheResponse::MshrCoalesced { .. } => {
                                 cpu.stats.mshr_coalesces += 1;
+                                // Cancel speculative wakeup — load won't complete at L1D latency
+                                cancelled_wakeups.push(ex.rd_phys);
+                                cpu.stats.load_replays += 1;
                                 if cpu.trace {
                                     eprintln!(
                                         "M1  pc={:#x} MSHR coalesced for paddr={:#x}",
@@ -286,7 +296,7 @@ pub fn memory1_stage(
                                 // Push back to input for retry next cycle
                                 input.push(ex);
                                 input.extend(iter);
-                                return;
+                                return cancelled_wakeups;
                             }
                             CacheResponse::Hit => unreachable!(),
                         }
@@ -357,4 +367,5 @@ pub fn memory1_stage(
             });
         }
     }
+    cancelled_wakeups
 }

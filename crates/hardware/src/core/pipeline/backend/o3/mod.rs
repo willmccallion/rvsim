@@ -335,13 +335,17 @@ impl ExecutionEngine for O3Engine {
         if mem1_busy {
             cpu.stats.stalls_mem += 1;
         } else {
-            memory1::memory1_stage(
+            let cancelled = memory1::memory1_stage(
                 cpu,
                 &mut self.execute_mem1,
                 &mut self.mem1_mem2,
                 now,
                 Some(&mut self.load_queue),
             );
+            // Cancel speculative wakeups for loads that missed L1D
+            for phys in cancelled {
+                self.issue_queue.cancel_wakeup_phys(phys, &self.prf);
+            }
         }
 
         // ── 5. Backpressure check ──────────────────────────────────────
@@ -448,6 +452,7 @@ impl ExecutionEngine for O3Engine {
                 &self.rob,
                 self.load_ports,
                 self.store_ports,
+                Some(&self.prf),
             );
 
             let mut issued_count = 0;
@@ -502,6 +507,16 @@ impl ExecutionEngine for O3Engine {
                 } else {
                     false
                 };
+
+                // Speculative load wakeup: when a load issues and MSHRs are
+                // available, optimistically wake dependents assuming L1D hit.
+                // PRF is NOT written — select() validates against PRF.
+                // If the load hits L1D, writeback confirms with the real value.
+                // If it misses, memory1 calls cancel_wakeup_phys().
+                let is_load = ex_result.ctrl.mem_read && !ex_result.ctrl.mem_write;
+                if is_load && ex_result.trap.is_none() && cpu.l1d_mshrs.capacity() > 0 {
+                    self.issue_queue.speculative_wakeup_phys(ex_result.rd_phys);
+                }
 
                 let keep_tag = ex_result.rob_tag;
                 self.pending_results.push(PendingResult {

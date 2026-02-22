@@ -127,7 +127,7 @@ impl ExecutionEngine for InOrderEngine {
             self.mem1_stall -= 1;
             cpu.stats.stalls_mem += 1;
         } else {
-            memory1::memory1_stage(
+            let _ = memory1::memory1_stage(
                 cpu,
                 &mut self.execute_mem1,
                 &mut self.mem1_mem2,
