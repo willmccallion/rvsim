@@ -18,6 +18,7 @@ from .types import (
     Backend,
     BranchPredictor,
     Cache,
+    Fu,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
@@ -299,25 +300,89 @@ def _backend_name(be) -> str:
     raise TypeError(f"Unknown backend type: {type(be)}")
 
 
-def _backend_rob_size(be) -> int:
-    """Return the backend ROB size."""
+def _fu_config_to_dict(fc: Fu) -> dict:
+    """Serialize a Fu pool config to the flat dict the Rust backend expects."""
+    # Start with zeroed-out defaults for every FU type so the Rust serde
+    # always finds every key, even if the user omits a unit type entirely.
+    d = {
+        "num_int_alu": 0,
+        "int_alu_latency": 1,
+        "num_int_mul": 0,
+        "int_mul_latency": 3,
+        "num_int_div": 0,
+        "int_div_latency": 35,
+        "num_fp_add": 0,
+        "fp_add_latency": 4,
+        "num_fp_mul": 0,
+        "fp_mul_latency": 5,
+        "num_fp_fma": 0,
+        "fp_fma_latency": 5,
+        "num_fp_div_sqrt": 0,
+        "fp_div_sqrt_latency": 21,
+        "num_branch": 0,
+        "branch_latency": 1,
+        "num_mem": 0,
+        "mem_latency": 1,
+    }
+    for u in fc.units:
+        if isinstance(u, Fu.IntAlu):
+            d["num_int_alu"] = u.count
+            d["int_alu_latency"] = u.latency
+        elif isinstance(u, Fu.IntMul):
+            d["num_int_mul"] = u.count
+            d["int_mul_latency"] = u.latency
+        elif isinstance(u, Fu.IntDiv):
+            d["num_int_div"] = u.count
+            d["int_div_latency"] = u.latency
+        elif isinstance(u, Fu.FpAdd):
+            d["num_fp_add"] = u.count
+            d["fp_add_latency"] = u.latency
+        elif isinstance(u, Fu.FpMul):
+            d["num_fp_mul"] = u.count
+            d["fp_mul_latency"] = u.latency
+        elif isinstance(u, Fu.FpFma):
+            d["num_fp_fma"] = u.count
+            d["fp_fma_latency"] = u.latency
+        elif isinstance(u, Fu.FpDivSqrt):
+            d["num_fp_div_sqrt"] = u.count
+            d["fp_div_sqrt_latency"] = u.latency
+        elif isinstance(u, Fu.Branch):
+            d["num_branch"] = u.count
+            d["branch_latency"] = u.latency
+        elif isinstance(u, Fu.Mem):
+            d["num_mem"] = u.count
+            d["mem_latency"] = u.latency
+        else:
+            raise TypeError(f"Unknown Fu type: {type(u)}")
+    return d
+
+
+def _backend_to_pipeline_fields(be) -> dict:
+    """Return pipeline-level fields that come from the backend object."""
     if isinstance(be, Backend.OutOfOrder):
-        return be.rob_size
-    return 64
-
-
-def _backend_store_buffer_size(be) -> int:
-    """Return the backend store buffer size."""
-    if isinstance(be, Backend.OutOfOrder):
-        return be.store_buffer_size
-    return 16
-
-
-def _backend_issue_queue_size(be) -> int:
-    """Return the backend issue queue size."""
-    if isinstance(be, Backend.OutOfOrder):
-        return be.issue_queue_size
-    return 32
+        return {
+            "rob_size": be.rob_size,
+            "store_buffer_size": be.store_buffer_size,
+            "issue_queue_size": be.issue_queue_size,
+            "load_queue_size": be.load_queue_size,
+            "load_ports": be.load_ports,
+            "store_ports": be.store_ports,
+            "prf_gpr_size": be.prf_gpr_size,
+            "prf_fpr_size": be.prf_fpr_size,
+            "fu_config": _fu_config_to_dict(be.fu_config),
+        }
+    # InOrder: emit safe defaults so Rust serde never chokes on missing keys
+    return {
+        "rob_size": 64,
+        "store_buffer_size": 16,
+        "issue_queue_size": 32,
+        "load_queue_size": 32,
+        "load_ports": 1,
+        "store_ports": 1,
+        "prf_gpr_size": 64,
+        "prf_fpr_size": 64,
+        "fu_config": _fu_config_to_dict(Fu()),
+    }
 
 
 def _cache_to_dict(c: Cache) -> Dict[str, Any]:
@@ -443,12 +508,10 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "btb_size": cfg.btb_size,
         "ras_size": cfg.ras_size,
         "backend": _backend_name(cfg.backend),
-        "rob_size": _backend_rob_size(cfg.backend),
-        "store_buffer_size": _backend_store_buffer_size(cfg.backend),
-        "issue_queue_size": _backend_issue_queue_size(cfg.backend),
         "tage": tage_dict,
         "perceptron": perceptron_dict,
         "tournament": tournament_dict,
+        **_backend_to_pipeline_fields(cfg.backend),
     }
 
     return {
