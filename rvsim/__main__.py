@@ -140,6 +140,10 @@ def _print_help() -> None:
     )
     opt_table.add_row("--no-stats", "run without printing the stats table")
     opt_table.add_row("--quiet", "suppress all output, including program stdout")
+    opt_table.add_row(
+        "--config [cyan]FILE[/cyan]",
+        "Python config file  [dim](must export config or get_config)[/dim]",
+    )
     opt_table.add_row("--json [cyan]FILE[/cyan]", "write stats as JSON to FILE")
     console.print(Padding(opt_table, (0, 2)))
     console.print()
@@ -154,6 +158,9 @@ def _print_help() -> None:
     ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
     ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
     ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
+    ex_table.add_row(
+        "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
+    )
     ex_table.add_row("rvsim experiment.py", "run a Python script via the rvsim API")
     ex_table.add_row("rvsim list", "list bundled programs and benchmarks")
     console.print(Padding(ex_table, (0, 2)))
@@ -240,6 +247,12 @@ def main() -> None:
         help="suppress stats table but still show program output",
     )
     parser.add_argument(
+        "--config",
+        metavar="FILE",
+        default=None,
+        help="Python config file (must export a Config object or callable)",
+    )
+    parser.add_argument(
         "--json",
         metavar="FILE",
         default=None,
@@ -270,7 +283,11 @@ def main() -> None:
     from .config import Config
     from .objects import Simulator
 
-    cfg = Config()
+    if args.config:
+        sim_tmp = Simulator().config(args.config)
+        cfg = sim_tmp._config_obj if sim_tmp._config_obj is not None else Config()
+    else:
+        cfg = Config()
     if args.quiet:
         cfg.uart_quiet = True
     elif args.watch:

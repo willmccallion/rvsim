@@ -322,7 +322,7 @@ def _backend_issue_queue_size(be) -> int:
 
 def _cache_to_dict(c: Cache) -> Dict[str, Any]:
     """Serialize a Cache object to the dict format the Rust backend expects."""
-    return {
+    d: Dict[str, Any] = {
         "enabled": True,
         "size_bytes": c.size_bytes,
         "line_bytes": c.line_bytes,
@@ -333,6 +333,9 @@ def _cache_to_dict(c: Cache) -> Dict[str, Any]:
         "prefetch_table_size": _prefetcher_table_size(c.prefetcher),
         "prefetch_degree": _prefetcher_degree(c.prefetcher),
     }
+    if c.mshr_count > 0:
+        d["mshr_count"] = c.mshr_count
+    return d
 
 
 _TAGE_DEFAULTS = {

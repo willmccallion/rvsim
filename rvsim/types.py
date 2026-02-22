@@ -270,6 +270,7 @@ class Cache:
         policy=None,
         latency: int = 1,
         prefetcher=None,
+        mshr_count: int = 0,
     ):
         self.size_bytes = _parse_size(size)
         self.line_bytes = _parse_size(line)
@@ -277,6 +278,7 @@ class Cache:
         self.policy = policy if policy is not None else ReplacementPolicy.LRU()
         self.latency = latency
         self.prefetcher = prefetcher if prefetcher is not None else Prefetcher.Off()
+        self.mshr_count = mshr_count
 
     def __repr__(self) -> str:
         return (
