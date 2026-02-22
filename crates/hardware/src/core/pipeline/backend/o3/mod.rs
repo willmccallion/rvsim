@@ -230,6 +230,36 @@ impl ExecutionEngine for O3Engine {
             self.issue_queue.wakeup_phys(*rd_phys, *val);
         }
 
+        // ── 2b. MSHR completions ─────────────────────────────────────
+        // Drain completed MSHRs: install cache lines in L1D and resume
+        // parked loads/atomics into the mem1→mem2 latch.
+        if cpu.l1d_mshrs.capacity() > 0 {
+            let completed = cpu.l1d_mshrs.drain_completions(now);
+            for mshr_entry in completed {
+                // Install the fetched line into L1D
+                cpu.l1_d_cache.install_line_public(
+                    mshr_entry.line_addr,
+                    mshr_entry.is_write,
+                    0, // write-back penalty already accounted for in miss latency
+                );
+                if cpu.trace && !mshr_entry.waiters.is_empty() {
+                    eprintln!(
+                        "BE  MSHR complete: line={:#x}, {} waiters",
+                        mshr_entry.line_addr,
+                        mshr_entry.waiters.len()
+                    );
+                }
+                // Resume parked loads/atomics
+                for waiter in mshr_entry.waiters {
+                    if let Some(mut parked) = waiter.parked_entry {
+                        // Set the completion cycle to now (data just arrived)
+                        parked.complete_cycle = now;
+                        self.mem1_mem2.push(parked);
+                    }
+                }
+            }
+        }
+
         // ── 3. Memory2 ────────────────────────────────────────────────
         let mem_violation = memory2::memory2_stage(
             cpu,
@@ -274,6 +304,7 @@ impl ExecutionEngine for O3Engine {
             self.rob.flush_after(keep_tag);
             self.store_buffer.flush_after(keep_tag);
             self.load_queue.flush_after(keep_tag);
+            cpu.l1d_mshrs.flush_after(keep_tag);
 
             self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
             self.mem2_wb.retain(|e| e.rob_tag.0 <= keep_tag.0);
@@ -291,16 +322,15 @@ impl ExecutionEngine for O3Engine {
         }
 
         // ── 4. Memory1 ────────────────────────────────────────────────
-        // Per-operation latency: memory1 is gated by the max complete_cycle
-        // of recently produced entries. Two independent loads stall for
-        // max(latency) instead of sum(latency).
-        //
-        // Check if the memory1 pipeline is still busy (any entry from a
-        // previous memory1 call hasn't completed yet).
-        let mem1_busy = self.mem1_mem2.iter().any(|e| {
-            let is_mem = e.ctrl.mem_read || e.ctrl.mem_write;
-            is_mem && e.complete_cycle > now
-        });
+        // With MSHRs: misses are parked in MSHRs so memory1 can always
+        // accept new entries. Without MSHRs: gate on the oldest incomplete
+        // memory entry (blocking behavior).
+        let has_mshrs = cpu.l1d_mshrs.capacity() > 0;
+        let mem1_busy = !has_mshrs
+            && self.mem1_mem2.iter().any(|e| {
+                let is_mem = e.ctrl.mem_read || e.ctrl.mem_write;
+                is_mem && e.complete_cycle > now
+            });
 
         if mem1_busy {
             cpu.stats.stalls_mem += 1;
@@ -521,6 +551,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
                 self.load_queue.flush_after(keep_tag);
+                cpu.l1d_mshrs.flush_after(keep_tag);
             } else {
                 // keep_tag was already committed — flush ALL in-flight entries.
                 // Reclaim physical registers for all remaining ROB entries.
@@ -532,6 +563,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
                 self.load_queue.flush();
+                cpu.l1d_mshrs.flush();
             }
             // Filter stale (wrong-path) entries from inter-stage latches and pending.
             self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
@@ -570,7 +602,7 @@ impl ExecutionEngine for O3Engine {
             .min(self.width)
     }
 
-    fn flush(&mut self, _cpu: &mut Cpu) {
+    fn flush(&mut self, cpu: &mut Cpu) {
         // Reclaim all phys_dst regs for every in-flight ROB entry
         for entry in self.rob.iter_all() {
             self.free_list.reclaim(entry.phys_dst);
@@ -587,6 +619,8 @@ impl ExecutionEngine for O3Engine {
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
+        // Flush all MSHRs — their parked entries are now invalid
+        cpu.l1d_mshrs.flush();
     }
 
     fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: u32) -> u64 {
