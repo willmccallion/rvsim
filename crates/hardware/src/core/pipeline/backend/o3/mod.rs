@@ -305,18 +305,15 @@ impl ExecutionEngine for O3Engine {
                         // the CSR write (e.g. fsflags fflags=0) has been applied. Since CSR
                         // instructions are serializing (they flush all younger instructions
                         // before completing), applying the write here is safe and correct.
-                        if let Some(csr_entry) = self.rob.find_entry(entry.rob_tag) {
-                            if let Some(ref csr_update) = csr_entry.csr_update.clone() {
-                                if !csr_update.applied {
-                                    use crate::core::arch::csr as csr_mod;
-                                    if csr_update.addr == csr_mod::SATP {
-                                        // SATP: drain stores first (handled at commit; skip eager apply)
-                                    } else {
-                                        cpu.csr_write(csr_update.addr, csr_update.new_val);
-                                        // Mark as applied so commit doesn't re-apply
-                                        self.rob.mark_csr_applied(entry.rob_tag);
-                                    }
-                                }
+                        if let Some(csr_entry) = self.rob.find_entry(entry.rob_tag)
+                            && let Some(ref csr_update) = csr_entry.csr_update.clone()
+                            && !csr_update.applied
+                        {
+                            use crate::core::arch::csr as csr_mod;
+                            if csr_update.addr != csr_mod::SATP {
+                                // SATP drain is handled at commit; skip eager apply.
+                                cpu.csr_write(csr_update.addr, csr_update.new_val);
+                                self.rob.mark_csr_applied(entry.rob_tag);
                             }
                         }
                         self.rob.complete(entry.rob_tag, val);
@@ -413,7 +410,7 @@ impl ExecutionEngine for O3Engine {
                 }
             }
 
-            if issued_count == 0 && !stalled_fu && self.issue_queue.len() > 0 {
+            if issued_count == 0 && !stalled_fu && !self.issue_queue.is_empty() {
                 cpu.stats.stalls_data += 1;
             }
         }

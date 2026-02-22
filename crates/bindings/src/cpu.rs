@@ -25,7 +25,7 @@ fn fmt_commas(n: u64) -> String {
     let len = bytes.len();
     let mut result = String::with_capacity(len + len / 3);
     for (i, &b) in bytes.iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
+        if i > 0 && (len - i).is_multiple_of(3) {
             result.push(',');
         }
         result.push(b as char);
@@ -90,11 +90,11 @@ impl PyCpu {
     fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
         let start = self.inner.cpu.stats.cycles;
         loop {
-            if let Some(max) = limit {
-                if self.inner.cpu.stats.cycles.saturating_sub(start) >= max {
-                    let _ = std::io::stdout().flush();
-                    return Ok(None);
-                }
+            if let Some(max) = limit
+                && self.inner.cpu.stats.cycles.saturating_sub(start) >= max
+            {
+                let _ = std::io::stdout().flush();
+                return Ok(None);
             }
             if self.inner.cpu.stats.cycles.is_multiple_of(10_000) {
                 py.check_signals()?;
@@ -329,16 +329,16 @@ impl PyCpu {
             cycles_run += 1;
 
             let new_last = self.inner.cpu.pc_trace.last().copied();
-            if new_last != before_last {
-                if let Some((pc, inst)) = new_last {
-                    let asm = rvsim_core::isa::disasm::disassemble(inst);
-                    return Ok(Some(PyInstruction {
-                        pc,
-                        raw: inst,
-                        asm,
-                        cycles: self.inner.cpu.stats.cycles,
-                    }));
-                }
+            if new_last != before_last
+                && let Some((pc, inst)) = new_last
+            {
+                let asm = rvsim_core::isa::disasm::disassemble(inst);
+                return Ok(Some(PyInstruction {
+                    pc,
+                    raw: inst,
+                    asm,
+                    cycles: self.inner.cpu.stats.cycles,
+                }));
             }
         }
     }
@@ -476,10 +476,10 @@ impl PyCpu {
             // Check simple predicates with an immutable borrow.
             let stop = {
                 let cpu = slf_py.borrow(py);
-                pc.map_or(false, |p| cpu.inner.cpu.pc == p)
+                pc.is_some_and(|p| cpu.inner.cpu.pc == p)
                     || privilege
                         .as_deref()
-                        .map_or(false, |priv_str| cpu.privilege_str() == priv_str)
+                        .is_some_and(|priv_str| cpu.privilege_str() == priv_str)
             };
             if stop {
                 return Ok(None);

@@ -152,7 +152,7 @@ impl ExecutionEngine for InOrderEngine {
             (Vec::new(), false)
         } else {
             let issued = self.issuer.select(self.width, &self.rob, cpu);
-            if issued.is_empty() && self.issuer.len() > 0 {
+            if issued.is_empty() && !self.issuer.is_empty() {
                 cpu.stats.stalls_data += 1;
             }
             execute::execute_inorder(cpu, issued, &mut self.rob)

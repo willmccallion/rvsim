@@ -130,40 +130,36 @@ impl IssueQueue {
 
     /// Broadcast a completed result via physical register (PRF wakeup path).
     pub fn wakeup_phys(&mut self, p: PhysReg, value: u64) {
-        for slot in &mut self.slots {
-            if let Some(iq) = slot {
-                if iq.src1.phys == p && !iq.src1.ready {
-                    iq.src1.ready = true;
-                    iq.src1.value = value;
-                }
-                if iq.src2.phys == p && !iq.src2.ready {
-                    iq.src2.ready = true;
-                    iq.src2.value = value;
-                }
-                if iq.src3.phys == p && !iq.src3.ready {
-                    iq.src3.ready = true;
-                    iq.src3.value = value;
-                }
+        for iq in self.slots.iter_mut().flatten() {
+            if iq.src1.phys == p && !iq.src1.ready {
+                iq.src1.ready = true;
+                iq.src1.value = value;
+            }
+            if iq.src2.phys == p && !iq.src2.ready {
+                iq.src2.ready = true;
+                iq.src2.value = value;
+            }
+            if iq.src3.phys == p && !iq.src3.ready {
+                iq.src3.ready = true;
+                iq.src3.value = value;
             }
         }
     }
 
     /// Broadcast a completed result via ROB tag (legacy wakeup path).
     pub fn wakeup(&mut self, tag: RobTag, value: u64) {
-        for slot in &mut self.slots {
-            if let Some(iq) = slot {
-                if iq.src1.tag == Some(tag) && !iq.src1.ready {
-                    iq.src1.ready = true;
-                    iq.src1.value = value;
-                }
-                if iq.src2.tag == Some(tag) && !iq.src2.ready {
-                    iq.src2.ready = true;
-                    iq.src2.value = value;
-                }
-                if iq.src3.tag == Some(tag) && !iq.src3.ready {
-                    iq.src3.ready = true;
-                    iq.src3.value = value;
-                }
+        for iq in self.slots.iter_mut().flatten() {
+            if iq.src1.tag == Some(tag) && !iq.src1.ready {
+                iq.src1.ready = true;
+                iq.src1.value = value;
+            }
+            if iq.src2.tag == Some(tag) && !iq.src2.ready {
+                iq.src2.ready = true;
+                iq.src2.value = value;
+            }
+            if iq.src3.tag == Some(tag) && !iq.src3.ready {
+                iq.src3.ready = true;
+                iq.src3.value = value;
             }
         }
     }
@@ -249,11 +245,11 @@ impl IssueQueue {
     /// Flush entries with `rob_tag.0 > keep_tag.0`.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         for slot in &mut self.slots {
-            if let Some(iq) = slot {
-                if iq.entry.rob_tag.0 > keep_tag.0 {
-                    *slot = None;
-                    self.count -= 1;
-                }
+            if let Some(iq) = slot
+                && iq.entry.rob_tag.0 > keep_tag.0
+            {
+                *slot = None;
+                self.count -= 1;
             }
         }
     }

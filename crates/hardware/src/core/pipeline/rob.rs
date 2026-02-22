@@ -146,6 +146,7 @@ impl Rob {
     }
 
     /// Allocates a new ROB entry. Returns `None` if the ROB is full.
+    #[allow(clippy::too_many_arguments)]
     pub fn allocate(
         &mut self,
         pc: u64,
@@ -225,10 +226,10 @@ impl Rob {
 
     /// Marks the CSR update for a given entry as already applied (so commit skips it).
     pub fn mark_csr_applied(&mut self, tag: RobTag) {
-        if let Some(entry) = self.find_entry_mut(tag) {
-            if let Some(ref mut csr_update) = entry.csr_update {
-                csr_update.applied = true;
-            }
+        if let Some(entry) = self.find_entry_mut(tag)
+            && let Some(ref mut csr_update) = entry.csr_update
+        {
+            csr_update.applied = true;
         }
     }
 

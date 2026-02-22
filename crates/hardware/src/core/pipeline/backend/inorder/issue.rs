@@ -118,6 +118,11 @@ impl InOrderIssueUnit {
         self.queue.len()
     }
 
+    /// Whether the issue queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
     /// Flush all entries.
     pub fn flush(&mut self) {
         self.queue.clear();

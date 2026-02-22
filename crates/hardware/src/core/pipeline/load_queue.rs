@@ -39,6 +39,11 @@ impl LoadQueue {
         0
     }
 
+    /// Whether the load queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Flush all entries (trap / full pipeline flush).
     pub fn flush(&mut self) {}
 
