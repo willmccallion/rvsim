@@ -59,8 +59,9 @@ pub struct Cpu {
     pub l2_cache: CacheSim,
     /// L3 Unified Cache.
     pub l3_cache: CacheSim,
-    /// Base address for MMIO (used to bypass cache).
-    pub mmio_base: u64,
+    /// Base address of RAM — addresses at or above this go through the
+    /// cache hierarchy for latency simulation; addresses below are MMIO.
+    pub cache_base: u64,
 
     /// Branch Predictor Unit.
     pub branch_predictor: BranchPredictorWrapper,
@@ -240,7 +241,7 @@ impl Cpu {
             csrs,
             privilege,
             direct_mode,
-            mmio_base: config.system.ram_base,
+            cache_base: config.system.ram_base,
             stats: SimStats::default(),
             branch_predictor: bp,
             l1_i_cache: CacheSim::new(&config.cache.l1_i),

@@ -33,12 +33,12 @@ impl TestContext {
         let mut sim = Simulator::new(system, &config);
 
         // In tests, bypass the expensive simulate_memory_access path.
-        // The default mmio_base == ram_base (0x8000_0000), which routes all
-        // test-memory fetches through multi-cycle cache/DRAM simulation,
+        // The default cache_base == ram_base (0x8000_0000), which routes all
+        // test-memory accesses through multi-cycle cache/DRAM simulation,
         // adding ~10 stall cycles per access and starving the pipeline.
-        // Setting mmio_base to MAX ensures all addresses use the fast
-        // bus transit time path instead.
-        sim.cpu.mmio_base = u64::MAX;
+        // Setting cache_base to MAX ensures all addresses skip cache
+        // simulation instead.
+        sim.cpu.cache_base = u64::MAX;
 
         Self { sim }
     }

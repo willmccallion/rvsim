@@ -115,17 +115,12 @@ pub fn memory1_stage(
                 }
             }
 
-            // D-cache/bus latency for RAM and MMIO
-            if paddr.val() >= cpu.mmio_base {
+            // D-cache/bus latency: only cacheable addresses (RAM) go through
+            // the cache hierarchy. MMIO addresses (below cache_base) bypass
+            // caches entirely — they are uncacheable by nature.
+            if paddr.val() >= cpu.cache_base {
                 let lat = cpu.simulate_memory_access(paddr, access_type);
                 *stall_out += lat;
-            } else if ex.ctrl.mem_write {
-                let addr = paddr.val();
-                if (0x10001000..0x10002000).contains(&addr) {
-                    cpu.l1_d_cache.flush();
-                    cpu.l2_cache.flush();
-                    cpu.l3_cache.flush();
-                }
             }
 
             output.push(Mem1Mem2Entry {

@@ -78,9 +78,11 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     };
     let op_c = fwd_c;
 
-    // FENCE.I: flush caches and frontend
+    // FENCE.I: invalidate I-cache so subsequent fetches see prior stores.
+    // D-cache does NOT need flushing — stores reach memory via the store
+    // buffer drain at commit, and the I-cache refill reads from the cache
+    // hierarchy which includes dirty D-cache lines.
     if id.ctrl.is_fence_i {
-        cpu.l1_d_cache.flush();
         cpu.l1_i_cache.flush();
         cpu.pc = id.pc.wrapping_add(id.inst_size);
         cpu.redirect_pending = true;
@@ -172,7 +174,6 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         if mispredicted {
             cpu.stats.branch_mispredictions += 1;
-            cpu.stats.stalls_control += 2;
             cpu.pc = actual_next_pc;
             cpu.redirect_pending = true;
             needs_flush = true;
@@ -202,7 +203,6 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         if actual_target != predicted_target {
             cpu.stats.branch_mispredictions += 1;
-            cpu.stats.stalls_control += 2;
             cpu.pc = actual_target;
             cpu.redirect_pending = true;
             needs_flush = true;

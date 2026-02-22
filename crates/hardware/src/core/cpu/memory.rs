@@ -75,10 +75,14 @@ impl Cpu {
             self.l1_d_cache.enabled
         };
 
-        // If no cache level is enabled, there is no memory hierarchy to
-        // simulate — the pipeline structural latency is the only cost.
+        // If no cache level is enabled, every access goes directly to DRAM.
+        // The access still pays bus transit + DRAM latency — disabling
+        // caches should make performance worse, not give free memory.
         if !l1_enabled && !self.l2_cache.enabled && !self.l3_cache.enabled {
-            return 0;
+            let penalty = self.bus.bus.calculate_transit_time(8)
+                + ram_latency
+                + self.bus.bus.calculate_transit_time(64);
+            return penalty;
         }
 
         let (l1_hit, l1_pen) = if is_inst {

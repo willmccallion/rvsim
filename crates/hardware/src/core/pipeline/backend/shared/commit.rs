@@ -250,6 +250,15 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     if let Some(store) = store_buffer.drain_one()
         && let Some(paddr) = store.paddr
     {
+        // Simulate the store through the D-cache hierarchy so the cache
+        // line is installed and marked dirty (write-allocate). This is how
+        // real processors work: committed stores write into L1D, and dirty
+        // lines are written back to lower levels on eviction.
+        let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
+        if is_ram {
+            let addr = crate::common::PhysAddr::new(paddr);
+            let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+        }
         write_store_to_memory(cpu, paddr, store.data, store.width);
         if cpu.trace {
             eprintln!("CM  STORE DRAIN paddr={:#x} data={:#x}", paddr, store.data);
@@ -265,6 +274,11 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
 fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     while let Some(store) = store_buffer.drain_one() {
         if let Some(paddr) = store.paddr {
+            let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
+            if is_ram {
+                let addr = crate::common::PhysAddr::new(paddr);
+                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+            }
             write_store_to_memory(cpu, paddr, store.data, store.width);
             if cpu.trace {
                 eprintln!(
