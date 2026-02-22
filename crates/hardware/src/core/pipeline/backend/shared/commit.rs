@@ -223,13 +223,19 @@ pub fn commit_stage(
             }
         }
 
-        // SFENCE.VMA and FENCE are memory ordering barriers — all preceding
-        // stores must be visible in physical memory before they complete.
-        // Without this, the page table walker (which reads PTEs directly from
-        // RAM, bypassing the store buffer) can see stale page table entries
-        // after kernel code writes PTEs and issues SFENCE.VMA.
-        if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence || entry.ctrl.is_fence_i {
+        // SFENCE.VMA and FENCE.I always drain all committed stores — the
+        // page table walker reads PTEs directly from RAM (bypassing the store
+        // buffer), and FENCE.I must see prior stores before refilling I-cache.
+        // FENCE: only drain when pred.w is set (older stores must be globally
+        // visible before younger succ operations proceed).
+        if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence_i {
             drain_all_committed(cpu, store_buffer);
+        } else if entry.ctrl.is_fence {
+            let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
+            let pred_w = pred_bits & 0b0001 != 0;
+            if pred_w {
+                drain_all_committed(cpu, store_buffer);
+            }
         }
 
         // SFENCE.VMA: flush TLBs again at commit time.

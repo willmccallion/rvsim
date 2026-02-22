@@ -512,6 +512,72 @@ impl Rob {
         }
         true // tag not found in ROB (shouldn't happen)
     }
+
+    /// Returns true if all older ROB entries matching a FENCE's predecessor
+    /// set have completed (Completed or Faulted).
+    ///
+    /// `pred_r` = true means older loads must have completed.
+    /// `pred_w` = true means older stores must have completed.
+    /// If neither is set, the FENCE is vacuously ready.
+    pub fn fence_pred_satisfied(&self, tag: RobTag, pred_r: bool, pred_w: bool) -> bool {
+        if !pred_r && !pred_w {
+            return true; // no predecessor constraints
+        }
+        if self.count == 0 {
+            return true;
+        }
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid {
+                if entry.tag == tag {
+                    return true; // reached the FENCE — all older are satisfied
+                }
+                if entry.state == RobState::Issued {
+                    let dominated =
+                        (pred_r && entry.ctrl.mem_read) || (pred_w && entry.ctrl.mem_write);
+                    if dominated {
+                        return false; // older matching op still executing
+                    }
+                }
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        true
+    }
+
+    /// Checks if an older in-flight FENCE in the ROB blocks issuance of an
+    /// instruction with the given `tag`, `is_load`, and `is_store` flags.
+    ///
+    /// A FENCE with successor bits `succ.r` / `succ.w` prevents younger
+    /// loads/stores (respectively) from issuing until the FENCE has committed.
+    /// Returns `true` if the instruction is blocked by an older fence.
+    pub fn has_fence_blocking(&self, tag: RobTag, is_load: bool, is_store: bool) -> bool {
+        if self.count == 0 || (!is_load && !is_store) {
+            return false;
+        }
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid {
+                if entry.tag == tag {
+                    return false; // reached our entry — no older fence found
+                }
+                if entry.ctrl.is_fence {
+                    // Decode FENCE pred/succ from the raw instruction
+                    let succ_bits = ((entry.inst >> 20) & 0xF) as u8;
+                    let succ_r = succ_bits & 0b0010 != 0;
+                    let succ_w = succ_bits & 0b0001 != 0;
+                    let blocked = (is_load && succ_r) || (is_store && succ_w);
+                    if blocked {
+                        return true;
+                    }
+                }
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        false
+    }
 }
 
 #[cfg(test)]
@@ -689,5 +755,110 @@ mod tests {
             let entry = rob.commit_head().unwrap();
             assert_eq!(entry.result, i);
         }
+    }
+
+    /// Encode a FENCE instruction with given pred/succ bits.
+    /// FENCE encoding: opcode=0x0F, funct3=0, pred in bits[27:24], succ in bits[23:20].
+    fn encode_fence(pred: u8, succ: u8) -> u32 {
+        0x0F | ((pred as u32 & 0xF) << 24) | ((succ as u32 & 0xF) << 20)
+    }
+
+    fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<RobTag> {
+        rob.allocate(0x1000, inst, 4, 0, false, ctrl, PhysReg(0), PhysReg(0))
+    }
+
+    #[test]
+    fn test_fence_pred_satisfied() {
+        let mut rob = Rob::new(8);
+
+        // Allocate: store (tag1), load (tag2), FENCE rw,rw (tag3)
+        let store_ctrl = ControlSignals {
+            mem_write: true,
+            ..Default::default()
+        };
+        let load_ctrl = ControlSignals {
+            mem_read: true,
+            ..Default::default()
+        };
+        let fence_ctrl = ControlSignals {
+            is_fence: true,
+            ..Default::default()
+        };
+
+        let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
+        let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+        // FENCE rw,rw: pred=0b0011, succ=0b0011
+        let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
+
+        // pred.r=true, pred.w=true: both older load and store must complete
+        assert!(!rob.fence_pred_satisfied(t_fence, true, true));
+
+        // Complete the store — still blocked by uncompleted load (pred.r)
+        rob.complete(t_store, 0);
+        assert!(!rob.fence_pred_satisfied(t_fence, true, true));
+
+        // But pred.w only (FENCE w,*) would be satisfied now
+        assert!(rob.fence_pred_satisfied(t_fence, false, true));
+
+        // Complete the load — now fully satisfied
+        rob.complete(t_load, 0);
+        assert!(rob.fence_pred_satisfied(t_fence, true, true));
+    }
+
+    #[test]
+    fn test_has_fence_blocking() {
+        let mut rob = Rob::new(8);
+
+        // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
+        let fence_ctrl = ControlSignals {
+            is_fence: true,
+            ..Default::default()
+        };
+        let load_ctrl = ControlSignals {
+            mem_read: true,
+            ..Default::default()
+        };
+        let store_ctrl = ControlSignals {
+            mem_write: true,
+            ..Default::default()
+        };
+
+        // FENCE w,r: pred=0b0001 (W), succ=0b0010 (R)
+        let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0010), fence_ctrl).unwrap();
+        let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+        let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
+
+        // Load is blocked (succ.r = true)
+        assert!(rob.has_fence_blocking(t_load, true, false));
+        // Store is NOT blocked (succ.w = false)
+        assert!(!rob.has_fence_blocking(t_store, false, true));
+    }
+
+    #[test]
+    fn test_fence_tso_blocking() {
+        let mut rob = Rob::new(8);
+
+        // FENCE.TSO = FENCE rw,rw
+        let fence_ctrl = ControlSignals {
+            is_fence: true,
+            ..Default::default()
+        };
+        let load_ctrl = ControlSignals {
+            mem_read: true,
+            ..Default::default()
+        };
+        let store_ctrl = ControlSignals {
+            mem_write: true,
+            ..Default::default()
+        };
+
+        // FENCE rw,rw: pred=0b0011, succ=0b0011
+        let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
+        let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+        let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
+
+        // Both loads and stores are blocked
+        assert!(rob.has_fence_blocking(t_load, true, false));
+        assert!(rob.has_fence_blocking(t_store, false, true));
     }
 }

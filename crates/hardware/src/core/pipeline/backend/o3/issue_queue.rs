@@ -206,6 +206,25 @@ impl IssueQueue {
                     if iq.entry.ctrl.is_system && !rob.all_before_completed(iq.entry.rob_tag) {
                         continue;
                     }
+                    // FENCE: wait for older operations matching pred bits to complete.
+                    if iq.entry.ctrl.is_fence {
+                        let pred_bits = ((iq.entry.inst >> 24) & 0xF) as u8;
+                        let pred_r = pred_bits & 0b0010 != 0;
+                        let pred_w = pred_bits & 0b0001 != 0;
+                        if !rob.fence_pred_satisfied(iq.entry.rob_tag, pred_r, pred_w) {
+                            continue;
+                        }
+                    }
+                    // Loads/stores: blocked by older in-flight FENCE with matching succ bits.
+                    if (iq.entry.ctrl.mem_read || iq.entry.ctrl.mem_write)
+                        && rob.has_fence_blocking(
+                            iq.entry.rob_tag,
+                            iq.entry.ctrl.mem_read,
+                            iq.entry.ctrl.mem_write,
+                        )
+                    {
+                        continue;
+                    }
                     ready_indices.push(i);
                 }
             }

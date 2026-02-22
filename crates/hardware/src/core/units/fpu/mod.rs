@@ -275,13 +275,28 @@ impl Fpu {
         );
 
         if is_arith {
-            // Clear host FPU flags, execute, then read flags back
+            // Clear host FPU flags, execute, then read flags back.
+            // black_box prevents the optimizer from constant-folding the FP
+            // operations at compile time or reordering them across the
+            // feclearexcept/fetestexcept calls. Without this, release-mode
+            // builds can compute FP results at compile time, bypassing the
+            // host FPU entirely and leaving the flags register stale.
             clear_host_fp_flags();
-            let result = if is32 {
-                Self::execute_f32(op, a, b, c)
+            let result = std::hint::black_box(if is32 {
+                Self::execute_f32(
+                    op,
+                    std::hint::black_box(a),
+                    std::hint::black_box(b),
+                    std::hint::black_box(c),
+                )
             } else {
-                Self::execute_f64(op, a, b, c)
-            };
+                Self::execute_f64(
+                    op,
+                    std::hint::black_box(a),
+                    std::hint::black_box(b),
+                    std::hint::black_box(c),
+                )
+            });
             let flags = read_host_fp_flags();
             return (result, flags);
         }
