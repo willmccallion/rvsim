@@ -41,6 +41,11 @@ impl PyStats {
         d.set_item("stalls_mem", s.stalls_mem)?;
         d.set_item("stalls_control", s.stalls_control)?;
         d.set_item("stalls_data", s.stalls_data)?;
+        d.set_item("stalls_fu_structural", s.stalls_fu_structural)?;
+        d.set_item("stalls_backpressure", s.stalls_backpressure)?;
+        d.set_item("misprediction_penalty", s.misprediction_penalty)?;
+        d.set_item("pipeline_flushes", s.pipeline_flushes)?;
+        d.set_item("mem_ordering_violations", s.mem_ordering_violations)?;
 
         d.set_item("cycles_user", s.cycles_user)?;
         d.set_item("cycles_kernel", s.cycles_kernel)?;

@@ -91,8 +91,17 @@ pub struct SimStats {
     /// Stall cycles where a ready IQ entry could not issue (no free FU).
     pub stalls_fu_structural: u64,
 
-    /// Total ROB entries squashed due to branch mispredictions.
+    /// Total ROB entries squashed due to branch mispredictions / ordering violations.
     pub misprediction_penalty: u64,
+
+    /// Cycles where execute-to-memory pipeline is backpressured (execute_mem1 non-empty).
+    pub stalls_backpressure: u64,
+
+    /// Number of memory ordering violations detected (load queue).
+    pub mem_ordering_violations: u64,
+
+    /// Number of pipeline flushes (mispredictions + violations + CSR/FENCE redirects).
+    pub pipeline_flushes: u64,
 }
 
 impl Default for SimStats {
@@ -132,6 +141,9 @@ impl Default for SimStats {
             fu_utilization: [0; FU_TYPE_COUNT],
             stalls_fu_structural: 0,
             misprediction_penalty: 0,
+            stalls_backpressure: 0,
+            mem_ordering_violations: 0,
+            pipeline_flushes: 0,
         }
     }
 }
@@ -228,6 +240,16 @@ impl SimStats {
                 self.stalls_data,
                 (self.stalls_data as f64 / cyc as f64) * 100.0
             );
+            println!(
+                "  stalls.fu_structural   {} ({:.2}%)",
+                self.stalls_fu_structural,
+                (self.stalls_fu_structural as f64 / cyc as f64) * 100.0
+            );
+            println!(
+                "  stalls.backpressure    {} ({:.2}%)",
+                self.stalls_backpressure,
+                (self.stalls_backpressure as f64 / cyc as f64) * 100.0
+            );
             println!("{sep}");
         }
         if want("instruction_mix") {
@@ -278,6 +300,9 @@ impl SimStats {
             println!("  bp.lookups             {}", bp_total);
             println!("  bp.mispredicts         {}", bp_miss);
             println!("  bp.accuracy            {:.2}%", bp_acc);
+            println!("  bp.flushes             {}", self.pipeline_flushes);
+            println!("  bp.squashed_insns      {}", self.misprediction_penalty);
+            println!("  bp.mem_violations      {}", self.mem_ordering_violations);
             println!("{sep}");
         }
         if want("memory") {

@@ -176,6 +176,8 @@ impl ExecutionEngine for InOrderEngine {
         // updated cpu.pc. We flush here so that wrongly-fetched instructions
         // don't continue flowing through the backend.
         if needs_flush {
+            cpu.stats.stalls_control += 1;
+            cpu.stats.pipeline_flushes += 1;
             self.issuer.flush();
             rename_output.clear();
             // The mem1_stall was from a pre-branch instruction whose results

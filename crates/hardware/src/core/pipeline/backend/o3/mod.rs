@@ -258,7 +258,11 @@ impl ExecutionEngine for O3Engine {
             for entry in self.rob.iter_after(keep_tag) {
                 self.free_list.reclaim(entry.phys_dst);
             }
-            cpu.stats.misprediction_penalty += self.rob.iter_after(keep_tag).count() as u64;
+            let squashed = self.rob.iter_after(keep_tag).count() as u64;
+            cpu.stats.misprediction_penalty += squashed;
+            cpu.stats.mem_ordering_violations += 1;
+            cpu.stats.pipeline_flushes += 1;
+            cpu.stats.stalls_control += 1;
 
             self.issue_queue.flush_after(keep_tag);
             self.rob.flush_after(keep_tag);
@@ -315,6 +319,10 @@ impl ExecutionEngine for O3Engine {
             is_mem && p.complete_cycle <= now + 1
         });
         let backpressured = !self.execute_mem1.is_empty() || has_pending_mem;
+
+        if backpressured {
+            cpu.stats.stalls_backpressure += 1;
+        }
 
         if cpu.trace && backpressured {
             eprintln!(
@@ -476,6 +484,8 @@ impl ExecutionEngine for O3Engine {
 
         // ── 7. Handle flush on misprediction/serializing ───────────────
         if let Some(keep_tag) = flush_keep_tag {
+            cpu.stats.stalls_control += 1;
+            cpu.stats.pipeline_flushes += 1;
             rename_output.clear();
 
             // Check whether keep_tag is still in the ROB. It may have been
