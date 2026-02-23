@@ -19,33 +19,39 @@ use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::soc::interconnect::Bus;
 
-use self::tlb::Tlb;
+use self::tlb::{L2Tlb, Tlb};
 
 /// Memory Management Unit (MMU) for virtual-to-physical address translation.
 ///
 /// Implements RISC-V SV39 page-based virtual memory with separate instruction
-/// and data translation lookaside buffers (TLBs) and page table walker.
+/// and data L1 TLBs, a shared L2 TLB, and a page table walker.
 pub struct Mmu {
     /// Data TLB for load/store address translation.
     pub dtlb: Tlb,
     /// Instruction TLB for fetch address translation.
     pub itlb: Tlb,
+    /// Shared L2 TLB (set-associative, consulted on L1 miss).
+    pub l2_tlb: L2Tlb,
 }
 
 impl Mmu {
-    /// Creates a new MMU with the specified TLB size.
+    /// Creates a new MMU with the specified TLB sizes.
     ///
     /// # Arguments
     ///
-    /// * `tlb_size` - Number of entries in each TLB (instruction and data)
+    /// * `tlb_size` - Number of entries in each L1 TLB (instruction and data)
+    /// * `l2_size` - Total number of entries in the shared L2 TLB
+    /// * `l2_ways` - L2 TLB associativity (ways per set)
+    /// * `l2_latency` - L2 TLB hit latency in cycles
     ///
     /// # Returns
     ///
     /// A new `Mmu` instance with initialized TLBs.
-    pub fn new(tlb_size: usize) -> Self {
+    pub fn new(tlb_size: usize, l2_size: usize, l2_ways: usize, l2_latency: u64) -> Self {
         Self {
             dtlb: Tlb::new(tlb_size),
             itlb: Tlb::new(tlb_size),
+            l2_tlb: L2Tlb::new(l2_size, l2_ways, l2_latency),
         }
     }
 
@@ -183,6 +189,26 @@ impl Mmu {
                 use crate::common::constants::PAGE_SHIFT;
                 let paddr = (ppn << PAGE_SHIFT) | vaddr.page_offset();
                 return TranslationResult::success(PhysAddr::new(paddr), 0);
+            }
+        }
+
+        // L1 TLB miss — check the shared L2 TLB before invoking the PTW.
+        let l2_latency = self.l2_tlb.latency;
+        if let Some((ppn, pte_bits, entry_asid)) = self.l2_tlb.lookup(vpn, asid) {
+            // Promote to L1 TLB.
+            if access == AccessType::Fetch {
+                self.itlb.insert(vpn, ppn, pte_bits, entry_asid);
+            } else {
+                self.dtlb.insert(vpn, ppn, pte_bits, entry_asid);
+            }
+
+            // Check dirty bit — if writing with D=0, fall through to PTW.
+            let d = (pte_bits >> 7) & 1 != 0;
+            if access == AccessType::Write && !d {
+                // Don't return; let the PTW set the dirty bit.
+            } else {
+                let paddr = (ppn << PAGE_SHIFT) | vaddr.page_offset();
+                return TranslationResult::success(PhysAddr::new(paddr), l2_latency);
             }
         }
 

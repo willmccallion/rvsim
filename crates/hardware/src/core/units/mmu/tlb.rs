@@ -1,8 +1,10 @@
 //! Translation Lookaside Buffer (TLB).
 //!
-//! A fully associative cache for page table entries. It stores the mapping
-//! between Virtual Page Numbers (VPN) and Physical Page Numbers (PPN), along
-//! with permission bits (R/W/X/U) to speed up address translation.
+//! Provides both L1 TLBs (direct-mapped, per iTLB/dTLB) and a shared L2 TLB
+//! (set-associative). L1 TLBs cache the mapping between Virtual Page Numbers
+//! (VPN) and Physical Page Numbers (PPN), along with permission bits (R/W/X/U)
+//! to speed up address translation. On L1 miss the shared L2 TLB is consulted
+//! before invoking the hardware page table walker.
 
 /// A single entry in the TLB.
 #[derive(Clone, Copy, Default)]
@@ -170,5 +172,213 @@ impl Tlb {
         if e.valid && e.vpn == vpn && !e.global && e.asid == asid {
             e.valid = false;
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// L2 TLB — shared, set-associative
+// ════════════════════════════════════════════════════════════════════════
+
+/// Shared L2 TLB sitting between the per-access-type L1 TLBs and the
+/// hardware page table walker. 4-way set-associative with LRU replacement.
+pub struct L2Tlb {
+    /// Flat array of entries: `sets * ways` elements, laid out
+    /// `[set0_way0, set0_way1, …, set0_wayN, set1_way0, …]`.
+    entries: Vec<TlbEntry>,
+    /// Associativity (ways per set).
+    ways: usize,
+    /// Mask for set indexing (`num_sets - 1`).
+    set_mask: usize,
+    /// Per-set LRU counters. Each element is a small array of way ages
+    /// (lower = more recently used). Stored flat: `[set0_way0_age, set0_way1_age, …]`.
+    lru: Vec<u8>,
+    /// Access latency in cycles for an L2 TLB hit.
+    pub latency: u64,
+}
+
+impl L2Tlb {
+    /// Creates a new L2 TLB.
+    ///
+    /// * `total_entries` – total capacity (rounded up to a multiple of `ways`).
+    /// * `ways` – set associativity (e.g. 4).
+    /// * `latency` – cycles charged on an L2 TLB hit.
+    pub fn new(total_entries: usize, ways: usize, latency: u64) -> Self {
+        let safe_ways = if ways == 0 { 4 } else { ways };
+        let sets_raw = total_entries / safe_ways;
+        let num_sets = if sets_raw.is_power_of_two() {
+            sets_raw
+        } else {
+            sets_raw.next_power_of_two()
+        }
+        .max(1);
+        let capacity = num_sets * safe_ways;
+
+        Self {
+            entries: vec![TlbEntry::default(); capacity],
+            ways: safe_ways,
+            set_mask: num_sets - 1,
+            lru: vec![0u8; capacity],
+            latency,
+        }
+    }
+
+    /// Looks up a VPN in the L2 TLB.
+    ///
+    /// Returns `Some((ppn, pte_bits, asid))` on hit so the caller can
+    /// promote the entry into the L1 TLB. The `pte_bits` value is a
+    /// reconstructed raw PTE suitable for `Tlb::insert`.
+    pub fn lookup(&mut self, vpn: u64, asid: u16) -> Option<(u64, u64, u16)> {
+        let set = (vpn as usize) & self.set_mask;
+        let base = set * self.ways;
+
+        for w in 0..self.ways {
+            let e = &self.entries[base + w];
+            if e.valid && e.vpn == vpn && (e.global || e.asid == asid) {
+                let ppn = e.ppn;
+                let entry_asid = e.asid;
+                let pte_bits = Self::reconstruct_pte(e);
+                self.touch_lru(set, w);
+                return Some((ppn, pte_bits, entry_asid));
+            }
+        }
+        None
+    }
+
+    /// Inserts an entry, evicting the LRU way if the set is full.
+    pub fn insert(&mut self, vpn: u64, ppn: u64, pte: u64, asid: u16) {
+        let set = (vpn as usize) & self.set_mask;
+        let base = set * self.ways;
+
+        // Check for an existing entry with the same VPN (update in place).
+        for w in 0..self.ways {
+            let e = &self.entries[base + w];
+            if e.valid && e.vpn == vpn && (e.global || e.asid == asid) {
+                self.write_entry(base + w, vpn, ppn, pte, asid);
+                self.touch_lru(set, w);
+                return;
+            }
+        }
+
+        // Find an invalid way first.
+        for w in 0..self.ways {
+            if !self.entries[base + w].valid {
+                self.write_entry(base + w, vpn, ppn, pte, asid);
+                self.touch_lru(set, w);
+                return;
+            }
+        }
+
+        // Evict LRU way (highest age value).
+        let victim = self.lru_victim(set);
+        self.write_entry(base + victim, vpn, ppn, pte, asid);
+        self.touch_lru(set, victim);
+    }
+
+    /// Flushes all entries.
+    pub fn flush(&mut self) {
+        for e in &mut self.entries {
+            e.valid = false;
+        }
+    }
+
+    /// Flushes entries matching a specific virtual address.
+    pub fn flush_vaddr(&mut self, vpn: u64) {
+        let set = (vpn as usize) & self.set_mask;
+        let base = set * self.ways;
+        for w in 0..self.ways {
+            let e = &mut self.entries[base + w];
+            if e.valid && e.vpn == vpn {
+                e.valid = false;
+            }
+        }
+    }
+
+    /// Flushes non-global entries matching a specific ASID.
+    pub fn flush_asid(&mut self, asid: u16) {
+        for e in &mut self.entries {
+            if e.valid && !e.global && e.asid == asid {
+                e.valid = false;
+            }
+        }
+    }
+
+    /// Flushes entries matching both a virtual address and ASID.
+    pub fn flush_vaddr_asid(&mut self, vpn: u64, asid: u16) {
+        let set = (vpn as usize) & self.set_mask;
+        let base = set * self.ways;
+        for w in 0..self.ways {
+            let e = &mut self.entries[base + w];
+            if e.valid && e.vpn == vpn && !e.global && e.asid == asid {
+                e.valid = false;
+            }
+        }
+    }
+
+    // ── internal helpers ──────────────────────────────────────────────
+
+    fn write_entry(&mut self, idx: usize, vpn: u64, ppn: u64, pte: u64, asid: u16) {
+        self.entries[idx] = TlbEntry {
+            vpn,
+            ppn,
+            valid: true,
+            r: (pte >> 1) & 1 != 0,
+            w: (pte >> 2) & 1 != 0,
+            x: (pte >> 3) & 1 != 0,
+            u: (pte >> 4) & 1 != 0,
+            global: (pte >> 5) & 1 != 0,
+            d: (pte >> 7) & 1 != 0,
+            asid,
+        };
+    }
+
+    /// Reconstruct a raw PTE value from a `TlbEntry` so it can be
+    /// passed to `Tlb::insert` when promoting from L2 to L1.
+    fn reconstruct_pte(e: &TlbEntry) -> u64 {
+        let mut pte: u64 = 1; // V bit
+        if e.r {
+            pte |= 1 << 1;
+        }
+        if e.w {
+            pte |= 1 << 2;
+        }
+        if e.x {
+            pte |= 1 << 3;
+        }
+        if e.u {
+            pte |= 1 << 4;
+        }
+        if e.global {
+            pte |= 1 << 5;
+        }
+        if e.d {
+            pte |= 1 << 7;
+        }
+        pte
+    }
+
+    /// Mark way `w` as most-recently-used in set `set`.
+    fn touch_lru(&mut self, set: usize, way: usize) {
+        let base = set * self.ways;
+        let old_age = self.lru[base + way];
+        for w in 0..self.ways {
+            if self.lru[base + w] < old_age {
+                self.lru[base + w] += 1;
+            }
+        }
+        self.lru[base + way] = 0;
+    }
+
+    /// Returns the way index of the LRU victim in `set`.
+    fn lru_victim(&self, set: usize) -> usize {
+        let base = set * self.ways;
+        let mut max_age = 0u8;
+        let mut victim = 0;
+        for w in 0..self.ways {
+            if self.lru[base + w] > max_age {
+                max_age = self.lru[base + w];
+                victim = w;
+            }
+        }
+        victim
     }
 }

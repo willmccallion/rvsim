@@ -269,6 +269,7 @@ pub fn commit_stage(
         if entry.ctrl.is_sfence_vma {
             cpu.mmu.dtlb.flush();
             cpu.mmu.itlb.flush();
+            cpu.mmu.l2_tlb.flush();
         }
 
         // Ensure x0 stays zero

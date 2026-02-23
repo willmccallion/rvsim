@@ -196,6 +196,7 @@ impl Cpu {
 
                 self.mmu.dtlb.flush();
                 self.mmu.itlb.flush();
+                self.mmu.l2_tlb.flush();
             }
             _ => {}
         }

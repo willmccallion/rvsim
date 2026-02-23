@@ -719,6 +719,7 @@ impl PyCpu {
         cpu.l3_cache.flush();
         cpu.mmu.dtlb.flush();
         cpu.mmu.itlb.flush();
+        cpu.mmu.l2_tlb.flush();
 
         Ok(())
     }

@@ -197,11 +197,14 @@ pub fn page_table_walk(
         let specific_4kb_ppn = final_paddr >> PAGE_SHIFT;
         let vpn = (vaddr.val() >> PAGE_SHIFT) & VPN_MASK;
 
+        let pte_raw = new_pte.raw();
         if access == AccessType::Fetch {
-            mmu.itlb.insert(vpn, specific_4kb_ppn, new_pte.raw(), asid);
+            mmu.itlb.insert(vpn, specific_4kb_ppn, pte_raw, asid);
         } else {
-            mmu.dtlb.insert(vpn, specific_4kb_ppn, new_pte.raw(), asid);
+            mmu.dtlb.insert(vpn, specific_4kb_ppn, pte_raw, asid);
         }
+        // Also populate the shared L2 TLB.
+        mmu.l2_tlb.insert(vpn, specific_4kb_ppn, pte_raw, asid);
 
         return TranslationResult::success(PhysAddr::new(final_paddr), cycles);
     }

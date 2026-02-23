@@ -39,7 +39,7 @@ fn make_pte(ppn: u64, perms: u64) -> u64 {
 }
 
 fn setup_mmu() -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4); // Small TLB to force walks
+    let mmu = Mmu::new(4, 4, 4, 4); // Small TLB + small L2 TLB to force walks
     let mut csrs = Csrs::default();
 
     // Enable SV39 mode

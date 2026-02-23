@@ -105,10 +105,19 @@ mod defaults {
     /// are unavailable.
     pub const T_RFC: u64 = 350;
 
-    /// Translation Lookaside Buffer entry count.
+    /// Translation Lookaside Buffer entry count (L1).
     ///
-    /// Number of virtual-to-physical address translations cached in the TLB.
+    /// Number of virtual-to-physical address translations cached in each L1 TLB.
     pub const TLB_SIZE: usize = 32;
+
+    /// L2 TLB entry count (shared between iTLB and dTLB).
+    pub const L2_TLB_SIZE: usize = 512;
+
+    /// L2 TLB associativity (ways per set).
+    pub const L2_TLB_WAYS: usize = 4;
+
+    /// L2 TLB hit latency in cycles.
+    pub const L2_TLB_LATENCY: u64 = 4;
 
     /// Default cache size in bytes (4 KiB).
     pub const CACHE_SIZE: usize = 4096;
@@ -643,9 +652,21 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_t_rfc")]
     pub t_rfc: u64,
 
-    /// TLB entry count
+    /// L1 TLB entry count
     #[serde(default = "MemoryConfig::default_tlb_size")]
     pub tlb_size: usize,
+
+    /// L2 TLB entry count (shared between iTLB and dTLB)
+    #[serde(default = "MemoryConfig::default_l2_tlb_size")]
+    pub l2_tlb_size: usize,
+
+    /// L2 TLB associativity (ways per set)
+    #[serde(default = "MemoryConfig::default_l2_tlb_ways")]
+    pub l2_tlb_ways: usize,
+
+    /// L2 TLB hit latency in cycles
+    #[serde(default = "MemoryConfig::default_l2_tlb_latency")]
+    pub l2_tlb_latency: u64,
 }
 
 impl MemoryConfig {
@@ -703,6 +724,21 @@ impl MemoryConfig {
     fn default_tlb_size() -> usize {
         defaults::TLB_SIZE
     }
+
+    /// Returns the default L2 TLB entry count.
+    fn default_l2_tlb_size() -> usize {
+        defaults::L2_TLB_SIZE
+    }
+
+    /// Returns the default L2 TLB associativity.
+    fn default_l2_tlb_ways() -> usize {
+        defaults::L2_TLB_WAYS
+    }
+
+    /// Returns the default L2 TLB hit latency.
+    fn default_l2_tlb_latency() -> u64 {
+        defaults::L2_TLB_LATENCY
+    }
 }
 
 impl Default for MemoryConfig {
@@ -724,6 +760,9 @@ impl Default for MemoryConfig {
             t_refi: defaults::T_REFI,
             t_rfc: defaults::T_RFC,
             tlb_size: defaults::TLB_SIZE,
+            l2_tlb_size: defaults::L2_TLB_SIZE,
+            l2_tlb_ways: defaults::L2_TLB_WAYS,
+            l2_tlb_latency: defaults::L2_TLB_LATENCY,
         }
     }
 }

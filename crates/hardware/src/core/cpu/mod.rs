@@ -254,7 +254,12 @@ impl Cpu {
             l1d_mshrs: MshrFile::new(config.cache.l1_d.mshr_count, config.cache.l1_d.line_bytes),
             l2_cache: CacheSim::new(&config.cache.l2),
             l3_cache: CacheSim::new(&config.cache.l3),
-            mmu: Mmu::new(config.memory.tlb_size),
+            mmu: Mmu::new(
+                config.memory.tlb_size,
+                config.memory.l2_tlb_size,
+                config.memory.l2_tlb_ways,
+                config.memory.l2_tlb_latency,
+            ),
             pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,

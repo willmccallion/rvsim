@@ -616,6 +616,7 @@ fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64,
             // Flush all
             cpu.mmu.dtlb.flush();
             cpu.mmu.itlb.flush();
+            cpu.mmu.l2_tlb.flush();
             cpu.l1_d_cache.flush();
             cpu.l1_i_cache.flush();
         }
@@ -624,12 +625,14 @@ fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64,
             let vpn = (rs1_val >> PAGE_SHIFT) & VPN_MASK;
             cpu.mmu.dtlb.flush_vaddr(vpn);
             cpu.mmu.itlb.flush_vaddr(vpn);
+            cpu.mmu.l2_tlb.flush_vaddr(vpn);
         }
         (false, true) => {
             // Flush by ASID only (non-global entries)
             let asid = rs2_val as u16;
             cpu.mmu.dtlb.flush_asid(asid);
             cpu.mmu.itlb.flush_asid(asid);
+            cpu.mmu.l2_tlb.flush_asid(asid);
         }
         (true, true) => {
             // Flush by both virtual address and ASID
@@ -637,6 +640,7 @@ fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64,
             let asid = rs2_val as u16;
             cpu.mmu.dtlb.flush_vaddr_asid(vpn, asid);
             cpu.mmu.itlb.flush_vaddr_asid(vpn, asid);
+            cpu.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
         }
     }
 }
