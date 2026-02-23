@@ -70,6 +70,8 @@ pub struct Cpu {
     pub branch_predictor: BranchPredictorWrapper,
     /// Pipeline width (superscalar degree).
     pub pipeline_width: usize,
+    /// I-cache line size in bytes (for cache-line-aligned fetch).
+    pub i_cache_line_bytes: usize,
 
     /// Enable instruction tracing.
     pub trace: bool,
@@ -256,6 +258,7 @@ impl Cpu {
             pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
+            i_cache_line_bytes: config.cache.l1_i.line_bytes.max(1),
             clint_divider: config.system.clint_divider,
             last_pc: 0,
             same_pc_count: 0,

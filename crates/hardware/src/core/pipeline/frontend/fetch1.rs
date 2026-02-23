@@ -28,7 +28,17 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
     let c_enabled = (cpu.csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
+    // Cache-line-aligned fetch: a real frontend fetches one cache line per cycle.
+    // If the PC is near the end of a line, only the remaining bytes are available.
+    // We track a byte budget and stop when the next instruction wouldn't fit.
+    let line_bytes = cpu.i_cache_line_bytes as u64;
+    let line_end = (current_pc | (line_bytes - 1)) + 1; // end of current cache line
+
     for _ in 0..cpu.pipeline_width {
+        // Stop if fewer than 2 bytes remain in this cache line (minimum instruction size).
+        if current_pc + 2 > line_end {
+            break;
+        }
         // Check alignment
         let mut fetch_trap = None;
         if (current_pc & align_mask) != 0 {
