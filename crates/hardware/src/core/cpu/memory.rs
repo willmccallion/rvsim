@@ -58,7 +58,10 @@ impl Cpu {
     pub fn simulate_l1d_miss_latency(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr);
+        let ram_latency = self
+            .bus
+            .mem_controller
+            .access_latency(raw_addr, self.csrs.cycle);
         let next_lat = ram_latency;
         let is_write = matches!(access, AccessType::Write);
 
@@ -103,7 +106,10 @@ impl Cpu {
     pub fn simulate_memory_access(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr);
+        let ram_latency = self
+            .bus
+            .mem_controller
+            .access_latency(raw_addr, self.csrs.cycle);
         let next_lat = ram_latency;
         let is_inst = matches!(access, AccessType::Fetch);
         let is_write = matches!(access, AccessType::Write);

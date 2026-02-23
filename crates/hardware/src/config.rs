@@ -83,6 +83,28 @@ mod defaults {
     /// currently open in the row buffer.
     pub const ROW_MISS_LATENCY: u64 = 120;
 
+    /// Number of DRAM banks per rank (default 8, typical DDR3/DDR4).
+    pub const NUM_BANKS: usize = 8;
+
+    /// Row-to-Row Delay (different bank) in DRAM cycles.
+    ///
+    /// Minimum time between ACT commands to different banks.
+    pub const T_RRD: u64 = 4;
+
+    /// DRAM row (page) size in bytes (default 2 KiB).
+    pub const ROW_SIZE_BYTES: usize = 2048;
+
+    /// Refresh Interval in cycles (~7.8μs at 1 GHz).
+    ///
+    /// Time between successive auto-refresh commands.
+    pub const T_REFI: u64 = 7800;
+
+    /// Refresh Cycle time in cycles (~350ns at 1 GHz).
+    ///
+    /// Duration of a single refresh operation during which all banks
+    /// are unavailable.
+    pub const T_RFC: u64 = 350;
+
     /// Translation Lookaside Buffer entry count.
     ///
     /// Number of virtual-to-physical address translations cached in the TLB.
@@ -598,6 +620,26 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_row_miss")]
     pub row_miss_latency: u64,
 
+    /// Number of DRAM banks per rank
+    #[serde(default = "MemoryConfig::default_num_banks")]
+    pub num_banks: usize,
+
+    /// Row-to-Row Delay (different bank activation spacing)
+    #[serde(default = "MemoryConfig::default_t_rrd")]
+    pub t_rrd: u64,
+
+    /// DRAM row (page) size in bytes
+    #[serde(default = "MemoryConfig::default_row_size")]
+    pub row_size_bytes: usize,
+
+    /// Refresh interval in cycles
+    #[serde(default = "MemoryConfig::default_t_refi")]
+    pub t_refi: u64,
+
+    /// Refresh cycle time in cycles
+    #[serde(default = "MemoryConfig::default_t_rfc")]
+    pub t_rfc: u64,
+
     /// TLB entry count
     #[serde(default = "MemoryConfig::default_tlb_size")]
     pub tlb_size: usize,
@@ -629,6 +671,31 @@ impl MemoryConfig {
         defaults::ROW_MISS_LATENCY
     }
 
+    /// Returns the default number of DRAM banks.
+    fn default_num_banks() -> usize {
+        defaults::NUM_BANKS
+    }
+
+    /// Returns the default row-to-row delay in DRAM cycles.
+    fn default_t_rrd() -> u64 {
+        defaults::T_RRD
+    }
+
+    /// Returns the default row size in bytes.
+    fn default_row_size() -> usize {
+        defaults::ROW_SIZE_BYTES
+    }
+
+    /// Returns the default refresh interval in cycles.
+    fn default_t_refi() -> u64 {
+        defaults::T_REFI
+    }
+
+    /// Returns the default refresh cycle time in cycles.
+    fn default_t_rfc() -> u64 {
+        defaults::T_RFC
+    }
+
     /// Returns the default TLB entry count.
     fn default_tlb_size() -> usize {
         defaults::TLB_SIZE
@@ -648,6 +715,11 @@ impl Default for MemoryConfig {
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,
             row_miss_latency: defaults::ROW_MISS_LATENCY,
+            num_banks: defaults::NUM_BANKS,
+            t_rrd: defaults::T_RRD,
+            row_size_bytes: defaults::ROW_SIZE_BYTES,
+            t_refi: defaults::T_REFI,
+            t_rfc: defaults::T_RFC,
             tlb_size: defaults::TLB_SIZE,
         }
     }

@@ -18,7 +18,7 @@ impl MockMemoryController {
 }
 
 impl MemoryController for MockMemoryController {
-    fn access_latency(&mut self, _addr: u64) -> u64 {
+    fn access_latency(&mut self, _addr: u64, _current_cycle: u64) -> u64 {
         self.latency
     }
 }
