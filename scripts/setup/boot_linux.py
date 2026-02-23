@@ -339,7 +339,7 @@ def main():
 
     try:
         return sim.run(
-            limit=10_000_000
+            limit=1_000_000_000
         )  # Add progress = ... to this if it seems to hang.
     except Exception as e:
         print(f"Simulation failed: {e}")

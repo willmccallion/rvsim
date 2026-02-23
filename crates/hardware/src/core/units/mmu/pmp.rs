@@ -175,12 +175,18 @@ impl Pmp {
     fn napot_range(pmpaddr: u64) -> (u64, u64) {
         // Count trailing ones in pmpaddr
         let trailing = (!pmpaddr).trailing_zeros() as u64;
+        let size_bits = trailing + 3;
+        // If the region covers the entire address space (or more), return the
+        // full u64 range. This avoids overflow when shifting by >= 64.
+        if size_bits >= 64 {
+            return (0, u64::MAX);
+        }
         // Region size = 2^(trailing + 3) bytes
-        let size = 1u64 << (trailing + 3);
+        let size = 1u64 << size_bits;
         // Mask the trailing bits + the implicit bit above them
         let mask = size - 1;
         let base = (pmpaddr << 2) & !mask;
-        (base, base + size)
+        (base, base.wrapping_add(size))
     }
 
     /// Computes the byte-address range for an NA4 entry (exactly 4 bytes).
