@@ -31,7 +31,6 @@ use self::rounding_modes::RoundingMode;
 // Host FPU exception flag bits from <fenv.h> — used to detect inexact/overflow/etc.
 // These are the same on x86_64 and aarch64 Linux (POSIX standard values).
 const FE_INEXACT: i32 = 0x20;
-#[allow(dead_code)]
 const FE_UNDERFLOW: i32 = 0x10;
 const FE_OVERFLOW: i32 = 0x08;
 const FE_DIVBYZERO: i32 = 0x04;
@@ -55,6 +54,9 @@ fn read_host_fp_flags() -> FpFlags {
     }
     if host & FE_OVERFLOW != 0 {
         flags = flags | FpFlags::OF;
+    }
+    if host & FE_UNDERFLOW != 0 {
+        flags = flags | FpFlags::UF;
     }
     if host & FE_INEXACT != 0 {
         flags = flags | FpFlags::NX;
@@ -424,6 +426,22 @@ impl Fpu {
                 AluOp::FMul => fa * fb,
                 AluOp::FDiv => fa / fb,
                 AluOp::FSqrt => fa.sqrt(),
+                AluOp::FMAdd => {
+                    let fc = unbox_f32(c) as f64;
+                    fa.mul_add(fb, fc)
+                }
+                AluOp::FMSub => {
+                    let fc = unbox_f32(c) as f64;
+                    fa.mul_add(fb, -fc)
+                }
+                AluOp::FNMAdd => {
+                    let fc = unbox_f32(c) as f64;
+                    (-fa).mul_add(fb, -fc)
+                }
+                AluOp::FNMSub => {
+                    let fc = unbox_f32(c) as f64;
+                    (-fa).mul_add(fb, fc)
+                }
                 _ => {
                     // For operations where rounding mode doesn't affect the
                     // result (comparisons, sign injection, etc.), delegate.
@@ -448,6 +466,22 @@ impl Fpu {
                 AluOp::FMul => fa * fb,
                 AluOp::FDiv => fa / fb,
                 AluOp::FSqrt => fa.sqrt(),
+                AluOp::FMAdd => {
+                    let fc = f64::from_bits(c);
+                    fa.mul_add(fb, fc)
+                }
+                AluOp::FMSub => {
+                    let fc = f64::from_bits(c);
+                    fa.mul_add(fb, -fc)
+                }
+                AluOp::FNMAdd => {
+                    let fc = f64::from_bits(c);
+                    (-fa).mul_add(fb, -fc)
+                }
+                AluOp::FNMSub => {
+                    let fc = f64::from_bits(c);
+                    (-fa).mul_add(fb, fc)
+                }
                 _ => {
                     return Self::execute(op, a, b, c, is32);
                 }

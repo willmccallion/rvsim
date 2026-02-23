@@ -303,9 +303,7 @@ pub fn expand(inst: u16) -> u32 {
             q2::C_SLLI => {
                 let imm = ((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5;
                 let rd = ((inst >> 7) & 0x1F) as u32;
-                if rd == 0 {
-                    return 0;
-                }
+                // rd == 0 is a HINT (SLLI x0, x0, imm); let it expand normally.
                 (imm as u32) << 20 | (rd << 15) | (funct3::SLL << 12) | (rd << 7) | opcodes::OP_IMM
             }
             q2::C_FLDSP => {

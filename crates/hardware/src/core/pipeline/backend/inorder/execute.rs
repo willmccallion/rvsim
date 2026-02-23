@@ -32,9 +32,13 @@ pub fn execute_inorder(
     cpu: &mut Cpu,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
+    inflight_fp_flags: u8,
 ) -> (Vec<ExMem1Entry>, bool) {
     let mut results = Vec::with_capacity(entries.len());
     let mut flush_remaining = false;
+    // Accumulates fp_flags from FP instructions executed in this batch,
+    // so a later CSR read of fflags in the same cycle sees them.
+    let mut batch_fp_flags: u8 = 0;
 
     for id in entries {
         if flush_remaining {
@@ -414,6 +418,19 @@ pub fn execute_inorder(
                     }
                 }
 
+                // Drain accumulated fp_flags from older ROB entries AND in-flight
+                // pipeline latches into fflags before reading fflags/fcsr/frm,
+                // so the CSR read sees flags from all older FP instructions.
+                {
+                    use crate::core::arch::csr as csr_addrs;
+                    if id.ctrl.csr_addr == csr_addrs::FFLAGS
+                        || id.ctrl.csr_addr == csr_addrs::FCSR
+                        || id.ctrl.csr_addr == csr_addrs::FRM
+                    {
+                        let acc = rob.drain_fp_flags_before(id.rob_tag);
+                        cpu.csrs.fflags |= (acc | inflight_fp_flags | batch_fp_flags) as u64;
+                    }
+                }
                 let old = cpu.csr_read(id.ctrl.csr_addr);
                 let src = match id.ctrl.csr_op {
                     CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (id.rs1 as u64) & 0x1f,
@@ -495,14 +512,9 @@ pub fn execute_inorder(
         // ALU / FPU execution
         let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
 
-        // Accumulate FP exception flags into fcsr.fflags
-        if fp_flags != 0 {
-            cpu.csrs.fflags |= fp_flags as u64;
-            // Writing fflags makes FP state dirty
-            use crate::core::arch::csr;
-            cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-        }
+        // FP exception flags are deferred to commit via the ROB entry
+        // (applied by commit_stage in shared/commit.rs).
+        batch_fp_flags |= fp_flags;
 
         // Branch resolution
         if id.ctrl.branch {
@@ -596,7 +608,7 @@ pub fn execute_inorder(
             trap: None,
             exception_stage: None,
             rd_phys: Default::default(),
-            fp_flags: 0,
+            fp_flags,
         });
     }
 

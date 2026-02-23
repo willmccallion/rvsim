@@ -413,23 +413,9 @@ impl ExecutionEngine for O3Engine {
                         if entry.fp_flags != 0 {
                             self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
                         }
-                        // For CSR instructions: apply the deferred CSR write NOW (at complete
-                        // time) rather than waiting for commit. This prevents a race where
-                        // younger FP instructions execute speculatively and set fflags before
-                        // the CSR write (e.g. fsflags fflags=0) has been applied. Since CSR
-                        // instructions are serializing (they flush all younger instructions
-                        // before completing), applying the write here is safe and correct.
-                        if let Some(csr_entry) = self.rob.find_entry(entry.rob_tag)
-                            && let Some(ref csr_update) = csr_entry.csr_update.clone()
-                            && !csr_update.applied
-                        {
-                            use crate::core::arch::csr as csr_mod;
-                            if csr_update.addr != csr_mod::SATP {
-                                // SATP drain is handled at commit; skip eager apply.
-                                cpu.csr_write(csr_update.addr, csr_update.new_val);
-                                self.rob.mark_csr_applied(entry.rob_tag);
-                            }
-                        }
+                        // CSR writes are deferred to commit (shared/commit.rs)
+                        // to prevent speculative CSR state from persisting if
+                        // an older instruction traps.
                         self.rob.complete(entry.rob_tag, val);
                         self.prf.write(entry.rd_phys, val);
                         self.issue_queue.wakeup_phys(entry.rd_phys, val);

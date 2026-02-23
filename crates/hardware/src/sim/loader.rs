@@ -125,14 +125,25 @@ pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
     for segment in file.segments() {
         use object::ObjectSegment;
         // We only care about loadable segments (PT_LOAD flags)
-        if segment.size() == 0 {
+        let p_memsz = segment.size();
+        if p_memsz == 0 {
             continue;
         }
         let paddr = segment.address();
-        if let Ok(seg_data) = segment.data()
-            && !seg_data.is_empty()
-        {
-            bus.load_binary_at(seg_data, paddr);
+        if let Ok(seg_data) = segment.data() {
+            if !seg_data.is_empty() {
+                bus.load_binary_at(seg_data, paddr);
+            }
+            // Zero-fill the BSS gap (p_memsz > p_filesz)
+            let p_filesz = seg_data.len() as u64;
+            if p_memsz > p_filesz {
+                let bss_start = paddr + p_filesz;
+                let bss_size = (p_memsz - p_filesz) as usize;
+                bus.load_binary_at(&vec![0u8; bss_size], bss_start);
+            }
+        } else if p_memsz > 0 {
+            // No file data but memsz > 0: zero-fill the entire region
+            bus.load_binary_at(&vec![0u8; p_memsz as usize], paddr);
         }
     }
 

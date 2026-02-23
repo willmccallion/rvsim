@@ -515,19 +515,28 @@ impl CacheSim {
         self.line_bytes
     }
 
-    /// Flushes all dirty cache lines, invalidating them.
+    /// Flushes the cache: writes back all dirty lines and invalidates all entries.
     ///
-    /// Marks all valid and dirty lines as invalid. Used for cache
-    /// coherence operations and system calls that require cache flushing.
-    pub fn flush(&mut self) {
+    /// Returns information about evicted dirty lines so callers can account
+    /// for writeback latency. All valid lines (dirty or clean) are invalidated.
+    pub fn flush(&mut self) -> Vec<EvictedLine> {
+        let mut evicted = Vec::new();
         if !self.enabled {
-            return;
+            return evicted;
         }
-        for line in &mut self.lines {
-            if line.valid && line.dirty {
-                line.dirty = false;
-                line.valid = false;
+        for i in 0..self.lines.len() {
+            if self.lines[i].valid {
+                if self.lines[i].dirty {
+                    let set_index = i / self.ways;
+                    evicted.push(EvictedLine {
+                        addr: self.reconstruct_addr(set_index, self.lines[i].tag),
+                        dirty: true,
+                    });
+                }
+                self.lines[i].dirty = false;
+                self.lines[i].valid = false;
             }
         }
+        evicted
     }
 }

@@ -165,7 +165,20 @@ impl ExecutionEngine for InOrderEngine {
             if issued.is_empty() && !self.issuer.is_empty() {
                 cpu.stats.stalls_data += 1;
             }
-            execute::execute_inorder(cpu, issued, &mut self.rob)
+            // Accumulate fp_flags from in-flight pipeline entries that
+            // haven't reached writeback/ROB yet, so CSR reads of fflags
+            // see flags from all older FP instructions.
+            let mut inflight_fp_flags: u8 = 0;
+            for e in &self.execute_mem1 {
+                inflight_fp_flags |= e.fp_flags;
+            }
+            for e in &self.mem1_mem2 {
+                inflight_fp_flags |= e.fp_flags;
+            }
+            for e in &self.mem2_wb {
+                inflight_fp_flags |= e.fp_flags;
+            }
+            execute::execute_inorder(cpu, issued, &mut self.rob, inflight_fp_flags)
         };
         self.execute_mem1.extend(results);
 

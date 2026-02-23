@@ -379,9 +379,6 @@ impl VirtioBlock {
                 }
 
                 self.dma_write(s_addr, &[0]);
-                if is_write {
-                    len_written = 0;
-                }
             }
 
             let used_idx_addr = used_addr + 2;
