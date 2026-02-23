@@ -111,6 +111,19 @@ pub struct SimStats {
     pub stalls_mshr_full: u64,
     /// Load replays due to speculative wakeup on L1D miss.
     pub load_replays: u64,
+
+    /// Inclusive policy: L1 lines back-invalidated due to L2/L3 eviction.
+    pub inclusion_back_invalidations: u64,
+    /// Exclusive policy: L1 evictees installed into L2 (swap).
+    pub exclusive_l1_to_l2_swaps: u64,
+
+    /// Write Combining Buffer: stores coalesced into existing WCB entries.
+    pub wcb_coalesces: u64,
+    /// Write Combining Buffer: entries drained to L1D.
+    pub wcb_drains: u64,
+
+    /// Prefetch filter: redundant prefetch requests suppressed.
+    pub prefetch_filter_dedup: u64,
 }
 
 impl Default for SimStats {
@@ -157,6 +170,11 @@ impl Default for SimStats {
             mshr_coalesces: 0,
             stalls_mshr_full: 0,
             load_replays: 0,
+            inclusion_back_invalidations: 0,
+            exclusive_l1_to_l2_swaps: 0,
+            wcb_coalesces: 0,
+            wcb_drains: 0,
+            prefetch_filter_dedup: 0,
         }
     }
 }
@@ -345,6 +363,24 @@ impl SimStats {
                     self.mshr_allocations, self.mshr_coalesces, self.stalls_mshr_full
                 );
                 println!("  load.replays           {}", self.load_replays);
+            }
+            if self.inclusion_back_invalidations > 0 {
+                println!(
+                    "  incl.back_invalidate   {}",
+                    self.inclusion_back_invalidations
+                );
+            }
+            if self.exclusive_l1_to_l2_swaps > 0 {
+                println!("  excl.l1_to_l2_swaps    {}", self.exclusive_l1_to_l2_swaps);
+            }
+            if self.wcb_coalesces > 0 || self.wcb_drains > 0 {
+                println!(
+                    "  wcb.coalesces          {} | drains: {}",
+                    self.wcb_coalesces, self.wcb_drains
+                );
+            }
+            if self.prefetch_filter_dedup > 0 {
+                println!("  pf_filter.dedup        {}", self.prefetch_filter_dedup);
             }
         }
         println!("{rule}");

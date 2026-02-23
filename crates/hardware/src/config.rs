@@ -264,6 +264,33 @@ pub enum ReplacementPolicy {
     Mru,
 }
 
+/// Cache inclusion policy for multi-level cache hierarchies.
+///
+/// Controls how evictions at one cache level interact with other levels
+/// to maintain coherence within the same core's cache hierarchy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum InclusionPolicy {
+    /// No Inclusion, Non-Exclusive (default).
+    ///
+    /// Cache levels operate independently. An eviction at one level does
+    /// not affect other levels. This is the simplest policy and matches
+    /// the existing behavior.
+    #[default]
+    #[serde(alias = "NINE")]
+    Nine,
+    /// Inclusive: L2 is a superset of L1.
+    ///
+    /// When a line is evicted from L2, the corresponding line in L1 is
+    /// back-invalidated to prevent L1 from holding stale data.
+    Inclusive,
+    /// Exclusive: L1 and L2 hold disjoint sets of lines.
+    ///
+    /// When a line is evicted from L1, it is installed into L2 (swap policy).
+    /// This maximizes effective cache capacity.
+    Exclusive,
+}
+
 /// Hardware prefetcher types for cache prefetching.
 ///
 /// Prefetchers predict future memory accesses and fetch data
@@ -778,6 +805,12 @@ pub struct CacheHierarchyConfig {
     pub l2: CacheConfig,
     /// Unified L3 cache (optional)
     pub l3: CacheConfig,
+    /// Inclusion policy for the cache hierarchy
+    #[serde(default)]
+    pub inclusion_policy: InclusionPolicy,
+    /// Number of Write Combining Buffer entries (0 = disabled)
+    #[serde(default)]
+    pub wcb_entries: usize,
 }
 
 /// Individual cache level configuration.

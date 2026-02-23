@@ -64,6 +64,8 @@ class Config:
         ),
         l2=Cache("256KB", ways=8, latency=10),
         l3: Optional[Cache] = None,
+        inclusion_policy=Cache.NINE(),
+        wcb_entries: int = 0,
         # Memory
         ram_size="256MB",
         memory_controller=None,
@@ -97,6 +99,8 @@ class Config:
         self.l1d = l1d
         self.l2 = l2
         self.l3 = l3
+        self.inclusion_policy = inclusion_policy
+        self.wcb_entries = wcb_entries
 
         # Memory
         self.ram_size = _parse_size(ram_size)
@@ -149,6 +153,8 @@ class Config:
             l1d=self.l1d,
             l2=self.l2,
             l3=self.l3,
+            inclusion_policy=self.inclusion_policy,
+            wcb_entries=self.wcb_entries,
             ram_size=self.ram_size,
             memory_controller=self.memory_controller,
             tlb_size=self.tlb_size,
@@ -283,6 +289,17 @@ def _prefetcher_table_size(pf) -> int:
     if isinstance(pf, Prefetcher.Stride):
         return pf.table_size
     return 0
+
+
+def _inclusion_policy_name(ip) -> str:
+    """Return the inclusion policy name string for the Rust backend."""
+    if isinstance(ip, Cache.NINE):
+        return "NINE"
+    if isinstance(ip, Cache.Inclusive):
+        return "Inclusive"
+    if isinstance(ip, Cache.Exclusive):
+        return "Exclusive"
+    raise TypeError(f"Unknown inclusion policy type: {type(ip)}")
 
 
 def _mc_name(mc) -> str:
@@ -487,6 +504,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "l3": (
             _cache_to_dict(cfg.l3) if cfg.l3 is not None else _DISABLED_CACHE_DICT_ZERO
         ),
+        "inclusion_policy": _inclusion_policy_name(cfg.inclusion_policy),
+        "wcb_entries": cfg.wcb_entries,
     }
 
     # Pipeline — always emit all three BP sub-configs with defaults

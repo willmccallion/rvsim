@@ -19,14 +19,16 @@ pub mod memory;
 pub mod trap;
 
 use crate::common::RegisterFile;
-use crate::config::Config;
+use crate::config::{Config, InclusionPolicy};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::pipeline::write_buffer::WriteCombiningBuffer;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::CacheSim;
 use crate::core::units::cache::mshr::MshrFile;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::Pmp;
+use crate::core::units::prefetch::PrefetchFilter;
 use crate::soc::System;
 use crate::stats::SimStats;
 
@@ -62,6 +64,12 @@ pub struct Cpu {
     pub l3_cache: CacheSim,
     /// L1D MSHR file for non-blocking cache access (O3 backend only).
     pub l1d_mshrs: MshrFile,
+    /// Cache inclusion policy (Inclusive / Exclusive / NINE).
+    pub inclusion_policy: InclusionPolicy,
+    /// Write Combining Buffer for store coalescing.
+    pub wcb: WriteCombiningBuffer,
+    /// Shared prefetch filter to deduplicate prefetch requests across cache levels.
+    pub prefetch_filter: PrefetchFilter,
     /// Base address of RAM — addresses at or above this go through the
     /// cache hierarchy for latency simulation; addresses below are MMIO.
     pub cache_base: u64,
@@ -252,6 +260,18 @@ impl Cpu {
             l1_i_cache: CacheSim::new(&config.cache.l1_i),
             l1_d_cache: CacheSim::new(&config.cache.l1_d),
             l1d_mshrs: MshrFile::new(config.cache.l1_d.mshr_count, config.cache.l1_d.line_bytes),
+            inclusion_policy: config.cache.inclusion_policy,
+            wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
+            prefetch_filter: PrefetchFilter::new(
+                if config.cache.l1_d.prefetcher != crate::config::Prefetcher::None
+                    || config.cache.l2.prefetcher != crate::config::Prefetcher::None
+                {
+                    64 // Default filter size when any prefetcher is active
+                } else {
+                    0 // Disabled when no prefetchers
+                },
+                config.cache.l1_d.line_bytes,
+            ),
             l2_cache: CacheSim::new(&config.cache.l2),
             l3_cache: CacheSim::new(&config.cache.l3),
             mmu: Mmu::new(

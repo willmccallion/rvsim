@@ -381,7 +381,7 @@ impl StoreBuffer {
 }
 
 /// Converts a MemWidth to byte count.
-fn width_to_bytes(w: MemWidth) -> usize {
+pub(crate) fn width_to_bytes(w: MemWidth) -> usize {
     match w {
         MemWidth::Byte => 1,
         MemWidth::Half => 2,

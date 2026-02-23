@@ -19,6 +19,15 @@ use crate::core::units::prefetch::{
     NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
 };
 
+/// Information about an evicted cache line.
+#[derive(Clone, Copy, Debug)]
+pub struct EvictedLine {
+    /// Physical address of the evicted line (cache-line aligned).
+    pub addr: u64,
+    /// Whether the evicted line was dirty.
+    pub dirty: bool,
+}
+
 /// Cache line entry containing tag, validity, and dirty bits.
 #[derive(Clone, Default)]
 struct CacheLine {
@@ -113,6 +122,12 @@ impl CacheSim {
         }
     }
 
+    /// Reconstructs the physical address from a set index and tag.
+    #[inline]
+    fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
+        tag * (self.line_bytes * self.num_sets) as u64 + (set_index * self.line_bytes) as u64
+    }
+
     /// Checks if the cache contains the specified address.
     ///
     /// # Arguments
@@ -163,6 +178,21 @@ impl CacheSim {
     ///
     /// The penalty in cycles for writing back a dirty victim line.
     fn install_line(&mut self, addr: u64, is_write: bool, next_level_latency: u64) -> u64 {
+        self.install_line_tracked(addr, is_write, next_level_latency)
+            .0
+    }
+
+    /// Installs a cache line and returns both the penalty and eviction info.
+    ///
+    /// Returns `(penalty, Option<EvictedLine>)`. The evicted line info is
+    /// `Some` when a valid line was replaced, enabling the caller to implement
+    /// inclusion/exclusion policies.
+    fn install_line_tracked(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> (u64, Option<EvictedLine>) {
         let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
         let tag = addr / (self.line_bytes * self.num_sets) as u64;
         let base_idx = set_index * self.ways;
@@ -170,9 +200,18 @@ impl CacheSim {
         let victim_way = self.policy.get_victim(set_index);
         let victim_idx = base_idx + victim_way;
         let mut penalty = 0;
+        let mut evicted = None;
 
-        if self.lines[victim_idx].valid && self.lines[victim_idx].dirty {
-            penalty += next_level_latency;
+        if self.lines[victim_idx].valid {
+            let victim_addr = self.reconstruct_addr(set_index, self.lines[victim_idx].tag);
+            let victim_dirty = self.lines[victim_idx].dirty;
+            evicted = Some(EvictedLine {
+                addr: victim_addr,
+                dirty: victim_dirty,
+            });
+            if victim_dirty {
+                penalty += next_level_latency;
+            }
         }
 
         self.lines[victim_idx] = CacheLine {
@@ -182,7 +221,7 @@ impl CacheSim {
         };
         self.policy.update(set_index, victim_way);
 
-        penalty
+        (penalty, evicted)
     }
 
     /// Accesses the cache for the specified address.
@@ -244,6 +283,107 @@ impl CacheSim {
         (hit, penalty)
     }
 
+    /// Accesses the cache with eviction tracking for inclusion/exclusion policies.
+    ///
+    /// Returns `(hit, penalty, Vec<EvictedLine>)` where the evicted lines
+    /// include both the demand miss eviction and any prefetch-triggered evictions.
+    ///
+    /// Prefetch candidates are installed directly. Use `access_tracked_split` if
+    /// you need to filter prefetch candidates before installation.
+    pub fn access_tracked(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> (bool, u64, Vec<EvictedLine>) {
+        let (hit, penalty, evictions, prefetch_candidates) =
+            self.access_tracked_split(addr, is_write, next_level_latency);
+
+        // Install all prefetch candidates directly
+        let mut all_evictions = evictions;
+        for target in prefetch_candidates {
+            if !self.contains(target) {
+                let (_pen, evicted) = self.install_line_tracked(target, false, next_level_latency);
+                if let Some(ev) = evicted {
+                    all_evictions.push(ev);
+                }
+            }
+        }
+
+        (hit, penalty, all_evictions)
+    }
+
+    /// Accesses the cache with eviction tracking, returning prefetch candidates
+    /// separately instead of installing them.
+    ///
+    /// Returns `(hit, penalty, demand_evictions, prefetch_candidates)`.
+    /// The caller is responsible for filtering and installing the prefetch candidates.
+    pub fn access_tracked_split(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> (bool, u64, Vec<EvictedLine>, Vec<u64>) {
+        if !self.enabled {
+            return (false, 0, Vec::new(), Vec::new());
+        }
+
+        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
+        let tag = addr / (self.line_bytes * self.num_sets) as u64;
+        let base_idx = set_index * self.ways;
+
+        let mut hit = false;
+        let mut penalty = 0;
+        let mut evictions = Vec::new();
+
+        for i in 0..self.ways {
+            let idx = base_idx + i;
+            if self.lines[idx].valid && self.lines[idx].tag == tag {
+                self.policy.update(set_index, i);
+                if is_write {
+                    self.lines[idx].dirty = true;
+                }
+                hit = true;
+                break;
+            }
+        }
+
+        if !hit {
+            let (pen, evicted) = self.install_line_tracked(addr, is_write, next_level_latency);
+            penalty += pen;
+            if let Some(ev) = evicted {
+                evictions.push(ev);
+            }
+        }
+
+        let mut prefetches = Vec::new();
+        if let Some(ref mut pref) = self.prefetcher {
+            prefetches = pref.observe(addr, hit);
+        }
+
+        (hit, penalty, evictions, prefetches)
+    }
+
+    /// Installs prefetch targets into this cache, returning any evictions.
+    ///
+    /// Used after filtering prefetch candidates through a shared prefetch filter.
+    pub fn install_prefetches(
+        &mut self,
+        targets: &[u64],
+        next_level_latency: u64,
+    ) -> Vec<EvictedLine> {
+        let mut evictions = Vec::new();
+        for &target in targets {
+            if !self.contains(target) {
+                let (_pen, evicted) = self.install_line_tracked(target, false, next_level_latency);
+                if let Some(ev) = evicted {
+                    evictions.push(ev);
+                }
+            }
+        }
+        evictions
+    }
+
     /// Non-blocking cache access: checks for hit/miss without installing the line on miss.
     ///
     /// On hit: updates replacement policy and dirty bit, triggers prefetcher. Returns true.
@@ -294,6 +434,79 @@ impl CacheSim {
         next_level_latency: u64,
     ) -> u64 {
         self.install_line(addr, is_write, next_level_latency)
+    }
+
+    /// Install a cache line from outside with eviction tracking.
+    ///
+    /// Returns `(penalty, Option<EvictedLine>)`.
+    pub fn install_line_public_tracked(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> (u64, Option<EvictedLine>) {
+        self.install_line_tracked(addr, is_write, next_level_latency)
+    }
+
+    /// Invalidates the cache line containing the specified address.
+    ///
+    /// Used by the inclusive cache policy to back-invalidate L1 when L2 evicts a line.
+    /// Returns true if the line was found and invalidated, false if not present.
+    pub fn invalidate_line(&mut self, addr: u64) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
+        let tag = addr / (self.line_bytes * self.num_sets) as u64;
+        let base_idx = set_index * self.ways;
+
+        for i in 0..self.ways {
+            let idx = base_idx + i;
+            if self.lines[idx].valid && self.lines[idx].tag == tag {
+                self.lines[idx].valid = false;
+                self.lines[idx].dirty = false;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Installs a line without evicting the previous one (used for exclusive policy
+    /// when swapping an L1 evictee into L2, if there is an invalid way available).
+    /// Falls back to normal install_line if no free way exists.
+    ///
+    /// Returns `(penalty, Option<EvictedLine>)`.
+    pub fn install_or_replace(
+        &mut self,
+        addr: u64,
+        is_write: bool,
+        next_level_latency: u64,
+    ) -> (u64, Option<EvictedLine>) {
+        if !self.enabled {
+            return (0, None);
+        }
+
+        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
+        let tag = addr / (self.line_bytes * self.num_sets) as u64;
+        let base_idx = set_index * self.ways;
+
+        // Try to find an invalid (free) way first
+        for i in 0..self.ways {
+            let idx = base_idx + i;
+            if !self.lines[idx].valid {
+                self.lines[idx] = CacheLine {
+                    tag,
+                    valid: true,
+                    dirty: is_write,
+                };
+                self.policy.update(set_index, i);
+                return (0, None);
+            }
+        }
+
+        // No free way — fall back to replacement
+        self.install_line_tracked(addr, is_write, next_level_latency)
     }
 
     /// Returns the cache line size in bytes.

@@ -22,7 +22,7 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, MemWidth};
-use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
 
 /// Executes the Commit stage.
 ///
@@ -283,19 +283,38 @@ pub fn commit_stage(
 }
 
 /// Writes a single committed store from the store buffer to memory.
+///
+/// If a Write Combining Buffer (WCB) is configured, stores are first merged
+/// into the WCB. The WCB coalesces stores to the same cache line and only
+/// drains to L1D when an entry is evicted (LRU) or flushed.
 fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     if let Some(store) = store_buffer.drain_one()
         && let Some(paddr) = store.paddr
     {
-        // Simulate the store through the D-cache hierarchy so the cache
-        // line is installed and marked dirty (write-allocate). This is how
-        // real processors work: committed stores write into L1D, and dirty
-        // lines are written back to lower levels on eviction.
         let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
-        if is_ram {
-            let addr = crate::common::PhysAddr::new(paddr);
-            let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+        let width_bytes = width_to_bytes(store.width);
+
+        if !cpu.wcb.is_disabled() && is_ram {
+            // Merge into WCB; if an entry was evicted, drain it through cache
+            let evicted = cpu.wcb.merge_store(paddr, store.data, width_bytes);
+            if evicted.is_none() {
+                // Store absorbed by WCB (coalesced or allocated new entry)
+                cpu.stats.wcb_coalesces += 1;
+            }
+            if let Some(drain) = evicted {
+                // Evicted WCB entry: simulate cache write for the evicted line
+                let addr = crate::common::PhysAddr::new(drain.line_addr);
+                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+                cpu.stats.wcb_drains += 1;
+            }
+        } else {
+            // No WCB or MMIO: direct cache access + memory write
+            if is_ram {
+                let addr = crate::common::PhysAddr::new(paddr);
+                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+            }
         }
+        // Always write the actual data to memory (WCB is timing-only)
         write_store_to_memory(cpu, paddr, store.data, store.width);
         if cpu.trace {
             eprintln!("CM  STORE DRAIN paddr={:#x} data={:#x}", paddr, store.data);
@@ -307,7 +326,7 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
 ///
 /// Called before SATP writes to ensure page table entries set up by
 /// preceding stores are visible in physical memory before the page
-/// table walker consults them.
+/// table walker consults them. Also flushes the WCB.
 fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     while let Some(store) = store_buffer.drain_one() {
         if let Some(paddr) = store.paddr {
@@ -324,6 +343,18 @@ fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
                 );
             }
         }
+    }
+    // Flush remaining WCB entries through the cache hierarchy
+    flush_wcb(cpu);
+}
+
+/// Flushes all WCB entries through the cache hierarchy.
+fn flush_wcb(cpu: &mut Cpu) {
+    let drains = cpu.wcb.flush_all();
+    for drain in drains {
+        let addr = crate::common::PhysAddr::new(drain.line_addr);
+        let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+        cpu.stats.wcb_drains += 1;
     }
 }
 

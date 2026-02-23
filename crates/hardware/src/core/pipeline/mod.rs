@@ -27,6 +27,9 @@ pub mod scoreboard;
 /// Store buffer with forwarding.
 pub mod store_buffer;
 
+/// Write Combining Buffer for store coalescing.
+pub mod write_buffer;
+
 /// Physical register file with ready bits.
 pub mod prf;
 

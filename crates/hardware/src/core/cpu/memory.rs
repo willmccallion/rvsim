@@ -8,6 +8,7 @@
 
 use super::Cpu;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
+use crate::config::InclusionPolicy;
 
 impl Cpu {
     /// Translates a virtual address to a physical address using the MMU.
@@ -64,11 +65,33 @@ impl Cpu {
             .access_latency(raw_addr, self.csrs.cycle);
         let next_lat = ram_latency;
         let is_write = matches!(access, AccessType::Write);
+        let inclusion = self.inclusion_policy;
 
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen) = self.l2_cache.access(raw_addr, is_write, next_lat);
+            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) = self
+                .l2_cache
+                .access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l2_pen;
+
+            // Filter and install L2 prefetch candidates through the shared filter
+            let filtered = self
+                .prefetch_filter
+                .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let pf_evictions = self.l2_cache.install_prefetches(&filtered, next_lat);
+
+            // Inclusive policy: L2 eviction → back-invalidate matching L1D/L1I lines
+            if inclusion == InclusionPolicy::Inclusive {
+                for ev in l2_evictions.iter().chain(pf_evictions.iter()) {
+                    if self.l1_d_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                    if self.l1_i_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                }
+            }
+
             if l2_hit {
                 self.stats.l2_hits += 1;
                 return total_penalty;
@@ -78,8 +101,30 @@ impl Cpu {
 
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen) = self.l3_cache.access(raw_addr, is_write, next_lat);
+            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) = self
+                .l3_cache
+                .access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l3_pen;
+
+            // Filter and install L3 prefetch candidates
+            let filtered = self
+                .prefetch_filter
+                .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let pf_evictions = self.l3_cache.install_prefetches(&filtered, next_lat);
+
+            // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
+            if inclusion == InclusionPolicy::Inclusive {
+                for ev in l3_evictions.iter().chain(pf_evictions.iter()) {
+                    self.l2_cache.invalidate_line(ev.addr);
+                    if self.l1_d_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                    if self.l1_i_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                }
+            }
+
             if l3_hit {
                 self.stats.l3_hits += 1;
                 return total_penalty;
@@ -113,6 +158,7 @@ impl Cpu {
         let next_lat = ram_latency;
         let is_inst = matches!(access, AccessType::Fetch);
         let is_write = matches!(access, AccessType::Write);
+        let inclusion = self.inclusion_policy;
 
         // Determine which L1 cache applies
         let l1_enabled = if is_inst {
@@ -131,17 +177,40 @@ impl Cpu {
             return penalty;
         }
 
-        let (l1_hit, l1_pen) = if is_inst {
+        // L1 access with eviction tracking + prefetch candidates split out
+        let (l1_hit, l1_pen, l1_evictions, l1_prefetches) = if is_inst {
             if self.l1_i_cache.enabled {
-                self.l1_i_cache.access(raw_addr, false, next_lat)
+                self.l1_i_cache
+                    .access_tracked_split(raw_addr, false, next_lat)
             } else {
-                (false, 0)
+                (false, 0, Vec::new(), Vec::new())
             }
         } else if self.l1_d_cache.enabled {
-            self.l1_d_cache.access(raw_addr, is_write, next_lat)
+            self.l1_d_cache
+                .access_tracked_split(raw_addr, is_write, next_lat)
         } else {
-            (false, 0)
+            (false, 0, Vec::new(), Vec::new())
         };
+
+        // Filter L1 prefetch candidates through the shared filter, then install
+        let filtered_l1 = self
+            .prefetch_filter
+            .filter_and_record(l1_prefetches, &mut self.stats.prefetch_filter_dedup);
+        let l1_pf_evictions = if is_inst {
+            self.l1_i_cache.install_prefetches(&filtered_l1, next_lat)
+        } else {
+            self.l1_d_cache.install_prefetches(&filtered_l1, next_lat)
+        };
+
+        // Combine demand evictions and prefetch evictions for policy handling
+        // Exclusive policy: L1 eviction → install evicted line into L2
+        if inclusion == InclusionPolicy::Exclusive && self.l2_cache.enabled {
+            for ev in l1_evictions.iter().chain(l1_pf_evictions.iter()) {
+                self.l2_cache
+                    .install_or_replace(ev.addr, ev.dirty, next_lat);
+                self.stats.exclusive_l1_to_l2_swaps += 1;
+            }
+        }
 
         total_penalty += l1_pen;
         if is_inst && self.l1_i_cache.enabled {
@@ -160,8 +229,34 @@ impl Cpu {
 
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen) = self.l2_cache.access(raw_addr, is_write, next_lat);
+            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) = self
+                .l2_cache
+                .access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l2_pen;
+
+            // Filter and install L2 prefetch candidates
+            let filtered_l2 = self
+                .prefetch_filter
+                .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let l2_pf_evictions = self.l2_cache.install_prefetches(&filtered_l2, next_lat);
+
+            // Inclusive policy: L2 eviction → back-invalidate L1 lines
+            if inclusion == InclusionPolicy::Inclusive {
+                for ev in l2_evictions.iter().chain(l2_pf_evictions.iter()) {
+                    if self.l1_d_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                    if self.l1_i_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                }
+            }
+
+            // Exclusive policy: on L2 hit, remove from L2 (data moves to L1 exclusively)
+            if inclusion == InclusionPolicy::Exclusive && l2_hit {
+                self.l2_cache.invalidate_line(raw_addr);
+            }
+
             if l2_hit {
                 self.stats.l2_hits += 1;
                 return total_penalty;
@@ -171,8 +266,30 @@ impl Cpu {
 
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen) = self.l3_cache.access(raw_addr, is_write, next_lat);
+            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) = self
+                .l3_cache
+                .access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l3_pen;
+
+            // Filter and install L3 prefetch candidates
+            let filtered_l3 = self
+                .prefetch_filter
+                .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let l3_pf_evictions = self.l3_cache.install_prefetches(&filtered_l3, next_lat);
+
+            // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
+            if inclusion == InclusionPolicy::Inclusive {
+                for ev in l3_evictions.iter().chain(l3_pf_evictions.iter()) {
+                    self.l2_cache.invalidate_line(ev.addr);
+                    if self.l1_d_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                    if self.l1_i_cache.invalidate_line(ev.addr) {
+                        self.stats.inclusion_back_invalidations += 1;
+                    }
+                }
+            }
+
             if l3_hit {
                 self.stats.l3_hits += 1;
                 return total_penalty;

@@ -415,6 +415,24 @@ class Backend:
 class Cache:
     """Single cache level configuration."""
 
+    class NINE:
+        """No Inclusion, Non-Exclusive (default)."""
+
+        def __repr__(self) -> str:
+            return "Cache.NINE()"
+
+    class Inclusive:
+        """Inclusive: L2 eviction back-invalidates matching L1 lines."""
+
+        def __repr__(self) -> str:
+            return "Cache.Inclusive()"
+
+    class Exclusive:
+        """Exclusive: L1 eviction installs line into L2 (swap)."""
+
+        def __repr__(self) -> str:
+            return "Cache.Exclusive()"
+
     def __init__(
         self,
         size="4KB",

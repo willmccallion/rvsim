@@ -236,12 +236,22 @@ impl ExecutionEngine for O3Engine {
         if cpu.l1d_mshrs.capacity() > 0 {
             let completed = cpu.l1d_mshrs.drain_completions(now);
             for mshr_entry in completed {
-                // Install the fetched line into L1D
-                cpu.l1_d_cache.install_line_public(
+                // Install the fetched line into L1D (with eviction tracking)
+                let (_penalty, evicted) = cpu.l1_d_cache.install_line_public_tracked(
                     mshr_entry.line_addr,
                     mshr_entry.is_write,
                     0, // write-back penalty already accounted for in miss latency
                 );
+
+                // Exclusive policy: L1D eviction → install evicted line into L2
+                if cpu.inclusion_policy == crate::config::InclusionPolicy::Exclusive
+                    && cpu.l2_cache.enabled
+                    && let Some(ev) = evicted
+                {
+                    cpu.l2_cache.install_or_replace(ev.addr, ev.dirty, 0);
+                    cpu.stats.exclusive_l1_to_l2_swaps += 1;
+                }
+
                 if cpu.trace && !mshr_entry.waiters.is_empty() {
                     eprintln!(
                         "BE  MSHR complete: line={:#x}, {} waiters",
