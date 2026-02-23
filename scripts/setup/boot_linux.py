@@ -208,7 +208,11 @@ def build(linux_dir: str) -> int:
     shutil.copy(
         os.path.join(br_images, "fw_jump.bin"), os.path.join(out_dir, "fw_jump.bin")
     )
-    print("[Linux] Copied Image, disk.img, fw_jump.bin to", out_dir)
+    shutil.copy(
+        os.path.join(br_images, "fw_dynamic.bin"),
+        os.path.join(out_dir, "fw_dynamic.bin"),
+    )
+    print("[Linux] Copied Image, disk.img, fw_jump.bin, fw_dynamic.bin to", out_dir)
 
     rc = compile_dtb(linux_dir)
     if rc != 0:
@@ -335,7 +339,7 @@ def main():
 
     try:
         return sim.run(
-            limit=10_000_000_000
+            limit=10_000_000
         )  # Add progress = ... to this if it seems to hang.
     except Exception as e:
         print(f"Simulation failed: {e}")

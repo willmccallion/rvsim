@@ -17,6 +17,7 @@ pub mod tlb;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::units::mmu::pmp::Pmp;
 use crate::soc::interconnect::Bus;
 
 use self::tlb::{L2Tlb, Tlb};
@@ -104,6 +105,18 @@ impl Mmu {
         privilege: PrivilegeMode,
         csrs: &Csrs,
         bus: &mut Bus,
+    ) -> TranslationResult {
+        self.translate_with_pmp(vaddr, access, privilege, csrs, bus, None)
+    }
+
+    pub fn translate_with_pmp(
+        &mut self,
+        vaddr: VirtAddr,
+        access: AccessType,
+        privilege: PrivilegeMode,
+        csrs: &Csrs,
+        bus: &mut Bus,
+        pmp: Option<&Pmp>,
     ) -> TranslationResult {
         let satp = csrs.satp;
         use crate::core::arch::csr::{
@@ -212,7 +225,11 @@ impl Mmu {
             }
         }
 
-        ptw::page_table_walk(self, vaddr, access, privilege, csrs, bus)
+        if let Some(pmp_unit) = pmp {
+            ptw::page_table_walk_with_pmp(self, vaddr, access, privilege, csrs, bus, pmp_unit)
+        } else {
+            ptw::page_table_walk(self, vaddr, access, privilege, csrs, bus)
+        }
     }
 }
 

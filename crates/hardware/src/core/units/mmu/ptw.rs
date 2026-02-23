@@ -10,6 +10,7 @@ use crate::common::{
 use crate::core::arch::csr::{Csrs, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK};
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
+use crate::core::units::mmu::pmp::{Pmp, PmpResult};
 use crate::soc::interconnect::Bus;
 
 /// Page Table Entry valid bit (bit 0).
@@ -130,6 +131,31 @@ pub fn page_table_walk(
     csrs: &Csrs,
     bus: &mut Bus,
 ) -> TranslationResult {
+    page_table_walk_inner(mmu, vaddr, access, privilege, csrs, bus, None)
+}
+
+/// Page table walk with optional PMP checking on PTE reads.
+pub fn page_table_walk_with_pmp(
+    mmu: &mut Mmu,
+    vaddr: VirtAddr,
+    access: AccessType,
+    privilege: PrivilegeMode,
+    csrs: &Csrs,
+    bus: &mut Bus,
+    pmp: &Pmp,
+) -> TranslationResult {
+    page_table_walk_inner(mmu, vaddr, access, privilege, csrs, bus, Some(pmp))
+}
+
+fn page_table_walk_inner(
+    mmu: &mut Mmu,
+    vaddr: VirtAddr,
+    access: AccessType,
+    privilege: PrivilegeMode,
+    csrs: &Csrs,
+    bus: &mut Bus,
+    pmp: Option<&Pmp>,
+) -> TranslationResult {
     /// Number of page table levels in SV39 (3 levels: L2, L1, L0).
     const SV39_LEVELS: usize = 3;
 
@@ -154,6 +180,21 @@ pub fn page_table_walk(
         let vpn_shift = PAGE_SHIFT + level as u64 * VPN_BITS_PER_LEVEL;
         let vpn_i = (vaddr.val() >> vpn_shift) & VPN_ENTRY_MASK;
         let pte_addr = (ppn << PAGE_SHIFT) + (vpn_i * PTE_SIZE);
+
+        // PMP check on PTE read address (spec requires PMP enforcement on PTW accesses)
+        if let Some(pmp_unit) = pmp {
+            let pmp_result = pmp_unit.check(pte_addr, 8, true, false, false, false);
+            if pmp_result != PmpResult::Allow {
+                return TranslationResult::fault(
+                    match access {
+                        AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
+                        AccessType::Read => Trap::LoadAccessFault(vaddr.val()),
+                        AccessType::Write => Trap::StoreAccessFault(vaddr.val()),
+                    },
+                    cycles,
+                );
+            }
+        }
 
         cycles += bus.calculate_transit_time(8);
         let raw_pte = bus.read_u64(pte_addr);

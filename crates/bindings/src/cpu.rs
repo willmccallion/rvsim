@@ -224,6 +224,10 @@ impl PyCpu {
             sim.cpu.direct_mode = false;
         }
 
+        // Sync architectural registers (a0/a1/a2 from loader, sp from direct_mode)
+        // into the O3 PRF. Must happen after all register initialization.
+        sim.sync_arch_regs();
+
         Ok(PyCpu { inner: sim })
     }
 

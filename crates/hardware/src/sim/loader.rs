@@ -62,9 +62,21 @@ pub fn setup_kernel_load(
     if let Some(path) = dtb_path {
         let dtb_data = load_binary(&path);
         cpu.bus.load_binary_at(&dtb_data, dtb_addr);
+    } else {
+        // Generate DTB from SoC config when no external DTB is provided.
+        let dtb_data = crate::sim::dtb::generate_dtb(config);
+        cpu.bus.load_binary_at(&dtb_data, dtb_addr);
     }
 
-    let sbi_path = "software/linux/output/fw_jump.bin";
+    // Prefer fw_dynamic.bin (accepts runtime parameters via a2 -> fw_dynamic_info)
+    // over fw_jump.bin (requires FDT address compiled in at build time).
+    let sbi_dynamic_path = "software/linux/output/fw_dynamic.bin";
+    let sbi_jump_path = "software/linux/output/fw_jump.bin";
+    let sbi_path = if fs::metadata(sbi_dynamic_path).is_ok() {
+        sbi_dynamic_path
+    } else {
+        sbi_jump_path
+    };
 
     if fs::metadata(sbi_path).is_ok() {
         let sbi_data = load_binary(sbi_path);
@@ -84,9 +96,41 @@ pub fn setup_kernel_load(
 
         cpu.pc = opensbi_addr;
         cpu.privilege = PrivilegeMode::Machine;
-        cpu.regs.write(abi::REG_A0, 0);
-        cpu.regs.write(abi::REG_A1, dtb_addr);
-        cpu.regs.write(abi::REG_A2, 0);
+        cpu.regs.write(abi::REG_A0, 0); // hartid
+        cpu.regs.write(abi::REG_A1, dtb_addr); // FDT address
+
+        if sbi_path == sbi_dynamic_path {
+            // Build the fw_dynamic_info struct in RAM and pass its address in a2.
+            // struct fw_dynamic_info (each field is u64 on rv64):
+            //   magic:     0x4942534f ("OSBI")
+            //   version:   2
+            //   next_addr: kernel entry point
+            //   next_mode: 1 (Supervisor)
+            //   options:   0
+            //   boot_hart: -1 (any hart)
+            //   next_arg1: DTB address passed to next stage (kernel)
+            const FW_DYNAMIC_INFO_MAGIC: u64 = 0x4942534f;
+            const FW_DYNAMIC_INFO_VERSION: u64 = 2;
+            const NEXT_MODE_S: u64 = 1;
+            let info_addr = dtb_addr - 0x200;
+            let fields: [u64; 7] = [
+                FW_DYNAMIC_INFO_MAGIC,
+                FW_DYNAMIC_INFO_VERSION,
+                kernel_addr,
+                NEXT_MODE_S,
+                0,        // options
+                u64::MAX, // boot_hart = any
+                dtb_addr, // next_arg1 = DTB for kernel
+            ];
+            let mut info_bytes = Vec::with_capacity(56);
+            for field in &fields {
+                info_bytes.extend_from_slice(&field.to_le_bytes());
+            }
+            cpu.bus.load_binary_at(&info_bytes, info_addr);
+            cpu.regs.write(abi::REG_A2, info_addr);
+        } else {
+            cpu.regs.write(abi::REG_A2, 0);
+        }
     } else {
         let load_addr = ram_base + config.system.kernel_offset;
 

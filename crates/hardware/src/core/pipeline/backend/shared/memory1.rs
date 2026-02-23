@@ -125,6 +125,46 @@ pub fn memory1_stage(
                 return cancelled_wakeups;
             }
 
+            // Check that the physical address is backed by a device.
+            // Unmapped regions generate access faults for S/U-mode (Linux
+            // device probing depends on this). M-mode firmware (OpenSBI)
+            // probes addresses expecting bus default (0), not faults.
+            if cpu.privilege != crate::core::arch::mode::PrivilegeMode::Machine
+                && !cpu.bus.bus.is_valid_address(paddr.val())
+            {
+                let fault = if ex.ctrl.mem_write {
+                    crate::common::Trap::StoreAccessFault(ex.alu)
+                } else {
+                    crate::common::Trap::LoadAccessFault(ex.alu)
+                };
+                if cpu.trace {
+                    eprintln!(
+                        "M1  pc={:#x} # ACCESS FAULT (unmapped): paddr={:#x}",
+                        ex.pc,
+                        paddr.val()
+                    );
+                }
+                output.push(Mem1Mem2Entry {
+                    rob_tag: ex.rob_tag,
+                    pc: ex.pc,
+                    inst: ex.inst,
+                    inst_size: ex.inst_size,
+                    rd: ex.rd,
+                    rd_phys: ex.rd_phys,
+                    alu: ex.alu,
+                    vaddr: ex.alu,
+                    paddr: 0,
+                    store_data: ex.store_data,
+                    ctrl: ex.ctrl,
+                    trap: Some(fault),
+                    exception_stage: Some(ExceptionStage::Memory),
+                    fp_flags: ex.fp_flags,
+                    complete_cycle: current_cycle + per_entry_latency,
+                });
+                input.extend(iter);
+                return cancelled_wakeups;
+            }
+
             if cpu.trace {
                 if ex.ctrl.mem_read {
                     eprintln!(

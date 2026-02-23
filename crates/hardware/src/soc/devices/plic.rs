@@ -193,13 +193,10 @@ impl Device for Plic {
                     return self.thresholds[ctx];
                 }
                 if reg == 4 {
-                    let claim = self.claims[ctx];
-                    if claim > 0 {
-                        let idx = claim as usize / 32;
-                        let bit = 1 << (claim % 32);
-                        self.pending[idx] &= !bit;
-                    }
-                    return claim;
+                    // Claim read: return the highest-priority pending IRQ
+                    // for this context. Per spec, pending remains set until
+                    // the completion write (write to this same register).
+                    return self.claims[ctx];
                 }
             }
         }
@@ -231,6 +228,15 @@ impl Device for Plic {
                     self.thresholds[ctx] = val;
                 }
                 if reg == 4 {
+                    // Completion write: clear pending bit for the completed IRQ
+                    let irq_id = val;
+                    if irq_id > 0 && (irq_id as usize) < 1024 {
+                        let idx = irq_id as usize / 32;
+                        let bit = 1u32 << (irq_id % 32);
+                        if idx < self.pending.len() {
+                            self.pending[idx] &= !bit;
+                        }
+                    }
                     self.claims[ctx] = 0;
                 }
             }
@@ -250,13 +256,23 @@ impl Device for Plic {
         self.read_u32(offset) as u64
     }
 
-    /// Writes a byte (delegates to write_u32).
+    /// Writes a byte (read-modify-write into containing u32).
     fn write_u8(&mut self, offset: u64, val: u8) {
-        self.write_u32(offset & !3, val as u32);
+        let aligned = offset & !3;
+        let byte_pos = (offset & 3) * 8;
+        let old = self.read_u32(aligned);
+        let mask = !(0xFFu32 << byte_pos);
+        let new = (old & mask) | ((val as u32) << byte_pos);
+        self.write_u32(aligned, new);
     }
-    /// Writes a half-word (delegates to write_u32).
+    /// Writes a half-word (read-modify-write into containing u32).
     fn write_u16(&mut self, offset: u64, val: u16) {
-        self.write_u32(offset & !3, val as u32);
+        let aligned = offset & !3;
+        let byte_pos = (offset & 2) * 8;
+        let old = self.read_u32(aligned);
+        let mask = !(0xFFFFu32 << byte_pos);
+        let new = (old & mask) | ((val as u32) << byte_pos);
+        self.write_u32(aligned, new);
     }
     /// Writes a double-word (delegates to write_u32).
     fn write_u64(&mut self, offset: u64, val: u64) {

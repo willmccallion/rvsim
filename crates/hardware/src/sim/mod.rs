@@ -4,5 +4,6 @@
 //! the initial system state, and the `Simulator` struct that owns
 //! both the CPU and the pipeline.
 
+pub mod dtb;
 pub mod loader;
 pub mod simulator;

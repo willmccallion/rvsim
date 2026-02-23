@@ -23,6 +23,7 @@ use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, MemWidth};
 use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
+use crate::core::units::bru::BranchPredictor;
 
 /// Executes the Commit stage.
 ///
@@ -122,6 +123,12 @@ pub fn commit_stage(
         if entry.inst != 0 && entry.inst != 0x13 {
             cpu.stats.instructions_retired += 1;
             update_instruction_stats(cpu, &entry);
+        }
+
+        // Apply deferred branch predictor update (only update on committed branches)
+        if entry.bp_update {
+            cpu.branch_predictor
+                .update_branch(entry.bp_pc, entry.bp_taken, entry.bp_target);
         }
 
         // Write to register file
@@ -254,7 +261,12 @@ pub fn commit_stage(
         } else if entry.ctrl.is_fence {
             let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
             let pred_w = pred_bits & 0b0001 != 0;
-            if pred_w {
+            let pred_r = pred_bits & 0b0010 != 0;
+            // FENCE pred,succ:
+            // - pred.w: drain store buffer (older stores globally visible)
+            // - pred.r: older loads already completed by commit order
+            // - Both pred.r and pred.w: full drain + flush WCB
+            if pred_w || pred_r {
                 drain_all_committed(cpu, store_buffer);
             }
         }

@@ -9,6 +9,7 @@
 use super::Cpu;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::config::InclusionPolicy;
+use crate::core::units::mmu::pmp::PmpResult;
 
 impl Cpu {
     /// Translates a virtual address to a physical address using the MMU.
@@ -47,8 +48,40 @@ impl Cpu {
             self.privilege
         };
 
-        self.mmu
-            .translate(vaddr, access, effective_priv, &self.csrs, &mut self.bus.bus)
+        let result = self.mmu.translate_with_pmp(
+            vaddr,
+            access,
+            effective_priv,
+            &self.csrs,
+            &mut self.bus.bus,
+            Some(&self.pmp),
+        );
+
+        // PMP check on the translated physical address.
+        // PMP applies to all privilege modes: M-mode with no matching entry gets Allow,
+        // S/U-mode with no matching entry gets NoMatch (denied).
+        if result.trap.is_none() {
+            let paddr = result.paddr.val();
+            let is_machine = self.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
+            let pmp_result = self.pmp.check(
+                paddr,
+                1,
+                matches!(access, AccessType::Read),
+                matches!(access, AccessType::Write),
+                matches!(access, AccessType::Fetch),
+                is_machine,
+            );
+            if pmp_result != PmpResult::Allow {
+                let trap = match access {
+                    AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
+                    AccessType::Read => Trap::LoadAccessFault(vaddr.val()),
+                    AccessType::Write => Trap::StoreAccessFault(vaddr.val()),
+                };
+                return TranslationResult::fault(trap, result.cycles);
+            }
+        }
+
+        result
     }
 
     /// Computes the total latency for an L1D miss, walking L2 → L3 → DRAM.

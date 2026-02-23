@@ -166,7 +166,10 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         cpu.branch_predictor.repair_history(id.ghr_snapshot);
         cpu.branch_predictor.restore_ras(id.ras_snapshot);
-        cpu.branch_predictor.update_branch(
+        // Defer branch predictor update to commit time to avoid
+        // polluting tables with speculative/wrong-path data.
+        rob.set_bp_update(
+            id.rob_tag,
             id.pc,
             taken,
             if taken { Some(actual_target) } else { None },
@@ -409,6 +412,53 @@ fn execute_csr(
             },
             true,
         );
+    }
+
+    // Counter-enable check for CYCLE/TIME/INSTRET (and their high-word aliases)
+    {
+        use crate::core::arch::csr as csr_addrs;
+        use crate::core::arch::mode::PrivilegeMode;
+        let addr = id.ctrl.csr_addr;
+        let counter_bit = match addr {
+            csr_addrs::CYCLE => Some(0),   // CY bit
+            csr_addrs::TIME => Some(1),    // TM bit
+            csr_addrs::INSTRET => Some(2), // IR bit
+            _ => None,
+        };
+        if let Some(bit) = counter_bit {
+            let mask = 1u64 << bit;
+            let denied = match cpu.privilege {
+                PrivilegeMode::Supervisor => (cpu.csrs.mcounteren & mask) == 0,
+                PrivilegeMode::User => {
+                    (cpu.csrs.mcounteren & mask) == 0 || (cpu.csrs.scounteren & mask) == 0
+                }
+                PrivilegeMode::Machine => false,
+            };
+            if denied {
+                rob.fault(
+                    id.rob_tag,
+                    Trap::IllegalInstruction(id.inst),
+                    ExceptionStage::Execute,
+                );
+                return (
+                    ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: id.rd_phys,
+                        fp_flags: 0,
+                    },
+                    true,
+                );
+            }
+        }
     }
 
     // Privilege check
