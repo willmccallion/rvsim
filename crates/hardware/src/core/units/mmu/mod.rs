@@ -129,12 +129,14 @@ impl Mmu {
         }
 
         use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
+        use crate::core::arch::csr::{SATP_ASID_MASK, SATP_ASID_SHIFT};
         let vpn = (vaddr.val() >> PAGE_SHIFT) & VPN_MASK;
+        let asid = ((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16;
 
         let tlb_entry = if access == AccessType::Fetch {
-            self.itlb.lookup(vpn)
+            self.itlb.lookup(vpn, asid)
         } else {
-            self.dtlb.lookup(vpn)
+            self.dtlb.lookup(vpn, asid)
         };
 
         if let Some((ppn, r, w, x, u, d)) = tlb_entry {

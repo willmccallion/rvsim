@@ -301,7 +301,7 @@ fn execute_system(
     }
 
     // SFENCE.VMA
-    if (id.inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
+    if id.ctrl.is_sfence_vma {
         let tvm = (cpu.csrs.mstatus >> 20) & 1;
         if cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
             rob.fault(
@@ -329,10 +329,7 @@ fn execute_system(
         }
 
         cpu.clear_reservation();
-        cpu.mmu.dtlb.flush();
-        cpu.mmu.itlb.flush();
-        cpu.l1_d_cache.flush();
-        cpu.l1_i_cache.flush();
+        sfence_vma_flush(cpu, id.rs1, id.rs2, fwd_a, id.rv2);
 
         cpu.pc = id.pc.wrapping_add(id.inst_size);
         cpu.redirect_pending = true;
@@ -531,6 +528,44 @@ fn execute_csr(
         },
         true,
     )
+}
+
+/// Performs selective SFENCE.VMA TLB/cache flushing based on rs1 and rs2.
+///
+/// * rs1_idx == 0, rs2_idx == 0: flush all TLB entries
+/// * rs1_idx != 0, rs2_idx == 0: flush entries matching the virtual address in rs1
+/// * rs1_idx == 0, rs2_idx != 0: flush non-global entries matching the ASID in rs2
+/// * rs1_idx != 0, rs2_idx != 0: flush the entry matching both vaddr and ASID
+fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64, rs2_val: u64) {
+    use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
+    match (rs1_idx != 0, rs2_idx != 0) {
+        (false, false) => {
+            // Flush all
+            cpu.mmu.dtlb.flush();
+            cpu.mmu.itlb.flush();
+            cpu.l1_d_cache.flush();
+            cpu.l1_i_cache.flush();
+        }
+        (true, false) => {
+            // Flush by virtual address only
+            let vpn = (rs1_val >> PAGE_SHIFT) & VPN_MASK;
+            cpu.mmu.dtlb.flush_vaddr(vpn);
+            cpu.mmu.itlb.flush_vaddr(vpn);
+        }
+        (false, true) => {
+            // Flush by ASID only (non-global entries)
+            let asid = rs2_val as u16;
+            cpu.mmu.dtlb.flush_asid(asid);
+            cpu.mmu.itlb.flush_asid(asid);
+        }
+        (true, true) => {
+            // Flush by both virtual address and ASID
+            let vpn = (rs1_val >> PAGE_SHIFT) & VPN_MASK;
+            let asid = rs2_val as u16;
+            cpu.mmu.dtlb.flush_vaddr_asid(vpn, asid);
+            cpu.mmu.itlb.flush_vaddr_asid(vpn, asid);
+        }
+    }
 }
 
 /// Compute ALU/FPU result and return (result, fp_flags).

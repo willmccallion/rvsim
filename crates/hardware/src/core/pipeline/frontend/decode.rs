@@ -312,28 +312,33 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         }
         sys_ops::OP_SYSTEM => {
             c.is_system = true;
-            match d.raw {
-                sys_ops::ECALL => {}
-                sys_ops::EBREAK => return Err(Trap::Breakpoint(pc)),
-                sys_ops::MRET => c.is_mret = true,
-                sys_ops::SRET => c.is_sret = true,
-                sys_ops::WFI => {}
-                sys_ops::SFENCE_VMA => c.is_sfence_vma = true,
-                _ => {
-                    if d.funct3 != 0 {
-                        c.csr_addr = inst.csr();
-                        c.a_src = OpASrc::Reg1;
-                        c.b_src = OpBSrc::Zero;
-                        c.csr_op = match d.funct3 {
-                            sys_ops::CSRRW => CsrOp::Rw,
-                            sys_ops::CSRRS => CsrOp::Rs,
-                            sys_ops::CSRRC => CsrOp::Rc,
-                            sys_ops::CSRRWI => CsrOp::Rwi,
-                            sys_ops::CSRRSI => CsrOp::Rsi,
-                            sys_ops::CSRRCI => CsrOp::Rci,
-                            _ => CsrOp::None,
-                        };
-                        c.reg_write = d.rd != 0;
+            // SFENCE.VMA is R-type: funct7=0x09, rs2, rs1, funct3=0, rd=0.
+            // Mask out rs1 (bits 19:15) and rs2 (bits 24:20) for matching.
+            if (inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
+                c.is_sfence_vma = true;
+            } else {
+                match d.raw {
+                    sys_ops::ECALL => {}
+                    sys_ops::EBREAK => return Err(Trap::Breakpoint(pc)),
+                    sys_ops::MRET => c.is_mret = true,
+                    sys_ops::SRET => c.is_sret = true,
+                    sys_ops::WFI => {}
+                    _ => {
+                        if d.funct3 != 0 {
+                            c.csr_addr = inst.csr();
+                            c.a_src = OpASrc::Reg1;
+                            c.b_src = OpBSrc::Zero;
+                            c.csr_op = match d.funct3 {
+                                sys_ops::CSRRW => CsrOp::Rw,
+                                sys_ops::CSRRS => CsrOp::Rs,
+                                sys_ops::CSRRC => CsrOp::Rc,
+                                sys_ops::CSRRWI => CsrOp::Rwi,
+                                sys_ops::CSRRSI => CsrOp::Rsi,
+                                sys_ops::CSRRCI => CsrOp::Rci,
+                                _ => CsrOp::None,
+                            };
+                            c.reg_write = d.rd != 0;
+                        }
                     }
                 }
             }

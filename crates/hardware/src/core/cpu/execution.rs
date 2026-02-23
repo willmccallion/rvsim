@@ -35,8 +35,11 @@ impl Cpu {
         if self.pc == self.last_pc {
             self.same_pc_count += 1;
             if self.same_pc_count == HANG_DETECTION_THRESHOLD {
-                let inst = if let Some((ppn, _, _, _, _, _)) =
-                    self.mmu.dtlb.lookup((self.pc >> PAGE_SHIFT) & VPN_MASK)
+                let asid = ((self.csrs.satp >> csr::SATP_ASID_SHIFT) & csr::SATP_ASID_MASK) as u16;
+                let inst = if let Some((ppn, _, _, _, _, _)) = self
+                    .mmu
+                    .dtlb
+                    .lookup((self.pc >> PAGE_SHIFT) & VPN_MASK, asid)
                 {
                     let paddr = (ppn << PAGE_SHIFT) | (self.pc & PAGE_OFFSET_MASK);
                     self.bus.bus.read_u32(paddr)

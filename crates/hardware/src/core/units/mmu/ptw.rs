@@ -7,7 +7,7 @@
 use crate::common::{
     AccessType, PAGE_SHIFT, PhysAddr, TranslationResult, Trap, VPN_MASK, VirtAddr,
 };
-use crate::core::arch::csr::{Csrs, SATP_PPN_MASK};
+use crate::core::arch::csr::{Csrs, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK};
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
 use crate::soc::interconnect::Bus;
@@ -147,6 +147,7 @@ pub fn page_table_walk(
 
     let satp = csrs.satp;
     let mut ppn = satp & SATP_PPN_MASK;
+    let asid = ((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16;
     let mut cycles = 0;
 
     for level in (0..SV39_LEVELS).rev() {
@@ -197,9 +198,9 @@ pub fn page_table_walk(
         let vpn = (vaddr.val() >> PAGE_SHIFT) & VPN_MASK;
 
         if access == AccessType::Fetch {
-            mmu.itlb.insert(vpn, specific_4kb_ppn, new_pte.raw());
+            mmu.itlb.insert(vpn, specific_4kb_ppn, new_pte.raw(), asid);
         } else {
-            mmu.dtlb.insert(vpn, specific_4kb_ppn, new_pte.raw());
+            mmu.dtlb.insert(vpn, specific_4kb_ppn, new_pte.raw(), asid);
         }
 
         return TranslationResult::success(PhysAddr::new(final_paddr), cycles);
