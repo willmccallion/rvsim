@@ -78,6 +78,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                 trap: Some(trap_cause.clone()),
                 exception_stage: Some(ExceptionStage::Fetch),
                 ghr_snapshot: 0,
+                ras_snapshot: 0,
             });
             break;
         }
@@ -110,6 +111,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
         let mut pred_target = 0;
         let mut stop_fetch = false;
         let mut ghr_snapshot = 0u64;
+        let ras_snapshot = cpu.branch_predictor.snapshot_ras();
 
         if is_compressed {
             // Compressed branch prediction: detect C.BEQZ / C.BNEZ
@@ -144,6 +146,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                         trap: None,
                         exception_stage: None,
                         ghr_snapshot: 0,
+                        ras_snapshot,
                     });
                     cpu.pc = next_pc_calc;
                     break;
@@ -209,6 +212,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
             trap: None,
             exception_stage: None,
             ghr_snapshot,
+            ras_snapshot,
         });
 
         current_pc = next_pc_calc;

@@ -35,11 +35,11 @@ pub struct GSharePredictor {
 
 impl GSharePredictor {
     /// Creates a new GShare Predictor.
-    pub fn new(btb_size: usize, ras_size: usize) -> Self {
+    pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         Self {
             ghr: 0,
             pht: vec![1; TABLE_SIZE],
-            btb: Btb::new(btb_size),
+            btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
         }
     }
@@ -122,5 +122,13 @@ impl BranchPredictor for GSharePredictor {
 
     fn repair_history(&mut self, ghr: u64) {
         self.ghr = ghr;
+    }
+
+    fn snapshot_ras(&self) -> usize {
+        self.ras.snapshot_ptr()
+    }
+
+    fn restore_ras(&mut self, ptr: usize) {
+        self.ras.restore_ptr(ptr);
     }
 }

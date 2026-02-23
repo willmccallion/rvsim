@@ -34,7 +34,12 @@ pub struct PerceptronPredictor {
 
 impl PerceptronPredictor {
     /// Creates a new Perceptron Predictor based on configuration.
-    pub fn new(config: &PerceptronConfig, btb_size: usize, ras_size: usize) -> Self {
+    pub fn new(
+        config: &PerceptronConfig,
+        btb_size: usize,
+        btb_ways: usize,
+        ras_size: usize,
+    ) -> Self {
         let table_entries = 1 << config.table_bits;
         let hist_len = config.history_length;
         let threshold = (THETA_COEFF * (hist_len as f64) + THETA_BIAS) as i32;
@@ -47,7 +52,7 @@ impl PerceptronPredictor {
             table_mask: table_entries - 1,
             row_size,
             threshold,
-            btb: Btb::new(btb_size),
+            btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
         }
     }
@@ -163,5 +168,13 @@ impl BranchPredictor for PerceptronPredictor {
 
     fn repair_history(&mut self, ghr: u64) {
         self.ghr = ghr;
+    }
+
+    fn snapshot_ras(&self) -> usize {
+        self.ras.snapshot_ptr()
+    }
+
+    fn restore_ras(&mut self, ptr: usize) {
+        self.ras.restore_ptr(ptr);
     }
 }

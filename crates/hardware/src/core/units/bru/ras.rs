@@ -70,4 +70,18 @@ impl Ras {
             Some(self.stack[self.ptr - 1])
         }
     }
+
+    /// Snapshots the current stack pointer for speculative checkpointing.
+    ///
+    /// Used at fetch time so the RAS can be restored on misprediction.
+    pub fn snapshot_ptr(&self) -> usize {
+        self.ptr
+    }
+
+    /// Restores the stack pointer to a previously captured snapshot.
+    ///
+    /// Called on misprediction to undo speculative push/pop operations.
+    pub fn restore_ptr(&mut self, ptr: usize) {
+        self.ptr = ptr;
+    }
 }

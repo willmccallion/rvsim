@@ -38,13 +38,18 @@ pub struct TournamentPredictor {
 
 impl TournamentPredictor {
     /// Creates a new Tournament Predictor based on the provided configuration.
-    pub fn new(config: &TournamentConfig, btb_size: usize, ras_size: usize) -> Self {
+    pub fn new(
+        config: &TournamentConfig,
+        btb_size: usize,
+        btb_ways: usize,
+        ras_size: usize,
+    ) -> Self {
         let global_size = 1 << config.global_size_bits;
         let local_hist_size = 1 << config.local_hist_bits;
         let local_pred_size = 1 << config.local_pred_bits;
 
         Self {
-            btb: Btb::new(btb_size),
+            btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
             ghr: 0,
 
@@ -186,5 +191,13 @@ impl BranchPredictor for TournamentPredictor {
 
     fn repair_history(&mut self, ghr: u64) {
         self.ghr = ghr;
+    }
+
+    fn snapshot_ras(&self) -> usize {
+        self.ras.snapshot_ptr()
+    }
+
+    fn restore_ras(&mut self, ptr: usize) {
+        self.ras.restore_ptr(ptr);
     }
 }

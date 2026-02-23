@@ -52,6 +52,7 @@ class Config:
         branch_predictor=BranchPredictor.TAGE(),
         backend=Backend.OutOfOrder(),
         btb_size: int = 4096,
+        btb_ways: int = 4,
         ras_size: int = 32,
         # Caches (None = disabled)
         l1i=Cache("32KB", ways=4, latency=1, prefetcher=Prefetcher.NextLine(degree=1)),
@@ -88,6 +89,7 @@ class Config:
         self.branch_predictor = branch_predictor
         self.backend = backend if backend is not None else Backend.InOrder()
         self.btb_size = btb_size
+        self.btb_ways = btb_ways
         self.ras_size = ras_size
 
         # Caches
@@ -141,6 +143,7 @@ class Config:
             branch_predictor=self.branch_predictor,
             backend=self.backend,
             btb_size=self.btb_size,
+            btb_ways=self.btb_ways,
             ras_size=self.ras_size,
             l1i=self.l1i,
             l1d=self.l1d,
@@ -506,6 +509,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "width": cfg.width,
         "branch_predictor": _bp_name(bp),
         "btb_size": cfg.btb_size,
+        "btb_ways": cfg.btb_ways,
         "ras_size": cfg.ras_size,
         "backend": _backend_name(cfg.backend),
         "tage": tage_dict,

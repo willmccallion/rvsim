@@ -450,6 +450,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
             pred_taken: if_entry.pred_taken,
             pred_target: if_entry.pred_target,
             ghr_snapshot: if_entry.ghr_snapshot,
+            ras_snapshot: if_entry.ras_snapshot,
         });
 
         consumed_count += 1;

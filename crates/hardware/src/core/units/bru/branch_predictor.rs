@@ -93,4 +93,17 @@ pub trait BranchPredictor {
     /// Called at resolution time (execute) before `update_branch` so
     /// the predictor trains on the correct history state.
     fn repair_history(&mut self, _ghr: u64) {}
+
+    /// Returns a snapshot of the RAS pointer for speculative checkpointing.
+    ///
+    /// Called at fetch time before speculative push/pop so the pointer
+    /// can be restored on misprediction.
+    fn snapshot_ras(&self) -> usize {
+        0
+    }
+
+    /// Restores the RAS pointer to a previously captured snapshot.
+    ///
+    /// Called on misprediction recovery to undo speculative RAS operations.
+    fn restore_ras(&mut self, _ptr: usize) {}
 }

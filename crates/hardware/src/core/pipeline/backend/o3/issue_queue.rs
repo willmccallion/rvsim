@@ -589,6 +589,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: 0,
+            ras_snapshot: 0,
         }
     }
 

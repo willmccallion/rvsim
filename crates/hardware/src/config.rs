@@ -139,6 +139,9 @@ mod defaults {
     /// Default Branch Target Buffer size (256 entries).
     pub const BTB_SIZE: usize = 256;
 
+    /// Default Branch Target Buffer associativity (4-way).
+    pub const BTB_WAYS: usize = 4;
+
     /// Default Return Address Stack size (8 entries).
     pub const RAS_SIZE: usize = 8;
 
@@ -850,6 +853,10 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_btb_size")]
     pub btb_size: usize,
 
+    /// Branch Target Buffer associativity (ways per set)
+    #[serde(default = "PipelineConfig::default_btb_ways")]
+    pub btb_ways: usize,
+
     /// Return Address Stack size
     #[serde(default = "PipelineConfig::default_ras_size")]
     pub ras_size: usize,
@@ -924,6 +931,11 @@ impl PipelineConfig {
         defaults::BTB_SIZE
     }
 
+    /// Returns the default BTB associativity.
+    fn default_btb_ways() -> usize {
+        defaults::BTB_WAYS
+    }
+
     /// Returns the default Return Address Stack size.
     fn default_ras_size() -> usize {
         defaults::RAS_SIZE
@@ -980,6 +992,7 @@ impl Default for PipelineConfig {
             width: defaults::PIPELINE_WIDTH,
             branch_predictor: BranchPredictor::default(),
             btb_size: defaults::BTB_SIZE,
+            btb_ways: defaults::BTB_WAYS,
             ras_size: defaults::RAS_SIZE,
             misa_override: None,
             tage: TageConfig::default(),

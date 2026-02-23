@@ -150,6 +150,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 pred_taken: id.pred_taken,
                 pred_target: id.pred_target,
                 ghr_snapshot: id.ghr_snapshot,
+                ras_snapshot: id.ras_snapshot,
             };
 
             if cpu.trace {
@@ -234,6 +235,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 pred_taken: id.pred_taken,
                 pred_target: id.pred_target,
                 ghr_snapshot: id.ghr_snapshot,
+                ras_snapshot: id.ras_snapshot,
             };
 
             if cpu.trace {

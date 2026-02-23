@@ -53,24 +53,28 @@ impl BranchPredictorWrapper {
     /// it with the configured BTB and RAS sizes.
     pub fn new(config: &Config) -> Self {
         let btb_size = config.pipeline.btb_size;
+        let btb_ways = config.pipeline.btb_ways;
         let ras_size = config.pipeline.ras_size;
 
         match config.pipeline.branch_predictor {
-            BpType::Static => Self::Static(StaticPredictor::new(btb_size, ras_size)),
-            BpType::GShare => Self::GShare(GSharePredictor::new(btb_size, ras_size)),
+            BpType::Static => Self::Static(StaticPredictor::new(btb_size, btb_ways, ras_size)),
+            BpType::GShare => Self::GShare(GSharePredictor::new(btb_size, btb_ways, ras_size)),
             BpType::Tournament => Self::Tournament(TournamentPredictor::new(
                 &config.pipeline.tournament,
                 btb_size,
+                btb_ways,
                 ras_size,
             )),
             BpType::Tage => Self::Tage(TagePredictor::new(
                 &config.pipeline.tage,
                 btb_size,
+                btb_ways,
                 ras_size,
             )),
             BpType::Perceptron => Self::Perceptron(PerceptronPredictor::new(
                 &config.pipeline.perceptron,
                 btb_size,
+                btb_ways,
                 ras_size,
             )),
         }
@@ -195,6 +199,28 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.repair_history(ghr),
             Self::Tage(bp) => bp.repair_history(ghr),
             Self::Perceptron(bp) => bp.repair_history(ghr),
+        }
+    }
+
+    #[inline(always)]
+    fn snapshot_ras(&self) -> usize {
+        match self {
+            Self::Static(bp) => bp.snapshot_ras(),
+            Self::GShare(bp) => bp.snapshot_ras(),
+            Self::Tournament(bp) => bp.snapshot_ras(),
+            Self::Tage(bp) => bp.snapshot_ras(),
+            Self::Perceptron(bp) => bp.snapshot_ras(),
+        }
+    }
+
+    #[inline(always)]
+    fn restore_ras(&mut self, ptr: usize) {
+        match self {
+            Self::Static(bp) => bp.restore_ras(ptr),
+            Self::GShare(bp) => bp.restore_ras(ptr),
+            Self::Tournament(bp) => bp.restore_ras(ptr),
+            Self::Tage(bp) => bp.restore_ras(ptr),
+            Self::Perceptron(bp) => bp.restore_ras(ptr),
         }
     }
 }

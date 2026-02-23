@@ -34,6 +34,8 @@ pub struct IfIdEntry {
     pub exception_stage: Option<ExceptionStage>,
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: u64,
+    /// RAS pointer snapshot captured at prediction time for speculative recovery.
+    pub ras_snapshot: usize,
 }
 
 /// Entry in the ID/EX pipeline latch (Decode to Execute stage).
@@ -76,6 +78,8 @@ pub struct IdExEntry {
     pub pred_target: u64,
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: u64,
+    /// RAS pointer snapshot captured at prediction time for speculative recovery.
+    pub ras_snapshot: usize,
 }
 
 /// Entry in the EX/MEM pipeline latch (Execute to Memory stage).
@@ -152,6 +156,8 @@ pub struct Fetch1Fetch2Entry {
     pub exception_stage: Option<ExceptionStage>,
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: u64,
+    /// RAS pointer snapshot captured at prediction time for speculative recovery.
+    pub ras_snapshot: usize,
 }
 
 /// Entry from Rename -> Issue (also used as Issue -> Execute input).
@@ -210,6 +216,8 @@ pub struct RenameIssueEntry {
     pub pred_target: u64,
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: u64,
+    /// RAS pointer snapshot captured at prediction time for speculative recovery.
+    pub ras_snapshot: usize,
 }
 
 /// Entry from Execute -> Memory1 latch.

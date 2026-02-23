@@ -165,6 +165,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
         let mispredicted = predicted_target != actual_next_pc;
 
         cpu.branch_predictor.repair_history(id.ghr_snapshot);
+        cpu.branch_predictor.restore_ras(id.ras_snapshot);
         cpu.branch_predictor.update_branch(
             id.pc,
             taken,

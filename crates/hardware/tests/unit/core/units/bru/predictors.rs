@@ -28,7 +28,7 @@ fn default_tage() -> TagePredictor {
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],
     };
-    TagePredictor::new(&config, 64, 8)
+    TagePredictor::new(&config, 64, 4, 8)
 }
 
 fn default_perceptron() -> PerceptronPredictor {
@@ -38,6 +38,7 @@ fn default_perceptron() -> PerceptronPredictor {
             table_bits: 6, // 64 entries
         },
         64,
+        4,
         8,
     )
 }
@@ -50,6 +51,7 @@ fn default_tournament() -> TournamentPredictor {
             local_pred_bits: 6,
         },
         64,
+        4,
         8,
     )
 }
@@ -69,7 +71,7 @@ fn train<P: BranchPredictor>(bp: &mut P, pc: u64, taken: bool, target: u64, n: u
 /// Static predictor always predicts not-taken.
 #[test]
 fn static_always_not_taken() {
-    let bp = StaticPredictor::new(64, 8);
+    let bp = StaticPredictor::new(64, 4, 8);
     let (taken, target) = bp.predict_branch(0x1000);
     assert!(!taken, "Static should always predict not-taken");
     assert_eq!(target, None);
@@ -78,7 +80,7 @@ fn static_always_not_taken() {
 /// Static predictor stays not-taken even after taken training.
 #[test]
 fn static_ignores_training() {
-    let mut bp = StaticPredictor::new(64, 8);
+    let mut bp = StaticPredictor::new(64, 4, 8);
     train(&mut bp, 0x1000, true, 0x2000, 100);
     let (taken, _) = bp.predict_branch(0x1000);
     assert!(
@@ -90,7 +92,7 @@ fn static_ignores_training() {
 /// Static predictor still updates BTB (used for unconditional jumps).
 #[test]
 fn static_updates_btb() {
-    let mut bp = StaticPredictor::new(64, 8);
+    let mut bp = StaticPredictor::new(64, 4, 8);
     bp.update_branch(0x1000, true, Some(0x2000));
     assert_eq!(bp.predict_btb(0x1000), Some(0x2000));
 }
@@ -102,7 +104,7 @@ fn static_updates_btb() {
 /// GShare initial prediction — counters initialized to 1 (weakly not-taken).
 #[test]
 fn gshare_initial_not_taken() {
-    let bp = GSharePredictor::new(64, 8);
+    let bp = GSharePredictor::new(64, 4, 8);
     let (taken, _) = bp.predict_branch(0x1000);
     assert!(!taken, "Initial counter=1 → not taken (< 2)");
 }
@@ -114,7 +116,7 @@ fn gshare_initial_not_taken() {
 /// same entry. We use 20 steps to ensure convergence.
 #[test]
 fn gshare_learns_taken() {
-    let mut bp = GSharePredictor::new(64, 8);
+    let mut bp = GSharePredictor::new(64, 4, 8);
     let pc = 0x1000;
     train(&mut bp, pc, true, 0x2000, 20);
 
@@ -125,7 +127,7 @@ fn gshare_learns_taken() {
 /// GShare learns not-taken after repeated not-taken updates.
 #[test]
 fn gshare_learns_not_taken() {
-    let mut bp = GSharePredictor::new(64, 8);
+    let mut bp = GSharePredictor::new(64, 4, 8);
     let pc = 0x1000;
 
     // First push counters up to taken...
@@ -140,7 +142,7 @@ fn gshare_learns_not_taken() {
 /// GShare uses GHR XOR PC for indexing — different histories produce different predictions.
 #[test]
 fn gshare_context_sensitive() {
-    let mut bp = GSharePredictor::new(256, 8);
+    let mut bp = GSharePredictor::new(256, 4, 8);
     let pc = 0x1000;
 
     // Create two different history contexts by feeding different branches.
@@ -149,7 +151,7 @@ fn gshare_context_sensitive() {
     let (pred_a, _) = bp.predict_branch(pc);
 
     // Context B: branch at pc=0x100 not-taken, then predict pc=0x1000.
-    let mut bp2 = GSharePredictor::new(256, 8);
+    let mut bp2 = GSharePredictor::new(256, 4, 8);
     bp2.update_branch(0x100, false, None);
     let (pred_b, _) = bp2.predict_branch(pc);
 
@@ -324,11 +326,11 @@ fn all_predictors_use_btb() {
     let pc = 0x1000;
     let target = 0x2000;
 
-    let mut static_bp = StaticPredictor::new(64, 8);
+    let mut static_bp = StaticPredictor::new(64, 4, 8);
     static_bp.update_branch(pc, true, Some(target));
     assert_eq!(static_bp.predict_btb(pc), Some(target));
 
-    let mut gshare = GSharePredictor::new(64, 8);
+    let mut gshare = GSharePredictor::new(64, 4, 8);
     gshare.update_branch(pc, true, Some(target));
     assert_eq!(gshare.predict_btb(pc), Some(target));
 
@@ -356,13 +358,13 @@ fn all_predictors_use_ras() {
     let ret_addr = 0x1004;
     let call_target = 0x2000;
 
-    let mut static_bp = StaticPredictor::new(64, 8);
+    let mut static_bp = StaticPredictor::new(64, 4, 8);
     static_bp.on_call(call_pc, ret_addr, call_target);
     assert_eq!(static_bp.predict_return(), Some(ret_addr));
     static_bp.on_return();
     assert_eq!(static_bp.predict_return(), None);
 
-    let mut gshare = GSharePredictor::new(64, 8);
+    let mut gshare = GSharePredictor::new(64, 4, 8);
     gshare.on_call(call_pc, ret_addr, call_target);
     assert_eq!(gshare.predict_return(), Some(ret_addr));
     gshare.on_return();

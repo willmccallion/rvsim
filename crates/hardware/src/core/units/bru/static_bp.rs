@@ -21,9 +21,9 @@ impl StaticPredictor {
     ///
     /// * `btb_size` - Number of entries in the BTB.
     /// * `ras_size` - Capacity of the RAS.
-    pub fn new(btb_size: usize, ras_size: usize) -> Self {
+    pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         Self {
-            btb: Btb::new(btb_size),
+            btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
         }
     }
@@ -66,5 +66,13 @@ impl BranchPredictor for StaticPredictor {
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
         self.ras.pop();
+    }
+
+    fn snapshot_ras(&self) -> usize {
+        self.ras.snapshot_ptr()
+    }
+
+    fn restore_ras(&mut self, ptr: usize) {
+        self.ras.restore_ptr(ptr);
     }
 }

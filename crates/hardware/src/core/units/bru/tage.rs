@@ -1,19 +1,12 @@
-//! TAGE (Tagged Geometric History Length) Branch Predictor.
+//! TAGE (Tagged Geometric History Length) Branch Predictor with Loop Predictor.
 //!
 //! TAGE uses a base bimodal predictor and multiple tagged banks indexed with
 //! geometrically increasing history lengths. It provides high accuracy by
 //! matching long history patterns while falling back to shorter histories
 //! or the base predictor when necessary.
 //!
-//! # Performance
-//!
-//! - **Time Complexity:**
-//!   - `predict()`: O(B) where B is the number of banks (typically 4-6)
-//!   - `update()`: O(B)
-//! - **Space Complexity:** O(T × B) where T is table size per bank
-//! - **Hardware Cost:** High - multiple table lookups, priority selection
-//! - **Best Case:** Complex history-correlated patterns with varying lengths
-//! - **Worst Case:** Random or completely uncorrelated branches (~50% accuracy)
+//! The loop predictor detects counted loops and overrides TAGE when it has
+//! high confidence in the loop's trip count.
 
 use super::{BranchPredictor, btb::Btb, ras::Ras};
 use crate::config::TageConfig;
@@ -29,7 +22,22 @@ struct TageEntry {
     u: u8,
 }
 
-/// TAGE Predictor structure.
+/// An entry in the loop predictor table.
+#[derive(Clone, Default)]
+struct LoopEntry {
+    /// PC-derived tag for matching.
+    tag: u16,
+    /// Current iteration count within the loop.
+    current_iter: u16,
+    /// Learned total trip count (iterations before exit).
+    trip_count: u16,
+    /// Confidence: number of confirmed full-trip matches (0-3).
+    confidence: u8,
+    /// Age counter for replacement (higher = more recently used).
+    age: u8,
+}
+
+/// TAGE Predictor structure with integrated loop predictor.
 pub struct TagePredictor {
     /// Branch Target Buffer.
     btb: Btb,
@@ -59,11 +67,16 @@ pub struct TagePredictor {
     clock_counter: u32,
     /// Interval for resetting useful bits.
     reset_interval: u32,
+
+    /// Loop predictor table.
+    loop_table: Vec<LoopEntry>,
+    /// Size of the loop table (number of entries).
+    loop_table_size: usize,
 }
 
 impl TagePredictor {
     /// Creates a new TAGE Predictor based on configuration.
-    pub fn new(config: &TageConfig, btb_size: usize, ras_size: usize) -> Self {
+    pub fn new(config: &TageConfig, btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         assert!(
             config.table_size.is_power_of_two(),
             "TAGE table size must be power of 2"
@@ -95,8 +108,10 @@ impl TagePredictor {
             banks.push(vec![TageEntry::default(); config.table_size]);
         }
 
+        let loop_size = config.loop_table_size.max(1);
+
         Self {
-            btb: Btb::new(btb_size),
+            btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
             ghr: 0,
             base: vec![0; config.table_size],
@@ -109,6 +124,9 @@ impl TagePredictor {
             alt_bank: 0,
             clock_counter: 0,
             reset_interval: config.reset_interval,
+
+            loop_table: vec![LoopEntry::default(); loop_size],
+            loop_table_size: loop_size,
         }
     }
 
@@ -156,14 +174,100 @@ impl TagePredictor {
         let h_folded2 = Self::fold(h, width.wrapping_sub(1).max(1));
         ((pc_hash as usize ^ h_folded as usize ^ h_folded2 as usize) & ((1 << width) - 1)) as u16
     }
+
+    /// Loop predictor index from PC.
+    fn loop_index(&self, pc: u64) -> usize {
+        ((pc >> 2) as usize) % self.loop_table_size
+    }
+
+    /// Loop predictor tag from PC (10-bit).
+    fn loop_tag(pc: u64) -> u16 {
+        ((pc >> 2) ^ (pc >> 12)) as u16 & 0x3FF
+    }
+
+    /// Queries the loop predictor. Returns `Some(taken)` if the loop predictor
+    /// has high confidence, otherwise `None`.
+    fn loop_predict(&self, pc: u64) -> Option<bool> {
+        let idx = self.loop_index(pc);
+        let entry = &self.loop_table[idx];
+        let tag = Self::loop_tag(pc);
+
+        if entry.tag != tag || entry.confidence < 2 || entry.trip_count == 0 {
+            return None;
+        }
+
+        // Predict: if we've reached trip_count iterations, loop exits (not taken).
+        if entry.current_iter + 1 >= entry.trip_count {
+            Some(false) // loop exit
+        } else {
+            Some(true) // loop body
+        }
+    }
+
+    /// Updates the loop predictor with actual branch outcome.
+    fn loop_update(&mut self, pc: u64, taken: bool) {
+        let idx = self.loop_index(pc);
+        let tag = Self::loop_tag(pc);
+        let entry = &mut self.loop_table[idx];
+
+        if entry.tag == tag {
+            if taken {
+                // Still in loop body — increment iteration counter.
+                entry.current_iter = entry.current_iter.saturating_add(1);
+                entry.age = entry.age.saturating_add(1).min(3);
+            } else {
+                // Loop exit.
+                if entry.trip_count == 0 {
+                    // First time seeing exit: learn the trip count.
+                    entry.trip_count = entry.current_iter;
+                    entry.confidence = 1;
+                } else if entry.current_iter == entry.trip_count {
+                    // Trip count matches — increase confidence.
+                    entry.confidence = entry.confidence.saturating_add(1).min(3);
+                } else {
+                    // Trip count mismatch — re-learn.
+                    entry.trip_count = entry.current_iter;
+                    entry.confidence = 0;
+                }
+                entry.current_iter = 0;
+            }
+        } else if taken {
+            // No matching entry and branch is taken (potential loop start).
+            // Allocate if the existing entry has low age.
+            if entry.age == 0 || entry.tag == 0 {
+                *entry = LoopEntry {
+                    tag,
+                    current_iter: 1,
+                    trip_count: 0,
+                    confidence: 0,
+                    age: 1,
+                };
+            } else {
+                entry.age = entry.age.saturating_sub(1);
+            }
+        }
+    }
 }
 
 impl BranchPredictor for TagePredictor {
     /// Predicts branch direction and target.
     ///
     /// Searches the tagged banks for the longest history match (provider).
-    /// If no match is found, uses the base predictor.
+    /// If no match is found, uses the base predictor. The loop predictor
+    /// can override when it has high confidence.
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
+        // Check loop predictor first — high-confidence override.
+        if let Some(loop_taken) = self.loop_predict(pc) {
+            return (
+                loop_taken,
+                if loop_taken {
+                    self.btb.lookup(pc)
+                } else {
+                    None
+                },
+            );
+        }
+
         let mut provider = 0;
         let num_banks = self.banks.len();
 
@@ -191,8 +295,11 @@ impl BranchPredictor for TagePredictor {
     ///
     /// Updates the provider bank, and potentially allocates a new entry in a
     /// bank with longer history on mispredictions. Also handles periodic
-    /// resetting of useful bits.
+    /// resetting of useful bits and loop predictor training.
     fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+        // Update loop predictor.
+        self.loop_update(pc, taken);
+
         self.clock_counter += 1;
         if self.clock_counter >= self.reset_interval {
             self.clock_counter = 0;
@@ -340,5 +447,13 @@ impl BranchPredictor for TagePredictor {
 
     fn repair_history(&mut self, ghr: u64) {
         self.ghr = ghr;
+    }
+
+    fn snapshot_ras(&self) -> usize {
+        self.ras.snapshot_ptr()
+    }
+
+    fn restore_ras(&mut self, ptr: usize) {
+        self.ras.restore_ptr(ptr);
     }
 }

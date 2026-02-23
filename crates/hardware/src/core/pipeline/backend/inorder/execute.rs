@@ -531,6 +531,7 @@ pub fn execute_inorder(
             let mispredicted = predicted_target != actual_next_pc;
 
             cpu.branch_predictor.repair_history(id.ghr_snapshot);
+            cpu.branch_predictor.restore_ras(id.ras_snapshot);
             cpu.branch_predictor.update_branch(
                 id.pc,
                 taken,

@@ -99,6 +99,7 @@ pub fn fetch2_stage(
                 trap: f1.trap,
                 exception_stage: f1.exception_stage,
                 ghr_snapshot: f1.ghr_snapshot,
+                ras_snapshot: f1.ras_snapshot,
             });
             break;
         }
@@ -173,6 +174,7 @@ pub fn fetch2_stage(
                 trap: Some(t),
                 exception_stage: Some(ExceptionStage::Fetch),
                 ghr_snapshot: f1.ghr_snapshot,
+                ras_snapshot: f1.ras_snapshot,
             });
             break;
         }
@@ -190,6 +192,7 @@ pub fn fetch2_stage(
             trap: None,
             exception_stage: None,
             ghr_snapshot: f1.ghr_snapshot,
+            ras_snapshot: f1.ras_snapshot,
         });
     }
 }
