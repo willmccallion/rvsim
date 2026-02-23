@@ -153,6 +153,15 @@ pub fn commit_stage(
             }
         }
 
+        // Apply deferred FP exception flags (accumulated during execution).
+        // This must happen before CSR writes so that a CSR read of fflags
+        // at execute time (which already drained older flags) stays consistent.
+        if entry.fp_flags != 0 {
+            cpu.csrs.fflags |= entry.fp_flags as u64;
+            cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+        }
+
         // Apply deferred CSR write
         if let Some(csr_update) = entry.csr_update {
             // SATP writes change the address translation mode. All preceding
@@ -231,6 +240,17 @@ pub fn commit_stage(
         // visible before younger succ operations proceed).
         if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence_i {
             drain_all_committed(cpu, store_buffer);
+            // FENCE.I: flush I-cache AFTER store drain so refills see new data.
+            // The execute stage already redirected the frontend; this flush
+            // ensures the I-cache doesn't hold stale lines when fetching resumes.
+            if entry.ctrl.is_fence_i {
+                cpu.l1_i_cache.flush();
+                // Re-redirect the frontend: the execute-time redirect may have
+                // already caused fetches with stale I-cache data. Force a new
+                // redirect so the frontend re-fetches with the flushed I-cache.
+                cpu.pc = entry.pc.wrapping_add(entry.inst_size);
+                cpu.redirect_pending = true;
+            }
         } else if entry.ctrl.is_fence {
             let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
             let pred_w = pred_bits & 0b0001 != 0;

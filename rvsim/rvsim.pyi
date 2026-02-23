@@ -110,13 +110,72 @@ class MemoryController:
             row_miss_latency: int = 120,
         ) -> None: ...
 
+class Fu:
+    class IntAlu:
+        count: int
+        latency: int
+        def __init__(self, count: int = 4, latency: int = 1) -> None: ...
+    class IntMul:
+        count: int
+        latency: int
+        def __init__(self, count: int = 1, latency: int = 3) -> None: ...
+    class IntDiv:
+        count: int
+        latency: int
+        def __init__(self, count: int = 1, latency: int = 35) -> None: ...
+    class FpAdd:
+        count: int
+        latency: int
+        def __init__(self, count: int = 2, latency: int = 4) -> None: ...
+    class FpMul:
+        count: int
+        latency: int
+        def __init__(self, count: int = 2, latency: int = 5) -> None: ...
+    class FpFma:
+        count: int
+        latency: int
+        def __init__(self, count: int = 2, latency: int = 5) -> None: ...
+    class FpDivSqrt:
+        count: int
+        latency: int
+        def __init__(self, count: int = 1, latency: int = 21) -> None: ...
+    class Branch:
+        count: int
+        latency: int
+        def __init__(self, count: int = 2, latency: int = 1) -> None: ...
+    class Mem:
+        count: int
+        latency: int
+        def __init__(self, count: int = 2, latency: int = 1) -> None: ...
+
+    units: List[Any]
+    def __init__(self, units: Optional[List[Any]] = None) -> None: ...
+
 class Backend:
     class InOrder: ...
 
     class OutOfOrder:
         rob_size: int
         store_buffer_size: int
-        def __init__(self, rob_size: int = 64, store_buffer_size: int = 16) -> None: ...
+        issue_queue_size: int
+        load_queue_size: int
+        load_ports: int
+        store_ports: int
+        prf_gpr_size: int
+        prf_fpr_size: int
+        fu_config: Fu
+        def __init__(
+            self,
+            rob_size: int = 128,
+            store_buffer_size: int = 32,
+            issue_queue_size: int = 32,
+            load_queue_size: int = 32,
+            load_ports: int = 2,
+            store_ports: int = 1,
+            prf_gpr_size: int = 256,
+            prf_fpr_size: int = 128,
+            fu_config: Optional[Fu] = None,
+        ) -> None: ...
 
 class Cache:
     size_bytes: int
@@ -125,6 +184,7 @@ class Cache:
     policy: Any
     latency: int
     prefetcher: Any
+    mshr_count: int
     def __init__(
         self,
         size: str | int = "4KB",
@@ -133,6 +193,7 @@ class Cache:
         policy: Any = None,
         latency: int = 1,
         prefetcher: Any = None,
+        mshr_count: int = 0,
     ) -> None: ...
 
 # ── config.py ────────────────────────────────────────────────────────────────

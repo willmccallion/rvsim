@@ -398,13 +398,10 @@ impl ExecutionEngine for O3Engine {
                         } else {
                             entry.alu
                         };
+                        // Store fp_flags in the ROB now (same rationale as the
+                        // pipelined path — younger CSR reads need to see them).
                         if entry.fp_flags != 0 {
-                            use crate::core::arch::csr;
-                            cpu.csrs.fflags |= entry.fp_flags as u64;
-                            cpu.csrs.mstatus =
-                                (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                            cpu.csrs.sstatus =
-                                (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                            self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
                         }
                         // For CSR instructions: apply the deferred CSR write NOW (at complete
                         // time) rather than waiting for commit. This prevents a race where
@@ -492,13 +489,12 @@ impl ExecutionEngine for O3Engine {
                     } else {
                         ex_result.alu
                     };
+                    // Store fp_flags in the ROB now so that a younger serializing
+                    // CSR instruction (e.g. fsflags) sees them when it drains
+                    // older entries at execute time.  Commit will apply them to
+                    // the architectural fflags register in program order.
                     if ex_result.fp_flags != 0 {
-                        use crate::core::arch::csr;
-                        cpu.csrs.fflags |= ex_result.fp_flags as u64;
-                        cpu.csrs.mstatus =
-                            (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                        cpu.csrs.sstatus =
-                            (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                        self.rob.set_fp_flags(ex_result.rob_tag, ex_result.fp_flags);
                     }
                     self.rob.complete(ex_result.rob_tag, val);
                     self.prf.write(ex_result.rd_phys, val);

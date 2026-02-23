@@ -78,12 +78,11 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     };
     let op_c = fwd_c;
 
-    // FENCE.I: invalidate I-cache so subsequent fetches see prior stores.
-    // D-cache does NOT need flushing — stores reach memory via the store
-    // buffer drain at commit, and the I-cache refill reads from the cache
-    // hierarchy which includes dirty D-cache lines.
+    // FENCE.I: flush the pipeline so younger instructions are squashed.
+    // The I-cache flush is deferred to COMMIT time (after store drain)
+    // to ensure that all prior stores are visible in RAM before the
+    // I-cache refills with the new data.
     if id.ctrl.is_fence_i {
-        cpu.l1_i_cache.flush();
         cpu.pc = id.pc.wrapping_add(id.inst_size);
         cpu.redirect_pending = true;
 
@@ -476,6 +475,19 @@ fn execute_csr(
         }
     }
 
+    // fp_flags are deferred to commit, but a CSR read of fflags/fcsr must
+    // see the accumulated flags from all older (completed) instructions.
+    // CSR instructions are serializing, so all older entries are complete.
+    {
+        use crate::core::arch::csr as csr_addrs;
+        if id.ctrl.csr_addr == csr_addrs::FFLAGS
+            || id.ctrl.csr_addr == csr_addrs::FCSR
+            || id.ctrl.csr_addr == csr_addrs::FRM
+        {
+            let acc = rob.drain_fp_flags_before(id.rob_tag);
+            cpu.csrs.fflags |= acc as u64;
+        }
+    }
     let old = cpu.csr_read(id.ctrl.csr_addr);
     let src = match id.ctrl.csr_op {
         CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (id.rs1 as u64) & 0x1f,

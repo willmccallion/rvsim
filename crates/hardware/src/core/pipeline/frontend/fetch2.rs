@@ -63,15 +63,11 @@ pub fn fetch2_stage(
         let (inst, step, inst_trap) = if is_compressed {
             let expanded = expand(half_word);
             if expanded == 0 {
-                if output.is_empty() {
-                    (
-                        0,
-                        INSTRUCTION_SIZE_16,
-                        Some(Trap::IllegalInstruction(half_word as u32)),
-                    )
-                } else {
-                    break;
-                }
+                (
+                    0,
+                    INSTRUCTION_SIZE_16,
+                    Some(Trap::IllegalInstruction(half_word as u32)),
+                )
             } else {
                 (expanded, INSTRUCTION_SIZE_16, None)
             }

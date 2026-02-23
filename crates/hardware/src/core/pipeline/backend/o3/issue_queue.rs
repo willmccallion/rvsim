@@ -25,6 +25,10 @@ pub struct OperandState {
     pub ready: bool,
     /// The operand value (valid when `ready` is true).
     pub value: u64,
+    /// Whether this operand was speculatively woken (load hit speculation).
+    /// When true, the PRF has NOT been written yet — the value in `value`
+    /// is a placeholder. Must be validated against the PRF before issue.
+    pub speculative: bool,
 }
 
 /// A single entry in the issue queue.
@@ -89,6 +93,7 @@ impl IssueQueue {
                     tag: None,
                     ready: true,
                     value: 0,
+                    speculative: false,
                 }
             };
             (s1, s2, s3)
@@ -104,6 +109,7 @@ impl IssueQueue {
                     tag: None,
                     ready: true,
                     value: 0,
+                    speculative: false,
                 }
             };
             (s1, s2, s3)
@@ -160,13 +166,16 @@ impl IssueQueue {
         for iq in self.slots.iter_mut().flatten() {
             if iq.src1.phys == p && !iq.src1.ready {
                 iq.src1.ready = true;
+                iq.src1.speculative = true;
                 // value stays 0 — real value comes from PRF at select time
             }
             if iq.src2.phys == p && !iq.src2.ready {
                 iq.src2.ready = true;
+                iq.src2.speculative = true;
             }
             if iq.src3.phys == p && !iq.src3.ready {
                 iq.src3.ready = true;
+                iq.src3.speculative = true;
             }
         }
     }
@@ -186,14 +195,17 @@ impl IssueQueue {
             return;
         }
         for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && iq.src1.ready && iq.src1.value == 0 {
+            if iq.src1.phys == p && iq.src1.ready && iq.src1.speculative {
                 iq.src1.ready = false;
+                iq.src1.speculative = false;
             }
-            if iq.src2.phys == p && iq.src2.ready && iq.src2.value == 0 {
+            if iq.src2.phys == p && iq.src2.ready && iq.src2.speculative {
                 iq.src2.ready = false;
+                iq.src2.speculative = false;
             }
-            if iq.src3.phys == p && iq.src3.ready && iq.src3.value == 0 {
+            if iq.src3.phys == p && iq.src3.ready && iq.src3.speculative {
                 iq.src3.ready = false;
+                iq.src3.speculative = false;
             }
         }
     }
@@ -347,39 +359,29 @@ impl IssueQueue {
 
     /// Check whether a speculatively-ready operand is validated by the PRF.
     ///
-    /// Returns `true` if the operand is genuinely ready (PRF confirms it),
-    /// or if it was never speculatively woken (value != 0 means a real wakeup
-    /// already provided the value). Returns `false` if the IQ says ready but
-    /// the PRF disagrees — the operand was speculatively woken and the load
-    /// hasn't completed yet.
+    /// Returns `true` if the operand is genuinely ready, or was never
+    /// speculatively woken. Returns `false` if it was speculatively woken
+    /// and the PRF still hasn't been written (load hasn't completed yet).
     #[inline]
     fn prf_validated(src: &OperandState, prf: &PhysRegFile) -> bool {
-        if !src.ready {
-            return true; // not ready → no validation needed
+        if !src.ready || !src.speculative {
+            return true; // not ready or not speculative → no validation needed
         }
-        // If value is non-zero, a real wakeup already wrote it — valid.
-        // If phys == 0, it's x0 (hardwired zero) — always valid.
-        if src.value != 0 || src.phys.0 == 0 {
-            return true;
-        }
-        // value == 0 with a non-zero phys reg: could be speculative OR could
-        // be a real zero value. Check PRF: if PRF is ready, the value is real.
+        // Speculative: check PRF — if PRF is ready, the real wakeup arrived.
         prf.is_ready(src.phys)
     }
 
     /// Resolve the final operand value at select time.
     ///
-    /// If the IQ has value=0 for a non-zero phys reg and a PRF is available,
-    /// read the real value from the PRF. This handles the case where a
-    /// speculative wakeup set ready=true with value=0, and the real wakeup
-    /// wrote the PRF but the IQ entry still has the stale value=0.
+    /// If the operand was speculatively woken, the IQ entry has a placeholder
+    /// value — read the real value from the PRF (which has been written by
+    /// the real wakeup by the time we reach select).
     #[inline]
     fn resolve_value(src: &OperandState, prf: Option<&PhysRegFile>) -> u64 {
-        if src.value != 0 || src.phys.0 == 0 {
+        if !src.speculative || src.phys.0 == 0 {
             return src.value;
         }
-        // value is 0 with non-zero phys — might be speculative placeholder
-        // or genuine zero. Either way, PRF has the authoritative value.
+        // Speculative: PRF has the authoritative value.
         if let Some(prf) = prf {
             prf.read(src.phys)
         } else {
@@ -446,6 +448,7 @@ fn resolve_operand_prf(
             tag: None,
             ready: true,
             value: 0,
+            speculative: false,
         };
     }
 
@@ -455,6 +458,7 @@ fn resolve_operand_prf(
             tag: None,
             ready: true,
             value: prf.read(phys),
+            speculative: false,
         }
     } else {
         // Not ready yet — will be woken up by wakeup_phys
@@ -465,6 +469,7 @@ fn resolve_operand_prf(
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             };
         }
         OperandState {
@@ -472,6 +477,7 @@ fn resolve_operand_prf(
             tag: None,
             ready: false,
             value: 0,
+            speculative: false,
         }
     }
 }
@@ -491,6 +497,7 @@ fn resolve_operand_legacy(
             tag: None,
             ready: true,
             value: 0,
+            speculative: false,
         };
     }
 
@@ -507,6 +514,7 @@ fn resolve_operand_legacy(
                 tag: None,
                 ready: true,
                 value,
+                speculative: false,
             }
         }
         Some(t) => {
@@ -517,12 +525,14 @@ fn resolve_operand_legacy(
                     tag: Some(t),
                     ready: true,
                     value: entry.result,
+                    speculative: false,
                 },
                 Some(_) => OperandState {
                     phys: PhysReg(0),
                     tag: Some(t),
                     ready: false,
                     value: 0,
+                    speculative: false,
                 },
                 None => {
                     // ROB entry already committed — read from register file
@@ -536,6 +546,7 @@ fn resolve_operand_legacy(
                         tag: None,
                         ready: true,
                         value,
+                        speculative: false,
                     }
                 }
             }
@@ -600,18 +611,21 @@ mod tests {
                 tag: None,
                 ready: true,
                 value: 42,
+                speculative: false,
             },
             src2: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 10,
+                speculative: false,
             },
             src3: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             },
         });
         iq.count = 1;
@@ -645,18 +659,21 @@ mod tests {
                 tag: None,
                 ready: false,
                 value: 0,
+                speculative: false,
             },
             src2: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             },
             src3: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             },
         });
         iq.count = 1;
@@ -701,18 +718,21 @@ mod tests {
                 tag: Some(RobTag(5)),
                 ready: false,
                 value: 0,
+                speculative: false,
             },
             src2: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             },
             src3: OperandState {
                 phys: PhysReg(0),
                 tag: None,
                 ready: true,
                 value: 0,
+                speculative: false,
             },
         });
         iq.count = 1;
@@ -745,18 +765,21 @@ mod tests {
                     tag: None,
                     ready: true,
                     value: tag as u64,
+                    speculative: false,
                 },
                 src2: OperandState {
                     phys: PhysReg(0),
                     tag: None,
                     ready: true,
                     value: 0,
+                    speculative: false,
                 },
                 src3: OperandState {
                     phys: PhysReg(0),
                     tag: None,
                     ready: true,
                     value: 0,
+                    speculative: false,
                 },
             });
         }

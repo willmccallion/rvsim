@@ -240,6 +240,28 @@ impl Rob {
         }
     }
 
+    /// Collect and clear accumulated fp_flags from all entries older than `before_tag`.
+    ///
+    /// Used before CSR reads of fflags/fcsr: since fp_flags are deferred to
+    /// commit, a serializing CSR instruction must see the flags from all older
+    /// (completed) instructions.
+    pub fn drain_fp_flags_before(&mut self, before_tag: RobTag) -> u8 {
+        let mut acc: u8 = 0;
+        if self.count == 0 {
+            return 0;
+        }
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &mut self.entries[idx];
+            if entry.valid && entry.tag.0 < before_tag.0 {
+                acc |= entry.fp_flags;
+                entry.fp_flags = 0;
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        acc
+    }
+
     /// Sets the store address and data for a given entry.
     pub fn set_store_info(&mut self, tag: RobTag, addr: u64, data: u64) {
         if let Some(entry) = self.find_entry_mut(tag) {
@@ -321,6 +343,15 @@ impl Rob {
 
         // Keep entries from head through idx (inclusive), remove the rest
         let keep_idx = (idx + 1) % self.entries.len();
+
+        // If nothing to remove (keep_tag is the last entry), return early.
+        // This avoids a recount bug when the ROB is full: head == tail means
+        // both "full" and "empty" in a circular buffer, and the recount loop
+        // would incorrectly produce 0.
+        if keep_idx == self.tail {
+            return;
+        }
+
         let mut remove_idx = keep_idx;
         while remove_idx != self.tail {
             self.tag_index.remove(&self.entries[remove_idx].tag);

@@ -27,7 +27,13 @@ pub fn memory2_stage(
     mut load_queue: Option<&mut LoadQueue>,
 ) -> Option<RobTag> {
     let mut violation: Option<RobTag> = None;
-    let entries = std::mem::take(input);
+    let mut entries = std::mem::take(input);
+
+    // Sort by rob_tag to ensure entries are processed in program order.
+    // This prevents younger loads from stalling on unresolved older stores
+    // that are behind them in the latch, which would deadlock the pipeline.
+    entries.sort_by_key(|e| e.rob_tag.0);
+
     output.clear();
 
     let mut iter = entries.into_iter();
