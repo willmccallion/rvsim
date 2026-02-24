@@ -190,12 +190,18 @@ class Prefetcher:
             )
 
     class Stream:
+        def __init__(self, degree: int = 1):
+            self.degree = degree
+
         def __repr__(self) -> str:
-            return "Prefetcher.Stream()"
+            return f"Prefetcher.Stream(degree={self.degree})"
 
     class Tagged:
+        def __init__(self, degree: int = 1):
+            self.degree = degree
+
         def __repr__(self) -> str:
-            return "Prefetcher.Tagged()"
+            return f"Prefetcher.Tagged(degree={self.degree})"
 
 
 # ── Memory Controller ────────────────────────────────────────────────────────

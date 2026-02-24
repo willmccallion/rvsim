@@ -64,12 +64,15 @@ class Config:
         ),
         l2=Cache("256KB", ways=8, latency=10),
         l3: Optional[Cache] = None,
-        inclusion_policy=Cache.NINE(),
+        inclusion_policy: Any = Cache.NINE(),
         wcb_entries: int = 0,
         # Memory
         ram_size="256MB",
         memory_controller=None,
         tlb_size: int = 32,
+        l2_tlb_size: int = 512,
+        l2_tlb_ways: int = 4,
+        l2_tlb_latency: int = 4,
         # General
         trace: bool = False,
         initial_sp: Optional[int] = None,
@@ -110,6 +113,9 @@ class Config:
             else MemoryController.Simple()
         )
         self.tlb_size = tlb_size
+        self.l2_tlb_size = l2_tlb_size
+        self.l2_tlb_ways = l2_tlb_ways
+        self.l2_tlb_latency = l2_tlb_latency
 
         # General
         self.trace = trace
@@ -158,6 +164,9 @@ class Config:
             ram_size=self.ram_size,
             memory_controller=self.memory_controller,
             tlb_size=self.tlb_size,
+            l2_tlb_size=self.l2_tlb_size,
+            l2_tlb_ways=self.l2_tlb_ways,
+            l2_tlb_latency=self.l2_tlb_latency,
             trace=self.trace,
             initial_sp=self.initial_sp,
             ram_base=self.ram_base,
@@ -279,7 +288,10 @@ def _prefetcher_name(pf) -> str:
 
 def _prefetcher_degree(pf) -> int:
     """Return the prefetcher degree."""
-    if isinstance(pf, (Prefetcher.NextLine, Prefetcher.Stride)):
+    if isinstance(
+        pf,
+        (Prefetcher.NextLine, Prefetcher.Stride, Prefetcher.Stream, Prefetcher.Tagged),
+    ):
         return pf.degree
     return 0
 
@@ -477,6 +489,9 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "ram_size": cfg.ram_size,
         "controller": _mc_name(mc),
         "tlb_size": cfg.tlb_size,
+        "l2_tlb_size": cfg.l2_tlb_size,
+        "l2_tlb_ways": cfg.l2_tlb_ways,
+        "l2_tlb_latency": cfg.l2_tlb_latency,
     }
     # Always emit DRAM timing keys (Rust expects them)
     if isinstance(mc, MemoryController.DRAM):

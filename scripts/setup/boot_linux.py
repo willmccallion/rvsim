@@ -19,9 +19,12 @@ import tarfile
 import urllib.request
 
 from rvsim import (
+    Backend,
     BranchPredictor,
     Cache,
     Config,
+    Fu,
+    MemoryController,
     Prefetcher,
     ReplacementPolicy,
     Simulator,
@@ -221,20 +224,97 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def optimized_config() -> Config:
-    """Machine config for Linux boot: width-4 superscalar, TAGE, aggressive caches."""
+def config() -> Config:
+    """Maximum-performance config for Linux boot.
+
+    8-wide O3 superscalar, 8-bank TAGE, Inclusive 4-level cache hierarchy with
+    aggressive prefetching at every level, large L2 TLB, and a DRAM controller.
+    """
     return Config(
-        width=4,
+        # ── Frontend ──────────────────────────────────────────────────────────
+        width=8,
         branch_predictor=BranchPredictor.TAGE(
-            num_banks=4,
-            table_size=4096,
-            loop_table_size=512,
-            reset_interval=2000,
-            history_lengths=[5, 15, 44, 130],
-            tag_widths=[9, 9, 10, 10],
+            num_banks=8,
+            table_size=8192,
+            loop_table_size=1024,
+            reset_interval=500_000,
+            history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
+            tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
         ),
-        btb_size=8192,
-        ras_size=64,
+        btb_size=16384,
+        btb_ways=8,
+        ras_size=128,
+        # ── Out-of-order backend ──────────────────────────────────────────────
+        backend=Backend.OutOfOrder(
+            rob_size=256,
+            store_buffer_size=64,
+            issue_queue_size=96,
+            load_queue_size=64,
+            load_ports=4,
+            store_ports=2,
+            prf_gpr_size=512,
+            prf_fpr_size=256,
+            fu_config=Fu(
+                [
+                    Fu.IntAlu(count=6, latency=1),
+                    Fu.IntMul(count=2, latency=3),
+                    Fu.IntDiv(count=2, latency=20),
+                    Fu.FpAdd(count=4, latency=4),
+                    Fu.FpMul(count=4, latency=5),
+                    Fu.FpFma(count=4, latency=5),
+                    Fu.FpDivSqrt(count=2, latency=21),
+                    Fu.Branch(count=4, latency=1),
+                    Fu.Mem(count=4, latency=1),
+                ]
+            ),
+        ),
+        # ── Cache hierarchy ───────────────────────────────────────────────────
+        l1i=Cache(
+            size="64KB",
+            line="64B",
+            ways=8,
+            policy=ReplacementPolicy.PLRU(),
+            latency=1,
+            prefetcher=Prefetcher.NextLine(degree=4),
+            mshr_count=8,
+        ),
+        l1d=Cache(
+            size="64KB",
+            line="64B",
+            ways=8,
+            policy=ReplacementPolicy.PLRU(),
+            latency=1,
+            prefetcher=Prefetcher.Stride(degree=4, table_size=256),
+            mshr_count=16,
+        ),
+        l2=Cache(
+            size="2MB",
+            line="64B",
+            ways=16,
+            policy=ReplacementPolicy.PLRU(),
+            latency=8,
+            prefetcher=Prefetcher.Stream(degree=8),
+            mshr_count=32,
+        ),
+        l3=Cache(
+            size="16MB",
+            line="64B",
+            ways=16,
+            policy=ReplacementPolicy.PLRU(),
+            latency=24,
+            prefetcher=Prefetcher.Tagged(degree=4),
+            mshr_count=64,
+        ),
+        inclusion_policy=Cache.Inclusive(),
+        wcb_entries=16,
+        # ── Memory ────────────────────────────────────────────────────────────
+        ram_size="256MB",
+        tlb_size=256,
+        l2_tlb_size=2048,
+        l2_tlb_ways=8,
+        l2_tlb_latency=3,
+        memory_controller=MemoryController.Simple(),
+        # ── System addresses (must match device tree) ─────────────────────────
         ram_base=0x80000000,
         uart_base=0x10000000,
         disk_base=0x10001000,
@@ -244,40 +324,6 @@ def optimized_config() -> Config:
         bus_width=8,
         bus_latency=1,
         clint_divider=1,
-        ram_size="256MB",
-        memory_controller=None,  # Simple
-        tlb_size=128,
-        l1i=Cache(
-            size="64KB",
-            line="64B",
-            ways=8,
-            policy=ReplacementPolicy.PLRU(),
-            latency=1,
-            prefetcher=Prefetcher.NextLine(degree=2),
-        ),
-        l1d=Cache(
-            size="64KB",
-            line="64B",
-            ways=8,
-            policy=ReplacementPolicy.PLRU(),
-            latency=1,
-            prefetcher=Prefetcher.Stride(degree=2, table_size=128),
-        ),
-        l2=Cache(
-            size="1MB",
-            line="64B",
-            ways=16,
-            policy=ReplacementPolicy.PLRU(),
-            latency=8,
-            prefetcher=Prefetcher.NextLine(degree=1),
-        ),
-        l3=Cache(
-            size="8MB",
-            line="64B",
-            ways=16,
-            policy=ReplacementPolicy.PLRU(),
-            latency=28,
-        ),
     )
 
 
@@ -333,13 +379,13 @@ def main():
 
     print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
-    sim = Simulator().config(optimized_config()).kernel(image_path).disk(disk_path)
+    sim = Simulator().config(config()).kernel(image_path).disk(disk_path)
     if os.path.isfile(dtb_path):
         sim.dtb(dtb_path)
 
     try:
         return sim.run(
-            limit=1_000_000_000
+            limit=100_000_000_000, progress=1_000_000
         )  # Add progress = ... to this if it seems to hang.
     except Exception as e:
         print(f"Simulation failed: {e}")
