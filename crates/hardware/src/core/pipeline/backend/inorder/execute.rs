@@ -96,7 +96,7 @@ pub fn execute_inorder(
 
         // FENCE.I: invalidate I-cache so subsequent fetches see prior stores.
         if id.ctrl.is_fence_i {
-            cpu.l1_i_cache.flush();
+            cpu.l1_i_cache.invalidate_all();
             cpu.pc = id.pc.wrapping_add(id.inst_size);
             cpu.redirect_pending = true;
             flush_remaining = true;
@@ -676,7 +676,7 @@ fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64,
             cpu.mmu.itlb.flush();
             cpu.mmu.l2_tlb.flush();
             cpu.l1_d_cache.flush();
-            cpu.l1_i_cache.flush();
+            cpu.l1_i_cache.invalidate_all();
         }
         (true, false) => {
             // Flush by virtual address only

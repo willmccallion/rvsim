@@ -518,8 +518,31 @@ impl CacheSim {
     /// Flushes the cache: writes back all dirty lines and invalidates all entries.
     ///
     /// Returns information about evicted dirty lines so callers can account
-    /// for writeback latency. All valid lines (dirty or clean) are invalidated.
+    /// for writeback latency. Only dirty lines are invalidated; clean lines
+    /// remain valid.
     pub fn flush(&mut self) -> Vec<EvictedLine> {
+        let mut evicted = Vec::new();
+        if !self.enabled {
+            return evicted;
+        }
+        for i in 0..self.lines.len() {
+            if self.lines[i].valid && self.lines[i].dirty {
+                let set_index = i / self.ways;
+                evicted.push(EvictedLine {
+                    addr: self.reconstruct_addr(set_index, self.lines[i].tag),
+                    dirty: true,
+                });
+                self.lines[i].dirty = false;
+                self.lines[i].valid = false;
+            }
+        }
+        evicted
+    }
+
+    /// Invalidates all cache lines (dirty and clean), returning evicted dirty
+    /// lines for writeback accounting. Used for I-cache invalidation on FENCE.I
+    /// where stale clean lines must also be discarded.
+    pub fn invalidate_all(&mut self) -> Vec<EvictedLine> {
         let mut evicted = Vec::new();
         if !self.enabled {
             return evicted;

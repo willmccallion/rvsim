@@ -251,12 +251,19 @@ pub fn commit_stage(
             // The execute stage already redirected the frontend; this flush
             // ensures the I-cache doesn't hold stale lines when fetching resumes.
             if entry.ctrl.is_fence_i {
-                cpu.l1_i_cache.flush();
+                cpu.l1_i_cache.invalidate_all();
                 // Re-redirect the frontend: the execute-time redirect may have
                 // already caused fetches with stale I-cache data. Force a new
                 // redirect so the frontend re-fetches with the flushed I-cache.
                 cpu.pc = entry.pc.wrapping_add(entry.inst_size);
                 cpu.redirect_pending = true;
+            }
+            // FENCE.I is serializing — stop committing so the redirect
+            // takes effect before any younger instructions retire.
+            // Without this break, younger instructions (fetched before the
+            // store drain) could commit in the same cycle with stale data.
+            if entry.ctrl.is_fence_i {
+                break;
             }
         } else if entry.ctrl.is_fence {
             let pred_bits = ((entry.inst >> 24) & 0xF) as u8;

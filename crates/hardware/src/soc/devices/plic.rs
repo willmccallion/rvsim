@@ -194,9 +194,17 @@ impl Device for Plic {
                 }
                 if reg == 4 {
                     // Claim read: return the highest-priority pending IRQ
-                    // for this context. Per spec, pending remains set until
-                    // the completion write (write to this same register).
-                    return self.claims[ctx];
+                    // for this context. Per spec, claiming an interrupt
+                    // atomically clears its pending bit.
+                    let irq_id = self.claims[ctx];
+                    if irq_id > 0 && (irq_id as usize) < 1024 {
+                        let idx = irq_id as usize / 32;
+                        let bit = 1u32 << (irq_id % 32);
+                        if idx < self.pending.len() {
+                            self.pending[idx] &= !bit;
+                        }
+                    }
+                    return irq_id;
                 }
             }
         }

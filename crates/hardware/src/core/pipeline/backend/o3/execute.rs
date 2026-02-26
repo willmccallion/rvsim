@@ -595,7 +595,7 @@ fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: usize, rs2_idx: usize, rs1_val: u64,
             cpu.mmu.itlb.flush();
             cpu.mmu.l2_tlb.flush();
             cpu.l1_d_cache.flush();
-            cpu.l1_i_cache.flush();
+            cpu.l1_i_cache.invalidate_all();
         }
         (true, false) => {
             // Flush by virtual address only

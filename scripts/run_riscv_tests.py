@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "benchmarks"))
 from cortex_a72.config import cortex_a72_config  # noqa: E402
 from m1.config import m1_config  # noqa: E402
 from p550.config import p550_config  # noqa: E402
-from setup.boot_linux import optimized_config
+from setup.boot_linux import config as linux_config
 
 # Test suites we support (physical memory, no VM, "-p-" variants).
 SUITES = [
@@ -313,7 +313,7 @@ PIPELINES = [
     ("ref cortex-a72",      cortex_a72_config()),
     ("ref p550",            p550_config()),
     ("ref m1",              m1_config()),
-    ("ref linux",           optimized_config()),
+    ("ref linux",           linux_config()),
 ]
 # fmt: on
 

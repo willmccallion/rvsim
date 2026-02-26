@@ -191,7 +191,7 @@ impl Cpu {
                 self.clear_reservation(); // SATP write invalidates reservations
 
                 // Flush BOTH instruction and data caches
-                self.l1_i_cache.flush();
+                self.l1_i_cache.invalidate_all();
                 self.l1_d_cache.flush();
 
                 self.mmu.dtlb.flush();
