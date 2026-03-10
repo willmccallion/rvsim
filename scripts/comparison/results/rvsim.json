@@ -1,0 +1,122 @@
+{
+  "mix_matrix_mul": {
+    "ipc": 2.546745805743301,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "cache_linear_read": {
+    "ipc": 0.33224029396246857,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "cache_strided_read": {
+    "ipc": 0.41840873796996975,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "cache_thrash_assoc": {
+    "ipc": 1.6791748576310825,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "cache_write_heavy": {
+    "ipc": 0.9898574040055759,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "bp_random": {
+    "ipc": 0.9505305300633703,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "bp_pattern_alt": {
+    "ipc": 0.7235256563721969,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "bp_always_taken": {
+    "ipc": 0.6827076509616192,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "bp_never_taken": {
+    "ipc": 1.0938580799045916,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "alu_int_mul": {
+    "ipc": 0.7621427776182635,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "alu_int_div": {
+    "ipc": 0.8401268068400113,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "alu_fp_add": {
+    "ipc": 0.7752557120085016,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "pipe_load_use": {
+    "ipc": 0.7714490200396389,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "pipe_raw_hazard": {
+    "ipc": 0.7064309094409859,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  },
+  "mem_rand_walk": {
+    "ipc": 1.4525246145066295,
+    "cycles": null,
+    "insts": null,
+    "bp_acc": null,
+    "l1d_miss_rate": null,
+    "l2_miss_rate": null
+  }
+}

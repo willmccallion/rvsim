@@ -1,0 +1,77 @@
+{
+  "mix_matrix_mul": {
+    "cycles": 177394,
+    "ipc": 1.255341,
+    "mispreds": 1148
+  },
+  "cache_linear_read": {
+    "cycles": 714761,
+    "ipc": 1.192007,
+    "mispreds": 29
+  },
+  "cache_strided_read": {
+    "cycles": 447923,
+    "ipc": 1.079114,
+    "mispreds": 29
+  },
+  "cache_thrash_assoc": {
+    "cycles": 371953,
+    "ipc": 1.246986,
+    "mispreds": 29
+  },
+  "cache_write_heavy": {
+    "cycles": 260964,
+    "ipc": 1.69523,
+    "mispreds": 4145
+  },
+  "bp_random": {
+    "cycles": 197586,
+    "ipc": 1.443134,
+    "mispreds": 4988
+  },
+  "bp_pattern_alt": {
+    "cycles": 60636,
+    "ipc": 2.392374,
+    "mispreds": 22
+  },
+  "bp_always_taken": {
+    "cycles": 60523,
+    "ipc": 2.149001,
+    "mispreds": 15
+  },
+  "bp_never_taken": {
+    "cycles": 60521,
+    "ipc": 1.818608,
+    "mispreds": 15
+  },
+  "alu_int_mul": {
+    "cycles": 60522,
+    "ipc": 2.149053,
+    "mispreds": 16
+  },
+  "alu_int_div": {
+    "cycles": 71637,
+    "ipc": 2.234404,
+    "mispreds": 16
+  },
+  "alu_fp_add": {
+    "cycles": 54756,
+    "ipc": 2.558021,
+    "mispreds": 15
+  },
+  "pipe_load_use": {
+    "cycles": 30601,
+    "ipc": 2.289566,
+    "mispreds": 16
+  },
+  "pipe_raw_hazard": {
+    "cycles": 65585,
+    "ipc": 1.678265,
+    "mispreds": 16
+  },
+  "mem_rand_walk": {
+    "cycles": 692367,
+    "ipc": 0.757275,
+    "mispreds": 27
+  }
+}

@@ -103,6 +103,43 @@ bin/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(
 	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
 	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
 
+# --- CoreMark ---
+# Download source first:
+#   git clone https://github.com/eembc/coremark /tmp/coremark
+#   cp /tmp/coremark/core_{list_join,matrix,state,util,main}.c examples/benchmarks/coremark/
+#   cp /tmp/coremark/coremark.h                                 examples/benchmarks/coremark/
+# Then: make coremark
+
+COREMARK_DIR  = $(EXAM_DIR)/benchmarks/coremark
+COREMARK_SRCS = \
+	$(COREMARK_DIR)/core_list_join.c \
+	$(COREMARK_DIR)/core_matrix.c    \
+	$(COREMARK_DIR)/core_state.c     \
+	$(COREMARK_DIR)/core_util.c      \
+	$(COREMARK_DIR)/core_main.c      \
+	$(COREMARK_DIR)/core_portme.c
+COREMARK_ELF  = bin/benchmarks/coremark.elf
+
+.PHONY: coremark
+coremark: dirs $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+	@if [ ! -f $(COREMARK_DIR)/coremark.h ]; then \
+		echo "ERROR: CoreMark sources missing.  Run:"; \
+		echo "  git clone https://github.com/eembc/coremark /tmp/coremark"; \
+		echo "  cp /tmp/coremark/core_{list_join,matrix,state,util,main}.c $(COREMARK_DIR)/"; \
+		echo "  cp /tmp/coremark/coremark.h $(COREMARK_DIR)/"; \
+		exit 1; \
+	fi
+	@echo "  CC (CoreMark)"
+	@$(CC) $(APP_CFLAGS) \
+		-DPERFORMANCE_RUN=1 \
+		-I$(COREMARK_DIR) \
+		-I$(LIB_DIR) \
+		$(COREMARK_SRCS) \
+		$(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) \
+		-T $(LINKER_SCR) \
+		-o $(COREMARK_ELF)
+	@echo "  -> $(COREMARK_ELF)"
+
 # --- Linux (download Buildroot + build via scripts/setup/boot_linux.py) ---
 linux:
 	@echo "[Software] Building Linux (download + build in $(LINUX_DIR))..."
