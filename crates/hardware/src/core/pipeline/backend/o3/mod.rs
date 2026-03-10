@@ -555,6 +555,7 @@ impl ExecutionEngine for O3Engine {
                 cpu.l1d_mshrs.flush();
             }
             // Filter stale (wrong-path) entries from inter-stage latches and pending.
+            self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));

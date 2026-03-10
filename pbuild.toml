@@ -13,7 +13,7 @@ python  = [".venv/bin/python3", ".venv/bin/python", "python3"]
 group       = "Build"
 description = "Build release binary + Python bindings"
 type        = "task"
-max_time    = "15m"
+max_time    = "5m"
 shell       = true
 commands    = [
     ["{{cargo}}", "build", "--release"],
@@ -27,7 +27,7 @@ commands    = [
 group       = "Build"
 description = "Build distributable Python wheel into target/wheels"
 type        = "task"
-max_time    = "10m"
+max_time    = "5m"
 command     = ["{{maturin}}", "build", "--release", "--out", "target/wheels"]
 
 [software]
@@ -50,14 +50,14 @@ command     = ["make", "-C", "software", "linux"]
 group       = "Development"
 description = "cargo check (all targets)"
 type        = "task"
-max_time    = "5m"
+max_time    = "1m"
 command     = ["{{cargo}}", "check", "--workspace", "--all-targets"]
 
 [test]
 group       = "Development"
 description = "Run Rust tests + RISC-V integration tests"
 type        = "task"
-max_time    = "10m"
+max_time    = "2m"
 commands    = [
     ["{{cargo}}", "test", "--workspace"],
     ["rvsim", "scripts/run_riscv_tests.py"],
@@ -73,7 +73,7 @@ command     = ["{{cargo}}", "llvm-cov", "--workspace", "--exclude", "rvsim-bindi
 group       = "Development"
 description = "Run clippy linter"
 type        = "task"
-max_time    = "5m"
+max_time    = "1m"
 command     = ["{{cargo}}", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
 
 [fmt]
