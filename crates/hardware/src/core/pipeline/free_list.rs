@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use super::prf::PhysReg;
 
 /// FIFO free list of available physical registers.
+#[derive(Debug)]
 pub struct FreeList {
     queue: VecDeque<PhysReg>,
     capacity: usize,
@@ -17,17 +18,14 @@ pub struct FreeList {
 impl FreeList {
     /// Create a new free list.
     /// `prf_size` = total physical registers.
-    /// `num_arch` = architectural registers (0..num_arch are in use at init).
+    /// `num_arch` = architectural registers (`0..num_arch` are in use at init).
     pub fn new(prf_size: usize, num_arch: usize) -> Self {
         let mut queue = VecDeque::with_capacity(prf_size);
         // Registers num_arch..prf_size are free initially
         for i in num_arch..prf_size {
             queue.push_back(PhysReg(i as u16));
         }
-        Self {
-            queue,
-            capacity: prf_size,
-        }
+        Self { queue, capacity: prf_size }
     }
 
     /// Allocate a free physical register. Returns None if no registers are free.
@@ -48,12 +46,13 @@ impl FreeList {
     }
 
     /// Total capacity of the physical register file.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.capacity
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
 

@@ -21,7 +21,7 @@ use crate::core::pipeline::signals::AluOp;
 ///
 /// The 64-bit result. Bitwise operations always use the full 64 bits
 /// regardless of `is32`. Returns `0` for non-logic opcodes.
-pub fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
     match op {
         AluOp::Or => a | b,
         AluOp::And => a & b,

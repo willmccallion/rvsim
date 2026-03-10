@@ -20,6 +20,7 @@
 //! assert_eq!(text, "addi x10, x0, 10");
 //! ```
 
+use crate::common::RegIdx;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::privileged::opcodes as sys_op;
 use crate::isa::rv64a::{funct5 as a_f5, opcodes as a_op};
@@ -45,14 +46,14 @@ const FREG_NAMES: [&str; 32] = [
 
 /// Returns the ABI name for an integer register index.
 #[inline]
-fn xreg(idx: usize) -> &'static str {
-    REG_NAMES.get(idx).copied().unwrap_or("x??")
+fn xreg(idx: RegIdx) -> &'static str {
+    REG_NAMES.get(idx.as_usize()).copied().unwrap_or("x??")
 }
 
 /// Returns the ABI name for a floating-point register index.
 #[inline]
-fn freg(idx: usize) -> &'static str {
-    FREG_NAMES.get(idx).copied().unwrap_or("f??")
+fn freg(idx: RegIdx) -> &'static str {
+    FREG_NAMES.get(idx.as_usize()).copied().unwrap_or("f??")
 }
 
 /// Disassembles a 32-bit RISC-V instruction into a human-readable string.
@@ -191,43 +192,19 @@ pub fn disassemble(inst: u32) -> String {
         // ── FMA ───────────────────────────────────────────
         f_op::OP_FMADD => {
             let p = fp_precision(f7);
-            format!(
-                "fmadd.{p} {}, {}, {}, {}",
-                freg(rd),
-                freg(rs1),
-                freg(rs2),
-                freg(inst.rs3())
-            )
+            format!("fmadd.{p} {}, {}, {}, {}", freg(rd), freg(rs1), freg(rs2), freg(inst.rs3()))
         }
         f_op::OP_FMSUB => {
             let p = fp_precision(f7);
-            format!(
-                "fmsub.{p} {}, {}, {}, {}",
-                freg(rd),
-                freg(rs1),
-                freg(rs2),
-                freg(inst.rs3())
-            )
+            format!("fmsub.{p} {}, {}, {}, {}", freg(rd), freg(rs1), freg(rs2), freg(inst.rs3()))
         }
         f_op::OP_FNMSUB => {
             let p = fp_precision(f7);
-            format!(
-                "fnmsub.{p} {}, {}, {}, {}",
-                freg(rd),
-                freg(rs1),
-                freg(rs2),
-                freg(inst.rs3())
-            )
+            format!("fnmsub.{p} {}, {}, {}, {}", freg(rd), freg(rs1), freg(rs2), freg(inst.rs3()))
         }
         f_op::OP_FNMADD => {
             let p = fp_precision(f7);
-            format!(
-                "fnmadd.{p} {}, {}, {}, {}",
-                freg(rd),
-                freg(rs1),
-                freg(rs2),
-                freg(inst.rs3())
-            )
+            format!("fnmadd.{p} {}, {}, {}, {}", freg(rd), freg(rs1), freg(rs2), freg(inst.rs3()))
         }
 
         // ── Atomic ────────────────────────────────────────
@@ -248,8 +225,8 @@ pub fn disassemble(inst: u32) -> String {
     }
 }
 
-/// Disassemble OP_REG / OP_REG_32 (R-type register-register).
-fn disasm_op_reg(rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32, is_w: bool) -> String {
+/// Disassemble `OP_REG` / `OP_REG_32` (R-type register-register).
+fn disasm_op_reg(rd: RegIdx, rs1: RegIdx, rs2: RegIdx, f3: u32, f7: u32, is_w: bool) -> String {
     let suffix = if is_w { "w" } else { "" };
 
     // M-extension
@@ -284,8 +261,8 @@ fn disasm_op_reg(rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32, is_w: bool
     format!("{mn}{suffix} {}, {}, {}", xreg(rd), xreg(rs1), xreg(rs2))
 }
 
-/// Disassemble OP_IMM / OP_IMM_32 (I-type immediate arithmetic).
-fn disasm_op_imm(rd: usize, rs1: usize, f3: u32, imm: i64, is_w: bool) -> String {
+/// Disassemble `OP_IMM` / `OP_IMM_32` (I-type immediate arithmetic).
+fn disasm_op_imm(rd: RegIdx, rs1: RegIdx, f3: u32, imm: i64, is_w: bool) -> String {
     let suffix = if is_w { "w" } else { "" };
     let shamt = imm & 0x3F;
     let mn = match f3 {
@@ -305,8 +282,8 @@ fn disasm_op_imm(rd: usize, rs1: usize, f3: u32, imm: i64, is_w: bool) -> String
     format!("{mn}{suffix} {}, {}, {imm}", xreg(rd), xreg(rs1))
 }
 
-/// Disassemble OP_FP (floating-point arithmetic).
-fn disasm_op_fp(inst: u32, rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32) -> String {
+/// Disassemble `OP_FP` (floating-point arithmetic).
+fn disasm_op_fp(inst: u32, rd: RegIdx, rs1: RegIdx, rs2: RegIdx, f3: u32, f7: u32) -> String {
     // Determine precision from format bits (bits 26:25 of funct7)
     let is_double = (f7 & 1) != 0;
     let p = if is_double { "d" } else { "s" };
@@ -343,45 +320,29 @@ fn disasm_op_fp(inst: u32, rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32) 
             if f3 == f_f3::FCLASS {
                 format!("fclass.{p} {}, {}", xreg(rd), freg(rs1))
             } else {
-                format!(
-                    "fmv.x.{} {}, {}",
-                    if is_double { "d" } else { "w" },
-                    xreg(rd),
-                    freg(rs1)
-                )
+                format!("fmv.x.{} {}, {}", if is_double { "d" } else { "w" }, xreg(rd), freg(rs1))
             }
         }
         f_f7::FCVT_W_F | d_f7::FCVT_W_D => {
-            let variant = if rs2 == 0 {
-                "w"
-            } else if rs2 == 1 {
-                "wu"
-            } else if rs2 == 2 {
-                "l"
-            } else {
-                "lu"
+            let variant = match rs2.as_u8() {
+                0 => "w",
+                1 => "wu",
+                2 => "l",
+                _ => "lu",
             };
             format!("fcvt.{variant}.{p} {}, {}", xreg(rd), freg(rs1))
         }
         f_f7::FCVT_F_W | d_f7::FCVT_D_W => {
-            let variant = if rs2 == 0 {
-                "w"
-            } else if rs2 == 1 {
-                "wu"
-            } else if rs2 == 2 {
-                "l"
-            } else {
-                "lu"
+            let variant = match rs2.as_u8() {
+                0 => "w",
+                1 => "wu",
+                2 => "l",
+                _ => "lu",
             };
             format!("fcvt.{p}.{variant} {}, {}", freg(rd), xreg(rs1))
         }
         f_f7::FMV_F_X | d_f7::FMV_D_X => {
-            format!(
-                "fmv.{}.x {}, {}",
-                if is_double { "d" } else { "w" },
-                freg(rd),
-                xreg(rs1)
-            )
+            format!("fmv.{}.x {}, {}", if is_double { "d" } else { "w" }, freg(rd), xreg(rs1))
         }
         f_f7::FCVT_DS => format!("fcvt.d.s {}, {}", freg(rd), freg(rs1)),
         d_f7::FCVT_S_D => format!("fcvt.s.d {}, {}", freg(rd), freg(rs1)),
@@ -393,7 +354,7 @@ fn disasm_op_fp(inst: u32, rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32) 
 }
 
 /// Disassemble AMO instruction.
-fn disasm_amo(rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32) -> String {
+fn disasm_amo(rd: RegIdx, rs1: RegIdx, rs2: RegIdx, f3: u32, f7: u32) -> String {
     let suffix = if f3 == 0b011 { ".d" } else { ".w" };
     let funct5 = f7 >> 2;
     let aq = (f7 >> 1) & 1 != 0;
@@ -418,16 +379,11 @@ fn disasm_amo(rd: usize, rs1: usize, rs2: usize, f3: u32, f7: u32) -> String {
         a_f5::AMOMAXU => "amomaxu",
         _ => "amo??",
     };
-    format!(
-        "{mn}{suffix}{ordering} {}, {}, ({})",
-        xreg(rd),
-        xreg(rs2),
-        xreg(rs1)
-    )
+    format!("{mn}{suffix}{ordering} {}, {}, ({})", xreg(rd), xreg(rs2), xreg(rs1))
 }
 
 /// Disassemble system instructions.
-fn disasm_system(inst: u32, rd: usize, rs1: usize, f3: u32) -> String {
+fn disasm_system(inst: u32, rd: RegIdx, rs1: RegIdx, f3: u32) -> String {
     // Fixed-encoding system instructions
     match inst {
         sys_op::ECALL => return "ecall".to_string(),
@@ -448,16 +404,17 @@ fn disasm_system(inst: u32, rd: usize, rs1: usize, f3: u32) -> String {
         sys_op::CSRRW => "csrrw",
         sys_op::CSRRS => "csrrs",
         sys_op::CSRRC => "csrrc",
-        sys_op::CSRRWI => return format!("csrrwi {}, {csr:#05x}, {rs1}", xreg(rd)),
-        sys_op::CSRRSI => return format!("csrrsi {}, {csr:#05x}, {rs1}", xreg(rd)),
-        sys_op::CSRRCI => return format!("csrrci {}, {csr:#05x}, {rs1}", xreg(rd)),
+        sys_op::CSRRWI => return format!("csrrwi {}, {csr:#05x}, {}", xreg(rd), rs1.as_u8()),
+        sys_op::CSRRSI => return format!("csrrsi {}, {csr:#05x}, {}", xreg(rd), rs1.as_u8()),
+        sys_op::CSRRCI => return format!("csrrci {}, {csr:#05x}, {}", xreg(rd), rs1.as_u8()),
         _ => return format!("system?? ({inst:#010x})"),
     };
     format!("{mn} {}, {csr:#05x}, {}", xreg(rd), xreg(rs1))
 }
 
 /// Determine FMA precision suffix from the format field (bits 26:25).
-fn fp_precision(f7: u32) -> &'static str {
+#[allow(clippy::verbose_bit_mask)]
+const fn fp_precision(f7: u32) -> &'static str {
     if (f7 >> 2) & 0x3 == 0 {
         // Format bits in R4-type are bits 26:25 which map to funct7 bits 1:0
         // after the rs3 field is separated. We check bit 0 of what remains.

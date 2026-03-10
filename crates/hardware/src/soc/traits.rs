@@ -8,7 +8,8 @@
 //!
 //! All implementors must be `Send + Sync` for use with the Python bindings and multi-threaded simulation.
 
-use crate::soc::devices::{Plic, Uart};
+use crate::common::IrqId;
+use crate::soc::devices::{Clint, Plic, Uart};
 use crate::soc::memory::Memory;
 
 /// Trait for memory-mapped I/O devices attached to the system bus.
@@ -18,7 +19,7 @@ use crate::soc::memory::Memory;
 pub trait Device: Send + Sync {
     /// Returns a short name for this device (e.g., `"UART0"`, `"DRAM"`).
     fn name(&self) -> &str;
-    /// Returns (base_address, size_in_bytes) for this device's MMIO or memory region.
+    /// Returns (`base_address`, `size_in_bytes`) for this device's MMIO or memory region.
     fn address_range(&self) -> (u64, u64);
     /// Reads one byte at the given device-relative offset.
     fn read_u8(&mut self, offset: u64) -> u8;
@@ -49,10 +50,14 @@ pub trait Device: Send + Sync {
         false
     }
     /// Returns the IRQ ID for this device if it can raise interrupts (e.g., PLIC line).
-    fn get_irq_id(&self) -> Option<u32> {
+    fn get_irq_id(&self) -> Option<IrqId> {
         None
     }
 
+    /// Returns a mutable reference as `Clint` if this device is the CLINT; otherwise `None`.
+    fn as_clint_mut(&mut self) -> Option<&mut Clint> {
+        None
+    }
     /// Returns a mutable reference as `Plic` if this device is the PLIC; otherwise `None`.
     fn as_plic_mut(&mut self) -> Option<&mut Plic> {
         None

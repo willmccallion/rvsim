@@ -2,8 +2,8 @@
 //!
 //! The O3 backend reuses shared pipeline stages (Memory1, Memory2, Writeback,
 //! Commit) and shared hardware units (ALU, FPU, BRU), but has its own:
-//! - **IssueQueue**: CAM-style with wakeup/select (vs FIFO for in-order)
-//! - **execute_one()**: single-instruction execute (vs batch for in-order)
+//! - **`IssueQueue`**: CAM-style with wakeup/select (vs FIFO for in-order)
+//! - **`execute_one()`**: single-instruction execute (vs batch for in-order)
 
 pub mod execute;
 pub mod fu_pool;
@@ -20,12 +20,14 @@ use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
+use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
 
 /// A result that has been computed but not yet written back (pending due to latency).
+#[derive(Debug)]
 pub struct PendingResult {
     /// The execute-stage result entry.
     pub entry: ExMem1Entry,
@@ -38,6 +40,7 @@ pub struct PendingResult {
 }
 
 /// Out-of-order execution engine.
+#[derive(Debug)]
 pub struct O3Engine {
     /// Reorder buffer.
     pub rob: Rob,
@@ -125,17 +128,18 @@ impl O3Engine {
     /// map identity-maps arch reg `i` → PhysReg(i) for GPRs and arch reg `i` →
     /// PhysReg(32 + i) for FPRs, so we write the CPU's register values into those slots.
     pub fn sync_arch_regs(&mut self, cpu: &crate::core::Cpu) {
+        use crate::common::RegIdx;
         use crate::core::pipeline::prf::PhysReg;
         // GPRs: arch reg i → PhysReg(i), skip x0 (hardwired zero)
-        for i in 1..32 {
-            let val = cpu.regs.read(i);
+        for i in 1u8..32 {
+            let val = cpu.regs.read(RegIdx::new(i));
             if val != 0 {
                 self.prf.write(PhysReg(i as u16), val);
             }
         }
         // FPRs: arch reg i → PhysReg(32 + i)
-        for i in 0..32 {
-            let val = cpu.regs.read_f(i);
+        for i in 0u8..32 {
+            let val = cpu.regs.read_f(RegIdx::new(i));
             if val != 0 {
                 self.prf.write(PhysReg((32 + i) as u16), val);
             }
@@ -150,7 +154,7 @@ impl O3Engine {
         // Walk surviving ROB entries in program order (head → tail) and re-apply
         // each entry's phys_dst mapping, restoring the speculative state.
         for entry in self.rob.iter_in_order() {
-            if entry.ctrl.reg_write && entry.rd != 0 {
+            if entry.ctrl.reg_write && !entry.rd.is_zero() {
                 self.rename_map.set(entry.rd, false, entry.phys_dst);
             } else if entry.ctrl.fp_reg_write {
                 self.rename_map.set(entry.rd, true, entry.phys_dst);
@@ -177,27 +181,20 @@ impl ExecutionEngine for O3Engine {
             &mut self.free_list,
             self.width,
             Some(&mut self.load_queue),
+            Some(&mut self.prf),
         );
 
         // Handle trap: flush everything
         if let Some((trap, pc)) = trap_event {
-            if cpu.trace {
-                eprintln!("BE  * HANDLING TRAP: {:?} at PC {:#x}", trap, pc);
-            }
             self.flush(cpu);
             cpu.redirect_pending = true;
-            cpu.trap(trap, pc);
+            cpu.trap(&trap, pc);
+            cpu.committed_next_pc = cpu.pc;
             return;
         }
 
         // Handle MRET/SRET redirect
         if cpu.pc != pc_before_commit {
-            if cpu.trace {
-                eprintln!(
-                    "BE  * MRET/SRET REDIRECT: {:#x} -> {:#x}, flushing backend",
-                    pc_before_commit, cpu.pc
-                );
-            }
             self.flush(cpu);
             rename_output.clear();
             return;
@@ -213,8 +210,8 @@ impl ExecutionEngine for O3Engine {
             .map(|wb| {
                 let val = if wb.ctrl.mem_read {
                     wb.load_data
-                } else if wb.ctrl.jump {
-                    wb.pc.wrapping_add(wb.inst_size)
+                } else if wb.ctrl.control_flow == ControlFlow::Jump {
+                    wb.pc.wrapping_add(wb.inst_size.as_u64())
                 } else {
                     wb.alu
                 };
@@ -248,17 +245,10 @@ impl ExecutionEngine for O3Engine {
                     && cpu.l2_cache.enabled
                     && let Some(ev) = evicted
                 {
-                    cpu.l2_cache.install_or_replace(ev.addr, ev.dirty, 0);
+                    let _ = cpu.l2_cache.install_or_replace(ev.addr, ev.dirty, 0);
                     cpu.stats.exclusive_l1_to_l2_swaps += 1;
                 }
 
-                if cpu.trace && !mshr_entry.waiters.is_empty() {
-                    eprintln!(
-                        "BE  MSHR complete: line={:#x}, {} waiters",
-                        mshr_entry.line_addr,
-                        mshr_entry.waiters.len()
-                    );
-                }
                 // Resume parked loads/atomics
                 for waiter in mshr_entry.waiters {
                     if let Some(mut parked) = waiter.parked_entry {
@@ -284,18 +274,8 @@ impl ExecutionEngine for O3Engine {
         // overlapped with a younger load that already executed with stale data.
         // Flush from the violating load onward and redirect to re-fetch it.
         if let Some(violating_tag) = mem_violation {
-            if cpu.trace {
-                eprintln!(
-                    "BE  * MEMORY ORDERING VIOLATION: load rob_tag={}, flushing",
-                    violating_tag.0
-                );
-            }
             // Find the violating load's PC from the ROB
-            let violation_pc = self
-                .rob
-                .find_entry(violating_tag)
-                .map(|e| e.pc)
-                .unwrap_or(cpu.pc);
+            let violation_pc = self.rob.find_entry(violating_tag).map_or(cpu.pc, |e| e.pc);
 
             // keep_tag = tag before the violating load (everything older is kept)
             let keep_tag = crate::core::pipeline::rob::RobTag(violating_tag.0.saturating_sub(1));
@@ -316,11 +296,10 @@ impl ExecutionEngine for O3Engine {
             self.load_queue.flush_after(keep_tag);
             cpu.l1d_mshrs.flush_after(keep_tag);
 
-            self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
-            self.mem2_wb.retain(|e| e.rob_tag.0 <= keep_tag.0);
-            self.pending_results
-                .retain(|p| p.entry.rob_tag.0 <= keep_tag.0);
-            self.execute_mem1.retain(|e| e.rob_tag.0 <= keep_tag.0);
+            self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+            self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
 
             self.rebuild_rename_map();
             self.scoreboard.rebuild_from_rob(&self.rob);
@@ -362,25 +341,15 @@ impl ExecutionEngine for O3Engine {
         // Backpressured if execute_mem1 is not empty (memory pipeline in use)
         // OR if there are pending memory results completing this cycle that will
         // be pushed into execute_mem1 in step 6a.
-        let has_pending_mem = self.pending_results.iter().any(|p| {
-            let is_mem = p.entry.ctrl.mem_read
-                || p.entry.ctrl.mem_write
-                || p.entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
-            is_mem && p.complete_cycle <= now + 1
-        });
-        let backpressured = !self.execute_mem1.is_empty() || has_pending_mem;
+        // Memory pipeline backpressure: only when execute_mem1 has undrained
+        // entries (e.g. MSHR full pushback, trap). Pending results in
+        // pending_results are drained to execute_mem1 at step 6a AFTER issue
+        // at step 6, so there's no conflict — the Mem FU is pipelined and
+        // accepts a new op every cycle.
+        let mem_backpressured = !self.execute_mem1.is_empty();
 
-        if backpressured {
+        if mem_backpressured {
             cpu.stats.stalls_backpressure += 1;
-        }
-
-        if cpu.trace && backpressured {
-            eprintln!(
-                "BE  backpressure={} ex_mem1={} iq={}",
-                backpressured,
-                self.execute_mem1.len(),
-                self.issue_queue.available_slots()
-            );
         }
 
         // ── 6a. Drain completed pending results ────────────────────────
@@ -403,8 +372,8 @@ impl ExecutionEngine for O3Engine {
                         self.execute_mem1.push(entry);
                     } else if !pr.speculative_written {
                         // Non-memory, non-pipelined (e.g. IntDiv, FpDivSqrt, system): write PRF + wakeup now
-                        let val = if entry.ctrl.jump {
-                            entry.pc.wrapping_add(entry.inst_size)
+                        let val = if entry.ctrl.control_flow == ControlFlow::Jump {
+                            entry.pc.wrapping_add(entry.inst_size.as_u64())
                         } else {
                             entry.alu
                         };
@@ -413,18 +382,21 @@ impl ExecutionEngine for O3Engine {
                         if entry.fp_flags != 0 {
                             self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
                         }
+                        if let Some(info) = entry.sfence_vma {
+                            self.rob.set_sfence_vma(entry.rob_tag, info);
+                        }
                         // CSR writes are deferred to commit (shared/commit.rs)
                         // to prevent speculative CSR state from persisting if
                         // an older instruction traps.
                         self.rob.complete(entry.rob_tag, val);
                         self.prf.write(entry.rd_phys, val);
                         self.issue_queue.wakeup_phys(entry.rd_phys, val);
-                        // Still push through the memory pipeline for writeback
-                        self.execute_mem1.push(entry);
+                        // ROB Completed, PRF written, wakeup done — skip memory pipeline.
                     } else {
-                        // Pipelined non-memory: speculative wakeup already done at issue
-                        // Just push through to writeback
-                        self.execute_mem1.push(entry);
+                        // Pipelined non-memory: ROB already Completed, PRF written,
+                        // wakeup broadcast at issue time — no need to traverse the
+                        // memory pipeline (memory1 → memory2 → writeback). Commit
+                        // will retire directly from the ROB.
                     }
                 } else {
                     i += 1;
@@ -438,7 +410,7 @@ impl ExecutionEngine for O3Engine {
         // issued instruction returns needs_flush=true.
         let mut flush_keep_tag: Option<crate::core::pipeline::rob::RobTag> = None;
 
-        if !backpressured {
+        {
             let issued = self.issue_queue.select(
                 self.width,
                 &self.store_buffer,
@@ -454,15 +426,22 @@ impl ExecutionEngine for O3Engine {
             for entry in issued {
                 let fu_type = FuType::classify(&entry.ctrl);
 
+                // Memory pipeline backpressure: block memory ops from issuing
+                // when the memory pipeline is busy, but allow non-memory ops
+                // (ALU, branch) to continue issuing freely.
+                if mem_backpressured && fu_type == FuType::Mem {
+                    let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                    debug_assert!(ok, "re-dispatch after mem backpressure failed");
+                    continue;
+                }
+
                 // Check for structural hazard (no free FU of required type)
                 if !self.fu_pool.has_free(fu_type, now) {
                     cpu.stats.stalls_fu_structural += 1;
                     stalled_fu = true;
                     // Leave entry in IQ (select already removed it — re-dispatch needed)
                     // For simplicity: re-dispatch back into IQ
-                    let ok = self
-                        .issue_queue
-                        .dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                    let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
                     debug_assert!(ok, "re-dispatch after FU stall failed");
                     continue;
                 }
@@ -480,8 +459,8 @@ impl ExecutionEngine for O3Engine {
                 // For pipelined non-memory instructions: speculative wakeup immediately
                 // so dependent instructions can be selected on the very next cycle.
                 let speculative_written = if !is_mem && is_pipelined && ex_result.trap.is_none() {
-                    let val = if ex_result.ctrl.jump {
-                        ex_result.pc.wrapping_add(ex_result.inst_size)
+                    let val = if ex_result.ctrl.control_flow == ControlFlow::Jump {
+                        ex_result.pc.wrapping_add(ex_result.inst_size.as_u64())
                     } else {
                         ex_result.alu
                     };
@@ -491,6 +470,9 @@ impl ExecutionEngine for O3Engine {
                     // the architectural fflags register in program order.
                     if ex_result.fp_flags != 0 {
                         self.rob.set_fp_flags(ex_result.rob_tag, ex_result.fp_flags);
+                    }
+                    if let Some(info) = ex_result.sfence_vma {
+                        self.rob.set_sfence_vma(ex_result.rob_tag, info);
                     }
                     self.rob.complete(ex_result.rob_tag, val);
                     self.prf.write(ex_result.rd_phys, val);
@@ -573,10 +555,9 @@ impl ExecutionEngine for O3Engine {
                 cpu.l1d_mshrs.flush();
             }
             // Filter stale (wrong-path) entries from inter-stage latches and pending.
-            self.mem1_mem2.retain(|e| e.rob_tag.0 <= keep_tag.0);
-            self.mem2_wb.retain(|e| e.rob_tag.0 <= keep_tag.0);
-            self.pending_results
-                .retain(|p| p.entry.rob_tag.0 <= keep_tag.0);
+            self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
             // Rebuild speculative rename map from committed map + surviving ROB
             self.rebuild_rename_map();
             // Scoreboard is still used by in-order; rebuild from remaining ROB entries
@@ -587,9 +568,7 @@ impl ExecutionEngine for O3Engine {
         if flush_keep_tag.is_none() {
             let entries = std::mem::take(rename_output);
             for entry in entries {
-                let ok = self
-                    .issue_queue
-                    .dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
                 debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
             }
         }
@@ -601,12 +580,7 @@ impl ExecutionEngine for O3Engine {
         let lq_free = self.load_queue.free_slots();
         let iq_free = self.issue_queue.available_slots();
         let prf_free = self.free_list.available();
-        rob_free
-            .min(sb_free)
-            .min(lq_free)
-            .min(iq_free)
-            .min(prf_free)
-            .min(self.width)
+        rob_free.min(sb_free).min(lq_free).min(iq_free).min(prf_free).min(self.width)
     }
 
     fn flush(&mut self, cpu: &mut Cpu) {
@@ -628,9 +602,21 @@ impl ExecutionEngine for O3Engine {
         self.mem2_wb.clear();
         // Flush all MSHRs — their parked entries are now invalid
         cpu.l1d_mshrs.flush();
+
+        // Invariant check: after a full flush the total number of physical
+        // registers must be conserved.  Every phys reg is either free OR
+        // referenced by the committed rename map (one unique phys reg per
+        // architectural register).
+        debug_assert_eq!(
+            self.free_list.available() + 64, // 32 GPR + 32 FPR mapped
+            self.prf.capacity(),
+            "PRF register leak detected: free={} + 64 mapped != {} total",
+            self.free_list.available(),
+            self.prf.capacity(),
+        );
     }
 
-    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: u32) -> u64 {
+    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64 {
         cpu.csr_read(addr)
     }
 
@@ -684,5 +670,39 @@ impl ExecutionEngine for O3Engine {
 
     fn has_prf(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::RegIdx;
+    use crate::config::Config;
+    use crate::soc::builder::System;
+
+    #[test]
+    fn test_o3_engine_new_and_flush() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        let mut engine = O3Engine::new(&config);
+        assert_eq!(engine.width, config.pipeline.width);
+
+        engine.flush(&mut cpu);
+        assert_eq!(engine.execute_mem1.len(), 0);
+    }
+
+    #[test]
+    fn test_o3_engine_sync_arch_regs() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+        let mut engine = O3Engine::new(&config);
+
+        cpu.regs.write(RegIdx::new(1), 42);
+        engine.sync_arch_regs(&cpu);
+
+        assert_eq!(engine.prf.read(crate::core::pipeline::prf::PhysReg(1)), 42);
     }
 }

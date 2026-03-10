@@ -7,6 +7,7 @@
 //! 2. **Abstraction:** A single set of methods for reading and writing register values.
 //! 3. **Observability:** Debugging utilities for dumping register state during simulation.
 
+use crate::common::RegIdx;
 use crate::core::arch::fpr::Fpr;
 use crate::core::arch::gpr::Gpr;
 
@@ -14,6 +15,7 @@ use crate::core::arch::gpr::Gpr;
 ///
 /// This structure provides a single interface for accessing all processor registers,
 /// abstracting the underlying GPR and FPR implementations.
+#[derive(Debug)]
 pub struct RegisterFile {
     gpr: Gpr,
     fpr: Fpr,
@@ -31,23 +33,20 @@ impl RegisterFile {
     /// # Returns
     ///
     /// A new `RegisterFile` instance with initialized GPR and FPR components.
-    pub fn new() -> Self {
-        Self {
-            gpr: Gpr::new(),
-            fpr: Fpr::new(),
-        }
+    pub const fn new() -> Self {
+        Self { gpr: Gpr::new(), fpr: Fpr::new() }
     }
 
     /// Reads a value from a general-purpose register.
     ///
     /// # Arguments
     ///
-    /// * `idx` - Register index (0-31). Register `x0` always returns 0.
+    /// * `idx` - Register index (x0-x31). Register `x0` always returns 0.
     ///
     /// # Returns
     ///
     /// The 64-bit value stored in the specified register.
-    pub fn read(&self, idx: usize) -> u64 {
+    pub const fn read(&self, idx: RegIdx) -> u64 {
         self.gpr.read(idx)
     }
 
@@ -55,9 +54,9 @@ impl RegisterFile {
     ///
     /// # Arguments
     ///
-    /// * `idx` - Register index (0-31). Writes to `x0` are ignored.
+    /// * `idx` - Register index (x0-x31). Writes to `x0` are ignored.
     /// * `val` - The 64-bit value to write.
-    pub fn write(&mut self, idx: usize, val: u64) {
+    pub const fn write(&mut self, idx: RegIdx, val: u64) {
         self.gpr.write(idx, val);
     }
 
@@ -65,12 +64,12 @@ impl RegisterFile {
     ///
     /// # Arguments
     ///
-    /// * `idx` - Floating-point register index (0-31).
+    /// * `idx` - Floating-point register index (f0-f31).
     ///
     /// # Returns
     ///
     /// The 64-bit value stored in the specified floating-point register.
-    pub fn read_f(&self, idx: usize) -> u64 {
+    pub const fn read_f(&self, idx: RegIdx) -> u64 {
         self.fpr.read(idx)
     }
 
@@ -78,9 +77,9 @@ impl RegisterFile {
     ///
     /// # Arguments
     ///
-    /// * `idx` - Floating-point register index (0-31).
+    /// * `idx` - Floating-point register index (f0-f31).
     /// * `val` - The 64-bit value to write.
-    pub fn write_f(&mut self, idx: usize, val: u64) {
+    pub const fn write_f(&mut self, idx: RegIdx, val: u64) {
         self.fpr.write(idx, val);
     }
 

@@ -4,6 +4,7 @@
 //! resolves its address and overlaps with a younger load that has already
 //! executed with potentially stale data. Same circular FIFO design as StoreBuffer.
 
+use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 
@@ -25,9 +26,9 @@ pub struct LoadQueueEntry {
     /// ROB tag of the load instruction.
     pub rob_tag: RobTag,
     /// Virtual address of the load.
-    pub vaddr: u64,
+    pub vaddr: VirtAddr,
     /// Physical address (filled after translation).
-    pub paddr: Option<u64>,
+    pub paddr: Option<PhysAddr>,
     /// Data read from memory.
     pub data: u64,
     /// Width of the load operation.
@@ -39,6 +40,7 @@ pub struct LoadQueueEntry {
 }
 
 /// Load queue — FIFO queue of pending loads.
+#[derive(Debug)]
 pub struct LoadQueue {
     entries: Vec<LoadQueueEntry>,
     /// Index of the oldest entry.
@@ -54,41 +56,36 @@ impl LoadQueue {
     pub fn new(capacity: usize) -> Self {
         let mut entries = Vec::with_capacity(capacity);
         entries.resize_with(capacity, LoadQueueEntry::default);
-        Self {
-            entries,
-            head: 0,
-            tail: 0,
-            count: 0,
-        }
+        Self { entries, head: 0, tail: 0, count: 0 }
     }
 
     /// Returns the capacity.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns the number of occupied entries.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.count
     }
 
     /// Returns true if the load queue is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Returns true if the load queue is full.
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.count == self.entries.len()
     }
 
     /// Returns the number of free slots.
     #[inline]
-    pub fn free_slots(&self) -> usize {
+    pub const fn free_slots(&self) -> usize {
         self.entries.len() - self.count
     }
 
@@ -100,7 +97,7 @@ impl LoadQueue {
 
         self.entries[self.tail] = LoadQueueEntry {
             rob_tag,
-            vaddr: 0,
+            vaddr: VirtAddr::new(0),
             paddr: None,
             data: 0,
             width,
@@ -114,7 +111,7 @@ impl LoadQueue {
     }
 
     /// Fills the translated address for a load after Memory1.
-    pub fn fill_address(&mut self, rob_tag: RobTag, vaddr: u64, paddr: u64) {
+    pub fn fill_address(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr) {
         if let Some(entry) = self.find_by_tag_mut(rob_tag) {
             entry.vaddr = vaddr;
             entry.paddr = Some(paddr);
@@ -132,12 +129,12 @@ impl LoadQueue {
 
     /// Checks for memory ordering violations when a store resolves its address.
     ///
-    /// Scans for younger loads (rob_tag > store_rob_tag) that have already
+    /// Scans for younger loads (`rob_tag` > `store_rob_tag`) that have already
     /// executed and overlap with the store's address range. Returns the oldest
-    /// violating load's rob_tag, if any.
+    /// violating load's `rob_tag`, if any.
     pub fn check_ordering_violation(
         &self,
-        store_paddr: u64,
+        store_paddr: PhysAddr,
         store_width: MemWidth,
         store_rob_tag: RobTag,
     ) -> Option<RobTag> {
@@ -146,8 +143,8 @@ impl LoadQueue {
         }
 
         let store_size = width_to_bytes(store_width) as u64;
-        let store_start = store_paddr;
-        let store_end = store_paddr + store_size;
+        let store_start = store_paddr.val();
+        let store_end = store_start + store_size;
 
         let cap = self.entries.len();
         let mut idx = self.head;
@@ -156,19 +153,19 @@ impl LoadQueue {
         for _ in 0..self.count {
             let entry = &self.entries[idx];
             if entry.valid
-                && entry.rob_tag.0 > store_rob_tag.0
+                && entry.rob_tag.is_newer_than(store_rob_tag)
                 && entry.state == LoadState::Executed
                 && let Some(load_paddr) = entry.paddr
             {
                 let load_size = width_to_bytes(entry.width) as u64;
-                let load_start = load_paddr;
-                let load_end = load_paddr + load_size;
+                let load_start = load_paddr.val();
+                let load_end = load_start + load_size;
 
                 // Check for any overlap
                 if load_start < store_end && load_end > store_start {
                     match oldest_violator {
                         None => oldest_violator = Some(entry.rob_tag),
-                        Some(prev) if entry.rob_tag.0 < prev.0 => {
+                        Some(prev) if entry.rob_tag.is_older_than(prev) => {
                             oldest_violator = Some(entry.rob_tag);
                         }
                         _ => {}
@@ -236,7 +233,7 @@ impl LoadQueue {
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag.0 <= keep_tag.0 {
+            if entry.valid && entry.rob_tag.is_older_or_eq(keep_tag) {
                 if idx != new_tail {
                     self.entries[new_tail] = self.entries[idx].clone();
                     self.entries[idx].valid = false;
@@ -267,8 +264,8 @@ impl LoadQueue {
     }
 }
 
-/// Converts a MemWidth to byte count.
-fn width_to_bytes(w: MemWidth) -> usize {
+/// Converts a `MemWidth` to byte count.
+const fn width_to_bytes(w: MemWidth) -> usize {
     match w {
         MemWidth::Byte => 1,
         MemWidth::Half => 2,
@@ -279,6 +276,7 @@ fn width_to_bytes(w: MemWidth) -> usize {
 }
 
 #[cfg(test)]
+#[allow(unused_results)]
 mod tests {
     use super::*;
 
@@ -291,7 +289,7 @@ mod tests {
         assert!(lq.allocate(tag, MemWidth::Word));
         assert_eq!(lq.len(), 1);
 
-        lq.fill_address(tag, 0x1000, 0x8000_0000);
+        lq.fill_address(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_data(tag, 0xDEADBEEF);
 
         lq.deallocate(tag);
@@ -314,11 +312,12 @@ mod tests {
         // Younger load (tag=3) executes before older store (tag=2) resolves
         let load_tag = RobTag(3);
         lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, 0x1000, 0x8000_0000);
+        lq.fill_address(load_tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_data(load_tag, 0x12345678);
 
         // Store (tag=2) resolves to same address — violation!
-        let result = lq.check_ordering_violation(0x8000_0000, MemWidth::Word, RobTag(2));
+        let result =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
         assert_eq!(result, Some(RobTag(3)));
     }
 
@@ -328,11 +327,12 @@ mod tests {
 
         let load_tag = RobTag(3);
         lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, 0x2000, 0x8000_0004);
+        lq.fill_address(load_tag, VirtAddr::new(0x2000), PhysAddr::new(0x8000_0004));
         lq.fill_data(load_tag, 0x12345678);
 
         // Store to different address — no violation
-        let result = lq.check_ordering_violation(0x8000_0000, MemWidth::Word, RobTag(2));
+        let result =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
         assert_eq!(result, None);
     }
 
@@ -343,10 +343,11 @@ mod tests {
         // Load is older than store — no violation (correct ordering)
         let load_tag = RobTag(1);
         lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, 0x1000, 0x8000_0000);
+        lq.fill_address(load_tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_data(load_tag, 0x12345678);
 
-        let result = lq.check_ordering_violation(0x8000_0000, MemWidth::Word, RobTag(2));
+        let result =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
         assert_eq!(result, None);
     }
 
@@ -377,7 +378,7 @@ mod tests {
         for i in 1..=10 {
             let tag = RobTag(i);
             lq.allocate(tag, MemWidth::Word);
-            lq.fill_address(tag, 0x1000, 0x8000_0000);
+            lq.fill_address(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
             lq.fill_data(tag, i as u64);
             lq.deallocate(tag);
         }

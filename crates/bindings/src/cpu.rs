@@ -8,7 +8,7 @@ use crate::conversion::py_dict_to_config;
 use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
-use crate::views::{Csrs, Memory, Registers};
+use crate::views::{Csrs, Memory, Registers, VirtualMemory};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
@@ -44,7 +44,7 @@ pub struct PyCpu {
 // ── Private Rust helpers (not exposed to Python) ─────────────────────────────
 
 impl PyCpu {
-    pub(crate) fn privilege_str(&self) -> &'static str {
+    pub(crate) const fn privilege_str(&self) -> &'static str {
         match self.inner.cpu.privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
@@ -101,13 +101,13 @@ impl PyCpu {
                 let _ = std::io::stdout().flush();
             }
             match self.inner.tick() {
-                Ok(_) => {
+                Ok(()) => {
                     if let Some(code) = self.inner.take_exit() {
                         let _ = std::io::stdout().flush();
                         return Ok(Some(code));
                     }
                 }
-                Err(e) => return Err(PyRuntimeError::new_err(e)),
+                Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
             }
         }
     }
@@ -168,15 +168,15 @@ impl PyCpu {
     /// HTIF registration, kernel loading) happens inside Rust — nothing leaks to Python.
     ///
     /// Args:
-    ///     config_dict: The nested config dict (from ``Config.to_dict()``).
-    ///     elf_data: Raw bytes of an ELF binary (bare-metal mode). Optional.
-    ///     kernel_path: Path to a kernel image (kernel mode). Optional.
-    ///     dtb_path: Path to a DTB file (kernel mode). Optional.
-    ///     disk_path: Path to a disk image. Optional.
+    ///     `config_dict`: The nested config dict (from ``Config.to_dict()``).
+    ///     `elf_data`: Raw bytes of an ELF binary (bare-metal mode). Optional.
+    ///     `kernel_path`: Path to a kernel image (kernel mode). Optional.
+    ///     `dtb_path`: Path to a DTB file (kernel mode). Optional.
+    ///     `disk_path`: Path to a disk image. Optional.
     #[new]
     #[pyo3(signature = (config_dict, *, elf_data=None, kernel_path=None, dtb_path=None, disk_path=None))]
     fn new(
-        py: Python,
+        py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
         elf_data: Option<Vec<u8>>,
         kernel_path: Option<String>,
@@ -220,7 +220,8 @@ impl PyCpu {
 
         // Kernel loading
         if let Some(kpath) = kernel_path {
-            loader::setup_kernel_load(&mut sim.cpu, &config, "", dtb_path, Some(kpath));
+            loader::setup_kernel_load(&mut sim.cpu, &config, "", dtb_path, Some(kpath))
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             sim.cpu.direct_mode = false;
         }
 
@@ -228,36 +229,36 @@ impl PyCpu {
         // into the O3 PRF. Must happen after all register initialization.
         sim.sync_arch_regs();
 
-        Ok(PyCpu { inner: sim })
+        Ok(Self { inner: sim })
     }
 
     // ── Properties ───────────────────────────────────────────────────────────
 
     /// Program counter (read/write).
     #[getter]
-    fn pc(&self) -> u64 {
+    const fn pc(&self) -> u64 {
         self.inner.cpu.pc
     }
 
     #[setter]
-    fn set_pc(&mut self, value: u64) {
+    const fn set_pc(&mut self, value: u64) {
         self.inner.cpu.pc = value;
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
     #[getter]
-    fn privilege(&self) -> &'static str {
+    const fn privilege(&self) -> &'static str {
         self.privilege_str()
     }
 
     /// Whether instruction tracing is enabled (read/write).
     #[getter]
-    fn trace(&self) -> bool {
+    const fn trace(&self) -> bool {
         self.inner.cpu.trace
     }
 
     #[setter]
-    fn set_trace(&mut self, value: bool) {
+    const fn set_trace(&mut self, value: bool) {
         self.inner.cpu.trace = value;
     }
 
@@ -283,19 +284,31 @@ impl PyCpu {
     /// Memory view for 32-bit reads — ``cpu.mem32[addr]``.
     #[getter]
     fn mem32(slf: Bound<'_, Self>) -> Memory {
-        Memory {
-            cpu: slf.unbind(),
-            width: 32,
-        }
+        Memory { cpu: slf.unbind(), width: 32 }
     }
 
     /// Memory view for 64-bit reads — ``cpu.mem64[addr]``.
     #[getter]
     fn mem64(slf: Bound<'_, Self>) -> Memory {
-        Memory {
-            cpu: slf.unbind(),
-            width: 64,
-        }
+        Memory { cpu: slf.unbind(), width: 64 }
+    }
+
+    /// Virtual memory view for 32-bit reads — ``cpu.vmem32[vaddr]``.
+    ///
+    /// Translates the virtual address through the current page tables (SATP)
+    /// before reading. Raises ``ValueError`` if translation fails.
+    #[getter]
+    fn vmem32(slf: Bound<'_, Self>) -> VirtualMemory {
+        VirtualMemory { cpu: slf.unbind(), width: 32 }
+    }
+
+    /// Virtual memory view for 64-bit reads — ``cpu.vmem64[vaddr]``.
+    ///
+    /// Translates the virtual address through the current page tables (SATP)
+    /// before reading. Raises ``ValueError`` if translation fails.
+    #[getter]
+    fn vmem64(slf: Bound<'_, Self>) -> VirtualMemory {
+        VirtualMemory { cpu: slf.unbind(), width: 64 }
     }
 
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
@@ -305,6 +318,13 @@ impl PyCpu {
     }
 
     // ── Methods ──────────────────────────────────────────────────────────────
+
+    /// Open a commit log file. Each retired instruction is written as
+    /// ``core   0: 0x<pc> (0x<inst>)``. Requires the ``commit-log`` feature.
+    #[cfg(feature = "commit-log")]
+    fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
+        self.inner.cpu.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
 
     /// Execute until one instruction commits.
     ///
@@ -323,12 +343,12 @@ impl PyCpu {
                 py.check_signals()?;
             }
             match self.inner.tick() {
-                Ok(_) => {
+                Ok(()) => {
                     if self.inner.take_exit().is_some() {
                         return Ok(None);
                     }
                 }
-                Err(e) => return Err(PyRuntimeError::new_err(e)),
+                Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
             }
             cycles_run += 1;
 
@@ -352,7 +372,7 @@ impl PyCpu {
     /// Args:
     ///     limit: Max cycles to simulate. ``None`` means unlimited.
     ///     progress: Print progress to stderr every N cycles. 0 = silent.
-    ///     stats_sections: Print stats on completion. ``None`` = suppress,
+    ///     `stats_sections`: Print stats on completion. ``None`` = suppress,
     ///         ``[]`` = all sections, ``["summary", ...]`` = specific sections.
     ///
     /// Returns:
@@ -441,7 +461,7 @@ impl PyCpu {
     ///     or *limit* was reached.
     #[pyo3(signature = (predicate=None, *, pc=None, privilege=None, limit=None, chunk=10_000))]
     fn run_until(
-        slf: Bound<'_, PyCpu>,
+        slf: Bound<'_, Self>,
         py: Python<'_>,
         predicate: Option<Py<PyAny>>,
         pc: Option<u64>,
@@ -455,7 +475,7 @@ impl PyCpu {
             ));
         }
 
-        let slf_py: Py<PyCpu> = slf.unbind();
+        let slf_py: Py<Self> = slf.unbind();
         let mut cycles_run = 0u64;
 
         loop {
@@ -481,9 +501,7 @@ impl PyCpu {
             let stop = {
                 let cpu = slf_py.borrow(py);
                 pc.is_some_and(|p| cpu.inner.cpu.pc == p)
-                    || privilege
-                        .as_deref()
-                        .is_some_and(|priv_str| cpu.privilege_str() == priv_str)
+                    || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str() == priv_str)
             };
             if stop {
                 return Ok(None);
@@ -503,7 +521,61 @@ impl PyCpu {
 
     /// Advance one cycle.
     fn tick(&mut self) -> PyResult<()> {
-        self.inner.tick().map_err(PyRuntimeError::new_err)
+        self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Translate a virtual address to a physical address using the current page tables.
+    ///
+    /// Args:
+    ///     vaddr: Virtual address to translate.
+    ///
+    /// Returns:
+    ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
+    fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
+        use rvsim_core::common::{AccessType, VirtAddr};
+        let result = self.inner.cpu.translate(VirtAddr::new(vaddr), AccessType::Read);
+        if let Some(trap) = result.trap {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "translation failed for VA {vaddr:#x}: {trap:?}"
+            )));
+        }
+        Ok(result.paddr.val())
+    }
+
+    /// Read raw bytes from physical memory.
+    ///
+    /// Args:
+    ///     paddr: Physical address to read from.
+    ///     length: Number of bytes to read.
+    ///
+    /// Returns:
+    ///     ``bytes`` object with the raw memory contents.
+    #[pyo3(signature = (paddr, length))]
+    fn read_phys_bytes<'py>(
+        &mut self,
+        py: Python<'py>,
+        paddr: u64,
+        length: usize,
+    ) -> Bound<'py, pyo3::types::PyBytes> {
+        let cpu = &self.inner.cpu;
+        if paddr >= cpu.ram_start && paddr + length as u64 <= cpu.ram_end && !cpu.ram_ptr.is_null()
+        {
+            let offset = (paddr - cpu.ram_start) as usize;
+            let slice = unsafe { std::slice::from_raw_parts(cpu.ram_ptr.add(offset), length) };
+            pyo3::types::PyBytes::new(py, slice)
+        } else {
+            // Fallback: read byte-by-byte via the bus
+            let mut buf = vec![0u8; length];
+            for (i, byte) in buf.iter_mut().enumerate() {
+                *byte = self
+                    .inner
+                    .cpu
+                    .bus
+                    .bus
+                    .read_u8(rvsim_core::common::PhysAddr::new(paddr + i as u64));
+            }
+            pyo3::types::PyBytes::new(py, &buf)
+        }
     }
 
     /// Capture a snapshot of the current pipeline state.
@@ -529,69 +601,60 @@ impl PyCpu {
         let mut w = BufWriter::new(file);
 
         let mut header = serde_json::Map::new();
-        header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
-        header.insert("version".into(), serde_json::Value::from(1u64));
-        header.insert("pc".into(), serde_json::Value::from(cpu.pc));
-        header.insert(
-            "privilege".into(),
-            serde_json::Value::from(cpu.privilege.to_u8()),
-        );
-        header.insert(
-            "direct_mode".into(),
-            serde_json::Value::from(cpu.direct_mode),
-        );
-        header.insert("trace".into(), serde_json::Value::from(cpu.trace));
-        header.insert(
-            "wfi_waiting".into(),
-            serde_json::Value::from(cpu.wfi_waiting),
-        );
-        header.insert("wfi_pc".into(), serde_json::Value::from(cpu.wfi_pc));
-        header.insert("ram_start".into(), serde_json::Value::from(cpu.ram_start));
-        header.insert("ram_end".into(), serde_json::Value::from(cpu.ram_end));
+        let _ = header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
+        let _ = header.insert("version".into(), serde_json::Value::from(1u64));
+        let _ = header.insert("pc".into(), serde_json::Value::from(cpu.pc));
+        let _ = header.insert("privilege".into(), serde_json::Value::from(cpu.privilege.to_u8()));
+        let _ = header.insert("direct_mode".into(), serde_json::Value::from(cpu.direct_mode));
+        let _ = header.insert("trace".into(), serde_json::Value::from(cpu.trace));
+        let _ = header.insert("wfi_waiting".into(), serde_json::Value::from(cpu.wfi_waiting));
+        let _ = header.insert("wfi_pc".into(), serde_json::Value::from(cpu.wfi_pc));
+        let _ = header.insert("ram_start".into(), serde_json::Value::from(cpu.ram_start));
+        let _ = header.insert("ram_end".into(), serde_json::Value::from(cpu.ram_end));
 
-        let gprs: Vec<serde_json::Value> = (0..32)
-            .map(|i| serde_json::Value::from(cpu.regs.read(i)))
+        let gprs: Vec<serde_json::Value> = (0u8..32)
+            .map(|i| serde_json::Value::from(cpu.regs.read(rvsim_core::common::RegIdx::new(i))))
             .collect();
-        header.insert("gpr".into(), serde_json::Value::Array(gprs));
+        let _ = header.insert("gpr".into(), serde_json::Value::Array(gprs));
 
-        let fprs: Vec<serde_json::Value> = (0..32)
-            .map(|i| serde_json::Value::from(cpu.regs.read_f(i)))
+        let fprs: Vec<serde_json::Value> = (0u8..32)
+            .map(|i| serde_json::Value::from(cpu.regs.read_f(rvsim_core::common::RegIdx::new(i))))
             .collect();
-        header.insert("fpr".into(), serde_json::Value::Array(fprs));
+        let _ = header.insert("fpr".into(), serde_json::Value::Array(fprs));
 
         let c = &cpu.csrs;
         let mut csrs = serde_json::Map::new();
-        csrs.insert("mstatus".into(), c.mstatus.into());
-        csrs.insert("misa".into(), c.misa.into());
-        csrs.insert("medeleg".into(), c.medeleg.into());
-        csrs.insert("mideleg".into(), c.mideleg.into());
-        csrs.insert("mie".into(), c.mie.into());
-        csrs.insert("mtvec".into(), c.mtvec.into());
-        csrs.insert("mscratch".into(), c.mscratch.into());
-        csrs.insert("mepc".into(), c.mepc.into());
-        csrs.insert("mcause".into(), c.mcause.into());
-        csrs.insert("mtval".into(), c.mtval.into());
-        csrs.insert("mip".into(), c.mip.into());
-        csrs.insert("sstatus".into(), c.sstatus.into());
-        csrs.insert("sie".into(), c.sie.into());
-        csrs.insert("stvec".into(), c.stvec.into());
-        csrs.insert("sscratch".into(), c.sscratch.into());
-        csrs.insert("sepc".into(), c.sepc.into());
-        csrs.insert("scause".into(), c.scause.into());
-        csrs.insert("stval".into(), c.stval.into());
-        csrs.insert("sip".into(), c.sip.into());
-        csrs.insert("satp".into(), c.satp.into());
-        csrs.insert("cycle".into(), c.cycle.into());
-        csrs.insert("time".into(), c.time.into());
-        csrs.insert("instret".into(), c.instret.into());
-        csrs.insert("mcycle".into(), c.mcycle.into());
-        csrs.insert("minstret".into(), c.minstret.into());
-        csrs.insert("stimecmp".into(), c.stimecmp.into());
-        csrs.insert("fflags".into(), c.fflags.into());
-        csrs.insert("frm".into(), c.frm.into());
-        csrs.insert("mcounteren".into(), c.mcounteren.into());
-        csrs.insert("scounteren".into(), c.scounteren.into());
-        header.insert("csrs".into(), serde_json::Value::Object(csrs));
+        let _ = csrs.insert("mstatus".into(), c.mstatus.into());
+        let _ = csrs.insert("misa".into(), c.misa.into());
+        let _ = csrs.insert("medeleg".into(), c.medeleg.into());
+        let _ = csrs.insert("mideleg".into(), c.mideleg.into());
+        let _ = csrs.insert("mie".into(), c.mie.into());
+        let _ = csrs.insert("mtvec".into(), c.mtvec.into());
+        let _ = csrs.insert("mscratch".into(), c.mscratch.into());
+        let _ = csrs.insert("mepc".into(), c.mepc.into());
+        let _ = csrs.insert("mcause".into(), c.mcause.into());
+        let _ = csrs.insert("mtval".into(), c.mtval.into());
+        let _ = csrs.insert("mip".into(), c.mip.into());
+        let _ = csrs.insert("sstatus".into(), c.sstatus.into());
+        let _ = csrs.insert("sie".into(), c.sie.into());
+        let _ = csrs.insert("stvec".into(), c.stvec.into());
+        let _ = csrs.insert("sscratch".into(), c.sscratch.into());
+        let _ = csrs.insert("sepc".into(), c.sepc.into());
+        let _ = csrs.insert("scause".into(), c.scause.into());
+        let _ = csrs.insert("stval".into(), c.stval.into());
+        let _ = csrs.insert("sip".into(), c.sip.into());
+        let _ = csrs.insert("satp".into(), c.satp.into());
+        let _ = csrs.insert("cycle".into(), c.cycle.into());
+        let _ = csrs.insert("time".into(), c.time.into());
+        let _ = csrs.insert("instret".into(), c.instret.into());
+        let _ = csrs.insert("mcycle".into(), c.mcycle.into());
+        let _ = csrs.insert("minstret".into(), c.minstret.into());
+        let _ = csrs.insert("stimecmp".into(), c.stimecmp.into());
+        let _ = csrs.insert("fflags".into(), c.fflags.into());
+        let _ = csrs.insert("frm".into(), c.frm.into());
+        let _ = csrs.insert("mcounteren".into(), c.mcounteren.into());
+        let _ = csrs.insert("scounteren".into(), c.scounteren.into());
+        let _ = header.insert("csrs".into(), serde_json::Value::Object(csrs));
 
         let header_bytes = serde_json::to_vec(&serde_json::Value::Object(header))
             .map_err(|e| PyRuntimeError::new_err(format!("serialization error: {e}")))?;
@@ -648,13 +711,13 @@ impl PyCpu {
 
         if let Some(gprs) = header["gpr"].as_array() {
             for (i, v) in gprs.iter().enumerate().take(32) {
-                cpu.regs.write(i, v.as_u64().unwrap_or(0));
+                cpu.regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
             }
         }
 
         if let Some(fprs) = header["fpr"].as_array() {
             for (i, v) in fprs.iter().enumerate().take(32) {
-                cpu.regs.write_f(i, v.as_u64().unwrap_or(0));
+                cpu.regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
             }
         }
 
@@ -706,8 +769,7 @@ impl PyCpu {
 
         if ckpt_ram_size != cpu_ram_size {
             return Err(PyRuntimeError::new_err(format!(
-                "RAM size mismatch: checkpoint has {} bytes, CPU has {} bytes",
-                ckpt_ram_size, cpu_ram_size
+                "RAM size mismatch: checkpoint has {ckpt_ram_size} bytes, CPU has {cpu_ram_size} bytes"
             )));
         }
 
@@ -717,10 +779,10 @@ impl PyCpu {
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
 
-        cpu.l1_i_cache.flush();
-        cpu.l1_d_cache.flush();
-        cpu.l2_cache.flush();
-        cpu.l3_cache.flush();
+        let _ = cpu.l1_i_cache.flush();
+        let _ = cpu.l1_d_cache.flush();
+        let _ = cpu.l2_cache.flush();
+        let _ = cpu.l3_cache.flush();
         cpu.mmu.dtlb.flush();
         cpu.mmu.itlb.flush();
         cpu.mmu.l2_tlb.flush();

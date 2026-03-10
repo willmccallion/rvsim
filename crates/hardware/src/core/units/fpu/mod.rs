@@ -10,6 +10,9 @@
 //! - [`rounding_modes`]: Rounding mode types (stub, pending implementation).
 //! - [`exception_flags`]: Exception flag types (stub, pending implementation).
 
+// IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
+#![allow(clippy::float_cmp)]
+
 /// NaN boxing, unboxing, and canonical NaN propagation.
 pub mod nan_handling;
 
@@ -42,7 +45,7 @@ unsafe extern "C" {
     fn fetestexcept(excepts: i32) -> i32;
 }
 
-/// Reads and maps host FPU exception flags to RISC-V FpFlags.
+/// Reads and maps host FPU exception flags to RISC-V `FpFlags`.
 fn read_host_fp_flags() -> FpFlags {
     let host = unsafe { fetestexcept(FE_ALL_EXCEPT) };
     let mut flags = FpFlags::NONE;
@@ -67,12 +70,12 @@ fn read_host_fp_flags() -> FpFlags {
 /// Clears all host FPU exception flags.
 fn clear_host_fp_flags() {
     unsafe {
-        feclearexcept(FE_ALL_EXCEPT);
+        let _ = feclearexcept(FE_ALL_EXCEPT);
     }
 }
 
 /// RISC-V FCLASS result for f32: classify into one of 10 categories.
-fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
+const fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
     if exp == 0xFF && frac != 0 {
         // NaN
         if frac & 0x0040_0000 != 0 {
@@ -94,7 +97,7 @@ fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
 }
 
 /// RISC-V FCLASS result for f64: classify into one of 10 categories.
-fn classify_f64(sign: u64, exp: u64, frac: u64) -> u64 {
+const fn classify_f64(sign: u64, exp: u64, frac: u64) -> u64 {
     if exp == 0x7FF && frac != 0 {
         if frac & 0x0008_0000_0000_0000 != 0 {
             1 << 9 // qNaN
@@ -123,24 +126,24 @@ const F64_SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 // Integer range boundaries as f64 for float-to-integer conversion range checks.
 // Values at or beyond these limits overflow the target integer type.
 
-/// i32::MAX + 1 as f64 (2^31). Values >= this overflow i32.
+/// `i32::MAX` + 1 as f64 (2^31). Values >= this overflow i32.
 const I32_MAX_P1_F64: f64 = (i32::MAX as f64) + 1.0;
-/// i32::MIN as f64 (-2^31). Values < this overflow i32.
+/// `i32::MIN` as f64 (-2^31). Values < this overflow i32.
 const I32_MIN_F64: f64 = i32::MIN as f64;
-/// u32::MAX + 1 as f64 (2^32). Values >= this overflow u32.
+/// `u32::MAX` + 1 as f64 (2^32). Values >= this overflow u32.
 const U32_MAX_P1_F64: f64 = (u32::MAX as f64) + 1.0;
-/// i64::MAX + 1 as f64 (2^63). Values >= this overflow i64.
+/// `i64::MAX` + 1 as f64 (2^63). Values >= this overflow i64.
 const I64_MAX_P1_F64: f64 = 9223372036854775808.0; // 2^63 exactly
-/// i64::MIN as f64 (-2^63). Values < this overflow i64.
+/// `i64::MIN` as f64 (-2^63). Values < this overflow i64.
 const I64_MIN_F64: f64 = i64::MIN as f64;
 
 // ---- RISC-V float-to-integer conversion helpers ----
 // Rust's `f as i32` saturates correctly for ±Inf and out-of-range values,
 // but produces 0 for NaN.  RISC-V requires positive-max for NaN.
 
-/// Convert f64 value to i32 per RISC-V spec (NaN → INT32_MAX).
+/// Convert f64 value to i32 per RISC-V spec (NaN → `INT32_MAX`).
 #[inline]
-fn f64_to_i32_rv(v: f64) -> i32 {
+const fn f64_to_i32_rv(v: f64) -> i32 {
     if v.is_nan() {
         i32::MAX
     } else {
@@ -148,21 +151,21 @@ fn f64_to_i32_rv(v: f64) -> i32 {
     }
 }
 
-/// Convert f64 value to u32 per RISC-V spec (NaN → UINT32_MAX).
+/// Convert f64 value to u32 per RISC-V spec (NaN → `UINT32_MAX`).
 #[inline]
-fn f64_to_u32_rv(v: f64) -> u32 {
+const fn f64_to_u32_rv(v: f64) -> u32 {
     if v.is_nan() { u32::MAX } else { v as u32 }
 }
 
-/// Convert f64 value to i64 per RISC-V spec (NaN → INT64_MAX).
+/// Convert f64 value to i64 per RISC-V spec (NaN → `INT64_MAX`).
 #[inline]
-fn f64_to_i64_rv(v: f64) -> i64 {
+const fn f64_to_i64_rv(v: f64) -> i64 {
     if v.is_nan() { i64::MAX } else { v as i64 }
 }
 
-/// Convert f64 value to u64 per RISC-V spec (NaN → UINT64_MAX).
+/// Convert f64 value to u64 per RISC-V spec (NaN → `UINT64_MAX`).
 #[inline]
-fn f64_to_u64_rv(v: f64) -> u64 {
+const fn f64_to_u64_rv(v: f64) -> u64 {
     if v.is_nan() { u64::MAX } else { v as u64 }
 }
 
@@ -171,6 +174,7 @@ fn f64_to_u64_rv(v: f64) -> u64 {
 /// Implements all RISC-V floating-point operations including arithmetic,
 /// comparisons, conversions, and fused multiply-add operations from
 /// the F (single-precision) and D (double-precision) extensions.
+#[derive(Debug)]
 pub struct Fpu;
 
 impl Fpu {
@@ -179,7 +183,7 @@ impl Fpu {
     /// Convenience re-export of [`nan_handling::box_f32`] so that callers
     /// can continue to use `Fpu::box_f32(...)`.
     #[inline]
-    pub fn box_f32(f: f32) -> u64 {
+    pub const fn box_f32(f: f32) -> u64 {
         box_f32(f)
     }
 
@@ -231,11 +235,7 @@ impl Fpu {
     /// assert_eq!(result, 1); // Equal
     /// ```
     pub fn execute(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> u64 {
-        if is32 {
-            Self::execute_f32(op, a, b, c)
-        } else {
-            Self::execute_f64(op, a, b, c)
-        }
+        if is32 { Self::execute_f32(op, a, b, c) } else { Self::execute_f64(op, a, b, c) }
     }
 
     /// Executes a floating-point operation and returns accrued exception flags.
@@ -348,11 +348,7 @@ impl Fpu {
                 // NV (invalid) is set if the rounded value overflows the target.
                 // NX (inexact) is set if the original != rounded AND no NV.
                 clear_host_fp_flags();
-                let val = if is32 {
-                    unbox_f32(a) as f64
-                } else {
-                    f64::from_bits(a)
-                };
+                let val = if is32 { unbox_f32(a) as f64 } else { f64::from_bits(a) };
 
                 if val.is_nan() || val.is_infinite() {
                     flags = flags | FpFlags::NV;
@@ -383,11 +379,8 @@ impl Fpu {
             }
         }
 
-        let result = if is32 {
-            Self::execute_f32(op, a, b, c)
-        } else {
-            Self::execute_f64(op, a, b, c)
-        };
+        let result =
+            if is32 { Self::execute_f32(op, a, b, c) } else { Self::execute_f64(op, a, b, c) };
 
         (result, flags)
     }
@@ -496,7 +489,7 @@ impl Fpu {
     ///
     /// A signaling NaN has the exponent field all 1s, the quiet bit (bit 22) = 0,
     /// and a non-zero mantissa payload.
-    fn is_snan_f32(f: f32) -> bool {
+    const fn is_snan_f32(f: f32) -> bool {
         let bits = f.to_bits();
         let exp = (bits >> 23) & 0xFF;
         let mantissa = bits & 0x007F_FFFF;
@@ -505,7 +498,7 @@ impl Fpu {
     }
 
     /// Checks if an f64 value is a signaling NaN.
-    fn is_snan_f64(f: f64) -> bool {
+    const fn is_snan_f64(f: f64) -> bool {
         let bits = f.to_bits();
         let exp = (bits >> 52) & 0x7FF;
         let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
@@ -603,11 +596,9 @@ impl Fpu {
                 } else {
                     f32::from_bits(0x8000_0001) // -min_subnormal
                 };
-                let ulp = ((next_up as f64) - rne_d)
-                    .abs()
-                    .min(((next_dn as f64) - rne_d).abs());
+                let ulp = ((next_up as f64) - rne_d).abs().min(((next_dn as f64) - rne_d).abs());
 
-                if ulp > 0.0 && (diff * 2.0 - ulp).abs() < f64::EPSILON * ulp {
+                if ulp > 0.0 && diff.mul_add(2.0, -ulp).abs() < f64::EPSILON * ulp {
                     // We're at a tie — pick the one with larger magnitude
                     if exact.abs() > rne_d.abs() {
                         if exact > 0.0 { next_up } else { next_dn }
@@ -631,7 +622,6 @@ impl Fpu {
         // post-hoc check — this is approximate but correct for most cases
         // because the host computes the exact RNE result.
         match rm {
-            RoundingMode::Rne | RoundingMode::Rmm => val,
             RoundingMode::Rtz => {
                 if val.is_nan() || val.is_infinite() || val == 0.0 {
                     return val;
@@ -639,8 +629,10 @@ impl Fpu {
                 // Truncate towards zero
                 val
             }
-            RoundingMode::Rdn => val, // floor — matches host for most ops
-            RoundingMode::Rup => val, // ceil — matches host for most ops
+            // RNE and RMM: host already computed in RNE (correct for most ops).
+            // RDN: floor — matches host for most ops.
+            // RUP: ceil — matches host for most ops.
+            RoundingMode::Rne | RoundingMode::Rmm | RoundingMode::Rdn | RoundingMode::Rup => val,
         }
     }
 
@@ -788,8 +780,7 @@ impl Fpu {
             AluOp::FCvtSLU => (a as f64).to_bits(),
 
             // --- Move operations (64-bit path: no boxing needed) ---
-            AluOp::FMvToF => a,
-            AluOp::FMvToX => a,
+            AluOp::FMvToF | AluOp::FMvToX => a,
 
             _ => 0,
         }

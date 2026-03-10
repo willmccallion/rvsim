@@ -5,6 +5,7 @@
 //! on returns to predict the execution flow.
 
 /// Return Address Stack structure.
+#[derive(Debug)]
 pub struct Ras {
     /// The stack storage.
     stack: Vec<u64>,
@@ -17,11 +18,7 @@ pub struct Ras {
 impl Ras {
     /// Creates a new Return Address Stack with the specified capacity.
     pub fn new(capacity: usize) -> Self {
-        Self {
-            stack: vec![0; capacity],
-            ptr: 0,
-            capacity,
-        }
+        Self { stack: vec![0; capacity], ptr: 0, capacity }
     }
 
     /// Pushes a return address onto the stack.
@@ -64,24 +61,20 @@ impl Ras {
     ///
     /// The return address at the top of the stack, or `None` if empty.
     pub fn top(&self) -> Option<u64> {
-        if self.ptr == 0 {
-            None
-        } else {
-            Some(self.stack[self.ptr - 1])
-        }
+        if self.ptr == 0 { None } else { Some(self.stack[self.ptr - 1]) }
     }
 
     /// Snapshots the current stack pointer for speculative checkpointing.
     ///
     /// Used at fetch time so the RAS can be restored on misprediction.
-    pub fn snapshot_ptr(&self) -> usize {
+    pub const fn snapshot_ptr(&self) -> usize {
         self.ptr
     }
 
     /// Restores the stack pointer to a previously captured snapshot.
     ///
     /// Called on misprediction to undo speculative push/pop operations.
-    pub fn restore_ptr(&mut self, ptr: usize) {
+    pub const fn restore_ptr(&mut self, ptr: usize) {
         self.ptr = ptr;
     }
 }

@@ -15,6 +15,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
 use crate::isa::privileged::cause::{exception, interrupt};
 use crate::isa::privileged::opcodes as sys_ops;
+use crate::trace_trap;
 
 impl Cpu {
     /// Handles a trap (exception or interrupt).
@@ -23,7 +24,7 @@ impl Cpu {
     ///
     /// * `cause` - The type of trap that occurred.
     /// * `epc` - The Exception Program Counter (PC where the trap occurred).
-    pub fn trap(&mut self, cause: Trap, epc: u64) {
+    pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.load_reservation = None;
 
         if self.direct_mode {
@@ -50,8 +51,7 @@ impl Cpu {
 
                 // Unknown syscall in direct mode — treat as fatal.
                 eprintln!(
-                    "\n[!] Unhandled ecall in direct mode: a7={} a0={} at PC {:#x}",
-                    val_a7, val_a0, epc
+                    "\n[!] Unhandled ecall in direct mode: a7={val_a7} a0={val_a0} at PC {epc:#x}"
                 );
                 self.exit_code = Some(1);
                 return;
@@ -62,18 +62,13 @@ impl Cpu {
                 self.exit_code = Some(0);
                 return;
             }
-            eprintln!(
-                "\n[!] Fatal trap in direct mode: {:?} at PC {:#x}",
-                cause, epc
-            );
+            eprintln!("\n[!] Fatal trap in direct mode: {cause:?} at PC {epc:#x}");
             self.exit_code = Some(1);
             return;
         }
 
-        let is_timer = matches!(
-            cause,
-            Trap::MachineTimerInterrupt | Trap::SupervisorTimerInterrupt
-        );
+        let is_timer =
+            matches!(cause, Trap::MachineTimerInterrupt | Trap::SupervisorTimerInterrupt);
         let is_ecall = matches!(
             cause,
             Trap::EnvironmentCallFromUMode
@@ -81,21 +76,19 @@ impl Cpu {
                 | Trap::EnvironmentCallFromMMode
         );
 
-        if self.trace {
-            if self.csrs.stvec == 0x80000530 || epc == 0x80000530 {
-                println!(
-                    "[Trap] Cause: {:?} | EPC: {:#x} | Priv: {} | STVEC: {:#x}",
-                    cause, epc, self.privilege, self.csrs.stvec
-                );
-            } else if !is_timer && !is_ecall {
-                println!(
-                    "[Trap] Cause: {:?} | EPC: {:#x} | Priv: {}",
-                    cause, epc, self.privilege
-                );
-            }
+        if !is_timer && !is_ecall {
+            trace_trap!(self.trace;
+                event      = "taken",
+                epc        = %crate::trace::Hex(epc),
+                cause      = ?cause,
+                priv_mode  = ?self.privilege,
+                stvec      = %crate::trace::Hex(self.csrs.stvec),
+                mtvec      = %crate::trace::Hex(self.csrs.mtvec),
+                "trap taken"
+            );
         }
 
-        let (is_interrupt, code) = match cause {
+        let (is_interrupt, code) = match *cause {
             Trap::InstructionAddressMisaligned(_) => {
                 (false, exception::INSTRUCTION_ADDRESS_MISALIGNED)
             }
@@ -134,29 +127,15 @@ impl Cpu {
             Trap::DoubleFault(_) => (false, exception::HARDWARE_ERROR),
         };
 
-        let deleg_mask = if is_interrupt {
-            self.csrs.mideleg
-        } else {
-            self.csrs.medeleg
-        };
-        let mut delegate_to_s =
+        let deleg_mask = if is_interrupt { self.csrs.mideleg } else { self.csrs.medeleg };
+        let delegate_to_s =
             (self.privilege <= PrivilegeMode::Supervisor) && ((deleg_mask >> code) & 1) != 0;
 
-        if self.privilege == PrivilegeMode::User
-            && !is_interrupt
-            && !delegate_to_s
-            && (self.csrs.stvec & !3) != 0
-        {
-            if self.trace && !is_ecall {
-                eprintln!(
-                    "[TRAP] User mode trap not delegated but STVEC is set. Forcing delegation. Cause={:?} Code={} MEDELEG={:#x} STVEC={:#x}",
-                    cause, code, self.csrs.medeleg, self.csrs.stvec
-                );
-            }
-            delegate_to_s = true;
-        }
+        // Delegation is determined solely by medeleg/mideleg per the RISC-V
+        // privileged spec.  A previous workaround forced delegation to S-mode
+        // when stvec was set; this was spec-violating and has been removed.
 
-        let tval = match cause {
+        let tval = match *cause {
             Trap::InstructionAddressMisaligned(a)
             | Trap::InstructionAccessFault(a)
             | Trap::LoadAddressMisaligned(a)
@@ -171,11 +150,7 @@ impl Cpu {
         };
 
         if delegate_to_s {
-            self.csrs.scause = if is_interrupt {
-                CAUSE_INTERRUPT_BIT | code
-            } else {
-                code
-            };
+            self.csrs.scause = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
 
             self.csrs.sepc = epc;
             self.csrs.stval = tval;
@@ -200,19 +175,11 @@ impl Cpu {
             self.privilege = PrivilegeMode::Supervisor;
             let stvec_base = self.csrs.stvec & !3;
             let trap_handler_pc = stvec_base
-                + (if (self.csrs.stvec & 1) != 0 && is_interrupt {
-                    4 * code
-                } else {
-                    0
-                });
+                + (if (self.csrs.stvec & 1) != 0 && is_interrupt { 4 * code } else { 0 });
 
             self.pc = trap_handler_pc;
         } else {
-            self.csrs.mcause = if is_interrupt {
-                CAUSE_INTERRUPT_BIT | code
-            } else {
-                code
-            };
+            self.csrs.mcause = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
             self.csrs.mepc = epc;
             self.csrs.mtval = tval;
 
@@ -229,25 +196,8 @@ impl Cpu {
 
             self.privilege = PrivilegeMode::Machine;
             let mtvec_base = self.csrs.mtvec & !3;
-
-            let target_pc = if mtvec_base == 0 {
-                eprintln!(
-                    "[WARNING] Trap to machine mode but MTVEC is 0! This indicates missing trap handler setup."
-                );
-                let stvec_base = self.csrs.stvec & !3;
-                if stvec_base != 0 {
-                    stvec_base
-                } else {
-                    mtvec_base
-                }
-            } else {
-                mtvec_base
-                    + (if (self.csrs.mtvec & 1) != 0 && is_interrupt {
-                        4 * code
-                    } else {
-                        0
-                    })
-            };
+            let target_pc = mtvec_base
+                + (if (self.csrs.mtvec & 1) != 0 && is_interrupt { 4 * code } else { 0 });
             self.pc = target_pc;
         }
 
@@ -255,7 +205,7 @@ impl Cpu {
     }
 
     /// Executes the `MRET` instruction (Return from Machine Mode).
-    pub(crate) fn do_mret(&mut self) {
+    pub(crate) const fn do_mret(&mut self) {
         self.clear_reservation(); // MRET invalidates reservations
         self.pc = self.csrs.mepc & !1;
         let mstatus = self.csrs.mstatus;
@@ -271,23 +221,23 @@ impl Cpu {
         }
         new_mstatus |= csr::MSTATUS_MPIE;
         new_mstatus &= !csr::MSTATUS_MPP;
+        // Per spec 3.1.6.1: if xPP != M, xRET also sets MPRV=0
+        if mpp != PrivilegeMode::Machine.to_u8() as u64 {
+            new_mstatus &= !csr::MSTATUS_MPRV;
+        }
 
         self.csrs.mstatus = new_mstatus;
     }
 
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
-    pub(crate) fn do_sret(&mut self) {
+    pub(crate) const fn do_sret(&mut self) {
         self.clear_reservation(); // SRET invalidates reservations
         self.pc = self.csrs.sepc & !1;
         let sstatus = self.csrs.sstatus;
         let spp = (sstatus & csr::MSTATUS_SPP) != 0;
         let spie = (sstatus & csr::MSTATUS_SPIE) != 0;
 
-        self.privilege = if spp {
-            PrivilegeMode::Supervisor
-        } else {
-            PrivilegeMode::User
-        };
+        self.privilege = if spp { PrivilegeMode::Supervisor } else { PrivilegeMode::User };
         let mut new_sstatus = sstatus;
         if spie {
             new_sstatus |= csr::MSTATUS_SIE;
@@ -299,6 +249,74 @@ impl Cpu {
 
         self.csrs.sstatus = new_sstatus;
         let mask = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
-        self.csrs.mstatus = (self.csrs.mstatus & !mask) | (new_sstatus & mask);
+        let mut new_mstatus = (self.csrs.mstatus & !mask) | (new_sstatus & mask);
+        // Per spec 3.1.6.1: SRET returns to S or U (never M), so always clear MPRV
+        new_mstatus &= !csr::MSTATUS_MPRV;
+        self.csrs.mstatus = new_mstatus;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::soc::builder::System;
+
+    #[test]
+    fn test_trap_direct_mode_ecall() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.regs.write(abi::REG_A7, sys_ops::SYS_EXIT);
+        cpu.regs.write(abi::REG_A0, 42);
+
+        cpu.trap(&Trap::EnvironmentCallFromMMode, 0x1000);
+        assert_eq!(cpu.exit_code, Some(42));
+    }
+
+    #[test]
+    fn test_trap_direct_mode_illegal_instruction() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.trap(&Trap::IllegalInstruction(0), 0x1000);
+        assert_eq!(cpu.exit_code, Some(0));
+    }
+
+    #[test]
+    fn test_do_mret() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.csrs.mepc = 0x2000;
+        cpu.csrs.mstatus = (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
+        cpu.csrs.mstatus |= csr::MSTATUS_MPIE;
+
+        cpu.do_mret();
+
+        assert_eq!(cpu.pc, 0x2000);
+        assert_eq!(cpu.privilege, PrivilegeMode::Supervisor);
+        assert_eq!(cpu.csrs.mstatus & csr::MSTATUS_MIE, csr::MSTATUS_MIE);
+    }
+
+    #[test]
+    fn test_do_sret() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.csrs.sepc = 0x3000;
+        cpu.csrs.sstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;
+
+        cpu.do_sret();
+
+        assert_eq!(cpu.pc, 0x3000);
+        assert_eq!(cpu.privilege, PrivilegeMode::Supervisor);
+        assert_eq!(cpu.csrs.sstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
     }
 }

@@ -8,6 +8,7 @@
 use std::fmt;
 
 use super::addr::PhysAddr;
+use super::reg_idx::RegIdx;
 
 /// Pipeline stage where an exception was first detected.
 ///
@@ -30,7 +31,7 @@ pub enum ExceptionStage {
 ///
 /// Traps cause the processor to transfer control to a predefined trap handler.
 /// This enum covers all standard traps defined in the RISC-V Privileged Specification.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trap {
     /// Instruction address misaligned exception.
     ///
@@ -177,36 +178,36 @@ impl fmt::Display for Trap {
     /// A formatting result indicating success or failure.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Trap::InstructionAddressMisaligned(addr) => {
-                write!(f, "InstructionAddressMisaligned({:#x})", addr)
+            Self::InstructionAddressMisaligned(addr) => {
+                write!(f, "InstructionAddressMisaligned({addr:#x})")
             }
-            Trap::InstructionAccessFault(addr) => {
-                write!(f, "InstructionAccessFault({:#x})", addr)
+            Self::InstructionAccessFault(addr) => {
+                write!(f, "InstructionAccessFault({addr:#x})")
             }
-            Trap::IllegalInstruction(inst) => write!(f, "IllegalInstruction({:#x})", inst),
-            Trap::Breakpoint(pc) => write!(f, "Breakpoint({:#x})", pc),
-            Trap::LoadAddressMisaligned(addr) => write!(f, "LoadAddressMisaligned({:#x})", addr),
-            Trap::LoadAccessFault(addr) => write!(f, "LoadAccessFault({:#x})", addr),
-            Trap::StoreAddressMisaligned(addr) => {
-                write!(f, "StoreAddressMisaligned({:#x})", addr)
+            Self::IllegalInstruction(inst) => write!(f, "IllegalInstruction({inst:#x})"),
+            Self::Breakpoint(pc) => write!(f, "Breakpoint({pc:#x})"),
+            Self::LoadAddressMisaligned(addr) => write!(f, "LoadAddressMisaligned({addr:#x})"),
+            Self::LoadAccessFault(addr) => write!(f, "LoadAccessFault({addr:#x})"),
+            Self::StoreAddressMisaligned(addr) => {
+                write!(f, "StoreAddressMisaligned({addr:#x})")
             }
-            Trap::StoreAccessFault(addr) => write!(f, "StoreAccessFault({:#x})", addr),
-            Trap::EnvironmentCallFromUMode => write!(f, "EnvironmentCallFromUMode"),
-            Trap::EnvironmentCallFromSMode => write!(f, "EnvironmentCallFromSMode"),
-            Trap::EnvironmentCallFromMMode => write!(f, "EnvironmentCallFromMMode"),
-            Trap::InstructionPageFault(addr) => write!(f, "InstructionPageFault({:#x})", addr),
-            Trap::LoadPageFault(addr) => write!(f, "LoadPageFault({:#x})", addr),
-            Trap::StorePageFault(addr) => write!(f, "StorePageFault({:#x})", addr),
-            Trap::UserSoftwareInterrupt => write!(f, "UserSoftwareInterrupt"),
-            Trap::SupervisorSoftwareInterrupt => write!(f, "SupervisorSoftwareInterrupt"),
-            Trap::MachineSoftwareInterrupt => write!(f, "MachineSoftwareInterrupt"),
-            Trap::MachineTimerInterrupt => write!(f, "MachineTimerInterrupt"),
-            Trap::SupervisorTimerInterrupt => write!(f, "SupervisorTimerInterrupt"),
-            Trap::MachineExternalInterrupt => write!(f, "MachineExternalInterrupt"),
-            Trap::SupervisorExternalInterrupt => write!(f, "SupervisorExternalInterrupt"),
-            Trap::UserExternalInterrupt => write!(f, "UserExternalInterrupt"),
-            Trap::RequestedTrap(code) => write!(f, "RequestedTrap({})", code),
-            Trap::DoubleFault(addr) => write!(f, "DoubleFault({:#x})", addr),
+            Self::StoreAccessFault(addr) => write!(f, "StoreAccessFault({addr:#x})"),
+            Self::EnvironmentCallFromUMode => write!(f, "EnvironmentCallFromUMode"),
+            Self::EnvironmentCallFromSMode => write!(f, "EnvironmentCallFromSMode"),
+            Self::EnvironmentCallFromMMode => write!(f, "EnvironmentCallFromMMode"),
+            Self::InstructionPageFault(addr) => write!(f, "InstructionPageFault({addr:#x})"),
+            Self::LoadPageFault(addr) => write!(f, "LoadPageFault({addr:#x})"),
+            Self::StorePageFault(addr) => write!(f, "StorePageFault({addr:#x})"),
+            Self::UserSoftwareInterrupt => write!(f, "UserSoftwareInterrupt"),
+            Self::SupervisorSoftwareInterrupt => write!(f, "SupervisorSoftwareInterrupt"),
+            Self::MachineSoftwareInterrupt => write!(f, "MachineSoftwareInterrupt"),
+            Self::MachineTimerInterrupt => write!(f, "MachineTimerInterrupt"),
+            Self::SupervisorTimerInterrupt => write!(f, "SupervisorTimerInterrupt"),
+            Self::MachineExternalInterrupt => write!(f, "MachineExternalInterrupt"),
+            Self::SupervisorExternalInterrupt => write!(f, "SupervisorExternalInterrupt"),
+            Self::UserExternalInterrupt => write!(f, "UserExternalInterrupt"),
+            Self::RequestedTrap(code) => write!(f, "RequestedTrap({code})"),
+            Self::DoubleFault(addr) => write!(f, "DoubleFault({addr:#x})"),
         }
     }
 }
@@ -216,57 +217,112 @@ impl Trap {
     ///
     /// Lower values indicate higher priority. Synchronous exceptions have
     /// priorities 0-11, while interrupts have priority 12+.
-    pub fn exception_priority(&self) -> u8 {
+    pub const fn exception_priority(&self) -> u8 {
         match self {
             // Highest priority: instruction address breakpoint
-            Trap::Breakpoint(_) => 0,
+            Self::Breakpoint(_) => 0,
 
             // Instruction fetch exceptions
-            Trap::InstructionPageFault(_) => 1,
-            Trap::InstructionAccessFault(_) => 2,
+            Self::InstructionPageFault(_) => 1,
+            Self::InstructionAccessFault(_) => 2,
 
             // Illegal instruction / decode errors
-            Trap::IllegalInstruction(_) => 3,
-            Trap::InstructionAddressMisaligned(_) => 4,
+            Self::IllegalInstruction(_) => 3,
+            Self::InstructionAddressMisaligned(_) => 4,
 
             // Environment calls
-            Trap::EnvironmentCallFromUMode => 5,
-            Trap::EnvironmentCallFromSMode => 5,
-            Trap::EnvironmentCallFromMMode => 5,
+            Self::EnvironmentCallFromUMode
+            | Self::EnvironmentCallFromSMode
+            | Self::EnvironmentCallFromMMode => 5,
 
             // Store/AMO address misaligned
-            Trap::StoreAddressMisaligned(_) => 6,
-            Trap::LoadAddressMisaligned(_) => 7,
+            Self::StoreAddressMisaligned(_) => 6,
+            Self::LoadAddressMisaligned(_) => 7,
 
             // Store/AMO page fault & access fault
-            Trap::StorePageFault(_) => 8,
-            Trap::LoadPageFault(_) => 9,
-            Trap::StoreAccessFault(_) => 10,
-            Trap::LoadAccessFault(_) => 11,
+            Self::StorePageFault(_) => 8,
+            Self::LoadPageFault(_) => 9,
+            Self::StoreAccessFault(_) => 10,
+            Self::LoadAccessFault(_) => 11,
 
             // Interrupts (lower priority than synchronous exceptions)
-            Trap::MachineExternalInterrupt => 12,
-            Trap::MachineSoftwareInterrupt => 13,
-            Trap::MachineTimerInterrupt => 14,
-            Trap::SupervisorExternalInterrupt => 15,
-            Trap::SupervisorSoftwareInterrupt => 16,
-            Trap::SupervisorTimerInterrupt => 17,
-            Trap::UserExternalInterrupt => 18,
-            Trap::UserSoftwareInterrupt => 19,
+            Self::MachineExternalInterrupt => 12,
+            Self::MachineSoftwareInterrupt => 13,
+            Self::MachineTimerInterrupt => 14,
+            Self::SupervisorExternalInterrupt => 15,
+            Self::SupervisorSoftwareInterrupt => 16,
+            Self::SupervisorTimerInterrupt => 17,
+            Self::UserExternalInterrupt => 18,
+            Self::UserSoftwareInterrupt => 19,
 
             // Simulator-specific traps (lowest priority)
-            Trap::RequestedTrap(_) => 20,
-            Trap::DoubleFault(_) => 21,
+            Self::RequestedTrap(_) => 20,
+            Self::DoubleFault(_) => 21,
         }
     }
 }
 
 impl std::error::Error for Trap {}
 
+/// Deferred PTE Accessed/Dirty bit update.
+///
+/// During page table walks, the PTW computes updated A/D bits but does NOT
+/// write them to memory immediately — the instruction may be speculative.
+/// Instead, the update is carried through the pipeline and applied at commit.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PteUpdate {
+    /// Physical address of the PTE in memory.
+    pub pte_addr: crate::common::PhysAddr,
+    /// New PTE value with A/D bits set.
+    pub pte_value: u64,
+}
+
+/// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
+///
+/// SFENCE.VMA must not take effect speculatively — preceding PTE-modifying
+/// stores may still be in the store buffer at execute time.  The operand
+/// values are captured at execute and carried through the pipeline so the
+/// commit stage can perform the correct selective (or global) TLB flush
+/// after the store buffer has fully drained.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SfenceVmaInfo {
+    /// Architectural index of rs1 (0 = flush all virtual addresses).
+    pub rs1_idx: RegIdx,
+    /// Architectural index of rs2 (0 = flush all ASIDs).
+    pub rs2_idx: RegIdx,
+    /// Value of rs1 (virtual address, when `rs1_idx` != 0).
+    pub rs1_val: u64,
+    /// Value of rs2 (ASID, when `rs2_idx` != 0).
+    pub rs2_val: u64,
+}
+
+/// Deferred LR/SC reservation action for commit-time application.
+///
+/// LR/SC must not modify the load reservation speculatively — if the
+/// instruction is squashed, the reservation state would be corrupted.
+/// Instead, Memory2 records the intended action here, and the commit
+/// stage applies it when the instruction retires.
+#[derive(Clone, Copy, Debug)]
+pub enum LrScRecord {
+    /// LR: set the reservation to this physical address at commit.
+    Lr {
+        /// Physical address to reserve.
+        paddr: crate::common::PhysAddr,
+    },
+    /// SC: check the reservation at commit.  If valid, clear it and
+    /// let the store drain.  If invalid, the speculative SC result (0)
+    /// was wrong — cancel the store and flush from this instruction.
+    Sc {
+        /// Physical address to check reservation against.
+        paddr: crate::common::PhysAddr,
+    },
+}
+
 /// Result of a virtual-to-physical address translation operation.
 ///
 /// This structure encapsulates the outcome of an MMU walk, including performance
 /// metrics and any faults that may have occurred.
+#[derive(Debug)]
 pub struct TranslationResult {
     /// The translated physical address, or zero if translation failed.
     pub paddr: PhysAddr,
@@ -274,6 +330,8 @@ pub struct TranslationResult {
     pub cycles: u64,
     /// Trap that occurred during translation, if any.
     pub trap: Option<Trap>,
+    /// Deferred PTE A/D bit update to apply at commit time.
+    pub pte_update: Option<PteUpdate>,
 }
 
 impl TranslationResult {
@@ -288,12 +346,18 @@ impl TranslationResult {
     ///
     /// A `TranslationResult` indicating successful translation.
     #[inline]
-    pub fn success(paddr: PhysAddr, cycles: u64) -> Self {
-        Self {
-            paddr,
-            cycles,
-            trap: None,
-        }
+    pub const fn success(paddr: PhysAddr, cycles: u64) -> Self {
+        Self { paddr, cycles, trap: None, pte_update: None }
+    }
+
+    /// Creates a successful translation result with a deferred PTE update.
+    #[inline]
+    pub const fn success_with_pte_update(
+        paddr: PhysAddr,
+        cycles: u64,
+        pte_update: PteUpdate,
+    ) -> Self {
+        Self { paddr, cycles, trap: None, pte_update: Some(pte_update) }
     }
 
     /// Creates a translation result indicating a fault occurred.
@@ -307,11 +371,101 @@ impl TranslationResult {
     ///
     /// A `TranslationResult` indicating translation failure.
     #[inline]
-    pub fn fault(trap: Trap, cycles: u64) -> Self {
-        Self {
-            paddr: PhysAddr(0),
-            cycles,
-            trap: Some(trap),
-        }
+    pub const fn fault(trap: Trap, cycles: u64) -> Self {
+        Self { paddr: PhysAddr(0), cycles, trap: Some(trap), pte_update: None }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exception_stage_default() {
+        assert_eq!(ExceptionStage::default(), ExceptionStage::Fetch);
+    }
+
+    #[test]
+    fn test_trap_display() {
+        assert_eq!(
+            format!("{}", Trap::InstructionAddressMisaligned(0x1000)),
+            "InstructionAddressMisaligned(0x1000)"
+        );
+        assert_eq!(
+            format!("{}", Trap::InstructionAccessFault(0x2000)),
+            "InstructionAccessFault(0x2000)"
+        );
+        assert_eq!(format!("{}", Trap::IllegalInstruction(0x3000)), "IllegalInstruction(0x3000)");
+        assert_eq!(format!("{}", Trap::Breakpoint(0x4000)), "Breakpoint(0x4000)");
+        assert_eq!(
+            format!("{}", Trap::LoadAddressMisaligned(0x5000)),
+            "LoadAddressMisaligned(0x5000)"
+        );
+        assert_eq!(format!("{}", Trap::LoadAccessFault(0x6000)), "LoadAccessFault(0x6000)");
+        assert_eq!(
+            format!("{}", Trap::StoreAddressMisaligned(0x7000)),
+            "StoreAddressMisaligned(0x7000)"
+        );
+        assert_eq!(format!("{}", Trap::StoreAccessFault(0x8000)), "StoreAccessFault(0x8000)");
+        assert_eq!(format!("{}", Trap::EnvironmentCallFromUMode), "EnvironmentCallFromUMode");
+        assert_eq!(format!("{}", Trap::EnvironmentCallFromSMode), "EnvironmentCallFromSMode");
+        assert_eq!(format!("{}", Trap::EnvironmentCallFromMMode), "EnvironmentCallFromMMode");
+        assert_eq!(
+            format!("{}", Trap::InstructionPageFault(0x9000)),
+            "InstructionPageFault(0x9000)"
+        );
+        assert_eq!(format!("{}", Trap::LoadPageFault(0xa000)), "LoadPageFault(0xa000)");
+        assert_eq!(format!("{}", Trap::StorePageFault(0xb000)), "StorePageFault(0xb000)");
+        assert_eq!(format!("{}", Trap::UserSoftwareInterrupt), "UserSoftwareInterrupt");
+        assert_eq!(format!("{}", Trap::SupervisorSoftwareInterrupt), "SupervisorSoftwareInterrupt");
+        assert_eq!(format!("{}", Trap::MachineSoftwareInterrupt), "MachineSoftwareInterrupt");
+        assert_eq!(format!("{}", Trap::MachineTimerInterrupt), "MachineTimerInterrupt");
+        assert_eq!(format!("{}", Trap::SupervisorTimerInterrupt), "SupervisorTimerInterrupt");
+        assert_eq!(format!("{}", Trap::MachineExternalInterrupt), "MachineExternalInterrupt");
+        assert_eq!(format!("{}", Trap::SupervisorExternalInterrupt), "SupervisorExternalInterrupt");
+        assert_eq!(format!("{}", Trap::UserExternalInterrupt), "UserExternalInterrupt");
+        assert_eq!(format!("{}", Trap::RequestedTrap(42)), "RequestedTrap(42)");
+        assert_eq!(format!("{}", Trap::DoubleFault(0xc000)), "DoubleFault(0xc000)");
+    }
+
+    #[test]
+    fn test_trap_priority() {
+        assert_eq!(Trap::Breakpoint(0).exception_priority(), 0);
+        assert_eq!(Trap::InstructionPageFault(0).exception_priority(), 1);
+        assert_eq!(Trap::InstructionAccessFault(0).exception_priority(), 2);
+        assert_eq!(Trap::IllegalInstruction(0).exception_priority(), 3);
+        assert_eq!(Trap::InstructionAddressMisaligned(0).exception_priority(), 4);
+        assert_eq!(Trap::EnvironmentCallFromUMode.exception_priority(), 5);
+        assert_eq!(Trap::EnvironmentCallFromSMode.exception_priority(), 5);
+        assert_eq!(Trap::EnvironmentCallFromMMode.exception_priority(), 5);
+        assert_eq!(Trap::StoreAddressMisaligned(0).exception_priority(), 6);
+        assert_eq!(Trap::LoadAddressMisaligned(0).exception_priority(), 7);
+        assert_eq!(Trap::StorePageFault(0).exception_priority(), 8);
+        assert_eq!(Trap::LoadPageFault(0).exception_priority(), 9);
+        assert_eq!(Trap::StoreAccessFault(0).exception_priority(), 10);
+        assert_eq!(Trap::LoadAccessFault(0).exception_priority(), 11);
+        assert_eq!(Trap::MachineExternalInterrupt.exception_priority(), 12);
+        assert_eq!(Trap::MachineSoftwareInterrupt.exception_priority(), 13);
+        assert_eq!(Trap::MachineTimerInterrupt.exception_priority(), 14);
+        assert_eq!(Trap::SupervisorExternalInterrupt.exception_priority(), 15);
+        assert_eq!(Trap::SupervisorSoftwareInterrupt.exception_priority(), 16);
+        assert_eq!(Trap::SupervisorTimerInterrupt.exception_priority(), 17);
+        assert_eq!(Trap::UserExternalInterrupt.exception_priority(), 18);
+        assert_eq!(Trap::UserSoftwareInterrupt.exception_priority(), 19);
+        assert_eq!(Trap::RequestedTrap(0).exception_priority(), 20);
+        assert_eq!(Trap::DoubleFault(0).exception_priority(), 21);
+    }
+
+    #[test]
+    fn test_translation_result() {
+        let success = TranslationResult::success(PhysAddr(0x1000), 5);
+        assert_eq!(success.paddr, PhysAddr(0x1000));
+        assert_eq!(success.cycles, 5);
+        assert!(success.trap.is_none());
+
+        let fault = TranslationResult::fault(Trap::LoadPageFault(0x2000), 3);
+        assert_eq!(fault.paddr, PhysAddr(0));
+        assert_eq!(fault.cycles, 3);
+        assert_eq!(fault.trap, Some(Trap::LoadPageFault(0x2000)));
     }
 }

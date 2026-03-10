@@ -21,12 +21,6 @@ pub const PAGE_OFFSET_MASK: u64 = PAGE_SIZE - 1;
 /// Bit mask for extracting the opcode field from a RISC-V instruction.
 pub const OPCODE_MASK: u32 = 0x7F;
 
-/// Size of a compressed (16-bit) RISC-V instruction in bytes.
-pub const INSTRUCTION_SIZE_16: u64 = 2;
-
-/// Size of a standard (32-bit) RISC-V instruction in bytes.
-pub const INSTRUCTION_SIZE_32: u64 = 4;
-
 /// Bit mask for checking if an instruction is compressed.
 pub const COMPRESSED_INSTRUCTION_MASK: u16 = 0x3;
 

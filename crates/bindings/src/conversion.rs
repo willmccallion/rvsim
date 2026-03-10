@@ -20,14 +20,14 @@ use serde_json;
 /// # Returns
 ///
 /// The deserialized `Config`, or a `PyErr` if the dict is invalid.
-pub fn py_dict_to_config(py: Python, dict: &Bound<'_, PyAny>) -> PyResult<Config> {
+pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Config> {
     let json = py.import("json")?;
     let dumps = json.getattr("dumps")?;
     let json_str_obj = dumps.call1((dict,))?;
     let json_str: String = json_str_obj.extract()?;
 
     let config: Config = serde_json::from_str(&json_str).map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid config: {}", e))
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid config: {e}"))
     })?;
 
     Ok(config)

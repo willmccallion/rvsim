@@ -5,7 +5,7 @@
 //! to translate virtual addresses to physical addresses.
 
 use crate::common::{
-    AccessType, PAGE_SHIFT, PhysAddr, TranslationResult, Trap, VPN_MASK, VirtAddr,
+    AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, TranslationResult, Trap, VPN_MASK, VirtAddr, Vpn,
 };
 use crate::core::arch::csr::{Csrs, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK};
 use crate::core::arch::mode::PrivilegeMode;
@@ -42,70 +42,75 @@ const PTE_PPN_SHIFT: u64 = 10;
 struct PageTableEntry(u64);
 
 impl PageTableEntry {
-    /// Creates a new PageTableEntry from a raw 64-bit value.
-    fn new(val: u64) -> Self {
+    /// Creates a new `PageTableEntry` from a raw 64-bit value.
+    const fn new(val: u64) -> Self {
         Self(val)
     }
 
     /// Returns the underlying raw 64-bit value.
-    fn raw(&self) -> u64 {
+    const fn raw(self) -> u64 {
         self.0
     }
 
     /// Returns true if the Valid (V) bit is set.
-    fn is_valid(&self) -> bool {
+    const fn is_valid(self) -> bool {
         self.0 & PTE_VALID_BIT != 0
     }
 
     /// Returns true if the Read (R) bit is set.
-    fn can_read(&self) -> bool {
+    const fn can_read(self) -> bool {
         self.0 & PTE_READ_BIT != 0
     }
 
     /// Returns true if the Write (W) bit is set.
-    fn can_write(&self) -> bool {
+    const fn can_write(self) -> bool {
         self.0 & PTE_WRITE_BIT != 0
     }
 
     /// Returns true if the Execute (X) bit is set.
-    fn can_exec(&self) -> bool {
+    const fn can_exec(self) -> bool {
         self.0 & PTE_EXEC_BIT != 0
     }
 
     /// Returns true if the User (U) bit is set.
-    fn is_user(&self) -> bool {
+    const fn is_user(self) -> bool {
         self.0 & PTE_USER_BIT != 0
     }
 
     /// Returns true if the Accessed (A) bit is set.
-    fn is_accessed(&self) -> bool {
+    const fn is_accessed(self) -> bool {
         self.0 & PTE_ACCESSED_BIT != 0
     }
 
     /// Returns true if the Dirty (D) bit is set.
-    fn is_dirty(&self) -> bool {
+    const fn is_dirty(self) -> bool {
         self.0 & PTE_DIRTY_BIT != 0
     }
 
     /// Extracts the Physical Page Number (PPN) from the entry.
-    fn ppn(&self) -> u64 {
+    const fn ppn(self) -> Ppn {
+        Ppn::new((self.0 >> PTE_PPN_SHIFT) & SATP_PPN_MASK)
+    }
+
+    /// Extracts the raw PPN value as u64 (for bitwise operations).
+    const fn ppn_raw(self) -> u64 {
         (self.0 >> PTE_PPN_SHIFT) & SATP_PPN_MASK
     }
 
     /// Determines if this entry is a pointer to the next level page table.
     ///
     /// In SV39, an entry is a pointer if it is Valid but has R=0, W=0, and X=0.
-    fn is_pointer(&self) -> bool {
+    const fn is_pointer(self) -> bool {
         !self.can_read() && !self.can_write() && !self.can_exec()
     }
 
     /// Returns a new instance with the Accessed (A) bit set.
-    fn with_accessed(&self) -> Self {
+    const fn with_accessed(self) -> Self {
         Self(self.0 | PTE_ACCESSED_BIT)
     }
 
     /// Returns a new instance with the Dirty (D) bit set.
-    fn with_dirty(&self) -> Self {
+    const fn with_dirty(self) -> Self {
         Self(self.0 | PTE_DIRTY_BIT)
     }
 }
@@ -172,14 +177,14 @@ fn page_table_walk_inner(
     const PTE_UPDATE_CYCLES: u64 = 10;
 
     let satp = csrs.satp;
-    let mut ppn = satp & SATP_PPN_MASK;
-    let asid = ((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16;
+    let mut ppn_raw = satp & SATP_PPN_MASK;
+    let asid = Asid::new(((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16);
     let mut cycles = 0;
 
     for level in (0..SV39_LEVELS).rev() {
         let vpn_shift = PAGE_SHIFT + level as u64 * VPN_BITS_PER_LEVEL;
         let vpn_i = (vaddr.val() >> vpn_shift) & VPN_ENTRY_MASK;
-        let pte_addr = (ppn << PAGE_SHIFT) + (vpn_i * PTE_SIZE);
+        let pte_addr = (ppn_raw << PAGE_SHIFT) + (vpn_i * PTE_SIZE);
 
         // PMP check on PTE read address (spec requires PMP enforcement on PTW accesses)
         if let Some(pmp_unit) = pmp {
@@ -197,7 +202,7 @@ fn page_table_walk_inner(
         }
 
         cycles += bus.calculate_transit_time(8);
-        let raw_pte = bus.read_u64(pte_addr);
+        let raw_pte = bus.read_u64(crate::common::PhysAddr::new(pte_addr));
         let pte = PageTableEntry::new(raw_pte);
 
         if !pte.is_valid() {
@@ -208,37 +213,65 @@ fn page_table_walk_inner(
             if level == 0 {
                 return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
             }
-            ppn = pte.ppn();
+            ppn_raw = pte.ppn_raw();
             continue;
+        }
+
+        // W=1, R=0 is a reserved PTE encoding (spec 4.3.1) — must fault.
+        if pte.can_write() && !pte.can_read() {
+            return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
         }
 
         if level > 0 {
             let ppn_mask = (1 << (level as u64 * VPN_BITS_PER_LEVEL)) - 1;
-            if (pte.ppn() & ppn_mask) != 0 {
+            if (pte.ppn_raw() & ppn_mask) != 0 {
                 return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
             }
         }
 
-        if check_permissions(&pte, access, privilege, csrs).is_err() {
+        if check_permissions(pte, access, privilege, csrs).is_err() {
             return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
+        }
+
+        // Software-managed A/D bits: fault instead of auto-setting.
+        // This matches spike's behavior where A=0 or D=0 triggers a
+        // page fault so the OS trap handler can set the bits.
+        if mmu.software_ad_bits {
+            if !pte.is_accessed() {
+                return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
+            }
+            if access == AccessType::Write && !pte.is_dirty() {
+                return TranslationResult::fault(page_fault(vaddr.val(), access), cycles);
+            }
         }
 
         let (new_pte, updated) = update_access_bits(pte, access);
 
-        if updated {
-            bus.write_u64(pte_addr, new_pte.raw());
+        // Defer A/D bit writes to commit — the instruction may be
+        // speculative and could be squashed. Writing A/D bits here
+        // would corrupt kernel page-table state irreversibly.
+        let pte_update = if updated {
             cycles += PTE_UPDATE_CYCLES;
-        }
+            Some(crate::common::error::PteUpdate {
+                pte_addr: crate::common::PhysAddr::new(pte_addr),
+                pte_value: new_pte.raw(),
+            })
+        } else {
+            None
+        };
 
-        let final_ppn = new_pte.ppn();
+        let final_ppn = pte.ppn();
 
         let offset_mask = (1u64 << vpn_shift) - 1;
-        let final_paddr = (final_ppn << PAGE_SHIFT) | (vaddr.val() & offset_mask);
+        let final_paddr = final_ppn.to_addr() | (vaddr.val() & offset_mask);
 
-        let specific_4kb_ppn = final_paddr >> PAGE_SHIFT;
-        let vpn = (vaddr.val() >> PAGE_SHIFT) & VPN_MASK;
+        let specific_4kb_ppn = Ppn::new(final_paddr >> PAGE_SHIFT);
+        let vpn = Vpn::new((vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
 
-        let pte_raw = new_pte.raw();
+        // Insert the *original* PTE bits into TLBs (without speculative
+        // A/D updates). After commit writes the A/D bits to RAM, the
+        // next access will re-walk and cache the correct state.
+        let pte_raw = pte.raw();
         if access == AccessType::Fetch {
             mmu.itlb.insert(vpn, specific_4kb_ppn, pte_raw, asid);
         } else {
@@ -247,7 +280,16 @@ fn page_table_walk_inner(
         // Also populate the shared L2 TLB.
         mmu.l2_tlb.insert(vpn, specific_4kb_ppn, pte_raw, asid);
 
-        return TranslationResult::success(PhysAddr::new(final_paddr), cycles);
+        return pte_update.map_or_else(
+            || TranslationResult::success(PhysAddr::new(final_paddr), cycles),
+            |update| {
+                TranslationResult::success_with_pte_update(
+                    PhysAddr::new(final_paddr),
+                    cycles,
+                    update,
+                )
+            },
+        );
     }
 
     TranslationResult::fault(page_fault(vaddr.val(), access), cycles)
@@ -258,11 +300,16 @@ fn page_table_walk_inner(
 /// Checks R/W/X bits, User bit, and status register flags (MXR, SUM).
 /// Returns `Ok(())` if access is allowed, `Err(())` otherwise.
 fn check_permissions(
-    pte: &PageTableEntry,
+    pte: PageTableEntry,
     access: AccessType,
     privilege: PrivilegeMode,
     csrs: &Csrs,
 ) -> Result<(), ()> {
+    /// Bit position of MXR (Make eXecutable Readable) bit in sstatus register.
+    const SSTATUS_MXR_SHIFT: u64 = 19;
+    /// Bit position of SUM (Supervisor User Memory access) bit in sstatus register.
+    const SSTATUS_SUM_SHIFT: u64 = 18;
+
     if access == AccessType::Write && !pte.can_write() {
         return Err(());
     }
@@ -270,8 +317,6 @@ fn check_permissions(
         return Err(());
     }
 
-    /// Bit position of MXR (Make eXecutable Readable) bit in sstatus register.
-    const SSTATUS_MXR_SHIFT: u64 = 19;
     let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
 
     if access == AccessType::Read && !(pte.can_read() || (pte.can_exec() && mxr)) {
@@ -283,8 +328,6 @@ fn check_permissions(
     }
 
     if privilege == PrivilegeMode::Supervisor && pte.is_user() {
-        /// Bit position of SUM (Supervisor User Memory access) bit in sstatus register.
-        const SSTATUS_SUM_SHIFT: u64 = 18;
         let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
         if !sum {
             return Err(());
@@ -302,23 +345,18 @@ fn check_permissions(
 /// Returns a tuple containing the potentially modified PTE and a boolean
 /// indicating if a write-back to memory is required.
 fn update_access_bits(pte: PageTableEntry, access: AccessType) -> (PageTableEntry, bool) {
-    let mut new_pte = pte;
-    let mut updated = false;
+    let need_accessed = !pte.is_accessed();
+    let need_dirty = access == AccessType::Write && !pte.is_dirty();
+    let updated = need_accessed || need_dirty;
 
-    if !pte.is_accessed() {
-        new_pte = new_pte.with_accessed();
-        updated = true;
-    }
-    if access == AccessType::Write && !pte.is_dirty() {
-        new_pte = new_pte.with_dirty();
-        updated = true;
-    }
+    let new_pte = if need_accessed { pte.with_accessed() } else { pte };
+    let new_pte = if need_dirty { new_pte.with_dirty() } else { new_pte };
 
     (new_pte, updated)
 }
 
 /// Constructs the appropriate Trap for a failed page access.
-fn page_fault(addr: u64, access: AccessType) -> Trap {
+const fn page_fault(addr: u64, access: AccessType) -> Trap {
     match access {
         AccessType::Fetch => Trap::InstructionPageFault(addr),
         AccessType::Read => Trap::LoadPageFault(addr),

@@ -28,7 +28,7 @@ pub enum BackendType {
     OutOfOrder,
 }
 
-/// The execution engine trait — implemented by InOrderEngine (and O3Engine in the future).
+/// The execution engine trait — implemented by `InOrderEngine` (and `O3Engine` in the future).
 ///
 /// Covers the backend pipeline: Issue -> Execute -> Memory1 -> Memory2 -> Writeback -> Commit.
 pub trait ExecutionEngine {
@@ -41,40 +41,45 @@ pub trait ExecutionEngine {
     /// Flush all speculative state. Committed stores in the store buffer remain.
     fn flush(&mut self, cpu: &mut crate::core::Cpu);
 
-    /// Read a CSR, checking in-flight CsrUpdate entries in the ROB.
-    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: u32) -> u64;
+    /// Read a CSR, checking in-flight `CsrUpdate` entries in the ROB.
+    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64;
 
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
+    /// Access the scoreboard mutably (for rename to mark producers).
     fn scoreboard_mut(&mut self) -> &mut Scoreboard;
 
     /// Access the ROB (for rename to allocate entries, forwarding, etc.).
     fn rob(&self) -> &Rob;
+    /// Access the ROB mutably (for rename to allocate entries).
     fn rob_mut(&mut self) -> &mut Rob;
 
     /// Access the store buffer (for rename to allocate, memory2 for forwarding).
     fn store_buffer(&self) -> &StoreBuffer;
+    /// Access the store buffer mutably (for rename to allocate entries).
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
 
     /// Access the speculative rename map (O3 only).
     fn rename_map(&self) -> &RenameMap {
-        unimplemented!("rename_map only available for O3 backend")
+        panic!("rename_map only available for O3 backend")
     }
+    /// Access the speculative rename map mutably (O3 only).
     fn rename_map_mut(&mut self) -> &mut RenameMap {
-        unimplemented!("rename_map_mut only available for O3 backend")
+        panic!("rename_map_mut only available for O3 backend")
     }
 
     /// Access the physical register file (O3 only).
     fn prf(&self) -> &PhysRegFile {
-        unimplemented!("prf only available for O3 backend")
+        panic!("prf only available for O3 backend")
     }
+    /// Access the physical register file mutably (O3 only).
     fn prf_mut(&mut self) -> &mut PhysRegFile {
-        unimplemented!("prf_mut only available for O3 backend")
+        panic!("prf_mut only available for O3 backend")
     }
 
     /// Access the free list (O3 only).
     fn free_list_mut(&mut self) -> &mut FreeList {
-        unimplemented!("free_list_mut only available for O3 backend")
+        panic!("free_list_mut only available for O3 backend")
     }
 
     /// Access the load queue (O3 only). Returns None for in-order backend.
@@ -92,8 +97,11 @@ pub trait ExecutionEngine {
 ///
 /// The frontend is generic over the engine type, so the full pipeline
 /// maintains both together.
+#[derive(Debug)]
 pub struct Pipeline<E: ExecutionEngine> {
+    /// Frontend stages: fetch, decode, rename.
     pub frontend: crate::core::pipeline::frontend::Frontend<E>,
+    /// Backend execution engine (in-order or out-of-order).
     pub engine: E,
     /// Buffer for rename stage output, consumed by the engine each cycle.
     pub rename_output: Vec<RenameIssueEntry>,
@@ -130,8 +138,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
         // Frontend runs every cycle (per-stage stalls are handled internally)
         if cpu.exit_code.is_none() && !cpu.wfi_waiting {
-            self.frontend
-                .tick(cpu, &mut self.engine, &mut self.rename_output);
+            self.frontend.tick(cpu, &mut self.engine, &mut self.rename_output);
         }
     }
 
@@ -144,6 +151,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
 }
 
 /// Type-erased pipeline for storage in the non-generic Cpu struct.
+#[derive(Debug)]
 pub enum PipelineDispatch {
     /// In-order pipeline.
     InOrder(Box<Pipeline<crate::core::pipeline::backend::inorder::InOrderEngine>>),
@@ -200,5 +208,119 @@ impl PipelineDispatch {
                 width,
             },
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unimplemented)]
+mod tests {
+    use super::*;
+
+    struct DummyEngine;
+    impl ExecutionEngine for DummyEngine {
+        fn tick(
+            &mut self,
+            _cpu: &mut crate::core::Cpu,
+            _rename_output: &mut Vec<RenameIssueEntry>,
+        ) {
+        }
+        fn can_accept(&self) -> usize {
+            0
+        }
+        fn flush(&mut self, _cpu: &mut crate::core::Cpu) {}
+        fn read_csr_speculative(
+            &self,
+            _cpu: &crate::core::Cpu,
+            _addr: crate::common::CsrAddr,
+        ) -> u64 {
+            0
+        }
+        fn scoreboard(&self) -> &Scoreboard {
+            unimplemented!()
+        }
+        fn scoreboard_mut(&mut self) -> &mut Scoreboard {
+            unimplemented!()
+        }
+        fn rob(&self) -> &Rob {
+            unimplemented!()
+        }
+        fn rob_mut(&mut self) -> &mut Rob {
+            unimplemented!()
+        }
+        fn store_buffer(&self) -> &StoreBuffer {
+            unimplemented!()
+        }
+        fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_backend_type_default() {
+        assert_eq!(BackendType::default(), BackendType::InOrder);
+    }
+
+    #[test]
+    #[should_panic(expected = "rename_map only available for O3 backend")]
+    fn test_dummy_rename_map() {
+        let engine = DummyEngine;
+        let _ = engine.rename_map();
+    }
+
+    #[test]
+    #[should_panic(expected = "rename_map_mut only available for O3 backend")]
+    fn test_dummy_rename_map_mut() {
+        let mut engine = DummyEngine;
+        let _ = engine.rename_map_mut();
+    }
+
+    #[test]
+    #[should_panic(expected = "prf only available for O3 backend")]
+    fn test_dummy_prf() {
+        let engine = DummyEngine;
+        let _ = engine.prf();
+    }
+
+    #[test]
+    #[should_panic(expected = "prf_mut only available for O3 backend")]
+    fn test_dummy_prf_mut() {
+        let mut engine = DummyEngine;
+        let _ = engine.prf_mut();
+    }
+
+    #[test]
+    #[should_panic(expected = "free_list_mut only available for O3 backend")]
+    fn test_dummy_free_list_mut() {
+        let mut engine = DummyEngine;
+        let _ = engine.free_list_mut();
+    }
+
+    #[test]
+    fn test_dummy_load_queue_mut() {
+        let mut engine = DummyEngine;
+        assert!(engine.load_queue_mut().is_none());
+    }
+
+    #[test]
+    fn test_dummy_has_prf() {
+        let engine = DummyEngine;
+        assert!(!engine.has_prf());
+    }
+
+    #[test]
+    fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
+        let config = crate::config::Config::default();
+        let system = crate::soc::builder::System::new(&config, "");
+        let mut cpu = crate::core::Cpu::new(system, &config);
+
+        let frontend = crate::core::pipeline::frontend::Frontend::new(config.pipeline.width);
+        let engine = crate::core::pipeline::backend::inorder::InOrderEngine::new(&config);
+        let pipeline = Pipeline { frontend, engine, rename_output: Vec::new() };
+        let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
+
+        dispatch.tick(&mut cpu);
+        dispatch.flush(&mut cpu);
+        let snapshot = dispatch.snapshot(1);
+        assert_eq!(snapshot.width, 1);
     }
 }

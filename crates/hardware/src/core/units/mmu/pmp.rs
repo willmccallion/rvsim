@@ -76,22 +76,22 @@ impl PmpEntry {
     }
 
     /// Returns true if the R (read) permission bit is set.
-    pub fn is_readable(&self) -> bool {
+    pub const fn is_readable(&self) -> bool {
         self.cfg & PMP_R != 0
     }
 
     /// Returns true if the W (write) permission bit is set.
-    pub fn is_writable(&self) -> bool {
+    pub const fn is_writable(&self) -> bool {
         self.cfg & PMP_W != 0
     }
 
     /// Returns true if the X (execute) permission bit is set.
-    pub fn is_executable(&self) -> bool {
+    pub const fn is_executable(&self) -> bool {
         self.cfg & PMP_X != 0
     }
 
     /// Returns true if the L (lock) bit is set.
-    pub fn is_locked(&self) -> bool {
+    pub const fn is_locked(&self) -> bool {
         self.cfg & PMP_L != 0
     }
 }
@@ -101,6 +101,7 @@ impl PmpEntry {
 /// Maintains the PMP configuration and address registers and provides
 /// a `check` method that determines whether an access at a given
 /// physical address is permitted.
+#[derive(Debug)]
 pub struct Pmp {
     /// PMP entries (up to `PMP_COUNT`).
     entries: Vec<PmpEntry>,
@@ -115,9 +116,7 @@ impl Default for Pmp {
 impl Pmp {
     /// Creates a new PMP unit with all entries disabled.
     pub fn new() -> Self {
-        let entries = (0..PMP_COUNT)
-            .map(|_| PmpEntry { cfg: 0, addr: 0 })
-            .collect();
+        let entries = (0..PMP_COUNT).map(|_| PmpEntry { cfg: 0, addr: 0 }).collect();
         Self { entries }
     }
 
@@ -151,20 +150,12 @@ impl Pmp {
 
     /// Reads the configuration byte for entry `idx`.
     pub fn get_cfg(&self, idx: usize) -> u8 {
-        if idx < self.entries.len() {
-            self.entries[idx].cfg
-        } else {
-            0
-        }
+        if idx < self.entries.len() { self.entries[idx].cfg } else { 0 }
     }
 
     /// Reads the address register for entry `idx`.
     pub fn get_addr(&self, idx: usize) -> u64 {
-        if idx < self.entries.len() {
-            self.entries[idx].addr
-        } else {
-            0
-        }
+        if idx < self.entries.len() { self.entries[idx].addr } else { 0 }
     }
 
     /// Computes the byte-address range `[lo, hi)` for a NAPOT entry.
@@ -172,7 +163,7 @@ impl Pmp {
     /// The pmpaddr encoding for NAPOT: trailing ones determine region size.
     /// The region size is `2^(trailing_ones + 3)` bytes and the base
     /// is the address with those trailing bits cleared.
-    fn napot_range(pmpaddr: u64) -> (u64, u64) {
+    const fn napot_range(pmpaddr: u64) -> (u64, u64) {
         // Count trailing ones in pmpaddr
         let trailing = (!pmpaddr).trailing_zeros() as u64;
         let size_bits = trailing + 3;
@@ -190,7 +181,7 @@ impl Pmp {
     }
 
     /// Computes the byte-address range for an NA4 entry (exactly 4 bytes).
-    fn na4_range(pmpaddr: u64) -> (u64, u64) {
+    const fn na4_range(pmpaddr: u64) -> (u64, u64) {
         let base = pmpaddr << 2;
         (base, base + 4)
     }
@@ -210,6 +201,7 @@ impl Pmp {
     ///
     /// `PmpResult::Allow` if the access is permitted, `PmpResult::Deny`
     /// if denied, `PmpResult::NoMatch` if no entry matched.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn check(
         &self,
         byte_addr: u64,
@@ -232,11 +224,7 @@ impl Pmp {
             let (lo, hi) = match mode {
                 PmpAddrMatch::Tor => {
                     let hi = entry.addr << 2;
-                    let lo = if i == 0 {
-                        0
-                    } else {
-                        self.entries[i - 1].addr << 2
-                    };
+                    let lo = if i == 0 { 0 } else { self.entries[i - 1].addr << 2 };
                     (lo, hi)
                 }
                 PmpAddrMatch::Na4 => Self::na4_range(entry.addr),
@@ -256,20 +244,12 @@ impl Pmp {
                     && (!is_write || entry.is_writable())
                     && (!is_exec || entry.is_executable());
 
-                return if permitted {
-                    PmpResult::Allow
-                } else {
-                    PmpResult::Deny
-                };
+                return if permitted { PmpResult::Allow } else { PmpResult::Deny };
             }
         }
 
         // No entry matched.
         // M-mode: if no entries match, M-mode has full access (spec §3.7.1).
-        if is_machine_mode {
-            PmpResult::Allow
-        } else {
-            PmpResult::NoMatch
-        }
+        if is_machine_mode { PmpResult::Allow } else { PmpResult::NoMatch }
     }
 }

@@ -26,6 +26,7 @@ use crate::core::pipeline::signals::AluOp;
 /// Implements all RISC-V integer arithmetic and logical operations
 /// including addition, subtraction, shifts, comparisons, and
 /// multiply/divide operations from the I and M extensions.
+#[derive(Debug)]
 pub struct Alu;
 
 impl Alu {
@@ -73,7 +74,7 @@ impl Alu {
     /// let result = Alu::execute(AluOp::Divu, 100, 7, 0, false);
     /// assert_eq!(result, 14);
     /// ```
-    pub fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
+    pub const fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
         match op {
             // Arithmetic: add, sub, mul*, div*, rem*
             AluOp::Add

@@ -9,7 +9,7 @@ use crate::isa::rv64f::opcodes as fp_opcodes;
 use crate::isa::rv64i::{funct3, funct7, opcodes};
 
 /// Expands a 16-bit RVC instruction into its 32-bit equivalent.
-pub fn expand(inst: u16) -> u32 {
+pub const fn expand(inst: u16) -> u32 {
     let op = inst & 0x3;
     let funct3 = (inst >> 13) & 0x7;
 
@@ -419,7 +419,7 @@ pub fn expand(inst: u16) -> u32 {
 /// # Returns
 ///
 /// The sign-extended 32-bit value.
-fn sign_extend(val: u32, bits: u32) -> u32 {
+const fn sign_extend(val: u32, bits: u32) -> u32 {
     let shift = 32 - bits;
     ((val << shift) as i32 >> shift) as u32
 }

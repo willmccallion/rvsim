@@ -3,6 +3,8 @@
 //! Provides bit extraction functions and structures for decoding
 //! RISC-V instruction fields from 32-bit instruction encodings.
 
+use crate::common::{CsrAddr, RegIdx};
+
 /// Bit mask for extracting the opcode field (bits 0-6).
 pub const OPCODE_MASK: u32 = 0x7F;
 /// Bit mask for extracting the destination register field (bits 7-11).
@@ -33,17 +35,17 @@ pub trait InstructionBits {
     ///
     /// Returns the 5-bit register index (0-31) for the destination register.
     /// Register 0 (x0) is hardwired to zero and writes are ignored.
-    fn rd(&self) -> usize;
+    fn rd(&self) -> RegIdx;
 
     /// Extracts the first source register field (bits 15-19).
     ///
     /// Returns the 5-bit register index (0-31) for the first source operand.
-    fn rs1(&self) -> usize;
+    fn rs1(&self) -> RegIdx;
 
     /// Extracts the second source register field (bits 20-24).
     ///
     /// Returns the 5-bit register index (0-31) for the second source operand.
-    fn rs2(&self) -> usize;
+    fn rs2(&self) -> RegIdx;
 
     /// Extracts the funct3 field (bits 12-14).
     ///
@@ -60,17 +62,16 @@ pub trait InstructionBits {
     /// Extracts the CSR address field (bits 20-31).
     ///
     /// Returns the 12-bit CSR address used for CSR read/write operations.
-    fn csr(&self) -> u32;
+    fn csr(&self) -> CsrAddr;
+
     /// Extracts the third source register field (bits 27-31, for FMA instructions).
     ///
-    /// # Returns
-    ///
-    /// The 5-bit register index (0-31).
-    fn rs3(&self) -> usize;
+    /// Returns the 5-bit register index (0-31).
+    fn rs3(&self) -> RegIdx;
 }
 
 impl InstructionBits for u32 {
-    /// Extracts the opcode field (bits 0-6) using bitwise AND with OPCODE_MASK.
+    /// Extracts the opcode field (bits 0-6) using bitwise AND with `OPCODE_MASK`.
     ///
     /// The opcode determines the instruction format and operation category.
     /// This is the first field decoded and drives all subsequent field extraction.
@@ -84,8 +85,8 @@ impl InstructionBits for u32 {
     /// Shifts right by 7 bits to align the register field, then masks to extract
     /// the 5-bit register index. Register 0 (x0) is hardwired to zero.
     #[inline(always)]
-    fn rd(&self) -> usize {
-        ((self >> 7) & RD_MASK) as usize
+    fn rd(&self) -> RegIdx {
+        RegIdx::new(((self >> 7) & RD_MASK) as u8)
     }
 
     /// Extracts the first source register field (bits 15-19).
@@ -93,8 +94,8 @@ impl InstructionBits for u32 {
     /// Shifts right by 15 bits to align the register field, then masks to extract
     /// the 5-bit register index for the first source operand.
     #[inline(always)]
-    fn rs1(&self) -> usize {
-        ((self >> 15) & RS1_MASK) as usize
+    fn rs1(&self) -> RegIdx {
+        RegIdx::new(((self >> 15) & RS1_MASK) as u8)
     }
 
     /// Extracts the second source register field (bits 20-24).
@@ -102,8 +103,8 @@ impl InstructionBits for u32 {
     /// Shifts right by 20 bits to align the register field, then masks to extract
     /// the 5-bit register index for the second source operand.
     #[inline(always)]
-    fn rs2(&self) -> usize {
-        ((self >> 20) & RS2_MASK) as usize
+    fn rs2(&self) -> RegIdx {
+        RegIdx::new(((self >> 20) & RS2_MASK) as u8)
     }
 
     /// Extracts the third source register field (bits 27-31).
@@ -111,8 +112,8 @@ impl InstructionBits for u32 {
     /// Used for fused multiply-add (FMA) instructions that require three source
     /// operands. Shifts right by 27 bits and masks to extract the 5-bit register index.
     #[inline(always)]
-    fn rs3(&self) -> usize {
-        ((self >> 27) & RS1_MASK) as usize
+    fn rs3(&self) -> RegIdx {
+        RegIdx::new(((self >> 27) & RS1_MASK) as u8)
     }
 
     /// Extracts the funct3 field (bits 12-14).
@@ -141,8 +142,8 @@ impl InstructionBits for u32 {
     /// Used for Control and Status Register read/write operations. The CSR address
     /// space is 4K entries, allowing access to all standard and custom CSRs.
     #[inline(always)]
-    fn csr(&self) -> u32 {
-        (self >> 20) & CSR_MASK
+    fn csr(&self) -> CsrAddr {
+        CsrAddr::from_u32((self >> 20) & CSR_MASK)
     }
 }
 
@@ -157,11 +158,11 @@ pub struct Decoded {
     /// Extracted opcode field.
     pub opcode: u32,
     /// Destination register index.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// First source register index.
-    pub rs1: usize,
+    pub rs1: RegIdx,
     /// Second source register index.
-    pub rs2: usize,
+    pub rs2: RegIdx,
     /// Function code field 3.
     pub funct3: u32,
     /// Function code field 7.

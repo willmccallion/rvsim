@@ -20,7 +20,7 @@
 use super::Prefetcher;
 
 /// Entry in the Reference Prediction Table.
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default)]
 struct StreamEntry {
     /// The last address accessed by this stream.
     last_addr: u64,
@@ -31,6 +31,7 @@ struct StreamEntry {
 }
 
 /// Stride Prefetcher state.
+#[derive(Debug)]
 pub struct StridePrefetcher {
     /// Reference Prediction Table.
     table: Vec<StreamEntry>,
@@ -51,11 +52,8 @@ impl StridePrefetcher {
     /// * `table_size` - Number of entries in the tracking table (must be power of 2).
     /// * `degree` - The number of strides to prefetch ahead.
     pub fn new(line_bytes: usize, table_size: usize, degree: usize) -> Self {
-        let safe_size = if table_size > 0 && (table_size & (table_size - 1)) == 0 {
-            table_size
-        } else {
-            64
-        };
+        let safe_size =
+            if table_size > 0 && table_size.is_power_of_two() { table_size } else { 64 };
 
         Self {
             table: vec![StreamEntry::default(); safe_size],

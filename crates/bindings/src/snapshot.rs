@@ -6,6 +6,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use rvsim_core::common::RegIdx;
 use rvsim_core::core::pipeline::snapshot::PipelineSnapshot;
 use rvsim_core::isa::disasm::disassemble;
 
@@ -17,13 +18,13 @@ const ABI: [&str; 32] = [
     "t5", "t6",
 ];
 
-fn reg_name(idx: usize) -> &'static str {
-    ABI.get(idx).copied().unwrap_or("x?")
+fn reg_name(idx: RegIdx) -> &'static str {
+    ABI.get(idx.as_usize()).copied().unwrap_or("x?")
 }
 
 // ── Slot dict helpers ─────────────────────────────────────────────────────────
 
-fn slot_dict<'py>(py: Python<'py>, pc: u64, raw: u32) -> PyResult<Bound<'py, PyDict>> {
+fn slot_dict(py: Python<'_>, pc: u64, raw: u32) -> PyResult<Bound<'_, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("pc", pc)?;
     d.set_item("raw", raw)?;
@@ -55,18 +56,14 @@ fn trunc(s: &str, w: usize) -> String {
     }
 }
 
-/// One cell: mnemonic + first operand, truncated to COL_W.
+/// One cell: mnemonic + first operand, truncated to `COL_W`.
 fn cell(asm: &str) -> String {
     trunc(asm, COL_W)
 }
 
 /// Empty / stalled cell.
 fn empty_cell(stall: u64) -> String {
-    if stall > 0 {
-        trunc(&format!("~{stall}"), COL_W)
-    } else {
-        "─".to_string()
-    }
+    if stall > 0 { trunc(&format!("~{stall}"), COL_W) } else { "─".to_string() }
 }
 
 fn render_inner(snap: &PipelineSnapshot) -> String {
@@ -74,6 +71,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 
     // Stage definitions: (header label, per-slot cell content, stall cycles).
     // Each is a Vec<Option<String>> of length w — None means empty/stalled.
+    #[allow(clippy::items_after_statements)]
     struct StageCol {
         hdr: &'static str,
         cells: Vec<Option<String>>, // length == w
@@ -91,11 +89,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
                     cells[i] = Some($cell_fn(e));
                 }
             }
-            cols.push(StageCol {
-                hdr: $hdr,
-                cells,
-                stall: $stall,
-            });
+            cols.push(StageCol { hdr: $hdr, cells, stall: $stall });
         }};
     }
 
@@ -133,11 +127,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
         |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
             let asm = disassemble(e.inst);
             let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
-            if stalled {
-                trunc(&format!("⋯{}", cell(&asm)), COL_W)
-            } else {
-                cell(&asm)
-            }
+            if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
         },
         0u64
     );
@@ -167,19 +157,11 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     // Neither has an outbound latch we can inspect, so both show empty.
     {
         let cells = vec![None; w];
-        cols.push(StageCol {
-            hdr: "WB",
-            cells,
-            stall: 0,
-        });
+        cols.push(StageCol { hdr: "WB", cells, stall: 0 });
     }
     {
         let cells = vec![None; w];
-        cols.push(StageCol {
-            hdr: "CM",
-            cells,
-            stall: 0,
-        });
+        cols.push(StageCol { hdr: "CM", cells, stall: 0 });
     }
 
     // ── header ────────────────────────────────────────────────────────────────
@@ -193,10 +175,9 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
         let row_cells: Vec<String> = cols
             .iter()
             .map(|c| {
-                let s = match &c.cells[slot] {
-                    Some(v) => v.clone(),
-                    None => empty_cell(c.stall),
-                };
+                let s = c.cells[slot]
+                    .as_ref()
+                    .map_or_else(|| empty_cell(c.stall), std::clone::Clone::clone);
                 format!("{s:<COL_W$}")
             })
             .collect();
@@ -206,12 +187,12 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     // ── forwarding / stall annotation line ────────────────────────────────────
     let mut notes: Vec<String> = Vec::new();
     for e in &snap.execute_mem1 {
-        if e.rd != 0 {
+        if !e.rd.is_zero() {
             notes.push(format!("{}←{:#x}", reg_name(e.rd), e.alu));
         }
     }
     for e in &snap.mem2_wb {
-        if e.rd != 0 {
+        if !e.rd.is_zero() {
             let v = if e.load_data != 0 { e.load_data } else { e.alu };
             notes.push(format!("{}←{:#x}", reg_name(e.rd), v));
         }
@@ -234,15 +215,16 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     out.push(rule.clone());
     out.extend(rows);
     if !notes.is_empty() || !stall_notes.is_empty() {
+        use std::fmt::Write as _;
         let mut ann = String::new();
         if !notes.is_empty() {
-            ann.push_str(&format!("  fwd: {}", notes.join("  ")));
+            let _ = write!(ann, "  fwd: {}", notes.join("  "));
         }
         if !stall_notes.is_empty() {
             if !ann.is_empty() {
                 ann.push_str("  ");
             }
-            ann.push_str(&format!("stall: {}", stall_notes.join(" ")));
+            let _ = write!(ann, "stall: {}", stall_notes.join(" "));
         }
         out.push(rule.clone());
         out.push(ann);
@@ -277,7 +259,8 @@ pub struct PyPipelineSnapshot {
 }
 
 impl PyPipelineSnapshot {
-    pub fn new(inner: PipelineSnapshot) -> Self {
+    #[must_use]
+    pub const fn new(inner: PipelineSnapshot) -> Self {
         Self { inner }
     }
 }
@@ -286,7 +269,7 @@ impl PyPipelineSnapshot {
 impl PyPipelineSnapshot {
     /// Pipeline width (superscalar degree).
     #[getter]
-    fn width(&self) -> usize {
+    const fn width(&self) -> usize {
         self.inner.width
     }
 
@@ -339,9 +322,9 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1)?;
-                d.set_item("rs2", e.rs2)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("imm", e.imm)?;
                 d.set_item("rv1", e.rv1)?;
                 d.set_item("rv2", e.rv2)?;
@@ -362,9 +345,9 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1)?;
-                d.set_item("rs2", e.rs2)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("rv1", e.rv1)?;
                 d.set_item("rv2", e.rv2)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
@@ -388,9 +371,9 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1)?;
-                d.set_item("rs2", e.rs2)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("rv1", e.rv1)?;
                 d.set_item("rv2", e.rv2)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
@@ -415,7 +398,7 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("store_data", e.store_data)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
@@ -436,10 +419,10 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
-                d.set_item("vaddr", e.vaddr)?;
-                d.set_item("paddr", e.paddr)?;
+                d.set_item("vaddr", e.vaddr.val())?;
+                d.set_item("paddr", e.paddr.val())?;
                 d.set_item("store_data", e.store_data)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
                 Ok(d.into_any().unbind())
@@ -461,7 +444,7 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rd", e.rd)?;
+                d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("load_data", e.load_data)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
@@ -473,19 +456,19 @@ impl PyPipelineSnapshot {
 
     /// Fetch1 stall cycles remaining (I-TLB latency).
     #[getter]
-    fn fetch1_stall(&self) -> u64 {
+    const fn fetch1_stall(&self) -> u64 {
         self.inner.fetch1_stall
     }
 
     /// Fetch2 stall cycles remaining (I-cache latency).
     #[getter]
-    fn fetch2_stall(&self) -> u64 {
+    const fn fetch2_stall(&self) -> u64 {
         self.inner.fetch2_stall
     }
 
     /// Memory1 stall cycles remaining (D-TLB / D-cache latency).
     #[getter]
-    fn mem1_stall(&self) -> u64 {
+    const fn mem1_stall(&self) -> u64 {
         self.inner.mem1_stall
     }
 
@@ -510,19 +493,12 @@ impl PyPipelineSnapshot {
             ("mem1_mem2", self.inner.mem1_mem2.len()),
             ("mem2_wb", self.inner.mem2_wb.len()),
         ];
-        let summary: Vec<String> = counts
-            .iter()
-            .filter(|(_, n)| *n > 0)
-            .map(|(name, n)| format!("{name}={n}"))
-            .collect();
+        let summary: Vec<String> =
+            counts.iter().filter(|(_, n)| *n > 0).map(|(name, n)| format!("{name}={n}")).collect();
         format!(
             "PipelineSnapshot(width={}, {})",
             self.inner.width,
-            if summary.is_empty() {
-                "idle".to_string()
-            } else {
-                summary.join(", ")
-            }
+            if summary.is_empty() { "idle".to_string() } else { summary.join(", ") }
         )
     }
 }

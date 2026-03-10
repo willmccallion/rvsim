@@ -9,6 +9,7 @@
 use super::ReplacementPolicy;
 
 /// MRU Policy state.
+#[derive(Debug)]
 pub struct MruPolicy {
     /// A vector of usage stacks (one per set).
     /// Index 0 is the MRU position (victim), last index is LRU.
@@ -38,7 +39,7 @@ impl ReplacementPolicy for MruPolicy {
     fn update(&mut self, set: usize, way: usize) {
         let stack = &mut self.usage[set];
         if let Some(pos) = stack.iter().position(|&x| x == way) {
-            stack.remove(pos);
+            let _ = stack.remove(pos);
         }
         stack.insert(0, way);
     }
@@ -47,6 +48,6 @@ impl ReplacementPolicy for MruPolicy {
     ///
     /// Returns the way at the top of the usage stack (the Most Recently Used).
     fn get_victim(&mut self, set: usize) -> usize {
-        *self.usage[set].first().unwrap()
+        self.usage[set].first().copied().unwrap_or(0)
     }
 }

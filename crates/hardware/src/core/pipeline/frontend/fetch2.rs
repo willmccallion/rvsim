@@ -2,7 +2,7 @@
 //!
 //! This stage reads the instruction bytes from the I-cache (or memory),
 //! expands compressed (16-bit) instructions to 32-bit, and produces
-//! IfIdEntry results for the decode stage.
+//! `IfIdEntry` results for the decode stage.
 //!
 //! I-cache timing is modeled per cache line:
 //!
@@ -16,14 +16,15 @@
 //!   (the line was already installed on the miss), so there is exactly
 //!   one miss stat and zero spurious hit stats per miss event.
 
-use crate::common::constants::{
-    COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, INSTRUCTION_SIZE_16,
-    INSTRUCTION_SIZE_32,
-};
-use crate::common::{AccessType, ExceptionStage, Trap, VirtAddr};
+// RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
+#![allow(clippy::cast_ptr_alignment)]
+
+use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
+use crate::common::{AccessType, ExceptionStage, InstSize, Trap, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::isa::rvc::expand::expand;
+use crate::{trace_fetch, trace_trap};
 
 /// Executes the Fetch2 stage: I-cache access + RVC expansion.
 ///
@@ -60,14 +61,13 @@ pub fn fetch2_stage(
             if f1.trap.is_some() {
                 break;
             }
-            let this_line = f1.paddr & line_mask;
+            let this_line = f1.paddr.val() & line_mask;
             if this_line == last_line {
                 continue;
             }
             last_line = this_line;
 
-            let penalty = cpu
-                .simulate_memory_access(crate::common::PhysAddr::new(f1.paddr), AccessType::Fetch);
+            let penalty = cpu.simulate_memory_access(f1.paddr, AccessType::Fetch);
             icache_penalty += penalty;
         }
     }
@@ -87,13 +87,17 @@ pub fn fetch2_stage(
     for f1 in entries {
         // Propagate traps from Fetch1
         if let Some(ref trap) = f1.trap {
-            if cpu.trace {
-                eprintln!("F2  pc={:#x} # TRAP: {:?}", f1.pc, trap);
-            }
+            trace_trap!(cpu.trace;
+                event   = "propagate",
+                stage   = "F2",
+                pc      = %crate::trace::Hex(f1.pc),
+                trap    = ?trap,
+                "F2: trap propagated from F1"
+            );
             dest.push(IfIdEntry {
                 pc: f1.pc,
                 inst: 0,
-                inst_size: 4,
+                inst_size: InstSize::Standard,
                 pred_taken: f1.pred_taken,
                 pred_target: f1.pred_target,
                 trap: f1.trap,
@@ -104,7 +108,7 @@ pub fn fetch2_stage(
             break;
         }
 
-        let phys_addr = f1.paddr;
+        let phys_addr = f1.paddr.val();
 
         // Read the first half-word (functional — raw pointer for data)
         let half_word = if phys_addr >= cpu.ram_start && phys_addr < cpu.ram_end {
@@ -114,7 +118,7 @@ pub fn fetch2_stage(
                 ptr.read_unaligned()
             }
         } else {
-            cpu.bus.bus.read_u16(phys_addr)
+            cpu.bus.bus.read_u16(f1.paddr)
         };
 
         let is_compressed =
@@ -123,13 +127,9 @@ pub fn fetch2_stage(
         let (inst, step, inst_trap) = if is_compressed {
             let expanded = expand(half_word);
             if expanded == 0 {
-                (
-                    0,
-                    INSTRUCTION_SIZE_16,
-                    Some(Trap::IllegalInstruction(half_word as u32)),
-                )
+                (0, InstSize::Compressed, Some(Trap::IllegalInstruction(half_word as u32)))
             } else {
-                (expanded, INSTRUCTION_SIZE_16, None)
+                (expanded, InstSize::Compressed, None)
             }
         } else {
             let upper_va = f1.pc.wrapping_add(2);
@@ -138,16 +138,17 @@ pub fn fetch2_stage(
             let (upper_phys, upper_fault) = if crosses_page {
                 let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch);
                 *stall_out += result.cycles;
-                (result.paddr.val(), result.trap)
+                (result.paddr, result.trap)
             } else {
-                (phys_addr + 2, None)
+                (crate::common::PhysAddr::new(phys_addr + 2), None)
             };
 
             if let Some(t) = upper_fault {
-                (0, INSTRUCTION_SIZE_32, Some(t))
+                (0, InstSize::Standard, Some(t))
             } else {
-                let upper_half = if upper_phys >= cpu.ram_start && upper_phys < cpu.ram_end {
-                    let offset = (upper_phys - cpu.ram_start) as usize;
+                let upper_raw = upper_phys.val();
+                let upper_half = if upper_raw >= cpu.ram_start && upper_raw < cpu.ram_end {
+                    let offset = (upper_raw - cpu.ram_start) as usize;
                     unsafe {
                         let ptr = cpu.ram_ptr.add(offset) as *const u16;
                         ptr.read_unaligned()
@@ -157,14 +158,18 @@ pub fn fetch2_stage(
                 };
 
                 let full_inst = (upper_half as u32) << 16 | (half_word as u32);
-                (full_inst, INSTRUCTION_SIZE_32, None)
+                (full_inst, InstSize::Standard, None)
             }
         };
 
         if let Some(t) = inst_trap {
-            if cpu.trace {
-                eprintln!("F2  pc={:#x} # TRAP: {:?}", f1.pc, t);
-            }
+            trace_trap!(cpu.trace;
+                event   = "decode-trap",
+                stage   = "F2",
+                pc      = %crate::trace::Hex(f1.pc),
+                trap    = ?t,
+                "F2: instruction decode trap"
+            );
             dest.push(IfIdEntry {
                 pc: f1.pc,
                 inst: 0,
@@ -179,9 +184,13 @@ pub fn fetch2_stage(
             break;
         }
 
-        if cpu.trace {
-            eprintln!("F2  pc={:#x} inst={:#010x} (sz={})", f1.pc, inst, step);
-        }
+        trace_fetch!(cpu.trace;
+            pc          = %crate::trace::Hex(f1.pc),
+            inst        = inst,
+            inst_size   = step.as_u64(),
+            compressed  = is_compressed,
+            "F2: decoded instruction"
+        );
 
         dest.push(IfIdEntry {
             pc: f1.pc,

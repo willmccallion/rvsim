@@ -20,6 +20,7 @@ const MTIMECMP_OFFSET: u64 = 0x4000;
 const MTIME_OFFSET: u64 = 0xBFF8;
 
 /// CLINT device structure.
+#[derive(Debug)]
 pub struct Clint {
     /// Base physical address of the device.
     base_addr: u64,
@@ -42,7 +43,7 @@ impl Clint {
     ///
     /// * `base_addr` - The base physical address.
     /// * `divider` - The ratio of CPU cycles to timer ticks (e.g., 10 means timer increments every 10 cycles).
-    pub fn new(base_addr: u64, divider: u64) -> Self {
+    pub const fn new(base_addr: u64, divider: u64) -> Self {
         Self {
             base_addr,
             mtime: 0,
@@ -54,9 +55,16 @@ impl Clint {
     }
 }
 
+impl Clint {
+    /// Returns `true` if the machine software interrupt pending bit is set.
+    pub const fn msip_pending(&self) -> bool {
+        (self.msip & 1) != 0
+    }
+}
+
 impl Device for Clint {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "CLINT"
     }
 
@@ -115,14 +123,14 @@ impl Device for Clint {
         match offset {
             MSIP_OFFSET => self.msip = val & 1,
             MTIMECMP_OFFSET => {
-                self.mtimecmp = (self.mtimecmp & 0xFFFF_FFFF_0000_0000) | (val as u64)
+                self.mtimecmp = (self.mtimecmp & 0xFFFF_FFFF_0000_0000) | (val as u64);
             }
             o if o == MTIMECMP_OFFSET + 4 => {
-                self.mtimecmp = (self.mtimecmp & 0x0000_0000_FFFF_FFFF) | ((val as u64) << 32)
+                self.mtimecmp = (self.mtimecmp & 0x0000_0000_FFFF_FFFF) | ((val as u64) << 32);
             }
             MTIME_OFFSET => self.mtime = (self.mtime & 0xFFFF_FFFF_0000_0000) | (val as u64),
             o if o == MTIME_OFFSET + 4 => {
-                self.mtime = (self.mtime & 0x0000_0000_FFFF_FFFF) | ((val as u64) << 32)
+                self.mtime = (self.mtime & 0x0000_0000_FFFF_FFFF) | ((val as u64) << 32);
             }
             _ => {}
         }
@@ -141,7 +149,7 @@ impl Device for Clint {
     /// Advances the device state by one cycle.
     ///
     /// Increments the `mtime` counter based on the configured divider.
-    /// Returns `true` if an interrupt condition is met (timer or software).
+    /// Returns `true` if the machine timer interrupt is pending (`mtime >= mtimecmp`).
     fn tick(&mut self) -> bool {
         self.counter += 1;
         if self.counter >= self.divider {
@@ -149,6 +157,10 @@ impl Device for Clint {
             self.counter = 0;
         }
 
-        self.mtime >= self.mtimecmp || (self.msip & 1) != 0
+        self.mtime >= self.mtimecmp
+    }
+
+    fn as_clint_mut(&mut self) -> Option<&mut Clint> {
+        Some(self)
     }
 }

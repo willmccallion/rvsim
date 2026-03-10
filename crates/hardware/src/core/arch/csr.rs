@@ -6,110 +6,112 @@
 //! 3. **Register Storage:** The `Csrs` struct for maintaining architectural state.
 //! 4. **Access Logic:** Standardized read and write operations for register interaction.
 
+use crate::common::CsrAddr;
+
 /// Floating-point accrued exceptions CSR address.
-pub const FFLAGS: u32 = 0x001;
+pub const FFLAGS: CsrAddr = CsrAddr::from_u32(0x001);
 
 /// Floating-point dynamic rounding mode CSR address.
-pub const FRM: u32 = 0x002;
+pub const FRM: CsrAddr = CsrAddr::from_u32(0x002);
 
 /// Floating-point control and status register CSR address.
-pub const FCSR: u32 = 0x003;
+pub const FCSR: CsrAddr = CsrAddr::from_u32(0x003);
 
 /// Machine vendor ID CSR address.
-pub const MVENDORID: u32 = 0xF11;
+pub const MVENDORID: CsrAddr = CsrAddr::from_u32(0xF11);
 
 /// Machine architecture ID CSR address.
-pub const MARCHID: u32 = 0xF12;
+pub const MARCHID: CsrAddr = CsrAddr::from_u32(0xF12);
 
 /// Machine implementation ID CSR address.
-pub const MIMPID: u32 = 0xF13;
+pub const MIMPID: CsrAddr = CsrAddr::from_u32(0xF13);
 
 /// Machine hardware thread ID CSR address.
-pub const MHARTID: u32 = 0xF14;
+pub const MHARTID: CsrAddr = CsrAddr::from_u32(0xF14);
 
 /// Machine status register CSR address.
-pub const MSTATUS: u32 = 0x300;
+pub const MSTATUS: CsrAddr = CsrAddr::from_u32(0x300);
 
 /// Machine ISA register CSR address.
-pub const MISA: u32 = 0x301;
+pub const MISA: CsrAddr = CsrAddr::from_u32(0x301);
 
 /// Machine exception delegation register CSR address.
-pub const MEDELEG: u32 = 0x302;
+pub const MEDELEG: CsrAddr = CsrAddr::from_u32(0x302);
 
 /// Machine interrupt delegation register CSR address.
-pub const MIDELEG: u32 = 0x303;
+pub const MIDELEG: CsrAddr = CsrAddr::from_u32(0x303);
 
 /// Machine interrupt enable register CSR address.
-pub const MIE: u32 = 0x304;
+pub const MIE: CsrAddr = CsrAddr::from_u32(0x304);
 
 /// Machine trap vector base address register CSR address.
-pub const MTVEC: u32 = 0x305;
+pub const MTVEC: CsrAddr = CsrAddr::from_u32(0x305);
 
 /// Machine counter enable register CSR address.
-pub const MCOUNTEREN: u32 = 0x306;
+pub const MCOUNTEREN: CsrAddr = CsrAddr::from_u32(0x306);
 
 /// Machine scratch register CSR address.
-pub const MSCRATCH: u32 = 0x340;
+pub const MSCRATCH: CsrAddr = CsrAddr::from_u32(0x340);
 
 /// Machine exception program counter CSR address.
-pub const MEPC: u32 = 0x341;
+pub const MEPC: CsrAddr = CsrAddr::from_u32(0x341);
 
 /// Machine cause register CSR address.
-pub const MCAUSE: u32 = 0x342;
+pub const MCAUSE: CsrAddr = CsrAddr::from_u32(0x342);
 
 /// Machine trap value register CSR address.
-pub const MTVAL: u32 = 0x343;
+pub const MTVAL: CsrAddr = CsrAddr::from_u32(0x343);
 
 /// Machine interrupt pending register CSR address.
-pub const MIP: u32 = 0x344;
+pub const MIP: CsrAddr = CsrAddr::from_u32(0x344);
 
 /// Supervisor status register CSR address.
-pub const SSTATUS: u32 = 0x100;
+pub const SSTATUS: CsrAddr = CsrAddr::from_u32(0x100);
 
 /// Supervisor interrupt enable register CSR address.
-pub const SIE: u32 = 0x104;
+pub const SIE: CsrAddr = CsrAddr::from_u32(0x104);
 
 /// Supervisor trap vector base address register CSR address.
-pub const STVEC: u32 = 0x105;
+pub const STVEC: CsrAddr = CsrAddr::from_u32(0x105);
 
 /// Supervisor counter enable register CSR address.
-pub const SCOUNTEREN: u32 = 0x106;
+pub const SCOUNTEREN: CsrAddr = CsrAddr::from_u32(0x106);
 
 /// Supervisor scratch register CSR address.
-pub const SSCRATCH: u32 = 0x140;
+pub const SSCRATCH: CsrAddr = CsrAddr::from_u32(0x140);
 
 /// Supervisor exception program counter CSR address.
-pub const SEPC: u32 = 0x141;
+pub const SEPC: CsrAddr = CsrAddr::from_u32(0x141);
 
 /// Supervisor cause register CSR address.
-pub const SCAUSE: u32 = 0x142;
+pub const SCAUSE: CsrAddr = CsrAddr::from_u32(0x142);
 
 /// Supervisor trap value register CSR address.
-pub const STVAL: u32 = 0x143;
+pub const STVAL: CsrAddr = CsrAddr::from_u32(0x143);
 
 /// Supervisor interrupt pending register CSR address.
-pub const SIP: u32 = 0x144;
+pub const SIP: CsrAddr = CsrAddr::from_u32(0x144);
 
 /// Supervisor address translation and protection register CSR address.
-pub const SATP: u32 = 0x180;
+pub const SATP: CsrAddr = CsrAddr::from_u32(0x180);
 
 /// Supervisor timer compare register CSR address.
-pub const STIMECMP: u32 = 0x14D;
+pub const STIMECMP: CsrAddr = CsrAddr::from_u32(0x14D);
 
 /// Cycle counter CSR address (read-only, user mode accessible).
-pub const CYCLE: u32 = 0xC00;
+pub const CYCLE: CsrAddr = CsrAddr::from_u32(0xC00);
 
 /// Real-time counter CSR address (read-only, user mode accessible).
-pub const TIME: u32 = 0xC01;
+pub const TIME: CsrAddr = CsrAddr::from_u32(0xC01);
 
 /// Instructions retired counter CSR address (read-only, user mode accessible).
-pub const INSTRET: u32 = 0xC02;
+pub const INSTRET: CsrAddr = CsrAddr::from_u32(0xC02);
 
 /// Machine cycle counter CSR address.
-pub const MCYCLE: u32 = 0xB00;
+pub const MCYCLE: CsrAddr = CsrAddr::from_u32(0xB00);
 
 /// Machine instructions retired counter CSR address.
-pub const MINSTRET: u32 = 0xB02;
+pub const MINSTRET: CsrAddr = CsrAddr::from_u32(0xB02);
 
 /// User interrupt enable bit in `mstatus` register.
 pub const MSTATUS_UIE: u64 = 1 << 0;
@@ -175,7 +177,7 @@ pub const MIP_SEIP: u64 = 1 << 9;
 pub const MIP_MEIP: u64 = 1 << 11;
 
 /// Simulation panic CSR address (custom, for debugging).
-pub const CSR_SIM_PANIC: u32 = 0x8FF;
+pub const CSR_SIM_PANIC: CsrAddr = CsrAddr::from_u32(0x8FF);
 
 /// Supervisor previous interrupt enable bit in `mstatus` register.
 pub const MSTATUS_SPIE: u64 = 1 << 5;
@@ -210,7 +212,11 @@ pub const MSTATUS_FS_CLEAN: u64 = 2 << 13;
 /// Floating-point state: dirty (FPU state has been modified).
 pub const MSTATUS_FS_DIRTY: u64 = 3 << 13;
 
-/// Modify PRiVilege bit in `mstatus` register (bit 17).
+/// SD (State Dirty) summary bit in `mstatus`/`sstatus` (bit 63 for RV64).
+/// Set when FS, VS, or XS is Dirty.
+pub const MSTATUS_SD: u64 = 1 << 63;
+
+/// `MPRV` (Modify `PRiVilege`) bit in `mstatus` register (bit 17).
 /// When set, loads/stores use the privilege in MPP instead of current privilege.
 pub const MSTATUS_MPRV: u64 = 1 << 17;
 
@@ -220,8 +226,23 @@ pub const MSTATUS_SUM: u64 = 1 << 18;
 /// Make executable readable bit in `mstatus` register.
 pub const MSTATUS_MXR: u64 = 1 << 19;
 
+/// Trap Virtual Memory bit in `mstatus` register (bit 20).
+/// When set, attempts to read/write `satp` or execute SFENCE.VMA in S-mode will trap.
+pub const MSTATUS_TVM: u64 = 1 << 20;
+
+/// Timeout Wait bit in `mstatus` register (bit 21).
+/// When set, WFI executed in S-mode will trap after an implementation-defined timeout.
+pub const MSTATUS_TW: u64 = 1 << 21;
+
+/// Trap SRET bit in `mstatus` register (bit 22).
+/// When set, SRET executed in S-mode will raise an illegal instruction exception.
+pub const MSTATUS_TSR: u64 = 1 << 22;
+
 /// User XLEN field in `mstatus` register (bits 33:32).
 pub const MSTATUS_UXL: u64 = 3 << 32;
+
+/// Supervisor XLEN field in `mstatus` register (bits 35:34).
+pub const MSTATUS_SXL: u64 = 3 << 34;
 
 /// Bit shift for address translation mode field in `satp` register.
 pub const SATP_MODE_SHIFT: u64 = 60;
@@ -281,7 +302,7 @@ pub const MISA_XLEN_128: u64 = 3 << 62;
 pub const MSTATUS_DEFAULT_RV64: u64 = 0xa000_00000;
 
 /// Default `misa` value for RV64IMAFDC architecture.
-pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_1101;
+pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_112D;
 
 /// CSR serialization requirement classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -295,13 +316,21 @@ pub enum CsrSerializationType {
 }
 
 /// Returns the serialization requirement for a given CSR address.
-pub fn csr_serialization_type(addr: u32) -> CsrSerializationType {
-    match addr {
+pub const fn csr_serialization_type(addr: CsrAddr) -> CsrSerializationType {
+    match addr.as_u32() {
         // Fence-requiring CSRs
-        SATP => CsrSerializationType::FenceRequired,
+        x if x == SATP.as_u32() => CsrSerializationType::FenceRequired,
 
         // Serializing CSRs
-        MSTATUS | SSTATUS | MTVEC | STVEC | MEDELEG | MIDELEG => CsrSerializationType::Serializing,
+        x if x == MSTATUS.as_u32()
+            || x == SSTATUS.as_u32()
+            || x == MTVEC.as_u32()
+            || x == STVEC.as_u32()
+            || x == MEDELEG.as_u32()
+            || x == MIDELEG.as_u32() =>
+        {
+            CsrSerializationType::Serializing
+        }
 
         // Relaxed CSRs (default)
         _ => CsrSerializationType::Relaxed,
@@ -312,7 +341,7 @@ pub fn csr_serialization_type(addr: u32) -> CsrSerializationType {
 ///
 /// Contains all machine-level and supervisor-level CSRs that control processor state,
 /// interrupt handling, memory management, and performance counters.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct Csrs {
     /// Machine status register.
     pub mstatus: u64,
@@ -381,43 +410,49 @@ impl Csrs {
     ///
     /// # Arguments
     ///
-    /// * `addr` - The 12-bit CSR address.
+    /// * `addr` - The CSR address.
     ///
     /// # Returns
     ///
     /// The 64-bit value stored in the specified CSR, or 0 if the address is not recognized.
-    pub fn read(&self, addr: u32) -> u64 {
-        match addr {
-            FFLAGS => self.fflags & 0x1F,
-            FRM => self.frm & 0x7,
-            FCSR => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
-            MSTATUS => self.mstatus,
-            MISA => self.misa,
-            MEDELEG => self.medeleg,
-            MIDELEG => self.mideleg,
-            MIE => self.mie,
-            MTVEC => self.mtvec,
-            MSCRATCH => self.mscratch,
-            MEPC => self.mepc,
-            MCAUSE => self.mcause,
-            MTVAL => self.mtval,
-            MIP => self.mip,
-            SSTATUS => self.sstatus,
-            SIE => self.sie,
-            STVEC => self.stvec,
-            SSCRATCH => self.sscratch,
-            SEPC => self.sepc,
-            SCAUSE => self.scause,
-            STVAL => self.stval,
-            SIP => self.sip,
-            SATP => self.satp,
-            CYCLE => self.cycle,
-            TIME => self.time,
-            INSTRET => self.instret,
-            MCYCLE => self.mcycle,
-            MINSTRET => self.minstret,
-            MCOUNTEREN => self.mcounteren,
-            SCOUNTEREN => self.scounteren,
+    pub const fn read(&self, addr: CsrAddr) -> u64 {
+        match addr.as_u32() {
+            x if x == FFLAGS.as_u32() => self.fflags & 0x1F,
+            x if x == FRM.as_u32() => self.frm & 0x7,
+            x if x == FCSR.as_u32() => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
+            x if x == MSTATUS.as_u32() => {
+                let val = self.mstatus & !MSTATUS_SD;
+                if val & MSTATUS_FS == MSTATUS_FS_DIRTY { val | MSTATUS_SD } else { val }
+            }
+            x if x == MISA.as_u32() => self.misa,
+            x if x == MEDELEG.as_u32() => self.medeleg,
+            x if x == MIDELEG.as_u32() => self.mideleg,
+            x if x == MIE.as_u32() => self.mie,
+            x if x == MTVEC.as_u32() => self.mtvec,
+            x if x == MSCRATCH.as_u32() => self.mscratch,
+            x if x == MEPC.as_u32() => self.mepc,
+            x if x == MCAUSE.as_u32() => self.mcause,
+            x if x == MTVAL.as_u32() => self.mtval,
+            x if x == MIP.as_u32() => self.mip,
+            x if x == SSTATUS.as_u32() => {
+                let val = self.sstatus & !MSTATUS_SD;
+                if val & MSTATUS_FS == MSTATUS_FS_DIRTY { val | MSTATUS_SD } else { val }
+            }
+            x if x == SIE.as_u32() => self.sie,
+            x if x == STVEC.as_u32() => self.stvec,
+            x if x == SSCRATCH.as_u32() => self.sscratch,
+            x if x == SEPC.as_u32() => self.sepc,
+            x if x == SCAUSE.as_u32() => self.scause,
+            x if x == STVAL.as_u32() => self.stval,
+            x if x == SIP.as_u32() => self.sip,
+            x if x == SATP.as_u32() => self.satp,
+            x if x == CYCLE.as_u32() => self.cycle,
+            x if x == TIME.as_u32() => self.time,
+            x if x == INSTRET.as_u32() => self.instret,
+            x if x == MCYCLE.as_u32() => self.mcycle,
+            x if x == MINSTRET.as_u32() => self.minstret,
+            x if x == MCOUNTEREN.as_u32() => self.mcounteren,
+            x if x == SCOUNTEREN.as_u32() => self.scounteren,
             _ => 0,
         }
     }
@@ -426,53 +461,99 @@ impl Csrs {
     ///
     /// # Arguments
     ///
-    /// * `addr` - The 12-bit CSR address.
+    /// * `addr` - The CSR address.
     /// * `val` - The 64-bit value to write.
-    pub fn write(&mut self, addr: u32, val: u64) {
-        match addr {
-            FFLAGS => self.fflags = val & 0x1F,
-            FRM => self.frm = val & 0x7,
-            FCSR => {
+    pub const fn write(&mut self, addr: CsrAddr, val: u64) {
+        match addr.as_u32() {
+            x if x == FFLAGS.as_u32() => self.fflags = val & 0x1F,
+            x if x == FRM.as_u32() => self.frm = val & 0x7,
+            x if x == FCSR.as_u32() => {
                 self.fflags = val & 0x1F;
                 self.frm = (val >> 5) & 0x7;
             }
-            MSTATUS => self.mstatus = val,
-            MISA => self.misa = val,
-            MEDELEG => self.medeleg = val,
-            MIDELEG => self.mideleg = val,
-            MIE => self.mie = val,
-            MTVEC => self.mtvec = val,
-            MSCRATCH => self.mscratch = val,
-            MEPC => self.mepc = val,
-            MCAUSE => self.mcause = val,
-            MTVAL => self.mtval = val,
-            MIP => self.mip = val,
-            SSTATUS => self.sstatus = val,
-            SIE => self.sie = val,
-            STVEC => self.stvec = val,
-            SSCRATCH => self.sscratch = val,
-            SEPC => self.sepc = val,
-            SCAUSE => self.scause = val,
-            STVAL => self.stval = val,
-            SIP => self.sip = val,
-            SATP => {
+            x if x == MSTATUS.as_u32() => self.mstatus = val,
+            x if x == MISA.as_u32() => self.misa = val,
+            x if x == MEDELEG.as_u32() => self.medeleg = val,
+            x if x == MIDELEG.as_u32() => self.mideleg = val,
+            x if x == MIE.as_u32() => self.mie = val,
+            x if x == MTVEC.as_u32() => self.mtvec = val,
+            x if x == MSCRATCH.as_u32() => self.mscratch = val,
+            x if x == MEPC.as_u32() => self.mepc = val,
+            x if x == MCAUSE.as_u32() => self.mcause = val,
+            x if x == MTVAL.as_u32() => self.mtval = val,
+            x if x == MIP.as_u32() => self.mip = val,
+            x if x == SSTATUS.as_u32() => self.sstatus = val,
+            x if x == SIE.as_u32() => self.sie = val,
+            x if x == STVEC.as_u32() => self.stvec = val,
+            x if x == SSCRATCH.as_u32() => self.sscratch = val,
+            x if x == SEPC.as_u32() => self.sepc = val,
+            x if x == SCAUSE.as_u32() => self.scause = val,
+            x if x == STVAL.as_u32() => self.stval = val,
+            x if x == SIP.as_u32() => self.sip = val,
+            x if x == SATP.as_u32() => {
                 let mode = (val >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
-                let new_mode = if mode == SATP_MODE_SV39 {
-                    SATP_MODE_SV39
-                } else {
-                    SATP_MODE_BARE
-                };
+                let new_mode = if mode == SATP_MODE_SV39 { SATP_MODE_SV39 } else { SATP_MODE_BARE };
                 let mask = !(SATP_MODE_MASK << SATP_MODE_SHIFT);
                 self.satp = (val & mask) | (new_mode << SATP_MODE_SHIFT);
             }
-            CYCLE => self.cycle = val,
-            TIME => self.time = val,
-            INSTRET => self.instret = val,
-            MCYCLE => self.mcycle = val,
-            MINSTRET => self.minstret = val,
-            MCOUNTEREN => self.mcounteren = val,
-            SCOUNTEREN => self.scounteren = val,
+            x if x == CYCLE.as_u32() => self.cycle = val,
+            x if x == TIME.as_u32() => self.time = val,
+            x if x == INSTRET.as_u32() => self.instret = val,
+            x if x == MCYCLE.as_u32() => self.mcycle = val,
+            x if x == MINSTRET.as_u32() => self.minstret = val,
+            x if x == MCOUNTEREN.as_u32() => self.mcounteren = val,
+            x if x == SCOUNTEREN.as_u32() => self.scounteren = val,
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_csr_serialization_type() {
+        assert_eq!(csr_serialization_type(SATP), CsrSerializationType::FenceRequired);
+        assert_eq!(csr_serialization_type(MSTATUS), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(SSTATUS), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(MTVEC), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(STVEC), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(MEDELEG), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(MIDELEG), CsrSerializationType::Serializing);
+        assert_eq!(csr_serialization_type(MCAUSE), CsrSerializationType::Relaxed);
+        assert_eq!(csr_serialization_type(CsrAddr::from_u32(0)), CsrSerializationType::Relaxed);
+    }
+
+    #[test]
+    fn test_csrs_read_write() {
+        let mut csrs = Csrs::default();
+
+        csrs.write(MSTATUS, 0x1234);
+        assert_eq!(csrs.read(MSTATUS), 0x1234);
+
+        csrs.write(MISA, 0x5678);
+        assert_eq!(csrs.read(MISA), 0x5678);
+
+        csrs.write(SATP, SATP_MODE_SV39 << SATP_MODE_SHIFT | 0xabc);
+        assert_eq!(csrs.read(SATP), SATP_MODE_SV39 << SATP_MODE_SHIFT | 0xabc);
+
+        // SATP write with invalid mode falls back to BARE
+        csrs.write(SATP, 0xF << SATP_MODE_SHIFT | 0xdef);
+        assert_eq!(csrs.read(SATP), SATP_MODE_BARE << SATP_MODE_SHIFT | 0xdef);
+
+        csrs.write(FFLAGS, 0x1F);
+        assert_eq!(csrs.read(FFLAGS), 0x1F);
+
+        csrs.write(FRM, 0x7);
+        assert_eq!(csrs.read(FRM), 0x7);
+        assert_eq!(csrs.read(FCSR), (0x7 << 5) | 0x1F);
+
+        csrs.write(FCSR, (0x3 << 5) | 0xA);
+        assert_eq!(csrs.read(FRM), 0x3);
+        assert_eq!(csrs.read(FFLAGS), 0xA);
+
+        csrs.write(CsrAddr::from_u32(9999), 0x1); // invalid csr
+        assert_eq!(csrs.read(CsrAddr::from_u32(9999)), 0x0); // returns 0
     }
 }

@@ -52,20 +52,27 @@ impl PyStats {
         d.set_item("cycles_machine", s.cycles_machine)?;
         d.set_item("traps_taken", s.traps_taken)?;
 
-        d.set_item("branch_predictions", s.branch_predictions)?;
-        d.set_item("branch_mispredictions", s.branch_mispredictions)?;
-        let total_bp = s.branch_predictions + s.branch_mispredictions;
+        d.set_item("branch_predictions", s.committed_branch_predictions)?;
+        d.set_item("branch_mispredictions", s.committed_branch_mispredictions)?;
+        d.set_item("speculative_branch_predictions", s.speculative_branch_predictions)?;
+        d.set_item("speculative_branch_mispredictions", s.speculative_branch_mispredictions)?;
+
+        let total_bp = s.committed_branch_predictions + s.committed_branch_mispredictions;
         let bp_acc = if total_bp > 0 {
-            100.0 * (s.branch_predictions as f64 / total_bp as f64)
+            100.0 * (s.committed_branch_predictions as f64 / total_bp as f64)
         } else {
             0.0
         };
         d.set_item("branch_accuracy_pct", bp_acc)?;
-        let ipc = if s.cycles > 0 {
-            s.instructions_retired as f64 / s.cycles as f64
+
+        let spec_total = s.speculative_branch_predictions + s.speculative_branch_mispredictions;
+        let spec_acc = if spec_total > 0 {
+            100.0 * (s.speculative_branch_predictions as f64 / spec_total as f64)
         } else {
             0.0
         };
+        d.set_item("speculative_branch_accuracy_pct", spec_acc)?;
+        let ipc = if s.cycles > 0 { s.instructions_retired as f64 / s.cycles as f64 } else { 0.0 };
         d.set_item("ipc", ipc)?;
 
         d.set_item("inst_load", s.inst_load)?;
@@ -85,6 +92,6 @@ impl PyStats {
 
 impl From<SimStats> for PyStats {
     fn from(inner: SimStats) -> Self {
-        PyStats { inner }
+        Self { inner }
     }
 }

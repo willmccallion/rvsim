@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// HTIF device: intercepts writes to the `tohost` address.
+#[derive(Debug)]
 pub struct Htif {
     base_addr: u64,
     exit_signal: Arc<AtomicU64>,
@@ -24,11 +25,8 @@ pub struct Htif {
 
 impl Htif {
     /// Creates a new HTIF device at `base_addr` using the shared exit signal.
-    pub fn new(base_addr: u64, exit_signal: Arc<AtomicU64>) -> Self {
-        Self {
-            base_addr,
-            exit_signal,
-        }
+    pub const fn new(base_addr: u64, exit_signal: Arc<AtomicU64>) -> Self {
+        Self { base_addr, exit_signal }
     }
 
     fn handle_tohost(&self, val: u64) {
@@ -41,20 +39,20 @@ impl Htif {
         } else if val & 1 != 0 {
             // Fail — test number is val >> 1
             let test_num = val >> 1;
-            eprintln!("[HTIF] FAIL: test case {} (tohost={:#x})", test_num, val);
+            eprintln!("[HTIF] FAIL: test case {test_num} (tohost={val:#x})");
             self.exit_signal.store(test_num, Ordering::Relaxed);
         } else {
             // Even non-zero values are device commands in full HTIF.
             // For riscv-tests we only care about the above cases, but store
             // the raw value so the simulation exits rather than spinning.
-            eprintln!("[HTIF] Unhandled tohost value: {:#x}", val);
+            eprintln!("[HTIF] Unhandled tohost value: {val:#x}");
             self.exit_signal.store(val, Ordering::Relaxed);
         }
     }
 }
 
 impl Device for Htif {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "HTIF"
     }
 

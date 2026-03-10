@@ -5,10 +5,11 @@
 
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
+use rvsim_core::common::RegIdx;
 
 use crate::cpu::PyCpu;
 
-fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
+const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
     match addr {
         // Supervisor
         0x100 => Some("sstatus"),
@@ -56,33 +57,25 @@ pub struct Registers {
 impl Registers {
     fn __getitem__(&self, py: Python<'_>, idx: usize) -> PyResult<u64> {
         if idx >= 32 {
-            return Err(PyIndexError::new_err(format!(
-                "register index {idx} out of range (0–31)"
-            )));
+            return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        Ok(self.cpu.borrow(py).inner.cpu.regs.read(idx))
+        Ok(self.cpu.borrow(py).inner.cpu.regs.read(RegIdx::new(idx as u8)))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
         if idx >= 32 {
-            return Err(PyIndexError::new_err(format!(
-                "register index {idx} out of range (0–31)"
-            )));
+            return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.cpu.regs.write(idx, value);
+        self.cpu.borrow_mut(py).inner.cpu.regs.write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
         let cpu = self.cpu.borrow(py);
-        let vals: Vec<String> = (0..32usize)
+        let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.cpu.regs.read(i);
-                if v != 0 {
-                    Some(format!("x{}={:#x}", i, v))
-                } else {
-                    None
-                }
+                let v = cpu.inner.cpu.regs.read(RegIdx::new(i));
+                if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
         format!("Registers({})", vals.join(", "))
@@ -112,7 +105,7 @@ impl Csrs {
         Ok(self.cpu.borrow(py).read_csr_by_name(&name))
     }
 
-    fn __repr__(&self) -> &'static str {
+    const fn __repr__(&self) -> &'static str {
         "Csrs(...)"
     }
 }
@@ -120,6 +113,7 @@ impl Csrs {
 /// Subscript memory access returned by `cpu.mem32` or `cpu.mem64`.
 ///
 /// ``cpu.mem32[addr]`` reads a u32. ``cpu.mem64[addr]`` reads a u64.
+/// These use **physical** addresses — no MMU translation.
 #[pyclass(name = "Memory")]
 pub struct Memory {
     pub cpu: Py<PyCpu>,
@@ -130,14 +124,51 @@ pub struct Memory {
 impl Memory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> u64 {
         let mut cpu = self.cpu.borrow_mut(py);
+        let paddr = rvsim_core::common::PhysAddr::new(addr);
         match self.width {
-            32 => cpu.inner.cpu.bus.bus.read_u32(addr) as u64,
-            64 => cpu.inner.cpu.bus.bus.read_u64(addr),
+            32 => u64::from(cpu.inner.cpu.bus.bus.read_u32(paddr)),
+            64 => cpu.inner.cpu.bus.bus.read_u64(paddr),
             _ => unreachable!(),
         }
     }
 
     fn __repr__(&self) -> String {
         format!("Memory(u{})", self.width)
+    }
+}
+
+/// Subscript memory access with virtual-to-physical translation via the MMU.
+///
+/// ``cpu.vmem64[addr]`` translates `addr` through the current page tables
+/// (using SATP), then reads the resulting physical address.
+/// Returns 0 if translation fails (page fault).
+#[pyclass(name = "VirtualMemory")]
+pub struct VirtualMemory {
+    pub cpu: Py<PyCpu>,
+    pub width: u8,
+}
+
+#[pymethods]
+impl VirtualMemory {
+    fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
+        use rvsim_core::common::{AccessType, VirtAddr};
+
+        let mut cpu = self.cpu.borrow_mut(py);
+        let result = cpu.inner.cpu.translate(VirtAddr::new(addr), AccessType::Read);
+        if let Some(trap) = result.trap {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "translation failed for VA {addr:#x}: {trap:?}"
+            )));
+        }
+        let paddr = result.paddr;
+        Ok(match self.width {
+            32 => u64::from(cpu.inner.cpu.bus.bus.read_u32(paddr)),
+            64 => cpu.inner.cpu.bus.bus.read_u64(paddr),
+            _ => unreachable!(),
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("VirtualMemory(u{})", self.width)
     }
 }

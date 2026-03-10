@@ -1,8 +1,8 @@
 //! In-order backend: FIFO issue, single execution path.
 //!
 //! This backend implements the simple in-order pipeline with:
-//! - InOrderIssueUnit: FIFO pass-through (no reordering)
-//! - InOrderExecuteUnit: Single ALU/FPU/BRU execution
+//! - `InOrderIssueUnit`: FIFO pass-through (no reordering)
+//! - `InOrderExecuteUnit`: Single ALU/FPU/BRU execution
 
 pub mod execute;
 pub mod issue;
@@ -18,9 +18,42 @@ use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 
+/// Drain completed MSHRs: install cache lines in L1D and resume parked
+/// loads/atomics into the mem1→mem2 latch.  Mirrors the O3 backend's
+/// MSHR completion logic but without PRF/wakeup handling.
+fn drain_mshr_completions(cpu: &mut Cpu, mem1_mem2: &mut Vec<Mem1Mem2Entry>, now: u64) {
+    if cpu.l1d_mshrs.capacity() == 0 {
+        return;
+    }
+    let completed = cpu.l1d_mshrs.drain_completions(now);
+    for mshr_entry in completed {
+        let (_penalty, evicted) = cpu.l1_d_cache.install_line_public_tracked(
+            mshr_entry.line_addr,
+            mshr_entry.is_write,
+            0,
+        );
+
+        if cpu.inclusion_policy == crate::config::InclusionPolicy::Exclusive
+            && cpu.l2_cache.enabled
+            && let Some(ev) = evicted
+        {
+            let _ = cpu.l2_cache.install_or_replace(ev.addr, ev.dirty, 0);
+            cpu.stats.exclusive_l1_to_l2_swaps += 1;
+        }
+
+        for waiter in mshr_entry.waiters {
+            if let Some(mut parked) = waiter.parked_entry {
+                parked.complete_cycle = now;
+                mem1_mem2.push(parked);
+            }
+        }
+    }
+}
+
 use self::issue::InOrderIssueUnit;
 
 /// In-order execution engine.
+#[derive(Debug)]
 pub struct InOrderEngine {
     /// Reorder buffer.
     pub rob: Rob,
@@ -40,9 +73,11 @@ pub struct InOrderEngine {
     pub mem2_wb: Vec<Mem2WbEntry>,
     /// Memory1 stall counter (D-TLB / D-cache latency).
     pub mem1_stall: u64,
-    /// Committed rename map stub (unused; required by shared commit_stage signature).
+    /// Current cycle counter (for MSHR completion tracking).
+    cycle: u64,
+    /// Committed rename map stub (unused; required by shared `commit_stage` signature).
     committed_rename_map: RenameMap,
-    /// Free list stub (unused; required by shared commit_stage signature).
+    /// Free list stub (unused; required by shared `commit_stage` signature).
     free_list: FreeList,
 }
 
@@ -59,6 +94,7 @@ impl InOrderEngine {
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             mem1_stall: 0,
+            cycle: 0,
             committed_rename_map: RenameMap::new(),
             free_list: FreeList::new(0, 0),
         }
@@ -68,6 +104,11 @@ impl InOrderEngine {
 impl ExecutionEngine for InOrderEngine {
     fn tick(&mut self, cpu: &mut Cpu, rename_output: &mut Vec<RenameIssueEntry>) {
         // Backend stages run in reverse order (drain from commit to issue)
+        self.cycle += 1;
+
+        // Drain completed MSHRs before anything else — parked loads need
+        // to re-enter the mem1→mem2 latch so they can complete.
+        drain_mshr_completions(cpu, &mut self.mem1_mem2, self.cycle);
 
         let pc_before_commit = cpu.pc;
 
@@ -81,16 +122,14 @@ impl ExecutionEngine for InOrderEngine {
             &mut self.free_list,
             self.width,
             None, // in-order backend: no load queue
+            None, // in-order backend: no PRF
         );
 
         // Handle trap: flush everything
         if let Some((trap, pc)) = trap_event {
-            if cpu.trace {
-                eprintln!("BE  * HANDLING TRAP: {:?} at PC {:#x}", trap, pc);
-            }
             self.flush(cpu);
             cpu.redirect_pending = true;
-            cpu.trap(trap, pc);
+            cpu.trap(&trap, pc);
             return;
         }
 
@@ -98,12 +137,6 @@ impl ExecutionEngine for InOrderEngine {
         // entire backend so stale instructions fetched from the sequential
         // path after MRET/SRET don't continue through the pipeline.
         if cpu.pc != pc_before_commit {
-            if cpu.trace {
-                eprintln!(
-                    "BE  * MRET/SRET REDIRECT: {:#x} -> {:#x}, flushing backend",
-                    pc_before_commit, cpu.pc
-                );
-            }
             self.flush(cpu);
             rename_output.clear();
             return;
@@ -131,14 +164,14 @@ impl ExecutionEngine for InOrderEngine {
                 cpu,
                 &mut self.execute_mem1,
                 &mut self.mem1_mem2,
-                0,    // in-order backend: current_cycle=0
+                self.cycle,
                 None, // in-order backend: no load queue
             );
             // Derive stall from the worst-case entry's complete_cycle
             self.mem1_stall = self
                 .mem1_mem2
                 .iter()
-                .map(|e| e.complete_cycle)
+                .map(|e| e.complete_cycle.saturating_sub(self.cycle))
                 .max()
                 .unwrap_or(0);
         }
@@ -146,16 +179,6 @@ impl ExecutionEngine for InOrderEngine {
         // Backpressure: if M1 hasn't consumed previous results, skip issue+execute
         // to prevent new results from overwriting held entries.
         let backpressured = !self.execute_mem1.is_empty();
-
-        if cpu.trace && (backpressured || self.mem1_stall > 0) {
-            eprintln!(
-                "BE  backpressure={} mem1_stall={} ex_mem1={} iq={}",
-                backpressured,
-                self.mem1_stall,
-                self.execute_mem1.len(),
-                self.issuer.available_slots()
-            );
-        }
 
         // Issue + Execute: select and read operands via tags
         let (results, needs_flush) = if backpressured {
@@ -244,7 +267,7 @@ impl ExecutionEngine for InOrderEngine {
         rob_free.min(sb_free).min(issue_free).min(self.width)
     }
 
-    fn flush(&mut self, _cpu: &mut Cpu) {
+    fn flush(&mut self, cpu: &mut Cpu) {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.scoreboard.flush();
@@ -253,9 +276,11 @@ impl ExecutionEngine for InOrderEngine {
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         self.mem1_stall = 0;
+        // Flush all MSHRs — their parked entries are now invalid
+        cpu.l1d_mshrs.flush();
     }
 
-    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: u32) -> u64 {
+    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64 {
         // Check ROB for pending CsrUpdate entries (newest first)
         // For now, just read the architectural CSR
         // TODO: scan ROB for CsrUpdate with matching addr
@@ -284,5 +309,54 @@ impl ExecutionEngine for InOrderEngine {
 
     fn scoreboard_mut(&mut self) -> &mut Scoreboard {
         &mut self.scoreboard
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::soc::builder::System;
+
+    #[test]
+    fn test_inorder_engine_new() {
+        let config = Config::default();
+        let engine = InOrderEngine::new(&config);
+        assert_eq!(engine.width, config.pipeline.width);
+        assert_eq!(engine.mem1_stall, 0);
+    }
+
+    #[test]
+    fn test_inorder_engine_flush() {
+        let config = Config::default();
+        let mut engine = InOrderEngine::new(&config);
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        engine.mem1_stall = 5;
+        engine.flush(&mut cpu);
+
+        assert_eq!(engine.mem1_stall, 0);
+        assert_eq!(engine.execute_mem1.len(), 0);
+        assert_eq!(engine.mem1_mem2.len(), 0);
+        assert_eq!(engine.mem2_wb.len(), 0);
+    }
+
+    #[test]
+    fn test_inorder_engine_can_accept() {
+        let config = Config::default();
+        let engine = InOrderEngine::new(&config);
+        assert_eq!(engine.can_accept(), engine.width);
+    }
+
+    #[test]
+    fn test_inorder_engine_read_csr_speculative() {
+        let config = Config::default();
+        let engine = InOrderEngine::new(&config);
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
+        assert_eq!(engine.read_csr_speculative(&cpu, crate::core::arch::csr::MSCRATCH), 0x1234);
     }
 }

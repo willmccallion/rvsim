@@ -5,11 +5,13 @@
 //! This enables the issue stage to do a single direct ROB lookup per source
 //! operand instead of scanning the entire ROB.
 
+use crate::common::RegIdx;
 use crate::core::pipeline::rob::{Rob, RobTag};
 
 /// Tag-based scoreboard: maps each architectural register to the ROB tag
 /// of its latest in-flight producer, or None if the value is in the
 /// architectural register file.
+#[derive(Debug)]
 pub struct Scoreboard {
     /// GPR scoreboard (x0 always None — hardwired zero).
     gpr: [Option<RobTag>; 32],
@@ -25,45 +27,41 @@ impl Default for Scoreboard {
 
 impl Scoreboard {
     /// Create a new scoreboard with all registers clear (no pending writers).
-    pub fn new() -> Self {
-        Self {
-            gpr: [None; 32],
-            fpr: [None; 32],
-        }
+    pub const fn new() -> Self {
+        Self { gpr: [None; 32], fpr: [None; 32] }
     }
 
     /// Mark a register as having a pending writer with the given ROB tag.
     /// No-op for x0 (hardwired zero).
-    pub fn set_producer(&mut self, reg: usize, is_fp: bool, tag: RobTag) {
+    pub const fn set_producer(&mut self, reg: RegIdx, is_fp: bool, tag: RobTag) {
+        let idx = reg.as_usize();
         if is_fp {
-            self.fpr[reg] = Some(tag);
-        } else if reg != 0 {
-            self.gpr[reg] = Some(tag);
+            self.fpr[idx] = Some(tag);
+        } else if !reg.is_zero() {
+            self.gpr[idx] = Some(tag);
         }
     }
 
     /// Get the ROB tag of the latest pending writer for a register.
     /// Returns None if the register value is in the architectural register file.
-    pub fn get_producer(&self, reg: usize, is_fp: bool) -> Option<RobTag> {
-        if is_fp { self.fpr[reg] } else { self.gpr[reg] }
+    pub const fn get_producer(&self, reg: RegIdx, is_fp: bool) -> Option<RobTag> {
+        let idx = reg.as_usize();
+        if is_fp { self.fpr[idx] } else { self.gpr[idx] }
     }
 
     /// Clear a register's pending writer, but ONLY if the current tag matches.
     /// This prevents a committing instruction from clearing a tag set by a
     /// newer rename (WAW handling).
-    pub fn clear_if_match(&mut self, reg: usize, is_fp: bool, tag: RobTag) {
-        let slot = if is_fp {
-            &mut self.fpr[reg]
-        } else {
-            &mut self.gpr[reg]
-        };
+    pub fn clear_if_match(&mut self, reg: RegIdx, is_fp: bool, tag: RobTag) {
+        let idx = reg.as_usize();
+        let slot = if is_fp { &mut self.fpr[idx] } else { &mut self.gpr[idx] };
         if *slot == Some(tag) {
             *slot = None;
         }
     }
 
     /// Flush: clear all entries (all speculative state is gone).
-    pub fn flush(&mut self) {
+    pub const fn flush(&mut self) {
         self.gpr = [None; 32];
         self.fpr = [None; 32];
     }
@@ -76,10 +74,11 @@ impl Scoreboard {
     pub fn rebuild_from_rob(&mut self, rob: &Rob) {
         self.flush();
         rob.for_each_valid(|entry| {
+            let idx = entry.rd.as_usize();
             if entry.ctrl.fp_reg_write {
-                self.fpr[entry.rd] = Some(entry.tag);
-            } else if entry.ctrl.reg_write && entry.rd != 0 {
-                self.gpr[entry.rd] = Some(entry.tag);
+                self.fpr[idx] = Some(entry.tag);
+            } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
+                self.gpr[idx] = Some(entry.tag);
             }
         });
     }
@@ -92,9 +91,9 @@ mod tests {
     #[test]
     fn test_new_all_clear() {
         let sb = Scoreboard::new();
-        for i in 0..32 {
-            assert_eq!(sb.get_producer(i, false), None);
-            assert_eq!(sb.get_producer(i, true), None);
+        for i in 0u8..32 {
+            assert_eq!(sb.get_producer(RegIdx::new(i), false), None);
+            assert_eq!(sb.get_producer(RegIdx::new(i), true), None);
         }
     }
 
@@ -102,27 +101,27 @@ mod tests {
     fn test_set_and_get_producer() {
         let mut sb = Scoreboard::new();
         let tag = RobTag(42);
-        sb.set_producer(5, false, tag);
-        assert_eq!(sb.get_producer(5, false), Some(tag));
-        assert_eq!(sb.get_producer(6, false), None);
+        sb.set_producer(RegIdx::new(5), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), Some(tag));
+        assert_eq!(sb.get_producer(RegIdx::new(6), false), None);
     }
 
     #[test]
     fn test_x0_always_clear() {
         let mut sb = Scoreboard::new();
-        sb.set_producer(0, false, RobTag(1));
-        assert_eq!(sb.get_producer(0, false), None);
+        sb.set_producer(RegIdx::new(0), false, RobTag(1));
+        assert_eq!(sb.get_producer(RegIdx::new(0), false), None);
     }
 
     #[test]
     fn test_clear_if_match() {
         let mut sb = Scoreboard::new();
         let tag = RobTag(10);
-        sb.set_producer(3, false, tag);
-        assert_eq!(sb.get_producer(3, false), Some(tag));
+        sb.set_producer(RegIdx::new(3), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(tag));
 
-        sb.clear_if_match(3, false, tag);
-        assert_eq!(sb.get_producer(3, false), None);
+        sb.clear_if_match(RegIdx::new(3), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), None);
     }
 
     #[test]
@@ -131,27 +130,27 @@ mod tests {
         let old_tag = RobTag(10);
         let new_tag = RobTag(20);
 
-        sb.set_producer(3, false, old_tag);
+        sb.set_producer(RegIdx::new(3), false, old_tag);
         // Newer instruction overwrites the same register
-        sb.set_producer(3, false, new_tag);
-        assert_eq!(sb.get_producer(3, false), Some(new_tag));
+        sb.set_producer(RegIdx::new(3), false, new_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(new_tag));
 
         // Old instruction commits — should NOT clear because tag doesn't match
-        sb.clear_if_match(3, false, old_tag);
-        assert_eq!(sb.get_producer(3, false), Some(new_tag));
+        sb.clear_if_match(RegIdx::new(3), false, old_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(new_tag));
     }
 
     #[test]
     fn test_flush() {
         let mut sb = Scoreboard::new();
-        sb.set_producer(1, false, RobTag(1));
-        sb.set_producer(2, false, RobTag(2));
-        sb.set_producer(3, true, RobTag(3));
+        sb.set_producer(RegIdx::new(1), false, RobTag(1));
+        sb.set_producer(RegIdx::new(2), false, RobTag(2));
+        sb.set_producer(RegIdx::new(3), true, RobTag(3));
 
         sb.flush();
-        for i in 0..32 {
-            assert_eq!(sb.get_producer(i, false), None);
-            assert_eq!(sb.get_producer(i, true), None);
+        for i in 0u8..32 {
+            assert_eq!(sb.get_producer(RegIdx::new(i), false), None);
+            assert_eq!(sb.get_producer(RegIdx::new(i), true), None);
         }
     }
 
@@ -161,15 +160,15 @@ mod tests {
         let gpr_tag = RobTag(10);
         let fpr_tag = RobTag(20);
 
-        sb.set_producer(5, false, gpr_tag);
-        sb.set_producer(5, true, fpr_tag);
+        sb.set_producer(RegIdx::new(5), false, gpr_tag);
+        sb.set_producer(RegIdx::new(5), true, fpr_tag);
 
-        assert_eq!(sb.get_producer(5, false), Some(gpr_tag));
-        assert_eq!(sb.get_producer(5, true), Some(fpr_tag));
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), Some(gpr_tag));
+        assert_eq!(sb.get_producer(RegIdx::new(5), true), Some(fpr_tag));
 
         // Clearing GPR doesn't affect FPR
-        sb.clear_if_match(5, false, gpr_tag);
-        assert_eq!(sb.get_producer(5, false), None);
-        assert_eq!(sb.get_producer(5, true), Some(fpr_tag));
+        sb.clear_if_match(RegIdx::new(5), false, gpr_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), None);
+        assert_eq!(sb.get_producer(RegIdx::new(5), true), Some(fpr_tag));
     }
 }

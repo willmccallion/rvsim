@@ -20,6 +20,7 @@
 use super::ReplacementPolicy;
 
 /// PLRU Policy state.
+#[derive(Debug)]
 pub struct PlruPolicy {
     /// Bitmask representing the tree state for each set.
     usage: Vec<u64>,
@@ -35,10 +36,7 @@ impl PlruPolicy {
     /// * `sets` - The number of sets in the cache.
     /// * `ways` - The associativity (number of ways) of the cache.
     pub fn new(sets: usize, ways: usize) -> Self {
-        Self {
-            usage: vec![0; sets],
-            ways,
-        }
+        Self { usage: vec![0; sets], ways }
     }
 }
 

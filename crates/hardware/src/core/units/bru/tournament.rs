@@ -8,6 +8,7 @@ use super::{BranchPredictor, btb::Btb, ras::Ras};
 use crate::config::TournamentConfig;
 
 /// Tournament Predictor structure.
+#[derive(Debug)]
 pub struct TournamentPredictor {
     /// Branch Target Buffer.
     btb: Btb,
@@ -92,17 +93,9 @@ impl BranchPredictor for TournamentPredictor {
         let local_taken = self.get_local_prediction(pc);
 
         let use_global = self.choice_pht[g_idx] >= 2;
-        let taken = if use_global {
-            global_taken
-        } else {
-            local_taken
-        };
+        let taken = if use_global { global_taken } else { local_taken };
 
-        if taken {
-            (true, self.btb.lookup(pc))
-        } else {
-            (false, None)
-        }
+        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
     }
 
     /// Updates the predictor with the actual branch outcome.
@@ -178,7 +171,7 @@ impl BranchPredictor for TournamentPredictor {
 
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
-        self.ras.pop();
+        let _ = self.ras.pop();
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {

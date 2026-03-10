@@ -12,7 +12,7 @@ use super::{BranchPredictor, btb::Btb, ras::Ras};
 use crate::config::TageConfig;
 
 /// An entry in a TAGE bank.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct TageEntry {
     /// Tag for matching the history/PC hash.
     tag: u16,
@@ -23,7 +23,7 @@ struct TageEntry {
 }
 
 /// An entry in the loop predictor table.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct LoopEntry {
     /// PC-derived tag for matching.
     tag: u16,
@@ -38,6 +38,7 @@ struct LoopEntry {
 }
 
 /// TAGE Predictor structure with integrated loop predictor.
+#[derive(Debug)]
 pub struct TagePredictor {
     /// Branch Target Buffer.
     btb: Btb,
@@ -76,20 +77,18 @@ pub struct TagePredictor {
 
 impl TagePredictor {
     /// Creates a new TAGE Predictor based on configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.table_size` is not a power of two, or if `history_lengths`
+    /// and `tag_widths` have different lengths.
     pub fn new(config: &TageConfig, btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
-        assert!(
-            config.table_size.is_power_of_two(),
-            "TAGE table size must be power of 2"
-        );
+        assert!(config.table_size.is_power_of_two(), "TAGE table size must be power of 2");
 
-        let (hist_lengths, tag_widths, num_banks) = if !config.history_lengths.is_empty() {
-            (
-                config.history_lengths.clone(),
-                config.tag_widths.clone(),
-                config.num_banks,
-            )
-        } else {
+        let (hist_lengths, tag_widths, num_banks) = if config.history_lengths.is_empty() {
             (vec![5, 15, 44, 130], vec![9, 9, 10, 10], 4)
+        } else {
+            (config.history_lengths.clone(), config.tag_widths.clone(), config.num_banks)
         };
 
         assert_eq!(
@@ -97,11 +96,7 @@ impl TagePredictor {
             num_banks,
             "TAGE: History lengths vector must match num_banks"
         );
-        assert_eq!(
-            tag_widths.len(),
-            num_banks,
-            "TAGE: Tag widths vector must match num_banks"
-        );
+        assert_eq!(tag_widths.len(), num_banks, "TAGE: Tag widths vector must match num_banks");
 
         let mut banks = Vec::new();
         for _ in 0..num_banks {
@@ -131,7 +126,7 @@ impl TagePredictor {
     }
 
     /// Folds a wide value into `bits` width by XOR-compressing.
-    fn fold(val: u64, bits: usize) -> u64 {
+    const fn fold(val: u64, bits: usize) -> u64 {
         if bits == 0 || bits >= 64 {
             return val;
         }
@@ -148,11 +143,7 @@ impl TagePredictor {
     /// Masks the GHR to the history length for a given bank.
     fn bank_history(&self, bank: usize) -> u64 {
         let len = self.hist_lengths[bank];
-        if len >= 64 {
-            self.ghr
-        } else {
-            self.ghr & ((1u64 << len) - 1)
-        }
+        if len >= 64 { self.ghr } else { self.ghr & ((1u64 << len) - 1) }
     }
 
     /// Calculates the index for a specific bank using PC and GHR.
@@ -176,12 +167,12 @@ impl TagePredictor {
     }
 
     /// Loop predictor index from PC.
-    fn loop_index(&self, pc: u64) -> usize {
+    const fn loop_index(&self, pc: u64) -> usize {
         ((pc >> 2) as usize) % self.loop_table_size
     }
 
     /// Loop predictor tag from PC (10-bit).
-    fn loop_tag(pc: u64) -> u16 {
+    const fn loop_tag(pc: u64) -> u16 {
         ((pc >> 2) ^ (pc >> 12)) as u16 & 0x3FF
     }
 
@@ -235,13 +226,7 @@ impl TagePredictor {
             // No matching entry and branch is taken (potential loop start).
             // Allocate if the existing entry has low age.
             if entry.age == 0 || entry.tag == 0 {
-                *entry = LoopEntry {
-                    tag,
-                    current_iter: 1,
-                    trip_count: 0,
-                    confidence: 0,
-                    age: 1,
-                };
+                *entry = LoopEntry { tag, current_iter: 1, trip_count: 0, confidence: 0, age: 1 };
             } else {
                 entry.age = entry.age.saturating_sub(1);
             }
@@ -258,14 +243,7 @@ impl BranchPredictor for TagePredictor {
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
         // Check loop predictor first — high-confidence override.
         if let Some(loop_taken) = self.loop_predict(pc) {
-            return (
-                loop_taken,
-                if loop_taken {
-                    self.btb.lookup(pc)
-                } else {
-                    None
-                },
-            );
+            return (loop_taken, if loop_taken { self.btb.lookup(pc) } else { None });
         }
 
         let mut provider = 0;
@@ -376,11 +354,7 @@ impl BranchPredictor for TagePredictor {
         }
 
         if mispredicted {
-            let start_bank = if self.provider_bank == 0 {
-                0
-            } else {
-                self.provider_bank
-            };
+            let start_bank = if self.provider_bank == 0 { 0 } else { self.provider_bank };
 
             if start_bank < num_banks {
                 let mut allocated = false;
@@ -434,7 +408,7 @@ impl BranchPredictor for TagePredictor {
 
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
-        self.ras.pop();
+        let _ = self.ras.pop();
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {

@@ -29,7 +29,7 @@ pub struct EvictedLine {
 }
 
 /// Cache line entry containing tag, validity, and dirty bits.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct CacheLine {
     tag: u64,
     valid: bool,
@@ -54,6 +54,18 @@ pub struct CacheSim {
     policy: Box<dyn ReplacementPolicy + Send + Sync>,
 }
 
+impl std::fmt::Debug for CacheSim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheSim")
+            .field("latency", &self.latency)
+            .field("enabled", &self.enabled)
+            .field("num_sets", &self.num_sets)
+            .field("ways", &self.ways)
+            .field("line_bytes", &self.line_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CacheSim {
     /// Creates a new cache simulator with the specified configuration.
     ///
@@ -67,16 +79,8 @@ impl CacheSim {
     /// A new `CacheSim` instance initialized according to the configuration.
     pub fn new(config: &CacheConfig) -> Self {
         let safe_ways = if config.ways == 0 { 1 } else { config.ways };
-        let safe_line = if config.line_bytes == 0 {
-            64
-        } else {
-            config.line_bytes
-        };
-        let safe_size = if config.size_bytes == 0 {
-            4096
-        } else {
-            config.size_bytes
-        };
+        let safe_line = if config.line_bytes == 0 { 64 } else { config.line_bytes };
+        let safe_size = if config.size_bytes == 0 { 4096 } else { config.size_bytes };
 
         let num_lines = safe_size / safe_line;
         let num_sets = num_lines / safe_ways;
@@ -90,23 +94,20 @@ impl CacheSim {
         };
 
         let prefetcher: Option<Box<dyn Prefetcher + Send + Sync>> = match config.prefetcher {
-            PrefetcherType::NextLine => Some(Box::new(NextLinePrefetcher::new(
-                safe_line,
-                config.prefetch_degree,
-            ))),
+            PrefetcherType::NextLine => {
+                Some(Box::new(NextLinePrefetcher::new(safe_line, config.prefetch_degree)))
+            }
             PrefetcherType::Stride => Some(Box::new(StridePrefetcher::new(
                 safe_line,
                 config.prefetch_table_size,
                 config.prefetch_degree,
             ))),
-            PrefetcherType::Stream => Some(Box::new(StreamPrefetcher::new(
-                safe_line,
-                config.prefetch_degree,
-            ))),
-            PrefetcherType::Tagged => Some(Box::new(TaggedPrefetcher::new(
-                safe_line,
-                config.prefetch_degree,
-            ))),
+            PrefetcherType::Stream => {
+                Some(Box::new(StreamPrefetcher::new(safe_line, config.prefetch_degree)))
+            }
+            PrefetcherType::Tagged => {
+                Some(Box::new(TaggedPrefetcher::new(safe_line, config.prefetch_degree)))
+            }
             PrefetcherType::None => None,
         };
 
@@ -124,7 +125,7 @@ impl CacheSim {
 
     /// Reconstructs the physical address from a set index and tag.
     #[inline]
-    fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
+    const fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
         tag * (self.line_bytes * self.num_sets) as u64 + (set_index * self.line_bytes) as u64
     }
 
@@ -178,8 +179,7 @@ impl CacheSim {
     ///
     /// The penalty in cycles for writing back a dirty victim line.
     fn install_line(&mut self, addr: u64, is_write: bool, next_level_latency: u64) -> u64 {
-        self.install_line_tracked(addr, is_write, next_level_latency)
-            .0
+        self.install_line_tracked(addr, is_write, next_level_latency).0
     }
 
     /// Installs a cache line and returns both the penalty and eviction info.
@@ -205,20 +205,13 @@ impl CacheSim {
         if self.lines[victim_idx].valid {
             let victim_addr = self.reconstruct_addr(set_index, self.lines[victim_idx].tag);
             let victim_dirty = self.lines[victim_idx].dirty;
-            evicted = Some(EvictedLine {
-                addr: victim_addr,
-                dirty: victim_dirty,
-            });
+            evicted = Some(EvictedLine { addr: victim_addr, dirty: victim_dirty });
             if victim_dirty {
                 penalty += next_level_latency;
             }
         }
 
-        self.lines[victim_idx] = CacheLine {
-            tag,
-            valid: true,
-            dirty: is_write,
-        };
+        self.lines[victim_idx] = CacheLine { tag, valid: true, dirty: is_write };
         self.policy.update(set_index, victim_way);
 
         (penalty, evicted)
@@ -269,14 +262,12 @@ impl CacheSim {
             penalty += self.install_line(addr, is_write, next_level_latency);
         }
 
-        let mut prefetches = Vec::new();
-        if let Some(ref mut pref) = self.prefetcher {
-            prefetches = pref.observe(addr, hit);
-        }
+        let prefetches =
+            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
 
         for target in prefetches {
             if !self.contains(target) {
-                self.install_line(target, false, next_level_latency);
+                let _ = self.install_line(target, false, next_level_latency);
             }
         }
 
@@ -356,10 +347,8 @@ impl CacheSim {
             }
         }
 
-        let mut prefetches = Vec::new();
-        if let Some(ref mut pref) = self.prefetcher {
-            prefetches = pref.observe(addr, hit);
-        }
+        let prefetches =
+            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
 
         (hit, penalty, evictions, prefetches)
     }
@@ -411,13 +400,11 @@ impl CacheSim {
             }
         }
 
-        let mut prefetches = Vec::new();
-        if let Some(ref mut pref) = self.prefetcher {
-            prefetches = pref.observe(addr, hit);
-        }
+        let prefetches =
+            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
         for target in prefetches {
             if !self.contains(target) {
-                self.install_line(target, false, 0);
+                let _ = self.install_line(target, false, 0);
             }
         }
 
@@ -474,7 +461,7 @@ impl CacheSim {
 
     /// Installs a line without evicting the previous one (used for exclusive policy
     /// when swapping an L1 evictee into L2, if there is an invalid way available).
-    /// Falls back to normal install_line if no free way exists.
+    /// Falls back to normal `install_line` if no free way exists.
     ///
     /// Returns `(penalty, Option<EvictedLine>)`.
     pub fn install_or_replace(
@@ -495,11 +482,7 @@ impl CacheSim {
         for i in 0..self.ways {
             let idx = base_idx + i;
             if !self.lines[idx].valid {
-                self.lines[idx] = CacheLine {
-                    tag,
-                    valid: true,
-                    dirty: is_write,
-                };
+                self.lines[idx] = CacheLine { tag, valid: true, dirty: is_write };
                 self.policy.update(set_index, i);
                 return (0, None);
             }
@@ -511,7 +494,7 @@ impl CacheSim {
 
     /// Returns the cache line size in bytes.
     #[inline]
-    pub fn line_bytes(&self) -> usize {
+    pub const fn line_bytes(&self) -> usize {
         self.line_bytes
     }
 

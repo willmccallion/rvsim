@@ -22,6 +22,15 @@ pub struct DramBuffer {
 unsafe impl Send for DramBuffer {}
 unsafe impl Sync for DramBuffer {}
 
+impl std::fmt::Debug for DramBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DramBuffer")
+            .field("size", &self.size)
+            .field("is_mmap", &self.is_mmap)
+            .finish_non_exhaustive()
+    }
+}
+
 impl DramBuffer {
     /// Creates a new DRAM buffer of the specified size.
     ///
@@ -33,7 +42,11 @@ impl DramBuffer {
     ///
     /// # Returns
     ///
-    /// A new `DramBuffer`; panics if `mmap` fails on Unix.
+    /// A new `DramBuffer`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mmap` fails on Unix.
     pub fn new(size: usize) -> Self {
         #[cfg(unix)]
         {
@@ -49,15 +62,9 @@ impl DramBuffer {
                 )
             };
 
-            if ptr == libc::MAP_FAILED {
-                panic!("Failed to mmap DRAM buffer of size {}", size);
-            }
+            assert!(ptr != libc::MAP_FAILED, "Failed to mmap DRAM buffer of size {size}");
 
-            Self {
-                ptr: ptr as *mut u8,
-                size,
-                is_mmap: true,
-            }
+            Self { ptr: ptr as *mut u8, size, is_mmap: true }
         }
 
         #[cfg(not(unix))]
@@ -65,41 +72,45 @@ impl DramBuffer {
             let mut vec = vec![0u8; size];
             let ptr = vec.as_mut_ptr();
             std::mem::forget(vec);
-            Self {
-                ptr,
-                size,
-                is_mmap: false,
-            }
+            Self { ptr, size, is_mmap: false }
         }
     }
 
     /// Returns the size of the buffer in bytes.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.size
     }
 
     /// Returns true if the buffer has zero size.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.size == 0
     }
 
     /// Returns a raw pointer to the buffer.
-    pub fn as_ptr(&self) -> *const u8 {
+    pub const fn as_ptr(&self) -> *const u8 {
         self.ptr
     }
 
     /// Returns a mutable raw pointer to the buffer.
-    pub fn as_mut_ptr(&self) -> *mut u8 {
+    pub const fn as_mut_ptr(&self) -> *mut u8 {
         self.ptr
     }
 
     /// Reads a single byte safely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset` is out of bounds.
     pub fn read_u8(&self, offset: usize) -> u8 {
         assert!(offset < self.size, "DRAM read out of bounds");
         unsafe { *self.ptr.add(offset) }
     }
 
     /// Writes a single byte safely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset` is out of bounds.
     pub fn write_u8(&self, offset: usize, val: u8) {
         assert!(offset < self.size, "DRAM write out of bounds");
         unsafe {
@@ -108,12 +119,20 @@ impl DramBuffer {
     }
 
     /// Reads a slice of memory safely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset + len` is out of bounds.
     pub fn read_slice(&self, offset: usize, len: usize) -> &[u8] {
         assert!(offset + len <= self.size, "DRAM read out of bounds");
         unsafe { slice::from_raw_parts(self.ptr.add(offset), len) }
     }
 
     /// Writes a slice of memory safely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset + data.len()` is out of bounds.
     pub fn write_slice(&self, offset: usize, data: &[u8]) {
         assert!(offset + data.len() <= self.size, "DRAM write out of bounds");
         unsafe {
@@ -132,7 +151,7 @@ impl Drop for DramBuffer {
         if self.is_mmap {
             #[cfg(unix)]
             unsafe {
-                libc::munmap(self.ptr as *mut _, self.size);
+                let _ = libc::munmap(self.ptr as *mut _, self.size);
             }
         } else {
             #[cfg(not(unix))]

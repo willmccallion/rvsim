@@ -12,6 +12,7 @@
 use super::Prefetcher;
 
 /// Tagged Prefetcher state.
+#[derive(Debug)]
 pub struct TaggedPrefetcher {
     /// Size of a cache line in bytes.
     line_bytes: u64,

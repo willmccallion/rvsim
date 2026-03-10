@@ -7,6 +7,7 @@
 use super::ReplacementPolicy;
 
 /// Random Policy state.
+#[derive(Debug)]
 pub struct RandomPolicy {
     /// Number of ways in the cache.
     ways: usize,
@@ -21,11 +22,8 @@ impl RandomPolicy {
     ///
     /// * `sets` - The number of sets (unused in this policy but required by interface).
     /// * `ways` - The associativity (number of ways) of the cache.
-    pub fn new(_sets: usize, ways: usize) -> Self {
-        Self {
-            ways,
-            state: 123456789,
-        }
+    pub const fn new(_sets: usize, ways: usize) -> Self {
+        Self { ways, state: 123456789 }
     }
 }
 

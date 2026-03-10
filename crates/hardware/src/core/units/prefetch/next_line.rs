@@ -7,6 +7,7 @@
 use super::Prefetcher;
 
 /// Next-Line Prefetcher state.
+#[derive(Debug)]
 pub struct NextLinePrefetcher {
     /// Size of a cache line in bytes.
     line_bytes: u64,
@@ -21,11 +22,8 @@ impl NextLinePrefetcher {
     ///
     /// * `line_bytes` - The size of a cache line in bytes.
     /// * `degree` - The number of lines to prefetch ahead.
-    pub fn new(line_bytes: usize, degree: usize) -> Self {
-        Self {
-            line_bytes: line_bytes as u64,
-            degree: if degree == 0 { 1 } else { degree },
-        }
+    pub const fn new(line_bytes: usize, degree: usize) -> Self {
+        Self { line_bytes: line_bytes as u64, degree: if degree == 0 { 1 } else { degree } }
     }
 }
 

@@ -5,7 +5,7 @@
 //!    GPR/FPR, and CSR state.
 //! 2. **Memory:** MMU, TLB, caches, prefetchers, and configurable memory controllers.
 //! 3. **ISA:** Decoding and execution for RV64I/M/A/F/D/C and privileged operations.
-//! 4. **SoC:** Interconnect, RAM, and MMIO devices (UART, CLINT, PLIC, VirtIO, etc.).
+//! 4. **`SoC`:** Interconnect, RAM, and MMIO devices (UART, CLINT, PLIC, `VirtIO`, etc.).
 //! 5. **Simulation:** `Simulator` (owns CPU + pipeline), loader, configuration, and statistics.
 
 /// Common types and constants (addresses, registers, traps, access types).
@@ -22,7 +22,19 @@ pub mod sim;
 pub mod soc;
 /// Simulation statistics collection and reporting.
 pub mod stats;
+/// Compile-time–gated tracing macros for every pipeline subsystem.
+pub mod trace;
 
+/// Address Space Identifier (ASID) from SATP[59:44]; prevents mixing with raw `u16` values.
+pub use crate::common::Asid;
+/// 12-bit CSR address newtype; prevents mixing raw `u32` constants with address values.
+pub use crate::common::CsrAddr;
+/// Interrupt Request Identifier for PLIC lines; prevents mixing with arbitrary `u32` values.
+pub use crate::common::IrqId;
+/// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
+pub use crate::common::RegIdx;
+/// Simulator-level error type; returned by `Simulator::tick` and the binary loader.
+pub use crate::common::SimError;
 /// Root configuration type; use `Config::default()` or deserialize from Python/JSON.
 pub use crate::config::Config;
 /// Main CPU type; holds caches, MMU, and stats.

@@ -6,7 +6,7 @@
 //!
 //! Default latencies are Skylake-class values matching real hardware.
 
-use crate::core::pipeline::signals::{AluOp, ControlSignals};
+use crate::core::pipeline::signals::{AluOp, ControlFlow, ControlSignals};
 use serde::Deserialize;
 
 /// Identifies which type of functional unit an instruction uses.
@@ -38,7 +38,7 @@ pub const FU_TYPE_COUNT: usize = 9;
 
 impl FuType {
     /// Human-readable name for stats output.
-    pub fn name(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
             Self::IntAlu => "int_alu",
             Self::IntMul => "int_mul",
@@ -60,7 +60,7 @@ impl FuType {
         {
             return Self::Mem;
         }
-        if ctrl.branch || ctrl.jump {
+        if ctrl.control_flow != ControlFlow::Sequential {
             return Self::Branch;
         }
         match ctrl.alu {
@@ -114,13 +114,13 @@ pub struct FuUnit {
 impl FuUnit {
     /// Returns true if this unit can accept a new instruction at cycle `now`.
     #[inline]
-    pub fn is_free(&self, now: u64) -> bool {
+    pub const fn is_free(&self, now: u64) -> bool {
         now >= self.busy_until
     }
 
     /// Acquire the unit for one instruction issued at cycle `now`.
     /// Returns the cycle at which the result will be ready.
-    pub fn acquire(&mut self, now: u64) -> u64 {
+    pub const fn acquire(&mut self, now: u64) -> u64 {
         let complete = now + self.latency;
         self.busy_until = if self.is_pipelined {
             now + 1 // pipelined: free next cycle
@@ -134,23 +134,41 @@ impl FuUnit {
 /// Configuration for the functional unit pool.
 #[derive(Clone, Debug, Deserialize)]
 pub struct FuConfig {
+    /// Number of integer ALU units.
     pub num_int_alu: usize,
+    /// Latency of integer ALU operations in cycles.
     pub int_alu_latency: u64,
+    /// Number of integer multiplier units.
     pub num_int_mul: usize,
+    /// Latency of integer multiply operations in cycles.
     pub int_mul_latency: u64,
+    /// Number of integer divider units.
     pub num_int_div: usize,
+    /// Latency of integer divide operations in cycles.
     pub int_div_latency: u64,
+    /// Number of floating-point adder units.
     pub num_fp_add: usize,
+    /// Latency of floating-point add operations in cycles.
     pub fp_add_latency: u64,
+    /// Number of floating-point multiplier units.
     pub num_fp_mul: usize,
+    /// Latency of floating-point multiply operations in cycles.
     pub fp_mul_latency: u64,
+    /// Number of floating-point fused multiply-add units.
     pub num_fp_fma: usize,
+    /// Latency of floating-point FMA operations in cycles.
     pub fp_fma_latency: u64,
+    /// Number of floating-point divide/sqrt units.
     pub num_fp_div_sqrt: usize,
+    /// Latency of floating-point divide/sqrt operations in cycles.
     pub fp_div_sqrt_latency: u64,
+    /// Number of branch units.
     pub num_branch: usize,
+    /// Latency of branch operations in cycles.
     pub branch_latency: u64,
+    /// Number of memory (load/store) units.
     pub num_mem: usize,
+    /// Latency of memory operations in cycles.
     pub mem_latency: u64,
 }
 
@@ -180,6 +198,7 @@ impl Default for FuConfig {
 }
 
 /// Pool of heterogeneous functional units.
+#[derive(Debug)]
 pub struct FuPool {
     units: Vec<FuUnit>,
 }
@@ -191,57 +210,16 @@ impl FuPool {
 
         let add = |units: &mut Vec<FuUnit>, fu_type, count, latency, pipelined| {
             for _ in 0..count {
-                units.push(FuUnit {
-                    fu_type,
-                    latency,
-                    is_pipelined: pipelined,
-                    busy_until: 0,
-                });
+                units.push(FuUnit { fu_type, latency, is_pipelined: pipelined, busy_until: 0 });
             }
         };
 
-        add(
-            &mut units,
-            FuType::IntAlu,
-            config.num_int_alu,
-            config.int_alu_latency,
-            true,
-        );
-        add(
-            &mut units,
-            FuType::IntMul,
-            config.num_int_mul,
-            config.int_mul_latency,
-            true,
-        );
-        add(
-            &mut units,
-            FuType::IntDiv,
-            config.num_int_div,
-            config.int_div_latency,
-            false,
-        );
-        add(
-            &mut units,
-            FuType::FpAdd,
-            config.num_fp_add,
-            config.fp_add_latency,
-            true,
-        );
-        add(
-            &mut units,
-            FuType::FpMul,
-            config.num_fp_mul,
-            config.fp_mul_latency,
-            true,
-        );
-        add(
-            &mut units,
-            FuType::FpFma,
-            config.num_fp_fma,
-            config.fp_fma_latency,
-            true,
-        );
+        add(&mut units, FuType::IntAlu, config.num_int_alu, config.int_alu_latency, true);
+        add(&mut units, FuType::IntMul, config.num_int_mul, config.int_mul_latency, true);
+        add(&mut units, FuType::IntDiv, config.num_int_div, config.int_div_latency, false);
+        add(&mut units, FuType::FpAdd, config.num_fp_add, config.fp_add_latency, true);
+        add(&mut units, FuType::FpMul, config.num_fp_mul, config.fp_mul_latency, true);
+        add(&mut units, FuType::FpFma, config.num_fp_fma, config.fp_fma_latency, true);
         add(
             &mut units,
             FuType::FpDivSqrt,
@@ -249,63 +227,45 @@ impl FuPool {
             config.fp_div_sqrt_latency,
             false,
         );
-        add(
-            &mut units,
-            FuType::Branch,
-            config.num_branch,
-            config.branch_latency,
-            true,
-        );
-        add(
-            &mut units,
-            FuType::Mem,
-            config.num_mem,
-            config.mem_latency,
-            true,
-        );
+        add(&mut units, FuType::Branch, config.num_branch, config.branch_latency, true);
+        add(&mut units, FuType::Mem, config.num_mem, config.mem_latency, true);
 
         Self { units }
     }
 
     /// Returns true if at least one unit of `fu_type` is free at cycle `now`.
     pub fn has_free(&self, fu_type: FuType, now: u64) -> bool {
-        self.units
-            .iter()
-            .any(|u| u.fu_type == fu_type && u.is_free(now))
+        self.units.iter().any(|u| u.fu_type == fu_type && u.is_free(now))
     }
 
     /// Acquire a free unit of `fu_type` at cycle `now`.
     /// Returns the cycle at which the result is ready.
-    /// **Panics** if no unit is free (caller must call `has_free` first).
+    ///
+    /// # Panics
+    ///
+    /// Panics if no unit of `fu_type` is free (caller must call `has_free` first).
     pub fn acquire(&mut self, fu_type: FuType, now: u64) -> u64 {
         for unit in &mut self.units {
             if unit.fu_type == fu_type && unit.is_free(now) {
                 return unit.acquire(now);
             }
         }
-        panic!("acquire called with no free unit of type {:?}", fu_type);
+        panic!("acquire called with no free unit of type {fu_type:?}");
     }
 
     /// Returns the latency of the first unit of `fu_type`.
     pub fn get_latency(&self, fu_type: FuType) -> u64 {
-        self.units
-            .iter()
-            .find(|u| u.fu_type == fu_type)
-            .map(|u| u.latency)
-            .unwrap_or(1)
+        self.units.iter().find(|u| u.fu_type == fu_type).map_or(1, |u| u.latency)
     }
 
     /// Returns whether the first unit of `fu_type` is pipelined.
     pub fn is_pipelined(&self, fu_type: FuType) -> bool {
-        self.units
-            .iter()
-            .find(|u| u.fu_type == fu_type)
-            .map(|u| u.is_pipelined)
-            .unwrap_or(true)
+        self.units.iter().find(|u| u.fu_type == fu_type).is_none_or(|u| u.is_pipelined)
     }
 }
 
 #[cfg(test)]
+#[allow(unused_results)]
 mod tests {
     use super::*;
 
@@ -350,46 +310,31 @@ mod tests {
 
     #[test]
     fn test_classify_int_alu() {
-        let ctrl = ControlSignals {
-            alu: AluOp::Add,
-            ..Default::default()
-        };
+        let ctrl = ControlSignals { alu: AluOp::Add, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntAlu);
     }
 
     #[test]
     fn test_classify_int_div() {
-        let ctrl = ControlSignals {
-            alu: AluOp::Div,
-            ..Default::default()
-        };
+        let ctrl = ControlSignals { alu: AluOp::Div, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntDiv);
     }
 
     #[test]
     fn test_classify_fp_fma() {
-        let ctrl = ControlSignals {
-            alu: AluOp::FMAdd,
-            ..Default::default()
-        };
+        let ctrl = ControlSignals { alu: AluOp::FMAdd, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::FpFma);
     }
 
     #[test]
     fn test_classify_branch() {
-        let ctrl = ControlSignals {
-            branch: true,
-            ..Default::default()
-        };
+        let ctrl = ControlSignals { control_flow: ControlFlow::Branch, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::Branch);
     }
 
     #[test]
     fn test_classify_mem() {
-        let ctrl = ControlSignals {
-            mem_read: true,
-            ..Default::default()
-        };
+        let ctrl = ControlSignals { mem_read: true, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::Mem);
     }
 }

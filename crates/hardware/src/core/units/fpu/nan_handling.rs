@@ -32,7 +32,7 @@ const NAN_BOX_MASK: u64 = 0xFFFF_FFFF_0000_0000;
 ///
 /// A 64-bit value with the f32 in the lower 32 bits and all 1s in the upper 32 bits.
 #[inline]
-pub fn box_f32(f: f32) -> u64 {
+pub const fn box_f32(f: f32) -> u64 {
     (f.to_bits() as u64) | NAN_BOX_MASK
 }
 
@@ -46,7 +46,7 @@ pub fn box_f32(f: f32) -> u64 {
 /// For sign injection and other non-canonicalizing operations, use plain
 /// [`box_f32`] instead.
 #[inline]
-pub fn box_f32_canon(f: f32) -> u64 {
+pub const fn box_f32_canon(f: f32) -> u64 {
     let mut bits = f.to_bits();
     // NaN: exponent all 1s AND mantissa nonzero → replace with canonical
     if (bits & 0x7F80_0000) == 0x7F80_0000 && (bits & 0x007F_FFFF) != 0 {
@@ -60,7 +60,7 @@ pub fn box_f32_canon(f: f32) -> u64 {
 /// Like [`box_f32_canon`] but for double-precision. Replaces any NaN with
 /// the canonical quiet NaN at the bit level.
 #[inline]
-pub fn canonicalize_f64_bits(f: f64) -> u64 {
+pub const fn canonicalize_f64_bits(f: f64) -> u64 {
     let mut bits = f.to_bits();
     if (bits & 0x7FF0_0000_0000_0000) == 0x7FF0_0000_0000_0000
         && (bits & 0x000F_FFFF_FFFF_FFFF) != 0
@@ -84,7 +84,7 @@ pub fn canonicalize_f64_bits(f: f64) -> u64 {
 ///
 /// The unboxed f32, or canonical NaN if the value was not properly NaN-boxed.
 #[inline]
-pub fn unbox_f32(val: u64) -> f32 {
+pub const fn unbox_f32(val: u64) -> f32 {
     if (val & NAN_BOX_MASK) == NAN_BOX_MASK {
         f32::from_bits(val as u32)
     } else {
@@ -110,12 +110,8 @@ pub fn unbox_f32(val: u64) -> f32 {
 ///
 /// The original value if not NaN, or canonical NaN if it was any NaN.
 #[inline]
-pub fn canonicalize_f32(f: f32) -> f32 {
-    if f.is_nan() {
-        f32::from_bits(CANONICAL_NAN_F32)
-    } else {
-        f
-    }
+pub const fn canonicalize_f32(f: f32) -> f32 {
+    if f.is_nan() { f32::from_bits(CANONICAL_NAN_F32) } else { f }
 }
 
 /// Canonicalizes a double-precision floating-point result.
@@ -132,12 +128,8 @@ pub fn canonicalize_f32(f: f32) -> f32 {
 ///
 /// The original value if not NaN, or canonical NaN if it was any NaN.
 #[inline]
-pub fn canonicalize_f64(f: f64) -> f64 {
-    if f.is_nan() {
-        f64::from_bits(CANONICAL_NAN_F64)
-    } else {
-        f
-    }
+pub const fn canonicalize_f64(f: f64) -> f64 {
+    if f.is_nan() { f64::from_bits(CANONICAL_NAN_F64) } else { f }
 }
 
 /// IEEE 754-2008 `minNum` for single-precision (RISC-V FMIN.S).
@@ -158,7 +150,7 @@ pub fn canonicalize_f64(f: f64) -> f64 {
 ///
 /// The IEEE 754-2008 minimum, with canonical NaN propagation.
 #[inline]
-pub fn fmin_f32(a: f32, b: f32) -> f32 {
+pub const fn fmin_f32(a: f32, b: f32) -> f32 {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => f32::from_bits(CANONICAL_NAN_F32),
         (true, false) => b,
@@ -191,7 +183,7 @@ pub fn fmin_f32(a: f32, b: f32) -> f32 {
 ///
 /// The IEEE 754-2008 maximum, with canonical NaN propagation.
 #[inline]
-pub fn fmax_f32(a: f32, b: f32) -> f32 {
+pub const fn fmax_f32(a: f32, b: f32) -> f32 {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => f32::from_bits(CANONICAL_NAN_F32),
         (true, false) => b,
@@ -213,7 +205,7 @@ pub fn fmax_f32(a: f32, b: f32) -> f32 {
 ///
 /// Same semantics as [`fmin_f32`] but for f64 operands.
 #[inline]
-pub fn fmin_f64(a: f64, b: f64) -> f64 {
+pub const fn fmin_f64(a: f64, b: f64) -> f64 {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => f64::from_bits(CANONICAL_NAN_F64),
         (true, false) => b,
@@ -234,7 +226,7 @@ pub fn fmin_f64(a: f64, b: f64) -> f64 {
 ///
 /// Same semantics as [`fmax_f32`] but for f64 operands.
 #[inline]
-pub fn fmax_f64(a: f64, b: f64) -> f64 {
+pub const fn fmax_f64(a: f64, b: f64) -> f64 {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => f64::from_bits(CANONICAL_NAN_F64),
         (true, false) => b,

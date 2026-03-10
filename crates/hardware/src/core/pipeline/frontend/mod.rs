@@ -14,13 +14,14 @@ use std::marker::PhantomData;
 
 /// The frontend pipeline, generic over the execution engine.
 ///
-/// Same frontend code works with InOrderEngine and (future) O3Engine.
+/// Same frontend code works with `InOrderEngine` and (future) `O3Engine`.
+#[derive(Debug)]
 pub struct Frontend<E: ExecutionEngine> {
     /// Fetch1 -> Fetch2 latch.
     pub fetch1_fetch2: Vec<Fetch1Fetch2Entry>,
-    /// Fetch2 -> Decode latch (reuses IfIdEntry for I-cache result).
+    /// Fetch2 -> Decode latch (reuses `IfIdEntry` for I-cache result).
     pub fetch2_decode: Vec<IfIdEntry>,
-    /// Decode -> Rename latch (reuses IdExEntry for decoded signals).
+    /// Decode -> Rename latch (reuses `IdExEntry` for decoded signals).
     pub decode_rename: Vec<IdExEntry>,
     /// Fetch1 stall counter (I-TLB translation latency).
     pub fetch1_stall: u64,
@@ -28,7 +29,7 @@ pub struct Frontend<E: ExecutionEngine> {
     pub fetch2_stall: u64,
     /// Holding buffer for decoded instructions waiting on an I-cache miss.
     /// On a miss, fetch2 decodes into here and stalls; when the stall
-    /// expires these are moved to fetch2_decode without re-accessing the
+    /// expires these are moved to `fetch2_decode` without re-accessing the
     /// I-cache (the line was already installed on the miss).
     fetch2_pending: Vec<IfIdEntry>,
     _marker: PhantomData<E>,

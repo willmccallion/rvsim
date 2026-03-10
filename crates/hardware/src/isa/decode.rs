@@ -175,7 +175,7 @@ pub fn decode(inst: u32) -> Decoded {
 ///
 /// I-Type format: `imm[11:0] | rs1 | funct3 | rd | opcode`
 /// Used for Load, JALR, and Immediate Arithmetic instructions.
-fn decode_i_type_imm(inst: u32) -> i64 {
+const fn decode_i_type_imm(inst: u32) -> i64 {
     ((inst as i32) >> I_IMM_SHIFT) as i64
 }
 
@@ -183,7 +183,7 @@ fn decode_i_type_imm(inst: u32) -> i64 {
 ///
 /// S-Type format: `imm[11:5] | rs2 | rs1 | funct3 | imm[4:0] | opcode`
 /// Used for Store instructions.
-fn decode_s_type_imm(inst: u32) -> i64 {
+const fn decode_s_type_imm(inst: u32) -> i64 {
     let low = (inst >> S_IMM_LOW_SHIFT) & S_IMM_LOW_MASK;
     let high = (inst >> S_IMM_HIGH_SHIFT) & S_IMM_HIGH_MASK;
     let combined = (high << S_IMM_COMBINED_SHIFT) | low;
@@ -194,7 +194,7 @@ fn decode_s_type_imm(inst: u32) -> i64 {
 ///
 /// B-Type format: `imm[12] | imm[10:5] | rs2 | rs1 | funct3 | imm[4:1] | imm[11] | opcode`
 /// Used for Conditional Branch instructions. The immediate represents an even offset.
-fn decode_b_type_imm(inst: u32) -> i64 {
+const fn decode_b_type_imm(inst: u32) -> i64 {
     let bit_11 = (inst >> B_IMM_11_SHIFT) & B_IMM_11_MASK;
     let bits_4_1 = (inst >> B_IMM_4_1_SHIFT) & B_IMM_4_1_MASK;
     let bits_10_5 = (inst >> B_IMM_10_5_SHIFT) & B_IMM_10_5_MASK;
@@ -211,7 +211,7 @@ fn decode_b_type_imm(inst: u32) -> i64 {
 ///
 /// U-Type format: `imm[31:12] | rd | opcode`
 /// Used for LUI and AUIPC.
-fn decode_u_type_imm(inst: u32) -> i64 {
+const fn decode_u_type_imm(inst: u32) -> i64 {
     ((inst & U_IMM_MASK) as i32) as i64
 }
 
@@ -219,7 +219,7 @@ fn decode_u_type_imm(inst: u32) -> i64 {
 ///
 /// J-Type format: `imm[20] | imm[10:1] | imm[11] | imm[19:12] | rd | opcode`
 /// Used for JAL (Unconditional Jump).
-fn decode_j_type_imm(inst: u32) -> i64 {
+const fn decode_j_type_imm(inst: u32) -> i64 {
     let bits_19_12 = (inst >> J_IMM_19_12_SHIFT) & J_IMM_19_12_MASK;
     let bit_11 = (inst >> J_IMM_11_SHIFT) & J_IMM_11_MASK;
     let bits_10_1 = (inst >> J_IMM_10_1_SHIFT) & J_IMM_10_1_MASK;
@@ -238,7 +238,7 @@ fn decode_j_type_imm(inst: u32) -> i64 {
 ///
 /// * `val` - The value to extend.
 /// * `bits` - The number of valid bits in `val`.
-fn sign_extend(val: u32, bits: u32) -> i64 {
+const fn sign_extend(val: u32, bits: u32) -> i64 {
     let shift = INSTRUCTION_WIDTH - bits;
     ((val as i32) << shift >> shift) as i64
 }

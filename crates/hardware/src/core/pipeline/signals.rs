@@ -6,6 +6,8 @@
 //! 3. **Memory Control:** Specifies access widths and sign-extension requirements.
 //! 4. **System Control:** Manages privilege transitions and system-level instructions.
 
+use crate::common::CsrAddr;
+
 /// ALU operation types for integer and floating-point instructions.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum AluOp {
@@ -244,6 +246,49 @@ pub enum OpBSrc {
     Zero,
 }
 
+/// Control flow classification for pipeline instructions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ControlFlow {
+    /// Sequential instruction (no branch or jump).
+    #[default]
+    Sequential,
+
+    /// Conditional branch instruction.
+    Branch,
+
+    /// Unconditional jump (`JAL`/`JALR`).
+    Jump,
+}
+
+/// System operation classification.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SystemOp {
+    /// Not a system instruction.
+    #[default]
+    None,
+
+    /// `MRET` — return from machine trap.
+    Mret,
+
+    /// `SRET` — return from supervisor trap.
+    Sret,
+
+    /// `WFI` — wait for interrupt.
+    Wfi,
+
+    /// `FENCE` — memory ordering fence.
+    Fence,
+
+    /// `FENCE.I` — instruction fence.
+    FenceI,
+
+    /// `SFENCE.VMA` — supervisor memory-management fence.
+    SfenceVma,
+
+    /// Generic system instruction (CSR, ECALL) not covered by a specific variant.
+    System,
+}
+
 /// CSR (Control and Status Register) operation type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CsrOp {
@@ -275,6 +320,7 @@ pub enum CsrOp {
 /// Contains all signals generated during instruction decode that control execution
 /// and memory access throughout the pipeline stages.
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ControlSignals {
     /// Enable write to integer destination register.
     pub reg_write: bool,
@@ -284,10 +330,8 @@ pub struct ControlSignals {
     pub mem_read: bool,
     /// Enable memory write operation (store).
     pub mem_write: bool,
-    /// Instruction is a conditional branch.
-    pub branch: bool,
-    /// Instruction is an unconditional jump (`JAL`/`JALR`).
-    pub jump: bool,
+    /// Control flow type (sequential, branch, or jump).
+    pub control_flow: ControlFlow,
     /// Instruction uses 32-bit operands.
     pub is_rv32: bool,
     /// Width of memory access.
@@ -300,14 +344,10 @@ pub struct ControlSignals {
     pub a_src: OpASrc,
     /// Source selection for ALU operand B.
     pub b_src: OpBSrc,
-    /// Instruction is a system instruction.
-    pub is_system: bool,
+    /// System operation type.
+    pub system_op: SystemOp,
     /// CSR address for CSR operations.
-    pub csr_addr: u32,
-    /// Instruction is `MRET`.
-    pub is_mret: bool,
-    /// Instruction is `SRET`.
-    pub is_sret: bool,
+    pub csr_addr: CsrAddr,
     /// CSR operation type.
     pub csr_op: CsrOp,
     /// `rs1` is a floating-point register.
@@ -318,10 +358,4 @@ pub struct ControlSignals {
     pub rs3_fp: bool,
     /// Atomic memory operation type.
     pub atomic_op: AtomicOp,
-    /// Instruction is `FENCE.I`.
-    pub is_fence_i: bool,
-    /// Instruction is `SFENCE.VMA`.
-    pub is_sfence_vma: bool,
-    /// Instruction is `FENCE`.
-    pub is_fence: bool,
 }

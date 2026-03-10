@@ -24,16 +24,16 @@ impl Cpu {
     /// A `TranslationResult` containing the physical address or a trap if translation fails.
     pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType) -> TranslationResult {
         if self.direct_mode {
-            let paddr = vaddr.val();
+            let paddr = PhysAddr::new(vaddr.val());
             if !self.bus.bus.is_valid_address(paddr) {
                 let trap = match access {
-                    AccessType::Fetch => Trap::InstructionAccessFault(paddr),
-                    AccessType::Read => Trap::LoadAccessFault(paddr),
-                    AccessType::Write => Trap::StoreAccessFault(paddr),
+                    AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
+                    AccessType::Read => Trap::LoadAccessFault(vaddr.val()),
+                    AccessType::Write => Trap::StoreAccessFault(vaddr.val()),
                 };
                 return TranslationResult::fault(trap, 0);
             }
-            return TranslationResult::success(PhysAddr::new(paddr), 0);
+            return TranslationResult::success(paddr, 0);
         }
 
         // MPRV: when set and access is not Fetch, use MPP as effective privilege.
@@ -62,7 +62,7 @@ impl Cpu {
         // S/U-mode with no matching entry gets NoMatch (denied).
         if result.trap.is_none() {
             let paddr = result.paddr.val();
-            let is_machine = self.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
+            let is_machine = effective_priv == crate::core::arch::mode::PrivilegeMode::Machine;
             let pmp_result = self.pmp.check(
                 paddr,
                 1,
@@ -92,19 +92,15 @@ impl Cpu {
     pub fn simulate_l1d_miss_latency(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self
-            .bus
-            .mem_controller
-            .access_latency(raw_addr, self.csrs.cycle);
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
         let next_lat = ram_latency;
         let is_write = matches!(access, AccessType::Write);
         let inclusion = self.inclusion_policy;
 
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) = self
-                .l2_cache
-                .access_tracked_split(raw_addr, is_write, next_lat);
+            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) =
+                self.l2_cache.access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l2_pen;
 
             // Filter and install L2 prefetch candidates through the shared filter
@@ -134,9 +130,8 @@ impl Cpu {
 
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) = self
-                .l3_cache
-                .access_tracked_split(raw_addr, is_write, next_lat);
+            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) =
+                self.l3_cache.access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l3_pen;
 
             // Filter and install L3 prefetch candidates
@@ -148,7 +143,7 @@ impl Cpu {
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
             if inclusion == InclusionPolicy::Inclusive {
                 for ev in l3_evictions.iter().chain(pf_evictions.iter()) {
-                    self.l2_cache.invalidate_line(ev.addr);
+                    let _ = self.l2_cache.invalidate_line(ev.addr);
                     if self.l1_d_cache.invalidate_line(ev.addr) {
                         self.stats.inclusion_back_invalidations += 1;
                     }
@@ -184,21 +179,14 @@ impl Cpu {
     pub fn simulate_memory_access(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self
-            .bus
-            .mem_controller
-            .access_latency(raw_addr, self.csrs.cycle);
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
         let next_lat = ram_latency;
         let is_inst = matches!(access, AccessType::Fetch);
         let is_write = matches!(access, AccessType::Write);
         let inclusion = self.inclusion_policy;
 
         // Determine which L1 cache applies
-        let l1_enabled = if is_inst {
-            self.l1_i_cache.enabled
-        } else {
-            self.l1_d_cache.enabled
-        };
+        let l1_enabled = if is_inst { self.l1_i_cache.enabled } else { self.l1_d_cache.enabled };
 
         // If no cache level is enabled, every access goes directly to DRAM.
         // The access still pays bus transit + DRAM latency — disabling
@@ -213,14 +201,12 @@ impl Cpu {
         // L1 access with eviction tracking + prefetch candidates split out
         let (l1_hit, l1_pen, l1_evictions, l1_prefetches) = if is_inst {
             if self.l1_i_cache.enabled {
-                self.l1_i_cache
-                    .access_tracked_split(raw_addr, false, next_lat)
+                self.l1_i_cache.access_tracked_split(raw_addr, false, next_lat)
             } else {
                 (false, 0, Vec::new(), Vec::new())
             }
         } else if self.l1_d_cache.enabled {
-            self.l1_d_cache
-                .access_tracked_split(raw_addr, is_write, next_lat)
+            self.l1_d_cache.access_tracked_split(raw_addr, is_write, next_lat)
         } else {
             (false, 0, Vec::new(), Vec::new())
         };
@@ -239,8 +225,7 @@ impl Cpu {
         // Exclusive policy: L1 eviction → install evicted line into L2
         if inclusion == InclusionPolicy::Exclusive && self.l2_cache.enabled {
             for ev in l1_evictions.iter().chain(l1_pf_evictions.iter()) {
-                self.l2_cache
-                    .install_or_replace(ev.addr, ev.dirty, next_lat);
+                let _ = self.l2_cache.install_or_replace(ev.addr, ev.dirty, next_lat);
                 self.stats.exclusive_l1_to_l2_swaps += 1;
             }
         }
@@ -262,9 +247,8 @@ impl Cpu {
 
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) = self
-                .l2_cache
-                .access_tracked_split(raw_addr, is_write, next_lat);
+            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) =
+                self.l2_cache.access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l2_pen;
 
             // Filter and install L2 prefetch candidates
@@ -287,7 +271,7 @@ impl Cpu {
 
             // Exclusive policy: on L2 hit, remove from L2 (data moves to L1 exclusively)
             if inclusion == InclusionPolicy::Exclusive && l2_hit {
-                self.l2_cache.invalidate_line(raw_addr);
+                let _ = self.l2_cache.invalidate_line(raw_addr);
             }
 
             if l2_hit {
@@ -299,9 +283,8 @@ impl Cpu {
 
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) = self
-                .l3_cache
-                .access_tracked_split(raw_addr, is_write, next_lat);
+            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) =
+                self.l3_cache.access_tracked_split(raw_addr, is_write, next_lat);
             total_penalty += l3_pen;
 
             // Filter and install L3 prefetch candidates
@@ -313,7 +296,7 @@ impl Cpu {
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
             if inclusion == InclusionPolicy::Inclusive {
                 for ev in l3_evictions.iter().chain(l3_pf_evictions.iter()) {
-                    self.l2_cache.invalidate_line(ev.addr);
+                    let _ = self.l2_cache.invalidate_line(ev.addr);
                     if self.l1_d_cache.invalidate_line(ev.addr) {
                         self.stats.inclusion_back_invalidations += 1;
                     }
@@ -334,5 +317,44 @@ impl Cpu {
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);
         total_penalty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::soc::builder::System;
+
+    #[test]
+    fn test_translate_direct_mode() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // RAM_BASE = 0x8000_0000 by default. It's a valid address.
+        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read);
+        assert_eq!(result.paddr.val(), 0x8000_0000);
+        assert!(result.trap.is_none());
+
+        // Test invalid address translation trap in direct mode
+        let result = cpu.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch);
+        assert!(result.trap.is_some());
+    }
+
+    #[test]
+    fn test_simulate_memory_access_no_caches() {
+        let mut config = Config::default();
+        config.cache.l1_i.enabled = false;
+        config.cache.l1_d.enabled = false;
+        config.cache.l2.enabled = false;
+        config.cache.l3.enabled = false;
+
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        let penalty = cpu.simulate_memory_access(PhysAddr::new(0x8000_0000), AccessType::Read);
+        assert!(penalty > 0);
     }
 }

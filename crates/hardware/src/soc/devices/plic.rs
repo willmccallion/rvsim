@@ -31,6 +31,7 @@ const NUM_CONTEXTS: usize = 2;
 const ENABLE_WORDS_PER_CONTEXT: usize = 32;
 
 /// PLIC device structure.
+#[derive(Debug)]
 pub struct Plic {
     /// Base physical address of the device.
     base_addr: u64,
@@ -155,7 +156,7 @@ impl Plic {
 
 impl Device for Plic {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "PLIC"
     }
     /// Returns the address range (Base, Size).
@@ -251,15 +252,15 @@ impl Device for Plic {
         }
     }
 
-    /// Reads a byte (delegates to read_u32).
+    /// Reads a byte (delegates to `read_u32`).
     fn read_u8(&mut self, offset: u64) -> u8 {
         (self.read_u32(offset & !3) >> ((offset & 3) * 8)) as u8
     }
-    /// Reads a half-word (delegates to read_u32).
+    /// Reads a half-word (delegates to `read_u32`).
     fn read_u16(&mut self, offset: u64) -> u16 {
         (self.read_u32(offset & !3) >> ((offset & 3) * 8)) as u16
     }
-    /// Reads a double-word (delegates to read_u32).
+    /// Reads a double-word (delegates to `read_u32`).
     fn read_u64(&mut self, offset: u64) -> u64 {
         self.read_u32(offset) as u64
     }
@@ -282,7 +283,7 @@ impl Device for Plic {
         let new = (old & mask) | ((val as u32) << byte_pos);
         self.write_u32(aligned, new);
     }
-    /// Writes a double-word (delegates to write_u32).
+    /// Writes a double-word (delegates to `write_u32`).
     fn write_u64(&mut self, offset: u64, val: u64) {
         self.write_u32(offset, val as u32);
     }

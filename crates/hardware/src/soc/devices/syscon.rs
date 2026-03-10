@@ -15,7 +15,8 @@ use crate::soc::devices::Device;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// SysCon device structure.
+/// `SysCon` device structure.
+#[derive(Debug)]
 pub struct SysCon {
     /// Base physical address of the device.
     base_addr: u64,
@@ -24,23 +25,20 @@ pub struct SysCon {
 }
 
 impl SysCon {
-    /// Creates a new SysCon device.
+    /// Creates a new `SysCon` device.
     ///
     /// # Arguments
     ///
     /// * `base_addr` - The base physical address.
     /// * `exit_signal` - Shared atomic for signaling exit codes.
-    pub fn new(base_addr: u64, exit_signal: Arc<AtomicU64>) -> Self {
-        Self {
-            base_addr,
-            exit_signal,
-        }
+    pub const fn new(base_addr: u64, exit_signal: Arc<AtomicU64>) -> Self {
+        Self { base_addr, exit_signal }
     }
 }
 
 impl Device for SysCon {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "SysCon"
     }
 
@@ -79,22 +77,22 @@ impl Device for SysCon {
             match val {
                 0x5555 => {
                     println!("[SysCon] Poweroff signal received.");
-                    self.exit_signal.store(0, Ordering::Relaxed)
+                    self.exit_signal.store(0, Ordering::Relaxed);
                 }
                 0x7777 => {
                     println!("[SysCon] Reset signal received (Simulated as Exit).");
-                    self.exit_signal.store(0, Ordering::Relaxed)
+                    self.exit_signal.store(0, Ordering::Relaxed);
                 }
                 0x3333 => {
                     println!("[SysCon] Failure signal received.");
-                    self.exit_signal.store(1, Ordering::Relaxed)
+                    self.exit_signal.store(1, Ordering::Relaxed);
                 }
                 _ => {}
             }
         }
     }
 
-    /// Writes a double-word (delegates to write_u32).
+    /// Writes a double-word (delegates to `write_u32`).
     fn write_u64(&mut self, offset: u64, val: u64) {
         self.write_u32(offset, val as u32);
     }

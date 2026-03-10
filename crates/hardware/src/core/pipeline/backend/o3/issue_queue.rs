@@ -2,16 +2,18 @@
 //!
 //! Instructions dispatched from rename sit in the issue queue until all source
 //! operands are ready. The wakeup/select logic allows out-of-order issue:
-//! - **Wakeup (PRF path)**: when an instruction completes, its PhysReg is broadcast
+//! - **Wakeup (PRF path)**: when an instruction completes, its `PhysReg` is broadcast
 //!   to all waiting entries, marking matching source operands as ready.
 //! - **Wakeup (legacy path)**: when an instruction completes, its ROB tag is broadcast.
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
+use crate::common::RegIdx;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
+use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 
 /// State of a single source operand in an issue queue entry (PRF path).
@@ -45,6 +47,7 @@ pub struct IssueQueueEntry {
 }
 
 /// CAM-style issue queue with wakeup and oldest-first select.
+#[derive(Debug)]
 pub struct IssueQueue {
     /// Fixed-size slot array. `None` = free slot.
     slots: Vec<Option<IssueQueueEntry>>,
@@ -59,11 +62,7 @@ impl IssueQueue {
     pub fn new(capacity: usize) -> Self {
         let mut slots = Vec::with_capacity(capacity);
         slots.resize_with(capacity, || None);
-        Self {
-            slots,
-            capacity,
-            count: 0,
-        }
+        Self { slots, capacity, count: 0 }
     }
 
     /// Dispatch an instruction from rename into the first free slot.
@@ -115,12 +114,7 @@ impl IssueQueue {
             (s1, s2, s3)
         };
 
-        let iq_entry = IssueQueueEntry {
-            entry,
-            src1,
-            src2,
-            src3,
-        };
+        let iq_entry = IssueQueueEntry { entry, src1, src2, src3 };
 
         // Find first free slot
         for slot in &mut self.slots {
@@ -228,7 +222,7 @@ impl IssueQueue {
         }
     }
 
-    /// Select up to `width` ready entries, oldest first (lowest rob_tag.0).
+    /// Select up to `width` ready entries, oldest first (lowest `rob_tag.0`).
     ///
     /// Selected entries have their `rv1/rv2/rv3` fields populated from the
     /// resolved operand values. The slots are freed.
@@ -238,7 +232,7 @@ impl IssueQueue {
     /// operand was speculatively woken by a load that hasn't completed yet.
     /// Such entries are skipped (not issued).
     ///
-    /// Loads (mem_read) are not selected if there are older unresolved stores
+    /// Loads (`mem_read`) are not selected if there are older unresolved stores
     /// in the store buffer (stores whose physical address is not yet known).
     /// This prevents memory ordering violations where a load could bypass an
     /// older store to the same address.
@@ -267,13 +261,11 @@ impl IssueQueue {
                 // PRF validation: if an operand was speculatively woken (IQ says
                 // ready) but the PRF still says not-ready, the speculative wakeup
                 // hasn't been confirmed yet — treat as not ready.
-                let prf_valid = if let Some(prf) = prf {
+                let prf_valid = prf.is_none_or(|prf| {
                     Self::prf_validated(&iq.src1, prf)
                         && Self::prf_validated(&iq.src2, prf)
                         && Self::prf_validated(&iq.src3, prf)
-                } else {
-                    true
-                };
+                });
                 let all_ready = all_ready && prf_valid;
                 if all_ready {
                     // Loads must wait for all older stores to have resolved addresses
@@ -284,11 +276,13 @@ impl IssueQueue {
                     }
                     // System/CSR instructions are serializing: wait for all
                     // older instructions to complete before issuing.
-                    if iq.entry.ctrl.is_system && !rob.all_before_completed(iq.entry.rob_tag) {
+                    if iq.entry.ctrl.system_op != SystemOp::None
+                        && !rob.all_before_completed(iq.entry.rob_tag)
+                    {
                         continue;
                     }
                     // FENCE: wait for older operations matching pred bits to complete.
-                    if iq.entry.ctrl.is_fence {
+                    if iq.entry.ctrl.system_op == SystemOp::Fence {
                         let pred_bits = ((iq.entry.inst >> 24) & 0xF) as u8;
                         let pred_r = pred_bits & 0b0010 != 0;
                         let pred_w = pred_bits & 0b0001 != 0;
@@ -312,7 +306,7 @@ impl IssueQueue {
         }
 
         // Sort by rob_tag (oldest first = lowest tag value)
-        ready_indices.sort_by_key(|&i| self.slots[i].as_ref().unwrap().entry.rob_tag.0);
+        ready_indices.sort_by_key(|&i| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
 
         // Take up to `width`, respecting per-type port limits
         let mut result = Vec::with_capacity(width);
@@ -322,7 +316,8 @@ impl IssueQueue {
             if result.len() >= width {
                 break;
             }
-            let ctrl = &self.slots[idx].as_ref().unwrap().entry.ctrl;
+            let Some(slot) = self.slots[idx].as_ref() else { continue };
+            let ctrl = &slot.entry.ctrl;
             let is_load = ctrl.mem_read;
             let is_store = ctrl.mem_write;
             if is_load && loads_issued >= load_ports {
@@ -332,7 +327,7 @@ impl IssueQueue {
                 continue;
             }
 
-            let iq = self.slots[idx].take().unwrap();
+            let Some(iq) = self.slots[idx].take() else { continue };
             self.count -= 1;
             if is_load {
                 loads_issued += 1;
@@ -382,15 +377,11 @@ impl IssueQueue {
             return src.value;
         }
         // Speculative: PRF has the authoritative value.
-        if let Some(prf) = prf {
-            prf.read(src.phys)
-        } else {
-            src.value
-        }
+        prf.map_or(src.value, |prf| prf.read(src.phys))
     }
 
     /// Number of free slots available for dispatch.
-    pub fn available_slots(&self) -> usize {
+    pub const fn available_slots(&self) -> usize {
         self.capacity - self.count
     }
 
@@ -402,11 +393,11 @@ impl IssueQueue {
         self.count = 0;
     }
 
-    /// Flush entries with `rob_tag.0 > keep_tag.0`.
+    /// Flush entries newer than `keep_tag`.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         for slot in &mut self.slots {
             if let Some(iq) = slot
-                && iq.entry.rob_tag.0 > keep_tag.0
+                && iq.entry.rob_tag.is_newer_than(keep_tag)
             {
                 *slot = None;
                 self.count -= 1;
@@ -414,7 +405,7 @@ impl IssueQueue {
         }
     }
 
-    /// Return a snapshot of all entries in the queue (sorted by rob_tag, oldest first).
+    /// Return a snapshot of all entries in the queue (sorted by `rob_tag`, oldest first).
     pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry> {
         let mut entries: Vec<&IssueQueueEntry> =
             self.slots.iter().filter_map(|s| s.as_ref()).collect();
@@ -423,26 +414,26 @@ impl IssueQueue {
     }
 
     /// Whether the queue is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Current number of entries.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.count
     }
 }
 
 /// Resolve an operand via the PRF (O3 path).
 fn resolve_operand_prf(
-    reg: usize,
+    reg: RegIdx,
     is_fp: bool,
     phys: PhysReg,
     prf: &PhysRegFile,
     _cpu: &Cpu,
 ) -> OperandState {
     // x0 is hardwired zero
-    if !is_fp && reg == 0 {
+    if !is_fp && reg.is_zero() {
         return OperandState {
             phys: PhysReg(0),
             tag: None,
@@ -453,13 +444,7 @@ fn resolve_operand_prf(
     }
 
     if prf.is_ready(phys) {
-        OperandState {
-            phys,
-            tag: None,
-            ready: true,
-            value: prf.read(phys),
-            speculative: false,
-        }
+        OperandState { phys, tag: None, ready: true, value: prf.read(phys), speculative: false }
     } else {
         // Not ready yet — will be woken up by wakeup_phys
         // For x0 (phys == PhysReg(0)), always ready
@@ -472,26 +457,20 @@ fn resolve_operand_prf(
                 speculative: false,
             };
         }
-        OperandState {
-            phys,
-            tag: None,
-            ready: false,
-            value: 0,
-            speculative: false,
-        }
+        OperandState { phys, tag: None, ready: false, value: 0, speculative: false }
     }
 }
 
 /// Resolve an operand's initial state at dispatch time (legacy scoreboard path).
 fn resolve_operand_legacy(
-    reg: usize,
+    reg: RegIdx,
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
     cpu: &Cpu,
 ) -> OperandState {
     // x0 is hardwired zero
-    if !is_fp && reg == 0 {
+    if !is_fp && reg.is_zero() {
         return OperandState {
             phys: PhysReg(0),
             tag: None,
@@ -501,23 +480,13 @@ fn resolve_operand_legacy(
         };
     }
 
-    match tag {
-        None => {
+    tag.map_or_else(
+        || {
             // No in-flight producer — read from architectural register file
-            let value = if is_fp {
-                cpu.regs.read_f(reg)
-            } else {
-                cpu.regs.read(reg)
-            };
-            OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value,
-                speculative: false,
-            }
-        }
-        Some(t) => {
+            let value = if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) };
+            OperandState { phys: PhysReg(0), tag: None, ready: true, value, speculative: false }
+        },
+        |t| {
             // Check if ROB entry has completed
             match rob.find_entry(t) {
                 Some(entry) if entry.state == RobState::Completed => OperandState {
@@ -536,11 +505,7 @@ fn resolve_operand_legacy(
                 },
                 None => {
                     // ROB entry already committed — read from register file
-                    let value = if is_fp {
-                        cpu.regs.read_f(reg)
-                    } else {
-                        cpu.regs.read(reg)
-                    };
+                    let value = if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) };
                     OperandState {
                         phys: PhysReg(0),
                         tag: None,
@@ -550,13 +515,14 @@ fn resolve_operand_legacy(
                     }
                 }
             }
-        }
-    }
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::InstSize;
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
@@ -567,11 +533,11 @@ mod tests {
             rob_tag: RobTag(rob_tag),
             pc: 0x1000 + (rob_tag as u64) * 4,
             inst: 0x13, // NOP
-            inst_size: 4,
-            rs1: 0,
-            rs2: 0,
-            rs3: 0,
-            rd: 1,
+            inst_size: InstSize::Standard,
+            rs1: RegIdx::new(0),
+            rs2: RegIdx::new(0),
+            rs3: RegIdx::new(0),
+            rd: RegIdx::new(1),
             imm: 0,
             rv1: 0,
             rv2: 0,
@@ -631,14 +597,8 @@ mod tests {
         });
         iq.count = 1;
 
-        let selected = iq.select(
-            4,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rob_tag.0, 1);
         assert_eq!(selected[0].rv1, 42);
@@ -655,13 +615,7 @@ mod tests {
         let entry = make_entry(10);
         iq.slots[0] = Some(IssueQueueEntry {
             entry,
-            src1: OperandState {
-                phys: p5,
-                tag: None,
-                ready: false,
-                value: 0,
-                speculative: false,
-            },
+            src1: OperandState { phys: p5, tag: None, ready: false, value: 0, speculative: false },
             src2: OperandState {
                 phys: PhysReg(0),
                 tag: None,
@@ -680,28 +634,16 @@ mod tests {
         iq.count = 1;
 
         // Not ready yet
-        let selected = iq.select(
-            4,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 0);
 
         // Wakeup with phys reg 5
         iq.wakeup_phys(p5, 999);
 
         // Now should be selectable
-        let selected = iq.select(
-            4,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rv1, 999);
     }
@@ -741,14 +683,8 @@ mod tests {
         // Wakeup with tag 5
         iq.wakeup(RobTag(5), 999);
 
-        let selected = iq.select(
-            4,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rv1, 999);
     }
@@ -787,28 +723,16 @@ mod tests {
         iq.count = 3;
 
         // Select width=2 should get tags 1 and 2 (oldest first)
-        let selected = iq.select(
-            2,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].rob_tag.0, 1);
         assert_eq!(selected[1].rob_tag.0, 2);
         assert_eq!(iq.len(), 1);
 
         // Remaining is tag 3
-        let selected = iq.select(
-            4,
-            &StoreBuffer::new(16),
-            &Rob::new(64),
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+        let selected =
+            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].rob_tag.0, 3);
     }
@@ -896,18 +820,9 @@ mod tests {
             entry.ctrl.mem_write = is_store;
             iq.slots[slot] = Some(IssueQueueEntry {
                 entry,
-                src1: OperandState {
-                    ready: true,
-                    ..Default::default()
-                },
-                src2: OperandState {
-                    ready: true,
-                    ..Default::default()
-                },
-                src3: OperandState {
-                    ready: true,
-                    ..Default::default()
-                },
+                src1: OperandState { ready: true, ..Default::default() },
+                src2: OperandState { ready: true, ..Default::default() },
+                src3: OperandState { ready: true, ..Default::default() },
             });
         }
         iq.count = 5;

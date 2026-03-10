@@ -28,7 +28,7 @@ const SHAMT_MASK_RV32: u32 = 0x1f;
 ///
 /// The 64-bit result. For 32-bit operations the result is sign-extended
 /// from bit 31. Returns `0` for non-shift opcodes.
-pub fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
     let sh6 = (b & SHAMT_MASK_RV64) as u32;
     match op {
         AluOp::Sll => {

@@ -7,11 +7,12 @@
 //! 3. **Register Read:** Reads source operands (rs1, rs2, rs3) from the register file.
 //! 4. **Control Generation:** Generates ALU, Memory, and CSR control signals.
 
+use crate::common::RegIdx;
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::pipeline::signals::{
-    AluOp, AtomicOp, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc,
+    AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
 };
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
@@ -61,15 +62,15 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         }
         i_opcodes::OP_JAL => {
             c.reg_write = true;
-            c.jump = true;
+            c.control_flow = ControlFlow::Jump;
         }
         i_opcodes::OP_JALR => {
             c.reg_write = true;
-            c.jump = true;
+            c.control_flow = ControlFlow::Jump;
             c.alu = AluOp::Add;
         }
         i_opcodes::OP_BRANCH => {
-            c.branch = true;
+            c.control_flow = ControlFlow::Branch;
             c.b_src = OpBSrc::Reg2;
         }
         i_opcodes::OP_LOAD => {
@@ -268,7 +269,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     c.rs1_fp = true;
-                    match d.rs2 {
+                    match d.rs2.as_u8() {
                         0 => AluOp::FCvtWS,
                         1 => AluOp::FCvtWUS,
                         2 => AluOp::FCvtLS,
@@ -280,7 +281,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     c.rs1_fp = false;
                     c.fp_reg_write = true;
                     c.a_src = OpASrc::Reg1;
-                    match d.rs2 {
+                    match d.rs2.as_u8() {
                         0 => AluOp::FCvtSW,
                         1 => AluOp::FCvtSWU,
                         2 => AluOp::FCvtSL,
@@ -311,20 +312,20 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             };
         }
         sys_ops::OP_SYSTEM => {
-            c.is_system = true;
             // SFENCE.VMA is R-type: funct7=0x09, rs2, rs1, funct3=0, rd=0.
             // Mask out rs1 (bits 19:15) and rs2 (bits 24:20) for matching.
             if (inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
-                c.is_sfence_vma = true;
+                c.system_op = SystemOp::SfenceVma;
             } else {
                 match d.raw {
-                    sys_ops::ECALL => {}
                     sys_ops::EBREAK => return Err(Trap::Breakpoint(pc)),
-                    sys_ops::MRET => c.is_mret = true,
-                    sys_ops::SRET => c.is_sret = true,
-                    sys_ops::WFI => {}
+                    sys_ops::MRET => c.system_op = SystemOp::Mret,
+                    sys_ops::SRET => c.system_op = SystemOp::Sret,
+                    sys_ops::WFI => c.system_op = SystemOp::Wfi,
+                    sys_ops::ECALL => c.system_op = SystemOp::System,
                     _ => {
                         if d.funct3 != 0 {
+                            c.system_op = SystemOp::System;
                             c.csr_addr = inst.csr();
                             c.a_src = OpASrc::Reg1;
                             c.b_src = OpBSrc::Zero;
@@ -337,15 +338,15 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                                 sys_ops::CSRRCI => CsrOp::Rci,
                                 _ => CsrOp::None,
                             };
-                            c.reg_write = d.rd != 0;
+                            c.reg_write = !d.rd.is_zero();
                         }
                     }
                 }
             }
         }
         i_opcodes::OP_MISC_MEM => match d.funct3 {
-            i_funct3::FENCE => c.is_fence = true,
-            i_funct3::FENCE_I => c.is_fence_i = true,
+            i_funct3::FENCE => c.system_op = SystemOp::Fence,
+            i_funct3::FENCE_I => c.system_op = SystemOp::FenceI,
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
         _ => return Err(Trap::IllegalInstruction(inst)),
@@ -355,11 +356,11 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
 
 /// Executes the decode stage.
 ///
-/// Consumes Fetch2->Decode entries (IfIdEntry) and produces
-/// Decode->Rename entries (IdExEntry).
+/// Consumes Fetch2->Decode entries (`IfIdEntry`) and produces
+/// Decode->Rename entries (`IdExEntry`).
 pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<IdExEntry>) {
     let mut consumed_count = 0;
-    let mut bundle_writes: Vec<(usize, bool)> = Vec::with_capacity(cpu.pipeline_width);
+    let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(cpu.pipeline_width);
     let mut broke_on_trap = false;
 
     for if_entry in input.iter() {
@@ -388,52 +389,30 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
 
         let (ctrl, trap, ex_stage) = match decode_instruction(inst, if_entry.pc, &d) {
             Ok(c) => (c, None, None),
-            Err(t) => (
-                ControlSignals::default(),
-                Some(t),
-                Some(ExceptionStage::Decode),
-            ),
+            Err(t) => (ControlSignals::default(), Some(t), Some(ExceptionStage::Decode)),
         };
 
         // Check for intra-bundle hazards (superscalar)
-        let mut hazard = false;
-        if (d.rs1 != 0 || ctrl.rs1_fp) && bundle_writes.contains(&(d.rs1, ctrl.rs1_fp)) {
-            hazard = true;
-        }
-        if (d.rs2 != 0 || ctrl.rs2_fp) && bundle_writes.contains(&(d.rs2, ctrl.rs2_fp)) {
-            hazard = true;
-        }
         let rs3_idx = inst.rs3();
-        if ctrl.rs3_fp && bundle_writes.contains(&(rs3_idx, true)) {
-            hazard = true;
-        }
+        let hazard = ((!d.rs1.is_zero() || ctrl.rs1_fp)
+            && bundle_writes.contains(&(d.rs1, ctrl.rs1_fp)))
+            || ((!d.rs2.is_zero() || ctrl.rs2_fp) && bundle_writes.contains(&(d.rs2, ctrl.rs2_fp)))
+            || (ctrl.rs3_fp && bundle_writes.contains(&(rs3_idx, true)));
 
         if hazard {
             break;
         }
 
-        if ctrl.reg_write && d.rd != 0 {
+        if ctrl.reg_write && !d.rd.is_zero() {
             bundle_writes.push((d.rd, false));
         }
         if ctrl.fp_reg_write {
             bundle_writes.push((d.rd, true));
         }
 
-        let rv1 = if ctrl.rs1_fp {
-            cpu.regs.read_f(d.rs1)
-        } else {
-            cpu.regs.read(d.rs1)
-        };
-        let rv2 = if ctrl.rs2_fp {
-            cpu.regs.read_f(d.rs2)
-        } else {
-            cpu.regs.read(d.rs2)
-        };
-        let rv3 = if ctrl.rs3_fp {
-            cpu.regs.read_f(rs3_idx)
-        } else {
-            0
-        };
+        let rv1 = if ctrl.rs1_fp { cpu.regs.read_f(d.rs1) } else { cpu.regs.read(d.rs1) };
+        let rv2 = if ctrl.rs2_fp { cpu.regs.read_f(d.rs2) } else { cpu.regs.read(d.rs2) };
+        let rv3 = if ctrl.rs3_fp { cpu.regs.read_f(rs3_idx) } else { 0 };
 
         let has_trap = trap.is_some();
 
@@ -468,9 +447,9 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
 
     // Remove consumed entries from input, keeping unconsumed ones
     if broke_on_trap || consumed_count >= input.len() {
-        input.drain(..consumed_count);
+        let _ = input.drain(..consumed_count);
     } else {
         // Intra-bundle hazard stopped us early — drain consumed entries
-        input.drain(..consumed_count);
+        let _ = input.drain(..consumed_count);
     }
 }

@@ -21,9 +21,6 @@ pub struct PyInstruction {
 #[pymethods]
 impl PyInstruction {
     fn __repr__(&self) -> String {
-        format!(
-            "Instruction(pc={:#010x}, asm={:?}, cycles={})",
-            self.pc, self.asm, self.cycles
-        )
+        format!("Instruction(pc={:#010x}, asm={:?}, cycles={})", self.pc, self.asm, self.cycles)
     }
 }

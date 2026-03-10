@@ -16,6 +16,7 @@ use crate::soc::devices::Device;
 use std::sync::Arc;
 
 /// System Memory structure.
+#[derive(Debug)]
 pub struct Memory {
     /// Shared reference to the underlying memory buffer.
     buffer: Arc<DramBuffer>,
@@ -30,7 +31,7 @@ impl Memory {
     ///
     /// * `buffer` - Shared DRAM buffer.
     /// * `base_addr` - Starting physical address.
-    pub fn new(buffer: Arc<DramBuffer>, base_addr: u64) -> Self {
+    pub const fn new(buffer: Arc<DramBuffer>, base_addr: u64) -> Self {
         Self { buffer, base_addr }
     }
 
@@ -50,7 +51,7 @@ impl Memory {
 
     /// Returns a raw mutable pointer to the underlying memory buffer.
     ///
-    /// Required for devices like VirtIO that perform direct memory access (DMA)
+    /// Required for devices like `VirtIO` that perform direct memory access (DMA)
     /// using raw pointers for performance or FFI compatibility.
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.buffer.as_mut_ptr()
@@ -59,7 +60,7 @@ impl Memory {
 
 impl Device for Memory {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "DRAM"
     }
 
@@ -76,22 +77,22 @@ impl Device for Memory {
     /// Reads a half-word (16-bit) from memory (Little Endian).
     fn read_u16(&mut self, offset: u64) -> u16 {
         let i = offset as usize;
-        let slice = self.buffer.read_slice(i, 2);
-        u16::from_le_bytes(slice.try_into().unwrap())
+        let s = self.buffer.read_slice(i, 2);
+        u16::from_le_bytes([s[0], s[1]])
     }
 
     /// Reads a word (32-bit) from memory (Little Endian).
     fn read_u32(&mut self, offset: u64) -> u32 {
         let i = offset as usize;
-        let slice = self.buffer.read_slice(i, 4);
-        u32::from_le_bytes(slice.try_into().unwrap())
+        let s = self.buffer.read_slice(i, 4);
+        u32::from_le_bytes([s[0], s[1], s[2], s[3]])
     }
 
     /// Reads a double-word (64-bit) from memory (Little Endian).
     fn read_u64(&mut self, offset: u64) -> u64 {
         let i = offset as usize;
-        let slice = self.buffer.read_slice(i, 8);
-        u64::from_le_bytes(slice.try_into().unwrap())
+        let s = self.buffer.read_slice(i, 8);
+        u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]])
     }
 
     /// Writes a byte to memory.

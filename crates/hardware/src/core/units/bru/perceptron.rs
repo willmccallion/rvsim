@@ -13,6 +13,7 @@ const THETA_COEFF: f64 = 1.93;
 const THETA_BIAS: f64 = 14.0;
 
 /// Perceptron Predictor structure.
+#[derive(Debug)]
 pub struct PerceptronPredictor {
     /// Global History Register.
     ghr: u64,
@@ -42,7 +43,7 @@ impl PerceptronPredictor {
     ) -> Self {
         let table_entries = 1 << config.table_bits;
         let hist_len = config.history_length;
-        let threshold = (THETA_COEFF * (hist_len as f64) + THETA_BIAS) as i32;
+        let threshold = THETA_COEFF.mul_add(hist_len as f64, THETA_BIAS) as i32;
         let row_size = hist_len + 1;
 
         Self {
@@ -58,7 +59,7 @@ impl PerceptronPredictor {
     }
 
     /// Calculates the index into the weight table using PC and GHR hash.
-    fn index(&self, pc: u64) -> usize {
+    const fn index(&self, pc: u64) -> usize {
         let pc_idx = (pc >> 2) as usize & self.table_mask;
         let hist_idx = (self.ghr as usize) & self.table_mask;
         pc_idx ^ hist_idx
@@ -80,7 +81,7 @@ impl PerceptronPredictor {
 }
 
 /// Clamps a weight value to the 8-bit signed integer range.
-fn clamp_weight(v: i32) -> i8 {
+const fn clamp_weight(v: i32) -> i8 {
     if v > 127 {
         127
     } else if v < -128 {
@@ -98,11 +99,7 @@ impl BranchPredictor for PerceptronPredictor {
         let idx = self.index(pc);
         let y = self.output(idx);
         let taken = y >= 0;
-        if taken {
-            (true, self.btb.lookup(pc))
-        } else {
-            (false, None)
-        }
+        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
     }
 
     /// Updates the predictor weights based on the actual outcome.
@@ -154,7 +151,7 @@ impl BranchPredictor for PerceptronPredictor {
 
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
-        self.ras.pop();
+        let _ = self.ras.pop();
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {

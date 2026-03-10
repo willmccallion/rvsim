@@ -7,6 +7,7 @@
 use super::{BranchPredictor, btb::Btb, ras::Ras};
 
 /// Static Branch Predictor structure.
+#[derive(Debug)]
 pub struct StaticPredictor {
     /// Branch Target Buffer for jump targets.
     btb: Btb,
@@ -22,10 +23,7 @@ impl StaticPredictor {
     /// * `btb_size` - Number of entries in the BTB.
     /// * `ras_size` - Capacity of the RAS.
     pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
-        Self {
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
-        }
+        Self { btb: Btb::new(btb_size, btb_ways), ras: Ras::new(ras_size) }
     }
 }
 
@@ -65,7 +63,7 @@ impl BranchPredictor for StaticPredictor {
 
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
-        self.ras.pop();
+        let _ = self.ras.pop();
     }
 
     fn snapshot_ras(&self) -> usize {

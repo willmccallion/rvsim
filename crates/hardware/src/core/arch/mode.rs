@@ -38,12 +38,11 @@ impl PrivilegeMode {
     /// # Returns
     ///
     /// The corresponding `PrivilegeMode`, defaulting to `Machine` for invalid values.
-    pub fn from_u8(val: u8) -> Self {
+    pub const fn from_u8(val: u8) -> Self {
         match val {
-            0 => PrivilegeMode::User,
-            1 => PrivilegeMode::Supervisor,
-            3 => PrivilegeMode::Machine,
-            _ => PrivilegeMode::Machine,
+            0 => Self::User,
+            1 => Self::Supervisor,
+            _ => Self::Machine,
         }
     }
 
@@ -52,7 +51,7 @@ impl PrivilegeMode {
     /// # Returns
     ///
     /// The numeric value of the privilege mode (0, 1, or 3).
-    pub fn to_u8(self) -> u8 {
+    pub const fn to_u8(self) -> u8 {
         self as u8
     }
 
@@ -61,11 +60,11 @@ impl PrivilegeMode {
     /// # Returns
     ///
     /// A static string slice containing the mode name.
-    pub fn name(&self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
-            PrivilegeMode::User => "User",
-            PrivilegeMode::Supervisor => "Supervisor",
-            PrivilegeMode::Machine => "Machine",
+            Self::User => "User",
+            Self::Supervisor => "Supervisor",
+            Self::Machine => "Machine",
         }
     }
 }
@@ -81,6 +80,6 @@ impl std::fmt::Display for PrivilegeMode {
     ///
     /// A formatting result indicating success or failure.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name())
+        f.write_str(self.name())
     }
 }

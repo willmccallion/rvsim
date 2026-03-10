@@ -6,12 +6,16 @@
 //! - If tag points to a completed ROB entry → bypass the result.
 //! - If the ROB entry is still in-flight → stall (operand not ready).
 
+use crate::common::RegIdx;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
+use crate::trace_issue;
+
 use std::collections::VecDeque;
 
 /// FIFO issue unit for in-order execution.
+#[derive(Debug)]
 pub struct InOrderIssueUnit {
     queue: VecDeque<RenameIssueEntry>,
     capacity: usize,
@@ -27,10 +31,7 @@ impl InOrderIssueUnit {
     /// than the ROB, entries would be silently dropped, leaving ROB slots
     /// permanently stuck in `Issued` state and deadlocking the pipeline.
     pub fn new(capacity: usize) -> Self {
-        Self {
-            queue: VecDeque::with_capacity(capacity),
-            capacity,
-        }
+        Self { queue: VecDeque::with_capacity(capacity), capacity }
     }
 
     /// Accept dispatched instructions from rename.
@@ -59,14 +60,13 @@ impl InOrderIssueUnit {
         let mut selected = Vec::with_capacity(width);
 
         for _ in 0..width {
-            let entry = match self.queue.front() {
-                Some(e) => e,
-                None => break,
-            };
+            let Some(entry) = self.queue.front() else { break };
 
             // Faulted instructions don't need operands — pass through
             if entry.trap.is_some() {
-                selected.push(self.queue.pop_front().unwrap());
+                if let Some(e) = self.queue.pop_front() {
+                    selected.push(e);
+                }
                 continue;
             }
 
@@ -79,24 +79,25 @@ impl InOrderIssueUnit {
                 Some(0)
             };
 
-            match (rv1, rv2, rv3) {
-                (Some(v1), Some(v2), Some(v3)) => {
-                    let mut issued = self.queue.pop_front().unwrap();
-                    issued.rv1 = v1;
-                    issued.rv2 = v2;
-                    issued.rv3 = v3;
-                    selected.push(issued);
-                }
-                _ => {
-                    // Head of queue blocked — in-order can't skip
-                    if cpu.trace {
-                        eprintln!(
-                            "IS  pc={:#x} STALL rs1={} rs1_tag={:?}={:?} rs2={} rs2_tag={:?}={:?}",
-                            entry.pc, entry.rs1, entry.rs1_tag, rv1, entry.rs2, entry.rs2_tag, rv2,
-                        );
-                    }
-                    break;
-                }
+            if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
+                let Some(mut issued) = self.queue.pop_front() else { break };
+                issued.rv1 = v1;
+                issued.rv2 = v2;
+                issued.rv3 = v3;
+                selected.push(issued);
+            } else {
+                // Head of queue blocked — in-order can't skip
+                trace_issue!(cpu.trace;
+                    pc       = %crate::trace::Hex(entry.pc),
+                    rs1      = entry.rs1.as_usize(),
+                    rs1_tag  = ?entry.rs1_tag,
+                    rs1_rdy  = rv1.is_some(),
+                    rs2      = entry.rs2.as_usize(),
+                    rs2_tag  = ?entry.rs2_tag,
+                    rs2_rdy  = rv2.is_some(),
+                    "IS: stall — operand not ready"
+                );
+                break;
             }
         }
 
@@ -133,40 +134,33 @@ impl InOrderIssueUnit {
 ///
 /// Returns `Some(value)` if the operand is ready, `None` if stalled.
 fn read_operand_by_tag(
-    reg: usize,
+    reg: RegIdx,
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
     cpu: &Cpu,
 ) -> Option<u64> {
     // x0 is hardwired zero
-    if !is_fp && reg == 0 {
+    if !is_fp && reg.is_zero() {
         return Some(0);
     }
 
-    match tag {
-        None => {
+    tag.map_or_else(
+        || {
             // No in-flight producer at rename time — read from architectural register file
-            Some(if is_fp {
-                cpu.regs.read_f(reg)
-            } else {
-                cpu.regs.read(reg)
-            })
-        }
-        Some(t) => {
+            let val = if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) };
+            Some(val)
+        },
+        |t| {
             // In-flight producer — check if ROB entry has completed
             match rob.find_entry(t) {
                 Some(entry) if entry.state == RobState::Completed => Some(entry.result),
                 Some(_) => None, // Not ready — stall
                 None => {
                     // ROB entry gone (already committed) — value is in register file
-                    Some(if is_fp {
-                        cpu.regs.read_f(reg)
-                    } else {
-                        cpu.regs.read(reg)
-                    })
+                    Some(if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) })
                 }
             }
-        }
-    }
+        },
+    )
 }

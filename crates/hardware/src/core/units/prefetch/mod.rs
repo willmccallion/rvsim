@@ -49,6 +49,7 @@ pub trait Prefetcher: Send + Sync {
 ///
 /// The filter is shared across L1 and L2 prefetchers to prevent them from issuing
 /// duplicate requests for the same address.
+#[derive(Debug)]
 pub struct PrefetchFilter {
     /// Hash table of recently-prefetched cache-line-aligned addresses.
     table: Vec<u64>,
@@ -65,11 +66,7 @@ impl PrefetchFilter {
     pub fn new(size: usize, line_bytes: usize) -> Self {
         let safe_line = if line_bytes == 0 { 64 } else { line_bytes };
         if size == 0 {
-            return Self {
-                table: Vec::new(),
-                mask: 0,
-                line_bytes: safe_line as u64,
-            };
+            return Self { table: Vec::new(), mask: 0, line_bytes: safe_line as u64 };
         }
         let actual_size = size.next_power_of_two();
         Self {
@@ -81,7 +78,7 @@ impl PrefetchFilter {
 
     /// Returns true if the filter is disabled (0 entries).
     #[inline]
-    pub fn is_disabled(&self) -> bool {
+    pub const fn is_disabled(&self) -> bool {
         self.table.is_empty()
     }
 

@@ -20,7 +20,7 @@ use crate::common::error::Trap;
 /// # Returns
 ///
 /// `true` if the access is naturally aligned.
-pub fn is_aligned(addr: u64, size: u64) -> bool {
+pub const fn is_aligned(addr: u64, size: u64) -> bool {
     if size == 0 || size == 1 {
         return true;
     }
@@ -41,7 +41,7 @@ pub fn is_aligned(addr: u64, size: u64) -> bool {
 /// # Returns
 ///
 /// `true` if the access spans multiple cache lines.
-pub fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> bool {
+pub const fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> bool {
     if size == 0 {
         return false;
     }
@@ -65,7 +65,7 @@ pub fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> bool {
 ///
 /// The additional latency penalty in cycles for this unaligned access.
 /// Returns 0 for aligned accesses.
-pub fn calculate_unaligned_latency(addr: u64, size: u64, cache_line_size: u64) -> u64 {
+pub const fn calculate_unaligned_latency(addr: u64, size: u64, cache_line_size: u64) -> u64 {
     // Aligned accesses have no penalty
     if is_aligned(addr, size) {
         return 0;
@@ -89,7 +89,7 @@ pub fn calculate_unaligned_latency(addr: u64, size: u64, cache_line_size: u64) -
 /// # Returns
 ///
 /// `Trap::LoadAddressMisaligned` with the faulting address.
-pub fn load_misaligned_trap(addr: u64) -> Trap {
+pub const fn load_misaligned_trap(addr: u64) -> Trap {
     Trap::LoadAddressMisaligned(addr)
 }
 
@@ -102,7 +102,7 @@ pub fn load_misaligned_trap(addr: u64) -> Trap {
 /// # Returns
 ///
 /// `Trap::StoreAddressMisaligned` with the faulting address.
-pub fn store_misaligned_trap(addr: u64) -> Trap {
+pub const fn store_misaligned_trap(addr: u64) -> Trap {
     Trap::StoreAddressMisaligned(addr)
 }
 
@@ -110,12 +110,12 @@ pub fn store_misaligned_trap(addr: u64) -> Trap {
 ///
 /// # Arguments
 ///
-/// * `width` - The MemWidth enum value
+/// * `width` - The `MemWidth` enum value
 ///
 /// # Returns
 ///
 /// The size in bytes (0 for Nop, 1/2/4/8 for actual operations)
-pub fn width_to_bytes(width: crate::core::pipeline::signals::MemWidth) -> u64 {
+pub const fn width_to_bytes(width: crate::core::pipeline::signals::MemWidth) -> u64 {
     use crate::core::pipeline::signals::MemWidth;
     match width {
         MemWidth::Nop => 0,

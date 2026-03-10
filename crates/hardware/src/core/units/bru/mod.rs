@@ -38,11 +38,17 @@ use crate::config::{BranchPredictor as BpType, Config};
 
 /// Enum wrapper for static dispatch of Branch Predictors.
 /// This avoids vtable lookups in the critical fetch loop.
+#[derive(Debug)]
 pub enum BranchPredictorWrapper {
+    /// Static (always not-taken) predictor.
     Static(StaticPredictor),
+    /// Global history (gshare) predictor.
     GShare(GSharePredictor),
+    /// Tournament predictor combining local and global histories.
     Tournament(TournamentPredictor),
+    /// TAGE predictor with geometric history lengths.
     Tage(TagePredictor),
+    /// Perceptron-based neural predictor.
     Perceptron(PerceptronPredictor),
 }
 
@@ -65,12 +71,9 @@ impl BranchPredictorWrapper {
                 btb_ways,
                 ras_size,
             )),
-            BpType::Tage => Self::Tage(TagePredictor::new(
-                &config.pipeline.tage,
-                btb_size,
-                btb_ways,
-                ras_size,
-            )),
+            BpType::Tage => {
+                Self::Tage(TagePredictor::new(&config.pipeline.tage, btb_size, btb_ways, ras_size))
+            }
             BpType::Perceptron => Self::Perceptron(PerceptronPredictor::new(
                 &config.pipeline.perceptron,
                 btb_size,
@@ -84,7 +87,7 @@ impl BranchPredictorWrapper {
 impl BranchPredictor for BranchPredictorWrapper {
     /// Predicts whether a branch at the given PC will be taken and its target.
     ///
-    /// Returns a tuple of (taken, target_opt) where target_opt is Some(target)
+    /// Returns a tuple of (taken, `target_opt`) where `target_opt` is Some(target)
     /// if the branch is predicted taken, otherwise None.
     #[inline(always)]
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {

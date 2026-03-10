@@ -9,6 +9,7 @@
 pub struct PhysReg(pub u16);
 
 /// Physical register file with per-register ready bits.
+#[derive(Debug)]
 pub struct PhysRegFile {
     values: Vec<u64>,
     ready: Vec<bool>,
@@ -22,10 +23,7 @@ impl PhysRegFile {
         if total > 0 {
             ready[0] = true; // PhysReg(0) always ready
         }
-        Self {
-            values: vec![0u64; total],
-            ready,
-        }
+        Self { values: vec![0u64; total], ready }
     }
 
     /// Write a result to a physical register and mark it ready.
@@ -45,27 +43,19 @@ impl PhysRegFile {
     #[inline]
     pub fn read(&self, p: PhysReg) -> u64 {
         let idx = p.0 as usize;
-        if idx < self.values.len() {
-            self.values[idx]
-        } else {
-            0
-        }
+        if idx < self.values.len() { self.values[idx] } else { 0 }
     }
 
     /// Returns true if the physical register value is available.
     #[inline]
     pub fn is_ready(&self, p: PhysReg) -> bool {
         let idx = p.0 as usize;
-        if idx < self.ready.len() {
-            self.ready[idx]
-        } else {
-            false
-        }
+        if idx < self.ready.len() { self.ready[idx] } else { false }
     }
 
     /// Mark the first `num_arch` physical registers as ready (initial arch state).
     ///
-    /// Called once at engine init: the identity-mapped registers (0..num_arch)
+    /// Called once at engine init: the identity-mapped registers (`0..num_arch`)
     /// represent the architectural register file at startup. They are all readable
     /// with value 0 until a rename allocates a fresh register for them.
     pub fn mark_arch_ready(&mut self, num_arch: usize) {
@@ -89,7 +79,7 @@ impl PhysRegFile {
     }
 
     /// Total number of physical registers.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.values.len()
     }
 }

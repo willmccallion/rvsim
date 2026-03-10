@@ -7,7 +7,8 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
-use crate::common::error::{ExceptionStage, Trap};
+use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
+use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
@@ -23,7 +24,7 @@ pub struct IfIdEntry {
     /// 32-bit instruction encoding.
     pub inst: u32,
     /// Size of the instruction in bytes (2 for compressed, 4 for standard).
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Whether the branch predictor predicted this instruction as taken.
     pub pred_taken: bool,
     /// Predicted target address for branch/jump instructions.
@@ -49,15 +50,15 @@ pub struct IdExEntry {
     /// 32-bit instruction encoding.
     pub inst: u32,
     /// Size of the instruction in bytes.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// First source register index (rs1).
-    pub rs1: usize,
+    pub rs1: RegIdx,
     /// Second source register index (rs2).
-    pub rs2: usize,
+    pub rs2: RegIdx,
     /// Third source register index (rs3).
-    pub rs3: usize,
+    pub rs3: RegIdx,
     /// Destination register index (rd).
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Sign-extended immediate value.
     pub imm: i64,
     /// Value read from rs1 register.
@@ -92,9 +93,9 @@ pub struct ExMemEntry {
     /// 32-bit instruction encoding.
     pub inst: u32,
     /// Size of the instruction in bytes.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register index (rd).
-    pub rd: usize,
+    pub rd: RegIdx,
     /// ALU computation result or address for memory operations.
     pub alu: u64,
     /// Data to be stored (for store instructions).
@@ -117,9 +118,9 @@ pub struct MemWbEntry {
     /// 32-bit instruction encoding.
     pub inst: u32,
     /// Size of the instruction in bytes.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register index (rd).
-    pub rd: usize,
+    pub rd: RegIdx,
     /// ALU computation result (for non-load instructions).
     pub alu: u64,
     /// Data loaded from memory (for load instructions).
@@ -145,7 +146,7 @@ pub struct Fetch1Fetch2Entry {
     /// Program counter.
     pub pc: u64,
     /// Physical address after I-TLB lookup.
-    pub paddr: u64,
+    pub paddr: PhysAddr,
     /// Whether the branch predictor predicted taken.
     pub pred_taken: bool,
     /// Predicted target address.
@@ -173,15 +174,15 @@ pub struct RenameIssueEntry {
     /// Raw 32-bit instruction encoding.
     pub inst: u32,
     /// Instruction size in bytes.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Source register 1 index.
-    pub rs1: usize,
+    pub rs1: RegIdx,
     /// Source register 2 index.
-    pub rs2: usize,
+    pub rs2: RegIdx,
     /// Source register 3 index (FMA).
-    pub rs3: usize,
+    pub rs3: RegIdx,
     /// Destination register index.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Sign-extended immediate.
     pub imm: i64,
     /// Forwarded value for rs1.
@@ -230,9 +231,9 @@ pub struct ExMem1Entry {
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Physical destination register (O3 PRF path).
     pub rd_phys: PhysReg,
     /// ALU result / memory virtual address.
@@ -247,6 +248,8 @@ pub struct ExMem1Entry {
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: u8,
+    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
+    pub sfence_vma: Option<SfenceVmaInfo>,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -259,17 +262,17 @@ pub struct Mem1Mem2Entry {
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Physical destination register (O3 PRF path).
     pub rd_phys: PhysReg,
     /// ALU result (original, for non-memory ops).
     pub alu: u64,
     /// Virtual address.
-    pub vaddr: u64,
+    pub vaddr: VirtAddr,
     /// Physical address after translation.
-    pub paddr: u64,
+    pub paddr: PhysAddr,
     /// Store data.
     pub store_data: u64,
     /// Control signals.
@@ -283,6 +286,10 @@ pub struct Mem1Mem2Entry {
     /// Cycle at which this entry's memory operation completes (O3 per-op latency).
     /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
     pub complete_cycle: u64,
+    /// Deferred PTE A/D bit update from address translation (applied at commit).
+    pub pte_update: Option<PteUpdate>,
+    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
+    pub sfence_vma: Option<SfenceVmaInfo>,
 }
 
 /// Entry from Memory2 -> Writeback latch.
@@ -295,9 +302,9 @@ pub struct Mem2WbEntry {
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Physical destination register (O3 PRF path).
     pub rd_phys: PhysReg,
     /// ALU result (for non-load instructions).
@@ -312,4 +319,10 @@ pub struct Mem2WbEntry {
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: u8,
+    /// Deferred PTE A/D bit update from address translation (applied at commit).
+    pub pte_update: Option<PteUpdate>,
+    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
+    pub sfence_vma: Option<SfenceVmaInfo>,
+    /// Deferred LR/SC reservation action for commit-time application.
+    pub lr_sc: Option<LrScRecord>,
 }

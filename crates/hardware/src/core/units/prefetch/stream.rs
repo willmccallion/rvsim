@@ -11,7 +11,7 @@
 use super::Prefetcher;
 
 /// Direction of the memory stream.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Direction {
     /// No stable direction detected.
     None,
@@ -22,6 +22,7 @@ enum Direction {
 }
 
 /// Stream Prefetcher state.
+#[derive(Debug)]
 pub struct StreamPrefetcher {
     /// Size of a cache line in bytes.
     line_bytes: u64,
@@ -42,7 +43,7 @@ impl StreamPrefetcher {
     ///
     /// * `line_bytes` - The size of a cache line in bytes.
     /// * `degree` - The number of lines to prefetch ahead.
-    pub fn new(line_bytes: usize, degree: usize) -> Self {
+    pub const fn new(line_bytes: usize, degree: usize) -> Self {
         Self {
             line_bytes: line_bytes as u64,
             degree: if degree == 0 { 1 } else { degree },

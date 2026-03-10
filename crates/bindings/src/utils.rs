@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 ///
 /// A version string such as `"0.1.0"`.
 #[pyfunction]
+#[must_use]
 pub fn version() -> String {
     "0.1.0".to_string()
 }
@@ -29,6 +30,7 @@ pub fn version() -> String {
 /// A human-readable disassembly string such as `"addi sp, sp, -16"`,
 /// or `"unknown (0x????????)"` for unrecognised encodings.
 #[pyfunction]
+#[must_use]
 pub fn disassemble(inst: u32) -> String {
     rvsim_core::isa::disasm::disassemble(inst)
 }

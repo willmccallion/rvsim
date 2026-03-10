@@ -40,7 +40,7 @@ pub struct MshrEntry {
     pub waiters: Vec<MshrWaiter>,
     /// Whether this slot is valid.
     pub valid: bool,
-    /// Whether the original access was a write (for install_line dirty bit).
+    /// Whether the original access was a write (for `install_line` dirty bit).
     pub is_write: bool,
 }
 
@@ -50,14 +50,21 @@ pub enum CacheResponse {
     /// L1D hit. No MSHR involvement.
     Hit,
     /// Miss, new MSHR allocated.
-    MshrAllocated { complete_cycle: u64 },
+    MshrAllocated {
+        /// Cycle at which the miss fill will complete.
+        complete_cycle: u64,
+    },
     /// Miss, but same line already has an outstanding MSHR (coalesced).
-    MshrCoalesced { complete_cycle: u64 },
+    MshrCoalesced {
+        /// Cycle at which the existing fill will complete.
+        complete_cycle: u64,
+    },
     /// Miss, all MSHRs are full. Caller must stall this access.
     MshrFull,
 }
 
 /// File of MSHRs for a single cache level.
+#[derive(Debug)]
 pub struct MshrFile {
     entries: Vec<MshrEntry>,
     cap: usize,
@@ -80,17 +87,12 @@ impl MshrFile {
             };
             capacity
         ];
-        Self {
-            entries,
-            cap: capacity,
-            count: 0,
-            line_bytes: safe_line,
-        }
+        Self { entries, cap: capacity, count: 0, line_bytes: safe_line }
     }
 
     /// Align an address to the cache line boundary.
     #[inline]
-    fn line_align(&self, addr: u64) -> u64 {
+    const fn line_align(&self, addr: u64) -> u64 {
         addr & !(self.line_bytes as u64 - 1)
     }
 
@@ -187,7 +189,7 @@ impl MshrFile {
             if !entry.valid {
                 continue;
             }
-            entry.waiters.retain(|w| w.rob_tag.0 <= keep_tag.0);
+            entry.waiters.retain(|w| w.rob_tag.is_older_or_eq(keep_tag));
         }
     }
 
@@ -202,33 +204,31 @@ impl MshrFile {
 
     /// Number of active MSHRs.
     #[inline]
-    pub fn active_count(&self) -> usize {
+    pub const fn active_count(&self) -> usize {
         self.count
     }
 
     /// Whether all MSHRs are occupied.
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.count >= self.cap
     }
 
     /// Returns the configured capacity (0 = blocking cache, no MSHRs).
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.cap
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
     use crate::core::pipeline::rob::RobTag;
 
     fn make_waiter(tag: u32) -> MshrWaiter {
-        MshrWaiter {
-            rob_tag: RobTag(tag),
-            parked_entry: None,
-        }
+        MshrWaiter { rob_tag: RobTag(tag), parked_entry: None }
     }
 
     #[test]
@@ -237,12 +237,7 @@ mod tests {
         assert_eq!(mf.active_count(), 0);
 
         let resp = mf.request(0x1000, false, 100, 10, make_waiter(1));
-        assert!(matches!(
-            resp,
-            CacheResponse::MshrAllocated {
-                complete_cycle: 110
-            }
-        ));
+        assert!(matches!(resp, CacheResponse::MshrAllocated { complete_cycle: 110 }));
         assert_eq!(mf.active_count(), 1);
 
         // Not yet complete at cycle 50
@@ -268,12 +263,7 @@ mod tests {
 
         // Second miss to same line (different offset within line)
         let resp = mf.request(0x1020, false, 100, 15, make_waiter(2));
-        assert!(matches!(
-            resp,
-            CacheResponse::MshrCoalesced {
-                complete_cycle: 110
-            }
-        ));
+        assert!(matches!(resp, CacheResponse::MshrCoalesced { complete_cycle: 110 }));
         assert_eq!(mf.active_count(), 1); // Still just one MSHR
 
         // Complete — both waiters should be returned
@@ -335,18 +325,8 @@ mod tests {
         // Two independent misses at same time
         let r1 = mf.request(0x1000, false, 100, 10, make_waiter(1));
         let r2 = mf.request(0x2000, false, 100, 10, make_waiter(2));
-        assert!(matches!(
-            r1,
-            CacheResponse::MshrAllocated {
-                complete_cycle: 110
-            }
-        ));
-        assert!(matches!(
-            r2,
-            CacheResponse::MshrAllocated {
-                complete_cycle: 110
-            }
-        ));
+        assert!(matches!(r1, CacheResponse::MshrAllocated { complete_cycle: 110 }));
+        assert!(matches!(r2, CacheResponse::MshrAllocated { complete_cycle: 110 }));
         assert_eq!(mf.active_count(), 2);
 
         // Both complete at same cycle
@@ -368,15 +348,9 @@ mod tests {
         let mut mf = MshrFile::new(4, 64);
 
         // Store miss: allocate with is_write=true, waiter has no parked entry
-        let waiter = MshrWaiter {
-            rob_tag: RobTag(1),
-            parked_entry: None,
-        };
+        let waiter = MshrWaiter { rob_tag: RobTag(1), parked_entry: None };
         let resp = mf.request(0x1000, true, 80, 10, waiter);
-        assert!(matches!(
-            resp,
-            CacheResponse::MshrAllocated { complete_cycle: 90 }
-        ));
+        assert!(matches!(resp, CacheResponse::MshrAllocated { complete_cycle: 90 }));
         assert_eq!(mf.active_count(), 1);
 
         // Completion returns the entry with is_write=true and empty parked_entry
@@ -402,12 +376,7 @@ mod tests {
 
         // Slot should be reusable
         let resp = mf.request(0x3000, false, 50, 200, make_waiter(3));
-        assert!(matches!(
-            resp,
-            CacheResponse::MshrAllocated {
-                complete_cycle: 250
-            }
-        ));
+        assert!(matches!(resp, CacheResponse::MshrAllocated { complete_cycle: 250 }));
         assert_eq!(mf.active_count(), 1);
     }
 

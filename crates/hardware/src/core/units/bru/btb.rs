@@ -5,7 +5,7 @@
 //! branch or jump before the instruction is decoded.
 
 /// An entry in the Branch Target Buffer.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct BtbEntry {
     /// The tag used to verify if this entry corresponds to the requested PC.
     tag: u64,
@@ -16,6 +16,7 @@ struct BtbEntry {
 }
 
 /// Set-associative Branch Target Buffer.
+#[derive(Debug)]
 pub struct Btb {
     /// Flat array of entries: `num_sets * ways` elements.
     table: Vec<BtbEntry>,
@@ -37,10 +38,7 @@ impl Btb {
     pub fn new(size: usize, ways: usize) -> Self {
         let ways = ways.max(1);
         let num_sets = (size / ways).max(1);
-        debug_assert!(
-            num_sets.is_power_of_two(),
-            "BTB num_sets must be a power of 2"
-        );
+        debug_assert!(num_sets.is_power_of_two(), "BTB num_sets must be a power of 2");
         Self {
             table: vec![BtbEntry::default(); num_sets * ways],
             num_sets,
@@ -51,7 +49,7 @@ impl Btb {
 
     /// Calculates the set index for a given program counter.
     #[inline]
-    fn set_index(&self, pc: u64) -> usize {
+    const fn set_index(&self, pc: u64) -> usize {
         ((pc >> 2) as usize) & (self.num_sets - 1)
     }
 
@@ -96,11 +94,7 @@ impl Btb {
         for w in 0..self.ways {
             let e = &mut self.table[base + w];
             if !e.valid {
-                *e = BtbEntry {
-                    tag: pc,
-                    target,
-                    valid: true,
-                };
+                *e = BtbEntry { tag: pc, target, valid: true };
                 return;
             }
         }
@@ -108,10 +102,6 @@ impl Btb {
         // All ways valid — round-robin replacement.
         let victim = self.replace_ptr[set] as usize % self.ways;
         self.replace_ptr[set] = ((victim + 1) % self.ways) as u8;
-        self.table[base + victim] = BtbEntry {
-            tag: pc,
-            target,
-            valid: true,
-        };
+        self.table[base + victim] = BtbEntry { tag: pc, target, valid: true };
     }
 }

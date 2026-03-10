@@ -10,13 +10,58 @@
 
 use std::collections::HashMap;
 
-use crate::common::error::{ExceptionStage, Trap};
+use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
+use crate::common::{CsrAddr, InstSize, RegIdx};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
 
+/// Branch outcome recorded at execute time for deferred predictor update.
+///
+/// Grouping `taken` and `mispredicted` into a struct prevents accidentally
+/// swapping the two adjacent bools at call sites.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BpOutcome {
+    /// Whether the branch was actually taken.
+    pub taken: bool,
+    /// Whether the branch was mispredicted (i.e. fetch used the wrong path).
+    pub mispredicted: bool,
+}
+
 /// Unique tag identifying an in-flight instruction in the ROB.
+///
+/// Tags are monotonically increasing (wrapping at `u32::MAX` back to 1,
+/// skipping 0). Comparisons between in-flight tags must use
+/// [`RobTag::is_older_than`] / [`RobTag::is_newer_than`] which handle
+/// wraparound via signed-distance arithmetic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct RobTag(pub u32);
+
+impl RobTag {
+    /// Returns true if `self` is older (was allocated before) `other`.
+    ///
+    /// Uses wrapping subtraction so that the comparison remains correct
+    /// across the `u32` wraparound boundary, as long as the distance
+    /// between any two live tags is less than `2^31` (always true for
+    /// realistic ROB sizes).
+    #[inline]
+    pub const fn is_older_than(self, other: Self) -> bool {
+        // self < other in modular arithmetic: self.0 - other.0 wraps to a
+        // large positive (i.e. negative when cast to i32).
+        (self.0.wrapping_sub(other.0) as i32) < 0
+    }
+
+    /// Returns true if `self` is newer (was allocated after) `other`.
+    #[inline]
+    pub const fn is_newer_than(self, other: Self) -> bool {
+        other.is_older_than(self)
+    }
+
+    /// Returns true if `self` is older than or equal to `other`.
+    #[inline]
+    pub const fn is_older_or_eq(self, other: Self) -> bool {
+        !other.is_older_than(self)
+    }
+}
 
 /// Lifecycle state of an ROB entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -34,7 +79,7 @@ pub enum RobState {
 #[derive(Clone, Debug, Default)]
 pub struct CsrUpdate {
     /// CSR address.
-    pub addr: u32,
+    pub addr: CsrAddr,
     /// Value of the CSR before the instruction.
     pub old_val: u64,
     /// New value to write at commit.
@@ -45,6 +90,7 @@ pub struct CsrUpdate {
 
 /// A single entry in the Reorder Buffer.
 #[derive(Clone, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RobEntry {
     /// Unique tag for this entry.
     pub tag: RobTag,
@@ -53,9 +99,9 @@ pub struct RobEntry {
     /// Raw 32-bit instruction encoding.
     pub inst: u32,
     /// Instruction size in bytes (2 or 4).
-    pub inst_size: u64,
+    pub inst_size: InstSize,
     /// Destination register index.
-    pub rd: usize,
+    pub rd: RegIdx,
     /// Whether rd is a floating-point register.
     pub rd_fp: bool,
     /// Computed result value (ALU output, load data, or link address).
@@ -84,15 +130,22 @@ pub struct RobEntry {
     pub fp_flags: u8,
     /// Deferred branch predictor update: true if this entry needs a BP update at commit.
     pub bp_update: bool,
-    /// Branch taken result (for deferred BP update).
-    pub bp_taken: bool,
+    /// Branch outcome recorded at execute time (taken + mispredicted).
+    pub bp_outcome: BpOutcome,
     /// Branch actual target (for deferred BP update). None for not-taken.
     pub bp_target: Option<u64>,
     /// Branch PC (for deferred BP update).
     pub bp_pc: u64,
+    /// Deferred PTE A/D bit update from address translation (applied at commit).
+    pub pte_update: Option<PteUpdate>,
+    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
+    pub sfence_vma: Option<SfenceVmaInfo>,
+    /// Deferred LR/SC reservation action for commit-time application.
+    pub lr_sc: Option<LrScRecord>,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
+#[derive(Debug)]
 pub struct Rob {
     /// Fixed-size entry array.
     entries: Vec<RobEntry>,
@@ -125,31 +178,31 @@ impl Rob {
 
     /// Returns the ROB capacity.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns the number of occupied entries.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.count
     }
 
     /// Returns true if the ROB is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Returns true if the ROB is full.
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.count == self.entries.len()
     }
 
     /// Returns the number of free slots.
     #[inline]
-    pub fn free_slots(&self) -> usize {
+    pub const fn free_slots(&self) -> usize {
         self.entries.len() - self.count
     }
 
@@ -159,8 +212,8 @@ impl Rob {
         &mut self,
         pc: u64,
         inst: u32,
-        inst_size: u64,
-        rd: usize,
+        inst_size: InstSize,
+        rd: RegIdx,
         rd_fp: bool,
         ctrl: ControlSignals,
         phys_dst: PhysReg,
@@ -196,12 +249,15 @@ impl Rob {
             old_phys_dst,
             fp_flags: 0,
             bp_update: false,
-            bp_taken: false,
+            bp_outcome: BpOutcome::default(),
             bp_target: None,
             bp_pc: 0,
+            pte_update: None,
+            sfence_vma: None,
+            lr_sc: None,
         };
 
-        self.tag_index.insert(tag, self.tail);
+        let _ = self.tag_index.insert(tag, self.tail);
         self.tail = (self.tail + 1) % self.entries.len();
         self.count += 1;
         Some(tag)
@@ -246,11 +302,11 @@ impl Rob {
     }
 
     /// Sets deferred branch predictor update info for a given entry.
-    pub fn set_bp_update(&mut self, tag: RobTag, pc: u64, taken: bool, target: Option<u64>) {
+    pub fn set_bp_update(&mut self, tag: RobTag, pc: u64, outcome: BpOutcome, target: Option<u64>) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.bp_update = true;
             entry.bp_pc = pc;
-            entry.bp_taken = taken;
+            entry.bp_outcome = outcome;
             entry.bp_target = target;
         }
     }
@@ -262,9 +318,9 @@ impl Rob {
         }
     }
 
-    /// Collect and clear accumulated fp_flags from all entries older than `before_tag`.
+    /// Collect and clear accumulated `fp_flags` from all entries older than `before_tag`.
     ///
-    /// Used before CSR reads of fflags/fcsr: since fp_flags are deferred to
+    /// Used before CSR reads of `fflags`/`fcsr`: since `fp_flags` are deferred to
     /// commit, a serializing CSR instruction must see the flags from all older
     /// (completed) instructions.
     pub fn drain_fp_flags_before(&mut self, before_tag: RobTag) -> u8 {
@@ -275,13 +331,34 @@ impl Rob {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &mut self.entries[idx];
-            if entry.valid && entry.tag.0 < before_tag.0 {
+            if entry.valid && entry.tag.is_older_than(before_tag) {
                 acc |= entry.fp_flags;
                 entry.fp_flags = 0;
             }
             idx = (idx + 1) % self.entries.len();
         }
         acc
+    }
+
+    /// Sets the deferred PTE A/D update for a given entry (applied at commit).
+    pub fn set_pte_update(&mut self, tag: RobTag, update: PteUpdate) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.pte_update = Some(update);
+        }
+    }
+
+    /// Attaches deferred SFENCE.VMA operands to a ROB entry.
+    pub fn set_sfence_vma(&mut self, tag: RobTag, info: SfenceVmaInfo) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.sfence_vma = Some(info);
+        }
+    }
+
+    /// Attaches a deferred LR/SC reservation action to a ROB entry.
+    pub fn set_lr_sc(&mut self, tag: RobTag, record: LrScRecord) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.lr_sc = Some(record);
+        }
     }
 
     /// Sets the store address and data for a given entry.
@@ -294,20 +371,12 @@ impl Rob {
 
     /// Returns a reference to the head entry (oldest), if the ROB is non-empty.
     pub fn peek_head(&self) -> Option<&RobEntry> {
-        if self.count == 0 {
-            None
-        } else {
-            Some(&self.entries[self.head])
-        }
+        if self.count == 0 { None } else { Some(&self.entries[self.head]) }
     }
 
     /// Returns a mutable reference to the head entry.
     pub fn peek_head_mut(&mut self) -> Option<&mut RobEntry> {
-        if self.count == 0 {
-            None
-        } else {
-            Some(&mut self.entries[self.head])
-        }
+        if self.count == 0 { None } else { Some(&mut self.entries[self.head]) }
     }
 
     /// Commits (retires) the head entry. Returns the entry if it was Completed or Faulted.
@@ -323,7 +392,7 @@ impl Rob {
         }
 
         let committed = self.entries[self.head].clone();
-        self.tag_index.remove(&committed.tag);
+        let _ = self.tag_index.remove(&committed.tag);
         self.entries[self.head].valid = false;
         self.head = (self.head + 1) % self.entries.len();
         self.count -= 1;
@@ -376,7 +445,7 @@ impl Rob {
 
         let mut remove_idx = keep_idx;
         while remove_idx != self.tail {
-            self.tag_index.remove(&self.entries[remove_idx].tag);
+            let _ = self.tag_index.remove(&self.entries[remove_idx].tag);
             self.entries[remove_idx].valid = false;
             remove_idx = (remove_idx + 1) % self.entries.len();
         }
@@ -399,17 +468,13 @@ impl Rob {
     /// Finds the latest in-flight result for a given register.
     /// Searches from tail backwards (most recent first).
     /// Returns `Some(value)` if a Completed entry writes to the register.
-    pub fn find_latest_result(&self, reg: usize, is_fp: bool) -> Option<u64> {
-        if self.count == 0 || (!is_fp && reg == 0) {
+    pub fn find_latest_result(&self, reg: RegIdx, is_fp: bool) -> Option<u64> {
+        if self.count == 0 || (!is_fp && reg.is_zero()) {
             return None;
         }
 
         // Walk backwards from tail-1 to head
-        let mut idx = if self.tail == 0 {
-            self.entries.len() - 1
-        } else {
-            self.tail - 1
-        };
+        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
@@ -433,26 +498,18 @@ impl Rob {
 
     /// Finds the latest in-flight value for a register, including Issued entries.
     /// This is used by rename to check if there's any pending write.
-    /// Returns `Some((value, is_ready))` where is_ready indicates if the value is available.
-    pub fn find_latest_producer(&self, reg: usize, is_fp: bool) -> Option<(u64, bool)> {
-        if self.count == 0 || (!is_fp && reg == 0) {
+    /// Returns `Some((value, is_ready))` where `is_ready` indicates if the value is available.
+    pub fn find_latest_producer(&self, reg: RegIdx, is_fp: bool) -> Option<(u64, bool)> {
+        if self.count == 0 || (!is_fp && reg.is_zero()) {
             return None;
         }
 
-        let mut idx = if self.tail == 0 {
-            self.entries.len() - 1
-        } else {
-            self.tail - 1
-        };
+        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
             if entry.valid && entry.rd == reg && entry.rd_fp == is_fp {
-                let writes = if is_fp {
-                    entry.ctrl.fp_reg_write
-                } else {
-                    entry.ctrl.reg_write
-                };
+                let writes = if is_fp { entry.ctrl.fp_reg_write } else { entry.ctrl.reg_write };
                 if writes {
                     let ready = entry.state == RobState::Completed;
                     return Some((entry.result, ready));
@@ -508,7 +565,7 @@ impl Rob {
         })
     }
 
-    /// Iterate over all valid entries with tag > keep_tag (i.e., entries that
+    /// Iterate over all valid entries with `tag > keep_tag` (i.e., entries that
     /// would be squashed by `flush_after(keep_tag)`).
     pub fn iter_after(&self, keep_tag: RobTag) -> impl Iterator<Item = &RobEntry> {
         let cap = self.entries.len();
@@ -519,11 +576,7 @@ impl Rob {
             let idx = (head + i) % cap;
             // SAFETY: idx is always in bounds (< cap), and we hold a shared ref to Rob.
             let e = unsafe { &*entries_ptr.add(idx) };
-            if e.valid && e.tag.0 > keep_tag.0 {
-                Some(e)
-            } else {
-                None
-            }
+            if e.valid && e.tag.is_newer_than(keep_tag) { Some(e) } else { None }
         })
     }
 
@@ -616,7 +669,7 @@ impl Rob {
                 if entry.tag == tag {
                     return false; // reached our entry — no older fence found
                 }
-                if entry.ctrl.is_fence {
+                if entry.ctrl.system_op == crate::core::pipeline::signals::SystemOp::Fence {
                     // Decode FENCE pred/succ from the raw instruction
                     let succ_bits = ((entry.inst >> 20) & 0xF) as u8;
                     let succ_r = succ_bits & 0b0010 != 0;
@@ -634,21 +687,28 @@ impl Rob {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
+    use crate::common::{CsrAddr, RegIdx};
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::signals::ControlSignals;
 
     fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
-        ControlSignals {
-            reg_write,
-            fp_reg_write,
-            ..Default::default()
-        }
+        ControlSignals { reg_write, fp_reg_write, ..Default::default() }
     }
 
-    fn alloc(rob: &mut Rob, pc: u64, rd: usize, ctrl: ControlSignals) -> Option<RobTag> {
-        rob.allocate(pc, 0, 4, rd, false, ctrl, PhysReg(0), PhysReg(0))
+    fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag> {
+        rob.allocate(
+            pc,
+            0,
+            InstSize::Standard,
+            RegIdx::new(rd),
+            false,
+            ctrl,
+            PhysReg(0),
+            PhysReg(0),
+        )
     }
 
     #[test]
@@ -661,8 +721,8 @@ mod tests {
             .allocate(
                 0x1000,
                 0x13,
-                4,
-                1,
+                InstSize::Standard,
+                RegIdx::new(1),
                 false,
                 make_ctrl(true, false),
                 PhysReg(0),
@@ -761,11 +821,11 @@ mod tests {
         rob.complete(t2, 200);
 
         // Should find t2's result (most recent)
-        assert_eq!(rob.find_latest_result(5, false), Some(200));
+        assert_eq!(rob.find_latest_result(RegIdx::new(5), false), Some(200));
         // x0 always returns None
-        assert_eq!(rob.find_latest_result(0, false), None);
+        assert_eq!(rob.find_latest_result(RegIdx::new(0), false), None);
         // Non-existent register
-        assert_eq!(rob.find_latest_result(10, false), None);
+        assert_eq!(rob.find_latest_result(RegIdx::new(10), false), None);
     }
 
     #[test]
@@ -773,7 +833,7 @@ mod tests {
         let mut rob = Rob::new(8);
         alloc(&mut rob, 0x1000, 5, make_ctrl(true, false));
         // Entry is still Issued, so result is not ready
-        assert_eq!(rob.find_latest_result(5, false), None);
+        assert_eq!(rob.find_latest_result(RegIdx::new(5), false), None);
     }
 
     #[test]
@@ -782,18 +842,13 @@ mod tests {
         let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
         rob.set_csr_update(
             tag,
-            CsrUpdate {
-                addr: 0x300,
-                old_val: 10,
-                new_val: 20,
-                applied: false,
-            },
+            CsrUpdate { addr: CsrAddr::from_u32(0x300), old_val: 10, new_val: 20, applied: false },
         );
         rob.complete(tag, 10);
 
         let entry = rob.commit_head().unwrap();
         let csr = entry.csr_update.unwrap();
-        assert_eq!(csr.addr, 0x300);
+        assert_eq!(csr.addr, CsrAddr::from_u32(0x300));
         assert_eq!(csr.new_val, 20);
     }
 
@@ -817,7 +872,16 @@ mod tests {
     }
 
     fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<RobTag> {
-        rob.allocate(0x1000, inst, 4, 0, false, ctrl, PhysReg(0), PhysReg(0))
+        rob.allocate(
+            0x1000,
+            inst,
+            InstSize::Standard,
+            RegIdx::new(0),
+            false,
+            ctrl,
+            PhysReg(0),
+            PhysReg(0),
+        )
     }
 
     #[test]
@@ -825,16 +889,10 @@ mod tests {
         let mut rob = Rob::new(8);
 
         // Allocate: store (tag1), load (tag2), FENCE rw,rw (tag3)
-        let store_ctrl = ControlSignals {
-            mem_write: true,
-            ..Default::default()
-        };
-        let load_ctrl = ControlSignals {
-            mem_read: true,
-            ..Default::default()
-        };
+        let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
+        let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
         let fence_ctrl = ControlSignals {
-            is_fence: true,
+            system_op: crate::core::pipeline::signals::SystemOp::Fence,
             ..Default::default()
         };
 
@@ -864,17 +922,11 @@ mod tests {
 
         // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
         let fence_ctrl = ControlSignals {
-            is_fence: true,
+            system_op: crate::core::pipeline::signals::SystemOp::Fence,
             ..Default::default()
         };
-        let load_ctrl = ControlSignals {
-            mem_read: true,
-            ..Default::default()
-        };
-        let store_ctrl = ControlSignals {
-            mem_write: true,
-            ..Default::default()
-        };
+        let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+        let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 
         // FENCE w,r: pred=0b0001 (W), succ=0b0010 (R)
         let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0010), fence_ctrl).unwrap();
@@ -893,17 +945,11 @@ mod tests {
 
         // FENCE.TSO = FENCE rw,rw
         let fence_ctrl = ControlSignals {
-            is_fence: true,
+            system_op: crate::core::pipeline::signals::SystemOp::Fence,
             ..Default::default()
         };
-        let load_ctrl = ControlSignals {
-            mem_read: true,
-            ..Default::default()
-        };
-        let store_ctrl = ControlSignals {
-            mem_write: true,
-            ..Default::default()
-        };
+        let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+        let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 
         // FENCE rw,rw: pred=0b0011, succ=0b0011
         let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
@@ -913,5 +959,32 @@ mod tests {
         // Both loads and stores are blocked
         assert!(rob.has_fence_blocking(t_load, true, false));
         assert!(rob.has_fence_blocking(t_store, false, true));
+    }
+
+    #[test]
+    fn test_fp_flags() {
+        let mut rob = Rob::new(4);
+        let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
+        let t2 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
+
+        rob.set_fp_flags(t1, 0x1);
+        rob.set_fp_flags(t2, 0x2);
+
+        assert_eq!(rob.drain_fp_flags_before(t2), 0x1);
+        assert_eq!(rob.drain_fp_flags_before(RobTag(t2.0 + 1)), 0x2);
+    }
+
+    #[test]
+    fn test_bp_update() {
+        let mut rob = Rob::new(4);
+        let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
+        rob.set_bp_update(t1, 0x1000, BpOutcome { taken: true, mispredicted: false }, Some(0x2000));
+
+        let entry = rob.find_entry(t1).unwrap();
+        assert!(entry.bp_update);
+        assert_eq!(entry.bp_pc, 0x1000);
+        assert!(entry.bp_outcome.taken);
+        assert_eq!(entry.bp_target, Some(0x2000));
+        assert!(!entry.bp_outcome.mispredicted);
     }
 }

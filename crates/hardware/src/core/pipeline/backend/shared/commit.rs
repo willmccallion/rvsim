@@ -7,10 +7,11 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::common::Trap;
 use crate::common::constants::{
     DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
 };
+use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
+use crate::common::{Asid, LrScRecord, RegIdx, SfenceVmaInfo, Trap, Vpn};
 use crate::core::Cpu;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
@@ -18,12 +19,17 @@ use crate::core::arch::trap::TrapHandler;
 use crate::core::cpu::PC_TRACE_MAX;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
+use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{AluOp, MemWidth};
+use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
 use crate::core::units::bru::BranchPredictor;
+use crate::trace_branch;
+use crate::trace_commit;
+use crate::trace_csr;
+use crate::trace_trap;
 
 /// Executes the Commit stage.
 ///
@@ -40,6 +46,7 @@ pub fn commit_stage(
     free_list: &mut FreeList,
     width: usize,
     mut load_queue: Option<&mut LoadQueue>,
+    mut prf: Option<&mut PhysRegFile>,
 ) -> Option<(Trap, u64)> {
     let mut trap_event: Option<(Trap, u64)> = None;
 
@@ -52,18 +59,22 @@ pub fn commit_stage(
         } else if let Some(head) = rob.peek_head() {
             head.pc
         } else {
-            cpu.pc // ROB empty: next instruction to fetch
+            cpu.committed_next_pc // ROB empty: use last committed PC + size
         };
 
         let interrupt = check_interrupts(cpu);
         if let Some(interrupt_trap) = interrupt {
             cpu.wfi_waiting = false;
-            if cpu.trace {
-                eprintln!(
-                    "CM  pc={:#x} * INTERRUPT DETECTED: {:?}",
-                    epc, interrupt_trap
-                );
-            }
+            trace_trap!(cpu.trace;
+                event      = "interrupt",
+                epc        = %crate::trace::Hex(epc),
+                cause      = ?interrupt_trap,
+                mip        = %crate::trace::Hex(cpu.csrs.mip),
+                mie        = %crate::trace::Hex(cpu.csrs.mie),
+                mstatus    = %crate::trace::Hex(cpu.csrs.mstatus),
+                priv_mode  = ?cpu.privilege,
+                "CM: interrupt detected — flushing pipeline"
+            );
             trap_event = Some((interrupt_trap, epc));
         } else if cpu.wfi_waiting {
             // WFI wakeup without trap
@@ -82,11 +93,9 @@ pub fn commit_stage(
     }
 
     // Commit up to `width` entries from ROB head
+    let mut retired_count: usize = 0;
     for _ in 0..width {
-        let head = match rob.peek_head() {
-            Some(h) => h,
-            None => break,
-        };
+        let Some(head) = rob.peek_head() else { break };
 
         if head.state == RobState::Issued {
             break; // Not ready yet
@@ -94,29 +103,118 @@ pub fn commit_stage(
 
         if head.state == RobState::Faulted {
             // Synchronous exception: take the trap
-            let entry = rob.commit_head().unwrap();
-            if cpu.trace {
-                eprintln!(
-                    "CM  pc={:#x} * SYNC TRAP: {:?}",
-                    entry.pc,
-                    entry.trap.as_ref().unwrap()
+            if let Some(entry) = rob.commit_head()
+                && let Some(ref the_trap) = entry.trap
+            {
+                #[cfg(feature = "commit-log")]
+                if let Some(ref mut log) = cpu.commit_log {
+                    use crate::common::Trap;
+                    use std::io::Write;
+                    // Log all faulting instructions except fetch-stage page/access
+                    // faults (spike doesn't log those because they have no valid
+                    // instruction bits). Illegal instructions detected at fetch
+                    // ARE logged because they have valid encoding bits.
+                    let skip = matches!(
+                        the_trap,
+                        Trap::InstructionPageFault(_)
+                            | Trap::InstructionAccessFault(_)
+                            | Trap::InstructionAddressMisaligned(_)
+                    );
+                    if !skip {
+                        let _ =
+                            writeln!(log, "core   0: 0x{:016x} (0x{:08x})", entry.pc, entry.inst);
+                    }
+                }
+                trace_trap!(cpu.trace;
+                    event     = "sync-exception",
+                    pc        = %crate::trace::Hex(entry.pc),
+                    rob_tag   = entry.tag.0,
+                    cause     = ?the_trap,
+                    priv_mode = ?cpu.privilege,
+                    mstatus   = %crate::trace::Hex(cpu.csrs.mstatus),
+                    "CM: synchronous exception at commit"
                 );
+                // Reclaim the faulting instruction's physical register.
+                // The instruction produced no result, so its phys_dst is
+                // orphaned — the committed rename map still holds the old
+                // mapping (old_phys_dst). The post-trap pipeline flush will
+                // reclaim all *remaining* ROB entries' phys_dst, but this
+                // entry has already been popped from the ROB, so its
+                // phys_dst would leak without this explicit reclaim.
+                if entry.phys_dst.0 != 0 {
+                    free_list.reclaim(entry.phys_dst);
+                }
+                trap_event = Some((the_trap.clone(), entry.pc));
             }
-            trap_event = Some((entry.trap.unwrap(), entry.pc));
+            break;
+        }
+
+        // SFENCE.VMA serialization barrier: refuse to commit until all
+        // committed stores have drained to RAM.  The PTW reads PTEs
+        // directly from memory (it cannot see store buffer entries), so
+        // if we flush the TLBs while PTE-modifying stores are still in
+        // the store buffer, the next page walk would read stale PTEs.
+        //
+        // We check has_committed_stores() rather than !is_empty() because
+        // the store buffer may also contain speculative entries from
+        // instructions younger than this SFENCE.VMA — those can never
+        // commit (we're blocking the commit loop) and will be squashed
+        // by the full pipeline flush after this fence retires.
+        if head.ctrl.system_op == SystemOp::SfenceVma && store_buffer.has_committed_stores() {
             break;
         }
 
         // Completed — retire
-        let entry = rob.commit_head().unwrap();
+        let Some(entry) = rob.commit_head() else { break };
+        retired_count += 1;
 
-        if cpu.trace {
-            eprintln!("CM  pc={:#x} rob_tag={} COMMIT", entry.pc, entry.tag.0);
-        }
+        // Track the next-to-commit PC for accurate interrupt EPC when ROB is empty.
+        // For taken branches and jumps, the next PC is the branch target, not pc+4.
+        // Using pc+4 here would cause interrupts arriving during an empty-ROB window
+        // (e.g., after a misprediction flush) to save the wrong EPC, resuming
+        // execution at the fallthrough address instead of the branch target.
+        cpu.committed_next_pc = match entry.ctrl.control_flow {
+            ControlFlow::Jump => {
+                entry.bp_target.unwrap_or_else(|| entry.pc.wrapping_add(entry.inst_size.as_u64()))
+            }
+            ControlFlow::Branch if entry.bp_outcome.taken => {
+                entry.bp_target.unwrap_or_else(|| entry.pc.wrapping_add(entry.inst_size.as_u64()))
+            }
+            _ => entry.pc.wrapping_add(entry.inst_size.as_u64()),
+        };
+
+        trace_commit!(cpu.trace;
+            rob_tag    = entry.tag.0,
+            pc         = %crate::trace::Hex(entry.pc),
+            rd         = entry.rd.as_usize(),
+            rd_phys    = entry.phys_dst.0,
+            old_phys   = entry.old_phys_dst.0,
+            result     = %crate::trace::Hex(entry.result),
+            is_fp      = entry.ctrl.fp_reg_write,
+            reg_write  = entry.ctrl.reg_write,
+            is_store   = entry.ctrl.mem_write,
+            is_load    = entry.ctrl.mem_read,
+            fp_flags   = entry.fp_flags,
+            "CM: instruction retired"
+        );
+
+        // Write to commit log if enabled (deferred until after register write
+        // so we can include the destination register value).
+        #[cfg(feature = "commit-log")]
+        let commit_log_entry: Option<(u64, u32, bool, usize, u64)> = {
+            if cpu.commit_log.is_some() {
+                let has_rd =
+                    (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
+                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result))
+            } else {
+                None
+            }
+        };
 
         // Update PC trace
         cpu.pc_trace.push((entry.pc, entry.inst));
         if cpu.pc_trace.len() > PC_TRACE_MAX {
-            cpu.pc_trace.remove(0);
+            let _ = cpu.pc_trace.remove(0);
         }
 
         // Statistics
@@ -127,8 +225,25 @@ pub fn commit_stage(
 
         // Apply deferred branch predictor update (only update on committed branches)
         if entry.bp_update {
-            cpu.branch_predictor
-                .update_branch(entry.bp_pc, entry.bp_taken, entry.bp_target);
+            cpu.branch_predictor.update_branch(
+                entry.bp_pc,
+                entry.bp_outcome.taken,
+                entry.bp_target,
+            );
+            trace_branch!(cpu.trace;
+                event         = "update",
+                pc            = %crate::trace::Hex(entry.bp_pc),
+                rob_tag       = entry.tag.0,
+                actual_taken  = entry.bp_outcome.taken,
+                actual_target = %crate::trace::Hex(entry.bp_target.unwrap_or(0)),
+                mispredicted  = entry.bp_outcome.mispredicted,
+                "CM: branch predictor updated at commit"
+            );
+            if entry.bp_outcome.mispredicted {
+                cpu.stats.committed_branch_mispredictions += 1;
+            } else {
+                cpu.stats.committed_branch_predictions += 1;
+            }
         }
 
         // Write to register file
@@ -144,10 +259,17 @@ pub fn commit_stage(
             // Set FS to DIRTY when any FP register is written
             cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            if cpu.trace {
-                eprintln!("CM  pc={:#x} f{} <= {:#x}", entry.pc, entry.rd, val);
-            }
-        } else if entry.ctrl.reg_write && entry.rd != 0 {
+            trace_commit!(cpu.trace;
+                pc       = %crate::trace::Hex(entry.pc),
+                rob_tag  = entry.tag.0,
+                reg      = entry.rd.as_usize(),
+                rd_phys  = entry.phys_dst.0,
+                old_phys = entry.old_phys_dst.0,
+                value    = %crate::trace::Hex(val),
+                is_fp    = true,
+                "CM: FP register write"
+            );
+        } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
             cpu.regs.write(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, false, entry.tag);
             // Update committed rename map and recycle the old physical reg
@@ -155,9 +277,37 @@ pub fn commit_stage(
                 free_list.reclaim(entry.old_phys_dst);
             }
             committed_rename_map.set(entry.rd, false, entry.phys_dst);
-            if cpu.trace {
-                eprintln!("CM  pc={:#x} x{} <= {:#x}", entry.pc, entry.rd, val);
+            trace_commit!(cpu.trace;
+                pc       = %crate::trace::Hex(entry.pc),
+                rob_tag  = entry.tag.0,
+                reg      = entry.rd.as_usize(),
+                rd_phys  = entry.phys_dst.0,
+                old_phys = entry.old_phys_dst.0,
+                value    = %crate::trace::Hex(val),
+                is_fp    = false,
+                "CM: integer register write"
+            );
+        }
+
+        // Write deferred commit log entry (now that rd has been written).
+        #[cfg(feature = "commit-log")]
+        if let Some((pc, inst, has_rd, rd, val)) = commit_log_entry {
+            if let Some(ref mut log) = cpu.commit_log {
+                use std::io::Write;
+                if has_rd {
+                    let _ =
+                        writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x}) x{rd} 0x{val:016x}");
+                } else {
+                    let _ = writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x})");
+                }
             }
+        }
+
+        // Apply deferred PTE A/D bit update.
+        // The page table walker defers A/D bit writes until commit to
+        // prevent speculative instructions from corrupting page tables.
+        if let Some(pte_upd) = entry.pte_update {
+            write_store_to_memory(cpu, pte_upd.pte_addr, pte_upd.pte_value, MemWidth::Double);
         }
 
         // Apply deferred FP exception flags (accumulated during execution).
@@ -184,12 +334,16 @@ pub fn commit_stage(
             if !csr_update.applied {
                 cpu.csr_write(csr_update.addr, csr_update.new_val);
             }
-            if cpu.trace {
-                eprintln!(
-                    "CM  pc={:#x} CSR {:#x} <= {:#x}",
-                    entry.pc, csr_update.addr, csr_update.new_val
-                );
-            }
+            trace_csr!(cpu.trace;
+                op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
+                pc       = %crate::trace::Hex(entry.pc),
+                rob_tag  = entry.tag.0,
+                csr_addr = %crate::trace::Hex32(csr_update.addr.as_u32()),
+                old_val  = %crate::trace::Hex(csr_update.old_val),
+                new_val  = %crate::trace::Hex(csr_update.new_val),
+                deferred = !csr_update.applied,
+                "CM: CSR write applied at commit"
+            );
             // SATP changes address translation: any instructions fetched
             // between the execute-stage redirect and this commit used the
             // old page tables. Force a re-flush so the frontend re-fetches
@@ -200,7 +354,7 @@ pub fn commit_stage(
             // redirect. Without this, the frontend would restart from the
             // stale (advanced) cpu.pc, skipping instructions.
             if csr_update.addr == csr::SATP {
-                cpu.pc = entry.pc.wrapping_add(entry.inst_size);
+                cpu.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
                 cpu.redirect_pending = true;
             }
             // CSR instructions are serializing — drain before committing more
@@ -208,29 +362,114 @@ pub fn commit_stage(
         }
 
         // Handle MRET/SRET at commit (serializing instructions)
-        if entry.ctrl.is_mret {
+        if entry.ctrl.system_op == SystemOp::Mret {
             cpu.do_mret();
-            if cpu.trace {
-                eprintln!("CM  pc={:#x} MRET -> PC={:#x}", entry.pc, cpu.pc);
-            }
+            cpu.committed_next_pc = cpu.pc;
+            trace_trap!(cpu.trace;
+                event      = "return",
+                insn       = "MRET",
+                pc         = %crate::trace::Hex(entry.pc),
+                rob_tag    = entry.tag.0,
+                return_pc  = %crate::trace::Hex(cpu.pc),
+                mstatus    = %crate::trace::Hex(cpu.csrs.mstatus),
+                priv_mode  = ?cpu.privilege,
+                "CM: MRET committed — privilege restored"
+            );
             break;
         }
-        if entry.ctrl.is_sret {
+        if entry.ctrl.system_op == SystemOp::Sret {
             cpu.do_sret();
-            if cpu.trace {
-                eprintln!("CM  pc={:#x} SRET -> PC={:#x}", entry.pc, cpu.pc);
-            }
+            cpu.committed_next_pc = cpu.pc;
+            trace_trap!(cpu.trace;
+                event      = "return",
+                insn       = "SRET",
+                pc         = %crate::trace::Hex(entry.pc),
+                rob_tag    = entry.tag.0,
+                return_pc  = %crate::trace::Hex(cpu.pc),
+                mstatus    = %crate::trace::Hex(cpu.csrs.mstatus),
+                priv_mode  = ?cpu.privilege,
+                "CM: SRET committed — privilege restored"
+            );
             break;
+        }
+
+        // WFI — applied at commit so it is properly ordered with
+        // preceding instructions in the same fetch group.
+        if entry.ctrl.system_op == SystemOp::Wfi {
+            if cpu.csrs.mie != 0 || cpu.csrs.mip != 0 {
+                // At least one interrupt source is enabled or pending —
+                // enter the waiting state.  The interrupt check at the
+                // top of commit_instructions will wake us.
+                cpu.wfi_waiting = true;
+                cpu.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            } else {
+                // Nothing enabled, nothing pending — NOP (advance past WFI
+                // to avoid deadlock, e.g. OpenSBI early boot).
+                cpu.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+                cpu.redirect_pending = true;
+            }
+            cpu.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            break;
+        }
+
+        // Apply deferred LR/SC reservation action.
+        //
+        // LR/SC reservation checks are deferred from Memory2 (speculative) to
+        // commit (architectural) so that squashed instructions cannot corrupt
+        // the reservation state.  See ISSUES.md Finding 5.
+        if let Some(lr_sc_rec) = entry.lr_sc {
+            match lr_sc_rec {
+                LrScRecord::Lr { paddr } => {
+                    cpu.set_reservation(paddr);
+                }
+                LrScRecord::Sc { paddr } => {
+                    if cpu.check_reservation(paddr) {
+                        // SC success — reservation valid, clear it and let
+                        // the store (already in store buffer) drain normally.
+                        cpu.clear_reservation();
+                    } else {
+                        // SC failure — reservation was invalid.  The Memory2
+                        // stage optimistically assumed success (rd=0, store
+                        // resolved).  We must undo this:
+                        // 1. Cancel the store buffer entry (no memory write).
+                        // 2. Write rd = 1 (failure) to the register file.
+                        // 3. Redirect the pipeline to re-fetch from the next
+                        //    instruction.  Younger instructions that consumed
+                        //    rd=0 are stale and must be discarded.
+                        store_buffer.cancel(entry.tag);
+                        if entry.ctrl.reg_write && !entry.rd.is_zero() {
+                            cpu.regs.write(entry.rd, 1);
+                            // Also fix the PRF so the post-flush rename map
+                            // sees the corrected value (rd=1, not the
+                            // optimistic rd=0 written at writeback).
+                            if let Some(ref mut prf) = prf {
+                                prf.write(entry.phys_dst, 1);
+                            }
+                        }
+                        cpu.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+                        cpu.redirect_pending = true;
+                        break;
+                    }
+                }
+            }
         }
 
         // Mark store buffer entry as committed (for stores)
         if entry.ctrl.mem_write {
-            store_buffer.mark_committed(entry.tag);
-            // FP stores also set FS to DIRTY
-            if entry.ctrl.rs2_fp {
-                cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            // Per RISC-V spec Section 8.2: a store to the reservation set
+            // between a paired LR and SC must cause the SC to fail.  Clear
+            // the reservation when a non-LR/SC store (regular store or AMO)
+            // commits to an address in the reservation granule.
+            //
+            // SC stores are excluded: they already handle the reservation
+            // above via LrScRecord::Sc.
+            if entry.lr_sc.is_none()
+                && let Some(paddr) = store_buffer.find_paddr(entry.tag)
+                && cpu.check_reservation(paddr)
+            {
+                cpu.clear_reservation();
             }
+            store_buffer.mark_committed(entry.tag);
         }
 
         // Deallocate load queue entry (for loads)
@@ -240,32 +479,29 @@ pub fn commit_stage(
             lq.deallocate(entry.tag);
         }
 
-        // SFENCE.VMA and FENCE.I always drain all committed stores — the
-        // page table walker reads PTEs directly from RAM (bypassing the store
-        // buffer), and FENCE.I must see prior stores before refilling I-cache.
+        // FENCE.I always drains all committed stores — FENCE.I must see
+        // prior stores before refilling I-cache.
+        // SFENCE.VMA does NOT need drain_all_committed here because the
+        // stall check above already guarantees the store buffer is empty.
         // FENCE: only drain when pred.w is set (older stores must be globally
         // visible before younger succ operations proceed).
-        if entry.ctrl.is_sfence_vma || entry.ctrl.is_fence_i {
+        if entry.ctrl.system_op == SystemOp::FenceI {
             drain_all_committed(cpu, store_buffer);
             // FENCE.I: flush I-cache AFTER store drain so refills see new data.
             // The execute stage already redirected the frontend; this flush
             // ensures the I-cache doesn't hold stale lines when fetching resumes.
-            if entry.ctrl.is_fence_i {
-                cpu.l1_i_cache.invalidate_all();
-                // Re-redirect the frontend: the execute-time redirect may have
-                // already caused fetches with stale I-cache data. Force a new
-                // redirect so the frontend re-fetches with the flushed I-cache.
-                cpu.pc = entry.pc.wrapping_add(entry.inst_size);
-                cpu.redirect_pending = true;
-            }
+            let _ = cpu.l1_i_cache.invalidate_all();
+            // Re-redirect the frontend: the execute-time redirect may have
+            // already caused fetches with stale I-cache data. Force a new
+            // redirect so the frontend re-fetches with the flushed I-cache.
+            cpu.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            cpu.redirect_pending = true;
             // FENCE.I is serializing — stop committing so the redirect
             // takes effect before any younger instructions retire.
             // Without this break, younger instructions (fetched before the
             // store drain) could commit in the same cycle with stale data.
-            if entry.ctrl.is_fence_i {
-                break;
-            }
-        } else if entry.ctrl.is_fence {
+            break;
+        } else if entry.ctrl.system_op == SystemOp::Fence {
             let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
             let pred_w = pred_bits & 0b0001 != 0;
             let pred_r = pred_bits & 0b0010 != 0;
@@ -278,22 +514,25 @@ pub fn commit_stage(
             }
         }
 
-        // SFENCE.VMA: flush TLBs again at commit time.
-        //
-        // The execute stage already flushed the TLBs, but a preceding store
-        // in the same pipeline batch may have repopulated the TLB during its
-        // Memory1 address translation (between execute-stage flush and commit).
-        // The TLB entry would reflect the OLD PTE, not the one just drained.
-        // Flushing here ensures subsequent instructions see fresh translations.
-        if entry.ctrl.is_sfence_vma {
-            cpu.mmu.dtlb.flush();
-            cpu.mmu.itlb.flush();
-            cpu.mmu.l2_tlb.flush();
+        // SFENCE.VMA: the store buffer is guaranteed empty (stall above).
+        // Flush TLBs with proper ASID/vaddr granularity, clear the
+        // reservation, and trigger a full pipeline squash so that all
+        // younger instructions (which may have fetched with stale TLBs)
+        // are discarded and re-fetched with the now-clean translations.
+        if let Some(info) = entry.sfence_vma {
+            sfence_vma_commit(cpu, &info);
+            cpu.clear_reservation();
+            cpu.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            cpu.redirect_pending = true;
+            break;
         }
 
         // Ensure x0 stays zero
-        cpu.regs.write(0, 0);
+        cpu.regs.write(RegIdx::new(0), 0);
     }
+
+    // Record retirement histogram
+    cpu.stats.retire_histogram[retired_count.min(3)] += 1;
 
     // Drain one committed store to memory per cycle
     drain_one_store(cpu, store_buffer);
@@ -310,7 +549,7 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     if let Some(store) = store_buffer.drain_one()
         && let Some(paddr) = store.paddr
     {
-        let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
+        let is_ram = paddr.val() >= cpu.ram_start && paddr.val() < cpu.ram_end;
         let width_bytes = width_to_bytes(store.width);
 
         if !cpu.wcb.is_disabled() && is_ram {
@@ -329,15 +568,18 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
         } else {
             // No WCB or MMIO: direct cache access + memory write
             if is_ram {
-                let addr = crate::common::PhysAddr::new(paddr);
-                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+                let _latency = cpu.simulate_memory_access(paddr, crate::common::AccessType::Write);
             }
         }
         // Always write the actual data to memory (WCB is timing-only)
         write_store_to_memory(cpu, paddr, store.data, store.width);
-        if cpu.trace {
-            eprintln!("CM  STORE DRAIN paddr={:#x} data={:#x}", paddr, store.data);
-        }
+        trace_commit!(cpu.trace;
+            paddr      = %crate::trace::Hex(paddr.val()),
+            data       = %crate::trace::Hex(store.data),
+            width      = ?store.width,
+            via_wcb    = !cpu.wcb.is_disabled(),
+            "CM: committed store drained to memory"
+        );
     }
 }
 
@@ -349,18 +591,11 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
 fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     while let Some(store) = store_buffer.drain_one() {
         if let Some(paddr) = store.paddr {
-            let is_ram = paddr >= cpu.ram_start && paddr < cpu.ram_end;
+            let is_ram = paddr.val() >= cpu.ram_start && paddr.val() < cpu.ram_end;
             if is_ram {
-                let addr = crate::common::PhysAddr::new(paddr);
-                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+                let _latency = cpu.simulate_memory_access(paddr, crate::common::AccessType::Write);
             }
             write_store_to_memory(cpu, paddr, store.data, store.width);
-            if cpu.trace {
-                eprintln!(
-                    "CM  STORE DRAIN (fence) paddr={:#x} data={:#x}",
-                    paddr, store.data
-                );
-            }
         }
     }
     // Flush remaining WCB entries through the cache hierarchy
@@ -378,24 +613,28 @@ fn flush_wcb(cpu: &mut Cpu) {
 }
 
 /// Writes a store's data to the correct memory target (RAM fast-path or bus).
-fn write_store_to_memory(cpu: &mut Cpu, paddr: u64, data: u64, width: MemWidth) {
-    let in_htif = cpu
-        .htif_range
-        .is_some_and(|(lo, hi)| paddr >= lo && paddr < hi);
-    let is_ram = !in_htif && paddr >= cpu.ram_start && paddr < cpu.ram_end;
+fn write_store_to_memory(
+    cpu: &mut Cpu,
+    paddr: crate::common::PhysAddr,
+    data: u64,
+    width: MemWidth,
+) {
+    let raw = paddr.val();
+    let in_htif = cpu.htif_range.is_some_and(|(lo, hi)| raw >= lo && raw < hi);
+    let is_ram = !in_htif && raw >= cpu.ram_start && raw < cpu.ram_end;
     if is_ram {
-        let offset = (paddr - cpu.ram_start) as usize;
+        let offset = (raw - cpu.ram_start) as usize;
         unsafe {
             match width {
                 MemWidth::Byte => *cpu.ram_ptr.add(offset) = data as u8,
                 MemWidth::Half => {
-                    (cpu.ram_ptr.add(offset) as *mut u16).write_unaligned(data as u16)
+                    (cpu.ram_ptr.add(offset) as *mut u16).write_unaligned(data as u16);
                 }
                 MemWidth::Word => {
-                    (cpu.ram_ptr.add(offset) as *mut u32).write_unaligned(data as u32)
+                    (cpu.ram_ptr.add(offset) as *mut u32).write_unaligned(data as u32);
                 }
                 MemWidth::Double => (cpu.ram_ptr.add(offset) as *mut u64).write_unaligned(data),
-                _ => {}
+                MemWidth::Nop => {}
             }
         }
     } else {
@@ -404,7 +643,7 @@ fn write_store_to_memory(cpu: &mut Cpu, paddr: u64, data: u64, width: MemWidth) 
             MemWidth::Half => cpu.bus.bus.write_u16(paddr, data as u16),
             MemWidth::Word => cpu.bus.bus.write_u32(paddr, data as u32),
             MemWidth::Double => cpu.bus.bus.write_u64(paddr, data),
-            _ => {}
+            MemWidth::Nop => {}
         }
     }
 }
@@ -426,11 +665,8 @@ fn check_interrupts(cpu: &Cpu) -> Option<Trap> {
         }
 
         let delegated = (cpu.csrs.mideleg & deleg_bit) != 0;
-        let target_priv = if delegated {
-            PrivilegeMode::Supervisor
-        } else {
-            PrivilegeMode::Machine
-        };
+        let target_priv =
+            if delegated { PrivilegeMode::Supervisor } else { PrivilegeMode::Machine };
 
         if cpu.privilege.to_u8() < target_priv.to_u8() {
             return Some(TrapHandler::irq_to_trap(bit));
@@ -455,7 +691,7 @@ fn check_interrupts(cpu: &Cpu) -> Option<Trap> {
 }
 
 /// Updates instruction statistics based on the committed entry.
-fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::RobEntry) {
+const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::RobEntry) {
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
             cpu.stats.inst_fp_load += 1;
@@ -468,9 +704,9 @@ fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::R
         } else {
             cpu.stats.inst_store += 1;
         }
-    } else if entry.ctrl.branch || entry.ctrl.jump {
+    } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
         cpu.stats.inst_branch += 1;
-    } else if entry.ctrl.is_system {
+    } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
         cpu.stats.inst_system += 1;
     } else {
         match entry.ctrl.alu {
@@ -500,9 +736,143 @@ fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::R
             | AluOp::FMvToF => cpu.stats.inst_fp_arith += 1,
             AluOp::FDiv | AluOp::FSqrt => cpu.stats.inst_fp_div_sqrt += 1,
             AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
-                cpu.stats.inst_fp_fma += 1
+                cpu.stats.inst_fp_fma += 1;
             }
             _ => cpu.stats.inst_alu += 1,
         }
+    }
+}
+
+/// Performs selective SFENCE.VMA TLB/cache flushing at commit time.
+///
+/// Uses the deferred operand values captured at execute time for proper
+/// ASID/vaddr granularity, matching the RISC-V privileged specification:
+///
+/// * rs1 == 0, rs2 == 0: flush all TLB entries + D-cache + I-cache
+/// * rs1 != 0, rs2 == 0: flush TLB entries matching virtual address in rs1
+/// * rs1 == 0, rs2 != 0: flush non-global TLB entries matching ASID in rs2
+/// * rs1 != 0, rs2 != 0: flush TLB entry matching both vaddr and ASID
+fn sfence_vma_commit(cpu: &mut Cpu, info: &SfenceVmaInfo) {
+    match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
+        (false, false) => {
+            cpu.mmu.dtlb.flush();
+            cpu.mmu.itlb.flush();
+            cpu.mmu.l2_tlb.flush();
+            let _ = cpu.l1_d_cache.flush();
+            let _ = cpu.l1_i_cache.invalidate_all();
+        }
+        (true, false) => {
+            let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
+            cpu.mmu.dtlb.flush_vaddr(vpn);
+            cpu.mmu.itlb.flush_vaddr(vpn);
+            cpu.mmu.l2_tlb.flush_vaddr(vpn);
+        }
+        (false, true) => {
+            let asid = Asid::new(info.rs2_val as u16);
+            cpu.mmu.dtlb.flush_asid(asid);
+            cpu.mmu.itlb.flush_asid(asid);
+            cpu.mmu.l2_tlb.flush_asid(asid);
+        }
+        (true, true) => {
+            let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
+            let asid = Asid::new(info.rs2_val as u16);
+            cpu.mmu.dtlb.flush_vaddr_asid(vpn, asid);
+            cpu.mmu.itlb.flush_vaddr_asid(vpn, asid);
+            cpu.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
+mod tests {
+    use super::*;
+    use crate::common::InstSize;
+    use crate::config::Config;
+    use crate::core::Cpu;
+    use crate::soc::builder::System;
+
+    #[test]
+    fn test_check_interrupts_none() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let cpu = Cpu::new(system, &config);
+
+        assert!(check_interrupts(&cpu).is_none());
+    }
+
+    #[test]
+    fn test_check_interrupts_m_mode() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.csrs.mip = csr::MIP_MEIP;
+        cpu.csrs.mie = csr::MIE_MEIP;
+        cpu.csrs.mstatus |= csr::MSTATUS_MIE;
+        cpu.privilege = PrivilegeMode::Machine;
+
+        assert_eq!(check_interrupts(&cpu), Some(Trap::MachineExternalInterrupt));
+    }
+
+    #[test]
+    fn test_check_interrupts_s_mode_delegated() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        cpu.csrs.mip = csr::MIP_SEIP;
+        cpu.csrs.mie = csr::MIE_SEIP;
+        cpu.csrs.mstatus |= csr::MSTATUS_SIE;
+        cpu.csrs.mideleg |= 1 << DELEG_SEIP_BIT;
+        cpu.privilege = PrivilegeMode::Supervisor;
+
+        assert_eq!(check_interrupts(&cpu), Some(Trap::SupervisorExternalInterrupt));
+    }
+
+    #[test]
+    fn test_commit_stage_normal() {
+        let config = Config::default();
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        let mut rob = Rob::new(4);
+        let mut store_buffer = StoreBuffer::new(4);
+        let mut scoreboard = Scoreboard::new();
+        let mut committed_rename_map = RenameMap::new();
+        let mut free_list = FreeList::new(64, 32);
+
+        let ctrl = crate::core::pipeline::signals::ControlSignals {
+            reg_write: true,
+            ..Default::default()
+        };
+
+        let tag = rob
+            .allocate(
+                0x1000,
+                0,
+                InstSize::Standard,
+                RegIdx::new(1),
+                false,
+                ctrl,
+                crate::core::pipeline::prf::PhysReg(1),
+                crate::core::pipeline::prf::PhysReg(0),
+            )
+            .unwrap();
+        rob.complete(tag, 42);
+
+        let trap = commit_stage(
+            &mut cpu,
+            &mut rob,
+            &mut store_buffer,
+            &mut scoreboard,
+            &mut committed_rename_map,
+            &mut free_list,
+            1,
+            None,
+            None,
+        );
+        assert!(trap.is_none());
+        assert_eq!(cpu.regs.read(RegIdx::new(1)), 42);
     }
 }

@@ -55,7 +55,7 @@ pub trait BranchPredictor {
     /// # Arguments
     ///
     /// * `pc` - Program counter of the call instruction
-    /// * `ret_addr` - Return address (pc + instruction_size)
+    /// * `ret_addr` - Return address (pc + `instruction_size`)
     /// * `target` - Target address of the call
     fn on_call(&mut self, pc: u64, ret_addr: u64, target: u64);
 
@@ -106,4 +106,36 @@ pub trait BranchPredictor {
     ///
     /// Called on misprediction recovery to undo speculative RAS operations.
     fn restore_ras(&mut self, _ptr: usize) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyPredictor;
+    impl BranchPredictor for DummyPredictor {
+        fn predict_branch(&self, _pc: u64) -> (bool, Option<u64>) {
+            (false, None)
+        }
+        fn update_branch(&mut self, _pc: u64, _taken: bool, _target: Option<u64>) {}
+        fn predict_btb(&self, _pc: u64) -> Option<u64> {
+            None
+        }
+        fn on_call(&mut self, _pc: u64, _ret_addr: u64, _target: u64) {}
+        fn predict_return(&self) -> Option<u64> {
+            None
+        }
+        fn on_return(&mut self) {}
+    }
+
+    #[test]
+    fn test_branch_predictor_defaults() {
+        let mut predictor = DummyPredictor;
+        // Test default implementations don't panic and return expected values
+        predictor.speculate(0x1000, true);
+        assert_eq!(predictor.snapshot_history(), 0);
+        predictor.repair_history(42);
+        assert_eq!(predictor.snapshot_ras(), 0);
+        predictor.restore_ras(5);
+    }
 }

@@ -4,17 +4,25 @@
 //! performs branch prediction to determine the next PC, and initiates
 //! I-TLB lookups for address translation.
 
+// RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
+#![allow(clippy::cast_ptr_alignment)]
+
+use crate::common::InstSize;
 use crate::common::constants::{
-    COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, INSTRUCTION_SIZE_16,
-    INSTRUCTION_SIZE_32, OPCODE_MASK, RD_MASK, RD_SHIFT, RS1_MASK, RS1_SHIFT,
+    COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, OPCODE_MASK, RD_MASK, RD_SHIFT,
+    RS1_MASK, RS1_SHIFT,
 };
-use crate::common::{AccessType, ExceptionStage, TranslationResult, Trap, VirtAddr};
+use crate::common::{
+    AccessType, ExceptionStage, PhysAddr, RegIdx, TranslationResult, Trap, VirtAddr,
+};
 use crate::core::Cpu;
 use crate::core::arch::csr;
 use crate::core::pipeline::latches::Fetch1Fetch2Entry;
 use crate::core::units::bru::BranchPredictor;
 use crate::isa::abi;
 use crate::isa::rv64i::opcodes;
+use crate::trace_branch;
+use crate::trace_fetch;
 
 /// Executes the Fetch1 stage: PC generation + I-TLB + branch prediction.
 ///
@@ -50,29 +58,24 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
         }
 
         // I-TLB lookup
-        let TranslationResult {
-            paddr,
-            cycles,
-            trap,
-        } = if fetch_trap.is_none() {
+        let TranslationResult { paddr, cycles, trap, .. } = if fetch_trap.is_none() {
             cpu.translate(VirtAddr::new(current_pc), AccessType::Fetch)
         } else {
-            TranslationResult {
-                paddr: crate::common::PhysAddr::new(0),
-                cycles: 0,
-                trap: None,
-            }
+            TranslationResult::success(crate::common::PhysAddr::new(0), 0)
         };
         *stall_out += cycles;
 
         let trap_cause = fetch_trap.or(trap);
         if let Some(ref trap_cause) = trap_cause {
-            if cpu.trace {
-                eprintln!("F1  pc={:#x} # TRAP: {:?}", current_pc, trap_cause);
-            }
+            trace_fetch!(cpu.trace;
+                pc          = %crate::trace::Hex(current_pc),
+                tlb_cycles  = cycles,
+                trap        = ?trap_cause,
+                "F1: fetch trap"
+            );
             output.push(Fetch1Fetch2Entry {
                 pc: current_pc,
-                paddr: 0,
+                paddr: PhysAddr::new(0),
                 pred_taken: false,
                 pred_target: 0,
                 trap: Some(trap_cause.clone()),
@@ -93,20 +96,16 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                 ptr.read_unaligned()
             }
         } else {
-            cpu.bus.bus.read_u16(phys_addr)
+            cpu.bus.bus.read_u16(paddr)
         };
 
         let is_compressed =
             (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
 
-        let step = if is_compressed {
-            INSTRUCTION_SIZE_16
-        } else {
-            INSTRUCTION_SIZE_32
-        };
+        let step = if is_compressed { InstSize::Compressed } else { InstSize::Standard };
 
         // Branch prediction (peek at opcode from half_word for 32-bit instructions)
-        let mut next_pc_calc = current_pc.wrapping_add(step);
+        let mut next_pc_calc = current_pc.wrapping_add(step.as_u64());
         let mut pred_taken = false;
         let mut pred_target = 0;
         let mut stop_fetch = false;
@@ -128,6 +127,15 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     pred_target = tgt;
                     stop_fetch = true;
                 }
+                trace_branch!(cpu.trace;
+                    event        = "predict",
+                    pc           = %crate::trace::Hex(current_pc),
+                    paddr        = %crate::trace::Hex(phys_addr),
+                    bp_type      = "compressed-branch",
+                    pred_taken   = taken,
+                    pred_target  = %crate::trace::Hex(target.unwrap_or(0)),
+                    "F1: compressed branch prediction"
+                );
             }
         } else {
             // For 32-bit instructions, read full instruction for opcode extraction
@@ -138,9 +146,15 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                 *stall_out += result.cycles;
                 if result.trap.is_some() {
                     // Page crossing fault; let fetch2 handle it
+                    trace_fetch!(cpu.trace;
+                        pc           = %crate::trace::Hex(current_pc),
+                        paddr        = %crate::trace::Hex(phys_addr),
+                        crosses_page = true,
+                        "F1: page-crossing fault deferred to F2"
+                    );
                     output.push(Fetch1Fetch2Entry {
                         pc: current_pc,
-                        paddr: phys_addr,
+                        paddr: PhysAddr::new(phys_addr),
                         pred_taken: false,
                         pred_target: 0,
                         trap: None,
@@ -151,13 +165,14 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     cpu.pc = next_pc_calc;
                     break;
                 }
-                result.paddr.val()
+                result.paddr
             } else {
-                phys_addr + 2
+                PhysAddr::new(phys_addr + 2)
             };
 
-            let upper_half = if upper_phys >= cpu.ram_start && upper_phys < cpu.ram_end {
-                let offset = (upper_phys - cpu.ram_start) as usize;
+            let upper_raw = upper_phys.val();
+            let upper_half = if upper_raw >= cpu.ram_start && upper_raw < cpu.ram_end {
+                let offset = (upper_raw - cpu.ram_start) as usize;
                 unsafe {
                     let ptr = cpu.ram_ptr.add(offset) as *const u16;
                     ptr.read_unaligned()
@@ -168,8 +183,8 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
 
             let full_inst = (upper_half as u32) << 16 | (half_word as u32);
             let opcode = full_inst & OPCODE_MASK;
-            let rd = ((full_inst >> RD_SHIFT) & RD_MASK) as usize;
-            let rs1 = ((full_inst >> RS1_SHIFT) & RS1_MASK) as usize;
+            let rd = RegIdx::new(((full_inst >> RD_SHIFT) & RD_MASK) as u8);
+            let rs1 = RegIdx::new(((full_inst >> RS1_SHIFT) & RS1_MASK) as u8);
 
             if opcode == opcodes::OP_BRANCH {
                 ghr_snapshot = cpu.branch_predictor.snapshot_history();
@@ -181,6 +196,16 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     pred_target = tgt;
                     stop_fetch = true;
                 }
+                trace_branch!(cpu.trace;
+                    event        = "predict",
+                    pc           = %crate::trace::Hex(current_pc),
+                    paddr        = %crate::trace::Hex(phys_addr),
+                    inst         = %crate::trace::Hex32(full_inst),
+                    bp_type      = "branch",
+                    pred_taken   = taken,
+                    pred_target  = %crate::trace::Hex(target.unwrap_or(0)),
+                    "F1: branch prediction"
+                );
             } else if opcode == opcodes::OP_JAL {
                 if let Some(tgt) = cpu.branch_predictor.predict_btb(current_pc) {
                     next_pc_calc = tgt;
@@ -188,8 +213,19 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     pred_target = tgt;
                     stop_fetch = true;
                 }
+                trace_branch!(cpu.trace;
+                    event       = "predict",
+                    pc          = %crate::trace::Hex(current_pc),
+                    paddr       = %crate::trace::Hex(phys_addr),
+                    inst        = %crate::trace::Hex32(full_inst),
+                    bp_type     = "JAL/BTB",
+                    pred_taken  = pred_taken,
+                    pred_target = %crate::trace::Hex(pred_target),
+                    "F1: JAL prediction"
+                );
             } else if opcode == opcodes::OP_JALR {
-                if rd == abi::REG_ZERO && rs1 == abi::REG_RA {
+                let is_ret = rd == abi::REG_ZERO && rs1 == abi::REG_RA;
+                if is_ret {
                     if let Some(tgt) = cpu.branch_predictor.predict_return() {
                         next_pc_calc = tgt;
                         pred_taken = true;
@@ -201,12 +237,32 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     pred_target = tgt;
                 }
                 stop_fetch = true;
+                trace_branch!(cpu.trace;
+                    event       = "predict",
+                    pc          = %crate::trace::Hex(current_pc),
+                    paddr       = %crate::trace::Hex(phys_addr),
+                    inst        = %crate::trace::Hex32(full_inst),
+                    bp_type     = if is_ret { "JALR/RAS" } else { "JALR/BTB" },
+                    pred_taken  = pred_taken,
+                    pred_target = %crate::trace::Hex(pred_target),
+                    "F1: JALR prediction"
+                );
             }
         }
 
+        trace_fetch!(cpu.trace;
+            pc          = %crate::trace::Hex(current_pc),
+            paddr       = %crate::trace::Hex(phys_addr),
+            compressed  = is_compressed,
+            tlb_cycles  = cycles,
+            pred_taken,
+            pred_target = %crate::trace::Hex(pred_target),
+            "F1: fetch entry queued"
+        );
+
         output.push(Fetch1Fetch2Entry {
             pc: current_pc,
-            paddr: phys_addr,
+            paddr: PhysAddr::new(phys_addr),
             pred_taken,
             pred_target,
             trap: None,

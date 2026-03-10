@@ -33,13 +33,7 @@ struct WcbEntry {
 
 impl Default for WcbEntry {
     fn default() -> Self {
-        Self {
-            line_addr: 0,
-            valid_mask: 0,
-            data: [0; 64],
-            active: false,
-            lru_counter: 0,
-        }
+        Self { line_addr: 0, valid_mask: 0, data: [0; 64], active: false, lru_counter: 0 }
     }
 }
 
@@ -51,6 +45,7 @@ pub struct WcbDrain {
 }
 
 /// Write Combining Buffer with configurable entry count.
+#[derive(Debug)]
 pub struct WriteCombiningBuffer {
     entries: Vec<WcbEntry>,
     line_bytes: usize,
@@ -73,7 +68,7 @@ impl WriteCombiningBuffer {
 
     /// Returns true if the WCB is disabled (0 entries).
     #[inline]
-    pub fn is_disabled(&self) -> bool {
+    pub const fn is_disabled(&self) -> bool {
         self.entries.is_empty()
     }
 
@@ -86,14 +81,20 @@ impl WriteCombiningBuffer {
     /// Returns `Some(WcbDrain)` if an entry was evicted to make room, meaning the
     /// caller should drain that entry through the cache hierarchy. Returns `None`
     /// if the store was absorbed without eviction.
-    pub fn merge_store(&mut self, paddr: u64, data: u64, width_bytes: usize) -> Option<WcbDrain> {
+    pub fn merge_store(
+        &mut self,
+        paddr: crate::common::PhysAddr,
+        data: u64,
+        width_bytes: usize,
+    ) -> Option<WcbDrain> {
         if self.entries.is_empty() {
             return None;
         }
 
+        let raw = paddr.val();
         let line_mask = !(self.line_bytes as u64 - 1);
-        let line_addr = paddr & line_mask;
-        let offset = (paddr - line_addr) as usize;
+        let line_addr = raw & line_mask;
+        let offset = (raw - line_addr) as usize;
 
         self.access_counter += 1;
 
@@ -131,9 +132,7 @@ impl WriteCombiningBuffer {
         Self::write_bytes(&mut self.entries[lru_idx], offset, data, width_bytes);
         self.entries[lru_idx].lru_counter = self.access_counter;
 
-        Some(WcbDrain {
-            line_addr: evicted_addr,
-        })
+        Some(WcbDrain { line_addr: evicted_addr })
     }
 
     /// Flushes all active WCB entries, returning their addresses.
@@ -144,9 +143,7 @@ impl WriteCombiningBuffer {
         let mut drains = Vec::new();
         for entry in &mut self.entries {
             if entry.active {
-                drains.push(WcbDrain {
-                    line_addr: entry.line_addr,
-                });
+                drains.push(WcbDrain { line_addr: entry.line_addr });
                 entry.active = false;
             }
         }
@@ -158,9 +155,7 @@ impl WriteCombiningBuffer {
     /// Used to ensure cache accesses don't miss data sitting in the WCB.
     #[inline]
     pub fn contains_line(&self, line_addr: u64) -> bool {
-        self.entries
-            .iter()
-            .any(|e| e.active && e.line_addr == line_addr)
+        self.entries.iter().any(|e| e.active && e.line_addr == line_addr)
     }
 
     /// Returns the number of active entries.
@@ -197,43 +192,45 @@ impl WriteCombiningBuffer {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
+    use crate::common::PhysAddr;
 
     #[test]
     fn test_disabled_wcb() {
         let mut wcb = WriteCombiningBuffer::new(0, 64);
         assert!(wcb.is_disabled());
-        assert!(wcb.merge_store(0x1000, 42, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1000), 42, 4).is_none());
     }
 
     #[test]
     fn test_coalesce_same_line() {
         let mut wcb = WriteCombiningBuffer::new(4, 64);
         // First store to line 0x1000..0x103F
-        assert!(wcb.merge_store(0x1000, 0xAA, 1).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1000), 0xAA, 1).is_none());
         assert_eq!(wcb.active_count(), 1);
         // Second store to same line, different offset
-        assert!(wcb.merge_store(0x1008, 0xBB, 1).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1008), 0xBB, 1).is_none());
         assert_eq!(wcb.active_count(), 1); // coalesced
     }
 
     #[test]
     fn test_different_lines_allocate_new_entries() {
         let mut wcb = WriteCombiningBuffer::new(4, 64);
-        assert!(wcb.merge_store(0x1000, 1, 4).is_none());
-        assert!(wcb.merge_store(0x1040, 2, 4).is_none());
-        assert!(wcb.merge_store(0x1080, 3, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1000), 1, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1040), 2, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1080), 3, 4).is_none());
         assert_eq!(wcb.active_count(), 3);
     }
 
     #[test]
     fn test_eviction_on_full() {
         let mut wcb = WriteCombiningBuffer::new(2, 64);
-        assert!(wcb.merge_store(0x1000, 1, 4).is_none());
-        assert!(wcb.merge_store(0x1040, 2, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1000), 1, 4).is_none());
+        assert!(wcb.merge_store(PhysAddr::new(0x1040), 2, 4).is_none());
         // Third line should evict the LRU (0x1000)
-        let drain = wcb.merge_store(0x1080, 3, 4);
+        let drain = wcb.merge_store(PhysAddr::new(0x1080), 3, 4);
         assert!(drain.is_some());
         assert_eq!(drain.unwrap().line_addr, 0x1000);
         assert_eq!(wcb.active_count(), 2);
@@ -242,8 +239,8 @@ mod tests {
     #[test]
     fn test_flush_all() {
         let mut wcb = WriteCombiningBuffer::new(4, 64);
-        wcb.merge_store(0x1000, 1, 4);
-        wcb.merge_store(0x1040, 2, 4);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 4);
         let drains = wcb.flush_all();
         assert_eq!(drains.len(), 2);
         assert_eq!(wcb.active_count(), 0);
@@ -253,12 +250,12 @@ mod tests {
     fn test_lru_updates_on_access() {
         let mut wcb = WriteCombiningBuffer::new(2, 64);
         // Allocate two lines
-        wcb.merge_store(0x1000, 1, 4); // counter=1
-        wcb.merge_store(0x1040, 2, 4); // counter=2
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 4); // counter=1
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 4); // counter=2
         // Touch 0x1000 again (coalesce), making it MRU (counter=3)
-        wcb.merge_store(0x1004, 3, 4);
+        wcb.merge_store(PhysAddr::new(0x1004), 3, 4);
         // Now 0x1040 (counter=2) is LRU — evict it
-        let drain = wcb.merge_store(0x1080, 4, 4);
+        let drain = wcb.merge_store(PhysAddr::new(0x1080), 4, 4);
         assert!(drain.is_some());
         assert_eq!(drain.unwrap().line_addr, 0x1040);
     }
@@ -266,7 +263,7 @@ mod tests {
     #[test]
     fn test_contains_line() {
         let mut wcb = WriteCombiningBuffer::new(4, 64);
-        wcb.merge_store(0x1008, 1, 4);
+        wcb.merge_store(PhysAddr::new(0x1008), 1, 4);
         assert!(wcb.contains_line(0x1000));
         assert!(!wcb.contains_line(0x1040));
     }

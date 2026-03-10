@@ -7,6 +7,7 @@
 //! 4. **Load and RAM pointer:** Binary loading and raw RAM pointer for CPU DMA-style access.
 
 use super::devices::Device;
+use crate::common::PhysAddr;
 
 /// System bus connecting CPU and devices; routes accesses by physical address.
 ///
@@ -23,6 +24,22 @@ pub struct Bus {
     ram_idx: Option<usize>,
     uart_idx: Option<usize>,
     htif_idx: Option<usize>,
+    clint_idx: Option<usize>,
+}
+
+impl std::fmt::Debug for Bus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bus")
+            .field("width_bytes", &self.width_bytes)
+            .field("latency_cycles", &self.latency_cycles)
+            .field("last_device_idx", &self.last_device_idx)
+            .field("ram_idx", &self.ram_idx)
+            .field("uart_idx", &self.uart_idx)
+            .field("htif_idx", &self.htif_idx)
+            .field("clint_idx", &self.clint_idx)
+            .field("num_devices", &self.devices.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Bus {
@@ -45,6 +62,7 @@ impl Bus {
             ram_idx: None,
             uart_idx: None,
             htif_idx: None,
+            clint_idx: None,
         }
     }
 
@@ -59,6 +77,7 @@ impl Bus {
         self.ram_idx = self.devices.iter().position(|d| d.name() == "DRAM");
         self.uart_idx = self.devices.iter().position(|d| d.name() == "UART0");
         self.htif_idx = self.devices.iter().position(|d| d.name() == "HTIF");
+        self.clint_idx = self.devices.iter().position(|d| d.name() == "CLINT");
         self.last_device_idx = 0;
     }
 
@@ -70,8 +89,8 @@ impl Bus {
     ///
     /// # Returns
     ///
-    /// Cycles = base latency plus ceiling(bytes / width_bytes) transfers.
-    pub fn calculate_transit_time(&self, bytes: usize) -> u64 {
+    /// Cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
+    pub const fn calculate_transit_time(&self, bytes: usize) -> u64 {
         let transfers = (bytes as u64).div_ceil(self.width_bytes);
         self.latency_cycles + transfers
     }
@@ -84,7 +103,7 @@ impl Bus {
     ///
     /// * `data` - Bytes to write.
     /// * `addr` - Physical base address.
-    pub fn load_binary_at(&mut self, data: &[u8], addr: u64) {
+    pub fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
         if let Some((dev, offset)) = self.find_device(addr) {
             let (_, size) = dev.address_range();
             if offset + (data.len() as u64) <= size {
@@ -93,7 +112,7 @@ impl Bus {
             }
         }
         for (i, byte) in data.iter().enumerate() {
-            self.write_u8(addr + i as u64, *byte);
+            self.write_u8(PhysAddr::new(addr.val() + i as u64), *byte);
         }
     }
 
@@ -106,16 +125,17 @@ impl Bus {
     /// # Returns
     ///
     /// `true` if some device's range contains `paddr`.
-    pub fn is_valid_address(&self, paddr: u64) -> bool {
+    pub fn is_valid_address(&self, paddr: PhysAddr) -> bool {
+        let raw = paddr.val();
         if let Some(idx) = self.ram_idx {
             let (start, size) = self.devices[idx].address_range();
-            if paddr >= start && paddr < start + size {
+            if raw >= start && raw < start + size {
                 return true;
             }
         }
         for dev in &self.devices {
             let (start, size) = dev.address_range();
-            if paddr >= start && paddr < start + size {
+            if raw >= start && raw < start + size {
                 return true;
             }
         }
@@ -126,8 +146,9 @@ impl Bus {
     ///
     /// # Returns
     ///
-    /// (timer_irq, meip, seip) for machine timer, machine external, and supervisor external interrupt.
-    pub fn tick(&mut self) -> (bool, bool, bool) {
+    /// (`timer_irq`, `msip`, `meip`, `seip`) for machine timer, machine software,
+    /// machine external, and supervisor external interrupts.
+    pub fn tick(&mut self) -> (bool, bool, bool, bool) {
         let mut timer_irq = false;
         let mut active_irqs = 0u64;
 
@@ -135,9 +156,9 @@ impl Bus {
             let dev = &mut self.devices[i];
             if dev.tick() {
                 if let Some(id) = dev.get_irq_id()
-                    && id < 64
+                    && id.val() < 64
                 {
-                    active_irqs |= 1 << id;
+                    active_irqs |= 1 << id.val();
                 }
                 if dev.name() == "CLINT" {
                     timer_irq = true;
@@ -145,14 +166,18 @@ impl Bus {
             }
         }
 
-        let (meip, seip) = if let Some(plic) = self.find_plic() {
+        // Query MSIP separately — it is independent of the timer comparison.
+        let msip = self
+            .clint_idx
+            .and_then(|idx| self.devices[idx].as_clint_mut())
+            .is_some_and(|clint| clint.msip_pending());
+
+        let (meip, seip) = self.find_plic().map_or((false, false), |plic| {
             plic.update_irqs(active_irqs);
             plic.check_interrupts()
-        } else {
-            (false, false)
-        };
+        });
 
-        (timer_irq, meip, seip)
+        (timer_irq, msip, meip, seip)
     }
 
     /// Returns whether the UART device has detected a kernel panic pattern (for test harnesses).
@@ -196,94 +221,82 @@ impl Bus {
         None
     }
 
-    fn find_device(&mut self, paddr: u64) -> Option<(&mut Box<dyn Device + Send + Sync>, u64)> {
+    fn find_device(
+        &mut self,
+        paddr: PhysAddr,
+    ) -> Option<(&mut Box<dyn Device + Send + Sync>, u64)> {
+        let raw = paddr.val();
         // HTIF sits inside the RAM range so must be checked before any RAM
         // fast-path (last_device_idx cache or ram_idx shortcut).
         if let Some(idx) = self.htif_idx {
             let (start, size) = self.devices[idx].address_range();
-            if paddr >= start && paddr < start + size {
+            if raw >= start && raw < start + size {
                 self.last_device_idx = idx;
-                return Some((&mut self.devices[idx], paddr - start));
+                return Some((&mut self.devices[idx], raw - start));
             }
         }
 
         if self.last_device_idx < self.devices.len() {
             let (start, size) = self.devices[self.last_device_idx].address_range();
-            if paddr >= start && paddr < start + size {
-                return Some((&mut self.devices[self.last_device_idx], paddr - start));
+            if raw >= start && raw < start + size {
+                return Some((&mut self.devices[self.last_device_idx], raw - start));
             }
         }
 
         if let Some(idx) = self.ram_idx {
             let (start, size) = self.devices[idx].address_range();
-            if paddr >= start && paddr < start + size {
+            if raw >= start && raw < start + size {
                 self.last_device_idx = idx;
-                return Some((&mut self.devices[idx], paddr - start));
+                return Some((&mut self.devices[idx], raw - start));
             }
         }
 
         for (i, dev) in self.devices.iter_mut().enumerate() {
             let (start, size) = dev.address_range();
-            if paddr >= start && paddr < start + size {
+            if raw >= start && raw < start + size {
                 self.last_device_idx = i;
-                return Some((dev, paddr - start));
+                return Some((dev, raw - start));
             }
         }
         None
     }
 
     /// Reads one byte at the given physical address; returns 0 if no device claims the address.
-    pub fn read_u8(&mut self, paddr: u64) -> u8 {
-        if let Some((dev, offset)) = self.find_device(paddr) {
-            dev.read_u8(offset)
-        } else {
-            0
-        }
+    pub fn read_u8(&mut self, paddr: PhysAddr) -> u8 {
+        if let Some((dev, offset)) = self.find_device(paddr) { dev.read_u8(offset) } else { 0 }
     }
     /// Reads two bytes (little-endian) at the given physical address; returns 0 if unclaimed.
-    pub fn read_u16(&mut self, paddr: u64) -> u16 {
-        if let Some((dev, offset)) = self.find_device(paddr) {
-            dev.read_u16(offset)
-        } else {
-            0
-        }
+    pub fn read_u16(&mut self, paddr: PhysAddr) -> u16 {
+        if let Some((dev, offset)) = self.find_device(paddr) { dev.read_u16(offset) } else { 0 }
     }
     /// Reads four bytes (little-endian) at the given physical address; returns 0 if unclaimed.
-    pub fn read_u32(&mut self, paddr: u64) -> u32 {
-        if let Some((dev, offset)) = self.find_device(paddr) {
-            dev.read_u32(offset)
-        } else {
-            0
-        }
+    pub fn read_u32(&mut self, paddr: PhysAddr) -> u32 {
+        if let Some((dev, offset)) = self.find_device(paddr) { dev.read_u32(offset) } else { 0 }
     }
     /// Reads eight bytes (little-endian) at the given physical address; returns 0 if unclaimed.
-    pub fn read_u64(&mut self, paddr: u64) -> u64 {
-        if let Some((dev, offset)) = self.find_device(paddr) {
-            dev.read_u64(offset)
-        } else {
-            0
-        }
+    pub fn read_u64(&mut self, paddr: PhysAddr) -> u64 {
+        if let Some((dev, offset)) = self.find_device(paddr) { dev.read_u64(offset) } else { 0 }
     }
     /// Writes one byte at the given physical address; no-op if no device claims it.
-    pub fn write_u8(&mut self, paddr: u64, val: u8) {
+    pub fn write_u8(&mut self, paddr: PhysAddr, val: u8) {
         if let Some((dev, offset)) = self.find_device(paddr) {
             dev.write_u8(offset, val);
         }
     }
     /// Writes two bytes (little-endian) at the given physical address; no-op if unclaimed.
-    pub fn write_u16(&mut self, paddr: u64, val: u16) {
+    pub fn write_u16(&mut self, paddr: PhysAddr, val: u16) {
         if let Some((dev, offset)) = self.find_device(paddr) {
             dev.write_u16(offset, val);
         }
     }
     /// Writes four bytes (little-endian) at the given physical address; no-op if unclaimed.
-    pub fn write_u32(&mut self, paddr: u64, val: u32) {
+    pub fn write_u32(&mut self, paddr: PhysAddr, val: u32) {
         if let Some((dev, offset)) = self.find_device(paddr) {
             dev.write_u32(offset, val);
         }
     }
     /// Writes eight bytes (little-endian) at the given physical address; no-op if unclaimed.
-    pub fn write_u64(&mut self, paddr: u64, val: u64) {
+    pub fn write_u64(&mut self, paddr: PhysAddr, val: u64) {
         if let Some((dev, offset)) = self.find_device(paddr) {
             dev.write_u64(offset, val);
         }

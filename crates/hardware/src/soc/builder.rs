@@ -21,7 +21,7 @@ use std::sync::atomic::AtomicU64;
 /// Top-level system instance containing the bus, memory controller, and exit flag.
 ///
 /// Holds the interconnect (`Bus`), the main memory controller (for DRAM/simple timing),
-/// and an atomic exit request value used by devices (e.g., SysCon) to signal shutdown.
+/// and an atomic exit request value used by devices (e.g., `SysCon`) to signal shutdown.
 pub struct System {
     /// System interconnect; routes accesses to RAM and MMIO devices.
     pub bus: Bus,
@@ -31,16 +31,25 @@ pub struct System {
     pub exit_request: Arc<AtomicU64>,
 }
 
+impl std::fmt::Debug for System {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("System")
+            .field("bus", &self.bus)
+            .field("exit_request", &self.exit_request)
+            .finish_non_exhaustive()
+    }
+}
+
 impl System {
     /// Builds a new system from configuration and optional disk image path.
     ///
-    /// Creates the bus, RAM, UART, VirtIO disk (loading `disk_path` if non-empty), CLINT, PLIC,
-    /// SysCon, and Goldfish RTC. The memory controller is chosen from `config.memory.controller`.
+    /// Creates the bus, RAM, UART, `VirtIO` disk (loading `disk_path` if non-empty), CLINT, PLIC,
+    /// `SysCon`, and Goldfish RTC. The memory controller is chosen from `config.memory.controller`.
     ///
     /// # Arguments
     ///
     /// * `config` - Simulator configuration (system, memory, etc.).
-    /// * `disk_path` - Path to disk image file; if non-empty and readable, data is loaded into VirtIO.
+    /// * `disk_path` - Path to disk image file; if non-empty and readable, data is loaded into `VirtIO`.
     ///
     /// # Returns
     ///
@@ -55,11 +64,7 @@ impl System {
         let mem = Memory::new(ram_buffer.clone(), ram_base);
 
         let uart_base = config.system.uart_base;
-        let uart = Uart::new(
-            uart_base,
-            config.system.uart_to_stderr,
-            config.system.uart_quiet,
-        );
+        let uart = Uart::new(uart_base, config.system.uart_to_stderr, config.system.uart_quiet);
 
         let clint_addr = config.system.clint_base;
         let clint = Clint::new(clint_addr, config.system.clint_divider);
@@ -111,11 +116,7 @@ impl System {
             }
         };
 
-        Self {
-            bus,
-            mem_controller,
-            exit_request,
-        }
+        Self { bus, mem_controller, exit_request }
     }
 
     /// Loads a binary into memory at the given physical address.
@@ -124,16 +125,16 @@ impl System {
     ///
     /// * `data` - Raw bytes to write.
     /// * `addr` - Physical base address for the write.
-    pub fn load_binary_at(&mut self, data: &[u8], addr: u64) {
+    pub fn load_binary_at(&mut self, data: &[u8], addr: crate::common::PhysAddr) {
         self.bus.load_binary_at(data, addr);
     }
 
-    /// Advances all devices by one tick; returns (timer_irq, meip, seip).
+    /// Advances all devices by one tick; returns (`timer_irq`, `msip`, `meip`, `seip`).
     ///
     /// # Returns
     ///
-    /// A tuple of (machine timer IRQ active, machine external IRQ pending, supervisor external IRQ pending).
-    pub fn tick(&mut self) -> (bool, bool, bool) {
+    /// A tuple of (machine timer IRQ, machine software IRQ, machine external IRQ, supervisor external IRQ).
+    pub fn tick(&mut self) -> (bool, bool, bool, bool) {
         self.bus.tick()
     }
 
@@ -144,7 +145,7 @@ impl System {
     /// `Some(exit_code)` if exit was requested, otherwise `None`.
     pub fn check_exit(&self) -> Option<u64> {
         let val = self.exit_request.load(std::sync::atomic::Ordering::Relaxed);
-        if val != u64::MAX { Some(val) } else { None }
+        if val == u64::MAX { None } else { Some(val) }
     }
 
     /// Checks whether the kernel has signaled panic via UART (e.g., for test harnesses).

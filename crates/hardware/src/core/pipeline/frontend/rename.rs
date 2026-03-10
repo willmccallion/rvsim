@@ -1,7 +1,7 @@
 //! Rename Stage: ROB allocation, store buffer allocation, scoreboard/PRF marking.
 //!
 //! For the in-order backend: uses scoreboard to track register producers.
-//! For the O3 backend (has_prf = true): uses physical register file, free list,
+//! For the O3 backend (`has_prf` = true): uses physical register file, free list,
 //! and rename map to implement full register renaming.
 //!
 //! Source register tags are captured BEFORE the scoreboard is updated for rd,
@@ -12,6 +12,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
+use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.
 pub fn rename_stage<E: ExecutionEngine>(
@@ -44,24 +45,18 @@ pub fn rename_stage<E: ExecutionEngine>(
             // Capture source physical regs BEFORE updating rename map for rd
             let rs1_phys = engine.rename_map().get(id.rs1, id.ctrl.rs1_fp);
             let rs2_phys = engine.rename_map().get(id.rs2, id.ctrl.rs2_fp);
-            let rs3_phys = if id.ctrl.rs3_fp {
-                engine.rename_map().get(id.rs3, true)
-            } else {
-                PhysReg(0)
-            };
+            let rs3_phys =
+                if id.ctrl.rs3_fp { engine.rename_map().get(id.rs3, true) } else { PhysReg(0) };
 
             // Allocate destination physical register
             // Skip x0 for integer writes — x0 is hardwired zero and must not
             // consume a physical register (it would never be freed at commit).
-            let needs_dst = (id.ctrl.reg_write && id.rd != 0) || id.ctrl.fp_reg_write;
+            let needs_dst = (id.ctrl.reg_write && !id.rd.is_zero()) || id.ctrl.fp_reg_write;
             let (rd_phys, old_phys_dst) = if needs_dst {
-                let new_p = match engine.free_list_mut().allocate() {
-                    Some(p) => p,
-                    None => {
-                        // Free list empty (shouldn't happen if can_accept accounts for it)
-                        input.push(id);
-                        break;
-                    }
+                // Free list empty (shouldn't happen if can_accept accounts for it)
+                let Some(new_p) = engine.free_list_mut().allocate() else {
+                    input.push(id);
+                    break;
                 };
                 let old_p = engine.rename_map().get(id.rd, id.ctrl.fp_reg_write);
                 (new_p, old_p)
@@ -69,8 +64,8 @@ pub fn rename_stage<E: ExecutionEngine>(
                 (PhysReg(0), PhysReg(0))
             };
 
-            // Allocate ROB entry
-            let rob_tag = match engine.rob_mut().allocate(
+            // Allocate ROB entry — ROB full: reclaim the physical reg we just allocated
+            let Some(rob_tag) = engine.rob_mut().allocate(
                 id.pc,
                 id.inst,
                 id.inst_size,
@@ -79,23 +74,17 @@ pub fn rename_stage<E: ExecutionEngine>(
                 id.ctrl,
                 rd_phys,
                 old_phys_dst,
-            ) {
-                Some(tag) => tag,
-                None => {
-                    // ROB full — reclaim the physical reg we just allocated
-                    if needs_dst {
-                        engine.free_list_mut().reclaim(rd_phys);
-                    }
-                    input.push(id);
-                    break;
+            ) else {
+                if needs_dst {
+                    engine.free_list_mut().reclaim(rd_phys);
                 }
+                input.push(id);
+                break;
             };
 
             // Update speculative rename map and mark PRF not-ready
             if needs_dst {
-                engine
-                    .rename_map_mut()
-                    .set(id.rd, id.ctrl.fp_reg_write, rd_phys);
+                engine.rename_map_mut().set(id.rd, id.ctrl.fp_reg_write, rd_phys);
                 engine.prf_mut().allocate(rd_phys);
             }
 
@@ -153,19 +142,27 @@ pub fn rename_stage<E: ExecutionEngine>(
                 ras_snapshot: id.ras_snapshot,
             };
 
-            if cpu.trace {
-                eprintln!(
-                    "RN  pc={:#x} rob_tag={} rd_phys=p{} old=p{}",
-                    entry.pc, entry.rob_tag.0, rd_phys.0, old_phys_dst.0
-                );
-            }
+            trace_rename!(cpu.trace;
+                pc         = %crate::trace::Hex(entry.pc),
+                rob_tag    = entry.rob_tag.0,
+                rd         = entry.rd.as_usize(),
+                rd_phys    = rd_phys.0,
+                old_phys   = old_phys_dst.0,
+                rs1        = entry.rs1.as_usize(),
+                rs1_phys   = rs1_phys.0,
+                rs2        = entry.rs2.as_usize(),
+                rs2_phys   = rs2_phys.0,
+                is_store   = entry.ctrl.mem_write,
+                is_load    = entry.ctrl.mem_read,
+                is_fp      = entry.ctrl.fp_reg_write,
+                "RN: O3 rename"
+            );
 
             rename_output.push(entry);
-            budget -= 1;
         } else {
             // ── In-order / legacy backend: scoreboard-based rename ─────────
-            // Allocate ROB entry
-            let rob_tag = match engine.rob_mut().allocate(
+            // Allocate ROB entry — ROB full: stall
+            let Some(rob_tag) = engine.rob_mut().allocate(
                 id.pc,
                 id.inst,
                 id.inst_size,
@@ -174,29 +171,20 @@ pub fn rename_stage<E: ExecutionEngine>(
                 id.ctrl,
                 PhysReg(0),
                 PhysReg(0),
-            ) {
-                Some(tag) => tag,
-                None => {
-                    // ROB full, stall
-                    input.push(id);
-                    break;
-                }
+            ) else {
+                input.push(id);
+                break;
             };
 
             // Capture source register tags BEFORE updating scoreboard for rd.
             let rs1_tag = engine.scoreboard().get_producer(id.rs1, id.ctrl.rs1_fp);
             let rs2_tag = engine.scoreboard().get_producer(id.rs2, id.ctrl.rs2_fp);
-            let rs3_tag = if id.ctrl.rs3_fp {
-                engine.scoreboard().get_producer(id.rs3, true)
-            } else {
-                None
-            };
+            let rs3_tag =
+                if id.ctrl.rs3_fp { engine.scoreboard().get_producer(id.rs3, true) } else { None };
 
             // Mark scoreboard: this instruction will write rd
             if id.ctrl.reg_write || id.ctrl.fp_reg_write {
-                engine
-                    .scoreboard_mut()
-                    .set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
+                engine.scoreboard_mut().set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
             }
 
             // Allocate store buffer entry if this is a store
@@ -238,12 +226,21 @@ pub fn rename_stage<E: ExecutionEngine>(
                 ras_snapshot: id.ras_snapshot,
             };
 
-            if cpu.trace {
-                eprintln!("RN  pc={:#x} rob_tag={}", entry.pc, entry.rob_tag.0);
-            }
+            trace_rename!(cpu.trace;
+                pc         = %crate::trace::Hex(entry.pc),
+                rob_tag    = entry.rob_tag.0,
+                rd         = entry.rd.as_usize(),
+                rs1        = entry.rs1.as_usize(),
+                rs1_tag    = ?entry.rs1_tag,
+                rs2        = entry.rs2.as_usize(),
+                rs2_tag    = ?entry.rs2_tag,
+                is_store   = entry.ctrl.mem_write,
+                is_load    = entry.ctrl.mem_read,
+                "RN: in-order rename"
+            );
 
             rename_output.push(entry);
-            budget -= 1;
         }
+        budget -= 1;
     }
 }

@@ -8,6 +8,7 @@
 //! 4. **Commit:** Mark entries as committed when the ROB retires the store.
 //! 5. **Drain:** Write committed stores to memory one per cycle.
 
+use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 
@@ -40,9 +41,9 @@ pub struct StoreBufferEntry {
     /// ROB tag of the store instruction.
     pub rob_tag: RobTag,
     /// Virtual address of the store.
-    pub vaddr: u64,
+    pub vaddr: VirtAddr,
     /// Physical address (filled after translation).
-    pub paddr: Option<u64>,
+    pub paddr: Option<PhysAddr>,
     /// Data to store.
     pub data: u64,
     /// Width of the store operation.
@@ -54,6 +55,7 @@ pub struct StoreBufferEntry {
 }
 
 /// Store buffer — FIFO queue of pending stores.
+#[derive(Debug)]
 pub struct StoreBuffer {
     entries: Vec<StoreBufferEntry>,
     /// Index of the oldest entry.
@@ -69,41 +71,58 @@ impl StoreBuffer {
     pub fn new(capacity: usize) -> Self {
         let mut entries = Vec::with_capacity(capacity);
         entries.resize_with(capacity, StoreBufferEntry::default);
-        Self {
-            entries,
-            head: 0,
-            tail: 0,
-            count: 0,
-        }
+        Self { entries, head: 0, tail: 0, count: 0 }
     }
 
     /// Returns the capacity.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.entries.len()
     }
 
     /// Returns the number of occupied entries.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.count
     }
 
     /// Returns true if the store buffer is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.count == 0
+    }
+
+    /// Returns true if any committed stores are waiting to drain to RAM.
+    ///
+    /// Unlike `is_empty()`, this ignores speculative (Pending/Ready) entries.
+    /// Used by the SFENCE.VMA stall: the fence only needs to wait for
+    /// committed stores to reach RAM — younger speculative entries will be
+    /// squashed by the full pipeline flush after the fence commits.
+    pub fn has_committed_stores(&self) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.state == StoreState::Committed {
+                return true;
+            }
+            idx = (idx + 1) % cap;
+        }
+        false
     }
 
     /// Returns true if the store buffer is full.
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.count == self.entries.len()
     }
 
     /// Returns the number of free slots.
     #[inline]
-    pub fn free_slots(&self) -> usize {
+    pub const fn free_slots(&self) -> usize {
         self.entries.len() - self.count
     }
 
@@ -115,7 +134,7 @@ impl StoreBuffer {
 
         self.entries[self.tail] = StoreBufferEntry {
             rob_tag,
-            vaddr: 0,
+            vaddr: VirtAddr::new(0),
             paddr: None,
             data: 0,
             width,
@@ -129,7 +148,7 @@ impl StoreBuffer {
     }
 
     /// Resolves a store's address and data after memory translation.
-    pub fn resolve(&mut self, rob_tag: RobTag, vaddr: u64, paddr: u64, data: u64) {
+    pub fn resolve(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: u64) {
         if let Some(entry) = self.find_by_tag_mut(rob_tag) {
             entry.vaddr = vaddr;
             entry.paddr = Some(paddr);
@@ -156,24 +175,25 @@ impl StoreBuffer {
     /// `load_rob_tag` is the ROB tag of the load instruction. Only stores
     /// older than the load (lower tag) are considered for forwarding. Stores
     /// newer than the load in program order are skipped.
-    pub fn forward_load(&self, paddr: u64, width: MemWidth, load_rob_tag: RobTag) -> ForwardResult {
+    pub fn forward_load(
+        &self,
+        paddr: PhysAddr,
+        width: MemWidth,
+        load_rob_tag: RobTag,
+    ) -> ForwardResult {
         let load_size = width_to_bytes(width);
-        let load_start = paddr;
-        let load_end = paddr + load_size as u64;
+        let load_start = paddr.val();
+        let load_end = load_start + load_size as u64;
 
         // Search from newest to oldest for the most recent matching store
-        let mut idx = if self.tail == 0 {
-            self.entries.len() - 1
-        } else {
-            self.tail - 1
-        };
+        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
 
         for _ in 0..self.count {
             let entry = &self.entries[idx];
             if entry.valid {
                 // Skip stores that are newer than or same age as the load —
                 // they are after the load in program order and must not forward.
-                if entry.rob_tag.0 >= load_rob_tag.0 {
+                if !entry.rob_tag.is_older_than(load_rob_tag) {
                     if idx == 0 {
                         idx = self.entries.len() - 1;
                     } else {
@@ -185,8 +205,8 @@ impl StoreBuffer {
                 // Older store with resolved address — check for overlap.
                 if let Some(store_paddr) = entry.paddr {
                     let store_size = width_to_bytes(entry.width);
-                    let store_start = store_paddr;
-                    let store_end = store_paddr + store_size as u64;
+                    let store_start = store_paddr.val();
+                    let store_end = store_start + store_size as u64;
 
                     // Check for any overlap
                     if load_start < store_end && load_end > store_start {
@@ -230,7 +250,15 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag.0 < rob_tag.0 && entry.paddr.is_none() {
+            // An entry is truly unresolved only if it's Pending (address
+            // computation hasn't happened yet). Cancelled SC entries have
+            // paddr=None but state=Committed — they are harmless no-ops
+            // waiting to drain and must not block younger loads.
+            if entry.valid
+                && entry.rob_tag.is_older_than(rob_tag)
+                && entry.paddr.is_none()
+                && entry.state == StoreState::Pending
+            {
                 return true;
             }
             idx = (idx + 1) % cap;
@@ -310,7 +338,7 @@ impl StoreBuffer {
             // Keep entries that are at or before the keep_tag in program order.
             // ROB tags are assigned sequentially, so tag <= keep_tag means
             // the instruction was issued at or before the branch.
-            if entry.valid && entry.rob_tag.0 <= keep_tag.0 {
+            if entry.valid && entry.rob_tag.is_older_or_eq(keep_tag) {
                 if idx != new_tail {
                     self.entries[new_tail] = self.entries[idx].clone();
                     self.entries[idx].valid = false;
@@ -345,25 +373,36 @@ impl StoreBuffer {
         for _ in 0..self.count {
             if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
                 // If this is the tail entry, we can simply retract it
-                let prev_tail = if self.tail == 0 {
-                    cap - 1
-                } else {
-                    self.tail - 1
-                };
+                let prev_tail = if self.tail == 0 { cap - 1 } else { self.tail - 1 };
                 if idx == prev_tail {
                     self.entries[idx].valid = false;
                     self.tail = prev_tail;
                     self.count -= 1;
                 } else {
                     // Not at tail — resolve as a committed no-op that drain_one will skip.
-                    // Mark it Ready+Committed so it can drain, but paddr stays None so
+                    // Mark it Committed so it can drain, and clear paddr so
                     // drain_one's `let Some(paddr) = store.paddr` guard skips the write.
                     self.entries[idx].state = StoreState::Committed;
+                    self.entries[idx].paddr = None;
                 }
                 return;
             }
             idx = (idx + 1) % cap;
         }
+    }
+
+    /// Returns the resolved physical address for the entry with the given ROB tag,
+    /// or `None` if the entry is not found or has no address yet.
+    pub fn find_paddr(&self, rob_tag: RobTag) -> Option<PhysAddr> {
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
+                return self.entries[idx].paddr;
+            }
+            idx = (idx + 1) % cap;
+        }
+        None
     }
 
     /// Finds the entry with the given ROB tag.
@@ -380,8 +419,8 @@ impl StoreBuffer {
     }
 }
 
-/// Converts a MemWidth to byte count.
-pub(crate) fn width_to_bytes(w: MemWidth) -> usize {
+/// Converts a `MemWidth` to byte count.
+pub(crate) const fn width_to_bytes(w: MemWidth) -> usize {
     match w {
         MemWidth::Byte => 1,
         MemWidth::Half => 2,
@@ -392,6 +431,7 @@ pub(crate) fn width_to_bytes(w: MemWidth) -> usize {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
 
@@ -407,13 +447,13 @@ mod tests {
         // Can't drain yet (still Pending)
         assert!(sb.drain_one().is_none());
 
-        sb.resolve(tag, 0x1000, 0x8000_0000, 0xDEADBEEF);
+        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0xDEADBEEF);
         // Can't drain yet (Ready but not Committed)
         assert!(sb.drain_one().is_none());
 
         sb.mark_committed(tag);
         let entry = sb.drain_one().unwrap();
-        assert_eq!(entry.paddr, Some(0x8000_0000));
+        assert_eq!(entry.paddr, Some(PhysAddr::new(0x8000_0000)));
         assert_eq!(entry.data, 0xDEADBEEF);
         assert!(sb.is_empty());
     }
@@ -432,14 +472,14 @@ mod tests {
         let mut sb = StoreBuffer::new(4);
         let tag = RobTag(1);
         sb.allocate(tag, MemWidth::Word);
-        sb.resolve(tag, 0x1000, 0x8000_0000, 0x12345678);
+        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
         // Forward should find the store (load is younger: tag 2 > store tag 1)
-        let result = sb.forward_load(0x8000_0000, MemWidth::Word, RobTag(2));
+        let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
         assert_eq!(result, ForwardResult::Hit(0x12345678));
 
         // Different address should miss
-        let result = sb.forward_load(0x8000_0004, MemWidth::Word, RobTag(2));
+        let result = sb.forward_load(PhysAddr::new(0x8000_0004), MemWidth::Word, RobTag(2));
         assert_eq!(result, ForwardResult::Miss);
     }
 
@@ -448,10 +488,10 @@ mod tests {
         let mut sb = StoreBuffer::new(4);
         let tag = RobTag(1);
         sb.allocate(tag, MemWidth::Word);
-        sb.resolve(tag, 0x1000, 0x8000_0000, 0x12345678);
+        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
         // Forward a byte from the same address
-        let result = sb.forward_load(0x8000_0000, MemWidth::Byte, RobTag(2));
+        let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
         assert_eq!(result, ForwardResult::Hit(0x78));
     }
 
@@ -466,10 +506,10 @@ mod tests {
         sb.allocate(t2, MemWidth::Word);
         sb.allocate(t3, MemWidth::Word);
 
-        sb.resolve(t1, 0x1000, 0x8000_0000, 10);
+        sb.resolve(t1, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 10);
         sb.mark_committed(t1);
 
-        sb.resolve(t2, 0x1004, 0x8000_0004, 20);
+        sb.resolve(t2, VirtAddr::new(0x1004), PhysAddr::new(0x8000_0004), 20);
         // t2 is Ready but not committed
         // t3 is still Pending
 
@@ -496,7 +536,7 @@ mod tests {
         for i in 1..=10 {
             let tag = RobTag(i);
             sb.allocate(tag, MemWidth::Word);
-            sb.resolve(tag, 0, 0x8000_0000, i as u64);
+            sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
             sb.mark_committed(tag);
             let entry = sb.drain_one().unwrap();
             assert_eq!(entry.data, i as u64);

@@ -17,6 +17,7 @@
 use super::ReplacementPolicy;
 
 /// FIFO Policy state.
+#[derive(Debug)]
 pub struct FifoPolicy {
     /// Tracks the next way to be evicted for each set.
     next_way: Vec<usize>,
@@ -32,10 +33,7 @@ impl FifoPolicy {
     /// * `sets` - The number of sets in the cache.
     /// * `ways` - The associativity (number of ways) of the cache.
     pub fn new(sets: usize, ways: usize) -> Self {
-        Self {
-            next_way: vec![0; sets],
-            ways,
-        }
+        Self { next_way: vec![0; sets], ways }
     }
 }
 

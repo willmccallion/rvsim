@@ -26,13 +26,14 @@ pub trait MemoryController: Send + Sync {
 }
 
 /// Fixed-latency memory controller; every access takes the same number of cycles.
+#[derive(Debug)]
 pub struct SimpleController {
     latency: u64,
 }
 
 impl SimpleController {
     /// Creates a simple controller with the given fixed latency in cycles.
-    pub fn new(latency: u64) -> Self {
+    pub const fn new(latency: u64) -> Self {
         Self { latency }
     }
 }
@@ -44,6 +45,7 @@ impl MemoryController for SimpleController {
 }
 
 /// Per-bank state for DRAM row-buffer tracking.
+#[derive(Debug)]
 struct BankState {
     /// Currently open row in this bank, or `None` if no row is active.
     open_row: Option<u64>,
@@ -52,6 +54,7 @@ struct BankState {
 }
 
 /// Configuration parameters for constructing a [`DramController`].
+#[derive(Clone, Copy, Debug)]
 pub struct DramConfig {
     /// Column access strobe latency (cycles).
     pub t_cas: u64,
@@ -75,6 +78,7 @@ pub struct DramConfig {
 ///
 /// Each bank independently tracks its open row and busy state. Refresh
 /// periodically marks all banks as unavailable for `t_rfc` cycles.
+#[derive(Debug)]
 pub struct DramController {
     banks: Vec<BankState>,
     num_banks: usize,
@@ -107,10 +111,7 @@ impl DramController {
 
         let mut banks = Vec::with_capacity(cfg.num_banks);
         for _ in 0..cfg.num_banks {
-            banks.push(BankState {
-                open_row: None,
-                busy_until: 0,
-            });
+            banks.push(BankState { open_row: None, busy_until: 0 });
         }
 
         Self {
@@ -134,13 +135,13 @@ impl DramController {
     /// Bank selection uses the bits just above the row-offset bits:
     /// `bank = (addr >> row_shift) % num_banks`
     #[inline]
-    fn bank_index(&self, addr: u64) -> usize {
+    const fn bank_index(&self, addr: u64) -> usize {
         ((addr >> self.row_shift) as usize) % self.num_banks
     }
 
     /// Returns the row address for a given physical address.
     #[inline]
-    fn row_addr(&self, addr: u64) -> u64 {
+    const fn row_addr(&self, addr: u64) -> u64 {
         addr & self.row_mask
     }
 
@@ -175,7 +176,7 @@ impl DramController {
 
     /// Enforces tRRD spacing and performs a row activation. Returns the
     /// ready cycle after activation constraints are applied.
-    fn activate(&mut self, mut ready_cycle: u64) -> u64 {
+    const fn activate(&mut self, mut ready_cycle: u64) -> u64 {
         if let Some(last_act) = self.last_activate_cycle {
             let earliest_activate = last_act + self.t_rrd;
             if ready_cycle < earliest_activate {

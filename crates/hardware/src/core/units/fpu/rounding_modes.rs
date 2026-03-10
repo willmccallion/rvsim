@@ -37,7 +37,7 @@ impl RoundingMode {
     ///
     /// Returns `None` for reserved encodings (0b101, 0b110) and the dynamic
     /// sentinel (0b111), which must be resolved to `fcsr.frm` by the caller.
-    pub fn from_bits(bits: u8) -> Option<Self> {
+    pub const fn from_bits(bits: u8) -> Option<Self> {
         match bits & 0x7 {
             0b000 => Some(Self::Rne),
             0b001 => Some(Self::Rtz),

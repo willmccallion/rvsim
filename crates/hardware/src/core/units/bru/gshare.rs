@@ -21,7 +21,8 @@ const TABLE_BITS: usize = 12;
 /// Total number of entries in the PHT.
 const TABLE_SIZE: usize = 1 << TABLE_BITS;
 
-/// GShare Predictor structure.
+/// `GShare` Predictor structure.
+#[derive(Debug)]
 pub struct GSharePredictor {
     /// Global History Register storing recent branch outcomes.
     ghr: u64,
@@ -34,7 +35,7 @@ pub struct GSharePredictor {
 }
 
 impl GSharePredictor {
-    /// Creates a new GShare Predictor.
+    /// Creates a new `GShare` Predictor.
     pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         Self {
             ghr: 0,
@@ -47,7 +48,7 @@ impl GSharePredictor {
     /// Calculates the index into the Pattern History Table.
     ///
     /// Computes the XOR of the PC (shifted) and the Global History Register.
-    fn index(&self, pc: u64) -> usize {
+    const fn index(&self, pc: u64) -> usize {
         let pc_part = (pc >> 2) & ((TABLE_SIZE as u64) - 1);
         let ghr_part = self.ghr & ((TABLE_SIZE as u64) - 1);
         (pc_part ^ ghr_part) as usize
@@ -63,11 +64,7 @@ impl BranchPredictor for GSharePredictor {
         let counter = self.pht[idx];
         let taken = counter >= 2;
 
-        if taken {
-            (true, self.btb.lookup(pc))
-        } else {
-            (false, None)
-        }
+        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
     }
 
     /// Updates the predictor with the actual branch outcome.
@@ -109,7 +106,7 @@ impl BranchPredictor for GSharePredictor {
 
     /// Handles a function return by popping from the RAS.
     fn on_return(&mut self) {
-        self.ras.pop();
+        let _ = self.ras.pop();
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {

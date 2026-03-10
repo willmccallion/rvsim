@@ -37,17 +37,17 @@ impl FpFlags {
     pub const NX: Self = Self(1 << 0);
 
     /// Returns the raw 5-bit flag value for writing into `fcsr`.
-    pub fn bits(self) -> u8 {
+    pub const fn bits(self) -> u8 {
         self.0
     }
 
     /// Returns true if no flags are set.
-    pub fn is_empty(self) -> bool {
+    pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
 
     /// Returns true if the specified flag is set.
-    pub fn contains(self, other: Self) -> bool {
+    pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0
     }
 }

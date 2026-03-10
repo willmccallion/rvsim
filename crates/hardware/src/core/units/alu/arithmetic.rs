@@ -28,7 +28,7 @@ const XLEN_BITS: u32 = 64;
 ///
 /// The 64-bit result. For 32-bit operations the result is sign-extended
 /// from bit 31. Returns `0` for non-arithmetic opcodes.
-pub fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
     match op {
         AluOp::Add => {
             if is32 {

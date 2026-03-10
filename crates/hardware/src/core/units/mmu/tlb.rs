@@ -6,13 +6,34 @@
 //! to speed up address translation. On L1 miss the shared L2 TLB is consulted
 //! before invoking the hardware page table walker.
 
+use crate::common::{Asid, Ppn, Vpn};
+
+/// Translation data and permission bits returned on a TLB hit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct TlbHit {
+    /// Physical Page Number.
+    pub ppn: Ppn,
+    /// Read permission.
+    pub r: bool,
+    /// Write permission.
+    pub w: bool,
+    /// Execute permission.
+    pub x: bool,
+    /// User-mode accessible.
+    pub u: bool,
+    /// Dirty bit (if `false` on a write, the PTW must set it before the mapping is cached).
+    pub d: bool,
+}
+
 /// A single entry in the TLB.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 struct TlbEntry {
     /// Virtual Page Number (Tag).
-    vpn: u64,
+    vpn: Vpn,
     /// Physical Page Number (Data).
-    ppn: u64,
+    ppn: Ppn,
     /// Entry validity flag.
     valid: bool,
     /// Read permission.
@@ -26,12 +47,13 @@ struct TlbEntry {
     /// Dirty bit from PTE.
     d: bool,
     /// Address Space Identifier from SATP[59:44].
-    asid: u16,
+    asid: Asid,
     /// PTE Global bit — matches regardless of ASID.
     global: bool,
 }
 
 /// Translation Lookaside Buffer structure.
+#[derive(Debug)]
 pub struct Tlb {
     /// Vector of TLB entries.
     entries: Vec<TlbEntry>,
@@ -46,16 +68,9 @@ impl Tlb {
     ///
     /// * `size` - Number of entries (will be rounded up to next power of 2).
     pub fn new(size: usize) -> Self {
-        let safe_size = if size.is_power_of_two() {
-            size
-        } else {
-            size.next_power_of_two()
-        };
+        let safe_size = if size.is_power_of_two() { size } else { size.next_power_of_two() };
 
-        Self {
-            entries: vec![TlbEntry::default(); safe_size],
-            mask: safe_size - 1,
-        }
+        Self { entries: vec![TlbEntry::default(); safe_size], mask: safe_size - 1 }
     }
 
     /// Looks up a VPN in the TLB.
@@ -67,7 +82,7 @@ impl Tlb {
     ///
     /// # Returns
     ///
-    /// `Some((ppn, r, w, x, u, d))` if found, otherwise `None`.
+    /// Returns [`TlbHit`] if the VPN is cached, otherwise `None`.
     /// Global entries (G bit set in PTE) match regardless of ASID.
     ///
     /// # Panics
@@ -76,8 +91,8 @@ impl Tlb {
     /// - `idx = vpn & self.mask` where `mask = size - 1` (size is power of 2)
     /// - This ensures `idx` is always `< size` and within bounds of `entries`
     #[inline(always)]
-    pub fn lookup(&self, vpn: u64, asid: u16) -> Option<(u64, bool, bool, bool, bool, bool)> {
-        let idx = (vpn as usize) & self.mask;
+    pub fn lookup(&self, vpn: Vpn, asid: Asid) -> Option<TlbHit> {
+        let idx = (vpn.val() as usize) & self.mask;
 
         // SAFETY: idx is guaranteed to be < entries.len() by the mask operation above.
         // The mask is constructed as (size - 1) where size is the length of entries,
@@ -85,7 +100,14 @@ impl Tlb {
         let entry = unsafe { self.entries.get_unchecked(idx) };
 
         if entry.valid && entry.vpn == vpn && (entry.global || entry.asid == asid) {
-            return Some((entry.ppn, entry.r, entry.w, entry.x, entry.u, entry.d));
+            return Some(TlbHit {
+                ppn: entry.ppn,
+                r: entry.r,
+                w: entry.w,
+                x: entry.x,
+                u: entry.u,
+                d: entry.d,
+            });
         }
         None
     }
@@ -98,7 +120,7 @@ impl Tlb {
     /// * `ppn` - Physical Page Number.
     /// * `pte` - Raw Page Table Entry (used to extract permissions).
     /// * `asid` - Address Space Identifier from SATP[59:44].
-    pub fn insert(&mut self, vpn: u64, ppn: u64, pte: u64, asid: u16) {
+    pub fn insert(&mut self, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
         let r = (pte >> 1) & 1 != 0;
         let w = (pte >> 2) & 1 != 0;
         let x = (pte >> 3) & 1 != 0;
@@ -106,25 +128,14 @@ impl Tlb {
         let global = (pte >> 5) & 1 != 0;
         let d = (pte >> 7) & 1 != 0;
 
-        let idx = (vpn as usize) & self.mask;
+        let idx = (vpn.val() as usize) & self.mask;
 
-        self.entries[idx] = TlbEntry {
-            vpn,
-            ppn,
-            valid: true,
-            r,
-            w,
-            x,
-            u,
-            d,
-            asid,
-            global,
-        };
+        self.entries[idx] = TlbEntry { vpn, ppn, valid: true, r, w, x, u, d, asid, global };
     }
 
     /// Invalidates a single TLB entry by VPN (used for dirty-bit re-walk).
-    pub fn invalidate(&mut self, vpn: u64) {
-        let idx = (vpn as usize) & self.mask;
+    pub fn invalidate(&mut self, vpn: Vpn) {
+        let idx = (vpn.val() as usize) & self.mask;
         if self.entries[idx].valid && self.entries[idx].vpn == vpn {
             self.entries[idx].valid = false;
         }
@@ -143,8 +154,8 @@ impl Tlb {
     ///
     /// Called when SFENCE.VMA has rs1!=x0 and rs2=x0.
     /// Invalidates entries whose VPN matches `vpn`, regardless of ASID.
-    pub fn flush_vaddr(&mut self, vpn: u64) {
-        let idx = (vpn as usize) & self.mask;
+    pub fn flush_vaddr(&mut self, vpn: Vpn) {
+        let idx = (vpn.val() as usize) & self.mask;
         if self.entries[idx].valid && self.entries[idx].vpn == vpn {
             self.entries[idx].valid = false;
         }
@@ -154,7 +165,7 @@ impl Tlb {
     ///
     /// Called when SFENCE.VMA has rs1=x0 and rs2!=x0.
     /// Invalidates all non-global entries with the given ASID.
-    pub fn flush_asid(&mut self, asid: u16) {
+    pub fn flush_asid(&mut self, asid: Asid) {
         for e in &mut self.entries {
             if e.valid && !e.global && e.asid == asid {
                 e.valid = false;
@@ -166,8 +177,8 @@ impl Tlb {
     ///
     /// Called when SFENCE.VMA has rs1!=x0 and rs2!=x0.
     /// Invalidates the entry at `vpn` only if it is non-global and has the given ASID.
-    pub fn flush_vaddr_asid(&mut self, vpn: u64, asid: u16) {
-        let idx = (vpn as usize) & self.mask;
+    pub fn flush_vaddr_asid(&mut self, vpn: Vpn, asid: Asid) {
+        let idx = (vpn.val() as usize) & self.mask;
         let e = &mut self.entries[idx];
         if e.valid && e.vpn == vpn && !e.global && e.asid == asid {
             e.valid = false;
@@ -181,6 +192,7 @@ impl Tlb {
 
 /// Shared L2 TLB sitting between the per-access-type L1 TLBs and the
 /// hardware page table walker. 4-way set-associative with LRU replacement.
+#[derive(Debug)]
 pub struct L2Tlb {
     /// Flat array of entries: `sets * ways` elements, laid out
     /// `[set0_way0, set0_way1, …, set0_wayN, set1_way0, …]`.
@@ -205,12 +217,8 @@ impl L2Tlb {
     pub fn new(total_entries: usize, ways: usize, latency: u64) -> Self {
         let safe_ways = if ways == 0 { 4 } else { ways };
         let sets_raw = total_entries / safe_ways;
-        let num_sets = if sets_raw.is_power_of_two() {
-            sets_raw
-        } else {
-            sets_raw.next_power_of_two()
-        }
-        .max(1);
+        let num_sets =
+            if sets_raw.is_power_of_two() { sets_raw } else { sets_raw.next_power_of_two() }.max(1);
         let capacity = num_sets * safe_ways;
 
         Self {
@@ -227,8 +235,8 @@ impl L2Tlb {
     /// Returns `Some((ppn, pte_bits, asid))` on hit so the caller can
     /// promote the entry into the L1 TLB. The `pte_bits` value is a
     /// reconstructed raw PTE suitable for `Tlb::insert`.
-    pub fn lookup(&mut self, vpn: u64, asid: u16) -> Option<(u64, u64, u16)> {
-        let set = (vpn as usize) & self.set_mask;
+    pub fn lookup(&mut self, vpn: Vpn, asid: Asid) -> Option<(Ppn, u64, Asid)> {
+        let set = (vpn.val() as usize) & self.set_mask;
         let base = set * self.ways;
 
         for w in 0..self.ways {
@@ -245,8 +253,8 @@ impl L2Tlb {
     }
 
     /// Inserts an entry, evicting the LRU way if the set is full.
-    pub fn insert(&mut self, vpn: u64, ppn: u64, pte: u64, asid: u16) {
-        let set = (vpn as usize) & self.set_mask;
+    pub fn insert(&mut self, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
+        let set = (vpn.val() as usize) & self.set_mask;
         let base = set * self.ways;
 
         // Check for an existing entry with the same VPN (update in place).
@@ -282,8 +290,8 @@ impl L2Tlb {
     }
 
     /// Flushes entries matching a specific virtual address.
-    pub fn flush_vaddr(&mut self, vpn: u64) {
-        let set = (vpn as usize) & self.set_mask;
+    pub fn flush_vaddr(&mut self, vpn: Vpn) {
+        let set = (vpn.val() as usize) & self.set_mask;
         let base = set * self.ways;
         for w in 0..self.ways {
             let e = &mut self.entries[base + w];
@@ -294,7 +302,7 @@ impl L2Tlb {
     }
 
     /// Flushes non-global entries matching a specific ASID.
-    pub fn flush_asid(&mut self, asid: u16) {
+    pub fn flush_asid(&mut self, asid: Asid) {
         for e in &mut self.entries {
             if e.valid && !e.global && e.asid == asid {
                 e.valid = false;
@@ -303,8 +311,8 @@ impl L2Tlb {
     }
 
     /// Flushes entries matching both a virtual address and ASID.
-    pub fn flush_vaddr_asid(&mut self, vpn: u64, asid: u16) {
-        let set = (vpn as usize) & self.set_mask;
+    pub fn flush_vaddr_asid(&mut self, vpn: Vpn, asid: Asid) {
+        let set = (vpn.val() as usize) & self.set_mask;
         let base = set * self.ways;
         for w in 0..self.ways {
             let e = &mut self.entries[base + w];
@@ -316,7 +324,7 @@ impl L2Tlb {
 
     // ── internal helpers ──────────────────────────────────────────────
 
-    fn write_entry(&mut self, idx: usize, vpn: u64, ppn: u64, pte: u64, asid: u16) {
+    fn write_entry(&mut self, idx: usize, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
         self.entries[idx] = TlbEntry {
             vpn,
             ppn,
@@ -333,7 +341,7 @@ impl L2Tlb {
 
     /// Reconstruct a raw PTE value from a `TlbEntry` so it can be
     /// passed to `Tlb::insert` when promoting from L2 to L1.
-    fn reconstruct_pte(e: &TlbEntry) -> u64 {
+    const fn reconstruct_pte(e: &TlbEntry) -> u64 {
         let mut pte: u64 = 1; // V bit
         if e.r {
             pte |= 1 << 1;

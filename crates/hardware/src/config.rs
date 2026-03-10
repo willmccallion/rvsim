@@ -38,7 +38,7 @@ mod defaults {
     /// Base address of UART 16550-compatible serial port MMIO region.
     pub const UART_BASE: u64 = 0x1000_0000;
 
-    /// Base address of VirtIO block device MMIO region.
+    /// Base address of `VirtIO` block device MMIO region.
     pub const DISK_BASE: u64 = 0x9000_0000;
 
     /// Base address of CLINT (Core Local Interruptor) timer MMIO region.
@@ -354,8 +354,8 @@ pub enum BranchPredictor {
 
 /// Root configuration structure containing all simulator settings.
 ///
-/// Configuration is supplied by the Python API (SimConfig.to_dict() → JSON) or
-/// use Config::default() for the CLI. No TOML files.
+/// Configuration is supplied by the Python API (`SimConfig.to_dict()` → JSON) or
+/// use `Config::default()` for the CLI. No TOML files.
 ///
 /// # Examples
 ///
@@ -475,19 +475,19 @@ pub struct GeneralConfig {
     #[serde(default = "GeneralConfig::default_direct_mode")]
     pub direct_mode: bool,
 
-    /// Initial stack pointer (only used when direct_mode is true). Defaults to ram_base + 16MiB if not set.
+    /// Initial stack pointer (only used when `direct_mode` is true). Defaults to `ram_base` + 16MiB if not set.
     #[serde(default)]
     pub initial_sp: Option<u64>,
 }
 
 impl GeneralConfig {
     /// Returns the default starting program counter.
-    fn default_start_pc() -> u64 {
+    const fn default_start_pc() -> u64 {
         defaults::RAM_BASE
     }
 
     /// Default direct mode to true so bare-metal runs work out of the box.
-    fn default_direct_mode() -> bool {
+    const fn default_direct_mode() -> bool {
         true
     }
 }
@@ -513,7 +513,7 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_uart_base")]
     pub uart_base: u64,
 
-    /// VirtIO disk MMIO base address
+    /// `VirtIO` disk MMIO base address
     #[serde(default = "SystemConfig::default_disk_base")]
     pub disk_base: u64,
 
@@ -561,47 +561,47 @@ pub struct SystemConfig {
 
 impl SystemConfig {
     /// Returns the default UART MMIO base address.
-    fn default_uart_base() -> u64 {
+    const fn default_uart_base() -> u64 {
         defaults::UART_BASE
     }
 
-    /// Returns the default VirtIO disk MMIO base address.
-    fn default_disk_base() -> u64 {
+    /// Returns the default `VirtIO` disk MMIO base address.
+    const fn default_disk_base() -> u64 {
         defaults::DISK_BASE
     }
 
     /// Returns the default RAM base address.
-    fn default_ram_base() -> u64 {
+    const fn default_ram_base() -> u64 {
         defaults::RAM_BASE
     }
 
     /// Returns the default CLINT MMIO base address.
-    fn default_clint_base() -> u64 {
+    const fn default_clint_base() -> u64 {
         defaults::CLINT_BASE
     }
 
     /// Returns the default system controller MMIO base address.
-    fn default_syscon_base() -> u64 {
+    const fn default_syscon_base() -> u64 {
         defaults::SYSCON_BASE
     }
 
     /// Returns the default kernel load offset from RAM base.
-    fn default_kernel_offset() -> u64 {
+    const fn default_kernel_offset() -> u64 {
         defaults::KERNEL_OFFSET
     }
 
     /// Returns the default system bus width in bytes.
-    fn default_bus_width() -> u64 {
+    const fn default_bus_width() -> u64 {
         defaults::BUS_WIDTH
     }
 
     /// Returns the default system bus latency in cycles.
-    fn default_bus_latency() -> u64 {
+    const fn default_bus_latency() -> u64 {
         defaults::BUS_LATENCY
     }
 
     /// Returns the default CLINT timer divider value.
-    fn default_clint_divider() -> u64 {
+    const fn default_clint_divider() -> u64 {
         defaults::CLINT_DIVIDER
     }
 }
@@ -694,77 +694,108 @@ pub struct MemoryConfig {
     /// L2 TLB hit latency in cycles
     #[serde(default = "MemoryConfig::default_l2_tlb_latency")]
     pub l2_tlb_latency: u64,
+
+    /// Use software-managed A/D bits (fault on A=0 or D=0).
+    /// When true, the PTW raises a page fault instead of auto-setting the
+    /// Accessed/Dirty bits, matching spike's behavior and what Linux expects.
+    /// Default: true.
+    #[serde(default = "MemoryConfig::default_software_ad_bits")]
+    pub software_ad_bits: bool,
+
+    /// Trap on misaligned memory accesses instead of handling them natively.
+    /// When true, misaligned loads/stores raise `LoadAddressMisaligned` /
+    /// `StoreAddressMisaligned` exceptions (matching spike's default behavior).
+    /// When false, misaligned accesses are handled transparently with a latency
+    /// penalty (like many modern RISC-V cores). Default: true.
+    #[serde(default = "MemoryConfig::default_misaligned_access_trap")]
+    pub misaligned_access_trap: bool,
 }
 
 impl MemoryConfig {
     /// Returns the default RAM size in bytes.
-    fn default_ram_size() -> usize {
+    const fn default_ram_size() -> usize {
         defaults::RAM_SIZE
     }
 
     /// Returns the default CAS latency in DRAM cycles.
-    fn default_t_cas() -> u64 {
+    const fn default_t_cas() -> u64 {
         defaults::T_CAS
     }
 
     /// Returns the default RAS latency in DRAM cycles.
-    fn default_t_ras() -> u64 {
+    const fn default_t_ras() -> u64 {
         defaults::T_RAS
     }
 
     /// Returns the default precharge latency in DRAM cycles.
-    fn default_t_pre() -> u64 {
+    const fn default_t_pre() -> u64 {
         defaults::T_PRE
     }
 
     /// Returns the default row buffer miss penalty in DRAM cycles.
-    fn default_row_miss() -> u64 {
+    const fn default_row_miss() -> u64 {
         defaults::ROW_MISS_LATENCY
     }
 
     /// Returns the default number of DRAM banks.
-    fn default_num_banks() -> usize {
+    const fn default_num_banks() -> usize {
         defaults::NUM_BANKS
     }
 
     /// Returns the default row-to-row delay in DRAM cycles.
-    fn default_t_rrd() -> u64 {
+    const fn default_t_rrd() -> u64 {
         defaults::T_RRD
     }
 
     /// Returns the default row size in bytes.
-    fn default_row_size() -> usize {
+    const fn default_row_size() -> usize {
         defaults::ROW_SIZE_BYTES
     }
 
     /// Returns the default refresh interval in cycles.
-    fn default_t_refi() -> u64 {
+    const fn default_t_refi() -> u64 {
         defaults::T_REFI
     }
 
     /// Returns the default refresh cycle time in cycles.
-    fn default_t_rfc() -> u64 {
+    const fn default_t_rfc() -> u64 {
         defaults::T_RFC
     }
 
     /// Returns the default TLB entry count.
-    fn default_tlb_size() -> usize {
+    const fn default_tlb_size() -> usize {
         defaults::TLB_SIZE
     }
 
     /// Returns the default L2 TLB entry count.
-    fn default_l2_tlb_size() -> usize {
+    const fn default_l2_tlb_size() -> usize {
         defaults::L2_TLB_SIZE
     }
 
     /// Returns the default L2 TLB associativity.
-    fn default_l2_tlb_ways() -> usize {
+    const fn default_l2_tlb_ways() -> usize {
         defaults::L2_TLB_WAYS
     }
 
     /// Returns the default L2 TLB hit latency.
-    fn default_l2_tlb_latency() -> u64 {
+    const fn default_l2_tlb_latency() -> u64 {
         defaults::L2_TLB_LATENCY
+    }
+
+    /// Returns the default value for software-managed A/D bits.
+    const fn default_software_ad_bits() -> bool {
+        true
+    }
+
+    /// Returns the default value for misaligned access trap behavior.
+    ///
+    /// Default `true` matches spike and avoids the cross-page corruption bug:
+    /// Memory1 only translates the base virtual address, so misaligned
+    /// accesses that span two pages would read/write wrong physical memory
+    /// when handled in hardware.  Until a proper page-splitting LSU is
+    /// implemented, keep this `true`.
+    const fn default_misaligned_access_trap() -> bool {
+        true
     }
 }
 
@@ -790,6 +821,8 @@ impl Default for MemoryConfig {
             l2_tlb_size: defaults::L2_TLB_SIZE,
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
+            software_ad_bits: true,
+            misaligned_access_trap: true,
         }
     }
 }
@@ -859,32 +892,32 @@ pub struct CacheConfig {
 
 impl CacheConfig {
     /// Returns the default cache size in bytes.
-    fn default_size() -> usize {
+    const fn default_size() -> usize {
         defaults::CACHE_SIZE
     }
 
     /// Returns the default cache line size in bytes.
-    fn default_line() -> usize {
+    const fn default_line() -> usize {
         defaults::CACHE_LINE
     }
 
     /// Returns the default cache associativity (number of ways).
-    fn default_ways() -> usize {
+    const fn default_ways() -> usize {
         defaults::CACHE_WAYS
     }
 
     /// Returns the default cache access latency in cycles.
-    fn default_latency() -> u64 {
+    const fn default_latency() -> u64 {
         defaults::CACHE_LATENCY
     }
 
     /// Returns the default prefetcher pattern table size.
-    fn default_prefetch_table() -> usize {
+    const fn default_prefetch_table() -> usize {
         defaults::PREFETCH_TABLE_SIZE
     }
 
     /// Returns the default prefetch degree (lines per trigger).
-    fn default_prefetch_degree() -> usize {
+    const fn default_prefetch_degree() -> usize {
         defaults::PREFETCH_DEGREE
     }
 }
@@ -949,7 +982,7 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub tournament: TournamentConfig,
 
-    /// Backend type (InOrder or OutOfOrder)
+    /// Backend type (`InOrder` or `OutOfOrder`)
     #[serde(default)]
     pub backend: BackendType,
 
@@ -966,12 +999,12 @@ pub struct PipelineConfig {
     pub issue_queue_size: usize,
 
     /// Physical Register File GPR size (O3 backend).
-    /// Must satisfy: prf_gpr_size >= 32 + rob_size.
+    /// Must satisfy: `prf_gpr_size` >= 32 + `rob_size`.
     #[serde(default = "PipelineConfig::default_prf_gpr_size")]
     pub prf_gpr_size: usize,
 
     /// Physical Register File FPR size (O3 backend).
-    /// Must satisfy: prf_fpr_size >= 32 + rob_size.
+    /// Must satisfy: `prf_fpr_size` >= 32 + `rob_size`.
     #[serde(default = "PipelineConfig::default_prf_fpr_size")]
     pub prf_fpr_size: usize,
 
@@ -994,62 +1027,62 @@ pub struct PipelineConfig {
 
 impl PipelineConfig {
     /// Returns the default pipeline width (instructions per cycle).
-    fn default_width() -> usize {
+    const fn default_width() -> usize {
         defaults::PIPELINE_WIDTH
     }
 
     /// Returns the default Branch Target Buffer size.
-    fn default_btb_size() -> usize {
+    const fn default_btb_size() -> usize {
         defaults::BTB_SIZE
     }
 
     /// Returns the default BTB associativity.
-    fn default_btb_ways() -> usize {
+    const fn default_btb_ways() -> usize {
         defaults::BTB_WAYS
     }
 
     /// Returns the default Return Address Stack size.
-    fn default_ras_size() -> usize {
+    const fn default_ras_size() -> usize {
         defaults::RAS_SIZE
     }
 
     /// Returns the default ROB size.
-    fn default_rob_size() -> usize {
+    const fn default_rob_size() -> usize {
         defaults::ROB_SIZE
     }
 
     /// Returns the default store buffer size.
-    fn default_store_buffer_size() -> usize {
+    const fn default_store_buffer_size() -> usize {
         defaults::STORE_BUFFER_SIZE
     }
 
     /// Returns the default issue queue size.
-    fn default_issue_queue_size() -> usize {
+    const fn default_issue_queue_size() -> usize {
         defaults::ISSUE_QUEUE_SIZE
     }
 
     /// Returns the default PRF GPR size.
-    fn default_prf_gpr_size() -> usize {
+    const fn default_prf_gpr_size() -> usize {
         defaults::PRF_GPR_SIZE
     }
 
     /// Returns the default PRF FPR size.
-    fn default_prf_fpr_size() -> usize {
+    const fn default_prf_fpr_size() -> usize {
         defaults::PRF_FPR_SIZE
     }
 
     /// Returns the default load queue size.
-    fn default_load_queue_size() -> usize {
+    const fn default_load_queue_size() -> usize {
         defaults::LOAD_QUEUE_SIZE
     }
 
     /// Returns the default number of load ports.
-    fn default_load_ports() -> usize {
+    const fn default_load_ports() -> usize {
         defaults::LOAD_PORTS
     }
 
     /// Returns the default number of store ports.
-    fn default_store_ports() -> usize {
+    const fn default_store_ports() -> usize {
         defaults::STORE_PORTS
     }
 }
@@ -1085,7 +1118,7 @@ impl Default for PipelineConfig {
 }
 
 /// TAGE (Tagged Geometric) predictor configuration.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TageConfig {
     /// Number of tagged tables
     #[serde(default = "TageConfig::default_banks")]
@@ -1112,24 +1145,37 @@ pub struct TageConfig {
     pub tag_widths: Vec<usize>,
 }
 
+impl Default for TageConfig {
+    fn default() -> Self {
+        Self {
+            num_banks: Self::default_banks(),
+            table_size: Self::default_table_size(),
+            loop_table_size: Self::default_loop_size(),
+            reset_interval: Self::default_reset_interval(),
+            history_lengths: Self::default_history_lengths(),
+            tag_widths: Self::default_tag_widths(),
+        }
+    }
+}
+
 impl TageConfig {
     /// Returns the default number of TAGE predictor banks.
-    fn default_banks() -> usize {
+    const fn default_banks() -> usize {
         defaults::TAGE_BANKS
     }
 
     /// Returns the default TAGE predictor table size per bank.
-    fn default_table_size() -> usize {
+    const fn default_table_size() -> usize {
         defaults::TAGE_TABLE_SIZE
     }
 
     /// Returns the default TAGE loop predictor table size.
-    fn default_loop_size() -> usize {
+    const fn default_loop_size() -> usize {
         defaults::TAGE_LOOP_SIZE
     }
 
     /// Returns the default TAGE useful counter reset interval.
-    fn default_reset_interval() -> u32 {
+    const fn default_reset_interval() -> u32 {
         defaults::TAGE_RESET_INTERVAL
     }
 
@@ -1149,7 +1195,7 @@ impl TageConfig {
 }
 
 /// Perceptron branch predictor configuration.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PerceptronConfig {
     /// Global history length
     #[serde(default = "PerceptronConfig::default_history")]
@@ -1160,20 +1206,26 @@ pub struct PerceptronConfig {
     pub table_bits: usize,
 }
 
+impl Default for PerceptronConfig {
+    fn default() -> Self {
+        Self { history_length: Self::default_history(), table_bits: Self::default_table_bits() }
+    }
+}
+
 impl PerceptronConfig {
     /// Returns the default Perceptron predictor global history length.
-    fn default_history() -> usize {
+    const fn default_history() -> usize {
         defaults::PERCEPTRON_HISTORY
     }
 
     /// Returns the default Perceptron predictor table size (log2).
-    fn default_table_bits() -> usize {
+    const fn default_table_bits() -> usize {
         defaults::PERCEPTRON_TABLE_BITS
     }
 }
 
 /// Tournament branch predictor configuration.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TournamentConfig {
     /// Global predictor size (log2)
     #[serde(default = "TournamentConfig::default_global")]
@@ -1188,19 +1240,29 @@ pub struct TournamentConfig {
     pub local_pred_bits: usize,
 }
 
+impl Default for TournamentConfig {
+    fn default() -> Self {
+        Self {
+            global_size_bits: Self::default_global(),
+            local_hist_bits: Self::default_local_hist(),
+            local_pred_bits: Self::default_local_pred(),
+        }
+    }
+}
+
 impl TournamentConfig {
     /// Returns the default Tournament predictor global history table size (log2).
-    fn default_global() -> usize {
+    const fn default_global() -> usize {
         defaults::TOURNAMENT_GLOBAL_BITS
     }
 
     /// Returns the default Tournament predictor local history table size (log2).
-    fn default_local_hist() -> usize {
+    const fn default_local_hist() -> usize {
         defaults::TOURNAMENT_LOCAL_HIST_BITS
     }
 
     /// Returns the default Tournament predictor local prediction table size (log2).
-    fn default_local_pred() -> usize {
+    const fn default_local_pred() -> usize {
         defaults::TOURNAMENT_LOCAL_PRED_BITS
     }
 }
