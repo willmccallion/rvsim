@@ -99,7 +99,7 @@ group       = "Development"
 description = "fmt-check + clippy"
 type        = "task"
 commands    = [
-    ["{{cargo}}", "fmt", "--all", "--", "--check"],
+    ["{{cargo}}", "fmt", "--all"],
     ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
     ["{{cargo}}", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
 ]

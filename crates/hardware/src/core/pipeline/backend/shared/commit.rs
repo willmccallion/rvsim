@@ -201,11 +201,18 @@ pub fn commit_stage(
         // Write to commit log if enabled (deferred until after register write
         // so we can include the destination register value).
         #[cfg(feature = "commit-log")]
-        let commit_log_entry: Option<(u64, u32, bool, usize, u64)> = {
+        let commit_log_entry: Option<(u64, u32, bool, bool, usize, u64)> = {
             if cpu.commit_log.is_some() {
                 let has_rd =
                     (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
-                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result))
+                Some((
+                    entry.pc,
+                    entry.inst,
+                    has_rd,
+                    entry.ctrl.fp_reg_write,
+                    entry.rd.as_usize(),
+                    entry.result,
+                ))
             } else {
                 None
             }
@@ -291,15 +298,16 @@ pub fn commit_stage(
 
         // Write deferred commit log entry (now that rd has been written).
         #[cfg(feature = "commit-log")]
-        if let Some((pc, inst, has_rd, rd, val)) = commit_log_entry {
-            if let Some(ref mut log) = cpu.commit_log {
-                use std::io::Write;
-                if has_rd {
-                    let _ =
-                        writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x}) x{rd} 0x{val:016x}");
-                } else {
-                    let _ = writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x})");
-                }
+        if let Some((pc, inst, has_rd, is_fp, rd, val)) = commit_log_entry
+            && let Some(ref mut log) = cpu.commit_log
+        {
+            use std::io::Write;
+            if has_rd {
+                let prefix = if is_fp { "f" } else { "x" };
+                let _ =
+                    writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x}) {prefix}{rd} 0x{val:016x}");
+            } else {
+                let _ = writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x})");
             }
         }
 
