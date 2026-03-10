@@ -1,6 +1,7 @@
 pub mod clint_timer;
 pub mod devices;
 pub mod goldfish_rtc;
+pub mod htif;
 pub mod interconnect;
 pub mod memory;
 pub mod plic;

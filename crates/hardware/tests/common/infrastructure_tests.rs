@@ -3,6 +3,7 @@ use super::builder::pipeline_state::{ExMemBuilder, IdExBuilder, IfIdBuilder, Mem
 use super::harness::TestContext;
 use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
+use rvsim_core::common::{PhysAddr, RegIdx};
 use rvsim_core::core::pipeline::signals::ControlSignals;
 use rvsim_core::isa::rv64i::opcodes::*;
 
@@ -79,10 +80,7 @@ fn builder_addi_encodes_i_type() {
 fn builder_addi_negative_immediate() {
     let inst = InstructionBuilder::new().addi(1, 0, -1).build();
     let imm = (inst >> 20) & 0xFFF;
-    assert_eq!(
-        imm, 0xFFF,
-        "Negative immediate -1 should be encoded as 0xFFF (12-bit)"
-    );
+    assert_eq!(imm, 0xFFF, "Negative immediate -1 should be encoded as 0xFFF (12-bit)");
 }
 
 #[test]
@@ -249,21 +247,14 @@ fn builder_raw_field_api() {
         .funct7(0b0000000)
         .build();
     let via_helper = InstructionBuilder::new().add(1, 2, 3).build();
-    assert_eq!(
-        inst, via_helper,
-        "Raw field API should produce same encoding as helper"
-    );
+    assert_eq!(inst, via_helper, "Raw field API should produce same encoding as helper");
 }
 
 // ─── Pipeline State Builders ───────────────────────────────────────────────
 
 #[test]
 fn ifid_builder_defaults_and_setters() {
-    let entry = IfIdBuilder::new()
-        .pc(0x1000)
-        .inst(0xDEADBEEF)
-        .predicted(0x2000)
-        .build();
+    let entry = IfIdBuilder::new().pc(0x1000).inst(0xDEADBEEF).predicted(0x2000).build();
     assert_eq!(entry.pc, 0x1000);
     assert_eq!(entry.inst, 0xDEADBEEF);
     assert!(entry.pred_taken);
@@ -281,10 +272,7 @@ fn ifid_builder_defaults_are_zero() {
 
 #[test]
 fn idex_builder_full_chain() {
-    let ctrl = ControlSignals {
-        reg_write: true,
-        ..Default::default()
-    };
+    let ctrl = ControlSignals { reg_write: true, ..Default::default() };
     let entry = IdExBuilder::new()
         .pc(0x2000)
         .inst(0x12345678)
@@ -296,39 +284,29 @@ fn idex_builder_full_chain() {
         .build();
     assert_eq!(entry.pc, 0x2000);
     assert_eq!(entry.inst, 0x12345678);
-    assert_eq!(entry.rs1, 1);
+    assert_eq!(entry.rs1, RegIdx::new(1));
     assert_eq!(entry.rv1, 100);
-    assert_eq!(entry.rs2, 2);
+    assert_eq!(entry.rs2, RegIdx::new(2));
     assert_eq!(entry.rv2, 200);
-    assert_eq!(entry.rd, 3);
+    assert_eq!(entry.rd, RegIdx::new(3));
     assert_eq!(entry.imm, 42);
     assert!(entry.ctrl.reg_write);
 }
 
 #[test]
 fn exmem_builder() {
-    let entry = ExMemBuilder::new()
-        .pc(0x3000)
-        .alu_result(0xCAFE)
-        .store_data(0xBEEF)
-        .rd(5)
-        .build();
+    let entry = ExMemBuilder::new().pc(0x3000).alu_result(0xCAFE).store_data(0xBEEF).rd(5).build();
     assert_eq!(entry.pc, 0x3000);
     assert_eq!(entry.alu, 0xCAFE);
     assert_eq!(entry.store_data, 0xBEEF);
-    assert_eq!(entry.rd, 5);
+    assert_eq!(entry.rd, RegIdx::new(5));
 }
 
 #[test]
 fn memwb_builder() {
-    let entry = MemWbBuilder::new()
-        .pc(0x4000)
-        .rd(7)
-        .alu_result(0x1234)
-        .load_data(0x5678)
-        .build();
+    let entry = MemWbBuilder::new().pc(0x4000).rd(7).alu_result(0x1234).load_data(0x5678).build();
     assert_eq!(entry.pc, 0x4000);
-    assert_eq!(entry.rd, 7);
+    assert_eq!(entry.rd, RegIdx::new(7));
     assert_eq!(entry.alu, 0x1234);
     assert_eq!(entry.load_data, 0x5678);
 }
@@ -344,8 +322,8 @@ fn harness_boot_default_pc() {
 #[test]
 fn harness_with_memory_adds_device() {
     let mut ctx = TestContext::new().with_memory(4096, 0x1000);
-    ctx.cpu_mut().bus.bus.write_u32(0x1000, 0xDEADBEEF);
-    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1000), 0xDEADBEEF);
+    ctx.cpu_mut().bus.bus.write_u32(PhysAddr::new(0x1000), 0xDEADBEEF);
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(PhysAddr::new(0x1000)), 0xDEADBEEF);
 }
 
 #[test]
@@ -354,13 +332,11 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
     let addi = InstructionBuilder::new().addi(1, 0, 42).build();
     let program = [nop, addi];
 
-    let mut ctx = TestContext::new()
-        .with_memory(4096, 0x1000)
-        .load_program(0x1000, &program);
+    let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &program);
 
     assert_eq!(ctx.cpu().pc, 0x1000, "PC should be set to program base");
-    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1000), nop);
-    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(0x1004), addi);
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(PhysAddr::new(0x1000)), nop);
+    assert_eq!(ctx.cpu_mut().bus.bus.read_u32(PhysAddr::new(0x1004)), addi);
 }
 
 #[test]

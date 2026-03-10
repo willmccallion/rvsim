@@ -108,9 +108,5 @@ fn direction_switch_resets_confidence() {
     let current = 0x1000 + 2 * LINE;
     pf.observe(current - LINE, false); // desc, new direction → conf=1
     let addrs = pf.observe(current - 2 * LINE, false); // desc, conf=2
-    assert_eq!(
-        addrs.len(),
-        1,
-        "Descending should prefetch after rebuilding confidence"
-    );
+    assert_eq!(addrs.len(), 1, "Descending should prefetch after rebuilding confidence");
 }

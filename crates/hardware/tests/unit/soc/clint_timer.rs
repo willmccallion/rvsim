@@ -62,10 +62,7 @@ fn clint_timer_interrupt_fires_when_mtime_ge_mtimecmp() {
         assert!(!clint.tick(), "No interrupt before mtime reaches mtimecmp");
     }
     // 5th tick: mtime becomes 5, should fire
-    assert!(
-        clint.tick(),
-        "Timer interrupt should fire when mtime >= mtimecmp"
-    );
+    assert!(clint.tick(), "Timer interrupt should fire when mtime >= mtimecmp");
 }
 
 #[test]
@@ -88,7 +85,8 @@ fn clint_msip_only_bit_0() {
 fn clint_msip_triggers_interrupt() {
     let mut clint = Clint::new(0, 1);
     clint.write_u32(0x0000, 1);
-    assert!(clint.tick(), "MSIP set should trigger interrupt on tick");
+    // tick() returns timer IRQ only; MSIP is queried separately via msip_pending()
+    assert!(clint.msip_pending(), "MSIP set should be reported by msip_pending()");
 }
 
 #[test]

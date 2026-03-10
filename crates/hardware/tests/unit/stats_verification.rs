@@ -20,8 +20,10 @@ fn default_stats_all_zero() {
     assert_eq!(stats.inst_fp_arith, 0);
     assert_eq!(stats.inst_fp_fma, 0);
     assert_eq!(stats.inst_fp_div_sqrt, 0);
-    assert_eq!(stats.branch_predictions, 0);
-    assert_eq!(stats.branch_mispredictions, 0);
+    assert_eq!(stats.committed_branch_predictions, 0);
+    assert_eq!(stats.committed_branch_mispredictions, 0);
+    assert_eq!(stats.speculative_branch_predictions, 0);
+    assert_eq!(stats.speculative_branch_mispredictions, 0);
     assert_eq!(stats.stalls_mem, 0);
     assert_eq!(stats.stalls_control, 0);
     assert_eq!(stats.stalls_data, 0);
@@ -70,11 +72,11 @@ fn stats_instruction_mix_sums() {
 #[test]
 fn stats_branch_prediction_accuracy() {
     let mut stats = SimStats::default();
-    stats.branch_predictions = 90;
-    stats.branch_mispredictions = 10;
+    stats.committed_branch_predictions = 90;
+    stats.committed_branch_mispredictions = 10;
 
-    let total = stats.branch_predictions + stats.branch_mispredictions;
-    let accuracy = stats.branch_predictions as f64 / total as f64;
+    let total = stats.committed_branch_predictions + stats.committed_branch_mispredictions;
+    let accuracy = stats.committed_branch_predictions as f64 / total as f64;
     assert!((accuracy - 0.9).abs() < 1e-10);
 }
 

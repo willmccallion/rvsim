@@ -29,11 +29,7 @@ fn counters_increment() {
 /// Verifies that counters can store the maximum possible 64-bit value.
 #[test]
 fn counters_large_values() {
-    let csrs = Csrs {
-        cycle: u64::MAX,
-        instret: u64::MAX,
-        ..Default::default()
-    };
+    let csrs = Csrs { cycle: u64::MAX, instret: u64::MAX, ..Default::default() };
     assert_eq!(csrs.cycle, u64::MAX);
     assert_eq!(csrs.instret, u64::MAX);
 }

@@ -85,11 +85,7 @@ fn index_wraps_around() {
     }
     for i in 0u64..8 {
         let pc = i * 4;
-        assert_eq!(
-            btb.lookup(pc),
-            Some(0x1000 + i),
-            "Entry at index {i} should be intact"
-        );
+        assert_eq!(btb.lookup(pc), Some(0x1000 + i), "Entry at index {i} should be intact");
     }
 }
 
@@ -183,11 +179,7 @@ fn set_associative_no_conflict_within_ways() {
     let pc_b = 0x1010; // set = (0x1010 >> 2) & 3 = 0 (same set!)
     btb.update(pc_a, 0xAAAA);
     btb.update(pc_b, 0xBBBB);
-    assert_eq!(
-        btb.lookup(pc_a),
-        Some(0xAAAA),
-        "Both should coexist in 4-way set"
-    );
+    assert_eq!(btb.lookup(pc_a), Some(0xAAAA), "Both should coexist in 4-way set");
     assert_eq!(btb.lookup(pc_b), Some(0xBBBB));
 }
 

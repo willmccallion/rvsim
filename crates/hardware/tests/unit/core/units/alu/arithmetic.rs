@@ -112,12 +112,7 @@ fn add_rv64_min_plus_min() {
 #[test]
 fn add_rv64_large_values() {
     assert_eq!(
-        alu(
-            AluOp::Add,
-            0xDEAD_BEEF_CAFE_BABE,
-            0x1111_1111_1111_1111,
-            false
-        ),
+        alu(AluOp::Add, 0xDEAD_BEEF_CAFE_BABE, 0x1111_1111_1111_1111, false),
         0xDEAD_BEEF_CAFE_BABE_u64.wrapping_add(0x1111_1111_1111_1111)
     );
 }
@@ -148,15 +143,7 @@ fn addw_negative_result_sign_extends() {
 fn addw_ignores_upper_32_bits_of_inputs() {
     // Upper bits of inputs should be ignored; result is sign-extended from bit 31.
     // 0xDEAD_0000_0000_0001 + 0xBEEF_0000_0000_0002 → ADDW should see 1 + 2 = 3
-    assert_eq!(
-        alu(
-            AluOp::Add,
-            0xDEAD_0000_0000_0001,
-            0xBEEF_0000_0000_0002,
-            true
-        ),
-        3
-    );
+    assert_eq!(alu(AluOp::Add, 0xDEAD_0000_0000_0001, 0xBEEF_0000_0000_0002, true), 3);
 }
 
 #[test]
@@ -204,10 +191,7 @@ fn sub_rv64_self_minus_self() {
 #[test]
 fn sub_rv64_negative_minus_negative() {
     // -5 - (-3) = -2
-    assert_eq!(
-        alu(AluOp::Sub, -5i64 as u64, -3i64 as u64, false),
-        -2i64 as u64
-    );
+    assert_eq!(alu(AluOp::Sub, -5i64 as u64, -3i64 as u64, false), -2i64 as u64);
 }
 
 #[test]
@@ -229,15 +213,7 @@ fn subw_overflow_wraps_and_sign_extends() {
 
 #[test]
 fn subw_ignores_upper_bits() {
-    assert_eq!(
-        alu(
-            AluOp::Sub,
-            0xFF00_0000_0000_000A,
-            0xAB00_0000_0000_0003,
-            true
-        ),
-        7
-    );
+    assert_eq!(alu(AluOp::Sub, 0xFF00_0000_0000_000A, 0xAB00_0000_0000_0003, true), 7);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -303,15 +279,7 @@ fn mulw_neg1_times_neg1() {
 
 #[test]
 fn mulw_ignores_upper_bits() {
-    assert_eq!(
-        alu(
-            AluOp::Mul,
-            0xFFFF_FFFF_0000_0003,
-            0xFFFF_FFFF_0000_0004,
-            true
-        ),
-        12
-    );
+    assert_eq!(alu(AluOp::Mul, 0xFFFF_FFFF_0000_0003, 0xFFFF_FFFF_0000_0004, true), 12);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -507,22 +475,14 @@ fn divw_basic() {
 
 #[test]
 fn divw_negative_result_sign_extends() {
-    assert_eq!(
-        alu(AluOp::Div, -100i64 as u64, 7, true),
-        sext32(-14i32 as u32)
-    );
+    assert_eq!(alu(AluOp::Div, -100i64 as u64, 7, true), sext32(-14i32 as u32));
 }
 
 #[test]
 fn divw_ignores_upper_bits() {
     // Upper 32 bits should be ignored for the operation
     assert_eq!(
-        alu(
-            AluOp::Div,
-            0xDEAD_0000_0000_0064,
-            0xBEEF_0000_0000_0007,
-            true
-        ),
+        alu(AluOp::Div, 0xDEAD_0000_0000_0064, 0xBEEF_0000_0000_0007, true),
         14 // 100 / 7
     );
 }
@@ -600,10 +560,7 @@ fn divuw_basic() {
 fn divuw_high_bit_set_is_unsigned() {
     // 0x8000_0000 / 1 = 0x8000_0000 (treated as 2^31 unsigned, not -2^31)
     // Sign-extended result: 0xFFFF_FFFF_8000_0000
-    assert_eq!(
-        alu(AluOp::Divu, HIGH_BIT_32, ONE, true),
-        sext32(0x8000_0000)
-    );
+    assert_eq!(alu(AluOp::Divu, HIGH_BIT_32, ONE, true), sext32(0x8000_0000));
 }
 
 #[test]
@@ -622,15 +579,7 @@ fn divuw_u32_max_by_2() {
 fn divuw_ignores_upper_input_bits() {
     // a = 0xFFFF_FFFF_0000_0064, b = 0xFFFF_FFFF_0000_0007
     // DIVUW sees a[31:0]=100, b[31:0]=7 → 14
-    assert_eq!(
-        alu(
-            AluOp::Divu,
-            0xFFFF_FFFF_0000_0064,
-            0xFFFF_FFFF_0000_0007,
-            true
-        ),
-        14
-    );
+    assert_eq!(alu(AluOp::Divu, 0xFFFF_FFFF_0000_0064, 0xFFFF_FFFF_0000_0007, true), 14);
 }
 
 /// REGRESSION: Verify DIVUW result is sign-extended from bit 31.
@@ -640,10 +589,7 @@ fn divuw_result_sign_extends_when_bit31_set() {
     // 0xFFFF_FFFE / 1 = 0xFFFF_FFFE → sign-extended = 0xFFFF_FFFF_FFFF_FFFE
     // But more interesting: pick values where quotient has bit 31 set.
     // 0x8000_0002 / 1 = 0x8000_0002 → sign-extended
-    assert_eq!(
-        alu(AluOp::Divu, 0x8000_0002, ONE, true),
-        sext32(0x8000_0002)
-    );
+    assert_eq!(alu(AluOp::Divu, 0x8000_0002, ONE, true), sext32(0x8000_0002));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -697,10 +643,7 @@ fn rem_rv64_negative_divisor() {
 #[test]
 fn rem_rv64_both_negative() {
     // -100 % -7 = -2
-    assert_eq!(
-        alu(AluOp::Rem, -100i64 as u64, -7i64 as u64, false),
-        -2i64 as u64
-    );
+    assert_eq!(alu(AluOp::Rem, -100i64 as u64, -7i64 as u64, false), -2i64 as u64);
 }
 
 /// RISC-V spec: div * divisor + rem = dividend (algebraic identity).
@@ -754,10 +697,7 @@ fn remw_basic() {
 
 #[test]
 fn remw_negative_result_sign_extends() {
-    assert_eq!(
-        alu(AluOp::Rem, -100i64 as u64, 7, true),
-        sext32(-2i32 as u32)
-    );
+    assert_eq!(alu(AluOp::Rem, -100i64 as u64, 7, true), sext32(-2i32 as u32));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -859,12 +799,7 @@ fn remuw_u32_max_mod_2() {
 #[test]
 fn remuw_ignores_upper_bits() {
     assert_eq!(
-        alu(
-            AluOp::Remu,
-            0xFFFF_FFFF_0000_0064,
-            0xFFFF_FFFF_0000_0007,
-            true
-        ),
+        alu(AluOp::Remu, 0xFFFF_FFFF_0000_0064, 0xFFFF_FFFF_0000_0007, true),
         sext32(2) // 100 % 7
     );
 }
@@ -894,10 +829,7 @@ fn remuw_identity_divuw_mul_remuw() {
 #[test]
 fn add_rv64_alternating_bits() {
     // 0xAAAA... + 0x5555... = 0xFFFF...
-    assert_eq!(
-        alu(AluOp::Add, ALTERNATING_A, ALTERNATING_5, false),
-        U64_MAX
-    );
+    assert_eq!(alu(AluOp::Add, ALTERNATING_A, ALTERNATING_5, false), U64_MAX);
 }
 
 #[test]

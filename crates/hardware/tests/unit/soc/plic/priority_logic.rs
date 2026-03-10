@@ -130,11 +130,7 @@ fn plic_claim_clears_pending() {
 
     // Pending should be cleared for source 1 after claim
     let pending = plic.read_u32(0x1000);
-    assert_eq!(
-        pending & (1 << 1),
-        0,
-        "Pending bit should be cleared after claim"
-    );
+    assert_eq!(pending & (1 << 1), 0, "Pending bit should be cleared after claim");
 }
 
 #[test]

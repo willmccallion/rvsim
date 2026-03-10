@@ -3,6 +3,7 @@
 //! Verifies register identification (magic, version, device ID),
 //! status register, queue configuration, and interrupt status.
 
+use rvsim_core::common::IrqId;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
 use rvsim_core::soc::memory::buffer::DramBuffer;
@@ -145,7 +146,7 @@ fn virtio_capacity_with_disk() {
 #[test]
 fn virtio_irq_id() {
     let vio = make_virtio();
-    assert_eq!(vio.get_irq_id(), Some(1));
+    assert_eq!(vio.get_irq_id(), Some(IrqId::new(1)));
 }
 
 #[test]

@@ -21,10 +21,7 @@ fn test_exception_dz() {
 
     // DZ flag should be set
     assert!(flags.contains(FpFlags::DZ), "DZ flag must be set for x/0");
-    assert!(
-        !flags.contains(FpFlags::NV),
-        "NV should NOT be set for x/0 (x != 0)"
-    );
+    assert!(!flags.contains(FpFlags::NV), "NV should NOT be set for x/0 (x != 0)");
 }
 
 #[test]
@@ -33,10 +30,7 @@ fn test_exception_nv() {
     let neg_one = Fpu::box_f32(-1.0);
     let (_result, flags) = Fpu::execute_full(AluOp::FSqrt, neg_one, 0, 0, true);
 
-    assert!(
-        flags.contains(FpFlags::NV),
-        "NV flag must be set for sqrt(-1.0)"
-    );
+    assert!(flags.contains(FpFlags::NV), "NV flag must be set for sqrt(-1.0)");
 }
 
 #[test]
@@ -49,14 +43,8 @@ fn test_exception_of_nx() {
     let res_f32 = f32::from_bits(result as u32);
     assert!(res_f32.is_infinite(), "MAX * 2 should overflow to infinity");
 
-    assert!(
-        flags.contains(FpFlags::OF),
-        "OF flag must be set on overflow"
-    );
-    assert!(
-        flags.contains(FpFlags::NX),
-        "NX flag must be set on overflow (inexact)"
-    );
+    assert!(flags.contains(FpFlags::OF), "OF flag must be set on overflow");
+    assert!(flags.contains(FpFlags::NX), "NX flag must be set on overflow (inexact)");
 }
 
 #[test]
@@ -65,10 +53,7 @@ fn test_exception_nv_zero_div_zero() {
     let zero = Fpu::box_f32(0.0);
     let (_result, flags) = Fpu::execute_full(AluOp::FDiv, zero, zero, 0, true);
 
-    assert!(
-        flags.contains(FpFlags::NV),
-        "0/0 should set NV (invalid operation)"
-    );
+    assert!(flags.contains(FpFlags::NV), "0/0 should set NV (invalid operation)");
     assert!(!flags.contains(FpFlags::DZ), "0/0 should NOT set DZ");
 }
 

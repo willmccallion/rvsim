@@ -44,10 +44,7 @@ fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
 #[test]
 fn and_identity() {
     // x & 0xFFFF... = x
-    assert_eq!(
-        alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, NEG1, false),
-        0xDEAD_BEEF_CAFE_BABE
-    );
+    assert_eq!(alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, NEG1, false), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
@@ -78,18 +75,12 @@ fn and_single_bit_mask() {
 
 #[test]
 fn and_byte_extraction() {
-    assert_eq!(
-        alu(AluOp::And, 0x1234_5678_9ABC_DEF0, LOW_BYTE, false),
-        0xF0
-    );
+    assert_eq!(alu(AluOp::And, 0x1234_5678_9ABC_DEF0, LOW_BYTE, false), 0xF0);
 }
 
 #[test]
 fn and_high_byte_extraction() {
-    assert_eq!(
-        alu(AluOp::And, 0xAB00_0000_0000_0000, HIGH_BYTE, false),
-        0xAB00_0000_0000_0000
-    );
+    assert_eq!(alu(AluOp::And, 0xAB00_0000_0000_0000, HIGH_BYTE, false), 0xAB00_0000_0000_0000);
 }
 
 #[test]
@@ -116,10 +107,7 @@ fn and_all_zeros() {
 #[test]
 fn or_identity() {
     // x | 0 = x
-    assert_eq!(
-        alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, ZERO, false),
-        0xDEAD_BEEF_CAFE_BABE
-    );
+    assert_eq!(alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, ZERO, false), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
@@ -181,10 +169,7 @@ fn xor_self_is_zero() {
 #[test]
 fn xor_identity() {
     // x ^ 0 = x
-    assert_eq!(
-        alu(AluOp::Xor, 0xDEAD_BEEF_CAFE_BABE, ZERO, false),
-        0xDEAD_BEEF_CAFE_BABE
-    );
+    assert_eq!(alu(AluOp::Xor, 0xDEAD_BEEF_CAFE_BABE, ZERO, false), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
@@ -351,15 +336,7 @@ fn slt_rv32_high_bit_is_negative() {
 /// In RV32 mode, upper 32 bits of the 64-bit operand should be ignored.
 #[test]
 fn slt_rv32_ignores_upper_bits() {
-    assert_eq!(
-        alu(
-            AluOp::Slt,
-            0xFFFF_FFFF_0000_0005,
-            0x0000_0000_0000_000A,
-            true
-        ),
-        1
-    );
+    assert_eq!(alu(AluOp::Slt, 0xFFFF_FFFF_0000_0005, 0x0000_0000_0000_000A, true), 1);
 }
 
 /// 0xFFFF_FFFF in i32 is -1.
@@ -441,15 +418,7 @@ fn sltu_rv32_high_bit_is_large() {
 /// RV32 SLTU ignores upper 32 bits.
 #[test]
 fn sltu_rv32_ignores_upper_bits() {
-    assert_eq!(
-        alu(
-            AluOp::Sltu,
-            0xDEAD_0000_0000_0005,
-            0xBEEF_0000_0000_000A,
-            true
-        ),
-        1
-    );
+    assert_eq!(alu(AluOp::Sltu, 0xDEAD_0000_0000_0005, 0xBEEF_0000_0000_000A, true), 1);
 }
 
 #[test]
@@ -490,11 +459,7 @@ fn slt_vs_sltu_neg1_distinction() {
 fn and_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(
-            alu(AluOp::And, NEG1, mask, false),
-            mask,
-            "AND failed at bit position {bit}"
-        );
+        assert_eq!(alu(AluOp::And, NEG1, mask, false), mask, "AND failed at bit position {bit}");
         assert_eq!(
             alu(AluOp::And, !mask, mask, false),
             0,
@@ -508,11 +473,7 @@ fn and_every_bit_position() {
 fn or_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(
-            alu(AluOp::Or, ZERO, mask, false),
-            mask,
-            "OR failed at bit position {bit}"
-        );
+        assert_eq!(alu(AluOp::Or, ZERO, mask, false), mask, "OR failed at bit position {bit}");
     }
 }
 
@@ -521,10 +482,6 @@ fn or_every_bit_position() {
 fn xor_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(
-            alu(AluOp::Xor, NEG1, mask, false),
-            !mask,
-            "XOR failed at bit position {bit}"
-        );
+        assert_eq!(alu(AluOp::Xor, NEG1, mask, false), !mask, "XOR failed at bit position {bit}");
     }
 }

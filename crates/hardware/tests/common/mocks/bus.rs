@@ -1,4 +1,5 @@
 use mockall::mock;
+use rvsim_core::common::IrqId;
 use rvsim_core::soc::devices::{Device, Plic, Uart};
 use rvsim_core::soc::memory::Memory;
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ mock! {
         fn write_u64(&mut self, offset: u64, val: u64);
         fn write_bytes(&mut self, offset: u64, data: &[u8]);
         fn tick(&mut self) -> bool;
-        fn get_irq_id(&self) -> Option<u32>;
+        fn get_irq_id(&self) -> Option<IrqId>;
         fn as_plic_mut<'a>(&'a mut self) -> Option<&'a mut Plic>;
         fn as_uart_mut<'a>(&'a mut self) -> Option<&'a mut Uart>;
         fn as_memory_mut<'a>(&'a mut self) -> Option<&'a mut Memory>;
@@ -34,10 +35,7 @@ pub struct SyncBusDevice {
 
 impl SyncBusDevice {
     pub fn new(mock: MockBusDevice, name: &'static str) -> Self {
-        Self {
-            mock: Arc::new(Mutex::new(mock)),
-            name,
-        }
+        Self { mock: Arc::new(Mutex::new(mock)), name }
     }
 }
 
@@ -93,7 +91,7 @@ impl Device for SyncBusDevice {
         self.mock.lock().unwrap().tick()
     }
 
-    fn get_irq_id(&self) -> Option<u32> {
+    fn get_irq_id(&self) -> Option<IrqId> {
         self.mock.lock().unwrap().get_irq_id()
     }
 

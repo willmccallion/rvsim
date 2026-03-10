@@ -3,6 +3,7 @@
 //! Verifies device registration, address routing, read/write operations,
 //! transit time calculation, and valid address checks.
 
+use rvsim_core::common::PhysAddr;
 use rvsim_core::soc::interconnect::Bus;
 use rvsim_core::soc::memory::Memory;
 use rvsim_core::soc::memory::buffer::DramBuffer;
@@ -55,35 +56,35 @@ fn transit_time_zero_bytes() {
 #[test]
 fn ram_write_u8_read_u8() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
-    bus.write_u8(0x8000_0000, 0xAB);
-    assert_eq!(bus.read_u8(0x8000_0000), 0xAB);
+    bus.write_u8(PhysAddr::new(0x8000_0000), 0xAB);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x8000_0000)), 0xAB);
 }
 
 #[test]
 fn ram_write_u16_read_u16() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
-    bus.write_u16(0x8000_0000, 0xBEEF);
-    assert_eq!(bus.read_u16(0x8000_0000), 0xBEEF);
+    bus.write_u16(PhysAddr::new(0x8000_0000), 0xBEEF);
+    assert_eq!(bus.read_u16(PhysAddr::new(0x8000_0000)), 0xBEEF);
 }
 
 #[test]
 fn ram_write_u32_read_u32() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
-    bus.write_u32(0x8000_0000, 0xDEAD_BEEF);
-    assert_eq!(bus.read_u32(0x8000_0000), 0xDEAD_BEEF);
+    bus.write_u32(PhysAddr::new(0x8000_0000), 0xDEAD_BEEF);
+    assert_eq!(bus.read_u32(PhysAddr::new(0x8000_0000)), 0xDEAD_BEEF);
 }
 
 #[test]
 fn ram_write_u64_read_u64() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
-    bus.write_u64(0x8000_0000, 0xCAFE_BABE_DEAD_BEEF);
-    assert_eq!(bus.read_u64(0x8000_0000), 0xCAFE_BABE_DEAD_BEEF);
+    bus.write_u64(PhysAddr::new(0x8000_0000), 0xCAFE_BABE_DEAD_BEEF);
+    assert_eq!(bus.read_u64(PhysAddr::new(0x8000_0000)), 0xCAFE_BABE_DEAD_BEEF);
 }
 
 #[test]
 fn ram_initial_value_zero() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
-    assert_eq!(bus.read_u64(0x8000_0000), 0);
+    assert_eq!(bus.read_u64(PhysAddr::new(0x8000_0000)), 0);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -93,15 +94,15 @@ fn ram_initial_value_zero() {
 #[test]
 fn is_valid_address_in_ram() {
     let bus = make_bus_with_ram(4096, 0x8000_0000);
-    assert!(bus.is_valid_address(0x8000_0000));
-    assert!(bus.is_valid_address(0x8000_0FFF));
+    assert!(bus.is_valid_address(PhysAddr::new(0x8000_0000)));
+    assert!(bus.is_valid_address(PhysAddr::new(0x8000_0FFF)));
 }
 
 #[test]
 fn is_valid_address_outside_ram() {
     let bus = make_bus_with_ram(4096, 0x8000_0000);
-    assert!(!bus.is_valid_address(0x7FFF_FFFF));
-    assert!(!bus.is_valid_address(0x8000_1000));
+    assert!(!bus.is_valid_address(PhysAddr::new(0x7FFF_FFFF)));
+    assert!(!bus.is_valid_address(PhysAddr::new(0x8000_1000)));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -111,10 +112,10 @@ fn is_valid_address_outside_ram() {
 #[test]
 fn read_unmapped_address_returns_zero() {
     let mut bus = Bus::new(8, 0);
-    assert_eq!(bus.read_u8(0x1000), 0);
-    assert_eq!(bus.read_u16(0x1000), 0);
-    assert_eq!(bus.read_u32(0x1000), 0);
-    assert_eq!(bus.read_u64(0x1000), 0);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x1000)), 0);
+    assert_eq!(bus.read_u16(PhysAddr::new(0x1000)), 0);
+    assert_eq!(bus.read_u32(PhysAddr::new(0x1000)), 0);
+    assert_eq!(bus.read_u64(PhysAddr::new(0x1000)), 0);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -125,12 +126,12 @@ fn read_unmapped_address_returns_zero() {
 fn load_binary_at_writes_data() {
     let mut bus = make_bus_with_ram(4096, 0x8000_0000);
     let data = [0xDE, 0xAD, 0xBE, 0xEF];
-    bus.load_binary_at(&data, 0x8000_0000);
+    bus.load_binary_at(&data, PhysAddr::new(0x8000_0000));
 
-    assert_eq!(bus.read_u8(0x8000_0000), 0xDE);
-    assert_eq!(bus.read_u8(0x8000_0001), 0xAD);
-    assert_eq!(bus.read_u8(0x8000_0002), 0xBE);
-    assert_eq!(bus.read_u8(0x8000_0003), 0xEF);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x8000_0000)), 0xDE);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x8000_0001)), 0xAD);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x8000_0002)), 0xBE);
+    assert_eq!(bus.read_u8(PhysAddr::new(0x8000_0003)), 0xEF);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -149,11 +150,11 @@ fn multiple_devices_routed_correctly() {
     let mem2 = Memory::new(buf2, 0x2000);
     bus.add_device(Box::new(mem2));
 
-    bus.write_u32(0x1000, 0xAAAA);
-    bus.write_u32(0x2000, 0xBBBB);
+    bus.write_u32(PhysAddr::new(0x1000), 0xAAAA);
+    bus.write_u32(PhysAddr::new(0x2000), 0xBBBB);
 
-    assert_eq!(bus.read_u32(0x1000), 0xAAAA);
-    assert_eq!(bus.read_u32(0x2000), 0xBBBB);
+    assert_eq!(bus.read_u32(PhysAddr::new(0x1000)), 0xAAAA);
+    assert_eq!(bus.read_u32(PhysAddr::new(0x2000)), 0xBBBB);
 }
 
 // ══════════════════════════════════════════════════════════

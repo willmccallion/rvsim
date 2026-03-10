@@ -48,11 +48,7 @@ fn top_returns_without_removing() {
     ras.push(0xAAAA);
     assert_eq!(ras.top(), Some(0xAAAA));
     assert_eq!(ras.top(), Some(0xAAAA), "top() must not consume the entry");
-    assert_eq!(
-        ras.pop(),
-        Some(0xAAAA),
-        "pop() should still return the value"
-    );
+    assert_eq!(ras.pop(), Some(0xAAAA), "pop() should still return the value");
 }
 
 #[test]

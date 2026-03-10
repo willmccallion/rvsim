@@ -1,92 +1,92 @@
 //! VirtIO Block Device (MMIO).
 //!
-//! Implements a VirtIO block device over Memory-Mapped I/O (MMIO) for disk access.
-//! Supports the legacy VirtIO interface required by the Linux kernel.
+//! Implements a `VirtIO` block device over Memory-Mapped I/O (MMIO) for disk access.
+//! Supports the legacy `VirtIO` interface required by the Linux kernel.
 
+use crate::common::IrqId;
 use crate::soc::devices::Device;
 use crate::soc::memory::buffer::DramBuffer;
-use std::convert::TryInto;
 use std::sync::Arc;
 
-/// VirtIO MMIO magic value register offset.
+/// `VirtIO` MMIO magic value register offset.
 const REG_MAGIC: u64 = 0x00;
 
-/// VirtIO MMIO version register offset.
+/// `VirtIO` MMIO version register offset.
 const REG_VERSION: u64 = 0x04;
 
-/// VirtIO MMIO device ID register offset.
+/// `VirtIO` MMIO device ID register offset.
 const REG_DEVICE_ID: u64 = 0x08;
 
-/// VirtIO MMIO vendor ID register offset.
+/// `VirtIO` MMIO vendor ID register offset.
 const REG_VENDOR_ID: u64 = 0x0c;
 
-/// VirtIO MMIO device features register offset.
+/// `VirtIO` MMIO device features register offset.
 const REG_DEVICE_FEATURES: u64 = 0x10;
 
-/// VirtIO MMIO device features select register offset.
+/// `VirtIO` MMIO device features select register offset.
 const REG_DEVICE_FEATURES_SEL: u64 = 0x14;
 
-/// VirtIO MMIO driver features register offset.
-const REG_DRIVER_FEATURES: u64 = 0x20;
+/// `VirtIO` MMIO driver features register offset — writes ignored (no feature negotiation).
+const _REG_DRIVER_FEATURES: u64 = 0x20;
 
-/// VirtIO MMIO driver features select register offset.
+/// `VirtIO` MMIO driver features select register offset.
 const REG_DRIVER_FEATURES_SEL: u64 = 0x24;
 
-/// VirtIO MMIO queue select register offset.
-const REG_QUEUE_SEL: u64 = 0x30;
+/// `VirtIO` MMIO queue select register offset — writes ignored.
+const _REG_QUEUE_SEL: u64 = 0x30;
 
-/// VirtIO MMIO queue maximum size register offset.
+/// `VirtIO` MMIO queue maximum size register offset.
 const REG_QUEUE_NUM_MAX: u64 = 0x34;
 
-/// VirtIO MMIO queue size register offset.
+/// `VirtIO` MMIO queue size register offset.
 const REG_QUEUE_NUM: u64 = 0x38;
 
-/// VirtIO MMIO queue ready register offset.
+/// `VirtIO` MMIO queue ready register offset.
 const REG_QUEUE_READY: u64 = 0x44;
 
-/// VirtIO MMIO queue notify register offset.
+/// `VirtIO` MMIO queue notify register offset.
 const REG_QUEUE_NOTIFY: u64 = 0x50;
 
-/// VirtIO MMIO interrupt status register offset.
+/// `VirtIO` MMIO interrupt status register offset.
 const REG_INTERRUPT_STATUS: u64 = 0x60;
 
-/// VirtIO MMIO interrupt acknowledge register offset.
+/// `VirtIO` MMIO interrupt acknowledge register offset.
 const REG_INTERRUPT_ACK: u64 = 0x64;
 
-/// VirtIO MMIO device status register offset.
+/// `VirtIO` MMIO device status register offset.
 const REG_STATUS: u64 = 0x70;
 
-/// VirtIO MMIO queue descriptor table address (low 32 bits) register offset.
+/// `VirtIO` MMIO queue descriptor table address (low 32 bits) register offset.
 const REG_QUEUE_DESC_LOW: u64 = 0x80;
 
-/// VirtIO MMIO queue descriptor table address (high 32 bits) register offset.
+/// `VirtIO` MMIO queue descriptor table address (high 32 bits) register offset.
 const REG_QUEUE_DESC_HIGH: u64 = 0x84;
 
-/// VirtIO MMIO queue available ring address (low 32 bits) register offset.
+/// `VirtIO` MMIO queue available ring address (low 32 bits) register offset.
 const REG_QUEUE_AVAIL_LOW: u64 = 0x90;
 
-/// VirtIO MMIO queue available ring address (high 32 bits) register offset.
+/// `VirtIO` MMIO queue available ring address (high 32 bits) register offset.
 const REG_QUEUE_AVAIL_HIGH: u64 = 0x94;
 
-/// VirtIO MMIO queue used ring address (low 32 bits) register offset.
+/// `VirtIO` MMIO queue used ring address (low 32 bits) register offset.
 const REG_QUEUE_USED_LOW: u64 = 0xa0;
 
-/// VirtIO MMIO queue used ring address (high 32 bits) register offset.
+/// `VirtIO` MMIO queue used ring address (high 32 bits) register offset.
 const REG_QUEUE_USED_HIGH: u64 = 0xa4;
 
-/// VirtIO MMIO configuration space base offset.
+/// `VirtIO` MMIO configuration space base offset.
 const REG_CONFIG_BASE: u64 = 0x100;
 
-/// VirtIO MMIO magic value ("virt" in ASCII: 0x74726976).
+/// `VirtIO` MMIO magic value ("virt" in ASCII: 0x74726976).
 const VIRTIO_MMIO_MAGIC_VALUE: u32 = 0x74726976;
 
-/// VirtIO MMIO vendor ID value (QEMU vendor: 0x554d4551).
+/// `VirtIO` MMIO vendor ID value (QEMU vendor: 0x554d4551).
 const VIRTIO_MMIO_VENDOR_ID_VALUE: u32 = 0x554d4551;
 
-/// VirtIO MMIO device ID for block device (2).
+/// `VirtIO` MMIO device ID for block device (2).
 const VIRTIO_MMIO_DEVICE_ID_VALUE: u32 = 2;
 
-/// VirtIO specification version (2).
+/// `VirtIO` specification version (2).
 const VIRTIO_VERSION_VALUE: u32 = 2;
 
 /// Maximum queue size supported by this device (16 entries).
@@ -116,11 +116,12 @@ const VRING_DESC_F_WRITE: u16 = 2;
 /// Disk sector size in bytes (512 bytes per sector).
 const SECTOR_SIZE: u64 = 512;
 
-/// VirtIO Block device structure.
+/// `VirtIO` Block device structure.
 ///
-/// Implements a memory-mapped block device compliant with the VirtIO specification.
+/// Implements a memory-mapped block device compliant with the `VirtIO` specification.
 /// It uses a shared DRAM buffer to perform DMA operations for reading and writing
 /// disk sectors.
+#[derive(Debug)]
 pub struct VirtioBlock {
     /// Base physical address of the device MMIO region.
     base_addr: u64,
@@ -168,14 +169,14 @@ unsafe impl Send for VirtioBlock {}
 unsafe impl Sync for VirtioBlock {}
 
 impl VirtioBlock {
-    /// Creates a new VirtIO Block device.
+    /// Creates a new `VirtIO` Block device.
     ///
     /// # Arguments
     ///
     /// * `base_addr` - MMIO base address.
     /// * `ram_base` - System RAM base address.
     /// * `ram` - Shared DRAM buffer for DMA access.
-    pub fn new(base_addr: u64, ram_base: u64, ram: Arc<DramBuffer>) -> Self {
+    pub const fn new(base_addr: u64, ram_base: u64, ram: Arc<DramBuffer>) -> Self {
         Self {
             base_addr,
             ram_base,
@@ -233,6 +234,21 @@ impl VirtioBlock {
         self.ram.read_slice(offset, len).to_vec()
     }
 
+    fn dma_read_u16(&self, addr: u64) -> u16 {
+        let b = self.dma_read(addr, 2);
+        u16::from_le_bytes([b[0], b[1]])
+    }
+
+    fn dma_read_u32(&self, addr: u64) -> u32 {
+        let b = self.dma_read(addr, 4);
+        u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+    }
+
+    fn dma_read_u64(&self, addr: u64) -> u64 {
+        let b = self.dma_read(addr, 8);
+        u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
+    }
+
     /// Performs a Direct Memory Access (DMA) write to system RAM.
     ///
     /// Writes `data` to the physical address `addr`.
@@ -243,7 +259,7 @@ impl VirtioBlock {
     /// * `data` - Bytes to write.
     fn dma_write(&self, addr: u64, data: &[u8]) {
         if addr < self.ram_base {
-            println!("[VirtIO] DMA Write Out of Bounds (Low): 0x{:x}", addr);
+            println!("[VirtIO] DMA Write Out of Bounds (Low): 0x{addr:x}");
             return;
         }
         let offset = (addr - self.ram_base) as usize;
@@ -260,7 +276,7 @@ impl VirtioBlock {
         self.ram.write_slice(offset, data);
     }
 
-    /// Processes the VirtQueue.
+    /// Processes the `VirtQueue`.
     ///
     /// Reads descriptors from the Available Ring, executes the requests (Read/Write),
     /// and updates the Used Ring. This is triggered by a write to the Queue Notify register.
@@ -273,15 +289,11 @@ impl VirtioBlock {
         let avail_addr = ((self.queue_avail_high as u64) << 32) | (self.queue_avail_low as u64);
         let used_addr = ((self.queue_used_high as u64) << 32) | (self.queue_used_low as u64);
 
-        let avail_idx = u16::from_le_bytes(self.dma_read(avail_addr + 2, 2).try_into().unwrap());
+        let avail_idx = self.dma_read_u16(avail_addr + 2);
 
         while self.last_avail_idx != avail_idx {
             let ring_offset = 4 + (self.last_avail_idx as u64 % self.queue_num as u64) * 2;
-            let head_idx = u16::from_le_bytes(
-                self.dma_read(avail_addr + ring_offset, 2)
-                    .try_into()
-                    .unwrap(),
-            );
+            let head_idx = self.dma_read_u16(avail_addr + ring_offset);
 
             if head_idx as u32 >= self.queue_num {
                 println!(
@@ -305,26 +317,10 @@ impl VirtioBlock {
                 }
 
                 let addr_offset = desc_addr + (current_idx as u64 * DESC_SIZE);
-                let addr = u64::from_le_bytes(
-                    self.dma_read(addr_offset + DESC_OFFSET_ADDR, 8)
-                        .try_into()
-                        .unwrap(),
-                );
-                let len = u32::from_le_bytes(
-                    self.dma_read(addr_offset + DESC_OFFSET_LEN, 4)
-                        .try_into()
-                        .unwrap(),
-                );
-                let flags = u16::from_le_bytes(
-                    self.dma_read(addr_offset + DESC_OFFSET_FLAGS, 2)
-                        .try_into()
-                        .unwrap(),
-                );
-                let next = u16::from_le_bytes(
-                    self.dma_read(addr_offset + DESC_OFFSET_NEXT, 2)
-                        .try_into()
-                        .unwrap(),
-                );
+                let addr = self.dma_read_u64(addr_offset + DESC_OFFSET_ADDR);
+                let len = self.dma_read_u32(addr_offset + DESC_OFFSET_LEN);
+                let flags = self.dma_read_u16(addr_offset + DESC_OFFSET_FLAGS);
+                let next = self.dma_read_u16(addr_offset + DESC_OFFSET_NEXT);
 
                 descriptors.push((addr, len, flags));
 
@@ -338,16 +334,22 @@ impl VirtioBlock {
             if descriptors.len() >= 3 {
                 let (h_addr, _, _) = descriptors[0];
                 let header = self.dma_read(h_addr, 16);
-                let type_val = u32::from_le_bytes(header[0..4].try_into().unwrap());
-                let sector = u64::from_le_bytes(header[8..16].try_into().unwrap());
-                let is_write = (type_val & 1) != 0;
+                let type_val = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
+                let sector = u64::from_le_bytes([
+                    header[8], header[9], header[10], header[11], header[12], header[13],
+                    header[14], header[15],
+                ]);
+                let is_write = type_val == 1;
+                let is_flush = type_val == 4;
 
                 let (s_addr, _, _) = descriptors[descriptors.len() - 1];
 
                 let sector_offset = (sector * SECTOR_SIZE) as usize;
                 let mut current_offset = 0;
 
-                if is_write {
+                if is_flush {
+                    // FLUSH: no data transfer, just acknowledge
+                } else if is_write {
                     let mut current_disk_offset = sector_offset;
 
                     for (d_addr, d_len, _) in &descriptors[1..descriptors.len() - 1] {
@@ -382,8 +384,7 @@ impl VirtioBlock {
             }
 
             let used_idx_addr = used_addr + 2;
-            let current_used =
-                u16::from_le_bytes(self.dma_read(used_idx_addr, 2).try_into().unwrap());
+            let current_used = self.dma_read_u16(used_idx_addr);
             let used_elem = used_addr + 4 + (current_used as u64 % self.queue_num as u64) * 8;
 
             self.dma_write(used_elem, &u32::from(head_idx).to_le_bytes());
@@ -398,7 +399,7 @@ impl VirtioBlock {
 
 impl Device for VirtioBlock {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "VirtIO-Blk"
     }
 
@@ -409,7 +410,7 @@ impl Device for VirtioBlock {
 
     /// Reads a word (32-bit) from the device.
     ///
-    /// Handles reads from VirtIO MMIO registers (Magic, Version, DeviceID, Status, etc.).
+    /// Handles reads from `VirtIO` MMIO registers (Magic, Version, `DeviceID`, Status, etc.).
     fn read_u32(&mut self, offset: u64) -> u32 {
         match offset {
             REG_MAGIC => VIRTIO_MMIO_MAGIC_VALUE,
@@ -444,13 +445,11 @@ impl Device for VirtioBlock {
 
     /// Writes a word (32-bit) to the device.
     ///
-    /// Handles writes to VirtIO MMIO registers (Status, Queue configuration, Notify).
+    /// Handles writes to `VirtIO` MMIO registers (Status, Queue configuration, Notify).
     fn write_u32(&mut self, offset: u64, val: u32) {
         match offset {
             REG_DEVICE_FEATURES_SEL => self.device_features_sel = val,
-            REG_DRIVER_FEATURES => {}
             REG_DRIVER_FEATURES_SEL => self.driver_features_sel = val,
-            REG_QUEUE_SEL => {}
             REG_QUEUE_NUM => self.queue_num = val,
             REG_QUEUE_READY => self.queue_ready = val,
             REG_QUEUE_NOTIFY => {
@@ -469,27 +468,27 @@ impl Device for VirtioBlock {
         }
     }
 
-    /// Reads a byte (delegates to read_u32).
+    /// Reads a byte (delegates to `read_u32`).
     fn read_u8(&mut self, offset: u64) -> u8 {
         (self.read_u32(offset & !3) >> ((offset & 3) * 8)) as u8
     }
-    /// Reads a half-word (delegates to read_u32).
+    /// Reads a half-word (delegates to `read_u32`).
     fn read_u16(&mut self, offset: u64) -> u16 {
         (self.read_u32(offset & !3) >> ((offset & 3) * 8)) as u16
     }
-    /// Reads a double-word (delegates to read_u32).
+    /// Reads a double-word (delegates to `read_u32`).
     fn read_u64(&mut self, offset: u64) -> u64 {
         self.read_u32(offset) as u64
     }
-    /// Writes a byte (delegates to write_u32).
+    /// Writes a byte (delegates to `write_u32`).
     fn write_u8(&mut self, offset: u64, val: u8) {
         self.write_u32(offset & !3, val as u32);
     }
-    /// Writes a half-word (delegates to write_u32).
+    /// Writes a half-word (delegates to `write_u32`).
     fn write_u16(&mut self, offset: u64, val: u16) {
         self.write_u32(offset & !3, val as u32);
     }
-    /// Writes a double-word (delegates to write_u32).
+    /// Writes a double-word (delegates to `write_u32`).
     fn write_u64(&mut self, offset: u64, val: u64) {
         self.write_u32(offset, val as u32);
     }
@@ -502,7 +501,7 @@ impl Device for VirtioBlock {
     }
 
     /// Returns the Interrupt Request (IRQ) ID associated with this device.
-    fn get_irq_id(&self) -> Option<u32> {
-        Some(1)
+    fn get_irq_id(&self) -> Option<IrqId> {
+        Some(IrqId::new(1))
     }
 }

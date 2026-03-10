@@ -53,11 +53,7 @@ fn taken_branch_redirects_pc() {
 
     assert_eq!(tc.get_reg(1), 10, "x1 should be 10");
     assert_eq!(tc.get_reg(2), 20, "x2 should be 20");
-    assert_eq!(
-        tc.get_reg(3),
-        0,
-        "x3 should NOT be written (flushed by branch)"
-    );
+    assert_eq!(tc.get_reg(3), 0, "x3 should NOT be written (flushed by branch)");
     assert_eq!(tc.get_reg(4), 42, "x4 should be 42 (branch target)");
 }
 

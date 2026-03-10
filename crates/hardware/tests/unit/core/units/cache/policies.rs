@@ -281,11 +281,7 @@ fn mru_evicts_most_recently_used() {
     let mut policy = MruPolicy::new(1, 4);
 
     policy.update(0, 2);
-    assert_eq!(
-        policy.get_victim(0),
-        2,
-        "MRU should evict the most recently used way"
-    );
+    assert_eq!(policy.get_victim(0), 2, "MRU should evict the most recently used way");
 
     policy.update(0, 1);
     assert_eq!(policy.get_victim(0), 1);
@@ -334,12 +330,7 @@ fn random_victim_always_in_range() {
 
     for _ in 0..200 {
         let victim = policy.get_victim(0);
-        assert!(
-            victim < ways,
-            "Victim {} out of range [0, {})",
-            victim,
-            ways
-        );
+        assert!(victim < ways, "Victim {} out of range [0, {})", victim, ways);
     }
 }
 
@@ -350,12 +341,7 @@ fn random_victim_various_way_counts() {
         let mut policy = RandomPolicy::new(1, ways);
         for _ in 0..50 {
             let victim = policy.get_victim(0);
-            assert!(
-                victim < ways,
-                "ways={}, victim {} out of range",
-                ways,
-                victim
-            );
+            assert!(victim < ways, "ways={}, victim {} out of range", ways, victim);
         }
     }
 }

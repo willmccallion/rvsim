@@ -83,10 +83,7 @@ fn static_ignores_training() {
     let mut bp = StaticPredictor::new(64, 4, 8);
     train(&mut bp, 0x1000, true, 0x2000, 100);
     let (taken, _) = bp.predict_branch(0x1000);
-    assert!(
-        !taken,
-        "Static should still predict not-taken after training"
-    );
+    assert!(!taken, "Static should still predict not-taken after training");
 }
 
 /// Static predictor still updates BTB (used for unconditional jumps).

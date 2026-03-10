@@ -1,3 +1,4 @@
+use rvsim_core::common::RegIdx;
 use rvsim_core::core::pipeline::latches::{ExMemEntry, IdExEntry, IfIdEntry, MemWbEntry};
 use rvsim_core::core::pipeline::signals::ControlSignals;
 
@@ -59,19 +60,19 @@ impl IdExBuilder {
     }
 
     pub fn rs1(mut self, rs1: usize, val: u64) -> Self {
-        self.0.rs1 = rs1;
+        self.0.rs1 = RegIdx::new(rs1 as u8);
         self.0.rv1 = val;
         self
     }
 
     pub fn rs2(mut self, rs2: usize, val: u64) -> Self {
-        self.0.rs2 = rs2;
+        self.0.rs2 = RegIdx::new(rs2 as u8);
         self.0.rv2 = val;
         self
     }
 
     pub fn rd(mut self, rd: usize) -> Self {
-        self.0.rd = rd;
+        self.0.rd = RegIdx::new(rd as u8);
         self
     }
 
@@ -119,7 +120,7 @@ impl ExMemBuilder {
     }
 
     pub fn rd(mut self, rd: usize) -> Self {
-        self.0.rd = rd;
+        self.0.rd = RegIdx::new(rd as u8);
         self
     }
 
@@ -152,7 +153,7 @@ impl MemWbBuilder {
     }
 
     pub fn rd(mut self, rd: usize) -> Self {
-        self.0.rd = rd;
+        self.0.rd = RegIdx::new(rd as u8);
         self
     }
 

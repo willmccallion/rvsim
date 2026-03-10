@@ -38,10 +38,7 @@ fn plic_tick_reports_interrupt() {
     plic.write_u32(0x200000, 0);
     plic.update_irqs(1 << 1);
 
-    assert!(
-        plic.tick(),
-        "tick should return true when interrupt pending"
-    );
+    assert!(plic.tick(), "tick should return true when interrupt pending");
 }
 
 #[test]

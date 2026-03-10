@@ -230,18 +230,9 @@ fn read_only_denies_write_and_exec() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | R);
 
-    assert_eq!(
-        pmp.check(0x1000, 4, true, false, false, false),
-        PmpResult::Allow
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, false, true, false, false),
-        PmpResult::Deny
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, false, false, true, false),
-        PmpResult::Deny
-    );
+    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Allow);
+    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Deny);
+    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Deny);
 }
 
 #[test]
@@ -250,18 +241,9 @@ fn execute_only_denies_read_and_write() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | X);
 
-    assert_eq!(
-        pmp.check(0x1000, 4, false, false, true, false),
-        PmpResult::Allow
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, true, false, false, false),
-        PmpResult::Deny
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, false, true, false, false),
-        PmpResult::Deny
-    );
+    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Allow);
+    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Deny);
+    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Deny);
 }
 
 #[test]
@@ -270,18 +252,9 @@ fn rwx_permits_all() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | R | W | X);
 
-    assert_eq!(
-        pmp.check(0x1000, 4, true, false, false, false),
-        PmpResult::Allow
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, false, true, false, false),
-        PmpResult::Allow
-    );
-    assert_eq!(
-        pmp.check(0x1000, 4, false, false, true, false),
-        PmpResult::Allow
-    );
+    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Allow);
+    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Allow);
+    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Allow);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -355,10 +328,7 @@ fn first_matching_entry_wins() {
 
 #[test]
 fn pmp_entry_permission_accessors() {
-    let entry = PmpEntry {
-        cfg: R | W | X | L,
-        addr: 0,
-    };
+    let entry = PmpEntry { cfg: R | W | X | L, addr: 0 };
     assert!(entry.is_readable());
     assert!(entry.is_writable());
     assert!(entry.is_executable());
@@ -376,21 +346,12 @@ fn pmp_entry_match_mode_accessor() {
     let entry_off = PmpEntry { cfg: 0, addr: 0 };
     assert_eq!(entry_off.match_mode(), PmpAddrMatch::Off);
 
-    let entry_tor = PmpEntry {
-        cfg: A_TOR,
-        addr: 0,
-    };
+    let entry_tor = PmpEntry { cfg: A_TOR, addr: 0 };
     assert_eq!(entry_tor.match_mode(), PmpAddrMatch::Tor);
 
-    let entry_na4 = PmpEntry {
-        cfg: A_NA4,
-        addr: 0,
-    };
+    let entry_na4 = PmpEntry { cfg: A_NA4, addr: 0 };
     assert_eq!(entry_na4.match_mode(), PmpAddrMatch::Na4);
 
-    let entry_napot = PmpEntry {
-        cfg: A_NAPOT,
-        addr: 0,
-    };
+    let entry_napot = PmpEntry { cfg: A_NAPOT, addr: 0 };
     assert_eq!(entry_napot.match_mode(), PmpAddrMatch::Napot);
 }

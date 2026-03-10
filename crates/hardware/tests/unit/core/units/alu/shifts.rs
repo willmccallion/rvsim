@@ -96,11 +96,7 @@ fn sll_rv64_upper_bits_of_shift_ignored() {
 #[test]
 fn sll_rv64_power_of_two_generation() {
     for i in 0..64 {
-        assert_eq!(
-            alu(AluOp::Sll, ONE, i, false),
-            1u64 << i,
-            "SLL failed: 1 << {i}"
-        );
+        assert_eq!(alu(AluOp::Sll, ONE, i, false), 1u64 << i, "SLL failed: 1 << {i}");
     }
 }
 
@@ -111,10 +107,7 @@ fn sll_rv64_power_of_two_generation() {
 #[test]
 fn sllw_shift_by_zero() {
     // Result is sign-extended: 0xDEAD_BEEF has bit 31 set → negative
-    assert_eq!(
-        alu(AluOp::Sll, 0xDEAD_BEEF, ZERO, true),
-        sext32(0xDEAD_BEEF)
-    );
+    assert_eq!(alu(AluOp::Sll, 0xDEAD_BEEF, ZERO, true), sext32(0xDEAD_BEEF));
 }
 
 #[test]
@@ -211,11 +204,7 @@ fn srl_rv64_upper_bits_of_shift_ignored() {
 fn srl_rv64_successive_shifts() {
     for i in 0..64 {
         let expected = NEG1 >> i;
-        assert_eq!(
-            alu(AluOp::Srl, NEG1, i, false),
-            expected,
-            "SRL failed: 0xFFFF... >> {i}"
-        );
+        assert_eq!(alu(AluOp::Srl, NEG1, i, false), expected, "SRL failed: 0xFFFF... >> {i}");
     }
 }
 
@@ -226,10 +215,7 @@ fn srl_rv64_successive_shifts() {
 #[test]
 fn srlw_shift_by_zero() {
     // 0xDEAD_BEEF as u32 >> 0 = 0xDEAD_BEEF → sign-extended (bit 31 set)
-    assert_eq!(
-        alu(AluOp::Srl, 0xDEAD_BEEF, ZERO, true),
-        sext32(0xDEAD_BEEF)
-    );
+    assert_eq!(alu(AluOp::Srl, 0xDEAD_BEEF, ZERO, true), sext32(0xDEAD_BEEF));
 }
 
 #[test]
@@ -254,10 +240,7 @@ fn srlw_shift_amount_masked_to_5_bits() {
 #[test]
 fn srlw_ignores_upper_32_bits_of_operand() {
     // Only a[31:0] = 0x8000_0000 is shifted
-    assert_eq!(
-        alu(AluOp::Srl, 0xFFFF_FFFF_8000_0000, 1, true),
-        sext32(0x4000_0000)
-    );
+    assert_eq!(alu(AluOp::Srl, 0xFFFF_FFFF_8000_0000, 1, true), sext32(0x4000_0000));
 }
 
 /// SRLW: zero-fill + sign-extension interaction.
@@ -348,11 +331,7 @@ fn sra_rv64_neg2_shift_by_1() {
 fn sra_rv64_progressive_shift_negative() {
     for i in 0..64 {
         let expected = (i64::MIN >> i) as u64;
-        assert_eq!(
-            alu(AluOp::Sra, I64_MIN, i, false),
-            expected,
-            "SRA failed: i64::MIN >> {i}"
-        );
+        assert_eq!(alu(AluOp::Sra, I64_MIN, i, false), expected, "SRA failed: i64::MIN >> {i}");
     }
 }
 
@@ -401,10 +380,7 @@ fn sraw_shift_amount_masked_to_5_bits() {
 #[test]
 fn sraw_ignores_upper_32_bits_of_operand() {
     // a = 0x0000_0001_8000_0000 → a[31:0] = 0x8000_0000 (negative as i32)
-    assert_eq!(
-        alu(AluOp::Sra, 0x0000_0001_8000_0000, 1, true),
-        sext32(0xC000_0000)
-    );
+    assert_eq!(alu(AluOp::Sra, 0x0000_0001_8000_0000, 1, true), sext32(0xC000_0000));
 }
 
 /// SRAW: all-ones stays all-ones regardless of shift.

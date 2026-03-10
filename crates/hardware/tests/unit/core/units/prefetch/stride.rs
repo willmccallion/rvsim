@@ -75,10 +75,7 @@ fn constant_stride_triggers_prefetch() {
 
     // The 8th access should trigger a prefetch (confidence is already 3).
     let addrs = pf.observe(base + stride * 7, false);
-    assert!(
-        !addrs.is_empty(),
-        "Should prefetch after confidence reaches 3"
-    );
+    assert!(!addrs.is_empty(), "Should prefetch after confidence reaches 3");
 
     // The prefetch target should be base + stride*8, aligned to 64 bytes.
     let expected = (base + stride * 8) & !63;

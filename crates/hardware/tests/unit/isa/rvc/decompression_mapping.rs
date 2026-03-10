@@ -4,6 +4,7 @@
 //! 32-bit equivalent. Tests cover all three quadrants (Q0, Q1, Q2)
 //! and check register mappings, immediate extraction, and edge cases.
 
+use rvsim_core::common::RegIdx;
 use rvsim_core::isa::decode::decode;
 use rvsim_core::isa::rvc::expand::expand;
 
@@ -20,10 +21,7 @@ use rvsim_core::isa::rv64i::opcodes as i_op;
 /// Expand a 16-bit compressed instruction and decode the resulting 32-bit instruction.
 fn expand_and_decode(cinst: u16) -> rvsim_core::isa::instruction::Decoded {
     let expanded = expand(cinst);
-    assert_ne!(
-        expanded, 0,
-        "Expansion must not produce illegal instruction 0 for {cinst:#06x}"
-    );
+    assert_ne!(expanded, 0, "Expansion must not produce illegal instruction 0 for {cinst:#06x}");
     decode(expanded)
 }
 
@@ -42,8 +40,8 @@ fn rvc_c_addi4spn() {
     let cinst: u16 = 0b0000_1000_0000_0000; // nzuimm=16, rd'=0(x8)
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
-    assert_eq!(d.rs1, 2, "C.ADDI4SPN base must be x2 (sp)");
-    assert_eq!(d.rd, 8, "rd' = 0 maps to x8");
+    assert_eq!(d.rs1, RegIdx::new(2), "C.ADDI4SPN base must be x2 (sp)");
+    assert_eq!(d.rd, RegIdx::new(8), "rd' = 0 maps to x8");
     assert_eq!(d.imm, 16);
 }
 
@@ -52,10 +50,7 @@ fn rvc_c_addi4spn_zero_is_illegal() {
     // nzuimm=0 is reserved (illegal)
     let cinst: u16 = 0b0000_0000_0000_0000;
     let expanded = expand(cinst);
-    assert_eq!(
-        expanded, 0,
-        "C.ADDI4SPN with nzuimm=0 must expand to illegal"
-    );
+    assert_eq!(expanded, 0, "C.ADDI4SPN with nzuimm=0 must expand to illegal");
 }
 
 #[test]
@@ -68,8 +63,8 @@ fn rvc_c_lw() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_LOAD);
     assert_eq!(d.funct3, i_f3::LW);
-    assert_eq!(d.rs1, 8);
-    assert_eq!(d.rd, 9);
+    assert_eq!(d.rs1, RegIdx::new(8));
+    assert_eq!(d.rd, RegIdx::new(9));
 }
 
 #[test]
@@ -140,8 +135,8 @@ fn rvc_c_addi() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
     assert_eq!(d.funct3, i_f3::ADD_SUB);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 1);
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(1));
     assert_eq!(d.imm, 1);
 }
 
@@ -160,8 +155,8 @@ fn rvc_c_addiw() {
     let cinst: u16 = 0b0010_0010_1000_1101;
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM_32);
-    assert_eq!(d.rd, 5);
-    assert_eq!(d.rs1, 5);
+    assert_eq!(d.rd, RegIdx::new(5));
+    assert_eq!(d.rs1, RegIdx::new(5));
 }
 
 #[test]
@@ -179,8 +174,8 @@ fn rvc_c_li() {
     let cinst: u16 = 0b0100_0001_1001_1101;
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
-    assert_eq!(d.rd, 3);
-    assert_eq!(d.rs1, 0, "C.LI uses x0 as source");
+    assert_eq!(d.rd, RegIdx::new(3));
+    assert_eq!(d.rs1, RegIdx::new(0), "C.LI uses x0 as source");
     assert_eq!(d.imm, 7);
 }
 
@@ -194,8 +189,8 @@ fn rvc_c_addi16sp() {
     let cinst: u16 = 0b0110_0001_0100_0001; // bit6=1 → nzimm[4]=1 → nzimm=16
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
-    assert_eq!(d.rd, 2);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rd, RegIdx::new(2));
+    assert_eq!(d.rs1, RegIdx::new(2));
     assert_eq!(d.imm, 16);
 }
 
@@ -206,7 +201,7 @@ fn rvc_c_lui() {
     let cinst: u16 = 0b0110_0001_1000_0101;
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_LUI);
-    assert_eq!(d.rd, 3);
+    assert_eq!(d.rd, RegIdx::new(3));
 }
 
 #[test]
@@ -217,7 +212,7 @@ fn rvc_c_srli() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
     assert_eq!(d.funct3, i_f3::SRL_SRA);
-    assert_eq!(d.rd, 8);
+    assert_eq!(d.rd, RegIdx::new(8));
 }
 
 #[test]
@@ -239,7 +234,7 @@ fn rvc_c_andi() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
     assert_eq!(d.funct3, i_f3::AND);
-    assert_eq!(d.rd, 8);
+    assert_eq!(d.rd, RegIdx::new(8));
 }
 
 #[test]
@@ -251,9 +246,9 @@ fn rvc_c_sub() {
     assert_eq!(d.opcode, i_op::OP_REG);
     assert_eq!(d.funct3, i_f3::ADD_SUB);
     assert_eq!(d.funct7, i_f7::SUB);
-    assert_eq!(d.rd, 8);
-    assert_eq!(d.rs1, 8);
-    assert_eq!(d.rs2, 9);
+    assert_eq!(d.rd, RegIdx::new(8));
+    assert_eq!(d.rs1, RegIdx::new(8));
+    assert_eq!(d.rs2, RegIdx::new(9));
 }
 
 #[test]
@@ -316,7 +311,7 @@ fn rvc_c_j() {
     assert_ne!(expanded, 0);
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_JAL);
-    assert_eq!(d.rd, 0, "C.J links to x0");
+    assert_eq!(d.rd, RegIdx::new(0), "C.J links to x0");
 }
 
 #[test]
@@ -329,8 +324,8 @@ fn rvc_c_beqz() {
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_BRANCH);
     assert_eq!(d.funct3, i_f3::BEQ);
-    assert_eq!(d.rs1, 8);
-    assert_eq!(d.rs2, 0);
+    assert_eq!(d.rs1, RegIdx::new(8));
+    assert_eq!(d.rs2, RegIdx::new(0));
 }
 
 #[test]
@@ -343,7 +338,7 @@ fn rvc_c_bnez() {
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_BRANCH);
     assert_eq!(d.funct3, i_f3::BNE);
-    assert_eq!(d.rs1, 8);
+    assert_eq!(d.rs1, RegIdx::new(8));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -358,8 +353,8 @@ fn rvc_c_slli() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_IMM);
     assert_eq!(d.funct3, i_f3::SLL);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 1);
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(1));
 }
 
 #[test]
@@ -379,8 +374,8 @@ fn rvc_c_lwsp() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_LOAD);
     assert_eq!(d.funct3, i_f3::LW);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 2, "C.LWSP base is x2 (sp)");
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(2), "C.LWSP base is x2 (sp)");
 }
 
 #[test]
@@ -398,7 +393,7 @@ fn rvc_c_ldsp() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_LOAD);
     assert_eq!(d.funct3, i_f3::LD);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rs1, RegIdx::new(2));
 }
 
 #[test]
@@ -416,7 +411,7 @@ fn rvc_c_fldsp() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, f_op::OP_LOAD_FP);
     assert_eq!(d.funct3, i_f3::LD);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rs1, RegIdx::new(2));
 }
 
 #[test]
@@ -426,8 +421,8 @@ fn rvc_c_jr() {
     let cinst: u16 = 0b1000_0010_1000_0010; // rs1=5, rs2=0, bit12=0
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_JALR);
-    assert_eq!(d.rd, 0, "C.JR links to x0");
-    assert_eq!(d.rs1, 5);
+    assert_eq!(d.rd, RegIdx::new(0), "C.JR links to x0");
+    assert_eq!(d.rs1, RegIdx::new(5));
 }
 
 #[test]
@@ -438,9 +433,9 @@ fn rvc_c_mv() {
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_REG);
     assert_eq!(d.funct3, i_f3::ADD_SUB);
-    assert_eq!(d.rd, 3);
-    assert_eq!(d.rs1, 0, "C.MV uses x0 as rs1");
-    assert_eq!(d.rs2, 5);
+    assert_eq!(d.rd, RegIdx::new(3));
+    assert_eq!(d.rs1, RegIdx::new(0), "C.MV uses x0 as rs1");
+    assert_eq!(d.rs2, RegIdx::new(5));
 }
 
 #[test]
@@ -457,8 +452,8 @@ fn rvc_c_jalr() {
     let cinst: u16 = 0b1001_0010_1000_0010; // rs1=5
     let d = expand_and_decode(cinst);
     assert_eq!(d.opcode, i_op::OP_JALR);
-    assert_eq!(d.rd, 1, "C.JALR links to x1 (ra)");
-    assert_eq!(d.rs1, 5);
+    assert_eq!(d.rd, RegIdx::new(1), "C.JALR links to x1 (ra)");
+    assert_eq!(d.rs1, RegIdx::new(5));
 }
 
 #[test]
@@ -469,9 +464,9 @@ fn rvc_c_add() {
     assert_eq!(d.opcode, i_op::OP_REG);
     assert_eq!(d.funct3, i_f3::ADD_SUB);
     assert_eq!(d.funct7, i_f7::DEFAULT);
-    assert_eq!(d.rd, 3);
-    assert_eq!(d.rs1, 3, "C.ADD uses rd as rs1");
-    assert_eq!(d.rs2, 5);
+    assert_eq!(d.rd, RegIdx::new(3));
+    assert_eq!(d.rs1, RegIdx::new(3), "C.ADD uses rd as rs1");
+    assert_eq!(d.rs2, RegIdx::new(5));
 }
 
 #[test]
@@ -484,8 +479,8 @@ fn rvc_c_swsp() {
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SW);
-    assert_eq!(d.rs1, 2, "C.SWSP base is x2 (sp)");
-    assert_eq!(d.rs2, 3);
+    assert_eq!(d.rs1, RegIdx::new(2), "C.SWSP base is x2 (sp)");
+    assert_eq!(d.rs2, RegIdx::new(3));
 }
 
 #[test]
@@ -498,7 +493,7 @@ fn rvc_c_sdsp() {
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SD);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rs1, RegIdx::new(2));
 }
 
 #[test]
@@ -510,7 +505,7 @@ fn rvc_c_fsdsp() {
     assert_ne!(expanded, 0);
     let d = decode(expanded);
     assert_eq!(d.opcode, f_op::OP_STORE_FP);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rs1, RegIdx::new(2));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -522,10 +517,7 @@ fn rvc_quadrant_3_is_not_compressed() {
     // bits[1:0] = 11 means 32-bit instruction, not compressed
     let cinst: u16 = 0x0003; // opcode = 0b11
     let expanded = expand(cinst);
-    assert_eq!(
-        expanded, 0,
-        "Quadrant 3 (32-bit) should not be handled by RVC expander"
-    );
+    assert_eq!(expanded, 0, "Quadrant 3 (32-bit) should not be handled by RVC expander");
 }
 
 #[test]
@@ -537,7 +529,7 @@ fn rvc_all_register_mappings_q0() {
         let d = expand_and_decode(cinst);
         assert_eq!(
             d.rd,
-            (8 + rd_prime) as usize,
+            RegIdx::new((8 + rd_prime) as u8),
             "rd'={rd_prime} should map to x{}",
             8 + rd_prime
         );
@@ -553,7 +545,7 @@ fn rvc_all_register_mappings_q0_rs1() {
         let d = expand_and_decode(cinst);
         assert_eq!(
             d.rs1,
-            (8 + rs1_prime) as usize,
+            RegIdx::new((8 + rs1_prime) as u8),
             "rs1'={rs1_prime} should map to x{}",
             8 + rs1_prime
         );

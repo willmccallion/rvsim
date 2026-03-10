@@ -5,6 +5,7 @@
 //! Machine-mode and Supervisor-mode registers, including specific handling for address
 //! translation (`satp`) and hardware counters.
 
+use rvsim_core::common::CsrAddr;
 use rvsim_core::core::arch::csr::{self, Csrs};
 
 /// Verifies that all Control and Status Registers (CSRs) are initialized to zero by default.
@@ -136,15 +137,15 @@ fn csr_satp_invalid_mode_becomes_bare() {
 #[test]
 fn csr_unknown_address_returns_zero() {
     let csrs = Csrs::default();
-    assert_eq!(csrs.read(0x999), 0);
+    assert_eq!(csrs.read(CsrAddr::from_u32(0x999)), 0);
 }
 
 /// Verifies that writing to an undefined CSR address is ignored and does not affect the state.
 #[test]
 fn csr_write_unknown_address_is_ignored() {
     let mut csrs = Csrs::default();
-    csrs.write(0x999, 0xDEAD);
-    assert_eq!(csrs.read(0x999), 0);
+    csrs.write(CsrAddr::from_u32(0x999), 0xDEAD);
+    assert_eq!(csrs.read(CsrAddr::from_u32(0x999)), 0);
 }
 
 /// Verifies the read and write operations for common counter CSRs.

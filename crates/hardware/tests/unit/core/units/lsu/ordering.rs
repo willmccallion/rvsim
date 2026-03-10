@@ -53,12 +53,7 @@ fn fence_set_from_bits_io() {
 fn fence_set_round_trip() {
     for bits in 0..=0xF_u8 {
         let fs = FenceSet::from_bits(bits);
-        assert_eq!(
-            fs.to_bits(),
-            bits,
-            "Round-trip failed for bits {:#06b}",
-            bits
-        );
+        assert_eq!(fs.to_bits(), bits, "Round-trip failed for bits {:#06b}", bits);
     }
 }
 

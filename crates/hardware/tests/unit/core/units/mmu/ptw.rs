@@ -9,7 +9,7 @@
 //! - Bare mode bypass
 
 use crate::common::harness::TestContext;
-use rvsim_core::common::{AccessType, Trap, VirtAddr};
+use rvsim_core::common::{AccessType, PhysAddr, Trap, VirtAddr};
 use rvsim_core::core::arch::csr::{self, Csrs};
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::core::units::mmu::Mmu;
@@ -39,7 +39,7 @@ fn make_pte(ppn: u64, perms: u64) -> u64 {
 }
 
 fn setup_mmu() -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4); // Small TLB + small L2 TLB to force walks
+    let mmu = Mmu::new(4, 4, 4, 4, false); // Small TLB + small L2 TLB to force walks
     let mut csrs = Csrs::default();
 
     // Enable SV39 mode
@@ -60,7 +60,7 @@ fn setup_mmu() -> (Mmu, Csrs, TestContext) {
 /// `base_ppn` is the PPN of the page table at this level.
 fn write_pte(bus: &mut Bus, base_ppn: u64, vpn_index: u64, pte: u64) {
     let addr = (base_ppn << 12) + (vpn_index * 8);
-    bus.write_u64(addr, pte);
+    bus.write_u64(PhysAddr::new(addr), pte);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -131,20 +131,9 @@ fn sv39_4kb_page_walk() {
     // L1 -> points to L0 table
     write_pte(bus, l1_table_ppn, l1_idx, make_pte(l0_table_ppn, 0));
     // L0 -> leaf (R/W/X)
-    write_pte(
-        bus,
-        l0_table_ppn,
-        l0_idx,
-        make_pte(target_ppn, R | W | X | A | D),
-    );
+    write_pte(bus, l0_table_ppn, l0_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), (target_ppn << 12) | 0x234);
@@ -171,20 +160,9 @@ fn sv39_megapage_walk() {
     // L2 -> points to L1
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0));
     // L1 -> leaf (megapage)
-    write_pte(
-        bus,
-        l1_table_ppn,
-        l1_idx,
-        make_pte(target_ppn, R | W | X | A | D),
-    );
+    write_pte(bus, l1_table_ppn, l1_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target_ppn << 12);
@@ -201,20 +179,9 @@ fn sv39_gigapage_walk() {
     let target_ppn = ROOT_PPN + 0x40000; // Aligned 1GB PPN
 
     // L2 -> leaf (gigapage)
-    write_pte(
-        bus,
-        ROOT_PPN,
-        l2_idx,
-        make_pte(target_ppn, R | W | X | A | D),
-    );
+    write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target_ppn << 12);
@@ -231,19 +198,9 @@ fn invalid_pte_causes_fault() {
     let vaddr = VirtAddr::new(0x1000);
 
     // ROOT_PPN + VPN[2] is 0 (invalid) by default in MockMemory
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
-    assert!(
-        matches!(res.trap, Some(Trap::LoadPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 #[test]
@@ -264,18 +221,8 @@ fn pointer_at_level_0_causes_fault() {
     // Level 0 PTE without R/W/X permissions -> pointer, but L0 can't have pointers
     write_pte(bus, l0_ppn, l0_idx, make_pte(ROOT_PPN + 10, 0)); // V=1, others 0
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::LoadPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 #[test]
@@ -293,25 +240,10 @@ fn misaligned_superpage_causes_fault() {
     let misaligned_target_ppn = (ROOT_PPN + 100) | 0x1;
 
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
-    write_pte(
-        bus,
-        l1_ppn,
-        l1_idx,
-        make_pte(misaligned_target_ppn, R | W | X | A | D),
-    );
+    write_pte(bus, l1_ppn, l1_idx, make_pte(misaligned_target_ppn, R | W | X | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::LoadPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -330,19 +262,13 @@ fn write_to_clean_page_sets_dirty() {
     let pte_val = make_pte(target_ppn, R | W | X | A);
     write_pte(bus, ROOT_PPN, l2_idx, pte_val);
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Write,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
-    // Check if Dirty bit was updated in memory
-    let new_pte = bus.read_u64(ROOT_PPN << 12 | (l2_idx * 8));
-    assert_eq!(new_pte & D, D, "Dirty bit should be set");
+    // A/D bit updates are deferred to commit via PteUpdate
+    let upd = res.pte_update.expect("Should produce a PteUpdate for dirty bit");
+    assert_eq!(upd.pte_value & D, D, "Dirty bit should be set in deferred update");
 }
 
 #[test]
@@ -357,19 +283,13 @@ fn read_from_unaccessed_page_sets_accessed() {
     let pte_val = make_pte(target_ppn, R | W | X);
     write_pte(bus, ROOT_PPN, l2_idx, pte_val);
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
-    // Check if Accessed bit was updated in memory
-    let new_pte = bus.read_u64(ROOT_PPN << 12 | (l2_idx * 8));
-    assert_eq!(new_pte & A, A, "Accessed bit should be set");
+    // A/D bit updates are deferred to commit via PteUpdate
+    let upd = res.pte_update.expect("Should produce a PteUpdate for accessed bit");
+    assert_eq!(upd.pte_value & A, A, "Accessed bit should be set in deferred update");
 }
 
 #[test]
@@ -383,18 +303,8 @@ fn write_permission_check() {
     // Read-only page
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Write,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::StorePageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", res.trap);
 }
 
 #[test]
@@ -408,18 +318,8 @@ fn execute_permission_check() {
     // RW page (NX)
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | A | D));
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Fetch,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::InstructionPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::InstructionPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -435,19 +335,10 @@ fn user_cannot_access_supervisor_page() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // Supervisor page (U=0)
-    write_pte(
-        bus,
-        ROOT_PPN,
-        l2_idx,
-        make_pte(target_ppn, R | W | X | A | D),
-    );
+    write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
 
     let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::User, &csrs, bus);
-    assert!(
-        matches!(res.trap, Some(Trap::LoadPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 #[test]
@@ -459,38 +350,17 @@ fn supervisor_access_user_page_needs_sum() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // User page (U=1)
-    write_pte(
-        bus,
-        ROOT_PPN,
-        l2_idx,
-        make_pte(target_ppn, R | W | X | U | A | D),
-    );
+    write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | U | A | D));
 
     // Disable SUM
     csrs.write(csr::SSTATUS, 0);
 
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::LoadPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 
     // Enable SUM
     csrs.write(csr::SSTATUS, 1 << 18);
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
+    let res = mmu.translate(vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 }
 
@@ -503,26 +373,11 @@ fn supervisor_cannot_fetch_user_page() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // User page (U=1) with Execute
-    write_pte(
-        bus,
-        ROOT_PPN,
-        l2_idx,
-        make_pte(target_ppn, R | X | U | A | D),
-    );
+    write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | X | U | A | D));
 
     // Even with SUM, Supervisor cannot execute User pages
-    let res = mmu.translate(
-        vaddr,
-        AccessType::Fetch,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        bus,
-    );
-    assert!(
-        matches!(res.trap, Some(Trap::InstructionPageFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    let res = mmu.translate(vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
+    assert!(matches!(res.trap, Some(Trap::InstructionPageFault(_))), "Trap: {:?}", res.trap);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -550,10 +405,6 @@ fn non_canonical_address_faults() {
         &mut tc.cpu_mut().bus.bus,
     );
 
-    // Non-canonical access triggers AccessFault (not PageFault)
-    assert!(
-        matches!(res.trap, Some(Trap::LoadAccessFault(_))),
-        "Trap: {:?}",
-        res.trap
-    );
+    // Non-canonical address is unmapped in the virtual address space → PageFault
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }

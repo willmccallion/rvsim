@@ -7,11 +7,7 @@ fn test_box_f32() {
     let boxed = Fpu::box_f32(f);
     // RISC-V: 32-bit values are boxed in 64-bit registers by setting upper 32 bits to all 1s.
     assert_eq!(boxed >> 32, 0xFFFFFFFF, "Upper 32 bits must be all 1s");
-    assert_eq!(
-        boxed as u32,
-        f.to_bits(),
-        "Lower 32 bits must match f32 representation"
-    );
+    assert_eq!(boxed as u32, f.to_bits(), "Lower 32 bits must match f32 representation");
 }
 
 #[test]
@@ -90,4 +86,88 @@ fn test_f64_nan_boxing_not_applicable() {
 
     let res = Fpu::execute(AluOp::FAdd, d_val1, d_val2, 0, false);
     assert_eq!(f64::from_bits(res), 3.0);
+}
+
+use rvsim_core::core::units::fpu::nan_handling::*;
+
+#[test]
+fn test_unbox_f32_direct() {
+    let valid = box_f32(1.0);
+    assert_eq!(unbox_f32(valid).to_bits(), 1.0f32.to_bits());
+
+    let invalid = 1.0f32.to_bits() as u64; // upper bits are 0
+    assert_eq!(unbox_f32(invalid).to_bits(), 0x7fc0_0000);
+}
+
+#[test]
+fn test_canonicalize_f32_f64() {
+    let val32 = 1.0f32;
+    assert_eq!(canonicalize_f32(val32).to_bits(), val32.to_bits());
+
+    let nan32 = f32::from_bits(0x7f80_0001); // signaling NaN
+    assert_eq!(canonicalize_f32(nan32).to_bits(), 0x7fc0_0000);
+
+    let val64 = 1.0f64;
+    assert_eq!(canonicalize_f64(val64).to_bits(), val64.to_bits());
+
+    let nan64 = f64::from_bits(0x7ff0_0000_0000_0001);
+    assert_eq!(canonicalize_f64(nan64).to_bits(), 0x7ff8_0000_0000_0000);
+}
+
+#[test]
+fn test_fmin_fmax_f32_direct() {
+    let pos_zero = f32::from_bits(0x0000_0000);
+    let neg_zero = f32::from_bits(0x8000_0000);
+
+    // fmin
+    assert_eq!(fmin_f32(neg_zero, pos_zero).to_bits(), neg_zero.to_bits());
+    assert_eq!(fmin_f32(pos_zero, neg_zero).to_bits(), neg_zero.to_bits());
+
+    // fmax
+    assert_eq!(fmax_f32(neg_zero, pos_zero).to_bits(), pos_zero.to_bits());
+    assert_eq!(fmax_f32(pos_zero, neg_zero).to_bits(), pos_zero.to_bits());
+
+    // Both NaNs
+    let nan = f32::from_bits(0x7fc0_0000);
+    assert_eq!(fmin_f32(nan, nan).to_bits(), 0x7fc0_0000);
+    assert_eq!(fmax_f32(nan, nan).to_bits(), 0x7fc0_0000);
+
+    // One NaN
+    assert_eq!(fmin_f32(nan, 1.0).to_bits(), 1.0f32.to_bits());
+    assert_eq!(fmin_f32(1.0, nan).to_bits(), 1.0f32.to_bits());
+    assert_eq!(fmax_f32(nan, 1.0).to_bits(), 1.0f32.to_bits());
+    assert_eq!(fmax_f32(1.0, nan).to_bits(), 1.0f32.to_bits());
+
+    // normal min/max
+    assert_eq!(fmin_f32(1.0, 2.0).to_bits(), 1.0f32.to_bits());
+    assert_eq!(fmax_f32(1.0, 2.0).to_bits(), 2.0f32.to_bits());
+}
+
+#[test]
+fn test_fmin_fmax_f64_direct() {
+    let pos_zero = f64::from_bits(0x0000_0000_0000_0000);
+    let neg_zero = f64::from_bits(0x8000_0000_0000_0000);
+
+    // fmin
+    assert_eq!(fmin_f64(neg_zero, pos_zero).to_bits(), neg_zero.to_bits());
+    assert_eq!(fmin_f64(pos_zero, neg_zero).to_bits(), neg_zero.to_bits());
+
+    // fmax
+    assert_eq!(fmax_f64(neg_zero, pos_zero).to_bits(), pos_zero.to_bits());
+    assert_eq!(fmax_f64(pos_zero, neg_zero).to_bits(), pos_zero.to_bits());
+
+    // Both NaNs
+    let nan = f64::from_bits(0x7ff8_0000_0000_0000);
+    assert_eq!(fmin_f64(nan, nan).to_bits(), 0x7ff8_0000_0000_0000);
+    assert_eq!(fmax_f64(nan, nan).to_bits(), 0x7ff8_0000_0000_0000);
+
+    // One NaN
+    assert_eq!(fmin_f64(nan, 1.0).to_bits(), 1.0f64.to_bits());
+    assert_eq!(fmin_f64(1.0, nan).to_bits(), 1.0f64.to_bits());
+    assert_eq!(fmax_f64(nan, 1.0).to_bits(), 1.0f64.to_bits());
+    assert_eq!(fmax_f64(1.0, nan).to_bits(), 1.0f64.to_bits());
+
+    // normal min/max
+    assert_eq!(fmin_f64(1.0, 2.0).to_bits(), 1.0f64.to_bits());
+    assert_eq!(fmax_f64(1.0, 2.0).to_bits(), 2.0f64.to_bits());
 }

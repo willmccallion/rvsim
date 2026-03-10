@@ -59,11 +59,7 @@ fn mtvec_vectored_mode() {
     // Vectored mode: mode bits = 1
     let mtvec = 0x8000_0001;
     csrs.write(csr::MTVEC, mtvec);
-    assert_eq!(
-        csrs.read(csr::MTVEC) & 0x3,
-        1,
-        "Mode should be vectored (1)"
-    );
+    assert_eq!(csrs.read(csr::MTVEC) & 0x3, 1, "Mode should be vectored (1)");
 }
 
 /// Tests the configuration of the `stvec` register.
@@ -105,10 +101,7 @@ fn mstatus_previous_mode_mpp() {
 fn mstatus_fs_field() {
     let mut csrs = Csrs::default();
     csrs.write(csr::MSTATUS, csr::MSTATUS_FS_DIRTY);
-    assert_eq!(
-        csrs.read(csr::MSTATUS) & csr::MSTATUS_FS,
-        csr::MSTATUS_FS_DIRTY
-    );
+    assert_eq!(csrs.read(csr::MSTATUS) & csr::MSTATUS_FS, csr::MSTATUS_FS_DIRTY);
 }
 
 /// Verifies the delegation of exceptions and interrupts from Machine mode
@@ -122,9 +115,5 @@ fn medeleg_mideleg_combined() {
     let edeleg = csrs.read(csr::MEDELEG);
     let ideleg = csrs.read(csr::MIDELEG);
     assert_ne!(edeleg & (1 << 8), 0, "User ecall should be delegated");
-    assert_ne!(
-        ideleg & csr::MIP_STIP,
-        0,
-        "S-mode timer should be delegated"
-    );
+    assert_ne!(ideleg & csr::MIP_STIP, 0, "S-mode timer should be delegated");
 }

@@ -3,6 +3,7 @@
 //! Tests for UART data transmission, receive buffer, interrupt handling,
 //! and various register configurations.
 
+use rvsim_core::common::IrqId;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::uart::Uart;
 
@@ -273,7 +274,7 @@ fn uart_lsr_overrun_error() {
     let mut uart = Uart::new(0, true, true);
     let lsr = uart.read_u8(5);
     // Check bit 1 (overrun error)
-    let _overrun = (lsr >> 1) & 1;
+    let _ = (lsr >> 1) & 1;
 }
 
 #[test]
@@ -281,7 +282,7 @@ fn uart_lsr_parity_error() {
     let mut uart = Uart::new(0, true, true);
     let lsr = uart.read_u8(5);
     // Check bit 2 (parity error)
-    let _parity = (lsr >> 2) & 1;
+    let _ = (lsr >> 2) & 1;
 }
 
 #[test]
@@ -289,7 +290,7 @@ fn uart_lsr_framing_error() {
     let mut uart = Uart::new(0, true, true);
     let lsr = uart.read_u8(5);
     // Check bit 3 (framing error)
-    let _framing = (lsr >> 3) & 1;
+    let _ = (lsr >> 3) & 1;
 }
 
 #[test]
@@ -297,7 +298,7 @@ fn uart_lsr_break_interrupt() {
     let mut uart = Uart::new(0, true, true);
     let lsr = uart.read_u8(5);
     // Check bit 4 (break interrupt)
-    let _break_int = (lsr >> 4) & 1;
+    let _ = (lsr >> 4) & 1;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -370,7 +371,7 @@ fn uart_read_write_only_register() {
 #[test]
 fn uart_irq_id() {
     let uart = Uart::new(0x1000_0000, true, true);
-    assert_eq!(uart.get_irq_id(), Some(10));
+    assert_eq!(uart.get_irq_id(), Some(IrqId::new(10)));
 }
 
 #[test]

@@ -52,10 +52,7 @@ fn mid_line_access_aligns_down() {
     let mut pf = NextLinePrefetcher::new(64, 1);
     // 0x1020 is at offset 32 within the 64-byte line starting at 0x1000.
     let addrs = pf.observe(0x1020, false);
-    assert_eq!(
-        addrs[0], 0x1040,
-        "Prefetch target should be aligned next line"
-    );
+    assert_eq!(addrs[0], 0x1040, "Prefetch target should be aligned next line");
 }
 
 /// Non-power-of-two offset within a line still aligns correctly.

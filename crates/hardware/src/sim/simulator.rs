@@ -3,6 +3,7 @@
 //! This avoids the borrow-splitting hack where the pipeline was stored as
 //! `Option<PipelineDispatch>` inside `Cpu` and temporarily `take()`-en each tick.
 
+use crate::common::SimError;
 use crate::config::Config;
 use crate::core::Cpu;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
@@ -12,6 +13,7 @@ use crate::core::pipeline::frontend::Frontend;
 use crate::soc::System;
 
 /// Top-level simulator: CPU architectural state + pipeline.
+#[derive(Debug)]
 pub struct Simulator {
     /// CPU architectural state (registers, caches, MMU, bus, stats).
     pub cpu: Cpu,
@@ -52,7 +54,14 @@ impl Simulator {
     }
 
     /// Advances the simulator by one clock cycle.
-    pub fn tick(&mut self) -> Result<(), String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::HangDetected`] if the PC has not advanced for too many
+    /// consecutive cycles (and is not stuck in a WFI spin-wait).
+    ///
+    /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires.
+    pub fn tick(&mut self) -> Result<(), SimError> {
         let prev_priv = self.cpu.privilege;
         let skip = self.cpu.pre_tick()?;
         if !skip {
@@ -63,7 +72,7 @@ impl Simulator {
     }
 
     /// Retrieves the exit code if the simulation has finished.
-    pub fn take_exit(&mut self) -> Option<u64> {
+    pub const fn take_exit(&mut self) -> Option<u64> {
         self.cpu.take_exit()
     }
 }

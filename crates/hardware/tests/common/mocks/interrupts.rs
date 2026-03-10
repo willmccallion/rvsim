@@ -16,11 +16,7 @@ impl Default for MockInterruptController {
 
 impl MockInterruptController {
     pub fn new() -> Self {
-        Self {
-            pending: 0,
-            enabled: 0,
-            threshold: 0,
-        }
+        Self { pending: 0, enabled: 0, threshold: 0 }
     }
 
     /// Raise an interrupt line (0-63).

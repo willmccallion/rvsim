@@ -3,6 +3,7 @@ use rvsim_core::soc::memory::Memory;
 use rvsim_core::soc::memory::controller::MemoryController;
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug)]
 pub struct MockMemoryController {
     latency: u64,
 }
@@ -31,11 +32,7 @@ pub struct MockMemory {
 
 impl MockMemory {
     pub fn new(size: usize, base: u64) -> Self {
-        Self {
-            data: vec![0; size],
-            base,
-            fault_addrs: Arc::new(Mutex::new(Vec::new())),
-        }
+        Self { data: vec![0; size], base, fault_addrs: Arc::new(Mutex::new(Vec::new())) }
     }
 
     pub fn inject_fault(&self, addr: u64) {
@@ -44,17 +41,19 @@ impl MockMemory {
 
     fn check_fault(&self, offset: u64) {
         let addr = self.base + offset;
-        if self.fault_addrs.lock().unwrap().contains(&addr) {
-            // In a real scenario, this would trigger a bus error signal.
-            // Since the Device trait doesn't support errors, we panic to simulate
-            // a catastrophic failure that the test harness should catch or expect.
-            panic!("Bus Error injected at address {:#x}", addr);
-        }
+        // In a real scenario, this would trigger a bus error signal.
+        // Since the Device trait doesn't support errors, we panic to simulate
+        // a catastrophic failure that the test harness should catch or expect.
+        assert!(
+            !self.fault_addrs.lock().unwrap().contains(&addr),
+            "Bus Error injected at address {:#x}",
+            addr
+        );
     }
 }
 
 impl Device for MockMemory {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "MockMemory"
     }
     fn address_range(&self) -> (u64, u64) {

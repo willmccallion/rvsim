@@ -34,8 +34,8 @@ fn test_stats_print_all_sections() {
     stats.inst_load = 150;
     stats.inst_store = 100;
     stats.inst_branch = 50;
-    stats.branch_predictions = 40;
-    stats.branch_mispredictions = 10;
+    stats.committed_branch_predictions = 40;
+    stats.committed_branch_mispredictions = 10;
     stats.icache_hits = 450;
     stats.icache_misses = 50;
     stats.dcache_hits = 200;
@@ -85,8 +85,8 @@ fn test_stats_print_instruction_mix_section() {
 #[test]
 fn test_stats_print_branch_section() {
     let mut stats = SimStats::default();
-    stats.branch_predictions = 900;
-    stats.branch_mispredictions = 100;
+    stats.committed_branch_predictions = 900;
+    stats.committed_branch_mispredictions = 100;
 
     stats.print_sections(&[String::from("branch")]);
 }
@@ -111,8 +111,8 @@ fn test_stats_print_multiple_sections() {
     let mut stats = SimStats::default();
     stats.cycles = 1000;
     stats.instructions_retired = 500;
-    stats.branch_predictions = 40;
-    stats.branch_mispredictions = 10;
+    stats.committed_branch_predictions = 40;
+    stats.committed_branch_mispredictions = 10;
 
     stats.print_sections(&[String::from("summary"), String::from("branch")]);
 }
@@ -133,9 +133,9 @@ fn test_stats_zero_instructions_division_safe() {
 }
 
 #[test]
-fn test_stats_zero_branch_predictions_safe() {
+fn test_stats_zero_committed_branch_predictions_safe() {
     let stats = SimStats::default();
-    // branch_predictions and branch_mispredictions are both 0
+    // committed_branch_predictions and committed_branch_mispredictions are both 0
     stats.print_sections(&[String::from("branch")]);
 }
 
@@ -197,8 +197,8 @@ fn test_stats_all_privilege_modes() {
 #[test]
 fn test_stats_perfect_branch_prediction() {
     let mut stats = SimStats::default();
-    stats.branch_predictions = 1000;
-    stats.branch_mispredictions = 0;
+    stats.committed_branch_predictions = 1000;
+    stats.committed_branch_mispredictions = 0;
 
     stats.print_sections(&[String::from("branch")]);
 }
@@ -206,8 +206,8 @@ fn test_stats_perfect_branch_prediction() {
 #[test]
 fn test_stats_worst_branch_prediction() {
     let mut stats = SimStats::default();
-    stats.branch_predictions = 0;
-    stats.branch_mispredictions = 1000;
+    stats.committed_branch_predictions = 0;
+    stats.committed_branch_mispredictions = 1000;
 
     stats.print_sections(&[String::from("branch")]);
 }
@@ -307,8 +307,8 @@ fn test_stats_realistic_workload() {
     stats.inst_branch = 800_000;
     stats.inst_system = 200_000;
 
-    stats.branch_predictions = 700_000;
-    stats.branch_mispredictions = 100_000;
+    stats.committed_branch_predictions = 700_000;
+    stats.committed_branch_mispredictions = 100_000;
 
     stats.icache_hits = 7_500_000;
     stats.icache_misses = 500_000;

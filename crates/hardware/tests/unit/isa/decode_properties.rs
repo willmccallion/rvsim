@@ -14,6 +14,7 @@
 //! - J-type:  OP_JAL
 //! - R4-type: OP_FMADD, OP_FMSUB, OP_FNMADD, OP_FNMSUB
 
+use rvsim_core::common::{CsrAddr, RegIdx};
 use rvsim_core::isa::decode::decode;
 use rvsim_core::isa::instruction::InstructionBits;
 
@@ -129,26 +130,26 @@ fn field_extraction_opcode() {
 fn field_extraction_rd() {
     // rd = 15 (0b01111), placed at bits 7-11
     let inst = r_type(i_op::OP_REG, 15, 0, 0, 0, 0);
-    assert_eq!(inst.rd(), 15);
+    assert_eq!(inst.rd(), RegIdx::new(15));
 }
 
 #[test]
 fn field_extraction_rs1() {
     let inst = r_type(i_op::OP_REG, 0, 0, 23, 0, 0);
-    assert_eq!(inst.rs1(), 23);
+    assert_eq!(inst.rs1(), RegIdx::new(23));
 }
 
 #[test]
 fn field_extraction_rs2() {
     let inst = r_type(i_op::OP_REG, 0, 0, 0, 31, 0);
-    assert_eq!(inst.rs2(), 31);
+    assert_eq!(inst.rs2(), RegIdx::new(31));
 }
 
 #[test]
 fn field_extraction_rs3() {
     // rs3 = bits 27-31 (used in FMA instructions)
     let inst = r4_type(f_op::OP_FMADD, 1, 0, 2, 3, 17, 0);
-    assert_eq!(inst.rs3(), 17);
+    assert_eq!(inst.rs3(), RegIdx::new(17));
 }
 
 #[test]
@@ -167,33 +168,33 @@ fn field_extraction_funct7() {
 fn field_extraction_csr() {
     // CSR address occupies bits 20-31 (12 bits). For CSRRW x1, mstatus(0x300), x2:
     let inst = i_type(sys_op::OP_SYSTEM, 1, sys_op::CSRRW, 2, 0x300);
-    assert_eq!(inst.csr(), 0x300);
+    assert_eq!(inst.csr(), CsrAddr::from_u32(0x300));
 }
 
 #[test]
 fn field_extraction_all_ones() {
     let inst: u32 = 0xFFFF_FFFF;
     assert_eq!(inst.opcode(), 0x7F);
-    assert_eq!(inst.rd(), 31);
+    assert_eq!(inst.rd(), RegIdx::new(31));
     assert_eq!(inst.funct3(), 7);
-    assert_eq!(inst.rs1(), 31);
-    assert_eq!(inst.rs2(), 31);
+    assert_eq!(inst.rs1(), RegIdx::new(31));
+    assert_eq!(inst.rs2(), RegIdx::new(31));
     assert_eq!(inst.funct7(), 0x7F);
-    assert_eq!(inst.rs3(), 31);
-    assert_eq!(inst.csr(), 0xFFF);
+    assert_eq!(inst.rs3(), RegIdx::new(31));
+    assert_eq!(inst.csr(), CsrAddr::from_u32(0xFFF));
 }
 
 #[test]
 fn field_extraction_all_zeros() {
     let inst: u32 = 0x0000_0000;
     assert_eq!(inst.opcode(), 0);
-    assert_eq!(inst.rd(), 0);
+    assert_eq!(inst.rd(), RegIdx::new(0));
     assert_eq!(inst.funct3(), 0);
-    assert_eq!(inst.rs1(), 0);
-    assert_eq!(inst.rs2(), 0);
+    assert_eq!(inst.rs1(), RegIdx::new(0));
+    assert_eq!(inst.rs2(), RegIdx::new(0));
     assert_eq!(inst.funct7(), 0);
-    assert_eq!(inst.rs3(), 0);
-    assert_eq!(inst.csr(), 0);
+    assert_eq!(inst.rs3(), RegIdx::new(0));
+    assert_eq!(inst.csr(), CsrAddr::from_u32(0));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -205,9 +206,9 @@ fn decode_r_type_add() {
     let inst = r_type(i_op::OP_REG, 5, i_f3::ADD_SUB, 10, 15, i_f7::DEFAULT);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_REG);
-    assert_eq!(d.rd, 5);
-    assert_eq!(d.rs1, 10);
-    assert_eq!(d.rs2, 15);
+    assert_eq!(d.rd, RegIdx::new(5));
+    assert_eq!(d.rs1, RegIdx::new(10));
+    assert_eq!(d.rs2, RegIdx::new(15));
     assert_eq!(d.funct3, i_f3::ADD_SUB);
     assert_eq!(d.funct7, i_f7::DEFAULT);
     assert_eq!(d.imm, 0, "R-type has no immediate");
@@ -433,8 +434,8 @@ fn decode_i_type_addi_positive() {
     let inst = i_type(i_op::OP_IMM, 5, i_f3::ADD_SUB, 10, 42);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_IMM);
-    assert_eq!(d.rd, 5);
-    assert_eq!(d.rs1, 10);
+    assert_eq!(d.rd, RegIdx::new(5));
+    assert_eq!(d.rs1, RegIdx::new(10));
     assert_eq!(d.funct3, i_f3::ADD_SUB);
     assert_eq!(d.imm, 42);
 }
@@ -633,8 +634,8 @@ fn decode_store_sb() {
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SB);
-    assert_eq!(d.rs1, 2);
-    assert_eq!(d.rs2, 3);
+    assert_eq!(d.rs1, RegIdx::new(2));
+    assert_eq!(d.rs2, RegIdx::new(3));
     assert_eq!(d.imm, 7);
 }
 
@@ -695,8 +696,8 @@ fn decode_branch_beq() {
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_BRANCH);
     assert_eq!(d.funct3, i_f3::BEQ);
-    assert_eq!(d.rs1, 5);
-    assert_eq!(d.rs2, 6);
+    assert_eq!(d.rs1, RegIdx::new(5));
+    assert_eq!(d.rs2, RegIdx::new(6));
     assert_eq!(d.imm, 64);
 }
 
@@ -749,7 +750,7 @@ fn decode_lui() {
     let inst = u_type(i_op::OP_LUI, 5, 0xDEADB);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_LUI);
-    assert_eq!(d.rd, 5);
+    assert_eq!(d.rd, RegIdx::new(5));
     // U-type imm = upper 20 bits << 12 (sign-extended to i64)
     assert_eq!(d.imm, 0xDEADB000u32 as i32 as i64);
 }
@@ -759,7 +760,7 @@ fn decode_auipc() {
     let inst = u_type(i_op::OP_AUIPC, 10, 0x00001);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_AUIPC);
-    assert_eq!(d.rd, 10);
+    assert_eq!(d.rd, RegIdx::new(10));
     assert_eq!(d.imm, 0x1000);
 }
 
@@ -769,10 +770,7 @@ fn decode_lui_sign_extension() {
     let inst = u_type(i_op::OP_LUI, 1, 0x80000);
     let d = decode(inst);
     assert_eq!(d.imm, 0x80000000u32 as i32 as i64);
-    assert!(
-        d.imm < 0,
-        "U-type with bit 31 set must sign-extend to negative"
-    );
+    assert!(d.imm < 0, "U-type with bit 31 set must sign-extend to negative");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -784,7 +782,7 @@ fn decode_jal_positive() {
     let inst = j_type(i_op::OP_JAL, 1, 100);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_JAL);
-    assert_eq!(d.rd, 1);
+    assert_eq!(d.rd, RegIdx::new(1));
     assert_eq!(d.imm, 100);
 }
 
@@ -820,8 +818,8 @@ fn decode_jalr() {
     let inst = i_type(i_op::OP_JALR, 1, 0, 5, 8);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_JALR);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 5);
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(5));
     assert_eq!(d.imm, 8);
 }
 
@@ -1005,10 +1003,10 @@ fn decode_fmadd_s() {
     let inst = r4_type(f_op::OP_FMADD, 1, 0, 2, 3, 4, 0b00);
     let d = decode(inst);
     assert_eq!(d.opcode, f_op::OP_FMADD);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 2);
-    assert_eq!(d.rs2, 3);
-    assert_eq!(inst.rs3(), 4);
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(2));
+    assert_eq!(d.rs2, RegIdx::new(3));
+    assert_eq!(inst.rs3(), RegIdx::new(4));
 }
 
 #[test]
@@ -1061,8 +1059,8 @@ fn decode_amo_lr_w() {
     let inst = amo_type(a_f5::LR, true, false, 0, 5, 0b010, 1);
     let d = decode(inst);
     assert_eq!(d.opcode, a_op::OP_AMO);
-    assert_eq!(d.rs1, 5);
-    assert_eq!(d.rd, 1);
+    assert_eq!(d.rs1, RegIdx::new(5));
+    assert_eq!(d.rd, RegIdx::new(1));
     // funct5 is in upper bits of funct7
     assert_eq!(d.funct7 >> 2, a_f5::LR);
 }
@@ -1072,7 +1070,7 @@ fn decode_amo_sc_w() {
     let inst = amo_type(a_f5::SC, false, true, 3, 5, 0b010, 1);
     let d = decode(inst);
     assert_eq!(d.funct7 >> 2, a_f5::SC);
-    assert_eq!(d.rs2, 3);
+    assert_eq!(d.rs2, RegIdx::new(3));
 }
 
 #[test]
@@ -1181,8 +1179,8 @@ fn decode_csrrw() {
     let d = decode(inst);
     assert_eq!(d.opcode, sys_op::OP_SYSTEM);
     assert_eq!(d.funct3, sys_op::CSRRW);
-    assert_eq!(d.rd, 1);
-    assert_eq!(d.rs1, 2);
+    assert_eq!(d.rd, RegIdx::new(1));
+    assert_eq!(d.rs1, RegIdx::new(2));
 }
 
 #[test]
@@ -1204,7 +1202,7 @@ fn decode_csrrwi() {
     let inst = i_type(sys_op::OP_SYSTEM, 1, sys_op::CSRRWI, 5, 0x300);
     let d = decode(inst);
     assert_eq!(d.funct3, sys_op::CSRRWI);
-    assert_eq!(d.rs1, 5); // zimm[4:0] in rs1 field
+    assert_eq!(d.rs1, RegIdx::new(5)); // zimm[4:0] in rs1 field
 }
 
 #[test]
@@ -1289,10 +1287,7 @@ fn u_type_imm_round_trip() {
         let inst = u_type(i_op::OP_LUI, 0, imm20);
         let d = decode(inst);
         let expected = (imm20 << 12) as i32 as i64;
-        assert_eq!(
-            d.imm, expected,
-            "U-type round-trip failed for imm20={imm20:#x}"
-        );
+        assert_eq!(d.imm, expected, "U-type round-trip failed for imm20={imm20:#x}");
     }
 }
 
@@ -1306,7 +1301,7 @@ fn decode_nop() {
     let inst = i_type(i_op::OP_IMM, 0, i_f3::ADD_SUB, 0, 0);
     let d = decode(inst);
     assert_eq!(d.opcode, i_op::OP_IMM);
-    assert_eq!(d.rd, 0);
-    assert_eq!(d.rs1, 0);
+    assert_eq!(d.rd, RegIdx::new(0));
+    assert_eq!(d.rs1, RegIdx::new(0));
     assert_eq!(d.imm, 0);
 }

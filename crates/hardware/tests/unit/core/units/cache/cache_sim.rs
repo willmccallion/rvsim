@@ -130,14 +130,8 @@ fn set_conflict_eviction() {
 
     // addr_a should have been evicted.
     assert!(!cache.contains(addr_a), "LRU victim should be evicted");
-    assert!(
-        cache.contains(addr_b),
-        "Recently used address should survive"
-    );
-    assert!(
-        cache.contains(addr_c),
-        "Newly installed address should be present"
-    );
+    assert!(cache.contains(addr_b), "Recently used address should survive");
+    assert!(cache.contains(addr_c), "Newly installed address should be present");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -160,10 +154,7 @@ fn dirty_writeback_penalty_on_eviction() {
     // Penalty should include next_level_latency for write-back.
     let (hit, penalty) = cache.access(256, false, NEXT_LEVEL_LATENCY);
     assert!(!hit);
-    assert_eq!(
-        penalty, NEXT_LEVEL_LATENCY,
-        "Evicting dirty line should incur write-back penalty"
-    );
+    assert_eq!(penalty, NEXT_LEVEL_LATENCY, "Evicting dirty line should incur write-back penalty");
 }
 
 /// Write to a line, access it again (hit), then evict.

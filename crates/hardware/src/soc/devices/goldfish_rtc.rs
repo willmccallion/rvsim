@@ -8,10 +8,12 @@
 //! * `0x00`: Time (Low 32 bits)
 //! * `0x04`: Time (High 32 bits)
 
+use crate::common::IrqId;
 use crate::soc::devices::Device;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Goldfish RTC device structure.
+#[derive(Debug)]
 pub struct GoldfishRtc {
     /// Base physical address of the device.
     base_addr: u64,
@@ -19,22 +21,20 @@ pub struct GoldfishRtc {
 
 impl GoldfishRtc {
     /// Creates a new Goldfish RTC device.
-    pub fn new(base_addr: u64) -> Self {
+    pub const fn new(base_addr: u64) -> Self {
         Self { base_addr }
     }
 
     /// Retrieves the current system time in nanoseconds.
+    #[allow(clippy::unused_self)]
     fn get_time_ns(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64
     }
 }
 
 impl Device for GoldfishRtc {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "GoldfishRTC"
     }
 
@@ -85,7 +85,7 @@ impl Device for GoldfishRtc {
     fn write_u64(&mut self, _offset: u64, _val: u64) {}
 
     /// Returns the Interrupt Request (IRQ) ID associated with this device.
-    fn get_irq_id(&self) -> Option<u32> {
-        Some(11)
+    fn get_irq_id(&self) -> Option<IrqId> {
+        Some(IrqId::new(11))
     }
 }

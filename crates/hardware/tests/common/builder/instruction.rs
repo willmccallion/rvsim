@@ -18,15 +18,7 @@ impl Default for InstructionBuilder {
 
 impl InstructionBuilder {
     pub fn new() -> Self {
-        Self {
-            opcode: 0,
-            rd: 0,
-            funct3: 0,
-            rs1: 0,
-            rs2: 0,
-            funct7: 0,
-            imm: 0,
-        }
+        Self { opcode: 0, rd: 0, funct3: 0, rs1: 0, rs2: 0, funct7: 0, imm: 0 }
     }
 
     pub fn opcode(mut self, op: u32) -> Self {

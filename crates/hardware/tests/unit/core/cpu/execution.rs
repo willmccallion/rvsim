@@ -3,6 +3,7 @@
 //! Tests for the main execution loop and pipeline coordination.
 
 use rvsim_core::Simulator;
+use rvsim_core::common::RegIdx;
 use rvsim_core::config::Config;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 
@@ -107,13 +108,13 @@ fn test_stats_updated() {
 #[test]
 fn test_tick_does_not_corrupt_state() {
     let mut sim = create_test_sim();
-    sim.cpu.regs.write(5, 0x1234_5678);
+    sim.cpu.regs.write(RegIdx::new(5), 0x1234_5678);
 
     sim.tick().unwrap();
 
     // Register x5 should still have value (unless instruction modifies it)
     // At least verify register file is still accessible
-    let _ = sim.cpu.regs.read(5);
+    let _ = sim.cpu.regs.read(RegIdx::new(5));
 }
 
 #[test]
@@ -130,11 +131,7 @@ fn test_rapid_ticks() {
 
 #[test]
 fn test_tick_with_different_privileges() {
-    for priv_level in [
-        PrivilegeMode::Machine,
-        PrivilegeMode::Supervisor,
-        PrivilegeMode::User,
-    ] {
+    for priv_level in [PrivilegeMode::Machine, PrivilegeMode::Supervisor, PrivilegeMode::User] {
         let mut sim = create_test_sim();
         sim.cpu.privilege = priv_level;
 

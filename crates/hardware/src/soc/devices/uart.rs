@@ -4,6 +4,7 @@
 //! Handles standard registers (RBR, THR, IER, IIR, LCR, LSR) and integrates
 //! with stdin/stdout for console I/O.
 
+use crate::common::IrqId;
 use crate::soc::devices::Device;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -19,16 +20,16 @@ const REG_THR: u64 = 0;
 const REG_IER: u64 = 1;
 /// Interrupt Identity Register (Read).
 const REG_IIR: u64 = 2;
-/// FIFO Control Register (Write).
-const REG_FCR: u64 = 2;
+/// FIFO Control Register (Write) — acknowledged but not implemented.
+const _REG_FCR: u64 = 2;
 /// Line Control Register.
 const REG_LCR: u64 = 3;
 /// Modem Control Register.
 const REG_MCR: u64 = 4;
 /// Line Status Register.
 const REG_LSR: u64 = 5;
-/// Modem Status Register.
-const REG_MSR: u64 = 6;
+/// Modem Status Register — reads return 0.
+const _REG_MSR: u64 = 6;
 /// Scratch Register.
 const REG_SCR: u64 = 7;
 
@@ -72,6 +73,8 @@ const TX_BUFFER_FLUSH_THRESHOLD: usize = 4096;
 ///
 /// Simulates a 16550 UART. It spawns a background thread to capture `stdin`
 /// for input and writes output directly to `stdout`.
+#[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Uart {
     /// Base physical address of the device.
     base_addr: u64,
@@ -118,7 +121,7 @@ impl Uart {
     pub fn new(base_addr: u64, to_stderr: bool, quiet: bool) -> Self {
         let (tx, rx) = channel();
 
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             let mut buffer = [0u8; 1];
             let stdin = io::stdin();
             let mut handle = stdin.lock();
@@ -158,7 +161,7 @@ impl Uart {
     /// Calculates the Interrupt Identity Register (IIR) value.
     ///
     /// Determines the highest priority pending interrupt.
-    fn update_interrupts(&mut self) -> u8 {
+    fn update_interrupts(&self) -> u8 {
         if (self.ier & IER_RDA) != 0 && !self.rx_queue.is_empty() {
             return IIR_RDA;
         }
@@ -175,11 +178,11 @@ impl Uart {
             if !self.quiet {
                 let output: String = self.tx_buffer.iter().map(|&b| b as char).collect();
                 if self.to_stderr {
-                    eprint!("{}", output);
-                    io::stderr().flush().ok();
+                    eprint!("{output}");
+                    let _ = io::stderr().flush();
                 } else {
-                    print!("{}", output);
-                    io::stdout().flush().ok();
+                    print!("{output}");
+                    let _ = io::stdout().flush();
                 }
             }
             self.tx_buffer.clear();
@@ -190,10 +193,9 @@ impl Uart {
     ///
     /// Used to detect fatal errors in the guest OS and terminate simulation.
     fn check_char_for_panic(&mut self, ch: u8) -> bool {
-        let ch_lower = if ch.is_ascii_uppercase() { ch + 32 } else { ch };
-
         /// Pattern to detect kernel panic messages in UART output.
         const PATTERN: &[u8] = b"kernel panic";
+        let ch_lower = if ch.is_ascii_uppercase() { ch + 32 } else { ch };
 
         if ch_lower == PATTERN[self.panic_match_state] {
             self.panic_match_state += 1;
@@ -211,12 +213,12 @@ impl Uart {
     }
 
     /// Returns true if a kernel panic has been detected in the output stream.
-    pub fn check_kernel_panic(&mut self) -> bool {
+    pub const fn check_kernel_panic(&mut self) -> bool {
         self.panic_detected
     }
 
     /// Checks if Divisor Latch Access Bit (DLAB) is set in LCR.
-    fn dlab_set(&self) -> bool {
+    const fn dlab_set(&self) -> bool {
         (self.lcr & LCR_DLAB) != 0
     }
 
@@ -234,12 +236,8 @@ impl Uart {
     /// Reads Interrupt Enable Register (IER) or Divisor Latch High (DLM).
     ///
     /// The register accessed depends on the DLAB bit in the LCR.
-    fn read_ier_or_dlm(&self) -> u8 {
-        if self.dlab_set() {
-            (self.div >> 8) as u8
-        } else {
-            self.ier
-        }
+    const fn read_ier_or_dlm(&self) -> u8 {
+        if self.dlab_set() { (self.div >> 8) as u8 } else { self.ier }
     }
 
     /// Reads Interrupt Identity Register (IIR).
@@ -292,7 +290,7 @@ impl Uart {
     /// Writes Interrupt Enable Register (IER) or Divisor Latch High (DLM).
     ///
     /// The register accessed depends on the DLAB bit in the LCR.
-    fn write_ier_or_dlm(&mut self, val: u8) {
+    const fn write_ier_or_dlm(&mut self, val: u8) {
         if self.dlab_set() {
             self.div = (self.div & 0x00FF) | ((val as u16) << 8);
         } else {
@@ -313,7 +311,7 @@ impl Drop for Uart {
 
 impl Device for Uart {
     /// Returns the device name.
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "UART0"
     }
     /// Returns the address range (Base, Size).
@@ -330,21 +328,20 @@ impl Device for Uart {
             REG_LCR => self.lcr,
             REG_MCR => self.mcr,
             REG_LSR => self.read_lsr(),
-            REG_MSR => 0,
             REG_SCR => self.scr,
             _ => 0,
         }
     }
 
-    /// Reads a half-word (delegates to read_u8).
+    /// Reads a half-word (delegates to `read_u8`).
     fn read_u16(&mut self, offset: u64) -> u16 {
         self.read_u8(offset) as u16
     }
-    /// Reads a word (delegates to read_u8).
+    /// Reads a word (delegates to `read_u8`).
     fn read_u32(&mut self, offset: u64) -> u32 {
         self.read_u8(offset) as u32
     }
-    /// Reads a double-word (delegates to read_u8).
+    /// Reads a double-word (delegates to `read_u8`).
     fn read_u64(&mut self, offset: u64) -> u64 {
         self.read_u8(offset) as u64
     }
@@ -354,7 +351,6 @@ impl Device for Uart {
         match offset {
             REG_THR => self.write_thr_or_dll(val),
             REG_IER => self.write_ier_or_dlm(val),
-            REG_FCR => {}
             REG_LCR => self.lcr = val,
             REG_MCR => self.mcr = val,
             REG_SCR => self.scr = val,
@@ -362,15 +358,15 @@ impl Device for Uart {
         }
     }
 
-    /// Writes a half-word (delegates to write_u8).
+    /// Writes a half-word (delegates to `write_u8`).
     fn write_u16(&mut self, offset: u64, val: u16) {
         self.write_u8(offset, val as u8);
     }
-    /// Writes a word (delegates to write_u8).
+    /// Writes a word (delegates to `write_u8`).
     fn write_u32(&mut self, offset: u64, val: u32) {
         self.write_u8(offset, val as u8);
     }
-    /// Writes a double-word (delegates to write_u8).
+    /// Writes a double-word (delegates to `write_u8`).
     fn write_u64(&mut self, offset: u64, val: u64) {
         self.write_u8(offset, val as u8);
     }
@@ -389,8 +385,8 @@ impl Device for Uart {
     }
 
     /// Returns the Interrupt Request (IRQ) ID associated with this device.
-    fn get_irq_id(&self) -> Option<u32> {
-        Some(10)
+    fn get_irq_id(&self) -> Option<IrqId> {
+        Some(IrqId::new(10))
     }
 
     /// Returns a mutable reference to the UART if this device is one.

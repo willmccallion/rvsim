@@ -132,16 +132,8 @@ fn dram_different_banks_both_row_hits() {
     // Open row 0 in bank 1 (different bank = cold start, not row miss).
     ctrl.access_latency(addr(1, 0), 100);
     // Now both banks have their rows open. Both should get row hits.
-    assert_eq!(
-        ctrl.access_latency(addr(0, 0) + 64, 200),
-        5,
-        "bank 0 row hit"
-    );
-    assert_eq!(
-        ctrl.access_latency(addr(1, 0) + 64, 300),
-        5,
-        "bank 1 row hit"
-    );
+    assert_eq!(ctrl.access_latency(addr(0, 0) + 64, 200), 5, "bank 0 row hit");
+    assert_eq!(ctrl.access_latency(addr(1, 0) + 64, 300), 5, "bank 1 row hit");
 }
 
 #[test]
@@ -211,16 +203,8 @@ fn dram_custom_row_size_4k() {
     // bank 0, row 0: [0x0000, 0x0FFF]
     // bank 0, row 1: [0x4000, 0x4FFF] (stride = 4 * 4096 = 0x4000)
     ctrl.access_latency(0x0000, 0); // cold open bank 0 row 0
-    assert_eq!(
-        ctrl.access_latency(0x0800, 50),
-        5,
-        "4KiB row: 0x0800 is same row as 0x0000"
-    );
-    assert_eq!(
-        ctrl.access_latency(0x0FFF, 100),
-        5,
-        "4KiB row: 0x0FFF still in same row"
-    );
+    assert_eq!(ctrl.access_latency(0x0800, 50), 5, "4KiB row: 0x0800 is same row as 0x0000");
+    assert_eq!(ctrl.access_latency(0x0FFF, 100), 5, "4KiB row: 0x0FFF still in same row");
 }
 
 // ══════════════════════════════════════════════════════════

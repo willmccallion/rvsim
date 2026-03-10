@@ -171,9 +171,7 @@ fn split_store_word_at_unaligned_address() {
 #[test]
 fn split_store_doubleword() {
     let mut mem = [0u8; 8];
-    unaligned::split_store(0, 8, 0x0807060504030201, |addr, val| {
-        mem[addr as usize] = val
-    });
+    unaligned::split_store(0, 8, 0x0807060504030201, |addr, val| mem[addr as usize] = val);
     assert_eq!(mem, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 }
 

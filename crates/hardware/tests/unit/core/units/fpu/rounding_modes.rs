@@ -45,14 +45,8 @@ fn test_rounding_rtz() {
     // The magnitude should be <= the RNE result
     let rtz_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rtz);
     let rne_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rne);
-    assert!(
-        rtz_result <= rne_result,
-        "RTZ should produce result <= RNE for positive values"
-    );
-    assert!(
-        rtz_result >= 0.0,
-        "RTZ of positive inputs should be non-negative"
-    );
+    assert!(rtz_result <= rne_result, "RTZ should produce result <= RNE for positive values");
+    assert!(rtz_result >= 0.0, "RTZ of positive inputs should be non-negative");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -68,10 +62,7 @@ fn test_rounding_rdn() {
     // RDN should produce a result <= exact value
     let rdn_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rdn);
     let rup_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rup);
-    assert!(
-        rdn_result <= rup_result,
-        "RDN result should be <= RUP result"
-    );
+    assert!(rdn_result <= rup_result, "RDN result should be <= RUP result");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -86,10 +77,7 @@ fn test_rounding_rup() {
     // RUP should produce result >= exact for positive values
     let rup_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rup);
     let rdn_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rdn);
-    assert!(
-        rup_result >= rdn_result,
-        "RUP result should be >= RDN result"
-    );
+    assert!(rup_result >= rdn_result, "RUP result should be >= RDN result");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -105,10 +93,7 @@ fn test_rounding_rmm() {
     // RMM should agree with RNE for non-tie cases
     let rmm_result = fadd_f32_rm(1.0e10, 1.0, RoundingMode::Rmm);
     let rne_result = fadd_f32_rm(1.0e10, 1.0, RoundingMode::Rne);
-    assert_eq!(
-        rmm_result, rne_result,
-        "RMM and RNE should agree for non-ties"
-    );
+    assert_eq!(rmm_result, rne_result, "RMM and RNE should agree for non-ties");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -153,10 +138,7 @@ fn rounding_mode_irrelevant_for_comparisons() {
         RoundingMode::Rmm,
     ] {
         let result = Fpu::execute_with_rm(AluOp::FEq, a, b, 0, true, rm);
-        assert_eq!(
-            result, 0,
-            "FEq(1.0, 2.0) should be 0 for all rounding modes"
-        );
+        assert_eq!(result, 0, "FEq(1.0, 2.0) should be 0 for all rounding modes");
     }
 }
 
@@ -174,10 +156,7 @@ fn rounding_mode_irrelevant_for_sign_injection() {
     ] {
         let result = Fpu::execute_with_rm(AluOp::FSgnJ, pos, neg, 0, true, rm);
         let res_f32 = f32::from_bits(result as u32);
-        assert!(
-            res_f32.is_sign_negative(),
-            "FSgnJ(+, -) should produce negative"
-        );
+        assert!(res_f32.is_sign_negative(), "FSgnJ(+, -) should produce negative");
         #[allow(clippy::approx_constant)]
         {
             assert!((res_f32.abs() - 3.14f32).abs() < 1e-6);

@@ -1,5 +1,6 @@
 use crate::common::mocks::memory::{MockMemory, MockMemoryController};
 use rvsim_core::Simulator;
+use rvsim_core::common::{PhysAddr, RegIdx};
 use rvsim_core::config::Config;
 use rvsim_core::core::Cpu;
 use rvsim_core::soc::System;
@@ -63,7 +64,7 @@ impl TestContext {
     pub fn load_program(mut self, addr: u64, instructions: &[u32]) -> Self {
         for (i, inst) in instructions.iter().enumerate() {
             let offset = addr + (i as u64) * 4;
-            self.sim.cpu.bus.bus.write_u32(offset, *inst);
+            self.sim.cpu.bus.bus.write_u32(PhysAddr::new(offset), *inst);
         }
         self.sim.cpu.pc = addr;
         self
@@ -71,12 +72,12 @@ impl TestContext {
 
     /// Set a general-purpose register value.
     pub fn set_reg(&mut self, reg: usize, val: u64) {
-        self.sim.cpu.regs.write(reg, val);
+        self.sim.cpu.regs.write(RegIdx::new(reg as u8), val);
     }
 
     /// Read a general-purpose register value.
     pub fn get_reg(&self, reg: usize) -> u64 {
-        self.sim.cpu.regs.read(reg)
+        self.sim.cpu.regs.read(RegIdx::new(reg as u8))
     }
 
     /// Run the CPU for a specific number of cycles.

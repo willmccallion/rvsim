@@ -132,11 +132,7 @@ fn disasm_auipc() {
     // AUIPC x10, 0x1
     let inst: u32 = 0x0000_1517;
     let text = disassemble(inst);
-    assert!(
-        text.starts_with("auipc "),
-        "Expected 'auipc', got '{}'",
-        text
-    );
+    assert!(text.starts_with("auipc "), "Expected 'auipc', got '{}'", text);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -222,11 +218,7 @@ fn disasm_csrrw() {
     // CSRRW x10, mstatus (0x300), x11
     let inst: u32 = 0x3005_9573;
     let text = disassemble(inst);
-    assert!(
-        text.starts_with("csrrw "),
-        "Expected 'csrrw', got '{}'",
-        text
-    );
+    assert!(text.starts_with("csrrw "), "Expected 'csrrw', got '{}'", text);
     assert!(text.contains("0x300"), "Expected CSR 0x300 in '{}'", text);
 }
 
@@ -235,11 +227,7 @@ fn disasm_csrrs() {
     // CSRRS x10, mstatus (0x300), x11
     let inst: u32 = 0x3005_A573;
     let text = disassemble(inst);
-    assert!(
-        text.starts_with("csrrs "),
-        "Expected 'csrrs', got '{}'",
-        text
-    );
+    assert!(text.starts_with("csrrs "), "Expected 'csrrs', got '{}'", text);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -279,11 +267,7 @@ fn disasm_addiw() {
     // ADDIW x10, x11, 5
     let inst: u32 = 0x0055_851B;
     let text = disassemble(inst);
-    assert!(
-        text.starts_with("addiw "),
-        "Expected 'addiw', got '{}'",
-        text
-    );
+    assert!(text.starts_with("addiw "), "Expected 'addiw', got '{}'", text);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -293,9 +277,5 @@ fn disasm_addiw() {
 #[test]
 fn disasm_unknown() {
     let text = disassemble(0x0000_0000);
-    assert!(
-        text.contains("unknown"),
-        "Expected 'unknown' for all-zeroes, got '{}'",
-        text
-    );
+    assert!(text.contains("unknown"), "Expected 'unknown' for all-zeroes, got '{}'", text);
 }

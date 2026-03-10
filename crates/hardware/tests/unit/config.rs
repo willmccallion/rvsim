@@ -86,27 +86,27 @@ fn test_pipeline_config_defaults() {
 #[test]
 fn test_tage_config_defaults() {
     let tage = TageConfig::default();
-    assert_eq!(tage.num_banks, 0);
-    assert_eq!(tage.table_size, 0);
-    assert_eq!(tage.loop_table_size, 0);
-    assert_eq!(tage.reset_interval, 0);
-    assert_eq!(tage.history_lengths, Vec::<usize>::new());
-    assert_eq!(tage.tag_widths, Vec::<usize>::new());
+    assert_eq!(tage.num_banks, 4);
+    assert_eq!(tage.table_size, 2048);
+    assert_eq!(tage.loop_table_size, 256);
+    assert_eq!(tage.reset_interval, 256000);
+    assert_eq!(tage.history_lengths, vec![5, 15, 44, 130]);
+    assert_eq!(tage.tag_widths, vec![9, 9, 10, 10]);
 }
 
 #[test]
 fn test_perceptron_config_defaults() {
     let perceptron = PerceptronConfig::default();
-    assert_eq!(perceptron.history_length, 0);
-    assert_eq!(perceptron.table_bits, 0);
+    assert_eq!(perceptron.history_length, 32);
+    assert_eq!(perceptron.table_bits, 10);
 }
 
 #[test]
 fn test_tournament_config_defaults() {
     let tournament = TournamentConfig::default();
-    assert_eq!(tournament.global_size_bits, 0);
-    assert_eq!(tournament.local_hist_bits, 0);
-    assert_eq!(tournament.local_pred_bits, 0);
+    assert_eq!(tournament.global_size_bits, 12);
+    assert_eq!(tournament.local_hist_bits, 10);
+    assert_eq!(tournament.local_pred_bits, 10);
 }
 
 #[test]
@@ -739,10 +739,7 @@ fn test_misa_override_option() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        config.pipeline.misa_override,
-        Some("RV64IMAFDC".to_string())
-    );
+    assert_eq!(config.pipeline.misa_override, Some("RV64IMAFDC".to_string()));
 }
 
 #[test]

@@ -4,6 +4,7 @@
 //! including side effects like TLB flushes, interrupt inhibition, and
 //! synchronization between MSTATUS and SSTATUS.
 
+use rvsim_core::common::CsrAddr;
 use rvsim_core::config::Config;
 use rvsim_core::core::Cpu;
 use rvsim_core::core::arch::csr;
@@ -342,7 +343,7 @@ fn test_csr_unknown_read_returns_zero() {
     let cpu = create_test_cpu();
 
     // Reading an unknown/unimplemented CSR should return 0
-    assert_eq!(cpu.csr_read(0xFFF), 0);
+    assert_eq!(cpu.csr_read(CsrAddr::from_u32(0xFFF)), 0);
 }
 
 #[test]
@@ -350,7 +351,7 @@ fn test_csr_unknown_write_ignored() {
     let mut cpu = create_test_cpu();
 
     // Writing to an unknown CSR should be ignored (no panic)
-    cpu.csr_write(0xFFF, 0xDEADBEEF);
+    cpu.csr_write(CsrAddr::from_u32(0xFFF), 0xDEADBEEF);
     // If we get here, the write was safely ignored
 }
 

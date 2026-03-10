@@ -4,6 +4,7 @@
 //! and IER configuration. Note: we can't easily test stdin integration
 //! in unit tests, so we focus on register-level behaviour.
 
+use rvsim_core::common::IrqId;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::uart::Uart;
 
@@ -94,7 +95,7 @@ fn uart_iir_no_interrupt_initially() {
 #[test]
 fn uart_irq_id() {
     let uart = Uart::new(0, true, true);
-    assert_eq!(uart.get_irq_id(), Some(10));
+    assert_eq!(uart.get_irq_id(), Some(IrqId::new(10)));
 }
 
 #[test]
