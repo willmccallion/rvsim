@@ -11,22 +11,18 @@ python  = [".venv/bin/python3", ".venv/bin/python", "python3"]
 
 [build]
 group       = "Build"
-description = "Install Python bindings (editable)"
+description = "Build release binary + Python bindings"
 type        = "task"
-deps        = ["python"]
-command     = ["true"]
-
-[python]
-group       = "Build"
-description = "Install Python bindings via maturin (editable)"
-type        = "task"
-max_time    = "10m"
+cache       = false
+max_time    = "15m"
 shell       = true
-command     = ["""
-[ -d .venv ] || python3 -m venv .venv &&
-.venv/bin/pip install --quiet maturin &&
-.venv/bin/maturin develop --release
-"""]
+commands    = [
+    ["{{cargo}}", "build", "--release"],
+    ["[ -d .venv ] || python3 -m venv .venv"],
+    [".venv/bin/pip install --quiet maturin"],
+    [".venv/bin/maturin develop --release"],
+    [".venv/bin/maturin build --release --out target/wheels"],
+]
 
 [python-wheel]
 group       = "Build"
@@ -58,10 +54,9 @@ command     = ["{{cargo}}", "check", "--workspace", "--all-targets"]
 
 [test]
 group       = "Development"
-description = "Run Rust tests"
+description = "Run Rust tests + RISC-V integration tests"
 type        = "task"
 max_time    = "10m"
-retry       = 1
 commands    = [
     ["{{cargo}}", "test", "--workspace"],
     ["rvsim", "scripts/run_riscv_tests.py"],
@@ -101,10 +96,13 @@ commands    = [
 [lint]
 group       = "Development"
 description = "fmt-check + clippy"
-max_time    = "10s"
 type        = "task"
-deps        = ["fmt-check", "clippy"]
-command     = ["true"]
+max_time    = "10s"
+commands    = [
+    ["{{cargo}}", "fmt", "--all", "--", "--check"],
+    ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
+    ["{{cargo}}", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+]
 
 [prerelease]
 group       = "Development"
@@ -123,7 +121,7 @@ command     = [".venv/bin/rvsim", "-f", "software/bin/benchmarks/qsort.elf"]
 
 [linux]
 group       = "Run"
-description = "Boot Linux (requires pbuild linux first)"
+description = "Boot Linux (requires build-linux first)"
 type        = "task"
 command     = ["rvsim", "scripts/setup/boot_linux.py"]
 

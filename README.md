@@ -251,7 +251,7 @@ make lint         # fmt-check + clippy
 
 ## Linux Boot (Experimental)
 
-The simulator can boot Linux through OpenSBI. Full boot is still in progress.
+The simulator boots Linux through OpenSBI and reaches `/sbin/init`. Full userspace boot is still in progress — there is a known bug preventing it from completing.
 
 ```bash
 make linux        # Download and build Linux + rootfs via Buildroot
