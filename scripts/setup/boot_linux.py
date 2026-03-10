@@ -48,84 +48,6 @@ BR2_TARGET_ROOTFS_EXT2_SIZE="60M"
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_6=y
 """
 
-# Device tree matching sim: RAM 128MB @ 0x80000000, CLINT @ 0x02000000, UART @ 0x10000000, PLIC @ 0x0c000000.
-# OpenSBI requires CLINT (timer) and PLIC with interrupts-extended to init irqchip.
-SYSTEM_DTS = """/dts-v1/;
-
-/ {
-    #address-cells = <2>;
-    #size-cells = <2>;
-    compatible = "riscv-virtio";
-    model = "riscv-virtio,qemu";
-
-    chosen {
-        bootargs = "root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,0x10000000 rootwait";
-        stdout-path = "/soc/uart@10000000";
-    };
-
-    cpus {
-        #address-cells = <1>;
-        #size-cells = <0>;
-        timebase-frequency = <10000000>;
-
-        cpu0: cpu@0 {
-            device_type = "cpu";
-            reg = <0>;
-            status = "okay";
-            compatible = "riscv";
-            riscv,isa = "rv64imafdc";
-            mmu-type = "riscv,sv39";
-
-            cpu0_intc: interrupt-controller {
-                #interrupt-cells = <1>;
-                interrupt-controller;
-                compatible = "riscv,cpu-intc";
-            };
-        };
-    };
-
-    memory@80000000 {
-        device_type = "memory";
-        reg = <0x0 0x80000000 0x0 0x10000000>;
-    };
-
-    soc {
-        #address-cells = <2>;
-        #size-cells = <2>;
-        compatible = "simple-bus";
-        ranges;
-
-        clint: clint@2000000 {
-            compatible = "riscv,clint0";
-            reg = <0x0 0x02000000 0x0 0x10000>;
-            interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>;
-        };
-
-        uart@10000000 {
-            compatible = "ns16550a";
-            reg = <0x0 0x10000000 0x0 0x100>;
-            clock-frequency = <10000000>;
-            status = "okay";
-        };
-
-        virtio_mmio@10001000 {
-            compatible = "virtio,mmio";
-            reg = <0x0 0x10001000 0x0 0x1000>;
-            interrupt-parent = <&plic>;
-            interrupts = <1>;
-        };
-
-        plic: interrupt-controller@c000000 {
-            compatible = "riscv,plic0";
-            reg = <0x0 0x0c000000 0x0 0x4000000>;
-            #interrupt-cells = <1>;
-            interrupt-controller;
-            interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>;
-            riscv,ndev = <0x35>;
-        };
-    };
-};
-"""
 
 
 def repo_root():
@@ -156,19 +78,6 @@ def write_defconfig(buildroot_dir: str) -> None:
         f.write(DEFCONFIG)
     print("[Linux] Wrote", path)
 
-
-def compile_dtb(linux_dir: str) -> int:
-    """Write the DTS and compile it to DTB via dtc. Returns 0 on success."""
-    dts_path = os.path.join(linux_dir, "system.dts")
-    dtb_path = os.path.join(linux_dir, "system.dtb")
-    with open(dts_path, "w") as f:
-        f.write(SYSTEM_DTS)
-    print("[Linux] Compiling device tree...")
-    r = subprocess.run(
-        ["dtc", "-I", "dts", "-O", "dtb", "-o", dtb_path, dts_path],
-        cwd=linux_dir,
-    )
-    return r.returncode
 
 
 def build(linux_dir: str) -> int:
@@ -217,9 +126,6 @@ def build(linux_dir: str) -> int:
     )
     print("[Linux] Copied Image, disk.img, fw_jump.bin, fw_dynamic.bin to", out_dir)
 
-    rc = compile_dtb(linux_dir)
-    if rc != 0:
-        return rc
     print("[Linux] Build complete.")
     return 0
 
@@ -333,7 +239,6 @@ def main():
     out_dir = os.path.join(linux_dir, "output")
     image_path = os.path.join(out_dir, "Image")
     disk_path = os.path.join(out_dir, "disk.img")
-    dtb_path = os.path.join(linux_dir, "system.dtb")
 
     ap = argparse.ArgumentParser(
         description="Download Buildroot, build Linux, optionally boot in sim"
@@ -367,10 +272,6 @@ def main():
     if args.no_boot:
         return 0
 
-    # Recompile DTB in case DTS changed (e.g. editing this script)
-    if compile_dtb(linux_dir) != 0:
-        return 1
-
     if not os.path.exists(disk_path):
         print("Error: disk image not found:", disk_path)
         return 1
@@ -380,12 +281,10 @@ def main():
     print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
     sim = Simulator().config(config()).kernel(image_path).disk(disk_path)
-    if os.path.isfile(dtb_path):
-        sim.dtb(dtb_path)
 
     try:
         return sim.run(
-            limit=100_000_000_000, progress=1_000_000
+            limit=100_000_000_000,
         )  # Add progress = ... to this if it seems to hang.
     except Exception as e:
         print(f"Simulation failed: {e}")

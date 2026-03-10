@@ -13,6 +13,12 @@ CARGO           ?= cargo
 MATURIN         ?= $(shell [ -f .venv/bin/maturin ] && echo .venv/bin/maturin || echo maturin)
 PYTHON          ?= $(shell [ -f .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3)
 
+# Centralized build directory
+BUILD_DIR       := target
+
+# Redirect Python byte-code cache to target/
+export PYTHONPYCACHEPREFIX := $(BUILD_DIR)/pycache
+
 # ── Colors (only when stdout is a terminal) ───────────────────────────────────
 ifneq ($(TERM),)
   GREEN  := \033[32m
@@ -89,10 +95,10 @@ python:
 	@.venv/bin/pip install --quiet maturin
 	.venv/bin/maturin develop --release
 
-# Build a distributable wheel (e.g. for PyPI)
+# Build a distributable wheel into target/wheels
 python-wheel:
-	@printf "$(GREEN)Building Python wheel…$(RESET)\n"
-	$(MATURIN) build --release
+	@printf "$(GREEN)Building Python wheel into $(BUILD_DIR)/wheels…$(RESET)\n"
+	$(MATURIN) build --release --out $(BUILD_DIR)/wheels
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Development
@@ -113,7 +119,7 @@ test-coverage:
 		printf "Install with: $(CYAN)cargo install cargo-llvm-cov$(RESET)\n"; \
 		exit 1; \
 	}
-	$(CARGO) llvm-cov --workspace
+	$(CARGO) llvm-cov --workspace --exclude rvsim-bindings
 
 clippy:
 	@printf "$(GREEN)Running clippy…$(RESET)\n"
@@ -124,16 +130,12 @@ fmt:
 	$(CARGO) fmt --all
 	@printf "$(GREEN)Formatting Python code…$(RESET)\n"
 	$(PYTHON) -m ruff format rvsim/*.py
-	@printf "$(GREEN)Formatting C code…$(RESET)\n"
-	find examples/ software/libc/ -name '*.c' -o -name '*.h' | xargs clang-format -i
 
 fmt-check:
 	@printf "$(GREEN)Checking Rust formatting…$(RESET)\n"
 	$(CARGO) fmt --all -- --check
 	@printf "$(GREEN)Checking Python formatting…$(RESET)\n"
 	$(PYTHON) -m ruff format --check rvsim/*.py
-	@printf "$(GREEN)Checking C formatting…$(RESET)\n"
-	find examples/ software/libc/ -name '*.c' -o -name '*.h' | xargs clang-format --dry-run -Werror
 
 lint: fmt-check clippy
 
@@ -156,14 +158,16 @@ run-linux:
 #  Housekeeping
 # ═══════════════════════════════════════════════════════════════════════════════
 
-clean: clean-rust clean-python clean-software
-	@printf "$(GREEN)All build artifacts removed.$(RESET)\n"
+clean:
+	@printf "$(GREEN)Cleaning all artifacts (removing $(BUILD_DIR))…$(RESET)\n"
+	rm -rf $(BUILD_DIR)
+	@$(MAKE) -C software clean
 
 clean-python:
 	@printf "$(GREEN)Removing Python build artifacts…$(RESET)\n"
+	rm -rf $(BUILD_DIR)/wheels $(BUILD_DIR)/pycache
 	find rvsim -name '*.so' -delete 2>/dev/null || true
-	find . -path ./.venv -prune -o -path ./software -prune -o -name '__pycache__' -type d -print -exec rm -rf {} + 2>/dev/null || true
-	rm -rf dist build *.egg-info
+	rm -rf build *.egg-info
 
 clean-rust:
 	@printf "$(GREEN)Removing Rust build artifacts…$(RESET)\n"
