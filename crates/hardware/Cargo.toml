@@ -1,21 +1,32 @@
 [package]
 name = "rvsim-core"
-description = "High-performance cycle-accurate RISC-V 64-bit system simulator with configurable pipelines, branch prediction, and memory hierarchy"
+description.workspace = true
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 libc = { workspace = true }
 object = { workspace = true }
+thiserror = { workspace = true }
+tracing = "0.1"
 
 [features]
 always-trace = []
+commit-log = []
+
 
 [dev-dependencies]
 proptest = "1.4"
@@ -25,6 +36,10 @@ rstest = "0.23"
 env_logger = "0.11"
 log = "0.4"
 tempfile = "3.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [build-dependencies]
 which = "6"
+
+[lints]
+workspace = true

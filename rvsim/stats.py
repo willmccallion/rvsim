@@ -167,7 +167,7 @@ def _geometric_mean(values: Sequence[float]) -> float:
     return math.exp(sum(logs) / len(logs))
 
 
-_RATE_METRICS = {"ipc", "branch_accuracy_pct"}
+_RATE_METRICS = {"ipc", "branch_accuracy_pct", "speculative_branch_accuracy_pct"}
 _COUNT_METRICS = {
     "cycles",
     "instructions_retired",
@@ -189,6 +189,10 @@ _COUNT_METRICS = {
     "l3_misses",
     "branch_predictions",
     "branch_mispredictions",
+    "committed_branch_predictions",
+    "committed_branch_mispredictions",
+    "speculative_branch_predictions",
+    "speculative_branch_mispredictions",
     "traps_taken",
     "inst_load",
     "inst_store",
@@ -499,6 +503,8 @@ def _compare_matrix(
             "l2_misses",
             "l3_misses",
             "branch_mispredictions",
+            "committed_branch_mispredictions",
+            "speculative_branch_mispredictions",
         }
         show_speedup = (
             baseline is not None

@@ -27,6 +27,6 @@ rvsim = "rvsim.__main__:main"
 
 [tool.maturin]
 manifest-path = "crates/bindings/Cargo.toml"
-features = ["extension"]
+features = ["extension", "commit-log"]
 module-name = "rvsim._core"
 include = ["LICENSE-APACHE", "LICENSE-MIT"]

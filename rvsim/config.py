@@ -73,6 +73,8 @@ class Config:
         l2_tlb_size: int = 512,
         l2_tlb_ways: int = 4,
         l2_tlb_latency: int = 4,
+        software_ad_bits: bool = True,
+        misaligned_access_trap: bool = False,
         # General
         trace: bool = False,
         initial_sp: Optional[int] = None,
@@ -116,6 +118,8 @@ class Config:
         self.l2_tlb_size = l2_tlb_size
         self.l2_tlb_ways = l2_tlb_ways
         self.l2_tlb_latency = l2_tlb_latency
+        self.software_ad_bits = software_ad_bits
+        self.misaligned_access_trap = misaligned_access_trap
 
         # General
         self.trace = trace
@@ -492,6 +496,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "l2_tlb_size": cfg.l2_tlb_size,
         "l2_tlb_ways": cfg.l2_tlb_ways,
         "l2_tlb_latency": cfg.l2_tlb_latency,
+        "software_ad_bits": cfg.software_ad_bits,
+        "misaligned_access_trap": cfg.misaligned_access_trap,
     }
     # Always emit DRAM timing keys (Rust expects them)
     if isinstance(mc, MemoryController.DRAM):

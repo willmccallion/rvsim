@@ -1,0 +1,154 @@
+[config]
+default    = "build"
+keep_going = true
+
+[vars]
+cargo   = "cargo"
+maturin = [".venv/bin/maturin", "maturin"]
+python  = [".venv/bin/python3", ".venv/bin/python", "python3"]
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+
+[build]
+group       = "Build"
+description = "Install Python bindings (editable)"
+type        = "task"
+deps        = ["python"]
+command     = ["true"]
+
+[python]
+group       = "Build"
+description = "Install Python bindings via maturin (editable)"
+type        = "task"
+max_time    = "10m"
+shell       = true
+command     = ["""
+[ -d .venv ] || python3 -m venv .venv &&
+.venv/bin/pip install --quiet maturin &&
+.venv/bin/maturin develop --release
+"""]
+
+[python-wheel]
+group       = "Build"
+description = "Build distributable Python wheel into target/wheels"
+type        = "task"
+max_time    = "10m"
+command     = ["{{maturin}}", "build", "--release", "--out", "target/wheels"]
+
+[software]
+group       = "Build"
+description = "Build libc and example RISC-V programs"
+type        = "task"
+command     = ["make", "-C", "software"]
+
+[build-linux]
+group       = "Build"
+description = "Build Linux kernel + rootfs (Buildroot)"
+type        = "task"
+command     = ["make", "-C", "software", "linux"]
+
+# ── Development ───────────────────────────────────────────────────────────────
+
+[check]
+group       = "Development"
+description = "cargo check (all targets)"
+type        = "task"
+max_time    = "5m"
+command     = ["{{cargo}}", "check", "--workspace", "--all-targets"]
+
+[test]
+group       = "Development"
+description = "Run Rust tests"
+type        = "task"
+max_time    = "10m"
+retry       = 1
+commands    = [
+    ["{{cargo}}", "test", "--workspace"],
+    ["rvsim", "scripts/run_riscv_tests.py"],
+]
+
+[test-coverage]
+group       = "Development"
+description = "Run Rust tests with coverage (llvm-cov)"
+type        = "task"
+command     = ["{{cargo}}", "llvm-cov", "--workspace", "--exclude", "rvsim-bindings"]
+
+[clippy]
+group       = "Development"
+description = "Run clippy linter"
+type        = "task"
+max_time    = "5m"
+command     = ["{{cargo}}", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+
+[fmt]
+group       = "Development"
+description = "Format Rust and Python code"
+type        = "task"
+commands    = [
+    ["{{cargo}}", "fmt", "--all"],
+    ["{{python}}", "-m", "ruff", "format", "rvsim/"],
+]
+
+[fmt-check]
+group       = "Development"
+description = "Check formatting without modifying"
+type        = "task"
+commands    = [
+    ["{{cargo}}", "fmt", "--all", "--", "--check"],
+    ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
+]
+
+[lint]
+group       = "Development"
+description = "fmt-check + clippy"
+max_time    = "10s"
+type        = "task"
+deps        = ["fmt-check", "clippy"]
+command     = ["true"]
+
+[prerelease]
+group       = "Development"
+description = "Full pre-release check"
+type        = "task"
+command     = ["tools/prerelease"]
+
+# ── Run ───────────────────────────────────────────────────────────────────────
+
+[run-example]
+group       = "Run"
+description = "Build and run quicksort benchmark"
+type        = "task"
+deps        = ["software"]
+command     = [".venv/bin/rvsim", "-f", "software/bin/benchmarks/qsort.elf"]
+
+[linux]
+group       = "Run"
+description = "Boot Linux (requires pbuild linux first)"
+type        = "task"
+command     = ["rvsim", "scripts/setup/boot_linux.py"]
+
+# ── Housekeeping ──────────────────────────────────────────────────────────────
+
+[clean]
+description = "Remove all build artifacts"
+type        = "task"
+commands    = [
+    ["cargo", "clean"],
+    ["make", "-C", "software", "clean"],
+]
+
+[clean-rust]
+description = "Remove Rust artifacts only"
+type        = "task"
+command     = ["{{cargo}}", "clean"]
+
+[clean-python]
+description = "Remove Python build artifacts"
+type        = "task"
+shell       = true
+command     = ["rm -rf target/wheels target/pycache && find rvsim -name '*.so' -delete 2>/dev/null; rm -rf build *.egg-info"]
+
+[clean-software]
+description = "Remove software artifacts only"
+type        = "task"
+command     = ["make", "-C", "software", "clean-no-linux"]

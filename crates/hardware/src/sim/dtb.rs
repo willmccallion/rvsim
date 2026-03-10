@@ -1,6 +1,6 @@
 //! Device Tree Blob (DTB) generation.
 //!
-//! Generates a Flattened Device Tree (FDT) binary matching the SoC layout.
+//! Generates a Flattened Device Tree (FDT) binary matching the `SoC` layout.
 //! This allows the simulator to provide a DTB to OpenSBI/Linux without
 //! requiring an external `dtc` compilation step.
 
@@ -19,17 +19,13 @@ const FDT_END: u32 = 9;
 struct FdtBuilder {
     struct_buf: Vec<u8>,
     strings_buf: Vec<u8>,
-    /// Map of string -> offset in strings_buf for dedup.
+    /// Map of string -> offset in `strings_buf` for dedup.
     string_offsets: Vec<(String, u32)>,
 }
 
 impl FdtBuilder {
-    fn new() -> Self {
-        Self {
-            struct_buf: Vec::new(),
-            strings_buf: Vec::new(),
-            string_offsets: Vec::new(),
-        }
+    const fn new() -> Self {
+        Self { struct_buf: Vec::new(), strings_buf: Vec::new(), string_offsets: Vec::new() }
     }
 
     fn push_u32(&mut self, val: u32) {
@@ -41,7 +37,7 @@ impl FdtBuilder {
         self.struct_buf.extend_from_slice(name.as_bytes());
         self.struct_buf.push(0); // null terminator
         // Align to 4 bytes
-        while self.struct_buf.len().is_multiple_of(4) {
+        while !self.struct_buf.len().is_multiple_of(4) {
             self.struct_buf.push(0);
         }
     }
@@ -80,7 +76,7 @@ impl FdtBuilder {
         self.push_u32(name_off);
         self.struct_buf.extend_from_slice(data);
         self.struct_buf.push(0);
-        while self.struct_buf.len().is_multiple_of(4) {
+        while !self.struct_buf.len().is_multiple_of(4) {
             self.struct_buf.push(0);
         }
     }
@@ -91,7 +87,7 @@ impl FdtBuilder {
         self.push_u32(data.len() as u32);
         self.push_u32(name_off);
         self.struct_buf.extend_from_slice(data);
-        while self.struct_buf.len().is_multiple_of(4) {
+        while !self.struct_buf.len().is_multiple_of(4) {
             self.struct_buf.push(0);
         }
     }
@@ -103,7 +99,7 @@ impl FdtBuilder {
         self.push_u32(name_off);
     }
 
-    /// Encode a reg property with pairs of (addr_hi, addr_lo, size_hi, size_lo)
+    /// Encode a reg property with pairs of (`addr_hi`, `addr_lo`, `size_hi`, `size_lo`)
     /// for #address-cells=2, #size-cells=2.
     fn prop_reg_2_2(&mut self, addr: u64, size: u64) {
         let mut data = Vec::with_capacity(16);
@@ -162,14 +158,14 @@ impl FdtBuilder {
     }
 }
 
-/// Generates a DTB binary matching the simulator's SoC layout.
+/// Generates a DTB binary matching the simulator's `SoC` layout.
 ///
 /// The generated DTB includes:
 /// - Memory region at `ram_base` with `ram_size`
 /// - CLINT at `clint_base`
 /// - PLIC at 0x0c000000
 /// - UART at `uart_base`
-/// - VirtIO block device at `disk_base`
+/// - `VirtIO` block device at `disk_base`
 /// - CPU with rv64imafdc ISA and SV39 MMU
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let ram_base = config.system.ram_base;
@@ -177,14 +173,14 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let uart_base = config.system.uart_base;
     let disk_base = config.system.disk_base;
     let clint_base = config.system.clint_base;
+    let syscon_base = config.system.syscon_base;
+    let rtc_base: u64 = 0x10_1000;
     let plic_base: u64 = 0x0c00_0000;
     let timebase_freq: u32 = 10_000_000;
 
-    let bootargs = format!(
-        "root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,{:#x} rootwait",
-        uart_base
-    );
-    let stdout_path = format!("/soc/uart@{:x}", uart_base);
+    let bootargs =
+        format!("root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,{uart_base:#x} rootwait");
+    let stdout_path = format!("/soc/uart@{uart_base:x}");
 
     // Phandle values (arbitrary unique IDs)
     let cpu0_intc_phandle: u32 = 1;
@@ -233,7 +229,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
     // /memory
     {
-        let node_name = format!("memory@{:x}", ram_base);
+        let node_name = format!("memory@{ram_base:x}");
         b.begin_node(&node_name);
         b.prop_string("device_type", "memory");
         b.prop_reg_2_2(ram_base, ram_size);
@@ -249,7 +245,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
     // /soc/clint
     {
-        let node_name = format!("clint@{:x}", clint_base);
+        let node_name = format!("clint@{clint_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,clint0");
         b.prop_reg_2_2(clint_base, 0x10000);
@@ -266,18 +262,20 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
     // /soc/uart
     {
-        let node_name = format!("uart@{:x}", uart_base);
+        let node_name = format!("uart@{uart_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "ns16550a");
         b.prop_reg_2_2(uart_base, 0x100);
         b.prop_u32("clock-frequency", 10_000_000);
+        b.prop_u32("interrupt-parent", plic_phandle);
+        b.prop_bytes("interrupts", &10u32.to_be_bytes());
         b.prop_string("status", "okay");
         b.end_node();
     }
 
     // /soc/virtio_mmio
     {
-        let node_name = format!("virtio_mmio@{:x}", disk_base);
+        let node_name = format!("virtio_mmio@{disk_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "virtio,mmio");
         b.prop_reg_2_2(disk_base, 0x1000);
@@ -288,7 +286,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
     // /soc/plic
     {
-        let node_name = format!("interrupt-controller@{:x}", plic_base);
+        let node_name = format!("interrupt-controller@{plic_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,plic0");
         b.prop_reg_2_2(plic_base, 0x4000000);
@@ -304,6 +302,26 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_bytes("interrupts-extended", &ie);
         b.prop_u32("riscv,ndev", 0x35);
         b.prop_u32("phandle", plic_phandle);
+        b.end_node();
+    }
+
+    // /soc/syscon
+    {
+        let node_name = format!("syscon@{syscon_base:x}");
+        b.begin_node(&node_name);
+        b.prop_string("compatible", "syscon");
+        b.prop_reg_2_2(syscon_base, 0x1000);
+        b.end_node();
+    }
+
+    // /soc/rtc (Goldfish RTC)
+    {
+        let node_name = format!("rtc@{rtc_base:x}");
+        b.begin_node(&node_name);
+        b.prop_string("compatible", "google,goldfish-rtc");
+        b.prop_reg_2_2(rtc_base, 0x1000);
+        b.prop_u32("interrupt-parent", plic_phandle);
+        b.prop_bytes("interrupts", &11u32.to_be_bytes());
         b.end_node();
     }
 

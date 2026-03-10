@@ -36,7 +36,6 @@ class PipelineSnapshot:
 
 class BranchPredictor:
     class Static: ...
-
     class GShare: ...
 
     class TAGE:
@@ -115,34 +114,42 @@ class Fu:
         count: int
         latency: int
         def __init__(self, count: int = 4, latency: int = 1) -> None: ...
+
     class IntMul:
         count: int
         latency: int
         def __init__(self, count: int = 1, latency: int = 3) -> None: ...
+
     class IntDiv:
         count: int
         latency: int
         def __init__(self, count: int = 1, latency: int = 35) -> None: ...
+
     class FpAdd:
         count: int
         latency: int
         def __init__(self, count: int = 2, latency: int = 4) -> None: ...
+
     class FpMul:
         count: int
         latency: int
         def __init__(self, count: int = 2, latency: int = 5) -> None: ...
+
     class FpFma:
         count: int
         latency: int
         def __init__(self, count: int = 2, latency: int = 5) -> None: ...
+
     class FpDivSqrt:
         count: int
         latency: int
         def __init__(self, count: int = 1, latency: int = 21) -> None: ...
+
     class Branch:
         count: int
         latency: int
         def __init__(self, count: int = 2, latency: int = 1) -> None: ...
+
     class Mem:
         count: int
         latency: int

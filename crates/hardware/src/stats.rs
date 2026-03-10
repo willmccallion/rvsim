@@ -15,7 +15,7 @@ use std::time::Instant;
 ///
 /// Collects detailed statistics about instruction execution, cache behavior,
 /// branch prediction, stalls, and execution time for performance analysis.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SimStats {
     start_time: Instant,
     /// Total simulator cycles elapsed.
@@ -45,10 +45,15 @@ pub struct SimStats {
     /// Count of FP divide/sqrt instructions retired.
     pub inst_fp_div_sqrt: u64,
 
-    /// Number of branch predictions that were correct.
-    pub branch_predictions: u64,
-    /// Number of branch predictions that were wrong (mispredictions).
-    pub branch_mispredictions: u64,
+    /// Number of committed branch predictions that were correct.
+    pub committed_branch_predictions: u64,
+    /// Number of committed branch predictions that were wrong (mispredictions).
+    pub committed_branch_mispredictions: u64,
+
+    /// Number of speculative branch predictions (including wrong-path) that were correct.
+    pub speculative_branch_predictions: u64,
+    /// Number of speculative branch predictions (including wrong-path) that were wrong.
+    pub speculative_branch_mispredictions: u64,
 
     /// Cycles spent in user (U) mode.
     pub cycles_user: u64,
@@ -84,8 +89,8 @@ pub struct SimStats {
     /// L3 cache miss count.
     pub l3_misses: u64,
 
-    /// FU utilization: count of cycles each FuType was executing.
-    /// Indexed by `FuType as usize` (see fu_pool::FU_TYPE_COUNT).
+    /// FU utilization: count of cycles each `FuType` was executing.
+    /// Indexed by `FuType as usize` (see `fu_pool::FU_TYPE_COUNT`).
     pub fu_utilization: [u64; FU_TYPE_COUNT],
 
     /// Stall cycles where a ready IQ entry could not issue (no free FU).
@@ -94,7 +99,7 @@ pub struct SimStats {
     /// Total ROB entries squashed due to branch mispredictions / ordering violations.
     pub misprediction_penalty: u64,
 
-    /// Cycles where execute-to-memory pipeline is backpressured (execute_mem1 non-empty).
+    /// Cycles where execute-to-memory pipeline is backpressured (`execute_mem1` non-empty).
     pub stalls_backpressure: u64,
 
     /// Number of memory ordering violations detected (load queue).
@@ -124,6 +129,10 @@ pub struct SimStats {
 
     /// Prefetch filter: redundant prefetch requests suppressed.
     pub prefetch_filter_dedup: u64,
+
+    /// Retirement histogram: how many instructions were retired per cycle.
+    /// Index 0 = cycles with 0 retires, 1 = 1 retire, 2 = 2 retires, 3 = 3+ retires.
+    pub retire_histogram: [u64; 4],
 }
 
 impl Default for SimStats {
@@ -143,8 +152,10 @@ impl Default for SimStats {
             inst_fp_arith: 0,
             inst_fp_fma: 0,
             inst_fp_div_sqrt: 0,
-            branch_predictions: 0,
-            branch_mispredictions: 0,
+            committed_branch_predictions: 0,
+            committed_branch_mispredictions: 0,
+            speculative_branch_predictions: 0,
+            speculative_branch_mispredictions: 0,
             cycles_user: 0,
             cycles_kernel: 0,
             cycles_machine: 0,
@@ -175,6 +186,7 @@ impl Default for SimStats {
             wcb_coalesces: 0,
             wcb_drains: 0,
             prefetch_filter_dedup: 0,
+            retire_histogram: [0; 4],
         }
     }
 }
@@ -212,11 +224,7 @@ impl SimStats {
         let duration = self.start_time.elapsed();
         let seconds = duration.as_secs_f64();
         let cyc = if self.cycles == 0 { 1 } else { self.cycles };
-        let instr = if self.instructions_retired == 0 {
-            1
-        } else {
-            self.instructions_retired
-        };
+        let instr = if self.instructions_retired == 0 { 1 } else { self.instructions_retired };
 
         let rule =
             format!("{bold}{teal}=========================================================={rst}");
@@ -230,13 +238,13 @@ impl SimStats {
             println!("\n{rule}");
             println!("{bold}RISC-V SYSTEM SIMULATION STATISTICS{rst}");
             println!("{rule}");
-            println!("host_seconds             {:.4} s", seconds);
+            println!("host_seconds             {seconds:.4} s");
             println!("sim_cycles               {}", self.cycles);
-            println!("sim_freq                 {:.2} kHz", khz);
+            println!("sim_freq                 {khz:.2} kHz");
             println!("sim_insts                {}", self.instructions_retired);
-            println!("sim_ipc                  {:.4}", ipc);
-            println!("sim_cpi                  {:.4}", cpi);
-            println!("sim_mips                 {:.2}", mips);
+            println!("sim_ipc                  {ipc:.4}");
+            println!("sim_cpi                  {cpi:.4}");
+            println!("sim_mips                 {mips:.2}");
             println!("{sep}");
         }
         if want("core") {
@@ -281,6 +289,18 @@ impl SimStats {
                 self.stalls_backpressure,
                 (self.stalls_backpressure as f64 / cyc as f64) * 100.0
             );
+            let rh = &self.retire_histogram;
+            let rh_total = rh[0] + rh[1] + rh[2] + rh[3];
+            if rh_total > 0 {
+                let pct = |v: u64| (v as f64 / rh_total as f64) * 100.0;
+                println!(
+                    "  retire.per_cycle       0:{:.1}%  1:{:.1}%  2:{:.1}%  3+:{:.1}%",
+                    pct(rh[0]),
+                    pct(rh[1]),
+                    pct(rh[2]),
+                    pct(rh[3]),
+                );
+            }
             println!("{sep}");
         }
         if want("instruction_mix") {
@@ -319,18 +339,32 @@ impl SimStats {
             println!("{sep}");
         }
         if want("branch") {
-            let bp_correct = self.branch_predictions;
-            let bp_miss = self.branch_mispredictions;
+            let bp_correct = self.committed_branch_predictions;
+            let bp_miss = self.committed_branch_mispredictions;
             let bp_total = bp_correct + bp_miss;
-            let bp_acc = if bp_total > 0 {
-                100.0 * (bp_correct as f64 / bp_total as f64)
+            let bp_acc =
+                if bp_total > 0 { 100.0 * (bp_correct as f64 / bp_total as f64) } else { 0.0 };
+
+            let spec_total =
+                self.speculative_branch_predictions + self.speculative_branch_mispredictions;
+            let spec_miss = self.speculative_branch_mispredictions;
+            let spec_acc = if spec_total > 0 {
+                100.0 * (self.speculative_branch_predictions as f64 / spec_total as f64)
             } else {
                 0.0
             };
-            println!("{bold}BRANCH PREDICTION{rst}");
-            println!("  bp.lookups             {}", bp_total);
-            println!("  bp.mispredicts         {}", bp_miss);
-            println!("  bp.accuracy            {:.2}%", bp_acc);
+
+            println!("{bold}BRANCH PREDICTION (COMMITTED){rst}");
+            println!("  bp.committed_lookups   {bp_total}");
+            println!("  bp.committed_mispreds  {bp_miss}");
+            println!("  bp.committed_accuracy  {bp_acc:.2}%");
+            println!("{sep}");
+            println!("{bold}BRANCH PREDICTION (SPECULATIVE){rst}");
+            println!("  bp.spec_lookups        {spec_total}");
+            println!("  bp.spec_mispredicts    {spec_miss}");
+            println!("  bp.spec_accuracy       {spec_acc:.2}%");
+            println!("{sep}");
+            println!("{bold}BRANCH FLUSHES & PENALTIES{rst}");
             println!("  bp.flushes             {}", self.pipeline_flushes);
             println!("  bp.squashed_insns      {}", self.misprediction_penalty);
             println!("  bp.mem_violations      {}", self.mem_ordering_violations);
@@ -339,11 +373,7 @@ impl SimStats {
         if want("memory") {
             let print_cache = |name: &str, hits: u64, misses: u64| {
                 let total = hits + misses;
-                let rate = if total > 0 {
-                    (hits as f64 / total as f64) * 100.0
-                } else {
-                    0.0
-                };
+                let rate = if total > 0 { (hits as f64 / total as f64) * 100.0 } else { 0.0 };
                 println!(
                     "  {:<6} accesses: {:<10} | hits: {:<10} | miss_rate: {:.2}%",
                     name,
@@ -365,10 +395,7 @@ impl SimStats {
                 println!("  load.replays           {}", self.load_replays);
             }
             if self.inclusion_back_invalidations > 0 {
-                println!(
-                    "  incl.back_invalidate   {}",
-                    self.inclusion_back_invalidations
-                );
+                println!("  incl.back_invalidate   {}", self.inclusion_back_invalidations);
             }
             if self.exclusive_l1_to_l2_swaps > 0 {
                 println!("  excl.l1_to_l2_swaps    {}", self.exclusive_l1_to_l2_swaps);

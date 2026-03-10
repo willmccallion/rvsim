@@ -12,6 +12,10 @@ authors = ["Will McCallion"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/willmccallion/rvsim"
 homepage = "https://github.com/willmccallion/rvsim"
+description = "A high-performance cycle-accurate RISC-V 64-bit system simulator."
+readme = "README.md"
+categories = ["emulators", "hardware-support", "science"]
+keywords = ["riscv", "simulator", "cycle-accurate", "computer-architecture"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -19,13 +23,15 @@ serde_json = "1.0"
 pyo3 = { version = "0.23.5" }
 libc = "0.2"
 object = { version = "0.36", default-features = false, features = ["read_core", "elf"] }
+thiserror = "2"
 
 [profile.release]
 opt-level     = 3
-lto           = "fat"
-codegen-units = 1
-panic         = "abort"
-strip         = "debuginfo"
+lto           = "fat"          # Maximum cross-crate optimization
+codegen-units = 1              # Better optimization at the cost of compile time
+panic         = "abort"        # Improves performance and reduces binary size
+strip         = "symbols"      # Remove symbols for smaller binary
+incremental   = false          # Disable incremental for better final optimization
 
 # Dev builds at opt-level 1: the simulator is unusable at opt-level 0.
 # Full debug info and fast incremental compiles are preserved.
@@ -35,3 +41,53 @@ opt-level = 1
 # Optimize dependencies even in dev — serde/pyo3 don't need debug codegen.
 [profile.dev.package."*"]
 opt-level = 3
+
+[workspace.lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unused_results = "deny"
+# unsafe_code is intentionally permitted: this simulator requires raw pointer
+# access for hot-path RAM reads/writes, mmap-based DRAM allocation, and FFI
+# calls into the C floating-point environment (feclearexcept/fetestexcept).
+# All unsafe blocks are individually justified with SAFETY comments.
+rust_2018_idioms = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+# Strong baseline
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+
+# Strictness on panics/WIP code
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+# Style/naming allows: standard for simulators and hardware code
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+similar_names = "allow"
+unreadable_literal = "allow"      # RV64 masks like 0xFFFF_FFFF_0000_0000
+many_single_char_names = "allow"  # PTE fields: r, w, x, u, d are RISC-V spec names
+inline_always = "allow"           # Hot-path annotations are intentional
+
+# Cast allows: RISC-V arithmetic requires intentional truncation and sign
+# manipulation for W-variant (32-bit) instructions and register-width semantics.
+# These are not bugs — they implement the RISC-V spec (§2.4, §7.1, §7.2).
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+bool_to_int_with_if = "allow"     # (cond) as u64 is idiomatic for flag extraction
+
+# Execute stages and decode functions are necessarily large in a full ISA impl.
+too_many_lines = "allow"
+# as *const / *mut casts between raw pointer types are idiomatic in unsafe memory code.
+ptr_as_ptr = "allow"
+
+[workspace.lints.rustdoc]
+all = "deny"
+missing_crate_level_docs = "deny"
+broken_intra_doc_links = "deny"
