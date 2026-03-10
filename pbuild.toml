@@ -13,7 +13,6 @@ python  = [".venv/bin/python3", ".venv/bin/python", "python3"]
 group       = "Build"
 description = "Build release binary + Python bindings"
 type        = "task"
-cache       = false
 max_time    = "15m"
 shell       = true
 commands    = [
@@ -35,12 +34,14 @@ command     = ["{{maturin}}", "build", "--release", "--out", "target/wheels"]
 group       = "Build"
 description = "Build libc and example RISC-V programs"
 type        = "task"
+cache       = true
 command     = ["make", "-C", "software"]
 
 [build-linux]
 group       = "Build"
 description = "Build Linux kernel + rootfs (Buildroot)"
 type        = "task"
+cache       = true
 command     = ["make", "-C", "software", "linux"]
 
 # ── Development ───────────────────────────────────────────────────────────────
@@ -97,7 +98,6 @@ commands    = [
 group       = "Development"
 description = "fmt-check + clippy"
 type        = "task"
-max_time    = "10s"
 commands    = [
     ["{{cargo}}", "fmt", "--all", "--", "--check"],
     ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
