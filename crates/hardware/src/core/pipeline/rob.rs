@@ -391,9 +391,8 @@ impl Rob {
             return None; // not ready
         }
 
-        let committed = self.entries[self.head].clone();
+        let committed = std::mem::take(&mut self.entries[self.head]);
         let _ = self.tag_index.remove(&committed.tag);
-        self.entries[self.head].valid = false;
         self.head = (self.head + 1) % self.entries.len();
         self.count -= 1;
         Some(committed)
