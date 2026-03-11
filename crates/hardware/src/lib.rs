@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 //! RISC-V system simulator library.
 //!
 //! This crate implements a cycle-accurate RISC-V RV64GC simulator with the following:
