@@ -9,6 +9,7 @@
 
 use crate::core::pipeline::backend::o3::fu_pool::FU_TYPE_COUNT;
 use std::io::IsTerminal;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 /// Simulation statistics structure tracking all performance metrics.
@@ -17,6 +18,7 @@ use std::time::Instant;
 /// branch prediction, stalls, and execution time for performance analysis.
 #[derive(Clone, Debug)]
 pub struct SimStats {
+    #[cfg(not(target_arch = "wasm32"))]
     start_time: Instant,
     /// Total simulator cycles elapsed.
     pub cycles: u64,
@@ -139,6 +141,7 @@ impl Default for SimStats {
     /// Returns the default value.
     fn default() -> Self {
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
             start_time: Instant::now(),
             cycles: 0,
             instructions_retired: 0,
@@ -221,8 +224,10 @@ impl SimStats {
         let rst = if color { "\x1b[0m" } else { "" };
 
         let want = |s: &str| sections.is_empty() || sections.iter().any(|x| x == s);
-        let duration = self.start_time.elapsed();
-        let seconds = duration.as_secs_f64();
+        #[cfg(not(target_arch = "wasm32"))]
+        let seconds = self.start_time.elapsed().as_secs_f64();
+        #[cfg(target_arch = "wasm32")]
+        let seconds = 0.0_f64;
         let cyc = if self.cycles == 0 { 1 } else { self.cycles };
         let instr = if self.instructions_retired == 0 { 1 } else { self.instructions_retired };
 

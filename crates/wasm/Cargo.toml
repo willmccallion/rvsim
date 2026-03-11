@@ -1,0 +1,30 @@
+[package]
+name = "rvsim-wasm"
+description = "WebAssembly bindings for the rvsim RISC-V simulator"
+publish = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rvsim-core = { path = "../hardware", version = "0.12.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["console"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

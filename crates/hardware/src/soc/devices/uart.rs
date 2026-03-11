@@ -7,9 +7,12 @@
 use crate::common::IrqId;
 use crate::soc::devices::Device;
 use std::collections::VecDeque;
-use std::io::{self, Read, Write};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
+use std::io::{self, Write};
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 
 /// Receiver Buffer Register (Read) / Divisor Latch Low (DLAB=1).
@@ -121,6 +124,9 @@ impl Uart {
     pub fn new(base_addr: u64, to_stderr: bool, quiet: bool) -> Self {
         let (tx, rx) = channel();
 
+        // Spawn a background stdin reader on native targets.
+        // On WASM there is no stdin — the channel remains empty.
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = thread::spawn(move || {
             let mut buffer = [0u8; 1];
             let stdin = io::stdin();
@@ -129,6 +135,8 @@ impl Uart {
                 let _ = tx.send(buffer[0]);
             }
         });
+        #[cfg(target_arch = "wasm32")]
+        drop(tx);
 
         Self {
             base_addr,

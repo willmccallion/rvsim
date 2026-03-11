@@ -33,19 +33,27 @@ use self::rounding_modes::RoundingMode;
 
 // Host FPU exception flag bits from <fenv.h> — used to detect inexact/overflow/etc.
 // These are the same on x86_64 and aarch64 Linux (POSIX standard values).
+#[cfg(not(target_arch = "wasm32"))]
 const FE_INEXACT: i32 = 0x20;
+#[cfg(not(target_arch = "wasm32"))]
 const FE_UNDERFLOW: i32 = 0x10;
+#[cfg(not(target_arch = "wasm32"))]
 const FE_OVERFLOW: i32 = 0x08;
+#[cfg(not(target_arch = "wasm32"))]
 const FE_DIVBYZERO: i32 = 0x04;
+#[cfg(not(target_arch = "wasm32"))]
 const FE_INVALID: i32 = 0x01;
+#[cfg(not(target_arch = "wasm32"))]
 const FE_ALL_EXCEPT: i32 = FE_INEXACT | FE_UNDERFLOW | FE_OVERFLOW | FE_DIVBYZERO | FE_INVALID;
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn feclearexcept(excepts: i32) -> i32;
     fn fetestexcept(excepts: i32) -> i32;
 }
 
 /// Reads and maps host FPU exception flags to RISC-V `FpFlags`.
+#[cfg(not(target_arch = "wasm32"))]
 fn read_host_fp_flags() -> FpFlags {
     let host = unsafe { fetestexcept(FE_ALL_EXCEPT) };
     let mut flags = FpFlags::NONE;
@@ -67,12 +75,27 @@ fn read_host_fp_flags() -> FpFlags {
     flags
 }
 
+/// WASM fallback: FP exception flags are not available on `wasm32`.
+///
+/// Returns `FpFlags::NONE` — FP exception reporting is best-effort in WASM.
+/// The arithmetic results are still correct; only the RISC-V `fflags` CSR
+/// will not reflect host-detected exceptions.
+#[cfg(target_arch = "wasm32")]
+fn read_host_fp_flags() -> FpFlags {
+    FpFlags::NONE
+}
+
 /// Clears all host FPU exception flags.
+#[cfg(not(target_arch = "wasm32"))]
 fn clear_host_fp_flags() {
     unsafe {
         let _ = feclearexcept(FE_ALL_EXCEPT);
     }
 }
+
+/// WASM fallback: no-op since host FP flags are not available.
+#[cfg(target_arch = "wasm32")]
+fn clear_host_fp_flags() {}
 
 /// RISC-V FCLASS result for f32: classify into one of 10 categories.
 const fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
