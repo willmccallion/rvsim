@@ -771,7 +771,8 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
                     box_f32_canon(val_s)
                 }
                 AluOp::FCvtDS => {
-                    let val_s = f32::from_bits(op_a as u32);
+                    use crate::core::units::fpu::nan_handling::unbox_f32;
+                    let val_s = unbox_f32(op_a);
                     let val_d = val_s as f64;
                     val_d.to_bits()
                 }

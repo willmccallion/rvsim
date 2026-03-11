@@ -105,27 +105,19 @@ impl WasmCpu {
 
     /// Read a general-purpose register (0-31).
     pub fn read_reg(&self, idx: u8) -> u64 {
-        self.inner
-            .cpu
-            .regs
-            .read(rvsim_core::common::RegIdx::new(idx))
+        self.inner.cpu.regs.read(rvsim_core::common::RegIdx::new(idx))
     }
 
     /// Write a general-purpose register (0-31).
     pub fn write_reg(&mut self, idx: u8, value: u64) {
-        self.inner
-            .cpu
-            .regs
-            .write(rvsim_core::common::RegIdx::new(idx), value);
+        self.inner.cpu.regs.write(rvsim_core::common::RegIdx::new(idx), value);
     }
 
     // ── Simulation control ───────────────────────────────────────────────────
 
     /// Advance one clock cycle.
     pub fn tick(&mut self) -> Result<(), JsError> {
-        self.inner
-            .tick()
-            .map_err(|e| JsError::new(&e.to_string()))
+        self.inner.tick().map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Run until exit or cycle limit.
@@ -235,11 +227,7 @@ impl WasmCpu {
         };
         set!("branch_accuracy_pct", bp_acc);
 
-        let ipc = if s.cycles > 0 {
-            s.instructions_retired as f64 / s.cycles as f64
-        } else {
-            0.0
-        };
+        let ipc = if s.cycles > 0 { s.instructions_retired as f64 / s.cycles as f64 } else { 0.0 };
         set!("ipc", ipc);
 
         set!("inst_load", s.inst_load);

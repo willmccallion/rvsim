@@ -29,7 +29,6 @@ const R: u64 = 1 << 1;
 const W: u64 = 1 << 2;
 const X: u64 = 1 << 3;
 const U: u64 = 1 << 4;
-#[allow(dead_code)]
 const G: u64 = 1 << 5;
 const A: u64 = 1 << 6;
 const D: u64 = 1 << 7;

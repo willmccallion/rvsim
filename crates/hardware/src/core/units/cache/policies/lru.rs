@@ -120,11 +120,7 @@ impl LruPolicy {
         let safe_ways = ways.max(1);
         let state = if let Some(bits) = bits_for_ways(safe_ways) {
             let init = initial_packed(safe_ways, bits);
-            LruState::Packed {
-                data: vec![init; sets],
-                ways: safe_ways,
-                bits,
-            }
+            LruState::Packed { data: vec![init; sets], ways: safe_ways, bits }
         } else {
             let mut usage = Vec::with_capacity(sets);
             for _ in 0..sets {
@@ -139,19 +135,17 @@ impl LruPolicy {
 impl std::fmt::Debug for LruPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.state {
-            LruState::Packed { ways, bits, .. } => {
-                f.debug_struct("LruPolicy")
-                    .field("kind", &"packed")
-                    .field("ways", ways)
-                    .field("bits_per_rank", bits)
-                    .finish()
-            }
-            LruState::Stacks { usage } => {
-                f.debug_struct("LruPolicy")
-                    .field("kind", &"stacks")
-                    .field("sets", &usage.len())
-                    .finish()
-            }
+            LruState::Packed { ways, bits, .. } => f
+                .debug_struct("LruPolicy")
+                .field("kind", &"packed")
+                .field("ways", ways)
+                .field("bits_per_rank", bits)
+                .finish(),
+            LruState::Stacks { usage } => f
+                .debug_struct("LruPolicy")
+                .field("kind", &"stacks")
+                .field("sets", &usage.len())
+                .finish(),
         }
     }
 }
@@ -176,12 +170,8 @@ impl ReplacementPolicy for LruPolicy {
     #[inline(always)]
     fn get_victim(&mut self, set: usize) -> usize {
         match &mut self.state {
-            LruState::Packed { data, ways, bits } => {
-                packed_victim(data[set], *ways, *bits)
-            }
-            LruState::Stacks { usage } => {
-                usage[set].last().copied().unwrap_or(0)
-            }
+            LruState::Packed { data, ways, bits } => packed_victim(data[set], *ways, *bits),
+            LruState::Stacks { usage } => usage[set].last().copied().unwrap_or(0),
         }
     }
 }

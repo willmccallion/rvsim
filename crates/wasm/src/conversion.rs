@@ -15,8 +15,8 @@ pub fn js_to_config(val: wasm_bindgen::JsValue) -> Result<Config, JsError> {
         .map_err(|_| JsError::new("Failed to stringify config object"))?
         .into();
 
-    let config: Config =
-        serde_json::from_str(&json_str).map_err(|e| JsError::new(&format!("Invalid config: {e}")))?;
+    let config: Config = serde_json::from_str(&json_str)
+        .map_err(|e| JsError::new(&format!("Invalid config: {e}")))?;
 
     Ok(config)
 }
