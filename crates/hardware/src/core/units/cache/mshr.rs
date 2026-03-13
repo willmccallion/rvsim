@@ -184,6 +184,17 @@ impl MshrFile {
     /// Does NOT free the MSHR entry even if all waiters are removed — the
     /// cache line fetch is already in progress and installing it is always
     /// beneficial for future accesses.
+    /// Flush waiters with `from_tag` or newer. Keeps only strictly older waiters.
+    pub fn flush_from(&mut self, from_tag: RobTag) {
+        for entry in &mut self.entries {
+            if !entry.valid {
+                continue;
+            }
+            entry.waiters.retain(|w| w.rob_tag.is_older_than(from_tag));
+        }
+    }
+
+    /// Flush waiters newer than `keep_tag`. Keeps waiters at or before `keep_tag`.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         for entry in &mut self.entries {
             if !entry.valid {

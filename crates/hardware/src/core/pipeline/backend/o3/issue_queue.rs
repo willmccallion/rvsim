@@ -393,6 +393,18 @@ impl IssueQueue {
         self.count = 0;
     }
 
+    /// Flush the entry with `from_tag` AND all entries newer than it.
+    pub fn flush_from(&mut self, from_tag: RobTag) {
+        for slot in &mut self.slots {
+            if let Some(iq) = slot
+                && !iq.entry.rob_tag.is_older_than(from_tag)
+            {
+                *slot = None;
+                self.count -= 1;
+            }
+        }
+    }
+
     /// Flush entries newer than `keep_tag`.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         for slot in &mut self.slots {

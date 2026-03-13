@@ -409,6 +409,58 @@ impl Rob {
         self.count = 0;
     }
 
+    /// Flushes the entry with the given tag AND all entries newer than it (inclusive).
+    /// Entries strictly older than `tag` are kept.
+    pub fn flush_from(&mut self, tag: RobTag) {
+        if self.count == 0 {
+            return;
+        }
+
+        // Find the index of the entry with this tag
+        let mut idx = self.head;
+        let mut found = false;
+        for _ in 0..self.count {
+            if self.entries[idx].tag == tag {
+                found = true;
+                break;
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+
+        if !found {
+            return;
+        }
+
+        // Remove from idx (inclusive) through tail
+        // idx is the first entry to remove
+        if idx == self.head {
+            // Flushing everything from head — same as flush_all
+            self.flush_all();
+            return;
+        }
+
+        let mut remove_idx = idx;
+        while remove_idx != self.tail {
+            let _ = self.tag_index.remove(&self.entries[remove_idx].tag);
+            self.entries[remove_idx].valid = false;
+            remove_idx = (remove_idx + 1) % self.entries.len();
+        }
+
+        self.tail = idx;
+        // Recount
+        self.count = 0;
+        let mut i = self.head;
+        loop {
+            if i == self.tail {
+                break;
+            }
+            if self.entries[i].valid {
+                self.count += 1;
+            }
+            i = (i + 1) % self.entries.len();
+        }
+    }
+
     /// Flushes all entries allocated *after* the given tag (exclusive).
     /// The entry with `tag` itself is kept.
     pub fn flush_after(&mut self, tag: RobTag) {
@@ -561,6 +613,21 @@ impl Rob {
             let idx = (head + i) % cap;
             let e = &self.entries[idx];
             if e.valid { Some(e) } else { None }
+        })
+    }
+
+    /// Iterate over all valid entries with `tag >= from_tag` (i.e., entries that
+    /// would be squashed by `flush_from(from_tag)`).
+    pub fn iter_from(&self, from_tag: RobTag) -> impl Iterator<Item = &RobEntry> {
+        let cap = self.entries.len();
+        let head = self.head;
+        let count = self.count;
+        let entries_ptr = self.entries.as_ptr();
+        (0..count).filter_map(move |i| {
+            let idx = (head + i) % cap;
+            // SAFETY: idx is always in bounds (< cap), and we hold a shared ref to Rob.
+            let e = unsafe { &*entries_ptr.add(idx) };
+            if e.valid && !e.tag.is_older_than(from_tag) { Some(e) } else { None }
         })
     }
 

@@ -220,6 +220,37 @@ impl LoadQueue {
         self.count = 0;
     }
 
+    /// Flushes the entry with `from_tag` AND all entries newer than it.
+    /// Only entries strictly older than `from_tag` are kept.
+    pub fn flush_from(&mut self, from_tag: RobTag) {
+        if self.count == 0 {
+            return;
+        }
+
+        let cap = self.entries.len();
+        let mut new_tail = self.head;
+        let mut new_count = 0;
+        let mut idx = self.head;
+
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.rob_tag.is_older_than(from_tag) {
+                if idx != new_tail {
+                    self.entries[new_tail] = self.entries[idx].clone();
+                    self.entries[idx].valid = false;
+                }
+                new_tail = (new_tail + 1) % cap;
+                new_count += 1;
+            } else {
+                self.entries[idx].valid = false;
+            }
+            idx = (idx + 1) % cap;
+        }
+
+        self.tail = new_tail;
+        self.count = new_count;
+    }
+
     /// Flushes entries newer than `keep_tag` (misprediction recovery).
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         if self.count == 0 {

@@ -281,64 +281,29 @@ impl ExecutionEngine for O3Engine {
             cpu.stats.pipeline_flushes += 1;
             cpu.stats.stalls_control += 1;
 
-            // We need to flush the violating load and everything newer.
-            // Use the violating tag itself as the boundary: iter_from returns
-            // entries >= violating_tag, and we flush_after the entry just before it.
-            //
-            // However, flush_after requires the keep_tag to be present in the ROB.
-            // If the violating load is at the ROB head, the prior tag has already
-            // been committed and flush_after would silently do nothing, leaving the
-            // ROB intact while physical registers have been reclaimed — causing
-            // register aliasing corruption.
-            //
-            // Instead, check whether the entry just before the violating load
-            // exists in the ROB. If not (violating load is at the head), flush
-            // everything — same approach as the misprediction path.
-            //
-            // Compute keep_tag: the tag logically before violating_tag, respecting
-            // the invariant that tag 0 is never allocated.
-            let prev = violating_tag.0.wrapping_sub(1);
-            let keep_tag = crate::core::pipeline::rob::RobTag(if prev == 0 { u32::MAX } else { prev });
+            // Flush the violating load and everything newer using flush_from,
+            // which operates directly on the violating_tag without needing to
+            // compute a "keep_tag = violating_tag - 1". This avoids a wraparound
+            // bug where wrapping_sub at tag boundaries could produce a stale tag
+            // that doesn't exist in the ROB, corrupting the flush.
 
-            let keep_in_rob = self.rob.find_entry(keep_tag).is_some();
-
-            if keep_in_rob {
-                // Reclaim physical registers for squashed entries
-                for entry in self.rob.iter_after(keep_tag) {
-                    self.free_list.reclaim(entry.phys_dst);
-                }
-                let squashed = self.rob.iter_after(keep_tag).count() as u64;
-                cpu.stats.misprediction_penalty += squashed;
-
-                self.issue_queue.flush_after(keep_tag);
-                self.rob.flush_after(keep_tag);
-                self.store_buffer.flush_after(keep_tag);
-                self.load_queue.flush_after(keep_tag);
-                cpu.l1d_mshrs.flush_after(keep_tag);
-
-                self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
-                self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            } else {
-                // Violating load is at (or near) the ROB head — the prior
-                // instruction has already committed. Flush ALL in-flight entries.
-                for entry in self.rob.iter_all() {
-                    self.free_list.reclaim(entry.phys_dst);
-                }
-                cpu.stats.misprediction_penalty += self.rob.len() as u64;
-
-                self.issue_queue.flush();
-                self.rob.flush_all();
-                self.store_buffer.flush_speculative();
-                self.load_queue.flush();
-                cpu.l1d_mshrs.flush();
-
-                self.mem1_mem2.clear();
-                self.mem2_wb.clear();
-                self.pending_results.clear();
-                self.execute_mem1.clear();
+            // Reclaim physical registers for squashed entries (violating tag and newer)
+            for entry in self.rob.iter_from(violating_tag) {
+                self.free_list.reclaim(entry.phys_dst);
             }
+            let squashed = self.rob.iter_from(violating_tag).count() as u64;
+            cpu.stats.misprediction_penalty += squashed;
+
+            self.issue_queue.flush_from(violating_tag);
+            self.rob.flush_from(violating_tag);
+            self.store_buffer.flush_from(violating_tag);
+            self.load_queue.flush_from(violating_tag);
+            cpu.l1d_mshrs.flush_from(violating_tag);
+
+            self.mem1_mem2.retain(|e| e.rob_tag.is_older_than(violating_tag));
+            self.mem2_wb.retain(|e| e.rob_tag.is_older_than(violating_tag));
+            self.pending_results.retain(|p| p.entry.rob_tag.is_older_than(violating_tag));
+            self.execute_mem1.retain(|e| e.rob_tag.is_older_than(violating_tag));
 
             self.rebuild_rename_map();
             self.scoreboard.rebuild_from_rob(&self.rob);

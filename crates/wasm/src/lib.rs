@@ -40,7 +40,7 @@ impl WasmCpu {
     /// * `config_js` - A JS object matching the shape of `Config.to_dict()`.
     /// * `elf_bytes` - Raw bytes of an ELF binary (bare-metal mode).
     #[wasm_bindgen(constructor)]
-    pub fn new(config_js: JsValue, elf_bytes: &[u8]) -> Result<WasmCpu, JsError> {
+    pub fn new(config_js: JsValue, elf_bytes: &[u8]) -> Result<Self, JsError> {
         let config = conversion::js_to_config(config_js)?;
         let disk = String::new();
         let mut system = rvsim_core::soc::System::new(&config, &disk);
@@ -128,10 +128,10 @@ impl WasmCpu {
         let limit = limit.map(|v| v as u64);
         let start = self.inner.cpu.stats.cycles;
         loop {
-            if let Some(max) = limit {
-                if self.inner.cpu.stats.cycles.saturating_sub(start) >= max {
-                    return Ok(JsValue::UNDEFINED);
-                }
+            if let Some(max) = limit
+                && self.inner.cpu.stats.cycles.saturating_sub(start) >= max
+            {
+                return Ok(JsValue::UNDEFINED);
             }
             match self.inner.tick() {
                 Ok(()) => {
@@ -149,7 +149,7 @@ impl WasmCpu {
     /// Returns `{ pc, raw, asm, cycles }` or `undefined` if the simulation
     /// exited before an instruction committed.
     pub fn step(&mut self, max_cycles: Option<f64>) -> Result<JsValue, JsError> {
-        let max = max_cycles.map(|v| v as u64).unwrap_or(100_000);
+        let max = max_cycles.map_or(100_000, |v| v as u64);
         let before_last = self.inner.cpu.pc_trace.last().copied();
         let mut cycles_run: u64 = 0;
 
@@ -168,20 +168,20 @@ impl WasmCpu {
             cycles_run += 1;
 
             let new_last = self.inner.cpu.pc_trace.last().copied();
-            if new_last != before_last {
-                if let Some((pc, inst)) = new_last {
-                    let asm = rvsim_core::isa::disasm::disassemble(inst);
-                    let obj = js_sys::Object::new();
-                    let _ = js_sys::Reflect::set(&obj, &"pc".into(), &JsValue::from(pc));
-                    let _ = js_sys::Reflect::set(&obj, &"raw".into(), &JsValue::from(inst));
-                    let _ = js_sys::Reflect::set(&obj, &"asm".into(), &JsValue::from(asm));
-                    let _ = js_sys::Reflect::set(
-                        &obj,
-                        &"cycles".into(),
-                        &JsValue::from(self.inner.cpu.stats.cycles),
-                    );
-                    return Ok(obj.into());
-                }
+            if new_last != before_last
+                && let Some((pc, inst)) = new_last
+            {
+                let asm = rvsim_core::isa::disasm::disassemble(inst);
+                let obj = js_sys::Object::new();
+                let _ = js_sys::Reflect::set(&obj, &"pc".into(), &JsValue::from(pc));
+                let _ = js_sys::Reflect::set(&obj, &"raw".into(), &JsValue::from(inst));
+                let _ = js_sys::Reflect::set(&obj, &"asm".into(), &JsValue::from(asm));
+                let _ = js_sys::Reflect::set(
+                    &obj,
+                    &"cycles".into(),
+                    &JsValue::from(self.inner.cpu.stats.cycles),
+                );
+                return Ok(obj.into());
             }
         }
     }

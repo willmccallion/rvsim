@@ -39,8 +39,7 @@ use super::ReplacementPolicy;
 /// Returns bits-per-rank for `ways`, or `None` if ways > 16.
 const fn bits_for_ways(ways: usize) -> Option<u32> {
     match ways {
-        1 => Some(1),
-        2 => Some(1),
+        1 | 2 => Some(1),
         3 | 4 => Some(2),
         5..=8 => Some(3),
         9..=16 => Some(4),
@@ -49,13 +48,13 @@ const fn bits_for_ways(ways: usize) -> Option<u32> {
 }
 
 #[inline(always)]
-fn get_rank(packed: u64, way: usize, bits: u32) -> u64 {
+const fn get_rank(packed: u64, way: usize, bits: u32) -> u64 {
     let mask = (1u64 << bits) - 1;
     (packed >> (way as u32 * bits)) & mask
 }
 
 #[inline(always)]
-fn set_rank(packed: u64, way: usize, bits: u32, rank: u64) -> u64 {
+const fn set_rank(packed: u64, way: usize, bits: u32, rank: u64) -> u64 {
     let mask = (1u64 << bits) - 1;
     let shift = way as u32 * bits;
     (packed & !(mask << shift)) | (rank << shift)
@@ -118,16 +117,19 @@ impl LruPolicy {
     /// Creates a new LRU policy for a cache with `sets` sets and `ways` ways.
     pub fn new(sets: usize, ways: usize) -> Self {
         let safe_ways = ways.max(1);
-        let state = if let Some(bits) = bits_for_ways(safe_ways) {
-            let init = initial_packed(safe_ways, bits);
-            LruState::Packed { data: vec![init; sets], ways: safe_ways, bits }
-        } else {
-            let mut usage = Vec::with_capacity(sets);
-            for _ in 0..sets {
-                usage.push((0..safe_ways).collect());
-            }
-            LruState::Stacks { usage }
-        };
+        let state = bits_for_ways(safe_ways).map_or_else(
+            || {
+                let mut usage = Vec::with_capacity(sets);
+                for _ in 0..sets {
+                    usage.push((0..safe_ways).collect());
+                }
+                LruState::Stacks { usage }
+            },
+            |bits| {
+                let init = initial_packed(safe_ways, bits);
+                LruState::Packed { data: vec![init; sets], ways: safe_ways, bits }
+            },
+        );
         Self { state }
     }
 }

@@ -144,7 +144,7 @@ impl CacheSim {
     // ── Address decomposition ─────────────────────────────────────────────────
 
     #[inline(always)]
-    fn decompose(&self, addr: u64) -> (usize, u64) {
+    const fn decompose(&self, addr: u64) -> (usize, u64) {
         let line_addr = addr >> self.line_shift;
         let set_index = (line_addr & self.set_mask) as usize;
         let tag = line_addr >> self.set_shift;

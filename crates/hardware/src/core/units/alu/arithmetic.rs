@@ -93,15 +93,15 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
             if is32 {
                 // Phase 0 fix: use u32 cast for unsigned zero-check, and
                 // sign-extend result from bit 31 via i32 (RISC-V spec §7.2).
+                #[allow(clippy::manual_checked_ops)]
                 if (b as u32) == 0 {
                     -1i64 as u64
                 } else {
                     ((a as u32) / (b as u32)) as i32 as i64 as u64
                 }
-            } else if b == 0 {
-                -1i64 as u64
             } else {
-                a / b
+                #[allow(clippy::manual_checked_ops)]
+                if b == 0 { -1i64 as u64 } else { a / b }
             }
         }
         AluOp::Rem => {
