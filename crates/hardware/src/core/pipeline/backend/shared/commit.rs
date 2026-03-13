@@ -77,10 +77,12 @@ pub fn commit_stage(
             );
             trap_event = Some((interrupt_trap, epc));
         } else if cpu.wfi_waiting {
-            // WFI wakeup without trap
-            let pending = cpu.csrs.mip;
-            let enabled = cpu.csrs.mie;
-            if (pending & enabled) != 0 {
+            // WFI wakeup without trap: resume when *any* interrupt is
+            // pending, even if not individually enabled in mie.  Per the
+            // RISC-V spec, WFI may complete when "an interrupt becomes
+            // pending" — the pending condition is sufficient; the
+            // interrupt does not need to be enabled or taken.
+            if cpu.csrs.mip != 0 {
                 cpu.wfi_waiting = false;
                 cpu.pc = cpu.wfi_pc;
             }
