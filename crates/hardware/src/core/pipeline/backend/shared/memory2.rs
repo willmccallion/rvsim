@@ -35,7 +35,15 @@ pub fn memory2_stage(
     // Sort by rob_tag to ensure entries are processed in program order.
     // This prevents younger loads from stalling on unresolved older stores
     // that are behind them in the latch, which would deadlock the pipeline.
-    entries.sort_by_key(|e| e.rob_tag.0);
+    entries.sort_by(|a, b| {
+        if a.rob_tag == b.rob_tag {
+            std::cmp::Ordering::Equal
+        } else if a.rob_tag.is_older_than(b.rob_tag) {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
 
     output.clear();
 
