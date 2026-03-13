@@ -36,11 +36,7 @@ impl FreeList {
     /// Return a physical register to the free list.
     pub fn reclaim(&mut self, p: PhysReg) {
         if p.0 != 0 {
-            debug_assert!(
-                !self.queue.contains(&p),
-                "double-reclaim of physical register {:?}",
-                p
-            );
+            debug_assert!(!self.queue.contains(&p), "double-reclaim of physical register {p:?}");
             self.queue.push_back(p);
         }
     }
