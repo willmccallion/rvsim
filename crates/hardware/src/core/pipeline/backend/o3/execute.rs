@@ -694,57 +694,102 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
         | AluOp::FCvtSD
         | AluOp::FCvtDS
         | AluOp::FMvToF => {
+            use crate::core::units::fpu::exception_flags::FpFlags;
+            let mut flags: u8 = 0;
             let val = match alu_op {
                 AluOp::FCvtSW => {
                     if is_rv32 {
-                        Fpu::box_f32((op_a as i32) as f32)
+                        // FCVT.S.W: i32 -> f32
+                        let src = op_a as i32;
+                        let result = src as f32;
+                        if result as i32 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        Fpu::box_f32(result)
                     } else {
+                        // FCVT.D.W: i32 -> f64 (always exact)
                         ((op_a as i32) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSWU => {
                     if is_rv32 {
-                        Fpu::box_f32((op_a as u32) as f32)
+                        // FCVT.S.WU: u32 -> f32
+                        let src = op_a as u32;
+                        let result = src as f32;
+                        if result as u32 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        Fpu::box_f32(result)
                     } else {
+                        // FCVT.D.WU: u32 -> f64 (always exact)
                         ((op_a as u32) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSL => {
+                    let src = op_a as i64;
                     if is_rv32 {
-                        Fpu::box_f32((op_a as i64) as f32)
+                        // FCVT.S.L: i64 -> f32
+                        let result = src as f32;
+                        if result as i64 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        Fpu::box_f32(result)
                     } else {
-                        ((op_a as i64) as f64).to_bits()
+                        // FCVT.D.L: i64 -> f64
+                        let result = src as f64;
+                        if result as i64 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        result.to_bits()
                     }
                 }
                 AluOp::FCvtSLU => {
+                    let src = op_a;
                     if is_rv32 {
-                        Fpu::box_f32(op_a as f32)
+                        // FCVT.S.LU: u64 -> f32
+                        let result = src as f32;
+                        if result as u64 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        Fpu::box_f32(result)
                     } else {
-                        (op_a as f64).to_bits()
+                        // FCVT.D.LU: u64 -> f64
+                        let result = src as f64;
+                        if result as u64 != src {
+                            flags = FpFlags::NX.bits();
+                        }
+                        result.to_bits()
                     }
                 }
                 AluOp::FCvtSD => {
+                    // FCVT.S.D: f64 -> f32 (may be inexact)
                     use crate::core::units::fpu::nan_handling::box_f32_canon;
                     let val_d = f64::from_bits(op_a);
                     let val_s = val_d as f32;
+                    // Inexact if round-trip doesn't match and neither is NaN
+                    if !val_d.is_nan() && (val_s as f64).to_bits() != op_a {
+                        flags = FpFlags::NX.bits();
+                    }
                     box_f32_canon(val_s)
                 }
                 AluOp::FCvtDS => {
+                    // FCVT.D.S: f32 -> f64 (always exact, but sNaN -> NV)
                     use crate::core::units::fpu::nan_handling::unbox_f32;
                     let val_s = unbox_f32(op_a);
+                    // Check for signaling NaN: sNaN has quiet bit (bit 22) clear
+                    if val_s.is_nan() && (val_s.to_bits() & (1 << 22)) == 0 {
+                        flags = FpFlags::NV.bits();
+                    }
                     let val_d = val_s as f64;
                     val_d.to_bits()
                 }
                 AluOp::FMvToF => {
-                    if is_rv32 {
-                        Fpu::box_f32(f32::from_bits(op_a as u32))
-                    } else {
-                        op_a
-                    }
+                    // Bit move, no flags
+                    if is_rv32 { Fpu::box_f32(f32::from_bits(op_a as u32)) } else { op_a }
                 }
                 _ => 0,
             };
-            return (val, 0);
+            return (val, flags);
         }
         _ => {}
     }
