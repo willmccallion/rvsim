@@ -331,8 +331,12 @@ fn execute_system(
             sfence_vma: None,
         };
 
-    // MRET
+    // MRET: requires M-mode privilege (spec §3.3.2)
     if id.ctrl.system_op == SystemOp::Mret {
+        if cpu.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
+            rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
+            return (make_result(0, id.ctrl), true);
+        }
         trace_trap!(cpu.trace;
             event       = "return",
             pc          = %crate::trace::Hex(id.pc),
@@ -346,8 +350,12 @@ fn execute_system(
         return (make_result(0, id.ctrl), true);
     }
 
-    // SRET
+    // SRET: requires at least S-mode privilege (spec §3.3.2)
     if id.ctrl.system_op == SystemOp::Sret {
+        if cpu.privilege == crate::core::arch::mode::PrivilegeMode::User {
+            rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
+            return (make_result(0, id.ctrl), true);
+        }
         let tsr = (cpu.csrs.mstatus >> 22) & 1;
         if cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
             trace_trap!(cpu.trace;
@@ -655,10 +663,21 @@ fn execute_csr(
         rd        = id.rd.as_usize(),
         "EX: CSR deferred write queued in ROB"
     );
-    rob.set_csr_update(
-        id.rob_tag,
-        CsrUpdate { addr: id.ctrl.csr_addr, old_val: old, new_val: new, applied: false },
-    );
+    // Only generate a CSR write if the operation actually writes.
+    // CSRRS/CSRRC with rs1=x0 and CSRRSI/CSRRCI with uimm=0 are
+    // pure reads and must not trigger write side effects (spec §2.8).
+    let would_write = match id.ctrl.csr_op {
+        CsrOp::Rw | CsrOp::Rwi => true,
+        CsrOp::Rs | CsrOp::Rc => !id.rs1.is_zero(),
+        CsrOp::Rsi | CsrOp::Rci => (id.rs1.as_u8() & 0x1f) != 0,
+        CsrOp::None => false,
+    };
+    if would_write {
+        rob.set_csr_update(
+            id.rob_tag,
+            CsrUpdate { addr: id.ctrl.csr_addr, old_val: old, new_val: new, applied: false },
+        );
+    }
 
     cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
     cpu.redirect_pending = true;

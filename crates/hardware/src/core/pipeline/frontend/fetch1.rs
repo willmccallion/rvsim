@@ -59,7 +59,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
 
         // I-TLB lookup
         let TranslationResult { paddr, cycles, trap, .. } = if fetch_trap.is_none() {
-            cpu.translate(VirtAddr::new(current_pc), AccessType::Fetch)
+            cpu.translate(VirtAddr::new(current_pc), AccessType::Fetch, 4)
         } else {
             TranslationResult::success(crate::common::PhysAddr::new(0), 0)
         };
@@ -142,7 +142,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
             let upper_va = current_pc.wrapping_add(2);
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
             let upper_phys = if crosses_page {
-                let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch);
+                let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2);
                 *stall_out += result.cycles;
                 if result.trap.is_some() {
                     // Page crossing fault; let fetch2 handle it

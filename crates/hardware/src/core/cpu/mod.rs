@@ -152,6 +152,10 @@ pub struct Cpu {
     /// panic message to be printed before exiting.
     pub panic_detected_at_cycle: Option<u64>,
 
+    /// Software-written SEIP bit. SEIP in mip is the OR of this and the PLIC
+    /// hardware signal, so we must track the software component separately.
+    pub sw_seip: bool,
+
     /// Optional buffered writer for the commit log (enabled by the `commit-log` feature).
     #[cfg(feature = "commit-log")]
     pub commit_log: Option<std::io::BufWriter<std::fs::File>>,
@@ -209,7 +213,8 @@ impl Cpu {
         use crate::core::arch::csr::{
             MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
             MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_XLEN_64, MSTATUS_DEFAULT_RV64,
-            MSTATUS_FS_INIT,
+            MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_MXR, MSTATUS_SIE, MSTATUS_SPIE, MSTATUS_SPP,
+            MSTATUS_SUM, MSTATUS_UXL,
         };
         use crate::isa::abi;
 
@@ -239,8 +244,23 @@ impl Cpu {
         let mstatus =
             if direct_mode { MSTATUS_DEFAULT_RV64 | MSTATUS_FS_INIT } else { MSTATUS_DEFAULT_RV64 };
 
-        let csrs =
-            Csrs { mstatus, misa: configured_misa, stimecmp: u64::MAX, ..Default::default() };
+        // Initialize sstatus as a view of mstatus (spec: sstatus is not a
+        // separate register, it's a restricted view of mstatus).
+        let sstatus_mask = MSTATUS_SIE
+            | MSTATUS_SPIE
+            | MSTATUS_SPP
+            | MSTATUS_FS
+            | MSTATUS_SUM
+            | MSTATUS_MXR
+            | MSTATUS_UXL;
+        let sstatus = mstatus & sstatus_mask;
+        let csrs = Csrs {
+            mstatus,
+            sstatus,
+            misa: configured_misa,
+            stimecmp: u64::MAX,
+            ..Default::default()
+        };
 
         let bp = BranchPredictorWrapper::new(config);
 
@@ -314,6 +334,7 @@ impl Cpu {
             software_ad_bits: config.memory.software_ad_bits,
             misaligned_access_trap: config.memory.misaligned_access_trap,
             panic_detected_at_cycle: None,
+            sw_seip: false,
             #[cfg(feature = "commit-log")]
             commit_log: None,
         }

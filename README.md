@@ -249,9 +249,9 @@ make test         # Run Rust test suite
 make lint         # fmt-check + clippy
 ```
 
-## Linux Boot (Experimental)
+## Linux Boot
 
-The simulator boots Linux through OpenSBI and reaches `/sbin/init`. Full userspace boot is still in progress — there is a known bug preventing it from completing.
+The simulator boots Linux 6.6 through OpenSBI to a BusyBox userspace shell. Login as `root` (no password).
 
 ```bash
 make linux        # Download and build Linux + rootfs via Buildroot

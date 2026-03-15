@@ -142,7 +142,7 @@ pub fn memory1_stage(
             let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
 
             let TranslationResult { paddr, cycles, trap: fault, pte_update } =
-                cpu.translate(VirtAddr::new(ex.alu), access_type);
+                cpu.translate(VirtAddr::new(ex.alu), access_type, size);
             per_entry_latency += cycles;
 
             if let Some(t) = fault {

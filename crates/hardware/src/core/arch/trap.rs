@@ -31,6 +31,7 @@ impl TrapHandler {
             csr::MIP_USIP => Trap::UserSoftwareInterrupt,
             csr::MIP_SSIP => Trap::SupervisorSoftwareInterrupt,
             csr::MIP_MSIP => Trap::MachineSoftwareInterrupt,
+            csr::MIP_UTIP | csr::MIP_MTIP => Trap::MachineTimerInterrupt,
             csr::MIP_STIP => Trap::SupervisorTimerInterrupt,
             csr::MIP_UEIP => Trap::UserExternalInterrupt,
             csr::MIP_SEIP => Trap::SupervisorExternalInterrupt,

@@ -1,0 +1,15 @@
+# Build artifacts
+target/
+
+# Python
+__pycache__/
+*.abi3.so
+*.so
+*.pyd
+
+# Build lock
+.pbuild.lock
+
+# Linux build output
+software/linux/
+software/riscv-tests/

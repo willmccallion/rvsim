@@ -77,13 +77,23 @@ pub fn commit_stage(
             );
             trap_event = Some((interrupt_trap, epc));
         } else if cpu.wfi_waiting {
-            // WFI wakeup without trap
+            // WFI active: never fall through to the commit loop.
+            // The ROB may contain wrong-path instructions fetched
+            // speculatively past the WFI function (the frontend predicted
+            // past the ret and kept fetching). Committing those would
+            // corrupt architectural state.
+            //
+            // If an interrupt is pending & enabled (but not taken as a
+            // trap — e.g., delegated to a mode we're not in), this is a
+            // non-trap wakeup: resume at wfi_pc and let the caller flush.
             let pending = cpu.csrs.mip;
             let enabled = cpu.csrs.mie;
             if (pending & enabled) != 0 {
                 cpu.wfi_waiting = false;
                 cpu.pc = cpu.wfi_pc;
+                cpu.redirect_pending = true;
             }
+            return trap_event;
         }
     }
 

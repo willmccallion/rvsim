@@ -533,7 +533,7 @@ impl PyCpu {
     ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
     fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        let result = self.inner.cpu.translate(VirtAddr::new(vaddr), AccessType::Read);
+        let result = self.inner.cpu.translate(VirtAddr::new(vaddr), AccessType::Read, 8);
         if let Some(trap) = result.trap {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "translation failed for VA {vaddr:#x}: {trap:?}"

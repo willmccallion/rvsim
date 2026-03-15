@@ -20,7 +20,7 @@ fn test_translate_direct_mode_valid_address() {
     cpu.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let result = cpu.translate(vaddr, AccessType::Read);
+    let result = cpu.translate(vaddr, AccessType::Read, 4);
 
     assert_eq!(result.trap, None);
     assert_eq!(result.paddr.val(), 0x8000_0000);
@@ -35,7 +35,7 @@ fn test_translate_direct_mode_different_addresses() {
 
     for addr in test_addrs {
         let vaddr = VirtAddr::new(addr);
-        let result = cpu.translate(vaddr, AccessType::Read);
+        let result = cpu.translate(vaddr, AccessType::Read, 4);
 
         // Direct mode just passes through
         assert_eq!(result.paddr.val(), addr);
@@ -48,7 +48,7 @@ fn test_translate_direct_mode_fetch_access() {
     cpu.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let result = cpu.translate(vaddr, AccessType::Fetch);
+    let result = cpu.translate(vaddr, AccessType::Fetch, 4);
 
     assert_eq!(result.trap, None);
 }
@@ -59,7 +59,7 @@ fn test_translate_direct_mode_write_access() {
     cpu.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let result = cpu.translate(vaddr, AccessType::Write);
+    let result = cpu.translate(vaddr, AccessType::Write, 4);
 
     assert_eq!(result.trap, None);
 }
@@ -70,7 +70,7 @@ fn test_translate_preserves_translation_cost() {
     cpu.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let result = cpu.translate(vaddr, AccessType::Read);
+    let result = cpu.translate(vaddr, AccessType::Read, 4);
 
     // Direct mode should have zero cost
     assert_eq!(result.cycles, 0);
@@ -84,7 +84,7 @@ fn test_translate_multiple_calls() {
     for i in 0..10 {
         let addr = 0x8000_0000 + (i * 0x1000);
         let vaddr = VirtAddr::new(addr);
-        let result = cpu.translate(vaddr, AccessType::Read);
+        let result = cpu.translate(vaddr, AccessType::Read, 4);
 
         assert_eq!(result.paddr.val(), addr);
     }
@@ -285,7 +285,7 @@ fn test_translate_invalid_address_fetch() {
 
     // Try to access an invalid address
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let result = cpu.translate(vaddr, AccessType::Fetch);
+    let result = cpu.translate(vaddr, AccessType::Fetch, 4);
 
     // Should return a fault
     assert!(result.trap.is_some());
@@ -298,7 +298,7 @@ fn test_translate_invalid_address_read() {
 
     // Try to access an invalid address
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let result = cpu.translate(vaddr, AccessType::Read);
+    let result = cpu.translate(vaddr, AccessType::Read, 4);
 
     // Should return a fault
     assert!(result.trap.is_some());
@@ -311,7 +311,7 @@ fn test_translate_invalid_address_write() {
 
     // Try to access an invalid address
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let result = cpu.translate(vaddr, AccessType::Write);
+    let result = cpu.translate(vaddr, AccessType::Write, 4);
 
     // Should return a fault
     assert!(result.trap.is_some());
@@ -419,7 +419,7 @@ fn test_translate_with_direct_mode_false() {
 
     // Should use MMU translation
     let vaddr = VirtAddr::new(0x8000_0000);
-    let result = cpu.translate(vaddr, AccessType::Read);
+    let result = cpu.translate(vaddr, AccessType::Read, 4);
 
     // Result should be valid (either success or fault)
     assert!(result.trap.is_some() || result.paddr.val() > 0 || result.paddr.val() == 0);

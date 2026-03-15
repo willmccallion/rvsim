@@ -22,7 +22,7 @@ impl Cpu {
     /// # Returns
     ///
     /// A `TranslationResult` containing the physical address or a trap if translation fails.
-    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType) -> TranslationResult {
+    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslationResult {
         if self.direct_mode {
             let paddr = PhysAddr::new(vaddr.val());
             if !self.bus.bus.is_valid_address(paddr) {
@@ -65,7 +65,7 @@ impl Cpu {
             let is_machine = effective_priv == crate::core::arch::mode::PrivilegeMode::Machine;
             let pmp_result = self.pmp.check(
                 paddr,
-                1,
+                size,
                 matches!(access, AccessType::Read),
                 matches!(access, AccessType::Write),
                 matches!(access, AccessType::Fetch),
@@ -334,12 +334,12 @@ mod tests {
         let mut cpu = Cpu::new(system, &config);
 
         // RAM_BASE = 0x8000_0000 by default. It's a valid address.
-        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read);
+        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
         assert_eq!(result.paddr.val(), 0x8000_0000);
         assert!(result.trap.is_none());
 
         // Test invalid address translation trap in direct mode
-        let result = cpu.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch);
+        let result = cpu.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
         assert!(result.trap.is_some());
     }
 

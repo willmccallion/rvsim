@@ -66,8 +66,6 @@ const IER_RDA: u8 = 0x01;
 /// Interrupt Enable Register: Transmitter Holding Register Empty interrupt enable.
 const IER_THRE: u8 = 0x02;
 
-/// Threshold for flushing transmit buffer to stdout (4 KiB).
-const TX_BUFFER_FLUSH_THRESHOLD: usize = 4096;
 
 /// UART device structure.
 ///
@@ -96,8 +94,6 @@ pub struct Uart {
     tick_count: u8,
     /// Transmitter Holding Register Empty Interrupt Pending.
     thre_ip: bool,
-    /// Buffer for outgoing bytes (to stdout or stderr).
-    tx_buffer: Vec<u8>,
     /// When true, output goes to stderr (for visibility when run from Python).
     to_stderr: bool,
     /// When true, all output is suppressed (for scripting / benchmarks).
@@ -141,7 +137,6 @@ impl Uart {
             div: 0,
             tick_count: 0,
             thre_ip: true,
-            tx_buffer: Vec::new(),
             to_stderr,
             quiet,
             panic_match_state: 0,
@@ -170,23 +165,6 @@ impl Uart {
             return IIR_THRE;
         }
         IIR_NO_INTERRUPT
-    }
-
-    /// Flushes the transmit buffer to stdout or stderr (or discards if quiet).
-    fn flush_buffer(&mut self) {
-        if !self.tx_buffer.is_empty() {
-            if !self.quiet {
-                let output: String = self.tx_buffer.iter().map(|&b| b as char).collect();
-                if self.to_stderr {
-                    eprint!("{output}");
-                    let _ = io::stderr().flush();
-                } else {
-                    print!("{output}");
-                    let _ = io::stdout().flush();
-                }
-            }
-            self.tx_buffer.clear();
-        }
     }
 
     /// Scans output characters for the "kernel panic" string.
@@ -254,10 +232,7 @@ impl Uart {
     /// Reads Line Status Register (LSR).
     ///
     /// Indicates if data is ready or if the transmitter is empty.
-    /// Also flushes the TX buffer, since a guest polling for input has
-    /// likely finished its output (e.g. a prompt without a trailing newline).
     fn read_lsr(&mut self) -> u8 {
-        self.flush_buffer();
         let mut lsr = LSR_DEFAULT;
         if !self.rx_queue.is_empty() {
             lsr |= LSR_DATA_READY;
@@ -273,14 +248,21 @@ impl Uart {
             self.div = (self.div & 0xFF00) | (val as u16);
         } else {
             if self.check_char_for_panic(val) {
-                self.flush_buffer();
                 return;
             }
 
-            self.tx_buffer.push(val);
-
-            if val == b'\n' || self.tx_buffer.len() >= TX_BUFFER_FLUSH_THRESHOLD {
-                self.flush_buffer();
+            // Real hardware: each byte is shifted out on the wire as soon
+            // as the transmit shift register finishes. There is no software
+            // buffering — the character is visible immediately. We match
+            // this by writing every byte to the host immediately.
+            if !self.quiet {
+                if self.to_stderr {
+                    eprint!("{}", val as char);
+                    let _ = io::stderr().flush();
+                } else {
+                    print!("{}", val as char);
+                    let _ = io::stdout().flush();
+                }
             }
 
             self.thre_ip = true;
@@ -299,13 +281,6 @@ impl Uart {
                 self.thre_ip = true;
             }
         }
-    }
-}
-
-impl Drop for Uart {
-    /// Flushes any remaining output when the UART is dropped.
-    fn drop(&mut self) {
-        self.flush_buffer();
     }
 }
 

@@ -277,29 +277,59 @@ impl ExecutionEngine for O3Engine {
             // Find the violating load's PC from the ROB
             let violation_pc = self.rob.find_entry(violating_tag).map_or(cpu.pc, |e| e.pc);
 
-            // keep_tag = tag before the violating load (everything older is kept)
-            let keep_tag = crate::core::pipeline::rob::RobTag(violating_tag.0.saturating_sub(1));
+            // keep_tag = tag before the violating load (everything older is kept).
+            // We need a tag that is actually present in the ROB so that
+            // flush_after() can locate it. The previous approach of
+            // `violating_tag - 1` created a synthetic tag that may have
+            // already been committed and removed from the ROB, causing
+            // flush_after() to silently no-op while free_list.reclaim()
+            // had already freed the physical registers — a use-after-free
+            // that led to register aliasing corruption.
+            let keep_tag = self.rob.prev_tag_of(violating_tag);
 
-            // Reclaim physical registers for squashed entries
-            for entry in self.rob.iter_after(keep_tag) {
-                self.free_list.reclaim(entry.phys_dst);
-            }
-            let squashed = self.rob.iter_after(keep_tag).count() as u64;
-            cpu.stats.misprediction_penalty += squashed;
             cpu.stats.mem_ordering_violations += 1;
             cpu.stats.pipeline_flushes += 1;
             cpu.stats.stalls_control += 1;
 
-            self.issue_queue.flush_after(keep_tag);
-            self.rob.flush_after(keep_tag);
-            self.store_buffer.flush_after(keep_tag);
-            self.load_queue.flush_after(keep_tag);
-            cpu.l1d_mshrs.flush_after(keep_tag);
+            if let Some(keep_tag) = keep_tag {
+                // Reclaim physical registers for squashed entries
+                for entry in self.rob.iter_after(keep_tag) {
+                    self.free_list.reclaim(entry.phys_dst);
+                }
+                let squashed = self.rob.iter_after(keep_tag).count() as u64;
+                cpu.stats.misprediction_penalty += squashed;
 
-            self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
-            self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.issue_queue.flush_after(keep_tag);
+                self.rob.flush_after(keep_tag);
+                self.store_buffer.flush_after(keep_tag);
+                self.load_queue.flush_after(keep_tag);
+                cpu.l1d_mshrs.flush_after(keep_tag);
+
+                self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.pending_results
+                    .retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+                self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            } else {
+                // The violating load is at the ROB head (no preceding entry),
+                // or the preceding entry was already committed. Full flush.
+                for entry in self.rob.iter_all() {
+                    self.free_list.reclaim(entry.phys_dst);
+                }
+                let squashed = self.rob.len() as u64;
+                cpu.stats.misprediction_penalty += squashed;
+
+                self.issue_queue.flush();
+                self.rob.flush_all();
+                self.store_buffer.flush_speculative();
+                self.load_queue.flush();
+                cpu.l1d_mshrs.flush();
+
+                self.mem1_mem2.clear();
+                self.mem2_wb.clear();
+                self.pending_results.clear();
+                self.execute_mem1.clear();
+            }
 
             self.rebuild_rename_map();
             self.scoreboard.rebuild_from_rob(&self.rob);
@@ -558,6 +588,7 @@ impl ExecutionEngine for O3Engine {
             self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+            self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             // Rebuild speculative rename map from committed map + surviving ROB
             self.rebuild_rename_map();
             // Scoreboard is still used by in-order; rebuild from remaining ROB entries

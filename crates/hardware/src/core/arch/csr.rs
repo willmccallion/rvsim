@@ -50,6 +50,12 @@ pub const MTVEC: CsrAddr = CsrAddr::from_u32(0x305);
 /// Machine counter enable register CSR address.
 pub const MCOUNTEREN: CsrAddr = CsrAddr::from_u32(0x306);
 
+/// Machine environment configuration register CSR address.
+pub const MENVCFG: CsrAddr = CsrAddr::from_u32(0x30A);
+
+/// STCE bit in menvcfg — enables Sstc (hardware stimecmp-based STIP) for S-mode.
+pub const MENVCFG_STCE: u64 = 1 << 63;
+
 /// Machine scratch register CSR address.
 pub const MSCRATCH: CsrAddr = CsrAddr::from_u32(0x340);
 
@@ -403,6 +409,8 @@ pub struct Csrs {
     pub mcounteren: u64,
     /// Supervisor counter-enable register.
     pub scounteren: u64,
+    /// Machine environment configuration register.
+    pub menvcfg: u64,
 }
 
 impl Csrs {
@@ -453,6 +461,7 @@ impl Csrs {
             x if x == MINSTRET.as_u32() => self.minstret,
             x if x == MCOUNTEREN.as_u32() => self.mcounteren,
             x if x == SCOUNTEREN.as_u32() => self.scounteren,
+            x if x == MENVCFG.as_u32() => self.menvcfg,
             _ => 0,
         }
     }

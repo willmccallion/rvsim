@@ -104,17 +104,27 @@ impl Cpu {
         } else {
             mip &= !csr::MIP_MEIP;
         }
+        // SEIP is the logical-OR of the hardware signal (PLIC) and the
+        // software-written bit.  Only clear the hardware component; preserve
+        // the software-written bit so M-mode can inject S-mode external
+        // interrupts via `csrw mip`.
         if seip {
             mip |= csr::MIP_SEIP;
-        } else {
+        } else if !self.sw_seip {
             mip &= !csr::MIP_SEIP;
         }
 
-        let mtime = self.stats.cycles / self.clint_divider;
-        if mtime >= self.csrs.stimecmp {
-            mip |= csr::MIP_STIP;
-        } else {
-            mip &= !csr::MIP_STIP;
+        // STIP management: when Sstc is enabled, hardware compares mtime
+        // against stimecmp.  When Sstc is NOT active (the common case —
+        // OpenSBI injects STIP via `csrw mip`), leave STIP entirely under
+        // software control so that M-mode timer handlers work correctly.
+        if (self.csrs.menvcfg & csr::MENVCFG_STCE) != 0 {
+            let mtime = self.stats.cycles / self.clint_divider;
+            if mtime >= self.csrs.stimecmp {
+                mip |= csr::MIP_STIP;
+            } else {
+                mip &= !csr::MIP_STIP;
+            }
         }
 
         self.csrs.mip = mip;

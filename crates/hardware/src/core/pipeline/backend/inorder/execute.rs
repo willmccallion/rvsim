@@ -136,8 +136,32 @@ pub fn execute_inorder(
 
         // System instructions (FENCE is a NOP at execute — handled at commit only)
         if !matches!(id.ctrl.system_op, SystemOp::None | SystemOp::Fence) {
-            // MRET: deferred to commit, but flush frontend
+            // MRET: requires M-mode privilege (spec §3.3.2)
             if id.ctrl.system_op == SystemOp::Mret {
+                if cpu.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: PhysReg::default(),
+                        fp_flags: 0,
+                        sfence_vma: None,
+                    });
+                    continue;
+                }
                 flush_remaining = true;
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -157,9 +181,33 @@ pub fn execute_inorder(
                 continue;
             }
 
-            // SRET: deferred to commit, but flush frontend
+            // SRET: requires at least S-mode privilege (spec §3.3.2)
             // In S-mode, SRET is illegal if mstatus.TSR=1
             if id.ctrl.system_op == SystemOp::Sret {
+                if cpu.privilege == crate::core::arch::mode::PrivilegeMode::User {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: PhysReg::default(),
+                        fp_flags: 0,
+                        sfence_vma: None,
+                    });
+                    continue;
+                }
                 let tsr = (cpu.csrs.mstatus >> 22) & 1;
                 if cpu.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
                     rob.fault(
@@ -501,16 +549,26 @@ pub fn execute_inorder(
                     CsrOp::None => old,
                 };
 
-                // Store the deferred CSR update in the ROB
-                rob.set_csr_update(
-                    id.rob_tag,
-                    CsrUpdate {
-                        addr: id.ctrl.csr_addr,
-                        old_val: old,
-                        new_val: new,
-                        applied: false,
-                    },
-                );
+                // Only generate a CSR write if the operation actually writes.
+                // CSRRS/CSRRC with rs1=x0 and CSRRSI/CSRRCI with uimm=0 are
+                // pure reads and must not trigger write side effects (spec §2.8).
+                let would_write = match id.ctrl.csr_op {
+                    CsrOp::Rw | CsrOp::Rwi => true,
+                    CsrOp::Rs | CsrOp::Rc => !id.rs1.is_zero(),
+                    CsrOp::Rsi | CsrOp::Rci => (id.rs1.as_u8() & 0x1f) != 0,
+                    CsrOp::None => false,
+                };
+                if would_write {
+                    rob.set_csr_update(
+                        id.rob_tag,
+                        CsrUpdate {
+                            addr: id.ctrl.csr_addr,
+                            old_val: old,
+                            new_val: new,
+                            applied: false,
+                        },
+                    );
+                }
 
                 // Flush frontend after CSR
                 cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());

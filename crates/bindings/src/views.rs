@@ -154,7 +154,7 @@ impl VirtualMemory {
         use rvsim_core::common::{AccessType, VirtAddr};
 
         let mut cpu = self.cpu.borrow_mut(py);
-        let result = cpu.inner.cpu.translate(VirtAddr::new(addr), AccessType::Read);
+        let result = cpu.inner.cpu.translate(VirtAddr::new(addr), AccessType::Read, 8);
         if let Some(trap) = result.trap {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "translation failed for VA {addr:#x}: {trap:?}"

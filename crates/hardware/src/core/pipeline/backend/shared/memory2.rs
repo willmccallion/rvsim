@@ -89,23 +89,20 @@ pub fn memory2_stage(
             // Atomic operations
             match mem.ctrl.atomic_op {
                 AtomicOp::Lr => {
-                    ld = match store_buffer.forward_load(raw_paddr, mem.ctrl.width, mem.rob_tag) {
-                        ForwardResult::Hit(fwd) => match mem.ctrl.width {
-                            MemWidth::Word => (fwd as u32 as i32) as i64 as u64,
-                            _ => fwd,
-                        },
-                        ForwardResult::Stall => {
-                            input.push(mem);
-                            input.extend(iter);
-                            return None;
+                    // LR must read the globally-visible value, not a
+                    // locally-speculative one.  Stall until all older stores
+                    // to this address have drained.
+                    if store_buffer.has_older_store_to(raw_paddr, mem.ctrl.width, mem.rob_tag) {
+                        input.push(mem);
+                        input.extend(iter);
+                        return None;
+                    }
+                    ld = match mem.ctrl.width {
+                        MemWidth::Word => {
+                            (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
                         }
-                        ForwardResult::Miss => match mem.ctrl.width {
-                            MemWidth::Word => {
-                                (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
-                            }
-                            MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
-                            _ => 0,
-                        },
+                        MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
+                        _ => 0,
                     };
                     // Defer reservation to commit — speculative LR must not
                     // modify architectural reservation state.
@@ -121,26 +118,21 @@ pub fn memory2_stage(
                     lr_sc = Some(LrScRecord::Sc { paddr: raw_paddr });
                 }
                 _ => {
-                    // AMO: read old value (check store buffer first for forwarding)
-                    let old_val =
-                        match store_buffer.forward_load(raw_paddr, mem.ctrl.width, mem.rob_tag) {
-                            ForwardResult::Hit(fwd) => match mem.ctrl.width {
-                                MemWidth::Word => (fwd as u32 as i32) as i64 as u64,
-                                _ => fwd,
-                            },
-                            ForwardResult::Stall => {
-                                input.push(mem);
-                                input.extend(iter);
-                                return None;
-                            }
-                            ForwardResult::Miss => match mem.ctrl.width {
-                                MemWidth::Word => {
-                                    (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
-                                }
-                                MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
-                                _ => 0,
-                            },
-                        };
+                    // AMO: atomic read-modify-write must operate on the
+                    // globally-visible value.  Stall until all older stores
+                    // to this address have drained, then read from memory.
+                    if store_buffer.has_older_store_to(raw_paddr, mem.ctrl.width, mem.rob_tag) {
+                        input.push(mem);
+                        input.extend(iter);
+                        return None;
+                    }
+                    let old_val = match mem.ctrl.width {
+                        MemWidth::Word => {
+                            (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
+                        }
+                        MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
+                        _ => 0,
+                    };
 
                     let new_val = Lsu::atomic_alu(
                         mem.ctrl.atomic_op,

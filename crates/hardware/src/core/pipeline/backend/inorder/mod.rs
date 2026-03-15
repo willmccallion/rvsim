@@ -130,6 +130,7 @@ impl ExecutionEngine for InOrderEngine {
             self.flush(cpu);
             cpu.redirect_pending = true;
             cpu.trap(&trap, pc);
+            cpu.committed_next_pc = cpu.pc;
             return;
         }
 

@@ -266,6 +266,45 @@ impl StoreBuffer {
         false
     }
 
+    /// Checks whether any store buffer entry older than `rob_tag` overlaps
+    /// the given physical address range. Used by LR/AMO to stall until older
+    /// stores to the same address have drained, preserving atomicity.
+    pub fn has_older_store_to(
+        &self,
+        paddr: PhysAddr,
+        width: MemWidth,
+        rob_tag: RobTag,
+    ) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        let load_size = width_to_bytes(width) as u64;
+        let load_start = paddr.val();
+        let load_end = load_start + load_size;
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.rob_tag.is_older_than(rob_tag) {
+                // Unresolved store to unknown address — must assume overlap
+                if entry.paddr.is_none() && entry.state == StoreState::Pending {
+                    return true;
+                }
+                // Resolved store — check for address overlap
+                if let Some(store_paddr) = entry.paddr {
+                    let store_size = width_to_bytes(entry.width) as u64;
+                    let store_start = store_paddr.val();
+                    let store_end = store_start + store_size;
+                    if load_start < store_end && load_end > store_start {
+                        return true;
+                    }
+                }
+            }
+            idx = (idx + 1) % cap;
+        }
+        false
+    }
+
     /// Drains (removes) the oldest committed store. Returns it so the caller
     /// can write it to memory. Returns `None` if no committed store is available.
     pub fn drain_one(&mut self) -> Option<StoreBufferEntry> {

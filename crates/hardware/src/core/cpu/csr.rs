@@ -72,6 +72,7 @@ impl Cpu {
             x if x == csr::SATP.as_u32() => self.csrs.satp,
             x if x == csr::MCOUNTEREN.as_u32() => self.csrs.mcounteren,
             x if x == csr::SCOUNTEREN.as_u32() => self.csrs.scounteren,
+            x if x == csr::MENVCFG.as_u32() => self.csrs.menvcfg,
             x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.stats.cycles,
             x if x == csr::TIME.as_u32() => self.stats.cycles / self.clint_divider,
             x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
@@ -149,6 +150,13 @@ impl Cpu {
                 let preserved = self.csrs.mstatus & (csr::MSTATUS_UXL | csr::MSTATUS_SXL);
                 self.csrs.mstatus = (val & MSTATUS_WRITABLE) | preserved;
 
+                // WARL: MPP must encode a supported privilege mode (0=U, 1=S, 3=M).
+                // Value 2 is reserved; clamp to 0 (User) to prevent privilege escalation.
+                let mpp = (self.csrs.mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
+                if mpp == 2 {
+                    self.csrs.mstatus &= !csr::MSTATUS_MPP;
+                }
+
                 let mask = csr::MSTATUS_SIE
                     | csr::MSTATUS_SPIE
                     | csr::MSTATUS_SPP
@@ -177,7 +185,12 @@ impl Cpu {
                     | csr::MIE_MEIP;
                 self.csrs.mie = val & mask;
             }
-            x if x == csr::MTVEC.as_u32() => self.csrs.mtvec = val,
+            x if x == csr::MTVEC.as_u32() => {
+                // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
+                // Reserved modes (2, 3) are clamped to Direct by clearing both mode bits.
+                let mode = val & 3;
+                self.csrs.mtvec = if mode >= 2 { val & !3 } else { val };
+            }
             x if x == csr::MISA.as_u32() => {
                 // MISA is WARL: writes are silently ignored (extensions are hardwired).
             }
@@ -188,6 +201,8 @@ impl Cpu {
             x if x == csr::MIP.as_u32() => {
                 let mask = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
                 self.csrs.mip = (self.csrs.mip & !mask) | (val & mask);
+                // Track software-written SEIP so pre_tick preserves it
+                self.sw_seip = (val & csr::MIP_SEIP) != 0;
             }
             x if x == csr::SSTATUS.as_u32() => {
                 // UXL is read-only in sstatus (always reflects mstatus UXL)
@@ -207,7 +222,9 @@ impl Cpu {
                 self.csrs.mie = (self.csrs.mie & !mask) | (val & mask);
             }
             x if x == csr::STVEC.as_u32() => {
-                self.csrs.stvec = val;
+                // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
+                let mode = val & 3;
+                self.csrs.stvec = if mode >= 2 { val & !3 } else { val };
             }
             x if x == csr::SSCRATCH.as_u32() => self.csrs.sscratch = val,
             x if x == csr::SEPC.as_u32() => self.csrs.sepc = val & !1,
@@ -223,6 +240,9 @@ impl Cpu {
             }
             x if x == csr::SCOUNTEREN.as_u32() => {
                 self.csrs.scounteren = val & 0x7;
+            }
+            x if x == csr::MENVCFG.as_u32() => {
+                self.csrs.menvcfg = val;
             }
             x if x == csr::MCYCLE.as_u32() => self.stats.cycles = val,
             x if x == csr::MINSTRET.as_u32() => self.stats.instructions_retired = val,

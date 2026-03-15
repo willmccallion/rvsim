@@ -136,7 +136,7 @@ pub fn fetch2_stage(
             let crosses_page = (f1.pc >> 12) != (upper_va >> 12);
 
             let (upper_phys, upper_fault) = if crosses_page {
-                let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch);
+                let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2);
                 *stall_out += result.cycles;
                 (result.paddr, result.trap)
             } else {

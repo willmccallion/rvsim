@@ -525,6 +525,31 @@ impl Rob {
         None
     }
 
+    /// Returns the tag of the ROB entry immediately before `tag` in program
+    /// order, or `None` if `tag` is at the head (no preceding in-flight entry).
+    ///
+    /// This walks the ROB from head to tail and returns the last entry seen
+    /// before hitting `tag`. Unlike synthesizing `RobTag(tag.0 - 1)`, this
+    /// always returns a tag that is actually present in the ROB.
+    pub fn prev_tag_of(&self, tag: RobTag) -> Option<RobTag> {
+        if self.count == 0 {
+            return None;
+        }
+        let mut prev: Option<RobTag> = None;
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid {
+                if entry.tag == tag {
+                    return prev;
+                }
+                prev = Some(entry.tag);
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        None // tag not found in ROB
+    }
+
     /// Finds a mutable reference to the entry with the given tag.
     fn find_entry_mut(&mut self, tag: RobTag) -> Option<&mut RobEntry> {
         let idx = *self.tag_index.get(&tag)?;
