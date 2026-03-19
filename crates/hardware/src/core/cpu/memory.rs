@@ -103,15 +103,14 @@ impl Cpu {
     /// - The DRAM controller is only consulted when all caches miss, so its
     ///   stateful bank/row-buffer/refresh tracking reflects real traffic only.
     pub fn simulate_l1d_miss_latency(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
-        let mut total_penalty = 0;
-        let raw_addr = addr.val();
-        let is_write = matches!(access, AccessType::Write);
-        let inclusion = self.inclusion_policy;
-
         // Dirty writebacks are fire-and-forget into write buffers (gem5 WriteBuffer
         // queue model). They do not block the demand miss, so we pass 0 as the
         // next-level-latency used for dirty victim writeback costing.
         const WB_LAT: u64 = 0;
+        let mut total_penalty = 0;
+        let raw_addr = addr.val();
+        let is_write = matches!(access, AccessType::Write);
+        let inclusion = self.inclusion_policy;
 
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
@@ -194,6 +193,10 @@ impl Cpu {
     /// - The DRAM controller is only consulted when the request misses all
     ///   caches, keeping its stateful bank/refresh tracking accurate.
     pub fn simulate_memory_access(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
+        // Dirty writebacks are fire-and-forget into write buffers (gem5 WriteBuffer
+        // queue model). They do not block the demand access, so we pass 0 as the
+        // next-level-latency used for dirty victim writeback costing.
+        const WB_LAT: u64 = 0;
         let mut total_penalty = 0;
         let raw_addr = addr.val();
         let is_inst = matches!(access, AccessType::Fetch);
@@ -210,11 +213,6 @@ impl Cpu {
                 + ram_latency
                 + self.bus.bus.calculate_transit_time(64);
         }
-
-        // Dirty writebacks are fire-and-forget into write buffers (gem5 WriteBuffer
-        // queue model). They do not block the demand access, so we pass 0 as the
-        // next-level-latency used for dirty victim writeback costing.
-        const WB_LAT: u64 = 0;
 
         // ── L1 ──────────────────────────────────────────────────────────────────
         let (l1_hit, _l1_pen, l1_evictions, l1_prefetches) = if is_inst {

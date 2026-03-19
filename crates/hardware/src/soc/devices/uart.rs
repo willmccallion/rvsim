@@ -231,7 +231,7 @@ impl Uart {
     /// Reads Line Status Register (LSR).
     ///
     /// Indicates if data is ready or if the transmitter is empty.
-    fn read_lsr(&mut self) -> u8 {
+    fn read_lsr(&self) -> u8 {
         let mut lsr = LSR_DEFAULT;
         if !self.rx_queue.is_empty() {
             lsr |= LSR_DATA_READY;

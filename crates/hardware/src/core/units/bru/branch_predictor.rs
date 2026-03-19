@@ -39,9 +39,9 @@ impl Ghr {
     /// Creates a new GHR from a u64 value (64-bit history).
     ///
     /// Backward-compatible constructor for predictors that only use 64 bits
-    /// of history (GShare, Tournament, Perceptron).
+    /// of history (`GShare`, Tournament, Perceptron).
     #[inline]
-    pub fn new(val: u64) -> Self {
+    pub const fn new(val: u64) -> Self {
         let mut bits = [0u64; GHR_MAX_WORDS];
         bits[0] = val;
         Self { bits, len: 64 }
@@ -65,7 +65,7 @@ impl Ghr {
     ///
     /// Backward-compatible accessor for predictors that only use 64 bits.
     #[inline]
-    pub fn val(&self) -> u64 {
+    pub const fn val(&self) -> u64 {
         self.bits[0]
     }
 
@@ -73,7 +73,7 @@ impl Ghr {
     ///
     /// Returns `false` for positions beyond storage capacity.
     #[inline]
-    pub fn bit(&self, pos: usize) -> bool {
+    pub const fn bit(&self, pos: usize) -> bool {
         let word_idx = pos / 64;
         let bit_idx = pos % 64;
         if word_idx >= GHR_MAX_WORDS {

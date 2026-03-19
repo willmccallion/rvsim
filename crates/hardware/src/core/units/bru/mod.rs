@@ -47,7 +47,7 @@ pub enum BranchPredictorWrapper {
     /// Tournament predictor combining local and global histories.
     Tournament(TournamentPredictor),
     /// TAGE predictor with geometric history lengths.
-    Tage(TagePredictor),
+    Tage(Box<TagePredictor>),
     /// Perceptron-based neural predictor.
     Perceptron(PerceptronPredictor),
 }
@@ -71,9 +71,12 @@ impl BranchPredictorWrapper {
                 btb_ways,
                 ras_size,
             )),
-            BpType::Tage => {
-                Self::Tage(TagePredictor::new(&config.pipeline.tage, btb_size, btb_ways, ras_size))
-            }
+            BpType::Tage => Self::Tage(Box::new(TagePredictor::new(
+                &config.pipeline.tage,
+                btb_size,
+                btb_ways,
+                ras_size,
+            ))),
             BpType::Perceptron => Self::Perceptron(PerceptronPredictor::new(
                 &config.pipeline.perceptron,
                 btb_size,

@@ -528,7 +528,7 @@ impl SimStats {
             // Fall back to the legacy total counter if per-level aren't populated
             let pf_display = if pf_total > 0 { pf_total } else { self.prefetch_filter_dedup };
             if pf_display > 0 {
-                println!("  pf_filter.dedup        {}", pf_display);
+                println!("  pf_filter.dedup        {pf_display}");
                 if pf_total > 0 {
                     println!(
                         "    L1: {}  L2: {}  L3: {}",

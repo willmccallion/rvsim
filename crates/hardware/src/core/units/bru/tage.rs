@@ -38,7 +38,7 @@ struct FoldedHistory {
 }
 
 impl FoldedHistory {
-    fn new(fold_width: usize, hist_length: usize) -> Self {
+    const fn new(fold_width: usize, hist_length: usize) -> Self {
         Self { val: 0, fold_width, hist_length }
     }
 
@@ -49,7 +49,7 @@ impl FoldedHistory {
     ///
     /// Formula: `CSR = rotate_left(CSR, 1, fold_width) ^ new_bit ^ (old_bit << (hist_length % fold_width))`
     #[inline]
-    fn update(&mut self, new_bit: bool, old_bit: bool) {
+    const fn update(&mut self, new_bit: bool, old_bit: bool) {
         let w = self.fold_width;
         if w == 0 {
             return;
@@ -147,13 +147,13 @@ pub struct TagePredictor {
     /// Mask for indexing the tables.
     table_mask: usize,
 
-    /// Speculative CSRs for index computation (one per bank, fold_width = table_bits).
+    /// Speculative CSRs for index computation (one per bank, `fold_width` = `table_bits`).
     spec_idx_csr: Vec<FoldedHistory>,
-    /// Speculative CSRs for index computation (one per bank, fold_width = table_bits - 1).
+    /// Speculative CSRs for index computation (one per bank, `fold_width` = `table_bits` - 1).
     spec_idx_csr2: Vec<FoldedHistory>,
-    /// Speculative CSRs for tag computation (one per bank, fold_width = tag_widths[i]).
+    /// Speculative CSRs for tag computation (one per bank, `fold_width` = `tag_widths`[i]).
     spec_tag_csr: Vec<FoldedHistory>,
-    /// Speculative CSRs for tag computation (one per bank, fold_width = tag_widths[i] - 1).
+    /// Speculative CSRs for tag computation (one per bank, `fold_width` = `tag_widths`[i] - 1).
     spec_tag_csr2: Vec<FoldedHistory>,
 
     /// Index of the bank providing the current prediction.
@@ -369,7 +369,7 @@ impl TagePredictor {
         }
     }
 
-    /// Recomputes all speculative CSRs from the current spec_ghr.
+    /// Recomputes all speculative CSRs from the current `spec_ghr`.
     fn recompute_all_csrs(&mut self) {
         let ghr = &self.spec_ghr;
         for i in 0..self.banks.len() {
@@ -564,7 +564,7 @@ impl BranchPredictor for TagePredictor {
 
     /// Speculatively updates the GHR and all CSRs with a predicted branch outcome.
     ///
-    /// O(num_banks) — each CSR is updated in O(1).
+    /// `O(num_banks)` — each CSR is updated in O(1).
     fn speculate(&mut self, _pc: u64, taken: bool) {
         // Read old bits BEFORE push — these are the bits leaving each bank's window.
         for i in 0..self.banks.len() {
