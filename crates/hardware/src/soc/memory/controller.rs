@@ -204,8 +204,9 @@ impl MemoryController for DramController {
         // 3. Determine row hit / miss / cold-start latency.
         match self.banks[bank_idx].open_row {
             Some(open_row) if open_row == row => {
-                // Row hit — just CAS.
-                self.t_cas
+                // Row hit — just CAS (but must wait for bank to be free).
+                self.banks[bank_idx].busy_until = ready_cycle + self.t_cas;
+                (ready_cycle - current_cycle) + self.t_cas
             }
             Some(_) => {
                 // Row miss — precharge + tRRD wait + activate + CAS.
