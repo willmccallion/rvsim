@@ -269,12 +269,7 @@ impl StoreBuffer {
     /// Checks whether any store buffer entry older than `rob_tag` overlaps
     /// the given physical address range. Used by LR/AMO to stall until older
     /// stores to the same address have drained, preserving atomicity.
-    pub fn has_older_store_to(
-        &self,
-        paddr: PhysAddr,
-        width: MemWidth,
-        rob_tag: RobTag,
-    ) -> bool {
+    pub fn has_older_store_to(&self, paddr: PhysAddr, width: MemWidth, rob_tag: RobTag) -> bool {
         if self.count == 0 {
             return false;
         }

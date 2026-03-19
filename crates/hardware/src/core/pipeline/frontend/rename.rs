@@ -35,6 +35,11 @@ pub fn rename_stage<E: ExecutionEngine>(
     for id in entries {
         // Check if engine can accept more instructions
         if budget == 0 {
+            // Track dispatch stalls: frontend has instructions but backend is full
+            // (only count once per cycle, on the first rejected entry)
+            if input.is_empty() {
+                cpu.stats.stalls_dispatch += 1;
+            }
             // Put unconsumed entries back
             input.push(id);
             continue;

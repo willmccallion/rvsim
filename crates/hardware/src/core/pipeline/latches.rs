@@ -12,6 +12,7 @@ use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
+use crate::core::units::bru::Ghr;
 
 /// Entry in the IF/ID pipeline latch (Fetch to Decode stage).
 ///
@@ -34,7 +35,7 @@ pub struct IfIdEntry {
     /// Pipeline stage where the exception was first detected.
     pub exception_stage: Option<ExceptionStage>,
     /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: u64,
+    pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
     pub ras_snapshot: usize,
 }
@@ -78,7 +79,7 @@ pub struct IdExEntry {
     /// Predicted target address for branch/jump instructions.
     pub pred_target: u64,
     /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: u64,
+    pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
     pub ras_snapshot: usize,
 }
@@ -156,7 +157,7 @@ pub struct Fetch1Fetch2Entry {
     /// Pipeline stage where the exception was detected.
     pub exception_stage: Option<ExceptionStage>,
     /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: u64,
+    pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
     pub ras_snapshot: usize,
 }
@@ -216,7 +217,7 @@ pub struct RenameIssueEntry {
     /// Branch prediction target.
     pub pred_target: u64,
     /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: u64,
+    pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
     pub ras_snapshot: usize,
 }

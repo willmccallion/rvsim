@@ -4,7 +4,7 @@
 //! Instead of saturating counters, it uses a table of weight vectors. The
 //! prediction is the dot product of the weights and the history vector.
 
-use super::{BranchPredictor, btb::Btb, ras::Ras};
+use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 use crate::config::PerceptronConfig;
 
 /// Coefficient used to calculate the training threshold.
@@ -106,7 +106,7 @@ impl BranchPredictor for PerceptronPredictor {
     ///
     /// Trains the perceptron if a misprediction occurred or if the confidence
     /// (magnitude of the output) was below the training threshold.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
         let idx = self.index(pc);
         let y = self.output(idx);
         let t = if taken { 1 } else { -1 };
@@ -159,12 +159,12 @@ impl BranchPredictor for PerceptronPredictor {
             ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((1u64 << self.history_length) - 1);
     }
 
-    fn snapshot_history(&self) -> u64 {
-        self.ghr
+    fn snapshot_history(&self) -> Ghr {
+        Ghr::new(self.ghr)
     }
 
-    fn repair_history(&mut self, ghr: u64) {
-        self.ghr = ghr;
+    fn repair_history(&mut self, ghr: &Ghr) {
+        self.ghr = ghr.val();
     }
 
     fn snapshot_ras(&self) -> usize {
@@ -173,5 +173,9 @@ impl BranchPredictor for PerceptronPredictor {
 
     fn restore_ras(&mut self, ptr: usize) {
         self.ras.restore_ptr(ptr);
+    }
+
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        self.btb.update(pc, target);
     }
 }

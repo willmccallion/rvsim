@@ -45,7 +45,11 @@ impl PyStats {
         d.set_item("stalls_backpressure", s.stalls_backpressure)?;
         d.set_item("misprediction_penalty", s.misprediction_penalty)?;
         d.set_item("pipeline_flushes", s.pipeline_flushes)?;
+        d.set_item("flushes_branch", s.flushes_branch)?;
+        d.set_item("flushes_system", s.flushes_system)?;
         d.set_item("mem_ordering_violations", s.mem_ordering_violations)?;
+        d.set_item("stalls_dispatch", s.stalls_dispatch)?;
+        d.set_item("stalls_mshr_full", s.stalls_mshr_full)?;
 
         d.set_item("cycles_user", s.cycles_user)?;
         d.set_item("cycles_kernel", s.cycles_kernel)?;
@@ -85,6 +89,13 @@ impl PyStats {
         d.set_item("inst_fp_arith", s.inst_fp_arith)?;
         d.set_item("inst_fp_fma", s.inst_fp_fma)?;
         d.set_item("inst_fp_div_sqrt", s.inst_fp_div_sqrt)?;
+
+        d.set_item("pf_dedup_l1", s.pf_dedup_l1)?;
+        d.set_item("pf_dedup_l2", s.pf_dedup_l2)?;
+        d.set_item("pf_dedup_l3", s.pf_dedup_l3)?;
+        d.set_item("mshr_allocations", s.mshr_allocations)?;
+        d.set_item("mshr_coalesces", s.mshr_coalesces)?;
+        d.set_item("load_replays", s.load_replays)?;
 
         Ok(d.into())
     }

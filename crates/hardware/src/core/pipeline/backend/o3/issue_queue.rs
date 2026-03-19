@@ -554,7 +554,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: 0,
+            ghr_snapshot: crate::core::units::bru::Ghr::default(),
             ras_snapshot: 0,
         }
     }

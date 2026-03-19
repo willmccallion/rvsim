@@ -4,7 +4,7 @@
 //! between a Global predictor (GShare-like) and a Local predictor (PAg/PAp).
 //! This allows the predictor to adapt to different types of branch behaviors.
 
-use super::{BranchPredictor, btb::Btb, ras::Ras};
+use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 use crate::config::TournamentConfig;
 
 /// Tournament Predictor structure.
@@ -102,7 +102,7 @@ impl BranchPredictor for TournamentPredictor {
     ///
     /// Updates the Choice PHT based on which predictor was correct, then
     /// updates both the Global and Local predictor tables and histories.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
         let g_idx = ((self.ghr ^ pc) as usize) & self.global_mask;
 
         let global_pred = self.get_global_prediction(g_idx);
@@ -178,12 +178,12 @@ impl BranchPredictor for TournamentPredictor {
         self.ghr = ((self.ghr << 1) | (taken as u64)) & (self.global_mask as u64);
     }
 
-    fn snapshot_history(&self) -> u64 {
-        self.ghr
+    fn snapshot_history(&self) -> Ghr {
+        Ghr::new(self.ghr)
     }
 
-    fn repair_history(&mut self, ghr: u64) {
-        self.ghr = ghr;
+    fn repair_history(&mut self, ghr: &Ghr) {
+        self.ghr = ghr.val();
     }
 
     fn snapshot_ras(&self) -> usize {
@@ -192,5 +192,9 @@ impl BranchPredictor for TournamentPredictor {
 
     fn restore_ras(&mut self, ptr: usize) {
         self.ras.restore_ptr(ptr);
+    }
+
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        self.btb.update(pc, target);
     }
 }

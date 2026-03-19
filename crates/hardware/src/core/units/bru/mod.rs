@@ -4,7 +4,7 @@
 //! static prediction, gshare, perceptron, TAGE, tournament predictors,
 //! branch target buffer (BTB), and return address stack (RAS).
 
-pub use self::branch_predictor::BranchPredictor;
+pub use self::branch_predictor::{BranchPredictor, Ghr};
 
 /// Branch predictor trait and common functionality.
 pub mod branch_predictor;
@@ -105,13 +105,13 @@ impl BranchPredictor for BranchPredictorWrapper {
     /// Called after branch resolution to train the predictor and update
     /// internal state based on whether the branch was taken and its target.
     #[inline(always)]
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
         match self {
-            Self::Static(bp) => bp.update_branch(pc, taken, target),
-            Self::GShare(bp) => bp.update_branch(pc, taken, target),
-            Self::Tournament(bp) => bp.update_branch(pc, taken, target),
-            Self::Tage(bp) => bp.update_branch(pc, taken, target),
-            Self::Perceptron(bp) => bp.update_branch(pc, taken, target),
+            Self::Static(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
+            Self::GShare(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
+            Self::Tournament(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
+            Self::Tage(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
+            Self::Perceptron(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
         }
     }
 
@@ -184,7 +184,7 @@ impl BranchPredictor for BranchPredictorWrapper {
     }
 
     #[inline(always)]
-    fn snapshot_history(&self) -> u64 {
+    fn snapshot_history(&self) -> Ghr {
         match self {
             Self::Static(bp) => bp.snapshot_history(),
             Self::GShare(bp) => bp.snapshot_history(),
@@ -195,7 +195,7 @@ impl BranchPredictor for BranchPredictorWrapper {
     }
 
     #[inline(always)]
-    fn repair_history(&mut self, ghr: u64) {
+    fn repair_history(&mut self, ghr: &Ghr) {
         match self {
             Self::Static(bp) => bp.repair_history(ghr),
             Self::GShare(bp) => bp.repair_history(ghr),
@@ -224,6 +224,28 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.restore_ras(ptr),
             Self::Tage(bp) => bp.restore_ras(ptr),
             Self::Perceptron(bp) => bp.restore_ras(ptr),
+        }
+    }
+
+    #[inline(always)]
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        match self {
+            Self::Static(bp) => bp.update_btb(pc, target),
+            Self::GShare(bp) => bp.update_btb(pc, target),
+            Self::Tournament(bp) => bp.update_btb(pc, target),
+            Self::Tage(bp) => bp.update_btb(pc, target),
+            Self::Perceptron(bp) => bp.update_btb(pc, target),
+        }
+    }
+
+    #[inline(always)]
+    fn repair_to_committed(&mut self) {
+        match self {
+            Self::Static(bp) => bp.repair_to_committed(),
+            Self::GShare(bp) => bp.repair_to_committed(),
+            Self::Tournament(bp) => bp.repair_to_committed(),
+            Self::Tage(bp) => bp.repair_to_committed(),
+            Self::Perceptron(bp) => bp.repair_to_committed(),
         }
     }
 }

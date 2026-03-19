@@ -649,17 +649,21 @@ pub fn execute_inorder(
 
             let mispredicted = predicted_target != actual_next_pc;
 
-            cpu.branch_predictor.repair_history(id.ghr_snapshot);
-            cpu.branch_predictor.restore_ras(id.ras_snapshot);
             // Defer branch predictor update to commit time
             rob.set_bp_update(
                 id.rob_tag,
                 id.pc,
                 BpOutcome { taken, mispredicted },
                 if taken { Some(actual_target) } else { None },
+                id.ghr_snapshot,
             );
 
             if mispredicted {
+                // Restore GHR to the snapshot (pre-speculation state), then
+                // push the actual outcome so subsequent fetches see correct history.
+                cpu.branch_predictor.repair_history(&id.ghr_snapshot);
+                cpu.branch_predictor.speculate(id.pc, taken);
+                cpu.branch_predictor.restore_ras(id.ras_snapshot);
                 cpu.stats.speculative_branch_mispredictions += 1;
                 cpu.pc = actual_next_pc;
                 cpu.redirect_pending = true;
@@ -690,15 +694,20 @@ pub fn execute_inorder(
 
             let mispredicted = actual_target != predicted_target;
 
-            // Defer branch predictor update to commit time
-            rob.set_bp_update(
-                id.rob_tag,
-                id.pc,
-                BpOutcome { taken: true, mispredicted },
-                Some(actual_target),
-            );
+            // Store the jump target in the ROB for committed_next_pc tracking,
+            // but don't set bp_update — jumps are unconditional and should not
+            // train the direction predictor.
+            rob.set_bp_target(id.rob_tag, actual_target);
+
+            // Update BTB directly — jumps are unconditional, don't train direction predictor.
+            if !is_call {
+                // on_call already updates BTB, so skip for calls.
+                cpu.branch_predictor.update_btb(id.pc, actual_target);
+            }
 
             if mispredicted {
+                cpu.branch_predictor.repair_history(&id.ghr_snapshot);
+                cpu.branch_predictor.restore_ras(id.ras_snapshot);
                 cpu.stats.speculative_branch_mispredictions += 1;
                 cpu.pc = actual_target;
                 cpu.redirect_pending = true;

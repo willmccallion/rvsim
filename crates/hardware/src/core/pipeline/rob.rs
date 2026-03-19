@@ -14,6 +14,7 @@ use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo,
 use crate::common::{CsrAddr, InstSize, RegIdx};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
+use crate::core::units::bru::Ghr;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
 ///
@@ -136,6 +137,8 @@ pub struct RobEntry {
     pub bp_target: Option<u64>,
     /// Branch PC (for deferred BP update).
     pub bp_pc: u64,
+    /// GHR snapshot from prediction time (for deferred BP update).
+    pub bp_ghr_snapshot: Ghr,
     /// Deferred PTE A/D bit update from address translation (applied at commit).
     pub pte_update: Option<PteUpdate>,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
@@ -252,6 +255,7 @@ impl Rob {
             bp_outcome: BpOutcome::default(),
             bp_target: None,
             bp_pc: 0,
+            bp_ghr_snapshot: Ghr::default(),
             pte_update: None,
             sfence_vma: None,
             lr_sc: None,
@@ -302,12 +306,30 @@ impl Rob {
     }
 
     /// Sets deferred branch predictor update info for a given entry.
-    pub fn set_bp_update(&mut self, tag: RobTag, pc: u64, outcome: BpOutcome, target: Option<u64>) {
+    pub fn set_bp_update(
+        &mut self,
+        tag: RobTag,
+        pc: u64,
+        outcome: BpOutcome,
+        target: Option<u64>,
+        ghr_snapshot: Ghr,
+    ) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.bp_update = true;
             entry.bp_pc = pc;
             entry.bp_outcome = outcome;
             entry.bp_target = target;
+            entry.bp_ghr_snapshot = ghr_snapshot;
+        }
+    }
+
+    /// Sets just the branch target for a jump (no direction predictor training).
+    ///
+    /// Used for unconditional jumps so `committed_next_pc` can use the target
+    /// without triggering `update_branch` at commit time.
+    pub fn set_bp_target(&mut self, tag: RobTag, target: u64) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.bp_target = Some(target);
         }
     }
 
@@ -1003,7 +1025,13 @@ mod tests {
     fn test_bp_update() {
         let mut rob = Rob::new(4);
         let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
-        rob.set_bp_update(t1, 0x1000, BpOutcome { taken: true, mispredicted: false }, Some(0x2000));
+        rob.set_bp_update(
+            t1,
+            0x1000,
+            BpOutcome { taken: true, mispredicted: false },
+            Some(0x2000),
+            Ghr::new(0x42),
+        );
 
         let entry = rob.find_entry(t1).unwrap();
         assert!(entry.bp_update);

@@ -4,7 +4,7 @@
 //! It utilizes a BTB for unconditional jumps and a RAS for function returns, but
 //! assumes all conditional branches will fall through.
 
-use super::{BranchPredictor, btb::Btb, ras::Ras};
+use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Static Branch Predictor structure.
 #[derive(Debug)]
@@ -39,7 +39,7 @@ impl BranchPredictor for StaticPredictor {
     ///
     /// Only updates the BTB with the target address if a branch was taken.
     /// Does not maintain any direction history.
-    fn update_branch(&mut self, pc: u64, _taken: bool, target: Option<u64>) {
+    fn update_branch(&mut self, pc: u64, _taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
         if let Some(tgt) = target {
             self.btb.update(pc, tgt);
         }
@@ -72,5 +72,9 @@ impl BranchPredictor for StaticPredictor {
 
     fn restore_ras(&mut self, ptr: usize) {
         self.ras.restore_ptr(ptr);
+    }
+
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        self.btb.update(pc, target);
     }
 }

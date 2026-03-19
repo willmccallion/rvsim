@@ -98,9 +98,7 @@ pub fn memory2_stage(
                         return None;
                     }
                     ld = match mem.ctrl.width {
-                        MemWidth::Word => {
-                            (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
-                        }
+                        MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
                         MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
                         _ => 0,
                     };
@@ -127,9 +125,7 @@ pub fn memory2_stage(
                         return None;
                     }
                     let old_val = match mem.ctrl.width {
-                        MemWidth::Word => {
-                            (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64
-                        }
+                        MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
                         MemWidth::Double => cpu.bus.bus.read_u64(raw_paddr),
                         _ => 0,
                     };

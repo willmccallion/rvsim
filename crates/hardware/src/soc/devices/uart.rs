@@ -66,7 +66,6 @@ const IER_RDA: u8 = 0x01;
 /// Interrupt Enable Register: Transmitter Holding Register Empty interrupt enable.
 const IER_THRE: u8 = 0x02;
 
-
 /// UART device structure.
 ///
 /// Simulates a 16550 UART. It spawns a background thread to capture `stdin`

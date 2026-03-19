@@ -86,12 +86,12 @@ fn test_pipeline_config_defaults() {
 #[test]
 fn test_tage_config_defaults() {
     let tage = TageConfig::default();
-    assert_eq!(tage.num_banks, 4);
+    assert_eq!(tage.num_banks, 8);
     assert_eq!(tage.table_size, 2048);
     assert_eq!(tage.loop_table_size, 256);
     assert_eq!(tage.reset_interval, 256000);
-    assert_eq!(tage.history_lengths, vec![5, 15, 44, 130]);
-    assert_eq!(tage.tag_widths, vec![9, 9, 10, 10]);
+    assert_eq!(tage.history_lengths, vec![5, 11, 22, 44, 89, 178, 356, 712]);
+    assert_eq!(tage.tag_widths, vec![8, 8, 9, 9, 10, 10, 11, 11]);
 }
 
 #[test]

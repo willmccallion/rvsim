@@ -197,8 +197,6 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         let mispredicted = predicted_target != actual_next_pc;
 
-        cpu.branch_predictor.repair_history(id.ghr_snapshot);
-        cpu.branch_predictor.restore_ras(id.ras_snapshot);
         // Defer branch predictor update to commit time to avoid
         // polluting tables with speculative/wrong-path data.
         rob.set_bp_update(
@@ -206,6 +204,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             id.pc,
             BpOutcome { taken, mispredicted },
             if taken { Some(actual_target) } else { None },
+            id.ghr_snapshot,
         );
 
         trace_branch!(cpu.trace;
@@ -220,6 +219,11 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             "EX: branch resolved"
         );
         if mispredicted {
+            // Restore GHR to the snapshot (pre-speculation state), then
+            // push the actual outcome so subsequent fetches see correct history.
+            cpu.branch_predictor.repair_history(&id.ghr_snapshot);
+            cpu.branch_predictor.speculate(id.pc, taken);
+            cpu.branch_predictor.restore_ras(id.ras_snapshot);
             cpu.stats.speculative_branch_mispredictions += 1;
             cpu.pc = actual_next_pc;
             cpu.redirect_pending = true;
@@ -247,13 +251,16 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         let mispredicted = actual_target != predicted_target;
 
-        // Defer branch predictor update to commit time
-        rob.set_bp_update(
-            id.rob_tag,
-            id.pc,
-            BpOutcome { taken: true, mispredicted },
-            Some(actual_target),
-        );
+        // Store the jump target in the ROB for committed_next_pc tracking,
+        // but don't set bp_update — jumps are unconditional and should not
+        // train the direction predictor.
+        rob.set_bp_target(id.rob_tag, actual_target);
+
+        // Update BTB directly — jumps are unconditional, don't train direction predictor.
+        if !is_call {
+            // on_call already updates BTB, so skip for calls.
+            cpu.branch_predictor.update_btb(id.pc, actual_target);
+        }
 
         trace_branch!(cpu.trace;
             event          = "resolve",
@@ -268,6 +275,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             "EX: jump resolved"
         );
         if mispredicted {
+            cpu.branch_predictor.repair_history(&id.ghr_snapshot);
+            cpu.branch_predictor.restore_ras(id.ras_snapshot);
             cpu.stats.speculative_branch_mispredictions += 1;
             cpu.pc = actual_target;
             cpu.redirect_pending = true;
@@ -809,6 +818,7 @@ mod tests {
     use crate::common::{InstSize, RegIdx};
     use crate::config::Config;
     use crate::core::pipeline::signals::ControlSignals;
+    use crate::core::units::bru::Ghr;
     use crate::soc::builder::System;
 
     #[test]
@@ -856,7 +866,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -911,7 +921,7 @@ mod tests {
             exception_stage: Some(ExceptionStage::Decode),
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -969,7 +979,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -1031,7 +1041,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -1092,7 +1102,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0, // Predicted NOT taken
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -1151,7 +1161,7 @@ mod tests {
             exception_stage: None,
             pred_taken: true,
             pred_target: 0, // Predicted incorrectly
-            ghr_snapshot: 0,
+            ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
         };
 
@@ -1161,8 +1171,5 @@ mod tests {
 
         let expected_target = (0x2000 + 0x15) & !1;
         assert_eq!(cpu.pc, expected_target);
-
-        let entry = rob.find_entry(tag).unwrap();
-        assert!(entry.bp_outcome.mispredicted);
     }
 }

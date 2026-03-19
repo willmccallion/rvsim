@@ -8,12 +8,12 @@
 //! Reference: Phase 2 — Pipeline Logic & Hazards.
 
 use rvsim_core::config::{PerceptronConfig, TageConfig, TournamentConfig};
-use rvsim_core::core::units::bru::BranchPredictor;
 use rvsim_core::core::units::bru::gshare::GSharePredictor;
 use rvsim_core::core::units::bru::perceptron::PerceptronPredictor;
 use rvsim_core::core::units::bru::static_bp::StaticPredictor;
 use rvsim_core::core::units::bru::tage::TagePredictor;
 use rvsim_core::core::units::bru::tournament::TournamentPredictor;
+use rvsim_core::core::units::bru::{BranchPredictor, Ghr};
 
 // ══════════════════════════════════════════════════════════
 // Helpers
@@ -60,7 +60,8 @@ fn default_tournament() -> TournamentPredictor {
 fn train<P: BranchPredictor>(bp: &mut P, pc: u64, taken: bool, target: u64, n: usize) {
     let tgt = if taken { Some(target) } else { None };
     for _ in 0..n {
-        bp.update_branch(pc, taken, tgt);
+        let snapshot = bp.snapshot_history();
+        bp.update_branch(pc, taken, tgt, &snapshot);
     }
 }
 
@@ -90,7 +91,7 @@ fn static_ignores_training() {
 #[test]
 fn static_updates_btb() {
     let mut bp = StaticPredictor::new(64, 4, 8);
-    bp.update_branch(0x1000, true, Some(0x2000));
+    bp.update_branch(0x1000, true, Some(0x2000), &Ghr::default());
     assert_eq!(bp.predict_btb(0x1000), Some(0x2000));
 }
 
@@ -144,12 +145,14 @@ fn gshare_context_sensitive() {
 
     // Create two different history contexts by feeding different branches.
     // Context A: branch at pc=0x100 taken, then predict pc=0x1000.
-    bp.update_branch(0x100, true, Some(0x200));
+    let snap = bp.snapshot_history();
+    bp.update_branch(0x100, true, Some(0x200), &snap);
     let (pred_a, _) = bp.predict_branch(pc);
 
     // Context B: branch at pc=0x100 not-taken, then predict pc=0x1000.
     let mut bp2 = GSharePredictor::new(256, 4, 8);
-    bp2.update_branch(0x100, false, None);
+    let snap2 = bp2.snapshot_history();
+    bp2.update_branch(0x100, false, None, &snap2);
     let (pred_b, _) = bp2.predict_branch(pc);
 
     // With different GHR states, the predictions may differ
@@ -305,7 +308,8 @@ fn tournament_adapts_choice() {
     for i in 0..50 {
         let taken = i % 2 == 0;
         let tgt = if taken { Some(0x2000) } else { None };
-        bp.update_branch(pc, taken, tgt);
+        let snap = bp.snapshot_history();
+        bp.update_branch(pc, taken, tgt, &snap);
     }
 
     // The predictor should not crash and should produce a valid prediction.
@@ -324,23 +328,23 @@ fn all_predictors_use_btb() {
     let target = 0x2000;
 
     let mut static_bp = StaticPredictor::new(64, 4, 8);
-    static_bp.update_branch(pc, true, Some(target));
+    static_bp.update_branch(pc, true, Some(target), &Ghr::default());
     assert_eq!(static_bp.predict_btb(pc), Some(target));
 
     let mut gshare = GSharePredictor::new(64, 4, 8);
-    gshare.update_branch(pc, true, Some(target));
+    gshare.update_branch(pc, true, Some(target), &Ghr::default());
     assert_eq!(gshare.predict_btb(pc), Some(target));
 
     let mut perceptron = default_perceptron();
-    perceptron.update_branch(pc, true, Some(target));
+    perceptron.update_branch(pc, true, Some(target), &Ghr::default());
     assert_eq!(perceptron.predict_btb(pc), Some(target));
 
     let mut tage = default_tage();
-    tage.update_branch(pc, true, Some(target));
+    tage.update_branch(pc, true, Some(target), &Ghr::default());
     assert_eq!(tage.predict_btb(pc), Some(target));
 
     let mut tournament = default_tournament();
-    tournament.update_branch(pc, true, Some(target));
+    tournament.update_branch(pc, true, Some(target), &Ghr::default());
     assert_eq!(tournament.predict_btb(pc), Some(target));
 }
 

@@ -17,6 +17,7 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::units::bru::BranchPredictor;
 
 /// Drain completed MSHRs: install cache lines in L1D and resume parked
 /// loads/atomics into the mem1→mem2 latch.  Mirrors the O3 backend's
@@ -279,6 +280,9 @@ impl ExecutionEngine for InOrderEngine {
         self.mem1_stall = 0;
         // Flush all MSHRs — their parked entries are now invalid
         cpu.l1d_mshrs.flush();
+        // Reset speculative GHR to committed state — wrong-path branch
+        // outcomes may have been pushed into the speculative history.
+        cpu.branch_predictor.repair_to_committed();
     }
 
     fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64 {

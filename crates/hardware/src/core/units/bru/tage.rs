@@ -7,9 +7,90 @@
 //!
 //! The loop predictor detects counted loops and overrides TAGE when it has
 //! high confidence in the loop's trip count.
+//!
+//! # Incremental Folded History (CSR)
+//!
+//! Index and tag computations use Circular Shift Register (CSR) folded history.
+//! Instead of recomputing the XOR-fold of the full history on every access,
+//! each CSR is updated incrementally in O(1) when a new branch outcome is
+//! pushed into the GHR. This is the standard technique from Seznec's TAGE papers.
 
-use super::{BranchPredictor, btb::Btb, ras::Ras};
+use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 use crate::config::TageConfig;
+
+// ═══════════════════════════════════════════════════════════════════
+// Folded History (Circular Shift Register)
+// ═══════════════════════════════════════════════════════════════════
+
+/// A single Circular Shift Register for incremental folded XOR computation.
+///
+/// Maintains a `fold_width`-bit value that represents the XOR-fold of the
+/// most recent `hist_length` bits of the GHR, updated incrementally in O(1)
+/// per branch outcome push.
+#[derive(Clone, Copy, Debug)]
+struct FoldedHistory {
+    /// Current folded value (only the low `fold_width` bits are meaningful).
+    val: u64,
+    /// Number of bits to fold into (e.g., `table_bits` for index, `tag_width` for tag).
+    fold_width: usize,
+    /// History length for this bank (how many GHR bits contribute).
+    hist_length: usize,
+}
+
+impl FoldedHistory {
+    fn new(fold_width: usize, hist_length: usize) -> Self {
+        Self { val: 0, fold_width, hist_length }
+    }
+
+    /// Incrementally updates the CSR when a new bit is pushed into the GHR.
+    ///
+    /// Must be called BEFORE `ghr.push()`. `old_bit` is `ghr.bit(hist_length - 1)`,
+    /// the bit about to leave this bank's history window.
+    ///
+    /// Formula: `CSR = rotate_left(CSR, 1, fold_width) ^ new_bit ^ (old_bit << (hist_length % fold_width))`
+    #[inline]
+    fn update(&mut self, new_bit: bool, old_bit: bool) {
+        let w = self.fold_width;
+        if w == 0 {
+            return;
+        }
+        let mask = (1u64 << w) - 1;
+        // Circular left rotate within fold_width bits.
+        let msb = (self.val >> (w - 1)) & 1;
+        self.val = ((self.val << 1) | msb) & mask;
+        // XOR in the new bit at position 0.
+        self.val ^= new_bit as u64;
+        // XOR out the old (leaving) bit at its folded position.
+        self.val ^= (old_bit as u64) << (self.hist_length % w);
+        self.val &= mask;
+    }
+
+    /// Recomputes the CSR from scratch by replaying history bits oldest→newest.
+    ///
+    /// Used after `repair_history()` (misprediction recovery) and in
+    /// `update_branch()` to reconstruct CSRs from a snapshot GHR.
+    fn recompute(&mut self, ghr: &Ghr) {
+        let w = self.fold_width;
+        if w == 0 {
+            self.val = 0;
+            return;
+        }
+        let mask = (1u64 << w) - 1;
+        self.val = 0;
+        // Replay from oldest (position hist_length-1) to newest (position 0).
+        // During replay, no bits leave the window (it grows from 0 to hist_length),
+        // so old_bit is always false.
+        for i in (0..self.hist_length).rev() {
+            let msb = (self.val >> (w - 1)) & 1;
+            self.val = ((self.val << 1) | msb) & mask;
+            self.val ^= ghr.bit(i) as u64;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TAGE Predictor
+// ═══════════════════════════════════════════════════════════════════
 
 /// An entry in a TAGE bank.
 #[derive(Clone, Copy, Debug, Default)]
@@ -44,8 +125,13 @@ pub struct TagePredictor {
     btb: Btb,
     /// Return Address Stack.
     ras: Ras,
-    /// Global History Register.
-    ghr: u64,
+
+    /// Speculative wide Global History Register — updated at fetch time by
+    /// `speculate()` and restored at execute time by `repair_history()`.
+    spec_ghr: Ghr,
+    /// Committed wide Global History Register — updated only at commit time
+    /// in `update_branch()` with the actual branch outcome.
+    commit_ghr: Ghr,
 
     /// Base bimodal predictor table.
     base: Vec<i8>,
@@ -56,8 +142,19 @@ pub struct TagePredictor {
     hist_lengths: Vec<usize>,
     /// Tag widths for each bank.
     tag_widths: Vec<usize>,
+    /// Number of bits for table indexing (log2 of table size).
+    table_bits: usize,
     /// Mask for indexing the tables.
     table_mask: usize,
+
+    /// Speculative CSRs for index computation (one per bank, fold_width = table_bits).
+    spec_idx_csr: Vec<FoldedHistory>,
+    /// Speculative CSRs for index computation (one per bank, fold_width = table_bits - 1).
+    spec_idx_csr2: Vec<FoldedHistory>,
+    /// Speculative CSRs for tag computation (one per bank, fold_width = tag_widths[i]).
+    spec_tag_csr: Vec<FoldedHistory>,
+    /// Speculative CSRs for tag computation (one per bank, fold_width = tag_widths[i] - 1).
+    spec_tag_csr2: Vec<FoldedHistory>,
 
     /// Index of the bank providing the current prediction.
     provider_bank: usize,
@@ -85,35 +182,73 @@ impl TagePredictor {
     pub fn new(config: &TageConfig, btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         assert!(config.table_size.is_power_of_two(), "TAGE table size must be power of 2");
 
-        let (hist_lengths, tag_widths, num_banks) = if config.history_lengths.is_empty() {
-            (vec![5, 15, 44, 130], vec![9, 9, 10, 10], 4)
-        } else {
-            (config.history_lengths.clone(), config.tag_widths.clone(), config.num_banks)
-        };
+        let num_banks = config.num_banks;
+        let hist_lengths = &config.history_lengths;
+        let tag_widths = &config.tag_widths;
 
         assert_eq!(
             hist_lengths.len(),
             num_banks,
-            "TAGE: History lengths vector must match num_banks"
+            "TAGE: history_lengths.len() ({}) must match num_banks ({num_banks})",
+            hist_lengths.len(),
         );
-        assert_eq!(tag_widths.len(), num_banks, "TAGE: Tag widths vector must match num_banks");
+        assert_eq!(
+            tag_widths.len(),
+            num_banks,
+            "TAGE: tag_widths.len() ({}) must match num_banks ({num_banks})",
+            tag_widths.len(),
+        );
 
-        let mut banks = Vec::new();
+        let table_bits = config.table_size.trailing_zeros() as usize;
+        let max_hist = *hist_lengths.iter().max().unwrap_or(&64);
+
+        assert!(
+            max_hist <= 1024,
+            "TAGE: max history length {max_hist} exceeds GHR capacity of 1024 bits. \
+             Reduce your history_lengths config.",
+        );
+
+        let mut banks = Vec::with_capacity(num_banks);
         for _ in 0..num_banks {
             banks.push(vec![TageEntry::default(); config.table_size]);
         }
+
+        // Initialize CSR arrays.
+        let spec_idx_csr: Vec<_> =
+            hist_lengths.iter().map(|&hl| FoldedHistory::new(table_bits, hl)).collect();
+        let spec_idx_csr2: Vec<_> = hist_lengths
+            .iter()
+            .map(|&hl| FoldedHistory::new(table_bits.saturating_sub(1).max(1), hl))
+            .collect();
+        let spec_tag_csr: Vec<_> = hist_lengths
+            .iter()
+            .zip(tag_widths.iter())
+            .map(|(&hl, &tw)| FoldedHistory::new(tw, hl))
+            .collect();
+        let spec_tag_csr2: Vec<_> = hist_lengths
+            .iter()
+            .zip(tag_widths.iter())
+            .map(|(&hl, &tw)| FoldedHistory::new(tw.saturating_sub(1).max(1), hl))
+            .collect();
 
         let loop_size = config.loop_table_size.max(1);
 
         Self {
             btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
-            ghr: 0,
+            spec_ghr: Ghr::with_len(max_hist),
+            commit_ghr: Ghr::with_len(max_hist),
             base: vec![0; config.table_size],
             banks,
-            hist_lengths,
-            tag_widths,
+            hist_lengths: hist_lengths.clone(),
+            tag_widths: tag_widths.clone(),
+            table_bits,
             table_mask: config.table_size - 1,
+
+            spec_idx_csr,
+            spec_idx_csr2,
+            spec_tag_csr,
+            spec_tag_csr2,
 
             provider_bank: 0,
             alt_bank: 0,
@@ -125,46 +260,54 @@ impl TagePredictor {
         }
     }
 
-    /// Folds a wide value into `bits` width by XOR-compressing.
-    const fn fold(val: u64, bits: usize) -> u64 {
-        if bits == 0 || bits >= 64 {
-            return val;
-        }
-        let mask = (1u64 << bits) - 1;
-        let mut r = 0u64;
-        let mut v = val;
-        while v != 0 {
-            r ^= v & mask;
-            v >>= bits;
-        }
-        r
-    }
+    // ─── Index / tag using live speculative CSRs (O(1)) ────────────
 
-    /// Masks the GHR to the history length for a given bank.
-    fn bank_history(&self, bank: usize) -> u64 {
-        let len = self.hist_lengths[bank];
-        if len >= 64 { self.ghr } else { self.ghr & ((1u64 << len) - 1) }
-    }
-
-    /// Calculates the index for a specific bank using PC and GHR.
-    fn index(&self, pc: u64, bank: usize) -> usize {
-        let table_bits = (self.table_mask + 1).trailing_zeros() as usize;
-        let h = self.bank_history(bank);
+    /// Computes the table index for a bank using pre-computed speculative CSRs.
+    #[inline]
+    fn spec_index(&self, pc: u64, bank: usize) -> usize {
         let pc_hash = pc >> 2;
-        let h_folded = Self::fold(h, table_bits);
-        let h_folded2 = Self::fold(h, table_bits.wrapping_sub(1).max(1));
-        (pc_hash as usize ^ h_folded as usize ^ h_folded2 as usize) & self.table_mask
+        let h1 = self.spec_idx_csr[bank].val;
+        let h2 = self.spec_idx_csr2[bank].val;
+        (pc_hash as usize ^ h1 as usize ^ h2 as usize) & self.table_mask
     }
 
-    /// Calculates the tag for a specific bank using PC and GHR.
-    fn tag(&self, pc: u64, bank: usize) -> u16 {
+    /// Computes the tag for a bank using pre-computed speculative CSRs.
+    #[inline]
+    fn spec_tag(&self, pc: u64, bank: usize) -> u16 {
         let width = self.tag_widths[bank];
-        let h = self.bank_history(bank);
-        let pc_hash = pc >> 2;
-        let h_folded = Self::fold(h, width);
-        let h_folded2 = Self::fold(h, width.wrapping_sub(1).max(1));
-        ((pc_hash as usize ^ h_folded as usize ^ h_folded2 as usize) & ((1 << width) - 1)) as u16
+        let pc_hash = (pc >> 2) ^ (pc >> 18);
+        let h1 = self.spec_tag_csr[bank].val;
+        let h2 = self.spec_tag_csr2[bank].val;
+        ((pc_hash as usize ^ h1 as usize ^ h2 as usize) & ((1 << width) - 1)) as u16
     }
+
+    // ─── Index / tag from a GHR snapshot (O(hist_length) recompute) ───
+
+    /// Computes the table index for a bank by recomputing CSRs from a GHR snapshot.
+    /// Used at commit time in `update_branch`.
+    fn snapshot_index(&self, pc: u64, bank: usize, ghr: &Ghr) -> usize {
+        let mut csr1 = FoldedHistory::new(self.table_bits, self.hist_lengths[bank]);
+        csr1.recompute(ghr);
+        let mut csr2 =
+            FoldedHistory::new(self.table_bits.saturating_sub(1).max(1), self.hist_lengths[bank]);
+        csr2.recompute(ghr);
+        let pc_hash = pc >> 2;
+        (pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & self.table_mask
+    }
+
+    /// Computes the tag for a bank by recomputing CSRs from a GHR snapshot.
+    /// Used at commit time in `update_branch`.
+    fn snapshot_tag(&self, pc: u64, bank: usize, ghr: &Ghr) -> u16 {
+        let width = self.tag_widths[bank];
+        let mut csr1 = FoldedHistory::new(width, self.hist_lengths[bank]);
+        csr1.recompute(ghr);
+        let mut csr2 = FoldedHistory::new(width.saturating_sub(1).max(1), self.hist_lengths[bank]);
+        csr2.recompute(ghr);
+        let pc_hash = (pc >> 2) ^ (pc >> 18);
+        ((pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & ((1 << width) - 1)) as u16
+    }
+
+    // ─── Loop predictor ────────────────────────────────────────────
 
     /// Loop predictor index from PC.
     const fn loop_index(&self, pc: u64) -> usize {
@@ -187,7 +330,6 @@ impl TagePredictor {
             return None;
         }
 
-        // Predict: if we've reached trip_count iterations, loop exits (not taken).
         if entry.current_iter + 1 >= entry.trip_count {
             Some(false) // loop exit
         } else {
@@ -203,33 +345,38 @@ impl TagePredictor {
 
         if entry.tag == tag {
             if taken {
-                // Still in loop body — increment iteration counter.
                 entry.current_iter = entry.current_iter.saturating_add(1);
                 entry.age = entry.age.saturating_add(1).min(3);
             } else {
                 // Loop exit.
                 if entry.trip_count == 0 {
-                    // First time seeing exit: learn the trip count.
                     entry.trip_count = entry.current_iter;
                     entry.confidence = 1;
                 } else if entry.current_iter == entry.trip_count {
-                    // Trip count matches — increase confidence.
                     entry.confidence = entry.confidence.saturating_add(1).min(3);
                 } else {
-                    // Trip count mismatch — re-learn.
                     entry.trip_count = entry.current_iter;
                     entry.confidence = 0;
                 }
                 entry.current_iter = 0;
             }
         } else if taken {
-            // No matching entry and branch is taken (potential loop start).
-            // Allocate if the existing entry has low age.
             if entry.age == 0 || entry.tag == 0 {
                 *entry = LoopEntry { tag, current_iter: 1, trip_count: 0, confidence: 0, age: 1 };
             } else {
                 entry.age = entry.age.saturating_sub(1);
             }
+        }
+    }
+
+    /// Recomputes all speculative CSRs from the current spec_ghr.
+    fn recompute_all_csrs(&mut self) {
+        let ghr = &self.spec_ghr;
+        for i in 0..self.banks.len() {
+            self.spec_idx_csr[i].recompute(ghr);
+            self.spec_idx_csr2[i].recompute(ghr);
+            self.spec_tag_csr[i].recompute(ghr);
+            self.spec_tag_csr2[i].recompute(ghr);
         }
     }
 }
@@ -250,8 +397,8 @@ impl BranchPredictor for TagePredictor {
         let num_banks = self.banks.len();
 
         for i in (0..num_banks).rev() {
-            let idx = self.index(pc, i);
-            let tag = self.tag(pc, i);
+            let idx = self.spec_index(pc, i);
+            let tag = self.spec_tag(pc, i);
             if self.banks[i][idx].tag == tag {
                 provider = i + 1;
                 break;
@@ -260,21 +407,22 @@ impl BranchPredictor for TagePredictor {
 
         if provider > 0 {
             let bank_idx = provider - 1;
-            let idx = self.index(pc, bank_idx);
+            let idx = self.spec_index(pc, bank_idx);
             let ctr = self.banks[bank_idx][idx].ctr;
             return (ctr >= 0, self.btb.lookup(pc));
         }
 
-        let base_idx = (pc as usize) & self.table_mask;
+        let base_idx = ((pc >> 2) as usize) & self.table_mask;
         (self.base[base_idx] >= 0, self.btb.lookup(pc))
     }
 
-    /// Updates the predictor state.
+    /// Updates the predictor state at commit time.
     ///
-    /// Updates the provider bank, and potentially allocates a new entry in a
-    /// bank with longer history on mispredictions. Also handles periodic
-    /// resetting of useful bits and loop predictor training.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+    /// Uses the GHR snapshot from prediction time (not the live speculative
+    /// GHR) to ensure we train the same table entries that were consulted
+    /// during prediction. CSRs are recomputed from the snapshot via
+    /// `snapshot_index`/`snapshot_tag`.
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
         // Update loop predictor.
         self.loop_update(pc, taken);
 
@@ -293,8 +441,8 @@ impl BranchPredictor for TagePredictor {
         let num_banks = self.banks.len();
 
         for i in (0..num_banks).rev() {
-            let idx = self.index(pc, i);
-            let tag = self.tag(pc, i);
+            let idx = self.snapshot_index(pc, i, ghr_snapshot);
+            let tag = self.snapshot_tag(pc, i, ghr_snapshot);
             if self.banks[i][idx].tag == tag {
                 if provider == 0 {
                     provider = i + 1;
@@ -308,18 +456,18 @@ impl BranchPredictor for TagePredictor {
         self.alt_bank = alt;
 
         let pred_taken = if self.provider_bank > 0 {
-            let idx = self.index(pc, self.provider_bank - 1);
+            let idx = self.snapshot_index(pc, self.provider_bank - 1, ghr_snapshot);
             self.banks[self.provider_bank - 1][idx].ctr >= 0
         } else {
-            let base_idx = (pc as usize) & self.table_mask;
+            let base_idx = ((pc >> 2) as usize) & self.table_mask;
             self.base[base_idx] >= 0
         };
 
         let alt_taken = if self.alt_bank > 0 {
-            let idx = self.index(pc, self.alt_bank - 1);
+            let idx = self.snapshot_index(pc, self.alt_bank - 1, ghr_snapshot);
             self.banks[self.alt_bank - 1][idx].ctr >= 0
         } else {
-            let base_idx = (pc as usize) & self.table_mask;
+            let base_idx = ((pc >> 2) as usize) & self.table_mask;
             self.base[base_idx] >= 0
         };
 
@@ -327,7 +475,7 @@ impl BranchPredictor for TagePredictor {
 
         if self.provider_bank > 0 {
             let bank_idx = self.provider_bank - 1;
-            let idx = self.index(pc, bank_idx);
+            let idx = self.snapshot_index(pc, bank_idx, ghr_snapshot);
             let e = &mut self.banks[bank_idx][idx];
 
             if taken {
@@ -341,8 +489,11 @@ impl BranchPredictor for TagePredictor {
             if !mispredicted && (alt_taken != taken) && e.u < 3 {
                 e.u += 1;
             }
+            if mispredicted && e.u > 0 {
+                e.u -= 1;
+            }
         } else {
-            let base_idx = (pc as usize) & self.table_mask;
+            let base_idx = ((pc >> 2) as usize) & self.table_mask;
             let b = &mut self.base[base_idx];
             if taken {
                 if *b < 1 {
@@ -359,8 +510,8 @@ impl BranchPredictor for TagePredictor {
             if start_bank < num_banks {
                 let mut allocated = false;
                 for i in start_bank..num_banks {
-                    let idx = self.index(pc, i);
-                    let tag = self.tag(pc, i);
+                    let idx = self.snapshot_index(pc, i, ghr_snapshot);
+                    let tag = self.snapshot_tag(pc, i, ghr_snapshot);
                     let e = &mut self.banks[i][idx];
 
                     if e.u == 0 {
@@ -374,7 +525,7 @@ impl BranchPredictor for TagePredictor {
 
                 if !allocated {
                     for i in start_bank..num_banks {
-                        let idx = self.index(pc, i);
+                        let idx = self.snapshot_index(pc, i, ghr_snapshot);
                         if self.banks[i][idx].u > 0 {
                             self.banks[i][idx].u -= 1;
                         }
@@ -383,7 +534,7 @@ impl BranchPredictor for TagePredictor {
             }
         }
 
-        self.ghr = (self.ghr << 1) | (if taken { 1 } else { 0 });
+        self.commit_ghr.push(taken);
 
         if let Some(tgt) = target {
             self.btb.update(pc, tgt);
@@ -411,16 +562,30 @@ impl BranchPredictor for TagePredictor {
         let _ = self.ras.pop();
     }
 
+    /// Speculatively updates the GHR and all CSRs with a predicted branch outcome.
+    ///
+    /// O(num_banks) — each CSR is updated in O(1).
     fn speculate(&mut self, _pc: u64, taken: bool) {
-        self.ghr = (self.ghr << 1) | (if taken { 1 } else { 0 });
+        // Read old bits BEFORE push — these are the bits leaving each bank's window.
+        for i in 0..self.banks.len() {
+            let hl = self.hist_lengths[i];
+            let old_bit = if hl > 0 { self.spec_ghr.bit(hl - 1) } else { false };
+            self.spec_idx_csr[i].update(taken, old_bit);
+            self.spec_idx_csr2[i].update(taken, old_bit);
+            self.spec_tag_csr[i].update(taken, old_bit);
+            self.spec_tag_csr2[i].update(taken, old_bit);
+        }
+        self.spec_ghr.push(taken);
     }
 
-    fn snapshot_history(&self) -> u64 {
-        self.ghr
+    fn snapshot_history(&self) -> Ghr {
+        self.spec_ghr // Copy
     }
 
-    fn repair_history(&mut self, ghr: u64) {
-        self.ghr = ghr;
+    /// Restores the GHR and recomputes all CSRs from the snapshot.
+    fn repair_history(&mut self, ghr: &Ghr) {
+        self.spec_ghr = *ghr;
+        self.recompute_all_csrs();
     }
 
     fn snapshot_ras(&self) -> usize {
@@ -429,5 +594,136 @@ impl BranchPredictor for TagePredictor {
 
     fn restore_ras(&mut self, ptr: usize) {
         self.ras.restore_ptr(ptr);
+    }
+
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        self.btb.update(pc, target);
+    }
+
+    fn repair_to_committed(&mut self) {
+        self.spec_ghr = self.commit_ghr;
+        self.recompute_all_csrs();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> TageConfig {
+        TageConfig {
+            num_banks: 4,
+            table_size: 256,
+            loop_table_size: 16,
+            reset_interval: 100_000,
+            history_lengths: vec![5, 15, 44, 130],
+            tag_widths: vec![9, 9, 10, 10],
+        }
+    }
+
+    #[test]
+    fn test_folded_history_update_matches_recompute() {
+        // Push N bits incrementally, then verify the CSR matches a fresh recompute.
+        let hist_length = 44;
+        let fold_width = 11;
+        let mut ghr = Ghr::with_len(hist_length);
+        let mut csr = FoldedHistory::new(fold_width, hist_length);
+
+        for i in 0..200 {
+            let bit = (i * 7 + 3) % 2 == 0; // deterministic pseudo-random pattern
+            let old_bit = if hist_length > 0 { ghr.bit(hist_length - 1) } else { false };
+            csr.update(bit, old_bit);
+            ghr.push(bit);
+        }
+
+        // Recompute from scratch and compare.
+        let mut recomputed = FoldedHistory::new(fold_width, hist_length);
+        recomputed.recompute(&ghr);
+        assert_eq!(
+            csr.val, recomputed.val,
+            "Incremental CSR ({:#x}) != recomputed ({:#x})",
+            csr.val, recomputed.val
+        );
+    }
+
+    #[test]
+    fn test_folded_history_various_widths() {
+        for &(hist_len, fold_w) in &[(5, 3), (15, 9), (44, 11), (130, 10), (712, 11)] {
+            let mut ghr = Ghr::with_len(hist_len);
+            let mut csr = FoldedHistory::new(fold_w, hist_len);
+
+            for i in 0..300 {
+                let bit = i % 3 != 0;
+                let old_bit = if hist_len > 0 { ghr.bit(hist_len - 1) } else { false };
+                csr.update(bit, old_bit);
+                ghr.push(bit);
+            }
+
+            let mut recomputed = FoldedHistory::new(fold_w, hist_len);
+            recomputed.recompute(&ghr);
+            assert_eq!(
+                csr.val, recomputed.val,
+                "Mismatch for hist_len={hist_len}, fold_w={fold_w}: {:#x} != {:#x}",
+                csr.val, recomputed.val
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_index_matches_snapshot_index() {
+        let config = test_config();
+        let mut tage = TagePredictor::new(&config, 64, 4, 8);
+        let pc: u64 = 0x8000_1234;
+
+        // Push some history.
+        for i in 0u64..50 {
+            let taken = i % 3 != 0;
+            tage.speculate(pc.wrapping_add(i * 4), taken);
+        }
+
+        // Snapshot the current state.
+        let snapshot = tage.snapshot_history();
+
+        // Verify spec_index/tag match snapshot_index/tag for all banks.
+        for bank in 0..config.num_banks {
+            let si = tage.spec_index(pc, bank);
+            let ri = tage.snapshot_index(pc, bank, &snapshot);
+            assert_eq!(si, ri, "Index mismatch for bank {bank}");
+
+            let st = tage.spec_tag(pc, bank);
+            let rt = tage.snapshot_tag(pc, bank, &snapshot);
+            assert_eq!(st, rt, "Tag mismatch for bank {bank}");
+        }
+    }
+
+    #[test]
+    fn test_repair_history_restores_csrs() {
+        let config = test_config();
+        let mut tage = TagePredictor::new(&config, 64, 4, 8);
+        let pc: u64 = 0x8000_1000;
+
+        // Push some history and take a snapshot.
+        for i in 0u64..20 {
+            tage.speculate(pc.wrapping_add(i * 4), i % 2 == 0);
+        }
+        let snapshot = tage.snapshot_history();
+
+        // Save CSR values at snapshot point.
+        let saved_idx: Vec<u64> = tage.spec_idx_csr.iter().map(|c| c.val).collect();
+        let saved_tag: Vec<u64> = tage.spec_tag_csr.iter().map(|c| c.val).collect();
+
+        // Push more speculative history (diverge from snapshot).
+        for i in 0u64..30 {
+            tage.speculate(pc.wrapping_add((20 + i) * 4), true);
+        }
+
+        // Repair to the snapshot.
+        tage.repair_history(&snapshot);
+
+        // CSRs should match the saved values.
+        let restored_idx: Vec<u64> = tage.spec_idx_csr.iter().map(|c| c.val).collect();
+        let restored_tag: Vec<u64> = tage.spec_tag_csr.iter().map(|c| c.val).collect();
+        assert_eq!(saved_idx, restored_idx, "Index CSRs not restored correctly");
+        assert_eq!(saved_tag, restored_tag, "Tag CSRs not restored correctly");
     }
 }

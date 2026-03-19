@@ -22,7 +22,12 @@ impl Cpu {
     /// # Returns
     ///
     /// A `TranslationResult` containing the physical address or a trap if translation fails.
-    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslationResult {
+    pub fn translate(
+        &mut self,
+        vaddr: VirtAddr,
+        access: AccessType,
+        size: u64,
+    ) -> TranslationResult {
         if self.direct_mode {
             let paddr = PhysAddr::new(vaddr.val());
             if !self.bus.bus.is_valid_address(paddr) {
@@ -114,9 +119,8 @@ impl Cpu {
                 self.l2_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L2 prefetch candidates through the shared filter
-            let filtered = self
-                .prefetch_filter
-                .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let filtered =
+                self.prefetch_filter.filter_and_record(l2_prefetches, &mut self.stats.pf_dedup_l2);
             let pf_evictions = self.l2_cache.install_prefetches(&filtered, WB_LAT);
 
             // Inclusive policy: L2 eviction → back-invalidate matching L1D/L1I lines
@@ -144,9 +148,8 @@ impl Cpu {
                 self.l3_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L3 prefetch candidates
-            let filtered = self
-                .prefetch_filter
-                .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let filtered =
+                self.prefetch_filter.filter_and_record(l3_prefetches, &mut self.stats.pf_dedup_l3);
             let pf_evictions = self.l3_cache.install_prefetches(&filtered, WB_LAT);
 
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
@@ -170,7 +173,7 @@ impl Cpu {
         }
 
         // All caches missed — now query the DRAM controller (stateful).
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.stats.cycles);
         total_penalty += self.bus.bus.calculate_transit_time(8);
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);
@@ -202,7 +205,7 @@ impl Cpu {
 
         // If no cache level is enabled, every access goes directly to DRAM.
         if !l1_enabled && !self.l2_cache.enabled && !self.l3_cache.enabled {
-            let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
+            let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.stats.cycles);
             return self.bus.bus.calculate_transit_time(8)
                 + ram_latency
                 + self.bus.bus.calculate_transit_time(64);
@@ -227,9 +230,8 @@ impl Cpu {
         };
 
         // Filter L1 prefetch candidates through the shared filter, then install
-        let filtered_l1 = self
-            .prefetch_filter
-            .filter_and_record(l1_prefetches, &mut self.stats.prefetch_filter_dedup);
+        let filtered_l1 =
+            self.prefetch_filter.filter_and_record(l1_prefetches, &mut self.stats.pf_dedup_l1);
         let l1_pf_evictions = if is_inst {
             self.l1_i_cache.install_prefetches(&filtered_l1, WB_LAT)
         } else {
@@ -265,9 +267,8 @@ impl Cpu {
                 self.l2_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L2 prefetch candidates
-            let filtered_l2 = self
-                .prefetch_filter
-                .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let filtered_l2 =
+                self.prefetch_filter.filter_and_record(l2_prefetches, &mut self.stats.pf_dedup_l2);
             let l2_pf_evictions = self.l2_cache.install_prefetches(&filtered_l2, WB_LAT);
 
             // Inclusive policy: L2 eviction → back-invalidate L1 lines
@@ -301,9 +302,8 @@ impl Cpu {
                 self.l3_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L3 prefetch candidates
-            let filtered_l3 = self
-                .prefetch_filter
-                .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
+            let filtered_l3 =
+                self.prefetch_filter.filter_and_record(l3_prefetches, &mut self.stats.pf_dedup_l3);
             let l3_pf_evictions = self.l3_cache.install_prefetches(&filtered_l3, WB_LAT);
 
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
@@ -329,7 +329,7 @@ impl Cpu {
         // ── DRAM (all caches missed) ────────────────────────────────────────────
         // Only now do we consult the stateful DRAM controller, so its bank,
         // row-buffer, and refresh state reflects real memory traffic only.
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.stats.cycles);
         total_penalty += self.bus.bus.calculate_transit_time(8);
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);

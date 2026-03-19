@@ -22,6 +22,7 @@ use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::units::bru::BranchPredictor;
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
@@ -307,8 +308,7 @@ impl ExecutionEngine for O3Engine {
 
                 self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
                 self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.pending_results
-                    .retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+                self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             } else {
                 // The violating load is at the ROB head (no preceding entry),
@@ -545,6 +545,19 @@ impl ExecutionEngine for O3Engine {
         if let Some(keep_tag) = flush_keep_tag {
             cpu.stats.stalls_control += 1;
             cpu.stats.pipeline_flushes += 1;
+
+            // Classify flush source: branch/jump misprediction vs serializing system op
+            if let Some(entry) = self.rob.find_entry(keep_tag) {
+                if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
+                    cpu.stats.flushes_branch += 1;
+                } else {
+                    cpu.stats.flushes_system += 1;
+                }
+            } else {
+                // Entry already committed — was a serializing instruction
+                cpu.stats.flushes_system += 1;
+            }
+
             rename_output.clear();
 
             // Check whether keep_tag is still in the ROB. It may have been
@@ -633,6 +646,9 @@ impl ExecutionEngine for O3Engine {
         self.mem2_wb.clear();
         // Flush all MSHRs — their parked entries are now invalid
         cpu.l1d_mshrs.flush();
+        // Reset speculative GHR to committed state — wrong-path branch
+        // outcomes may have been pushed into the speculative history.
+        cpu.branch_predictor.repair_to_committed();
 
         // Invariant check: after a full flush the total number of physical
         // registers must be conserved.  Every phys reg is either free OR

@@ -154,8 +154,8 @@ mod defaults {
     /// Default Return Address Stack size (8 entries).
     pub const RAS_SIZE: usize = 8;
 
-    /// Default number of TAGE predictor banks (4 tagged tables).
-    pub const TAGE_BANKS: usize = 4;
+    /// Default number of TAGE predictor banks (8 tagged tables).
+    pub const TAGE_BANKS: usize = 8;
 
     /// Default TAGE predictor table size (2048 entries per bank).
     pub const TAGE_TABLE_SIZE: usize = 2048;
@@ -1181,16 +1181,16 @@ impl TageConfig {
 
     /// Returns the default history lengths for each TAGE bank.
     ///
-    /// Provides geometric progression of history lengths: [5, 15, 44, 130].
+    /// Geometric progression: [5, 11, 22, 44, 89, 178, 356, 712] (~2× ratio).
     fn default_history_lengths() -> Vec<usize> {
-        vec![5, 15, 44, 130]
+        vec![5, 11, 22, 44, 89, 178, 356, 712]
     }
 
     /// Returns the default tag widths for each TAGE bank.
     ///
-    /// Tag widths increase with history length: [9, 9, 10, 10] bits.
+    /// Tag widths increase with history length: [8, 8, 9, 9, 10, 10, 11, 11] bits.
     fn default_tag_widths() -> Vec<usize> {
-        vec![9, 9, 10, 10]
+        vec![8, 8, 9, 9, 10, 10, 11, 11]
     }
 }
 

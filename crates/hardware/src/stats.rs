@@ -61,6 +61,11 @@ pub struct SimStats {
     pub cycles_kernel: u64,
     /// Cycles spent in machine (M) mode.
     pub cycles_machine: u64,
+    /// Cycles spent in WFI (wait-for-interrupt) state.
+    pub cycles_wfi: u64,
+
+    /// Cycles where the ROB was empty at commit (pipeline draining/refilling after flush).
+    pub cycles_rob_empty: u64,
 
     /// Stall cycles due to memory (cache/memory not ready).
     pub stalls_mem: u64,
@@ -127,8 +132,23 @@ pub struct SimStats {
     /// Write Combining Buffer: entries drained to L1D.
     pub wcb_drains: u64,
 
-    /// Prefetch filter: redundant prefetch requests suppressed.
+    /// Prefetch filter: redundant prefetch requests suppressed (total across all levels).
     pub prefetch_filter_dedup: u64,
+    /// Prefetch filter dedup: L1 level.
+    pub pf_dedup_l1: u64,
+    /// Prefetch filter dedup: L2 level.
+    pub pf_dedup_l2: u64,
+    /// Prefetch filter dedup: L3 level.
+    pub pf_dedup_l3: u64,
+
+    /// Cycles where the frontend had instructions but the backend could not accept them
+    /// (ROB/SB/LQ/IQ/PRF full).
+    pub stalls_dispatch: u64,
+
+    /// Pipeline flushes caused by branch/jump mispredictions.
+    pub flushes_branch: u64,
+    /// Pipeline flushes caused by serializing instructions (CSR, FENCE.I, MRET/SRET, etc.).
+    pub flushes_system: u64,
 
     /// Retirement histogram: how many instructions were retired per cycle.
     /// Index 0 = cycles with 0 retires, 1 = 1 retire, 2 = 2 retires, 3 = 3+ retires.
@@ -159,6 +179,8 @@ impl Default for SimStats {
             cycles_user: 0,
             cycles_kernel: 0,
             cycles_machine: 0,
+            cycles_wfi: 0,
+            cycles_rob_empty: 0,
             stalls_mem: 0,
             stalls_control: 0,
             stalls_data: 0,
@@ -186,6 +208,12 @@ impl Default for SimStats {
             wcb_coalesces: 0,
             wcb_drains: 0,
             prefetch_filter_dedup: 0,
+            pf_dedup_l1: 0,
+            pf_dedup_l2: 0,
+            pf_dedup_l3: 0,
+            stalls_dispatch: 0,
+            flushes_branch: 0,
+            flushes_system: 0,
             retire_histogram: [0; 4],
         }
     }
@@ -235,6 +263,9 @@ impl SimStats {
             let cpi = cyc as f64 / instr as f64;
             let mips = (self.instructions_retired as f64 / seconds) / 1_000_000.0;
             let khz = (self.cycles as f64 / seconds) / 1000.0;
+            let active_cycles = cyc.saturating_sub(self.cycles_wfi);
+            let active_cyc = if active_cycles == 0 { 1 } else { active_cycles };
+            let active_ipc = self.instructions_retired as f64 / active_cyc as f64;
             println!("\n{rule}");
             println!("{bold}RISC-V SYSTEM SIMULATION STATISTICS{rst}");
             println!("{rule}");
@@ -243,12 +274,74 @@ impl SimStats {
             println!("sim_freq                 {khz:.2} kHz");
             println!("sim_insts                {}", self.instructions_retired);
             println!("sim_ipc                  {ipc:.4}");
+            if self.cycles_wfi > 0 {
+                println!("sim_ipc_active           {active_ipc:.4}");
+            }
             println!("sim_cpi                  {cpi:.4}");
             println!("sim_mips                 {mips:.2}");
             println!("{sep}");
         }
         if want("core") {
-            println!("{bold}CORE BREAKDOWN{rst}");
+            // Cycle accounting: commit-side view (sums to ~sim_cycles).
+            let rh = &self.retire_histogram;
+            let rh_total = rh[0] + rh[1] + rh[2] + rh[3];
+            let cycles_retiring = rh[1] + rh[2] + rh[3];
+
+            println!("{bold}CYCLE ACCOUNTING{rst}");
+            println!(
+                "  cycles.retiring        {} ({:.2}%)",
+                cycles_retiring,
+                (cycles_retiring as f64 / cyc as f64) * 100.0
+            );
+            println!(
+                "  cycles.rob_empty       {} ({:.2}%)",
+                self.cycles_rob_empty,
+                (self.cycles_rob_empty as f64 / cyc as f64) * 100.0
+            );
+            // Cycles where ROB had entries but head was not ready (long-latency
+            // ops in flight, data/memory stalls upstream of commit).
+            let cycles_rob_stall =
+                rh[0].saturating_sub(self.cycles_rob_empty).saturating_sub(self.cycles_wfi);
+            println!(
+                "  cycles.rob_stall       {} ({:.2}%)",
+                cycles_rob_stall,
+                (cycles_rob_stall as f64 / cyc as f64) * 100.0
+            );
+            if self.cycles_wfi > 0 {
+                println!(
+                    "  cycles.wfi             {} ({:.2}%)",
+                    self.cycles_wfi,
+                    (self.cycles_wfi as f64 / cyc as f64) * 100.0
+                );
+            }
+            if rh_total > 0 {
+                let pct = |v: u64| (v as f64 / rh_total as f64) * 100.0;
+                println!(
+                    "  retire.per_cycle       0:{:.1}%  1:{:.1}%  2:{:.1}%  3+:{:.1}%",
+                    pct(rh[0]),
+                    pct(rh[1]),
+                    pct(rh[2]),
+                    pct(rh[3]),
+                );
+                // Show active retire distribution (excluding WFI idle cycles)
+                if self.cycles_wfi > 0 {
+                    let active_total = rh_total.saturating_sub(self.cycles_wfi);
+                    if active_total > 0 {
+                        let active_zero = rh[0].saturating_sub(self.cycles_wfi);
+                        let apct = |v: u64| (v as f64 / active_total as f64) * 100.0;
+                        println!(
+                            "  retire.active          0:{:.1}%  1:{:.1}%  2:{:.1}%  3+:{:.1}%",
+                            apct(active_zero),
+                            apct(rh[1]),
+                            apct(rh[2]),
+                            apct(rh[3]),
+                        );
+                    }
+                }
+            }
+            println!("{sep}");
+
+            println!("{bold}PRIVILEGE BREAKDOWN{rst}");
             println!(
                 "  cycles.user            {} ({:.2}%)",
                 self.cycles_user,
@@ -264,10 +357,17 @@ impl SimStats {
                 self.cycles_machine,
                 (self.cycles_machine as f64 / cyc as f64) * 100.0
             );
+            println!("{sep}");
+
+            println!("{bold}PIPELINE STALLS{rst}");
+            // Memory stalls: blocking-mode stalls + MSHR-full stalls (non-blocking mode).
+            // With MSHRs enabled, cache miss latency is hidden by the non-blocking cache;
+            // remaining memory stalls come from MSHR exhaustion.
+            let total_mem_stalls = self.stalls_mem + self.stalls_mshr_full;
             println!(
                 "  stalls.memory          {} ({:.2}%)",
-                self.stalls_mem,
-                (self.stalls_mem as f64 / cyc as f64) * 100.0
+                total_mem_stalls,
+                (total_mem_stalls as f64 / cyc as f64) * 100.0
             );
             println!(
                 "  stalls.control         {} ({:.2}%)",
@@ -289,16 +389,11 @@ impl SimStats {
                 self.stalls_backpressure,
                 (self.stalls_backpressure as f64 / cyc as f64) * 100.0
             );
-            let rh = &self.retire_histogram;
-            let rh_total = rh[0] + rh[1] + rh[2] + rh[3];
-            if rh_total > 0 {
-                let pct = |v: u64| (v as f64 / rh_total as f64) * 100.0;
+            if self.stalls_dispatch > 0 {
                 println!(
-                    "  retire.per_cycle       0:{:.1}%  1:{:.1}%  2:{:.1}%  3+:{:.1}%",
-                    pct(rh[0]),
-                    pct(rh[1]),
-                    pct(rh[2]),
-                    pct(rh[3]),
+                    "  stalls.dispatch        {} ({:.2}%)",
+                    self.stalls_dispatch,
+                    (self.stalls_dispatch as f64 / cyc as f64) * 100.0
                 );
             }
             println!("{sep}");
@@ -364,10 +459,14 @@ impl SimStats {
             println!("  bp.spec_mispredicts    {spec_miss}");
             println!("  bp.spec_accuracy       {spec_acc:.2}%");
             println!("{sep}");
-            println!("{bold}BRANCH FLUSHES & PENALTIES{rst}");
-            println!("  bp.flushes             {}", self.pipeline_flushes);
-            println!("  bp.squashed_insns      {}", self.misprediction_penalty);
-            println!("  bp.mem_violations      {}", self.mem_ordering_violations);
+            println!("{bold}PIPELINE FLUSHES & PENALTIES{rst}");
+            println!("  flush.total            {}", self.pipeline_flushes);
+            if self.flushes_branch > 0 || self.flushes_system > 0 {
+                println!("  flush.branch           {}", self.flushes_branch);
+                println!("  flush.system           {}", self.flushes_system);
+            }
+            println!("  flush.mem_violations   {}", self.mem_ordering_violations);
+            println!("  flush.squashed_insns   {}", self.misprediction_penalty);
             println!("{sep}");
         }
         if want("memory") {
@@ -406,8 +505,17 @@ impl SimStats {
                     self.wcb_coalesces, self.wcb_drains
                 );
             }
-            if self.prefetch_filter_dedup > 0 {
-                println!("  pf_filter.dedup        {}", self.prefetch_filter_dedup);
+            let pf_total = self.pf_dedup_l1 + self.pf_dedup_l2 + self.pf_dedup_l3;
+            // Fall back to the legacy total counter if per-level aren't populated
+            let pf_display = if pf_total > 0 { pf_total } else { self.prefetch_filter_dedup };
+            if pf_display > 0 {
+                println!("  pf_filter.dedup        {}", pf_display);
+                if pf_total > 0 {
+                    println!(
+                        "    L1: {}  L2: {}  L3: {}",
+                        self.pf_dedup_l1, self.pf_dedup_l2, self.pf_dedup_l3
+                    );
+                }
             }
         }
         println!("{rule}");

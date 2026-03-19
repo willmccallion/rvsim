@@ -92,18 +92,23 @@ pub fn commit_stage(
                 cpu.wfi_waiting = false;
                 cpu.pc = cpu.wfi_pc;
                 cpu.redirect_pending = true;
+            } else {
+                cpu.stats.cycles_wfi += 1;
             }
+            cpu.stats.retire_histogram[0] += 1;
             return trap_event;
         }
     }
 
     // If interrupt detected, don't commit — flush everything
     if trap_event.is_some() {
+        cpu.stats.retire_histogram[0] += 1;
         return trap_event;
     }
 
     // Commit up to `width` entries from ROB head
     let mut retired_count: usize = 0;
+    let rob_empty_at_start = rob.peek_head().is_none();
     for _ in 0..width {
         let Some(head) = rob.peek_head() else { break };
 
@@ -239,6 +244,7 @@ pub fn commit_stage(
                 entry.bp_pc,
                 entry.bp_outcome.taken,
                 entry.bp_target,
+                &entry.bp_ghr_snapshot,
             );
             trace_branch!(cpu.trace;
                 event         = "update",
@@ -541,7 +547,10 @@ pub fn commit_stage(
         cpu.regs.write(RegIdx::new(0), 0);
     }
 
-    // Record retirement histogram
+    // Record retirement histogram and ROB-empty tracking
+    if retired_count == 0 && rob_empty_at_start {
+        cpu.stats.cycles_rob_empty += 1;
+    }
     cpu.stats.retire_histogram[retired_count.min(3)] += 1;
 
     // Drain one committed store to memory per cycle

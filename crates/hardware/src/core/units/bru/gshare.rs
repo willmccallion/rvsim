@@ -14,7 +14,7 @@
 //! - **Best Case:** Correlated branches where outcome depends on recent history
 //! - **Worst Case:** Uncorrelated branches or history length too short/long for pattern
 
-use super::{BranchPredictor, btb::Btb, ras::Ras};
+use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Size of the Pattern History Table (2^12 entries).
 const TABLE_BITS: usize = 12;
@@ -71,7 +71,7 @@ impl BranchPredictor for GSharePredictor {
     ///
     /// Updates the 2-bit saturating counter in the PHT and shifts the new
     /// outcome into the Global History Register.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>) {
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
         let idx = self.index(pc);
         let counter = self.pht[idx];
 
@@ -113,12 +113,12 @@ impl BranchPredictor for GSharePredictor {
         self.ghr = ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((TABLE_SIZE as u64) - 1);
     }
 
-    fn snapshot_history(&self) -> u64 {
-        self.ghr
+    fn snapshot_history(&self) -> Ghr {
+        Ghr::new(self.ghr)
     }
 
-    fn repair_history(&mut self, ghr: u64) {
-        self.ghr = ghr;
+    fn repair_history(&mut self, ghr: &Ghr) {
+        self.ghr = ghr.val();
     }
 
     fn snapshot_ras(&self) -> usize {
@@ -127,5 +127,9 @@ impl BranchPredictor for GSharePredictor {
 
     fn restore_ras(&mut self, ptr: usize) {
         self.ras.restore_ptr(ptr);
+    }
+
+    fn update_btb(&mut self, pc: u64, target: u64) {
+        self.btb.update(pc, target);
     }
 }
