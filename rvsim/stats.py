@@ -376,11 +376,21 @@ def _compare_flat(
 
     plain = _format_table(headers, rows)
 
+    _FLAT_LOWER_IS_BETTER = {
+        "cycles", "stalls_mem", "stalls_control", "stalls_data",
+        "icache_misses", "dcache_misses", "l2_misses", "l3_misses",
+        "branch_mispredictions", "committed_branch_mispredictions",
+        "speculative_branch_mispredictions",
+    }
+    _FLAT_HIGHER_IS_BETTER = {
+        "branch_predictions", "committed_branch_predictions",
+        "speculative_branch_predictions", "instructions_retired",
+    }
     speedup_rows: List[List[str]] = []
     if baseline is not None and baseline in results:
         base_stats = results[baseline].stats
         for m in show_metrics:
-            if m not in _RATE_METRICS and m != "cycles":
+            if m not in _RATE_METRICS and m not in _FLAT_LOWER_IS_BETTER and m not in _FLAT_HIGHER_IS_BETTER:
                 continue
             row = [m]
             bv = base_stats.get(m, 0)
@@ -391,7 +401,7 @@ def _compare_flat(
                     and isinstance(v, (int, float))
                     and bv != 0
                 ):
-                    if m == "cycles":
+                    if m in _FLAT_LOWER_IS_BETTER:
                         ratio = bv / v  # lower is better
                     else:
                         ratio = v / bv  # higher is better
@@ -506,13 +516,19 @@ def _compare_matrix(
             "committed_branch_mispredictions",
             "speculative_branch_mispredictions",
         }
+        _HIGHER_IS_BETTER = {
+            "branch_predictions",
+            "committed_branch_predictions",
+            "speculative_branch_predictions",
+            "instructions_retired",
+        }
         show_speedup = (
             baseline is not None
             and baseline in config_names
-            and (metric in _RATE_METRICS or metric in _LOWER_IS_BETTER)
+            and (metric in _RATE_METRICS or metric in _LOWER_IS_BETTER or metric in _HIGHER_IS_BETTER)
         )
         if show_speedup and baseline is not None:
-            higher_is_better = metric in _RATE_METRICS
+            higher_is_better = metric in _RATE_METRICS or metric in _HIGHER_IS_BETTER
             tag = "baseline " + baseline
             labels.append(tag)
             grid.append([""] * len(config_names))
@@ -537,6 +553,26 @@ def _compare_matrix(
                         speedup_row.append("—")
                 labels.append(bname)
                 grid.append(speedup_row)
+
+            # Aggregate speedup: geomean of per-binary speedups
+            agg_row: List[str] = []
+            for cname in config_names:
+                ratios: List[float] = []
+                for bname in binary_names:
+                    r_base = results[bname].get(baseline)
+                    r = results[bname].get(cname)
+                    if r_base is None or r is None:
+                        continue
+                    bv = r_base.stats.get(metric, 0)
+                    v = r.stats.get(metric, 0)
+                    if isinstance(bv, (int, float)) and isinstance(v, (int, float)) and bv != 0 and v != 0:
+                        ratios.append((v / bv) if higher_is_better else (bv / v))
+                if ratios:
+                    agg_row.append(f"{_geometric_mean(ratios):.2f}x")
+                else:
+                    agg_row.append("—")
+            labels.append("GEOMEAN")
+            grid.append(agg_row)
 
         table = Table(labels, config_names, grid, metric, col_header=col_header)
         print(table)
