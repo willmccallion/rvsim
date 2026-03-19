@@ -89,25 +89,35 @@ impl Cpu {
     /// Does NOT modify the L1D cache. The caller (MSHR) is responsible for
     /// installing the L1D line when the miss completes. L2/L3 accesses are
     /// synchronous (blocking) — only L1D gets MSHRs.
+    ///
+    /// # Memory model (matches gem5 classic cache)
+    ///
+    /// - Each cache level adds its own access latency only when actually probed.
+    /// - Dirty writebacks from evictions are asynchronous (queued in write
+    ///   buffers) and do **not** add latency to the demand path.
+    /// - The DRAM controller is only consulted when all caches miss, so its
+    ///   stateful bank/row-buffer/refresh tracking reflects real traffic only.
     pub fn simulate_l1d_miss_latency(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
-        let next_lat = ram_latency;
         let is_write = matches!(access, AccessType::Write);
         let inclusion = self.inclusion_policy;
 
+        // Dirty writebacks are fire-and-forget into write buffers (gem5 WriteBuffer
+        // queue model). They do not block the demand miss, so we pass 0 as the
+        // next-level-latency used for dirty victim writeback costing.
+        const WB_LAT: u64 = 0;
+
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) =
-                self.l2_cache.access_tracked_split(raw_addr, is_write, next_lat);
-            total_penalty += l2_pen;
+            let (l2_hit, _l2_pen, l2_evictions, l2_prefetches) =
+                self.l2_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L2 prefetch candidates through the shared filter
             let filtered = self
                 .prefetch_filter
                 .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
-            let pf_evictions = self.l2_cache.install_prefetches(&filtered, next_lat);
+            let pf_evictions = self.l2_cache.install_prefetches(&filtered, WB_LAT);
 
             // Inclusive policy: L2 eviction → back-invalidate matching L1D/L1I lines
             if inclusion == InclusionPolicy::Inclusive {
@@ -130,15 +140,14 @@ impl Cpu {
 
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) =
-                self.l3_cache.access_tracked_split(raw_addr, is_write, next_lat);
-            total_penalty += l3_pen;
+            let (l3_hit, _l3_pen, l3_evictions, l3_prefetches) =
+                self.l3_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L3 prefetch candidates
             let filtered = self
                 .prefetch_filter
                 .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
-            let pf_evictions = self.l3_cache.install_prefetches(&filtered, next_lat);
+            let pf_evictions = self.l3_cache.install_prefetches(&filtered, WB_LAT);
 
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
             if inclusion == InclusionPolicy::Inclusive {
@@ -160,27 +169,30 @@ impl Cpu {
             self.stats.l3_misses += 1;
         }
 
+        // All caches missed — now query the DRAM controller (stateful).
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
         total_penalty += self.bus.bus.calculate_transit_time(8);
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);
         total_penalty
     }
 
-    /// Simulates a memory access through the cache hierarchy.
+    /// Simulates a memory access through the full cache hierarchy (L1 → L2 → L3 → DRAM).
     ///
-    /// # Arguments
+    /// # Memory model (matches gem5 classic cache)
     ///
-    /// * `addr` - The physical address to access.
-    /// * `access` - The type of memory access.
-    ///
-    /// # Returns
-    ///
-    /// The total latency penalty in cycles for the memory operation.
+    /// - **L1 hit:** returns immediately with L1's pipelined latency (0 extra
+    ///   cycles in an O3 pipeline where L1 latency is the pipeline stage).
+    /// - **L1 miss → L2 hit:** pays L2 access latency.
+    /// - **L1 miss → L2 miss → L3 hit:** pays L2 + L3 access latency.
+    /// - **Full miss → DRAM:** pays L2 + L3 + bus transit + DRAM latency.
+    /// - Dirty writebacks from cache evictions are asynchronous (fire-and-forget
+    ///   into per-level write buffers) and do **not** stall the demand access.
+    /// - The DRAM controller is only consulted when the request misses all
+    ///   caches, keeping its stateful bank/refresh tracking accurate.
     pub fn simulate_memory_access(&mut self, addr: PhysAddr, access: AccessType) -> u64 {
         let mut total_penalty = 0;
         let raw_addr = addr.val();
-        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
-        let next_lat = ram_latency;
         let is_inst = matches!(access, AccessType::Fetch);
         let is_write = matches!(access, AccessType::Write);
         let inclusion = self.inclusion_policy;
@@ -189,24 +201,27 @@ impl Cpu {
         let l1_enabled = if is_inst { self.l1_i_cache.enabled } else { self.l1_d_cache.enabled };
 
         // If no cache level is enabled, every access goes directly to DRAM.
-        // The access still pays bus transit + DRAM latency — disabling
-        // caches should make performance worse, not give free memory.
         if !l1_enabled && !self.l2_cache.enabled && !self.l3_cache.enabled {
-            let penalty = self.bus.bus.calculate_transit_time(8)
+            let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
+            return self.bus.bus.calculate_transit_time(8)
                 + ram_latency
                 + self.bus.bus.calculate_transit_time(64);
-            return penalty;
         }
 
-        // L1 access with eviction tracking + prefetch candidates split out
-        let (l1_hit, l1_pen, l1_evictions, l1_prefetches) = if is_inst {
+        // Dirty writebacks are fire-and-forget into write buffers (gem5 WriteBuffer
+        // queue model). They do not block the demand access, so we pass 0 as the
+        // next-level-latency used for dirty victim writeback costing.
+        const WB_LAT: u64 = 0;
+
+        // ── L1 ──────────────────────────────────────────────────────────────────
+        let (l1_hit, _l1_pen, l1_evictions, l1_prefetches) = if is_inst {
             if self.l1_i_cache.enabled {
-                self.l1_i_cache.access_tracked_split(raw_addr, false, next_lat)
+                self.l1_i_cache.access_tracked_split(raw_addr, false, WB_LAT)
             } else {
                 (false, 0, Vec::new(), Vec::new())
             }
         } else if self.l1_d_cache.enabled {
-            self.l1_d_cache.access_tracked_split(raw_addr, is_write, next_lat)
+            self.l1_d_cache.access_tracked_split(raw_addr, is_write, WB_LAT)
         } else {
             (false, 0, Vec::new(), Vec::new())
         };
@@ -216,21 +231,19 @@ impl Cpu {
             .prefetch_filter
             .filter_and_record(l1_prefetches, &mut self.stats.prefetch_filter_dedup);
         let l1_pf_evictions = if is_inst {
-            self.l1_i_cache.install_prefetches(&filtered_l1, next_lat)
+            self.l1_i_cache.install_prefetches(&filtered_l1, WB_LAT)
         } else {
-            self.l1_d_cache.install_prefetches(&filtered_l1, next_lat)
+            self.l1_d_cache.install_prefetches(&filtered_l1, WB_LAT)
         };
 
-        // Combine demand evictions and prefetch evictions for policy handling
         // Exclusive policy: L1 eviction → install evicted line into L2
         if inclusion == InclusionPolicy::Exclusive && self.l2_cache.enabled {
             for ev in l1_evictions.iter().chain(l1_pf_evictions.iter()) {
-                let _ = self.l2_cache.install_or_replace(ev.addr, ev.dirty, next_lat);
+                let _ = self.l2_cache.install_or_replace(ev.addr, ev.dirty, WB_LAT);
                 self.stats.exclusive_l1_to_l2_swaps += 1;
             }
         }
 
-        total_penalty += l1_pen;
         if is_inst && self.l1_i_cache.enabled {
             if l1_hit {
                 self.stats.icache_hits += 1;
@@ -245,17 +258,17 @@ impl Cpu {
             self.stats.dcache_misses += 1;
         }
 
+        // ── L2 ──────────────────────────────────────────────────────────────────
         if self.l2_cache.enabled {
             total_penalty += self.l2_cache.latency;
-            let (l2_hit, l2_pen, l2_evictions, l2_prefetches) =
-                self.l2_cache.access_tracked_split(raw_addr, is_write, next_lat);
-            total_penalty += l2_pen;
+            let (l2_hit, _l2_pen, l2_evictions, l2_prefetches) =
+                self.l2_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L2 prefetch candidates
             let filtered_l2 = self
                 .prefetch_filter
                 .filter_and_record(l2_prefetches, &mut self.stats.prefetch_filter_dedup);
-            let l2_pf_evictions = self.l2_cache.install_prefetches(&filtered_l2, next_lat);
+            let l2_pf_evictions = self.l2_cache.install_prefetches(&filtered_l2, WB_LAT);
 
             // Inclusive policy: L2 eviction → back-invalidate L1 lines
             if inclusion == InclusionPolicy::Inclusive {
@@ -281,17 +294,17 @@ impl Cpu {
             self.stats.l2_misses += 1;
         }
 
+        // ── L3 ──────────────────────────────────────────────────────────────────
         if self.l3_cache.enabled {
             total_penalty += self.l3_cache.latency;
-            let (l3_hit, l3_pen, l3_evictions, l3_prefetches) =
-                self.l3_cache.access_tracked_split(raw_addr, is_write, next_lat);
-            total_penalty += l3_pen;
+            let (l3_hit, _l3_pen, l3_evictions, l3_prefetches) =
+                self.l3_cache.access_tracked_split(raw_addr, is_write, WB_LAT);
 
             // Filter and install L3 prefetch candidates
             let filtered_l3 = self
                 .prefetch_filter
                 .filter_and_record(l3_prefetches, &mut self.stats.prefetch_filter_dedup);
-            let l3_pf_evictions = self.l3_cache.install_prefetches(&filtered_l3, next_lat);
+            let l3_pf_evictions = self.l3_cache.install_prefetches(&filtered_l3, WB_LAT);
 
             // Inclusive policy: L3 eviction → back-invalidate L2, L1D, L1I
             if inclusion == InclusionPolicy::Inclusive {
@@ -313,6 +326,10 @@ impl Cpu {
             self.stats.l3_misses += 1;
         }
 
+        // ── DRAM (all caches missed) ────────────────────────────────────────────
+        // Only now do we consult the stateful DRAM controller, so its bank,
+        // row-buffer, and refresh state reflects real memory traffic only.
+        let ram_latency = self.bus.mem_controller.access_latency(raw_addr, self.csrs.cycle);
         total_penalty += self.bus.bus.calculate_transit_time(8);
         total_penalty += ram_latency;
         total_penalty += self.bus.bus.calculate_transit_time(64);
