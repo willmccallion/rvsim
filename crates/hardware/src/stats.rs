@@ -400,6 +400,8 @@ impl SimStats {
         }
         if want("instruction_mix") {
             let total_inst = instr as f64;
+            let fp_total =
+                self.inst_fp_load + self.inst_fp_store + self.inst_fp_arith + self.inst_fp_fma + self.inst_fp_div_sqrt;
             println!("{bold}INSTRUCTION MIX{rst}");
             println!(
                 "  op.alu                 {} ({:.2}%)",
@@ -426,11 +428,28 @@ impl SimStats {
                 self.inst_system,
                 (self.inst_system as f64 / total_inst) * 100.0
             );
-            println!(
-                "  op.fp_arith            {} ({:.2}%)",
-                self.inst_fp_arith,
-                (self.inst_fp_arith as f64 / total_inst) * 100.0
-            );
+            if fp_total > 0 {
+                println!(
+                    "  op.fp                  {} ({:.2}%)",
+                    fp_total,
+                    (fp_total as f64 / total_inst) * 100.0
+                );
+                if self.inst_fp_load > 0 {
+                    println!("    fp.load              {}", self.inst_fp_load);
+                }
+                if self.inst_fp_store > 0 {
+                    println!("    fp.store             {}", self.inst_fp_store);
+                }
+                if self.inst_fp_arith > 0 {
+                    println!("    fp.arith             {}", self.inst_fp_arith);
+                }
+                if self.inst_fp_fma > 0 {
+                    println!("    fp.fma               {}", self.inst_fp_fma);
+                }
+                if self.inst_fp_div_sqrt > 0 {
+                    println!("    fp.div_sqrt          {}", self.inst_fp_div_sqrt);
+                }
+            }
             println!("{sep}");
         }
         if want("branch") {
