@@ -219,7 +219,9 @@ def config() -> Config:
         l2_tlb_size=2048,
         l2_tlb_ways=8,
         l2_tlb_latency=3,
-        memory_controller=MemoryController.Simple(),
+        memory_controller=MemoryController.DRAM(
+            t_cas=14, t_ras=14, t_pre=14, row_miss_latency=120
+        ),
         # ── System addresses (must match device tree) ─────────────────────────
         ram_base=0x80000000,
         uart_base=0x10000000,

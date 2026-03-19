@@ -305,12 +305,34 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.end_node();
     }
 
-    // /soc/syscon
+    // /soc/syscon (with poweroff and reboot sub-nodes)
+    let syscon_phandle: u32 = 3;
     {
         let node_name = format!("syscon@{syscon_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "syscon");
         b.prop_reg_2_2(syscon_base, 0x1000);
+        b.prop_u32("phandle", syscon_phandle);
+        b.end_node();
+    }
+
+    // /soc/poweroff — writes 0x5555 to syscon offset 0x00
+    {
+        b.begin_node("poweroff");
+        b.prop_string("compatible", "syscon-poweroff");
+        b.prop_u32("regmap", syscon_phandle);
+        b.prop_u32("offset", 0x00);
+        b.prop_u32("value", 0x5555);
+        b.end_node();
+    }
+
+    // /soc/reboot — writes 0x7777 to syscon offset 0x00
+    {
+        b.begin_node("reboot");
+        b.prop_string("compatible", "syscon-reboot");
+        b.prop_u32("regmap", syscon_phandle);
+        b.prop_u32("offset", 0x00);
+        b.prop_u32("value", 0x7777);
         b.end_node();
     }
 
