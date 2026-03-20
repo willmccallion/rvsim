@@ -4,7 +4,6 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
-use crate::common::reg_idx::RegIdx;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
@@ -109,9 +108,11 @@ pub fn execute_inorder(
         };
         let op_c = fwd_c;
 
-        // FENCE.I: invalidate I-cache so subsequent fetches see prior stores.
+        // FENCE.I: flush the pipeline so younger instructions are squashed.
+        // The I-cache flush is deferred to COMMIT time (after store drain)
+        // to ensure that all prior stores are visible in RAM before the
+        // I-cache refills with the new data.
         if id.ctrl.system_op == SystemOp::FenceI {
-            let _ = cpu.l1_i_cache.invalidate_all();
             cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
             cpu.redirect_pending = true;
             flush_remaining = true;
@@ -315,11 +316,15 @@ pub fn execute_inorder(
                     continue;
                 }
 
-                cpu.clear_reservation();
-                sfence_vma_flush(cpu, id.rs1, id.rs2, fwd_a, fwd_b);
-
-                // SFENCE.VMA is a serializing fence: flush the frontend
-                // so subsequent fetches use the updated TLB state.
+                // SFENCE.VMA: Do NOT flush TLBs or clear reservation here.
+                // Preceding PTE-modifying stores may still be in the store
+                // buffer; flushing TLBs now would let in-flight fetches
+                // repopulate them with stale translations. The commit stage
+                // stalls until the store buffer drains, then flushes TLBs
+                // with proper ASID/vaddr granularity.
+                //
+                // Flush the frontend so subsequent fetches are deferred
+                // until after the commit-time TLB flush.
                 cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
                 cpu.redirect_pending = true;
                 flush_remaining = true;
@@ -747,49 +752,6 @@ pub fn execute_inorder(
     (results, flush_remaining)
 }
 
-/// Performs selective SFENCE.VMA TLB/cache flushing based on rs1 and rs2.
-///
-/// * `rs1_idx` == 0, `rs2_idx` == 0: flush all TLB entries
-/// * `rs1_idx` != 0, `rs2_idx` == 0: flush entries matching the virtual address in `rs1`
-/// * `rs1_idx` == 0, `rs2_idx` != 0: flush non-global entries matching the ASID in `rs2`
-/// * `rs1_idx` != 0, `rs2_idx` != 0: flush the entry matching both vaddr and ASID
-fn sfence_vma_flush(cpu: &mut Cpu, rs1_idx: RegIdx, rs2_idx: RegIdx, rs1_val: u64, rs2_val: u64) {
-    use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
-    use crate::common::{Asid, Vpn};
-    match (!rs1_idx.is_zero(), !rs2_idx.is_zero()) {
-        (false, false) => {
-            // Flush all
-            cpu.mmu.dtlb.flush();
-            cpu.mmu.itlb.flush();
-            cpu.mmu.l2_tlb.flush();
-            let _ = cpu.l1_d_cache.flush();
-            let _ = cpu.l1_i_cache.invalidate_all();
-        }
-        (true, false) => {
-            // Flush by virtual address only
-            let vpn = Vpn::new((rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            cpu.mmu.dtlb.flush_vaddr(vpn);
-            cpu.mmu.itlb.flush_vaddr(vpn);
-            cpu.mmu.l2_tlb.flush_vaddr(vpn);
-        }
-        (false, true) => {
-            // Flush by ASID only (non-global entries)
-            let asid = Asid::new(rs2_val as u16);
-            cpu.mmu.dtlb.flush_asid(asid);
-            cpu.mmu.itlb.flush_asid(asid);
-            cpu.mmu.l2_tlb.flush_asid(asid);
-        }
-        (true, true) => {
-            // Flush by both virtual address and ASID
-            let vpn = Vpn::new((rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            let asid = Asid::new(rs2_val as u16);
-            cpu.mmu.dtlb.flush_vaddr_asid(vpn, asid);
-            cpu.mmu.itlb.flush_vaddr_asid(vpn, asid);
-            cpu.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
-        }
-    }
-}
-
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`.
 /// `fp_flags` is non-zero only for floating-point arithmetic operations.
 fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> (u64, u8) {
@@ -896,19 +858,6 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::soc::builder::System;
-
-    #[test]
-    fn test_sfence_vma_flush() {
-        let config = Config::default();
-        let system = System::new(&config, "");
-        let mut cpu = Cpu::new(system, &config);
-
-        // Just ensure no panics for the different branches
-        sfence_vma_flush(&mut cpu, RegIdx::new(0), RegIdx::new(0), 0, 0);
-        sfence_vma_flush(&mut cpu, RegIdx::new(1), RegIdx::new(0), 0x1000, 0);
-        sfence_vma_flush(&mut cpu, RegIdx::new(0), RegIdx::new(1), 0, 1);
-        sfence_vma_flush(&mut cpu, RegIdx::new(1), RegIdx::new(1), 0x1000, 1);
-    }
 
     #[test]
     fn test_compute_alu_fp_conversions() {
