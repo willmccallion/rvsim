@@ -46,7 +46,7 @@ unsafe extern "C" {
 }
 
 /// Reads and maps host FPU exception flags to RISC-V `FpFlags`.
-fn read_host_fp_flags() -> FpFlags {
+pub(crate) fn read_host_fp_flags() -> FpFlags {
     let host = unsafe { fetestexcept(FE_ALL_EXCEPT) };
     let mut flags = FpFlags::NONE;
     if host & FE_INVALID != 0 {
@@ -68,7 +68,7 @@ fn read_host_fp_flags() -> FpFlags {
 }
 
 /// Clears all host FPU exception flags.
-fn clear_host_fp_flags() {
+pub(crate) fn clear_host_fp_flags() {
     unsafe {
         let _ = feclearexcept(FE_ALL_EXCEPT);
     }

@@ -755,64 +755,66 @@ pub fn execute_inorder(
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`.
 /// `fp_flags` is non-zero only for floating-point arithmetic operations.
 fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> (u64, u8) {
-    // FP conversions and moves that need special handling
+    // FP conversions and moves that need special handling.
+    // Int-to-float and float-to-float conversions can raise FP exception
+    // flags (INEXACT, OVERFLOW, etc.), so we use the host FPU to detect them.
     match alu_op {
         AluOp::FCvtSW
         | AluOp::FCvtSL
         | AluOp::FCvtSWU
         | AluOp::FCvtSLU
         | AluOp::FCvtSD
-        | AluOp::FCvtDS
-        | AluOp::FMvToF => {
-            let val = match alu_op {
+        | AluOp::FCvtDS => {
+            use crate::core::units::fpu::nan_handling::{box_f32_canon, unbox_f32};
+            use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
+            clear_host_fp_flags();
+            let val = std::hint::black_box(match alu_op {
                 AluOp::FCvtSW => {
                     if is_rv32 {
-                        Fpu::box_f32((op_a as i32) as f32)
+                        Fpu::box_f32(std::hint::black_box(op_a as i32) as f32)
                     } else {
-                        ((op_a as i32) as f64).to_bits()
+                        (std::hint::black_box(op_a as i32) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSWU => {
                     if is_rv32 {
-                        Fpu::box_f32((op_a as u32) as f32)
+                        Fpu::box_f32(std::hint::black_box(op_a as u32) as f32)
                     } else {
-                        ((op_a as u32) as f64).to_bits()
+                        (std::hint::black_box(op_a as u32) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSL => {
                     if is_rv32 {
-                        Fpu::box_f32((op_a as i64) as f32)
+                        Fpu::box_f32(std::hint::black_box(op_a as i64) as f32)
                     } else {
-                        ((op_a as i64) as f64).to_bits()
+                        (std::hint::black_box(op_a as i64) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSLU => {
                     if is_rv32 {
-                        Fpu::box_f32(op_a as f32)
+                        Fpu::box_f32(std::hint::black_box(op_a) as f32)
                     } else {
-                        (op_a as f64).to_bits()
+                        (std::hint::black_box(op_a) as f64).to_bits()
                     }
                 }
                 AluOp::FCvtSD => {
-                    use crate::core::units::fpu::nan_handling::box_f32_canon;
                     let val_d = f64::from_bits(op_a);
-                    let val_s = val_d as f32;
+                    let val_s = std::hint::black_box(val_d) as f32;
                     box_f32_canon(val_s)
                 }
                 AluOp::FCvtDS => {
-                    let val_s = f32::from_bits(op_a as u32);
-                    let val_d = val_s as f64;
+                    let val_s = unbox_f32(op_a);
+                    let val_d = std::hint::black_box(val_s) as f64;
                     val_d.to_bits()
                 }
-                AluOp::FMvToF => {
-                    if is_rv32 {
-                        Fpu::box_f32(f32::from_bits(op_a as u32))
-                    } else {
-                        op_a
-                    }
-                }
-                _ => 0,
-            };
+                _ => unreachable!(),
+            });
+            let fp_flags = read_host_fp_flags();
+            return (val, fp_flags.bits());
+        }
+        AluOp::FMvToF => {
+            // Bit-level move — no FP exceptions possible.
+            let val = if is_rv32 { Fpu::box_f32(f32::from_bits(op_a as u32)) } else { op_a };
             return (val, 0);
         }
         _ => {}
@@ -856,8 +858,6 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
-    use crate::soc::builder::System;
 
     #[test]
     fn test_compute_alu_fp_conversions() {
