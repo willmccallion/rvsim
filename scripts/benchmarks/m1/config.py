@@ -51,6 +51,7 @@ def m1_config(
             line="64B",
             ways=8,
             latency=1,
+            mshr_count=12,
             prefetcher=Prefetcher.Stride(degree=2, table_size=128),
         ),
         l2=Cache(
@@ -58,6 +59,7 @@ def m1_config(
             line="64B",
             ways=16,
             latency=12,
+            mshr_count=32,
         ),
     )
 

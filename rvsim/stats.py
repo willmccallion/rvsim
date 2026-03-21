@@ -377,20 +377,33 @@ def _compare_flat(
     plain = _format_table(headers, rows)
 
     _FLAT_LOWER_IS_BETTER = {
-        "cycles", "stalls_mem", "stalls_control", "stalls_data",
-        "icache_misses", "dcache_misses", "l2_misses", "l3_misses",
-        "branch_mispredictions", "committed_branch_mispredictions",
+        "cycles",
+        "stalls_mem",
+        "stalls_control",
+        "stalls_data",
+        "icache_misses",
+        "dcache_misses",
+        "l2_misses",
+        "l3_misses",
+        "branch_mispredictions",
+        "committed_branch_mispredictions",
         "speculative_branch_mispredictions",
     }
     _FLAT_HIGHER_IS_BETTER = {
-        "branch_predictions", "committed_branch_predictions",
-        "speculative_branch_predictions", "instructions_retired",
+        "branch_predictions",
+        "committed_branch_predictions",
+        "speculative_branch_predictions",
+        "instructions_retired",
     }
     speedup_rows: List[List[str]] = []
     if baseline is not None and baseline in results:
         base_stats = results[baseline].stats
         for m in show_metrics:
-            if m not in _RATE_METRICS and m not in _FLAT_LOWER_IS_BETTER and m not in _FLAT_HIGHER_IS_BETTER:
+            if (
+                m not in _RATE_METRICS
+                and m not in _FLAT_LOWER_IS_BETTER
+                and m not in _FLAT_HIGHER_IS_BETTER
+            ):
                 continue
             row = [m]
             bv = base_stats.get(m, 0)
@@ -525,7 +538,11 @@ def _compare_matrix(
         show_speedup = (
             baseline is not None
             and baseline in config_names
-            and (metric in _RATE_METRICS or metric in _LOWER_IS_BETTER or metric in _HIGHER_IS_BETTER)
+            and (
+                metric in _RATE_METRICS
+                or metric in _LOWER_IS_BETTER
+                or metric in _HIGHER_IS_BETTER
+            )
         )
         if show_speedup and baseline is not None:
             higher_is_better = metric in _RATE_METRICS or metric in _HIGHER_IS_BETTER
@@ -565,7 +582,12 @@ def _compare_matrix(
                         continue
                     bv = r_base.stats.get(metric, 0)
                     v = r.stats.get(metric, 0)
-                    if isinstance(bv, (int, float)) and isinstance(v, (int, float)) and bv != 0 and v != 0:
+                    if (
+                        isinstance(bv, (int, float))
+                        and isinstance(v, (int, float))
+                        and bv != 0
+                        and v != 0
+                    ):
                         ratios.append((v / bv) if higher_is_better else (bv / v))
                 if ratios:
                     agg_row.append(f"{_geometric_mean(ratios):.2f}x")

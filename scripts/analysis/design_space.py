@@ -40,9 +40,9 @@ def run_sweep(binary):
             cfg = Config(
                 width=width,
                 branch_predictor=BranchPredictor.TAGE(),
-                l1d=Cache(size, ways=4),
+                l1d=Cache(size, ways=4, mshr_count=8),
                 l1i=Cache("32KB", ways=4),
-                l2=Cache("1MB", ways=16),
+                l2=Cache("1MB", ways=16, latency=10),
                 uart_quiet=True
             )
             configs[label] = cfg
