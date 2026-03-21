@@ -15,7 +15,7 @@ homepage = "https://github.com/willmccallion/rvsim"
 description = "A high-performance cycle-accurate RISC-V 64-bit system simulator."
 readme = "README.md"
 categories = ["emulators", "hardware-support", "science"]
-keywords = ["riscv", "simulator", "cycle-accurate", "computer-architecture"]
+keywords = ["riscv", "simulator", "cycle-accurate", "cpu-architecture"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
