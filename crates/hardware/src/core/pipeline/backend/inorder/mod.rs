@@ -186,7 +186,7 @@ impl ExecutionEngine for InOrderEngine {
         let (results, needs_flush) = if backpressured {
             (Vec::new(), false)
         } else {
-            let issued = self.issuer.select(self.width, &self.rob, cpu);
+            let issued = self.issuer.select(self.width, &self.rob, &self.store_buffer, cpu);
             if issued.is_empty() && !self.issuer.is_empty() {
                 cpu.stats.stalls_data += 1;
             }

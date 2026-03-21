@@ -400,8 +400,11 @@ impl SimStats {
         }
         if want("instruction_mix") {
             let total_inst = instr as f64;
-            let fp_total =
-                self.inst_fp_load + self.inst_fp_store + self.inst_fp_arith + self.inst_fp_fma + self.inst_fp_div_sqrt;
+            let fp_total = self.inst_fp_load
+                + self.inst_fp_store
+                + self.inst_fp_arith
+                + self.inst_fp_fma
+                + self.inst_fp_div_sqrt;
             println!("{bold}INSTRUCTION MIX{rst}");
             println!(
                 "  op.alu                 {} ({:.2}%)",

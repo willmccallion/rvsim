@@ -723,8 +723,8 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
         | AluOp::FCvtSLU
         | AluOp::FCvtSD
         | AluOp::FCvtDS => {
-            use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
             use crate::core::units::fpu::nan_handling::{box_f32_canon, unbox_f32};
+            use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
             clear_host_fp_flags();
             let val = std::hint::black_box(match alu_op {
                 AluOp::FCvtSW => {
@@ -772,11 +772,7 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
         }
         AluOp::FMvToF => {
             // Bit-level move — no FP exceptions possible.
-            let val = if is_rv32 {
-                Fpu::box_f32(f32::from_bits(op_a as u32))
-            } else {
-                op_a
-            };
+            let val = if is_rv32 { Fpu::box_f32(f32::from_bits(op_a as u32)) } else { op_a };
             return (val, 0);
         }
         _ => {}

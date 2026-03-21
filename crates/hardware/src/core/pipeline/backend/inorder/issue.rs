@@ -10,6 +10,8 @@ use crate::common::RegIdx;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
+use crate::core::pipeline::signals::SystemOp;
+use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::trace_issue;
 
 use std::collections::VecDeque;
@@ -56,7 +58,13 @@ impl InOrderIssueUnit {
     /// operands populated.
     ///
     /// In-order: if the head-of-queue is blocked, nothing behind it can issue.
-    pub fn select(&mut self, width: usize, rob: &Rob, cpu: &Cpu) -> Vec<RenameIssueEntry> {
+    pub fn select(
+        &mut self,
+        width: usize,
+        rob: &Rob,
+        store_buffer: &StoreBuffer,
+        cpu: &Cpu,
+    ) -> Vec<RenameIssueEntry> {
         let mut selected = Vec::with_capacity(width);
 
         for _ in 0..width {
@@ -69,6 +77,39 @@ impl InOrderIssueUnit {
                 }
                 continue;
             }
+
+            // ── Serialization checks (matching O3 issue queue) ──────────
+
+            // System/CSR instructions are serializing: wait for all older
+            // instructions to complete before issuing.
+            if entry.ctrl.system_op != SystemOp::None && !rob.all_before_completed(entry.rob_tag) {
+                break;
+            }
+
+            // FENCE: wait for older operations matching pred bits to complete.
+            if entry.ctrl.system_op == SystemOp::Fence {
+                let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
+                let pred_r = pred_bits & 0b0010 != 0;
+                let pred_w = pred_bits & 0b0001 != 0;
+                if !rob.fence_pred_satisfied(entry.rob_tag, pred_r, pred_w) {
+                    break;
+                }
+            }
+
+            // Loads/stores: blocked by older in-flight FENCE with matching succ bits.
+            if (entry.ctrl.mem_read || entry.ctrl.mem_write)
+                && rob.has_fence_blocking(entry.rob_tag, entry.ctrl.mem_read, entry.ctrl.mem_write)
+            {
+                break;
+            }
+
+            // Loads must wait for all older stores to have resolved addresses,
+            // otherwise store-to-load forwarding can miss an overlap.
+            if entry.ctrl.mem_read && store_buffer.has_unresolved_store_before(entry.rob_tag) {
+                break;
+            }
+
+            // ── Operand readiness ───────────────────────────────────────
 
             // Try to read all source operands using tags captured at rename
             let rv1 = read_operand_by_tag(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, cpu);
