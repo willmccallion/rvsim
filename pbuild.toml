@@ -6,6 +6,7 @@ keep_going = true
 cargo   = "cargo"
 maturin = [".venv/bin/maturin", "maturin"]
 python  = [".venv/bin/python3", ".venv/bin/python", "python3"]
+ruff    = ["ruff", ".venv/bin/ruff"]
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ description = "Format Rust and Python code"
 type        = "task"
 commands    = [
     ["{{cargo}}", "fmt", "--all"],
-    ["{{python}}", "-m", "ruff", "format", "rvsim/"],
+    ["{{ruff}}", "format", "rvsim/"],
 ]
 
 [fmt-check]
@@ -90,7 +91,7 @@ description = "Check formatting without modifying"
 type        = "task"
 commands    = [
     ["{{cargo}}", "fmt", "--all", "--", "--check"],
-    ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
+    ["{{ruff}}", "format", "--check", "rvsim/"],
 ]
 
 [lint]
@@ -100,7 +101,7 @@ type        = "task"
 max_time    = "10s"
 commands    = [
     ["{{cargo}}", "fmt", "--all", "--", "--check"],
-    ["{{python}}", "-m", "ruff", "format", "--check", "rvsim/"],
+    ["{{ruff}}", "format", "--check", "rvsim/"],
     ["{{cargo}}", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
 ]
 
