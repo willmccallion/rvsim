@@ -171,6 +171,8 @@ class Config:
             l2_tlb_size=self.l2_tlb_size,
             l2_tlb_ways=self.l2_tlb_ways,
             l2_tlb_latency=self.l2_tlb_latency,
+            software_ad_bits=self.software_ad_bits,
+            misaligned_access_trap=self.misaligned_access_trap,
             trace=self.trace,
             initial_sp=self.initial_sp,
             ram_base=self.ram_base,

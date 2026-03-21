@@ -10,6 +10,9 @@ __pycache__/
 # Build lock
 .pbuild.lock
 
+# mkdocs build output
+site/
+
 # Linux build output
 software/linux/
 software/riscv-tests/

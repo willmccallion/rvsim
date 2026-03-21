@@ -1,0 +1,77 @@
+site_name: rvsim
+site_url: https://willmccallion.github.io/rvsim/
+site_description: Cycle-accurate RISC-V 64-bit system simulator with a Python API
+repo_url: https://github.com/willmccallion/rvsim
+repo_name: willmccallion/rvsim
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.share
+    - toc.follow
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - def_list
+  - footnotes
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - API Reference: api.md
+  - Architecture:
+    - Pipeline: architecture/pipeline.md
+    - Memory Hierarchy: architecture/memory.md
+    - Branch Prediction: architecture/branch-prediction.md
+    - ISA: architecture/isa.md
+    - SoC Devices: architecture/soc.md
+  - Examples:
+    - Analysis Scripts: examples/analysis-scripts.md
+    - Linux Boot: examples/linux-boot.md
+    - Benchmark Configs: examples/benchmark-configs.md
+  - Changelog:
+    - changelog.md
+    - v1.0.0: versions/V1_CHANGELOG.md
