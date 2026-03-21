@@ -55,9 +55,9 @@ print(result.stats.query("ipc|branch|miss"))
 
 <div class="grid cards" markdown>
 
-- :material-rocket-launch: **[Getting Started](getting-started.md)** — Install, run your first simulation, understand the output
-- :material-cog: **[Configuration](configuration.md)** — Every parameter explained: caches, predictors, backends, FU pools
-- :material-code-tags: **[API Reference](api.md)** — Complete reference for `Config`, `Environment`, `Simulator`, `Sweep`, `Stats`
-- :material-chip: **[Architecture](architecture/pipeline.md)** — Deep-dive into the pipeline, memory hierarchy, and branch prediction
+- **[Getting Started](getting-started.md)** — Install, run your first simulation, understand the output
+- **[Configuration](configuration.md)** — Every parameter explained: caches, predictors, backends, FU pools
+- **[API Reference](api.md)** — Complete reference for `Config`, `Environment`, `Simulator`, `Sweep`, `Stats`
+- **[Architecture](architecture/pipeline.md)** — Deep-dive into the pipeline, memory hierarchy, and branch prediction
 
 </div>
