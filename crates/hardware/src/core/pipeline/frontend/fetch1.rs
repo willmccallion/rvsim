@@ -222,8 +222,13 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     "F1: JAL prediction"
                 );
             } else if opcode == opcodes::OP_JALR {
-                let is_ret = rd == abi::REG_ZERO && rs1 == abi::REG_RA;
-                if is_ret {
+                // Per RISC-V spec Table 2.1: both x1 and x5 are link registers.
+                let rd_link = rd == abi::REG_RA || rd == abi::REG_T0;
+                let rs1_link = rs1 == abi::REG_RA || rs1 == abi::REG_T0;
+                // Use RAS for returns and coroutine swaps (rs1 is link, but not
+                // a pure self-call where rd == rs1 both link).
+                let use_ras = rs1_link && (!rd_link || rd != rs1);
+                if use_ras {
                     if let Some(tgt) = cpu.branch_predictor.predict_return() {
                         next_pc_calc = tgt;
                         pred_taken = true;
@@ -240,7 +245,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
                     pc          = %crate::trace::Hex(current_pc),
                     paddr       = %crate::trace::Hex(phys_addr),
                     inst        = %crate::trace::Hex32(full_inst),
-                    bp_type     = if is_ret { "JALR/RAS" } else { "JALR/BTB" },
+                    bp_type     = if use_ras { "JALR/RAS" } else { "JALR/BTB" },
                     pred_taken  = pred_taken,
                     pred_target = %crate::trace::Hex(pred_target),
                     "F1: JALR prediction"

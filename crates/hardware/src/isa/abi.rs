@@ -11,6 +11,8 @@ pub const REG_ZERO: RegIdx = RegIdx::new(0);
 pub const REG_RA: RegIdx = RegIdx::new(1);
 /// Register x2 (stack pointer, sp).
 pub const REG_SP: RegIdx = RegIdx::new(2);
+/// Register x5 (alternate link register, t0).
+pub const REG_T0: RegIdx = RegIdx::new(5);
 /// Register x10 (first argument/return value, a0).
 pub const REG_A0: RegIdx = RegIdx::new(10);
 /// Register x11 (second argument, a1).

@@ -237,8 +237,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     if id.ctrl.control_flow == ControlFlow::Jump {
         use crate::common::constants::OPCODE_MASK;
         let is_jalr = (id.inst & OPCODE_MASK) == opcodes::OP_JALR;
-        let is_call = (id.inst & OPCODE_MASK) == opcodes::OP_JAL && id.rd == abi::REG_RA;
-        let is_ret = is_jalr && id.rd == abi::REG_ZERO && id.rs1 == abi::REG_RA;
+        let rd_link = id.rd == abi::REG_RA || id.rd == abi::REG_T0;
+        let rs1_link = is_jalr && (id.rs1 == abi::REG_RA || id.rs1 == abi::REG_T0);
 
         let actual_target = if is_jalr {
             (fwd_a.wrapping_add(id.imm as u64)) & JALR_ALIGNMENT_MASK
@@ -257,8 +257,8 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
         rob.set_bp_target(id.rob_tag, actual_target);
 
         // Update BTB directly — jumps are unconditional, don't train direction predictor.
-        if !is_call {
-            // on_call already updates BTB, so skip for calls.
+        // Skip for calls — on_call already updates the BTB.
+        if !rd_link {
             cpu.branch_predictor.update_btb(id.pc, actual_target);
         }
 
@@ -266,7 +266,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             event          = "resolve",
             pc             = %crate::trace::Hex(id.pc),
             rob_tag        = id.rob_tag.0,
-            bp_type        = if is_ret { "JALR/RAS" } else if is_call { "JAL/call" } else { "JAL/JALR" },
+            bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
             pred_taken     = id.pred_taken,
             pred_target    = %crate::trace::Hex(predicted_target),
             actual_taken   = true,
@@ -285,13 +285,18 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             cpu.stats.speculative_branch_predictions += 1;
         }
 
-        if is_call {
-            cpu.branch_predictor.on_call(
-                id.pc,
-                id.pc.wrapping_add(id.inst_size.as_u64()),
-                actual_target,
-            );
-        } else if is_ret {
+        // RAS management per RISC-V spec Table 2.1:
+        // Both x1 (ra) and x5 (t0) are link registers.
+        let ret_addr = id.pc.wrapping_add(id.inst_size.as_u64());
+        if rd_link && rs1_link && id.rd != id.rs1 {
+            // Coroutine swap: pop then push
+            cpu.branch_predictor.on_return();
+            cpu.branch_predictor.on_call(id.pc, ret_addr, actual_target);
+        } else if rd_link {
+            // Call (JAL/JALR with rd in {x1, x5})
+            cpu.branch_predictor.on_call(id.pc, ret_addr, actual_target);
+        } else if rs1_link {
+            // Return (JALR with rs1 in {x1, x5}, rd not a link register)
             cpu.branch_predictor.on_return();
         }
     }

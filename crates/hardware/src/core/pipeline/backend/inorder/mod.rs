@@ -286,9 +286,8 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64 {
-        // Check ROB for pending CsrUpdate entries (newest first)
-        // For now, just read the architectural CSR
-        // TODO: scan ROB for CsrUpdate with matching addr
+        // In-order serialization guarantees all older CSR writes have committed
+        // before a newer CSR read issues, so architectural state is correct.
         cpu.csr_read(addr)
     }
 
