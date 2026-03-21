@@ -19,6 +19,7 @@ from rvsim import (
     Cache,
     Config,
     Fu,
+    MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
@@ -30,10 +31,11 @@ ISA_DIR = os.path.join(ROOT, "software", "riscv-tests", "isa")
 
 # Pull in production benchmark configs to test the full reference machines.
 sys.path.insert(0, os.path.join(ROOT, "scripts", "benchmarks"))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from cortex_a72.config import cortex_a72_config  # noqa: E402
 from m1.config import m1_config  # noqa: E402
 from p550.config import p550_config  # noqa: E402
-from setup.boot_linux import config as linux_config
+from setup.boot_linux import config as linux_config  # noqa: E402
 
 # Test suites we support (physical memory, no VM, "-p-" variants).
 SUITES = [
@@ -302,6 +304,20 @@ PIPELINES = [
                                    memory_controller=MemoryController.DRAM(
                                        t_cas=30, t_ras=36, t_pre=12,
                                        row_miss_latency=200,
+                                   ))),
+
+    # ── Memory dependence predictors ────────────────────────────────────────
+    ("o3 w4 mdp-blind",     Config(width=4, backend=Backend.OutOfOrder(),
+                                   mem_dep_predictor=MemDepPredictor.Blind())),
+    ("o3 w4 mdp-storeset",  Config(width=4, backend=Backend.OutOfOrder(),
+                                   mem_dep_predictor=MemDepPredictor.StoreSet())),
+    ("o3 w4 mdp-storeset-sm", Config(width=4, backend=Backend.OutOfOrder(),
+                                   mem_dep_predictor=MemDepPredictor.StoreSet(
+                                       ssit_size=256, lfst_size=64,
+                                   ))),
+    ("o3 w4 mdp-storeset-lg", Config(width=4, backend=Backend.OutOfOrder(),
+                                   mem_dep_predictor=MemDepPredictor.StoreSet(
+                                       ssit_size=8192, lfst_size=1024,
                                    ))),
 
     # ── TLB sizing ────────────────────────────────────────────────────────────

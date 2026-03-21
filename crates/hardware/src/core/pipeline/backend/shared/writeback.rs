@@ -123,7 +123,7 @@ mod tests {
         assert!(input.is_empty());
         let entry = rob.find_entry(rob_tag).unwrap();
         assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Completed);
-        assert_eq!(entry.result, 42);
+        assert_eq!(entry.result, Some(42));
     }
 
     #[test]

@@ -352,6 +352,24 @@ pub enum BranchPredictor {
     Tournament,
 }
 
+/// Specifies the memory dependence prediction algorithm used to determine
+/// whether loads can bypass older unresolved stores at issue time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum MemDepPredictor {
+    /// Blind (conservative) predictor.
+    ///
+    /// Loads always wait for all older stores to resolve. No speculation,
+    /// no violations. This is the default.
+    #[default]
+    Blind,
+    /// Store-set predictor (Chrysos & Emer 1998).
+    ///
+    /// Learns load-store dependencies from ordering violations and allows
+    /// loads predicted independent to bypass unresolved stores.
+    StoreSet,
+}
+
 /// Root configuration structure containing all simulator settings.
 ///
 /// Configuration is supplied by the Python API (`SimConfig.to_dict()` → JSON) or
@@ -1023,6 +1041,14 @@ pub struct PipelineConfig {
     /// Functional unit pool configuration (O3 backend).
     #[serde(default)]
     pub fu_config: FuConfig,
+
+    /// Memory dependence predictor type
+    #[serde(default)]
+    pub mem_dep_predictor: MemDepPredictor,
+
+    /// Store-set predictor configuration
+    #[serde(default)]
+    pub store_set: StoreSetConfig,
 }
 
 impl PipelineConfig {
@@ -1113,6 +1139,8 @@ impl Default for PipelineConfig {
             load_ports: defaults::LOAD_PORTS,
             store_ports: defaults::STORE_PORTS,
             fu_config: FuConfig::default(),
+            mem_dep_predictor: MemDepPredictor::default(),
+            store_set: StoreSetConfig::default(),
         }
     }
 }
@@ -1264,5 +1292,49 @@ impl TournamentConfig {
     /// Returns the default Tournament predictor local prediction table size (log2).
     const fn default_local_pred() -> usize {
         defaults::TOURNAMENT_LOCAL_PRED_BITS
+    }
+}
+
+/// Store-set memory dependence predictor configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StoreSetConfig {
+    /// SSIT (Store Set ID Table) size — indexed by `(pc >> 2) % ssit_size`.
+    #[serde(default = "StoreSetConfig::default_ssit_size")]
+    pub ssit_size: usize,
+
+    /// LFST (Last Fetched Store Table) size — indexed by store set ID.
+    #[serde(default = "StoreSetConfig::default_lfst_size")]
+    pub lfst_size: usize,
+
+    /// Cycles between full SSIT clears (0 = never). Periodically wiping the
+    /// SSIT prevents stale learned dependencies from persisting forever.
+    #[serde(default = "StoreSetConfig::default_ssit_clear_interval")]
+    pub ssit_clear_interval: u64,
+}
+
+impl Default for StoreSetConfig {
+    fn default() -> Self {
+        Self {
+            ssit_size: Self::default_ssit_size(),
+            lfst_size: Self::default_lfst_size(),
+            ssit_clear_interval: Self::default_ssit_clear_interval(),
+        }
+    }
+}
+
+impl StoreSetConfig {
+    /// Returns the default SSIT size.
+    const fn default_ssit_size() -> usize {
+        2048
+    }
+
+    /// Returns the default LFST size.
+    const fn default_lfst_size() -> usize {
+        256
+    }
+
+    /// Returns the default SSIT clear interval (0 = never).
+    const fn default_ssit_clear_interval() -> u64 {
+        100_000
     }
 }

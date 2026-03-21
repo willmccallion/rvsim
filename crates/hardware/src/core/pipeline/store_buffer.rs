@@ -23,16 +23,51 @@ pub enum ForwardResult {
     Stall,
 }
 
-/// Lifecycle state of a store buffer entry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum StoreState {
+/// Resolution state of a store buffer entry, encoding lifecycle and data.
+///
+/// Combines the lifecycle state with the associated physical address and data,
+/// making it impossible to read address/data from an unresolved store.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StoreResolution {
     /// Allocated but address/data not yet resolved.
     #[default]
     Pending,
     /// Address and data resolved, waiting for ROB commit.
-    Ready,
+    Ready {
+        /// Physical address of the store.
+        paddr: PhysAddr,
+        /// Data to write.
+        data: u64,
+    },
     /// ROB has committed this store; it can be drained to memory.
-    Committed,
+    Committed {
+        /// Physical address of the store.
+        paddr: PhysAddr,
+        /// Data to write.
+        data: u64,
+    },
+    /// Cancelled (failed SC) — committed no-op, will drain without writing.
+    Cancelled,
+}
+
+impl StoreResolution {
+    /// Whether this entry has been committed (or cancelled) and is ready to drain.
+    pub const fn is_committed(&self) -> bool {
+        matches!(self, Self::Committed { .. } | Self::Cancelled)
+    }
+
+    /// Whether this entry is still pending (no address resolved).
+    pub const fn is_pending(&self) -> bool {
+        matches!(self, Self::Pending)
+    }
+
+    /// Returns the physical address if resolved (Ready or Committed).
+    pub const fn paddr(&self) -> Option<PhysAddr> {
+        match self {
+            Self::Ready { paddr, .. } | Self::Committed { paddr, .. } => Some(*paddr),
+            _ => None,
+        }
+    }
 }
 
 /// A single entry in the store buffer.
@@ -42,14 +77,10 @@ pub struct StoreBufferEntry {
     pub rob_tag: RobTag,
     /// Virtual address of the store.
     pub vaddr: VirtAddr,
-    /// Physical address (filled after translation).
-    pub paddr: Option<PhysAddr>,
-    /// Data to store.
-    pub data: u64,
     /// Width of the store operation.
     pub width: MemWidth,
-    /// Current lifecycle state.
-    pub state: StoreState,
+    /// Resolution state — encodes lifecycle, physical address, and data.
+    pub resolution: StoreResolution,
     /// Whether this slot is occupied.
     pub valid: bool,
 }
@@ -106,7 +137,7 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid && entry.state == StoreState::Committed {
+            if entry.valid && entry.resolution.is_committed() {
                 return true;
             }
             idx = (idx + 1) % cap;
@@ -135,10 +166,8 @@ impl StoreBuffer {
         self.entries[self.tail] = StoreBufferEntry {
             rob_tag,
             vaddr: VirtAddr::new(0),
-            paddr: None,
-            data: 0,
             width,
-            state: StoreState::Pending,
+            resolution: StoreResolution::Pending,
             valid: true,
         };
 
@@ -151,18 +180,21 @@ impl StoreBuffer {
     pub fn resolve(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: u64) {
         if let Some(entry) = self.find_by_tag_mut(rob_tag) {
             entry.vaddr = vaddr;
-            entry.paddr = Some(paddr);
-            entry.data = data;
-            entry.state = StoreState::Ready;
+            entry.resolution = StoreResolution::Ready { paddr, data };
         }
     }
 
     /// Marks a store as committed (the ROB has retired the instruction).
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
-        if let Some(entry) = self.find_by_tag_mut(rob_tag)
-            && entry.state == StoreState::Ready
-        {
-            entry.state = StoreState::Committed;
+        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
+            debug_assert!(
+                matches!(entry.resolution, StoreResolution::Ready { .. }),
+                "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
+                rob_tag.0, entry.resolution,
+            );
+            if let StoreResolution::Ready { paddr, data } = entry.resolution {
+                entry.resolution = StoreResolution::Committed { paddr, data };
+            }
         }
     }
 
@@ -202,32 +234,36 @@ impl StoreBuffer {
                     continue;
                 }
 
-                // Older store with resolved address — check for overlap.
-                if let Some(store_paddr) = entry.paddr {
-                    let store_size = width_to_bytes(entry.width);
-                    let store_start = store_paddr.val();
-                    let store_end = store_start + store_size as u64;
+                // Older store — check for overlap based on resolution state.
+                match entry.resolution {
+                    StoreResolution::Ready { paddr: store_paddr, data: store_data }
+                    | StoreResolution::Committed { paddr: store_paddr, data: store_data } => {
+                        let store_size = width_to_bytes(entry.width);
+                        let store_start = store_paddr.val();
+                        let store_end = store_start + store_size as u64;
 
-                    // Check for any overlap
-                    if load_start < store_end && load_end > store_start {
-                        // Full overlap: store completely covers the load
-                        if store_start <= load_start && store_end >= load_end {
-                            let offset = (load_start - store_start) as u32;
-                            let shifted = entry.data >> (offset * 8);
-                            let mask = if load_size >= 8 {
-                                u64::MAX
-                            } else {
-                                (1u64 << (load_size * 8)) - 1
-                            };
-                            return ForwardResult::Hit(shifted & mask);
+                        // Check for any overlap
+                        if load_start < store_end && load_end > store_start {
+                            // Full overlap: store completely covers the load
+                            if store_start <= load_start && store_end >= load_end {
+                                let offset = (load_start - store_start) as u32;
+                                let shifted = store_data >> (offset * 8);
+                                let mask = if load_size >= 8 {
+                                    u64::MAX
+                                } else {
+                                    (1u64 << (load_size * 8)) - 1
+                                };
+                                return ForwardResult::Hit(shifted & mask);
+                            }
+                            // Partial overlap: must stall
+                            return ForwardResult::Stall;
                         }
-                        // Partial overlap: must stall
-                        return ForwardResult::Stall;
                     }
+                    // Pending or Cancelled: no resolved address to check.
+                    // (Loads are not issued until all older stores have their
+                    // addresses resolved, so Pending is handled at issue time.)
+                    _ => {}
                 }
-                // Older store with paddr=None: skip (handled by issue-time
-                // ordering — loads are not issued until all older stores have
-                // their addresses resolved).
             }
             if idx == 0 {
                 idx = self.entries.len() - 1;
@@ -240,8 +276,8 @@ impl StoreBuffer {
     }
 
     /// Checks whether any store buffer entry older than `rob_tag` has an
-    /// unresolved address (paddr=None). Used by the issue queue to prevent
-    /// loads from issuing before older stores have their addresses resolved.
+    /// unresolved address. Used by the issue queue to prevent loads from
+    /// issuing before older stores have their addresses resolved.
     pub fn has_unresolved_store_before(&self, rob_tag: RobTag) -> bool {
         if self.count == 0 {
             return false;
@@ -250,16 +286,32 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            // An entry is truly unresolved only if it's Pending (address
-            // computation hasn't happened yet). Cancelled SC entries have
-            // paddr=None but state=Committed — they are harmless no-ops
-            // waiting to drain and must not block younger loads.
             if entry.valid
                 && entry.rob_tag.is_older_than(rob_tag)
-                && entry.paddr.is_none()
-                && entry.state == StoreState::Pending
+                && entry.resolution.is_pending()
             {
                 return true;
+            }
+            idx = (idx + 1) % cap;
+        }
+        false
+    }
+
+    /// Checks whether a specific store is unresolved (no address yet).
+    ///
+    /// Returns `true` if the store is found in the buffer and still has no
+    /// resolved address (Pending state). Returns `false` if the store is
+    /// resolved, committed, or not found (stale tag).
+    pub fn is_unresolved(&self, rob_tag: RobTag) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.rob_tag == rob_tag {
+                return entry.resolution.is_pending();
             }
             idx = (idx + 1) % cap;
         }
@@ -281,18 +333,21 @@ impl StoreBuffer {
         for _ in 0..self.count {
             let entry = &self.entries[idx];
             if entry.valid && entry.rob_tag.is_older_than(rob_tag) {
-                // Unresolved store to unknown address — must assume overlap
-                if entry.paddr.is_none() && entry.state == StoreState::Pending {
-                    return true;
-                }
-                // Resolved store — check for address overlap
-                if let Some(store_paddr) = entry.paddr {
-                    let store_size = width_to_bytes(entry.width) as u64;
-                    let store_start = store_paddr.val();
-                    let store_end = store_start + store_size;
-                    if load_start < store_end && load_end > store_start {
-                        return true;
+                match entry.resolution {
+                    // Unresolved store to unknown address — must assume overlap
+                    StoreResolution::Pending => return true,
+                    // Resolved store — check for address overlap
+                    StoreResolution::Ready { paddr: store_paddr, .. }
+                    | StoreResolution::Committed { paddr: store_paddr, .. } => {
+                        let store_size = width_to_bytes(entry.width) as u64;
+                        let store_start = store_paddr.val();
+                        let store_end = store_start + store_size;
+                        if load_start < store_end && load_end > store_start {
+                            return true;
+                        }
                     }
+                    // Cancelled: no-op, cannot overlap
+                    StoreResolution::Cancelled => {}
                 }
             }
             idx = (idx + 1) % cap;
@@ -308,7 +363,7 @@ impl StoreBuffer {
         }
 
         let entry = &self.entries[self.head];
-        if !entry.valid || entry.state != StoreState::Committed {
+        if !entry.valid || !entry.resolution.is_committed() {
             return None;
         }
 
@@ -325,14 +380,14 @@ impl StoreBuffer {
             return;
         }
 
-        // Walk from head to tail, keep only Committed entries at the front
+        // Walk from head to tail, keep only Committed/Cancelled entries at the front
         let cap = self.entries.len();
         let mut new_tail = self.head;
         let mut new_count = 0;
         let mut idx = self.head;
 
         for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].state == StoreState::Committed {
+            if self.entries[idx].valid && self.entries[idx].resolution.is_committed() {
                 if idx != new_tail {
                     self.entries[new_tail] = self.entries[idx].clone();
                     self.entries[idx].valid = false;
@@ -413,11 +468,9 @@ impl StoreBuffer {
                     self.tail = prev_tail;
                     self.count -= 1;
                 } else {
-                    // Not at tail — resolve as a committed no-op that drain_one will skip.
-                    // Mark it Committed so it can drain, and clear paddr so
-                    // drain_one's `let Some(paddr) = store.paddr` guard skips the write.
-                    self.entries[idx].state = StoreState::Committed;
-                    self.entries[idx].paddr = None;
+                    // Not at tail — mark as cancelled no-op that drain_one will
+                    // pass through without writing to memory.
+                    self.entries[idx].resolution = StoreResolution::Cancelled;
                 }
                 return;
             }
@@ -432,7 +485,7 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
-                return self.entries[idx].paddr;
+                return self.entries[idx].resolution.paddr();
             }
             idx = (idx + 1) % cap;
         }
@@ -487,8 +540,13 @@ mod tests {
 
         sb.mark_committed(tag);
         let entry = sb.drain_one().unwrap();
-        assert_eq!(entry.paddr, Some(PhysAddr::new(0x8000_0000)));
-        assert_eq!(entry.data, 0xDEADBEEF);
+        assert_eq!(
+            entry.resolution,
+            StoreResolution::Committed {
+                paddr: PhysAddr::new(0x8000_0000),
+                data: 0xDEADBEEF,
+            }
+        );
         assert!(sb.is_empty());
     }
 
@@ -551,7 +609,13 @@ mod tests {
         assert_eq!(sb.len(), 1); // only t1 remains
 
         let entry = sb.drain_one().unwrap();
-        assert_eq!(entry.data, 10);
+        assert_eq!(
+            entry.resolution,
+            StoreResolution::Committed {
+                paddr: PhysAddr::new(0x8000_0000),
+                data: 10,
+            }
+        );
     }
 
     #[test]
@@ -573,7 +637,13 @@ mod tests {
             sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
             sb.mark_committed(tag);
             let entry = sb.drain_one().unwrap();
-            assert_eq!(entry.data, i as u64);
+            assert_eq!(
+                entry.resolution,
+                StoreResolution::Committed {
+                    paddr: PhysAddr::new(0x8000_0000),
+                    data: i as u64,
+                }
+            );
         }
     }
 }

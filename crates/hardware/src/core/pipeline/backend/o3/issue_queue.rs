@@ -15,22 +15,60 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::units::mdp::MemDepState;
 
-/// State of a single source operand in an issue queue entry (PRF path).
+/// Readiness state of a single source operand.
+///
+/// Encodes the three mutually-exclusive states an operand can be in,
+/// making it impossible to read a value that isn't ready.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum OperandReady {
+    /// Value not available yet — waiting on producer.
+    #[default]
+    NotReady,
+    /// Speculatively woken by a load (assuming L1D hit).
+    /// The PRF has NOT been written yet — the real value must be read
+    /// from the PRF at select time after validation.
+    Speculative,
+    /// Ready with a real value.
+    Ready(u64),
+}
+
+impl OperandReady {
+    /// Returns `true` if the operand is ready (either `Ready` or `Speculative`).
+    #[inline]
+    pub const fn is_ready(self) -> bool {
+        !matches!(self, Self::NotReady)
+    }
+
+    /// Returns `true` if speculative (load-hit speculation, not yet confirmed).
+    #[inline]
+    pub const fn is_speculative(self) -> bool {
+        matches!(self, Self::Speculative)
+    }
+}
+
+/// State of a single source operand in an issue queue entry.
 #[derive(Clone, Debug, Default)]
 pub struct OperandState {
     /// Which physical register provides this operand value.
     pub phys: PhysReg,
     /// ROB tag of the producer (legacy path; None when using PRF).
     pub tag: Option<RobTag>,
-    /// Whether the operand value is available.
-    pub ready: bool,
-    /// The operand value (valid when `ready` is true).
-    pub value: u64,
-    /// Whether this operand was speculatively woken (load hit speculation).
-    /// When true, the PRF has NOT been written yet — the value in `value`
-    /// is a placeholder. Must be validated against the PRF before issue.
-    pub speculative: bool,
+    /// Readiness and value of this operand.
+    pub readiness: OperandReady,
+}
+
+impl OperandState {
+    /// Convenience: create a ready operand with a known value.
+    const fn ready(phys: PhysReg, tag: Option<RobTag>, value: u64) -> Self {
+        Self { phys, tag, readiness: OperandReady::Ready(value) }
+    }
+
+    /// Convenience: create a not-ready operand.
+    const fn not_ready(phys: PhysReg, tag: Option<RobTag>) -> Self {
+        Self { phys, tag, readiness: OperandReady::NotReady }
+    }
 }
 
 /// A single entry in the issue queue.
@@ -44,6 +82,22 @@ pub struct IssueQueueEntry {
     pub src2: OperandState,
     /// Source operand 3 state (FP fused multiply-add).
     pub src3: OperandState,
+    /// Cached memory dependency state (set once at dispatch).
+    pub mem_dep: MemDepState,
+}
+
+/// An instruction selected from the IQ for execution.
+///
+/// Bundles the resolved `RenameIssueEntry` with its cached `MemDepState`
+/// so that re-dispatch (on backpressure or FU stall) preserves the
+/// original memory dependency prediction. Without this, re-dispatch
+/// would lose the prediction and allow loads to bypass stores unsafely.
+#[derive(Clone, Debug)]
+pub struct SelectedEntry {
+    /// The instruction with resolved operand values.
+    pub entry: RenameIssueEntry,
+    /// The memory dependency state from dispatch (must be preserved on re-dispatch).
+    pub mem_dep: MemDepState,
 }
 
 /// CAM-style issue queue with wakeup and oldest-first select.
@@ -75,6 +129,7 @@ impl IssueQueue {
         rob: &Rob,
         cpu: &Cpu,
         prf: Option<&PhysRegFile>,
+        mem_dep: MemDepState,
     ) -> bool {
         if self.count >= self.capacity {
             return false;
@@ -87,13 +142,7 @@ impl IssueQueue {
             let s3 = if entry.ctrl.rs3_fp {
                 resolve_operand_prf(entry.rs3, true, entry.rs3_phys, prf, cpu)
             } else {
-                OperandState {
-                    phys: PhysReg(0),
-                    tag: None,
-                    ready: true,
-                    value: 0,
-                    speculative: false,
-                }
+                OperandState::ready(PhysReg(0), None, 0)
             };
             (s1, s2, s3)
         } else {
@@ -103,18 +152,12 @@ impl IssueQueue {
             let s3 = if entry.ctrl.rs3_fp {
                 resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, cpu)
             } else {
-                OperandState {
-                    phys: PhysReg(0),
-                    tag: None,
-                    ready: true,
-                    value: 0,
-                    speculative: false,
-                }
+                OperandState::ready(PhysReg(0), None, 0)
             };
             (s1, s2, s3)
         };
 
-        let iq_entry = IssueQueueEntry { entry, src1, src2, src3 };
+        let iq_entry = IssueQueueEntry { entry, src1, src2, src3, mem_dep };
 
         // Find first free slot
         for slot in &mut self.slots {
@@ -131,22 +174,19 @@ impl IssueQueue {
     /// Broadcast a completed result via physical register (PRF wakeup path).
     pub fn wakeup_phys(&mut self, p: PhysReg, value: u64) {
         for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && !iq.src1.ready {
-                iq.src1.ready = true;
-                iq.src1.value = value;
+            if iq.src1.phys == p && !iq.src1.readiness.is_ready() {
+                iq.src1.readiness = OperandReady::Ready(value);
             }
-            if iq.src2.phys == p && !iq.src2.ready {
-                iq.src2.ready = true;
-                iq.src2.value = value;
+            if iq.src2.phys == p && !iq.src2.readiness.is_ready() {
+                iq.src2.readiness = OperandReady::Ready(value);
             }
-            if iq.src3.phys == p && !iq.src3.ready {
-                iq.src3.ready = true;
-                iq.src3.value = value;
+            if iq.src3.phys == p && !iq.src3.readiness.is_ready() {
+                iq.src3.readiness = OperandReady::Ready(value);
             }
         }
     }
 
-    /// Speculatively mark operands waiting on `p` as ready (value=0 placeholder).
+    /// Speculatively mark operands waiting on `p` as ready.
     ///
     /// Used for load speculation: when a load issues, we optimistically wake
     /// dependents so they can be selected next cycle (assuming L1D hit).
@@ -158,18 +198,14 @@ impl IssueQueue {
             return;
         }
         for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && !iq.src1.ready {
-                iq.src1.ready = true;
-                iq.src1.speculative = true;
-                // value stays 0 — real value comes from PRF at select time
+            if iq.src1.phys == p && !iq.src1.readiness.is_ready() {
+                iq.src1.readiness = OperandReady::Speculative;
             }
-            if iq.src2.phys == p && !iq.src2.ready {
-                iq.src2.ready = true;
-                iq.src2.speculative = true;
+            if iq.src2.phys == p && !iq.src2.readiness.is_ready() {
+                iq.src2.readiness = OperandReady::Speculative;
             }
-            if iq.src3.phys == p && !iq.src3.ready {
-                iq.src3.ready = true;
-                iq.src3.speculative = true;
+            if iq.src3.phys == p && !iq.src3.readiness.is_ready() {
+                iq.src3.readiness = OperandReady::Speculative;
             }
         }
     }
@@ -189,17 +225,14 @@ impl IssueQueue {
             return;
         }
         for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && iq.src1.ready && iq.src1.speculative {
-                iq.src1.ready = false;
-                iq.src1.speculative = false;
+            if iq.src1.phys == p && iq.src1.readiness.is_speculative() {
+                iq.src1.readiness = OperandReady::NotReady;
             }
-            if iq.src2.phys == p && iq.src2.ready && iq.src2.speculative {
-                iq.src2.ready = false;
-                iq.src2.speculative = false;
+            if iq.src2.phys == p && iq.src2.readiness.is_speculative() {
+                iq.src2.readiness = OperandReady::NotReady;
             }
-            if iq.src3.phys == p && iq.src3.ready && iq.src3.speculative {
-                iq.src3.ready = false;
-                iq.src3.speculative = false;
+            if iq.src3.phys == p && iq.src3.readiness.is_speculative() {
+                iq.src3.readiness = OperandReady::NotReady;
             }
         }
     }
@@ -207,17 +240,14 @@ impl IssueQueue {
     /// Broadcast a completed result via ROB tag (legacy wakeup path).
     pub fn wakeup(&mut self, tag: RobTag, value: u64) {
         for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.tag == Some(tag) && !iq.src1.ready {
-                iq.src1.ready = true;
-                iq.src1.value = value;
+            if iq.src1.tag == Some(tag) && !iq.src1.readiness.is_ready() {
+                iq.src1.readiness = OperandReady::Ready(value);
             }
-            if iq.src2.tag == Some(tag) && !iq.src2.ready {
-                iq.src2.ready = true;
-                iq.src2.value = value;
+            if iq.src2.tag == Some(tag) && !iq.src2.readiness.is_ready() {
+                iq.src2.readiness = OperandReady::Ready(value);
             }
-            if iq.src3.tag == Some(tag) && !iq.src3.ready {
-                iq.src3.ready = true;
-                iq.src3.value = value;
+            if iq.src3.tag == Some(tag) && !iq.src3.readiness.is_ready() {
+                iq.src3.readiness = OperandReady::Ready(value);
             }
         }
     }
@@ -232,10 +262,8 @@ impl IssueQueue {
     /// operand was speculatively woken by a load that hasn't completed yet.
     /// Such entries are skipped (not issued).
     ///
-    /// Loads (`mem_read`) are not selected if there are older unresolved stores
-    /// in the store buffer (stores whose physical address is not yet known).
-    /// This prevents memory ordering violations where a load could bypass an
-    /// older store to the same address.
+    /// Memory dependencies are checked via the cached [`MemDepState`] set at
+    /// dispatch time, rather than re-querying the predictor every cycle.
     ///
     /// System/CSR instructions are serializing: they must not issue until all
     /// older ROB entries have completed.
@@ -250,14 +278,16 @@ impl IssueQueue {
         load_ports: usize,
         store_ports: usize,
         prf: Option<&PhysRegFile>,
-    ) -> Vec<RenameIssueEntry> {
+    ) -> Vec<SelectedEntry> {
         // Collect indices of all ready entries
         let mut ready_indices: Vec<usize> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if let Some(iq) = slot {
                 // Faulted instructions don't need operands — always ready
-                let all_ready =
-                    iq.entry.trap.is_some() || (iq.src1.ready && iq.src2.ready && iq.src3.ready);
+                let all_ready = iq.entry.trap.is_some()
+                    || (iq.src1.readiness.is_ready()
+                        && iq.src2.readiness.is_ready()
+                        && iq.src3.readiness.is_ready());
                 // PRF validation: if an operand was speculatively woken (IQ says
                 // ready) but the PRF still says not-ready, the speculative wakeup
                 // hasn't been confirmed yet — treat as not ready.
@@ -268,10 +298,17 @@ impl IssueQueue {
                 });
                 let all_ready = all_ready && prf_valid;
                 if all_ready {
-                    // Loads must wait for all older stores to have resolved addresses
-                    if iq.entry.ctrl.mem_read
-                        && store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
-                    {
+                    // Memory dependency check (cached at dispatch time).
+                    let mem_ready = match &iq.mem_dep {
+                        MemDepState::None | MemDepState::Bypass | MemDepState::Resolved(_) => true,
+                        MemDepState::WaitAll => {
+                            !store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
+                        }
+                        MemDepState::WaitFor(barrier) => {
+                            !store_buffer.is_unresolved(*barrier)
+                        }
+                    };
+                    if !mem_ready {
                         continue;
                     }
                     // System/CSR instructions are serializing: wait for all
@@ -309,7 +346,7 @@ impl IssueQueue {
         ready_indices.sort_by_key(|&i| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
 
         // Take up to `width`, respecting per-type port limits
-        let mut result = Vec::with_capacity(width);
+        let mut result: Vec<SelectedEntry> = Vec::with_capacity(width);
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         for &idx in &ready_indices {
@@ -336,17 +373,28 @@ impl IssueQueue {
                 stores_issued += 1;
             }
 
+            let mem_dep = iq.mem_dep;
             let mut entry = iq.entry;
             // Populate operand values from resolved state.
-            // If PRF is available and the operand value is 0 with a non-zero
-            // phys reg, read the real value from PRF (handles speculative
-            // wakeup where IQ had value=0 but PRF now has the real value).
             if entry.trap.is_none() {
+                // Assert all operands are genuinely ready at select time.
+                // A NotReady operand would silently resolve to 0, which could
+                // cause loads/stores to wrong addresses or corrupt register values.
+                debug_assert!(
+                    !matches!(iq.src1.readiness, OperandReady::NotReady),
+                    "IQ select: src1 not ready for rob_tag={} pc={:#x}",
+                    entry.rob_tag.0, entry.pc,
+                );
+                debug_assert!(
+                    !matches!(iq.src2.readiness, OperandReady::NotReady),
+                    "IQ select: src2 not ready for rob_tag={} pc={:#x}",
+                    entry.rob_tag.0, entry.pc,
+                );
                 entry.rv1 = Self::resolve_value(&iq.src1, prf);
                 entry.rv2 = Self::resolve_value(&iq.src2, prf);
                 entry.rv3 = Self::resolve_value(&iq.src3, prf);
             }
-            result.push(entry);
+            result.push(SelectedEntry { entry, mem_dep });
         }
 
         result
@@ -359,25 +407,30 @@ impl IssueQueue {
     /// and the PRF still hasn't been written (load hasn't completed yet).
     #[inline]
     fn prf_validated(src: &OperandState, prf: &PhysRegFile) -> bool {
-        if !src.ready || !src.speculative {
-            return true; // not ready or not speculative → no validation needed
+        match src.readiness {
+            OperandReady::Speculative => prf.is_ready(src.phys),
+            _ => true, // NotReady or Ready — no PRF validation needed
         }
-        // Speculative: check PRF — if PRF is ready, the real wakeup arrived.
-        prf.is_ready(src.phys)
     }
 
     /// Resolve the final operand value at select time.
     ///
-    /// If the operand was speculatively woken, the IQ entry has a placeholder
-    /// value — read the real value from the PRF (which has been written by
-    /// the real wakeup by the time we reach select).
+    /// For `Ready(v)`, returns `v` directly.
+    /// For `Speculative`, reads the real value from the PRF (which has been
+    /// written by the real wakeup by the time we reach select).
+    /// For `NotReady`, returns 0 (should only happen for faulted instructions).
     #[inline]
     fn resolve_value(src: &OperandState, prf: Option<&PhysRegFile>) -> u64 {
-        if !src.speculative || src.phys.0 == 0 {
-            return src.value;
+        match src.readiness {
+            OperandReady::Ready(v) => v,
+            OperandReady::Speculative => {
+                if src.phys.0 == 0 {
+                    return 0;
+                }
+                prf.map_or(0, |prf| prf.read(src.phys))
+            }
+            OperandReady::NotReady => 0,
         }
-        // Speculative: PRF has the authoritative value.
-        prf.map_or(src.value, |prf| prf.read(src.phys))
     }
 
     /// Number of free slots available for dispatch.
@@ -401,6 +454,20 @@ impl IssueQueue {
             {
                 *slot = None;
                 self.count -= 1;
+            }
+        }
+    }
+
+    /// Wake entries whose memory dependency barrier has resolved.
+    ///
+    /// Called when [`MemDepUnit::store_resolved`](crate::core::units::mdp::MemDepUnit)
+    /// returns woken tags. Transitions `WaitFor` → `Resolved` so `select()` can issue them.
+    pub fn wakeup_mem_dep(&mut self, resolved_tags: &[RobTag]) {
+        for slot in self.slots.iter_mut().flatten() {
+            if let MemDepState::WaitFor(barrier) = &slot.mem_dep {
+                if resolved_tags.contains(barrier) {
+                    slot.mem_dep = MemDepState::Resolved(*barrier);
+                }
             }
         }
     }
@@ -434,30 +501,18 @@ fn resolve_operand_prf(
 ) -> OperandState {
     // x0 is hardwired zero
     if !is_fp && reg.is_zero() {
-        return OperandState {
-            phys: PhysReg(0),
-            tag: None,
-            ready: true,
-            value: 0,
-            speculative: false,
-        };
+        return OperandState::ready(PhysReg(0), None, 0);
     }
 
     if prf.is_ready(phys) {
-        OperandState { phys, tag: None, ready: true, value: prf.read(phys), speculative: false }
+        OperandState::ready(phys, None, prf.read(phys))
     } else {
         // Not ready yet — will be woken up by wakeup_phys
         // For x0 (phys == PhysReg(0)), always ready
         if phys.0 == 0 {
-            return OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            };
+            return OperandState::ready(PhysReg(0), None, 0);
         }
-        OperandState { phys, tag: None, ready: false, value: 0, speculative: false }
+        OperandState::not_ready(phys, None)
     }
 }
 
@@ -471,48 +526,26 @@ fn resolve_operand_legacy(
 ) -> OperandState {
     // x0 is hardwired zero
     if !is_fp && reg.is_zero() {
-        return OperandState {
-            phys: PhysReg(0),
-            tag: None,
-            ready: true,
-            value: 0,
-            speculative: false,
-        };
+        return OperandState::ready(PhysReg(0), None, 0);
     }
 
     tag.map_or_else(
         || {
             // No in-flight producer — read from architectural register file
             let value = if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) };
-            OperandState { phys: PhysReg(0), tag: None, ready: true, value, speculative: false }
+            OperandState::ready(PhysReg(0), None, value)
         },
         |t| {
             // Check if ROB entry has completed
             match rob.find_entry(t) {
-                Some(entry) if entry.state == RobState::Completed => OperandState {
-                    phys: PhysReg(0),
-                    tag: Some(t),
-                    ready: true,
-                    value: entry.result,
-                    speculative: false,
-                },
-                Some(_) => OperandState {
-                    phys: PhysReg(0),
-                    tag: Some(t),
-                    ready: false,
-                    value: 0,
-                    speculative: false,
-                },
+                Some(entry) if entry.state == RobState::Completed => {
+                    OperandState::ready(PhysReg(0), Some(t), entry.result.unwrap_or(0))
+                }
+                Some(_) => OperandState::not_ready(PhysReg(0), Some(t)),
                 None => {
                     // ROB entry already committed — read from register file
                     let value = if is_fp { cpu.regs.read_f(reg) } else { cpu.regs.read(reg) };
-                    OperandState {
-                        phys: PhysReg(0),
-                        tag: None,
-                        ready: true,
-                        value,
-                        speculative: false,
-                    }
+                    OperandState::ready(PhysReg(0), None, value)
                 }
             }
         },
@@ -559,6 +592,18 @@ mod tests {
         }
     }
 
+    fn ready_operand(value: u64) -> OperandState {
+        OperandState::ready(PhysReg(0), None, value)
+    }
+
+    fn not_ready_operand_phys(phys: PhysReg) -> OperandState {
+        OperandState::not_ready(phys, None)
+    }
+
+    fn not_ready_operand_tag(tag: RobTag) -> OperandState {
+        OperandState::not_ready(PhysReg(0), Some(tag))
+    }
+
     #[test]
     fn test_new_empty() {
         let iq = IssueQueue::new(16);
@@ -573,36 +618,19 @@ mod tests {
         // Manually insert a ready entry
         iq.slots[0] = Some(IssueQueueEntry {
             entry: make_entry(1),
-            src1: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 42,
-                speculative: false,
-            },
-            src2: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 10,
-                speculative: false,
-            },
-            src3: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            },
+            src1: ready_operand(42),
+            src2: ready_operand(10),
+            src3: ready_operand(0),
+            mem_dep: MemDepState::None,
         });
         iq.count = 1;
 
         let selected =
             iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].rob_tag.0, 1);
-        assert_eq!(selected[0].rv1, 42);
-        assert_eq!(selected[0].rv2, 10);
+        assert_eq!(selected[0].entry.rob_tag.0, 1);
+        assert_eq!(selected[0].entry.rv1, 42);
+        assert_eq!(selected[0].entry.rv2, 10);
         assert!(iq.is_empty());
     }
 
@@ -615,21 +643,10 @@ mod tests {
         let entry = make_entry(10);
         iq.slots[0] = Some(IssueQueueEntry {
             entry,
-            src1: OperandState { phys: p5, tag: None, ready: false, value: 0, speculative: false },
-            src2: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            },
-            src3: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            },
+            src1: not_ready_operand_phys(p5),
+            src2: ready_operand(0),
+            src3: ready_operand(0),
+            mem_dep: MemDepState::None,
         });
         iq.count = 1;
 
@@ -645,7 +662,7 @@ mod tests {
         let selected =
             iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].rv1, 999);
+        assert_eq!(selected[0].entry.rv1, 999);
     }
 
     #[test]
@@ -656,27 +673,10 @@ mod tests {
         let entry = make_entry(10);
         iq.slots[0] = Some(IssueQueueEntry {
             entry,
-            src1: OperandState {
-                phys: PhysReg(0),
-                tag: Some(RobTag(5)),
-                ready: false,
-                value: 0,
-                speculative: false,
-            },
-            src2: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            },
-            src3: OperandState {
-                phys: PhysReg(0),
-                tag: None,
-                ready: true,
-                value: 0,
-                speculative: false,
-            },
+            src1: not_ready_operand_tag(RobTag(5)),
+            src2: ready_operand(0),
+            src3: ready_operand(0),
+            mem_dep: MemDepState::None,
         });
         iq.count = 1;
 
@@ -686,7 +686,7 @@ mod tests {
         let selected =
             iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].rv1, 999);
+        assert_eq!(selected[0].entry.rv1, 999);
     }
 
     #[test]
@@ -697,27 +697,10 @@ mod tests {
         for (slot, tag) in [(2, 3u32), (0, 1), (1, 2)] {
             iq.slots[slot] = Some(IssueQueueEntry {
                 entry: make_entry(tag),
-                src1: OperandState {
-                    phys: PhysReg(0),
-                    tag: None,
-                    ready: true,
-                    value: tag as u64,
-                    speculative: false,
-                },
-                src2: OperandState {
-                    phys: PhysReg(0),
-                    tag: None,
-                    ready: true,
-                    value: 0,
-                    speculative: false,
-                },
-                src3: OperandState {
-                    phys: PhysReg(0),
-                    tag: None,
-                    ready: true,
-                    value: 0,
-                    speculative: false,
-                },
+                src1: ready_operand(tag as u64),
+                src2: ready_operand(0),
+                src3: ready_operand(0),
+                mem_dep: MemDepState::None,
             });
         }
         iq.count = 3;
@@ -726,15 +709,15 @@ mod tests {
         let selected =
             iq.select(2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].rob_tag.0, 1);
-        assert_eq!(selected[1].rob_tag.0, 2);
+        assert_eq!(selected[0].entry.rob_tag.0, 1);
+        assert_eq!(selected[1].entry.rob_tag.0, 2);
         assert_eq!(iq.len(), 1);
 
         // Remaining is tag 3
         let selected =
             iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].rob_tag.0, 3);
+        assert_eq!(selected[0].entry.rob_tag.0, 3);
     }
 
     #[test]
@@ -745,12 +728,14 @@ mod tests {
             src1: OperandState::default(),
             src2: OperandState::default(),
             src3: OperandState::default(),
+            mem_dep: MemDepState::None,
         });
         iq.slots[5] = Some(IssueQueueEntry {
             entry: make_entry(2),
             src1: OperandState::default(),
             src2: OperandState::default(),
             src3: OperandState::default(),
+            mem_dep: MemDepState::None,
         });
         iq.count = 2;
 
@@ -768,6 +753,7 @@ mod tests {
                 src1: OperandState::default(),
                 src2: OperandState::default(),
                 src3: OperandState::default(),
+                mem_dep: MemDepState::None,
             });
         }
         iq.count = 4;
@@ -792,6 +778,7 @@ mod tests {
                 src1: OperandState::default(),
                 src2: OperandState::default(),
                 src3: OperandState::default(),
+                mem_dep: MemDepState::None,
             });
         }
         iq.count = 3;
@@ -820,9 +807,10 @@ mod tests {
             entry.ctrl.mem_write = is_store;
             iq.slots[slot] = Some(IssueQueueEntry {
                 entry,
-                src1: OperandState { ready: true, ..Default::default() },
-                src2: OperandState { ready: true, ..Default::default() },
-                src3: OperandState { ready: true, ..Default::default() },
+                src1: ready_operand(0),
+                src2: ready_operand(0),
+                src3: ready_operand(0),
+                mem_dep: MemDepState::None,
             });
         }
         iq.count = 5;
@@ -831,12 +819,12 @@ mod tests {
         let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1, None);
         assert_eq!(selected.len(), 3);
         // Oldest first: tags 1 (load), 2 (load), 4 (store)
-        assert_eq!(selected[0].rob_tag.0, 1);
-        assert!(selected[0].ctrl.mem_read);
-        assert_eq!(selected[1].rob_tag.0, 2);
-        assert!(selected[1].ctrl.mem_read);
-        assert_eq!(selected[2].rob_tag.0, 4);
-        assert!(selected[2].ctrl.mem_write);
+        assert_eq!(selected[0].entry.rob_tag.0, 1);
+        assert!(selected[0].entry.ctrl.mem_read);
+        assert_eq!(selected[1].entry.rob_tag.0, 2);
+        assert!(selected[1].entry.ctrl.mem_read);
+        assert_eq!(selected[2].entry.rob_tag.0, 4);
+        assert!(selected[2].entry.ctrl.mem_write);
 
         // Remaining: tag 3 (load), tag 5 (store)
         assert_eq!(iq.len(), 2);
@@ -844,8 +832,8 @@ mod tests {
         // Next cycle: should get remaining load + store
         let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1, None);
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].rob_tag.0, 3);
-        assert_eq!(selected[1].rob_tag.0, 5);
+        assert_eq!(selected[0].entry.rob_tag.0, 3);
+        assert_eq!(selected[1].entry.rob_tag.0, 5);
         assert!(iq.is_empty());
     }
 }

@@ -28,8 +28,8 @@ pub fn memory2_stage(
     store_buffer: &mut StoreBuffer,
     _rob: &mut Rob,
     mut load_queue: Option<&mut LoadQueue>,
-) -> Option<RobTag> {
-    let mut violation: Option<RobTag> = None;
+) -> Option<(RobTag, u64)> {
+    let mut violation: Option<(RobTag, u64)> = None;
     let mut entries = std::mem::take(input);
 
     // Sort by rob_tag to ensure entries are processed in program order.
@@ -73,7 +73,7 @@ pub fn memory2_stage(
             // They will be flushed by the commit-stage trap handler, but must
             // not be silently dropped here or their ROB entries become orphans.
             input.extend(iter);
-            return None;
+            return violation;
         }
 
         let raw_paddr = mem.paddr;
@@ -95,7 +95,7 @@ pub fn memory2_stage(
                     if store_buffer.has_older_store_to(raw_paddr, mem.ctrl.width, mem.rob_tag) {
                         input.push(mem);
                         input.extend(iter);
-                        return None;
+                        return violation;
                     }
                     ld = match mem.ctrl.width {
                         MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
@@ -114,6 +114,20 @@ pub fn memory2_stage(
                     store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, mem.store_data);
                     ld = 0; // optimistic success
                     lr_sc = Some(LrScRecord::Sc { paddr: raw_paddr });
+
+                    // Check for memory ordering violation (same as regular stores).
+                    if let Some(ref lq) = load_queue
+                        && let Some(violating_tag) =
+                            lq.check_ordering_violation(raw_paddr, mem.ctrl.width, mem.rob_tag)
+                    {
+                        match violation {
+                            None => violation = Some((violating_tag, mem.pc)),
+                            Some((prev, _)) if violating_tag.is_older_than(prev) => {
+                                violation = Some((violating_tag, mem.pc));
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 _ => {
                     // AMO: atomic read-modify-write must operate on the
@@ -122,7 +136,7 @@ pub fn memory2_stage(
                     if store_buffer.has_older_store_to(raw_paddr, mem.ctrl.width, mem.rob_tag) {
                         input.push(mem);
                         input.extend(iter);
-                        return None;
+                        return violation;
                     }
                     let old_val = match mem.ctrl.width {
                         MemWidth::Word => (cpu.bus.bus.read_u32(raw_paddr) as i32) as i64 as u64,
@@ -139,6 +153,20 @@ pub fn memory2_stage(
 
                     // Resolve store buffer with the computed new value
                     store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, new_val);
+
+                    // Check for memory ordering violation (same as regular stores).
+                    if let Some(ref lq) = load_queue
+                        && let Some(violating_tag) =
+                            lq.check_ordering_violation(raw_paddr, mem.ctrl.width, mem.rob_tag)
+                    {
+                        match violation {
+                            None => violation = Some((violating_tag, mem.pc)),
+                            Some((prev, _)) if violating_tag.is_older_than(prev) => {
+                                violation = Some((violating_tag, mem.pc));
+                            }
+                            _ => {}
+                        }
+                    }
 
                     ld = old_val;
                     // Note: AMOs may optionally clear the reservation per
@@ -203,7 +231,7 @@ pub fn memory2_stage(
                     );
                     input.push(mem);
                     input.extend(iter);
-                    return None;
+                    return violation;
                 }
                 ForwardResult::Miss => {
                     // Read from memory/cache
@@ -307,11 +335,11 @@ pub fn memory2_stage(
                     violation_flush   = violating_tag.0,
                     "M2: memory ordering VIOLATION — younger load executed with stale data"
                 );
-                // Record the oldest violation
+                // Record the oldest violation (with the store PC for MDP training).
                 match violation {
-                    None => violation = Some(violating_tag),
-                    Some(prev) if violating_tag.is_older_than(prev) => {
-                        violation = Some(violating_tag);
+                    None => violation = Some((violating_tag, mem.pc)),
+                    Some((prev, _)) if violating_tag.is_older_than(prev) => {
+                        violation = Some((violating_tag, mem.pc));
                     }
                     _ => {}
                 }
@@ -363,7 +391,7 @@ pub fn memory2_stage(
 
         if trap.is_some() {
             input.extend(iter);
-            return None;
+            return violation;
         }
     }
 
@@ -587,6 +615,6 @@ mod tests {
             Some(&mut load_queue),
         );
 
-        assert_eq!(violation, Some(RobTag(5))); // Older store detected overlap with younger load
+        assert_eq!(violation, Some((RobTag(5), 0x1000))); // Older store detected overlap with younger load
     }
 }

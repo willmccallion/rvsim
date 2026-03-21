@@ -23,6 +23,7 @@ use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::bru::BranchPredictor;
+use crate::core::units::mdp::MemDepUnit;
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
@@ -79,6 +80,8 @@ pub struct O3Engine {
     pub mem2_wb: Vec<Mem2WbEntry>,
     /// Current simulation cycle (for FU latency tracking).
     pub cycle: u64,
+    /// Memory dependence unit for load-store ordering speculation.
+    pub mdp: MemDepUnit,
 }
 
 impl O3Engine {
@@ -119,6 +122,7 @@ impl O3Engine {
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             cycle: 0,
+            mdp: MemDepUnit::new(config),
         }
     }
 
@@ -168,6 +172,7 @@ impl ExecutionEngine for O3Engine {
     fn tick(&mut self, cpu: &mut Cpu, rename_output: &mut Vec<RenameIssueEntry>) {
         // Backend stages run in reverse order (drain from commit to issue)
         self.cycle += 1;
+        self.mdp.tick();
         let now = self.cycle;
 
         let pc_before_commit = cpu.pc;
@@ -262,6 +267,7 @@ impl ExecutionEngine for O3Engine {
         }
 
         // ── 3. Memory2 ────────────────────────────────────────────────
+        let wb_before = self.mem2_wb.len();
         let mem_violation = memory2::memory2_stage(
             cpu,
             &mut self.mem1_mem2,
@@ -271,12 +277,24 @@ impl ExecutionEngine for O3Engine {
             Some(&mut self.load_queue),
         );
 
+        // Notify MDP when stores resolve — wake instructions waiting on them.
+        for entry in &self.mem2_wb[wb_before..] {
+            if entry.ctrl.mem_write {
+                if let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag) {
+                    self.issue_queue.wakeup_mem_dep(&[store_tag]);
+                }
+            }
+        }
+
         // Handle memory ordering violation: a store resolved its address and
         // overlapped with a younger load that already executed with stale data.
         // Flush from the violating load onward and redirect to re-fetch it.
-        if let Some(violating_tag) = mem_violation {
+        if let Some((violating_tag, store_pc)) = mem_violation {
             // Find the violating load's PC from the ROB
             let violation_pc = self.rob.find_entry(violating_tag).map_or(cpu.pc, |e| e.pc);
+
+            // Train the memory dependence predictor: this load and store are dependent.
+            self.mdp.violation(violation_pc, store_pc);
 
             // keep_tag = tag before the violating load (everything older is kept).
             // We need a tag that is actually present in the ROB so that
@@ -304,6 +322,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
                 self.load_queue.flush_after(keep_tag);
+                self.mdp.flush_after(keep_tag, &self.rob);
                 cpu.l1d_mshrs.flush_after(keep_tag);
 
                 self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
@@ -323,6 +342,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
                 self.load_queue.flush();
+                self.mdp.flush();
                 cpu.l1d_mshrs.flush();
 
                 self.mem1_mem2.clear();
@@ -453,14 +473,20 @@ impl ExecutionEngine for O3Engine {
             let mut issued_count = 0;
             let mut stalled_fu = false;
 
-            for entry in issued {
+            for selected in issued {
+                let entry = selected.entry;
+                let mem_dep = selected.mem_dep;
                 let fu_type = FuType::classify(&entry.ctrl);
+                let rob_tag = entry.rob_tag;
+                let is_mem_instr = entry.ctrl.mem_read || entry.ctrl.mem_write;
 
                 // Memory pipeline backpressure: block memory ops from issuing
                 // when the memory pipeline is busy, but allow non-memory ops
                 // (ALU, branch) to continue issuing freely.
                 if mem_backpressured && fu_type == FuType::Mem {
-                    let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                    let ok = self.issue_queue.dispatch(
+                        entry, &self.rob, cpu, Some(&self.prf), mem_dep,
+                    );
                     debug_assert!(ok, "re-dispatch after mem backpressure failed");
                     continue;
                 }
@@ -471,9 +497,16 @@ impl ExecutionEngine for O3Engine {
                     stalled_fu = true;
                     // Leave entry in IQ (select already removed it — re-dispatch needed)
                     // For simplicity: re-dispatch back into IQ
-                    let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                    let ok = self.issue_queue.dispatch(
+                        entry, &self.rob, cpu, Some(&self.prf), mem_dep,
+                    );
                     debug_assert!(ok, "re-dispatch after FU stall failed");
                     continue;
+                }
+
+                // Instruction is truly issuing — notify MDP to clean up dep record.
+                if is_mem_instr {
+                    self.mdp.issued(rob_tag);
                 }
 
                 let complete_cycle = self.fu_pool.acquire(fu_type, now);
@@ -583,6 +616,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
                 self.load_queue.flush_after(keep_tag);
+                self.mdp.flush_after(keep_tag, &self.rob);
                 cpu.l1d_mshrs.flush_after(keep_tag);
             } else {
                 // keep_tag was already committed — flush ALL in-flight entries.
@@ -595,6 +629,7 @@ impl ExecutionEngine for O3Engine {
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
                 self.load_queue.flush();
+                self.mdp.flush();
                 cpu.l1d_mshrs.flush();
             }
             // Filter stale (wrong-path) entries from inter-stage latches and pending.
@@ -612,10 +647,22 @@ impl ExecutionEngine for O3Engine {
         if flush_keep_tag.is_none() {
             let entries = std::mem::take(rename_output);
             for entry in entries {
-                let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf));
+                let is_load = entry.ctrl.mem_read;
+                let is_store = entry.ctrl.mem_write;
+                let mem_dep = self.mdp.dispatch(entry.pc, entry.rob_tag, is_load, is_store);
+                let ok = self.issue_queue.dispatch(
+                    entry, &self.rob, cpu, Some(&self.prf), mem_dep,
+                );
                 debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
             }
         }
+
+        // ── 9. Snapshot MDP stats ────────────────────────────────────────
+        let mdp_stats = self.mdp.stats();
+        cpu.stats.mdp_predictions_bypass = mdp_stats.predictions_bypass;
+        cpu.stats.mdp_predictions_wait_all = mdp_stats.predictions_wait_all;
+        cpu.stats.mdp_predictions_wait_for = mdp_stats.predictions_wait_for;
+        cpu.stats.mdp_violations = mdp_stats.violations;
     }
 
     fn can_accept(&self) -> usize {
@@ -640,6 +687,7 @@ impl ExecutionEngine for O3Engine {
         self.load_queue.flush();
         self.scoreboard.flush();
         self.issue_queue.flush();
+        self.mdp.flush();
         self.pending_results.clear();
         self.execute_mem1.clear();
         self.mem1_mem2.clear();

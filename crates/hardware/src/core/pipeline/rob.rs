@@ -106,7 +106,9 @@ pub struct RobEntry {
     /// Whether rd is a floating-point register.
     pub rd_fp: bool,
     /// Computed result value (ALU output, load data, or link address).
-    pub result: u64,
+    /// `None` while the instruction is still executing (`Issued` state);
+    /// `Some(value)` once the instruction completes.
+    pub result: Option<u64>,
     /// Data for store instructions (rs2 value).
     pub store_data: u64,
     /// Virtual address for loads/stores (ALU output for memory ops).
@@ -239,7 +241,7 @@ impl Rob {
             inst_size,
             rd,
             rd_fp,
-            result: 0,
+            result: None,
             store_data: 0,
             store_addr: 0,
             ctrl,
@@ -276,7 +278,7 @@ impl Rob {
             && entry.state != RobState::Faulted
         {
             entry.state = RobState::Completed;
-            entry.result = result;
+            entry.result = Some(result);
         }
     }
 
@@ -502,7 +504,7 @@ impl Rob {
             let entry = &self.entries[idx];
             if entry.valid && entry.rd == reg && entry.rd_fp == is_fp {
                 if entry.state == RobState::Completed {
-                    return Some(entry.result);
+                    return entry.result;
                 }
                 // Found the register but it's not ready yet — return None
                 // to indicate a dependency (would stall or need bypass).
@@ -534,7 +536,7 @@ impl Rob {
                 let writes = if is_fp { entry.ctrl.fp_reg_write } else { entry.ctrl.reg_write };
                 if writes {
                     let ready = entry.state == RobState::Completed;
-                    return Some((entry.result, ready));
+                    return Some((entry.result.unwrap_or(0), ready));
                 }
             }
             if idx == 0 {
@@ -785,7 +787,7 @@ mod tests {
         rob.complete(tag, 42);
         let entry = rob.commit_head().unwrap();
         assert_eq!(entry.pc, 0x1000);
-        assert_eq!(entry.result, 42);
+        assert_eq!(entry.result, Some(42));
         assert_eq!(entry.state, RobState::Completed);
         assert!(rob.is_empty());
     }
@@ -813,10 +815,10 @@ mod tests {
         // Now complete t1
         rob.complete(t1, 100);
         let e1 = rob.commit_head().unwrap();
-        assert_eq!(e1.result, 100);
+        assert_eq!(e1.result, Some(100));
 
         let e2 = rob.commit_head().unwrap();
-        assert_eq!(e2.result, 200);
+        assert_eq!(e2.result, Some(200));
     }
 
     #[test]
@@ -908,7 +910,7 @@ mod tests {
             let tag = alloc(&mut rob, i * 4, 1, make_ctrl(true, false)).unwrap();
             rob.complete(tag, i);
             let entry = rob.commit_head().unwrap();
-            assert_eq!(entry.result, i);
+            assert_eq!(entry.result, Some(i));
         }
     }
 

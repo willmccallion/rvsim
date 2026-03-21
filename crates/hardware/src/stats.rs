@@ -150,6 +150,15 @@ pub struct SimStats {
     /// Pipeline flushes caused by serializing instructions (CSR, FENCE.I, MRET/SRET, etc.).
     pub flushes_system: u64,
 
+    /// MDP: predictions that returned Bypass.
+    pub mdp_predictions_bypass: u64,
+    /// MDP: predictions that returned `WaitAll`.
+    pub mdp_predictions_wait_all: u64,
+    /// MDP: predictions that returned `WaitFor`.
+    pub mdp_predictions_wait_for: u64,
+    /// MDP: violations (calls to update).
+    pub mdp_violations: u64,
+
     /// Retirement histogram: how many instructions were retired per cycle.
     /// Index 0 = cycles with 0 retires, 1 = 1 retire, 2 = 2 retires, 3 = 3+ retires.
     pub retire_histogram: [u64; 4],
@@ -214,6 +223,10 @@ impl Default for SimStats {
             stalls_dispatch: 0,
             flushes_branch: 0,
             flushes_system: 0,
+            mdp_predictions_bypass: 0,
+            mdp_predictions_wait_all: 0,
+            mdp_predictions_wait_for: 0,
+            mdp_violations: 0,
             retire_histogram: [0; 4],
         }
     }
@@ -489,6 +502,18 @@ impl SimStats {
             }
             println!("  flush.mem_violations   {}", self.mem_ordering_violations);
             println!("  flush.squashed_insns   {}", self.misprediction_penalty);
+            let mdp_total = self.mdp_predictions_bypass
+                + self.mdp_predictions_wait_all
+                + self.mdp_predictions_wait_for;
+            if mdp_total > 0 {
+                println!("{sep}");
+                println!("{bold}MEMORY DEPENDENCE PREDICTION{rst}");
+                println!("  mdp.predictions        {mdp_total}");
+                println!("  mdp.bypass             {}", self.mdp_predictions_bypass);
+                println!("  mdp.wait_all           {}", self.mdp_predictions_wait_all);
+                println!("  mdp.wait_for           {}", self.mdp_predictions_wait_for);
+                println!("  mdp.violations         {}", self.mdp_violations);
+            }
             println!("{sep}");
         }
         if want("memory") {

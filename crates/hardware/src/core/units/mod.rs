@@ -19,6 +19,9 @@ pub mod fpu;
 /// Load/Store Unit for memory access operations.
 pub mod lsu;
 
+/// Memory Dependence Prediction for load-store ordering speculation.
+pub mod mdp;
+
 /// Memory Management Unit with TLB and page table walker.
 pub mod mmu;
 

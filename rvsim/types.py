@@ -3,6 +3,7 @@ Namespace types for simulator configuration.
 
 Provides structured, Pythonic alternatives to raw string enums:
 - BranchPredictor: Static, GShare, TAGE, Perceptron, Tournament
+- MemDepPredictor: Blind, StoreSet
 - ReplacementPolicy: LRU, PLRU, FIFO, Random, MRU
 - Prefetcher: Off, NextLine, Stride, Stream, Tagged
 - MemoryController: Simple, DRAM
@@ -132,6 +133,28 @@ class BranchPredictor:
                 f"BranchPredictor.Tournament(global_size_bits={self.global_size_bits}, "
                 f"local_hist_bits={self.local_hist_bits}, "
                 f"local_pred_bits={self.local_pred_bits})"
+            )
+
+
+# ── Memory Dependence Predictor ──────────────────────────────────────────────
+
+
+class MemDepPredictor:
+    """Namespace for memory dependence predictor configurations."""
+
+    class Blind:
+        def __repr__(self) -> str:
+            return "MemDepPredictor.Blind()"
+
+    class StoreSet:
+        def __init__(self, ssit_size: int = 2048, lfst_size: int = 256):
+            self.ssit_size = ssit_size
+            self.lfst_size = lfst_size
+
+        def __repr__(self) -> str:
+            return (
+                f"MemDepPredictor.StoreSet(ssit_size={self.ssit_size}, "
+                f"lfst_size={self.lfst_size})"
             )
 
 

@@ -97,6 +97,11 @@ impl PyStats {
         d.set_item("mshr_coalesces", s.mshr_coalesces)?;
         d.set_item("load_replays", s.load_replays)?;
 
+        d.set_item("mdp_predictions_bypass", s.mdp_predictions_bypass)?;
+        d.set_item("mdp_predictions_wait_all", s.mdp_predictions_wait_all)?;
+        d.set_item("mdp_predictions_wait_for", s.mdp_predictions_wait_for)?;
+        d.set_item("mdp_violations", s.mdp_violations)?;
+
         Ok(d.into())
     }
 }

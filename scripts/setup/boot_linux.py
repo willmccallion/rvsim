@@ -24,6 +24,7 @@ from rvsim import (
     Cache,
     Config,
     Fu,
+    MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
@@ -139,6 +140,7 @@ def config() -> Config:
     return Config(
         # ── Frontend ──────────────────────────────────────────────────────────
         width=8,
+        mem_dep_predictor=MemDepPredictor.StoreSet(),
         branch_predictor=BranchPredictor.TAGE(
             num_banks=8,
             table_size=8192,

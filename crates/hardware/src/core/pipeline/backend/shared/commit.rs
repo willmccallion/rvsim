@@ -24,7 +24,7 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp};
-use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
+use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::units::bru::BranchPredictor;
 use crate::trace_branch;
 use crate::trace_commit;
@@ -111,6 +111,16 @@ pub fn commit_stage(
     let rob_empty_at_start = rob.peek_head().is_none();
     for _ in 0..width {
         let Some(head) = rob.peek_head() else { break };
+
+        // Safety guard: a load must not retire while older stores have unresolved
+        // addresses. Without this, a bypassed load's LQ entry gets deallocated
+        // before memory2 can detect a violation against a later-resolving store.
+        if head.state == RobState::Completed
+            && head.ctrl.mem_read
+            && store_buffer.has_unresolved_store_before(head.tag)
+        {
+            break;
+        }
 
         if head.state == RobState::Issued {
             break; // Not ready yet
@@ -204,7 +214,7 @@ pub fn commit_stage(
             rd         = entry.rd.as_usize(),
             rd_phys    = entry.phys_dst.0,
             old_phys   = entry.old_phys_dst.0,
-            result     = %crate::trace::Hex(entry.result),
+            result     = %crate::trace::Hex(entry.result.unwrap_or(0)),
             is_fp      = entry.ctrl.fp_reg_write,
             reg_write  = entry.ctrl.reg_write,
             is_store   = entry.ctrl.mem_write,
@@ -220,7 +230,7 @@ pub fn commit_stage(
             if cpu.commit_log.is_some() {
                 let has_rd =
                     (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
-                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result))
+                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result.unwrap_or(0)))
             } else {
                 None
             }
@@ -263,7 +273,12 @@ pub fn commit_stage(
         }
 
         // Write to register file
-        let val = entry.result;
+        debug_assert!(
+            entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
+            "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
+            entry.tag.0, entry.pc,
+        );
+        let val = entry.result.unwrap_or(0);
         if entry.ctrl.fp_reg_write {
             cpu.regs.write_f(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, true, entry.tag);
@@ -565,41 +580,43 @@ pub fn commit_stage(
 /// into the WCB. The WCB coalesces stores to the same cache line and only
 /// drains to L1D when an entry is evicted (LRU) or flushed.
 fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
-    if let Some(store) = store_buffer.drain_one()
-        && let Some(paddr) = store.paddr
-    {
-        let is_ram = paddr.val() >= cpu.ram_start && paddr.val() < cpu.ram_end;
-        let width_bytes = width_to_bytes(store.width);
+    let Some(store) = store_buffer.drain_one() else { return };
+    let StoreResolution::Committed { paddr, data } = store.resolution else {
+        // Cancelled (failed SC) — no write needed, just drain the slot.
+        return;
+    };
 
-        if !cpu.wcb.is_disabled() && is_ram {
-            // Merge into WCB; if an entry was evicted, drain it through cache
-            let evicted = cpu.wcb.merge_store(paddr, store.data, width_bytes);
-            if evicted.is_none() {
-                // Store absorbed by WCB (coalesced or allocated new entry)
-                cpu.stats.wcb_coalesces += 1;
-            }
-            if let Some(drain) = evicted {
-                // Evicted WCB entry: simulate cache write for the evicted line
-                let addr = crate::common::PhysAddr::new(drain.line_addr);
-                let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
-                cpu.stats.wcb_drains += 1;
-            }
-        } else {
-            // No WCB or MMIO: direct cache access + memory write
-            if is_ram {
-                let _latency = cpu.simulate_memory_access(paddr, crate::common::AccessType::Write);
-            }
+    let is_ram = paddr.val() >= cpu.ram_start && paddr.val() < cpu.ram_end;
+    let width_bytes = width_to_bytes(store.width);
+
+    if !cpu.wcb.is_disabled() && is_ram {
+        // Merge into WCB; if an entry was evicted, drain it through cache
+        let evicted = cpu.wcb.merge_store(paddr, data, width_bytes);
+        if evicted.is_none() {
+            // Store absorbed by WCB (coalesced or allocated new entry)
+            cpu.stats.wcb_coalesces += 1;
         }
-        // Always write the actual data to memory (WCB is timing-only)
-        write_store_to_memory(cpu, paddr, store.data, store.width);
-        trace_commit!(cpu.trace;
-            paddr      = %crate::trace::Hex(paddr.val()),
-            data       = %crate::trace::Hex(store.data),
-            width      = ?store.width,
-            via_wcb    = !cpu.wcb.is_disabled(),
-            "CM: committed store drained to memory"
-        );
+        if let Some(drain) = evicted {
+            // Evicted WCB entry: simulate cache write for the evicted line
+            let addr = crate::common::PhysAddr::new(drain.line_addr);
+            let _latency = cpu.simulate_memory_access(addr, crate::common::AccessType::Write);
+            cpu.stats.wcb_drains += 1;
+        }
+    } else {
+        // No WCB or MMIO: direct cache access + memory write
+        if is_ram {
+            let _latency = cpu.simulate_memory_access(paddr, crate::common::AccessType::Write);
+        }
     }
+    // Always write the actual data to memory (WCB is timing-only)
+    write_store_to_memory(cpu, paddr, data, store.width);
+    trace_commit!(cpu.trace;
+        paddr      = %crate::trace::Hex(paddr.val()),
+        data       = %crate::trace::Hex(data),
+        width      = ?store.width,
+        via_wcb    = !cpu.wcb.is_disabled(),
+        "CM: committed store drained to memory"
+    );
 }
 
 /// Drains **all** committed stores from the store buffer to memory.
@@ -609,12 +626,12 @@ fn drain_one_store(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
 /// table walker consults them. Also flushes the WCB.
 fn drain_all_committed(cpu: &mut Cpu, store_buffer: &mut StoreBuffer) {
     while let Some(store) = store_buffer.drain_one() {
-        if let Some(paddr) = store.paddr {
+        if let StoreResolution::Committed { paddr, data } = store.resolution {
             let is_ram = paddr.val() >= cpu.ram_start && paddr.val() < cpu.ram_end;
             if is_ram {
                 let _latency = cpu.simulate_memory_access(paddr, crate::common::AccessType::Write);
             }
-            write_store_to_memory(cpu, paddr, store.data, store.width);
+            write_store_to_memory(cpu, paddr, data, store.width);
         }
     }
     // Flush remaining WCB entries through the cache hierarchy

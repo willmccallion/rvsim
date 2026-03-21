@@ -195,7 +195,7 @@ fn read_operand_by_tag(
         |t| {
             // In-flight producer — check if ROB entry has completed
             match rob.find_entry(t) {
-                Some(entry) if entry.state == RobState::Completed => Some(entry.result),
+                Some(entry) if entry.state == RobState::Completed => entry.result,
                 Some(_) => None, // Not ready — stall
                 None => {
                     // ROB entry gone (already committed) — value is in register file

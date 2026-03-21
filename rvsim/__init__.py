@@ -2,7 +2,7 @@
 rvsim simulator Python API.
 
 A Python-first interface to the cycle-accurate RISC-V simulator:
-1. **Configuration:** ``Config``, ``Cache``, ``BranchPredictor``, etc.
+1. **Configuration:** ``Config``, ``Cache``, ``BranchPredictor``, ``MemDepPredictor``, etc.
 2. **Execution:** ``Cpu``, ``Simulator``.
 3. **Experiments:** ``Environment``, ``Result``.
 4. **Statistics:** ``Stats``, ``Table``.
@@ -24,6 +24,7 @@ from .types import (
     BranchPredictor,
     Cache,
     Fu,
+    MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
@@ -64,6 +65,7 @@ __all__ = [
     "version",
     "Config",
     "BranchPredictor",
+    "MemDepPredictor",
     "ReplacementPolicy",
     "Prefetcher",
     "MemoryController",

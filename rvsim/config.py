@@ -19,6 +19,7 @@ from .types import (
     BranchPredictor,
     Cache,
     Fu,
+    MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
@@ -51,6 +52,7 @@ class Config:
         width: int = 4,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
         backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
+        mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.Blind(),
         btb_size: int = 4096,
         btb_ways: int = 4,
         ras_size: int = 32,
@@ -95,6 +97,7 @@ class Config:
         self.width = width
         self.branch_predictor = branch_predictor
         self.backend = backend if backend is not None else Backend.InOrder()
+        self.mem_dep_predictor = mem_dep_predictor
         self.btb_size = btb_size
         self.btb_ways = btb_ways
         self.ras_size = ras_size
@@ -258,6 +261,25 @@ def _bp_sub_dict(bp) -> dict:
             "global_size_bits": bp.global_size_bits,
             "local_hist_bits": bp.local_hist_bits,
             "local_pred_bits": bp.local_pred_bits,
+        }
+    return {}
+
+
+def _mdp_name(mdp) -> str:
+    """Return the memory dependence predictor name string for the Rust backend."""
+    if isinstance(mdp, MemDepPredictor.Blind):
+        return "Blind"
+    if isinstance(mdp, MemDepPredictor.StoreSet):
+        return "StoreSet"
+    raise TypeError(f"Unknown memory dependence predictor type: {type(mdp)}")
+
+
+def _mdp_sub_dict(mdp) -> dict:
+    """Return the MDP sub-config dict."""
+    if isinstance(mdp, MemDepPredictor.StoreSet):
+        return {
+            "ssit_size": mdp.ssit_size,
+            "lfst_size": mdp.lfst_size,
         }
     return {}
 
@@ -547,6 +569,14 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         else _TOURNAMENT_DEFAULTS
     )
 
+    # MDP sub-config
+    mdp = cfg.mem_dep_predictor
+    store_set_dict = (
+        _mdp_sub_dict(mdp)
+        if isinstance(mdp, MemDepPredictor.StoreSet)
+        else {"ssit_size": 2048, "lfst_size": 256}
+    )
+
     pipeline = {
         "width": cfg.width,
         "branch_predictor": _bp_name(bp),
@@ -557,6 +587,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "tage": tage_dict,
         "perceptron": perceptron_dict,
         "tournament": tournament_dict,
+        "mem_dep_predictor": _mdp_name(mdp),
+        "store_set": store_set_dict,
         **_backend_to_pipeline_fields(cfg.backend),
     }
 
