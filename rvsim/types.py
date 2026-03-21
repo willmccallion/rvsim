@@ -441,12 +441,12 @@ class Cache:
 
     def __init__(
         self,
-        size="4KB",
-        line="64B",
+        size: "str | int" = "4KB",
+        line: "str | int" = "64B",
         ways: int = 1,
-        policy=None,
+        policy: "ReplacementPolicy.LRU | ReplacementPolicy.PLRU | ReplacementPolicy.FIFO | ReplacementPolicy.Random | ReplacementPolicy.MRU | None" = None,
         latency: int = 1,
-        prefetcher=None,
+        prefetcher: "Prefetcher.Off | Prefetcher.NextLine | Prefetcher.Stride | Prefetcher.Stream | Prefetcher.Tagged | None" = None,
         mshr_count: int = 0,
     ):
         self.size_bytes = _parse_size(size)

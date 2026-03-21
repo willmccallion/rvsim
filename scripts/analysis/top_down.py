@@ -13,20 +13,29 @@ Usage:
 """
 
 import argparse
-import sys
+import importlib.util
 import os
-
-# Add project root to path so we can import configs
-_scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_root = os.path.dirname(_scripts)
-sys.path.insert(0, _root)
-sys.path.insert(0, os.path.join(_root, "scripts"))
-sys.path.insert(0, os.path.join(_root, "scripts", "benchmarks"))
+import sys
+from pathlib import Path
 
 from rvsim import Simulator, Stats
-from p550.config import p550_config
-from m1.config import m1_config
-from cortex_a72.config import cortex_a72_config
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
+_BENCH = _ROOT / "scripts" / "benchmarks"
+
+
+def _load_config_module(name: str):
+    """Load a benchmark config module by directory name."""
+    path = _BENCH / name / "config.py"
+    spec = importlib.util.spec_from_file_location(f"{name}.config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+p550_config = _load_config_module("p550").p550_config
+m1_config = _load_config_module("m1").m1_config
+cortex_a72_config = _load_config_module("cortex_a72").cortex_a72_config
 
 CONFIGS = {
     "p550": p550_config,
@@ -99,10 +108,9 @@ def main():
     # Resolve binary path
     binary = args.binary
     if not os.path.exists(binary):
-        # Try relative to project root
-        candidate = os.path.join(_root, binary)
-        if os.path.exists(candidate):
-            binary = candidate
+        candidate = _ROOT / binary
+        if candidate.exists():
+            binary = str(candidate)
         else:
             print(f"Error: Binary {binary} not found.")
             return

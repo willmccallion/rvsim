@@ -6,12 +6,6 @@ Usage:
     config = m1_config(branch_predictor=BranchPredictor.TAGE())
 """
 
-import os
-import sys
-
-_repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, _repo)
-
 from rvsim import BranchPredictor, Cache, Config, Prefetcher, ReplacementPolicy
 
 

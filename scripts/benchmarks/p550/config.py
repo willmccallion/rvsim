@@ -13,12 +13,6 @@ Usage:
     config = p550_config()
 """
 
-import os
-import sys
-
-_repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, _repo)
-
 from rvsim import (
     Backend,
     BranchPredictor,

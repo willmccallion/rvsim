@@ -11,16 +11,14 @@ Usage:
   rvsim scripts/analysis/design_space.py [binary]
 """
 
-import sys
-import os
 import argparse
-
-# Add project root to path so we can import configs
-_scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_root = os.path.dirname(_scripts)
-sys.path.insert(0, _root)
+import os
+import sys
+from pathlib import Path
 
 from rvsim import Sweep, Config, Cache, BranchPredictor
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
 
 CACHE_SIZES = ["16KB", "32KB", "64KB", "128KB"]
 WIDTHS = [1, 2, 4, 8]
@@ -59,10 +57,9 @@ if __name__ == "__main__":
     # Resolve binary path
     binary = args.binary
     if not os.path.exists(binary):
-        # Try relative to project root
-        candidate = os.path.join(_root, binary)
-        if os.path.exists(candidate):
-            binary = candidate
+        candidate = _ROOT / binary
+        if candidate.exists():
+            binary = str(candidate)
         else:
             print(f"Error: Binary {binary} not found.")
             sys.exit(1)

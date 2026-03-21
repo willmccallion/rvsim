@@ -49,8 +49,8 @@ class Config:
         self,
         # Pipeline
         width: int = 4,
-        branch_predictor=BranchPredictor.TAGE(),
-        backend=Backend.OutOfOrder(),
+        branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
+        backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
         btb_size: int = 4096,
         btb_ways: int = 4,
         ras_size: int = 32,

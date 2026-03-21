@@ -42,8 +42,7 @@ DEFAULT_BINARIES = [
     BENCH / "mem_rand_walk.elf",
 ]
 
-_DEFAULT_GEM5 = str(Path.home() / "school/CMPUT429/429-resources/gem5/build/RISCV/gem5.opt")
-GEM5_BIN = os.environ.get("GEM5_BIN", shutil.which("gem5.opt") or _DEFAULT_GEM5)
+GEM5_BIN = os.environ.get("GEM5_BIN", shutil.which("gem5.opt") or "gem5.opt")
 
 
 def extract_stats(stats_path: Path) -> dict:

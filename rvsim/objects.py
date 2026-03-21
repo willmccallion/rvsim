@@ -119,10 +119,12 @@ class Simulator:
         return self
 
     def disk(self, path: str) -> "Simulator":
+        """Set the virtio disk image path for kernel-mode boot."""
         self._disk_path = path
         return self
 
     def dtb(self, path: str) -> "Simulator":
+        """Set the device tree blob path for kernel-mode boot."""
         self._dtb_path = path
         return self
 

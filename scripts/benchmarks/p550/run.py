@@ -5,17 +5,22 @@ Edit scripts/p550/config.py to change the machine.
   sim script scripts/p550/run.py [binary]
 """
 
+import importlib.util
 import os
 import sys
+from pathlib import Path
 
-_scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _scripts)
-
-from p550.config import p550_config
 from rvsim import Environment
 
-_root = os.path.dirname(os.path.dirname(_scripts))
+_DIR = Path(__file__).resolve().parent
+_ROOT = _DIR.parent.parent.parent
 BINARY = os.path.join("software", "bin", "benchmarks", "qsort.elf")
+
+# Load sibling config.py without sys.path manipulation
+_spec = importlib.util.spec_from_file_location("p550_config", _DIR / "config.py")
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+p550_config = _mod.p550_config
 
 
 def main():
@@ -23,7 +28,7 @@ def main():
         sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".elf") else BINARY
     )
     if not os.path.isabs(binary):
-        binary = os.path.join(_root, binary)
+        binary = str(_ROOT / binary)
     config = p550_config()
     env = Environment(binary=binary, config=config)
     result = env.run(quiet=True)
