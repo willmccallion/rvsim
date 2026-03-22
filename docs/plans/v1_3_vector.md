@@ -482,7 +482,7 @@ VLEN in config.
 - `core/pipeline/frontend/decode.rs` — vsetvl decode
 - `config.rs` — VLEN, num_vec_lanes config
 
-### Phase 2: Vector Integer Arithmetic + Pipeline Integration
+### Phase 2: Vector Integer Arithmetic + Pipeline Integration **COMPLETED**
 
 **Goal:** All vector integer arithmetic, comparison, fixed-point. Basic timing.
 
@@ -499,7 +499,7 @@ VLEN in config.
 - `core/pipeline/backend/o3/fu_pool.rs` — vector FU types
 - Execute stages (both backends) — vector dispatch
 
-### Phase 3: Vector Loads/Stores
+### Phase 3: Vector Loads/Stores **COMPLETED**
 
 **Goal:** All vector memory operations.
 

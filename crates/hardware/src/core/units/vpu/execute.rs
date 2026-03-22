@@ -1,25 +1,28 @@
 //! Vector instruction execution dispatch.
 //!
 //! Bridges the pipeline (which carries scalar values in latches) to the VPU ALU
-//! (which operates on the architectural VPR). For Phase 2, all vector ops are
-//! serializing, so we can safely read/write the VPR at execute time.
+//! (which operates on the architectural VPR). All vector ops are serializing,
+//! so we can safely read/write the VPR at execute time.
 
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::vpu::alu::{VecOperand, vec_execute};
+use crate::core::units::vpu::mem;
 use crate::core::units::vpu::types::{Vlmax, parse_vtype};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::isa::rvv::encoding as v_enc;
 
 /// Execute a vector operation. Returns the scalar result (for vsetvl family)
-/// or 0 for arithmetic ops.
+/// or 0 for arithmetic/memory ops.
 pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     match id.ctrl.vec_op {
         VectorOp::Vsetvli => execute_vsetvl_op(cpu, id),
         VectorOp::Vsetivli => execute_vsetivli_op(cpu, id),
         VectorOp::Vsetvl => execute_vsetvl_rs2_op(cpu, id),
         VectorOp::None => 0,
+        op if mem::is_vec_load(op) => execute_vec_load(cpu, id),
+        op if mem::is_vec_store(op) => execute_vec_store(cpu, id),
         _ => execute_vec_arith(cpu, id),
     }
 }
@@ -129,4 +132,38 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 
     // Vector arithmetic ops produce no scalar result
     result.scalar_result.unwrap_or(0)
+}
+
+/// Execute a vector load operation through the memory subsystem.
+fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    match mem::execute_vec_load(cpu, id) {
+        Ok(result) => {
+            // Clear vstart after successful execution
+            cpu.csrs.vstart = 0;
+            // Set mstatus.VS = Dirty
+            cpu.csrs.mstatus = (cpu.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
+                | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+            cpu.csrs.sstatus = (cpu.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
+                | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+            result
+        }
+        Err(_trap) => {
+            // TODO: propagate trap through pipeline
+            0
+        }
+    }
+}
+
+/// Execute a vector store operation through the memory subsystem.
+fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    match mem::execute_vec_store(cpu, id) {
+        Ok(result) => {
+            cpu.csrs.vstart = 0;
+            result
+        }
+        Err(_trap) => {
+            // TODO: propagate trap through pipeline
+            0
+        }
+    }
 }

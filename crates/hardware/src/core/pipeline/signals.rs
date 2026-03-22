@@ -7,7 +7,7 @@
 //! 4. **System Control:** Manages privilege transitions and system-level instructions.
 
 use crate::common::CsrAddr;
-use crate::core::units::vpu::types::VRegIdx;
+use crate::core::units::vpu::types::{Sew, VRegIdx};
 
 /// ALU operation types for integer and floating-point instructions.
 #[derive(Clone, Copy, Debug, Default)]
@@ -375,6 +375,10 @@ pub struct ControlSignals {
     pub vec_reg_write: bool,
     /// Vector source encoding category.
     pub vec_src_encoding: VecSrcEncoding,
+    /// Effective element width for vector loads/stores.
+    pub vec_eew: Sew,
+    /// Segment field count minus 1 (nf encoding: 0 = 1 field, 7 = 8 fields).
+    pub vec_nf: u8,
 }
 
 /// Vector operation type.
@@ -565,6 +569,38 @@ pub enum VectorOp {
     VSextVf4,
     /// `vsext.vf8` — sign-extend SEW/8 to SEW.
     VSextVf8,
+
+    // ── Vector memory — unit-stride ──────────────────────────────────────
+    /// Unit-stride vector load (`vle8/16/32/64`).
+    VLoadUnit,
+    /// Unit-stride vector store (`vse8/16/32/64`).
+    VStoreUnit,
+    /// Fault-only-first vector load (`vle8ff/16ff/32ff/64ff`).
+    VLoadFF,
+    /// Mask load (`vlm.v`).
+    VLoadMask,
+    /// Mask store (`vsm.v`).
+    VStoreMask,
+    /// Whole-register load (`vl1re8`, `vl2re8`, etc.).
+    VLoadWholeReg,
+    /// Whole-register store (`vs1r`, `vs2r`, etc.).
+    VStoreWholeReg,
+
+    // ── Vector memory — strided ──────────────────────────────────────────
+    /// Strided vector load (`vlse8/16/32/64`).
+    VLoadStride,
+    /// Strided vector store (`vsse8/16/32/64`).
+    VStoreStride,
+
+    // ── Vector memory — indexed ──────────────────────────────────────────
+    /// Indexed ordered vector load (`vloxei8/16/32/64`).
+    VLoadIndexOrd,
+    /// Indexed ordered vector store (`vsoxei8/16/32/64`).
+    VStoreIndexOrd,
+    /// Indexed unordered vector load (`vluxei8/16/32/64`).
+    VLoadIndexUnord,
+    /// Indexed unordered vector store (`vsuxei8/16/32/64`).
+    VStoreIndexUnord,
 }
 
 /// Vector operand source encoding category.

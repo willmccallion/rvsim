@@ -14,3 +14,6 @@ pub mod alu;
 
 /// Vector instruction execution dispatch (bridges pipeline to VPU).
 pub mod execute;
+
+/// Vector memory operations (loads/stores).
+pub mod mem;

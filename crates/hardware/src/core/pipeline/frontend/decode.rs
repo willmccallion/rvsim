@@ -15,7 +15,7 @@ use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
     VecSrcEncoding, VectorOp,
 };
-use crate::core::units::vpu::types::VRegIdx;
+use crate::core::units::vpu::types::{Sew, VRegIdx};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
@@ -40,6 +40,51 @@ const FP_WIDTH_WORD: u32 = 0x2;
 
 /// Floating-point width encoding for 64-bit double operations.
 const FP_WIDTH_DOUBLE: u32 = 0x3;
+
+/// Vector load/store width encoding for EEW=8.
+const VEC_WIDTH_8: u32 = 0b000;
+
+/// Vector load/store width encoding for EEW=16.
+const VEC_WIDTH_16: u32 = 0b101;
+
+/// Vector load/store width encoding for EEW=32.
+const VEC_WIDTH_32: u32 = 0b110;
+
+/// Vector load/store width encoding for EEW=64.
+const VEC_WIDTH_64: u32 = 0b111;
+
+/// Unit-stride lumop: normal unit-stride load.
+const LUMOP_UNIT: u8 = 0b00000;
+
+/// Unit-stride lumop: whole-register load.
+const LUMOP_WHOLE_REG: u8 = 0b01000;
+
+/// Unit-stride lumop: mask load.
+const LUMOP_MASK: u8 = 0b01011;
+
+/// Unit-stride lumop: fault-only-first.
+const LUMOP_FAULT_FIRST: u8 = 0b10000;
+
+/// Unit-stride sumop: normal unit-stride store.
+const SUMOP_UNIT: u8 = 0b00000;
+
+/// Unit-stride sumop: whole-register store.
+const SUMOP_WHOLE_REG: u8 = 0b01000;
+
+/// Unit-stride sumop: mask store.
+const SUMOP_MASK: u8 = 0b01011;
+
+/// Memory addressing mode (mop): unit-stride.
+const MOP_UNIT: u8 = 0b00;
+
+/// Memory addressing mode (mop): indexed unordered.
+const MOP_INDEXED_UNORD: u8 = 0b01;
+
+/// Memory addressing mode (mop): strided.
+const MOP_STRIDED: u8 = 0b10;
+
+/// Memory addressing mode (mop): indexed ordered.
+const MOP_INDEXED_ORD: u8 = 0b11;
 
 /// Floating-point format encoding for single-precision (32-bit).
 const FP_FMT_SINGLE: u32 = 0;
@@ -192,26 +237,52 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             c.reg_write = true;
         }
         f_opcodes::OP_LOAD_FP => {
-            c.fp_reg_write = true;
-            c.mem_read = true;
-            c.alu = AluOp::Add;
-            c.width = match d.funct3 {
-                FP_WIDTH_WORD => MemWidth::Word,
-                FP_WIDTH_DOUBLE => MemWidth::Double,
+            match d.funct3 {
+                // Scalar FP loads
+                FP_WIDTH_WORD => {
+                    c.fp_reg_write = true;
+                    c.mem_read = true;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Word;
+                }
+                FP_WIDTH_DOUBLE => {
+                    c.fp_reg_write = true;
+                    c.mem_read = true;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Double;
+                }
+                // Vector loads (EEW encoded in funct3)
+                VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
+                    decode_vec_load(inst, d.funct3, &mut c)?;
+                }
                 _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            }
         }
         f_opcodes::OP_STORE_FP => {
-            c.mem_write = true;
-            c.rs1_fp = false;
-            c.rs2_fp = true;
-            c.b_src = OpBSrc::Imm;
-            c.alu = AluOp::Add;
-            c.width = match d.funct3 {
-                FP_WIDTH_WORD => MemWidth::Word,
-                FP_WIDTH_DOUBLE => MemWidth::Double,
+            match d.funct3 {
+                // Scalar FP stores
+                FP_WIDTH_WORD => {
+                    c.mem_write = true;
+                    c.rs1_fp = false;
+                    c.rs2_fp = true;
+                    c.b_src = OpBSrc::Imm;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Word;
+                }
+                FP_WIDTH_DOUBLE => {
+                    c.mem_write = true;
+                    c.rs1_fp = false;
+                    c.rs2_fp = true;
+                    c.b_src = OpBSrc::Imm;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Double;
+                }
+                // Vector stores (EEW encoded in funct3)
+                VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
+                    decode_vec_store(inst, d.funct3, &mut c)?;
+                }
                 _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            }
         }
         f_opcodes::OP_FP => {
             let fmt = d.funct7 & 0x3;
@@ -642,6 +713,112 @@ const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VASUB => (VectorOp::VASub, true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
+}
+
+// ── Vector load/store decode helpers ──────────────────────────────────────────
+
+/// Map funct3 width encoding to `Sew` for vector loads/stores.
+const fn funct3_to_eew(funct3: u32) -> Sew {
+    match funct3 {
+        VEC_WIDTH_8 => Sew::E8,
+        VEC_WIDTH_16 => Sew::E16,
+        VEC_WIDTH_32 => Sew::E32,
+        // VEC_WIDTH_64 and any other value
+        _ => Sew::E64,
+    }
+}
+
+/// Decode a vector load instruction (`OP_LOAD_FP` with vector funct3).
+const fn decode_vec_load(inst: u32, funct3: u32, c: &mut ControlSignals) -> Result<(), Trap> {
+    let eew = funct3_to_eew(funct3);
+    let mop = v_enc::mop(inst);
+    let vm = v_enc::vm(inst);
+    let nf = v_enc::nf(inst);
+    let mew = v_enc::mew(inst);
+
+    // mew must be 0 for RVV 1.0
+    if mew {
+        return Err(Trap::IllegalInstruction(inst));
+    }
+
+    c.vec_eew = eew;
+    c.vec_nf = nf;
+    c.vm = vm;
+    c.vd = VRegIdx::new(v_enc::vd(inst));
+    c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+    c.vec_reg_write = true;
+    c.system_op = SystemOp::System; // serializing
+
+    match mop {
+        MOP_UNIT => {
+            let lumop = v_enc::lumop(inst);
+            c.vec_op = match lumop {
+                LUMOP_UNIT => VectorOp::VLoadUnit,
+                LUMOP_WHOLE_REG => VectorOp::VLoadWholeReg,
+                LUMOP_MASK => VectorOp::VLoadMask,
+                LUMOP_FAULT_FIRST => VectorOp::VLoadFF,
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            };
+        }
+        MOP_INDEXED_UNORD => {
+            c.vec_op = VectorOp::VLoadIndexUnord;
+        }
+        MOP_STRIDED => {
+            c.vec_op = VectorOp::VLoadStride;
+        }
+        MOP_INDEXED_ORD => {
+            c.vec_op = VectorOp::VLoadIndexOrd;
+        }
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    }
+
+    Ok(())
+}
+
+/// Decode a vector store instruction (`OP_STORE_FP` with vector funct3).
+const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Result<(), Trap> {
+    let eew = funct3_to_eew(funct3);
+    let mop = v_enc::mop(inst);
+    let vm = v_enc::vm(inst);
+    let nf = v_enc::nf(inst);
+    let mew = v_enc::mew(inst);
+
+    // mew must be 0 for RVV 1.0
+    if mew {
+        return Err(Trap::IllegalInstruction(inst));
+    }
+
+    c.vec_eew = eew;
+    c.vec_nf = nf;
+    c.vm = vm;
+    c.vd = VRegIdx::new(v_enc::vd(inst)); // vd is vs3 (store data) for stores
+    c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+    c.vec_reg_write = false; // stores don't write vector registers
+    c.system_op = SystemOp::System; // serializing
+
+    match mop {
+        MOP_UNIT => {
+            let sumop = v_enc::sumop(inst);
+            c.vec_op = match sumop {
+                SUMOP_UNIT => VectorOp::VStoreUnit,
+                SUMOP_WHOLE_REG => VectorOp::VStoreWholeReg,
+                SUMOP_MASK => VectorOp::VStoreMask,
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            };
+        }
+        MOP_INDEXED_UNORD => {
+            c.vec_op = VectorOp::VStoreIndexUnord;
+        }
+        MOP_STRIDED => {
+            c.vec_op = VectorOp::VStoreStride;
+        }
+        MOP_INDEXED_ORD => {
+            c.vec_op = VectorOp::VStoreIndexOrd;
+        }
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    }
+
+    Ok(())
 }
 
 /// Executes the decode stage.

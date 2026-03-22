@@ -57,9 +57,10 @@ impl std::fmt::Display for VRegIdx {
 }
 
 /// Selected Element Width in bits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Sew {
     /// 8-bit element width.
+    #[default]
     E8,
     /// 16-bit element width.
     E16,
