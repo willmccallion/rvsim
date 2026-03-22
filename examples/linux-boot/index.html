@@ -811,10 +811,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#out-of-order-width4" class="md-nav__link">
+  <a href="#out-of-order-width8" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Out-of-Order (width=4)
+        Out-of-Order (width=8)
       
     </span>
   </a>
@@ -1176,10 +1176,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#out-of-order-width4" class="md-nav__link">
+  <a href="#out-of-order-width8" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Out-of-Order (width=4)
+        Out-of-Order (width=8)
       
     </span>
   </a>
@@ -1243,33 +1243,38 @@
 <h3 id="using-the-python-api">Using the Python API<a class="headerlink" href="#using-the-python-api" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">rvsim</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">Simulator</span><span class="p">,</span> <span class="n">Config</span><span class="p">,</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">Backend</span><span class="p">,</span> <span class="n">BranchPredictor</span><span class="p">,</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">MemoryController</span><span class="p">,</span> <span class="n">Prefetcher</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">MemoryController</span><span class="p">,</span> <span class="n">Prefetcher</span><span class="p">,</span> <span class="n">ReplacementPolicy</span><span class="p">,</span> <span class="n">Fu</span><span class="p">,</span> <span class="n">MemDepPredictor</span><span class="p">,</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">OutOfOrder</span><span class="p">(</span><span class="n">rob_size</span><span class="o">=</span><span class="mi">128</span><span class="p">),</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">TAGE</span><span class="p">(),</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">ram_size</span><span class="o">=</span><span class="s2">&quot;256MB&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)),</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">64</span><span class="p">)),</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">l2</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;256KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">32</span><span class="p">),</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="n">l3</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;2MB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">24</span><span class="p">),</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="n">memory_controller</span><span class="o">=</span><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>        <span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="p">),</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="p">)</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="n">exit_code</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="n">Simulator</span><span class="p">()</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>    <span class="o">.</span><span class="n">kernel</span><span class="p">(</span><span class="s2">&quot;software/linux/Image&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>    <span class="o">.</span><span class="n">disk</span><span class="p">(</span><span class="s2">&quot;software/linux/rootfs.ext2&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>    <span class="o">.</span><span class="n">build</span><span class="p">()</span>
-<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>    <span class="o">.</span><span class="n">run</span><span class="p">()</span>
-<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">mem_dep_predictor</span><span class="o">=</span><span class="n">MemDepPredictor</span><span class="o">.</span><span class="n">StoreSet</span><span class="p">(),</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">OutOfOrder</span><span class="p">(</span><span class="n">rob_size</span><span class="o">=</span><span class="mi">256</span><span class="p">),</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">ScLTage</span><span class="p">(</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        <span class="n">num_banks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span> <span class="n">loop_table_size</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="p">),</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">ram_size</span><span class="o">=</span><span class="s2">&quot;256MB&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;64KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;64KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">256</span><span class="p">)),</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="n">l2</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;2MB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>             <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stream</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">8</span><span class="p">)),</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="n">l3</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;16MB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>             <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Tagged</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">4</span><span class="p">)),</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="n">memory_controller</span><span class="o">=</span><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        <span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">t_ras</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">t_pre</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="p">),</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="p">)</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="n">exit_code</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>    <span class="n">Simulator</span><span class="p">()</span>
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>    <span class="o">.</span><span class="n">kernel</span><span class="p">(</span><span class="s2">&quot;software/linux/Image&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>    <span class="o">.</span><span class="n">disk</span><span class="p">(</span><span class="s2">&quot;software/linux/rootfs.ext2&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>    <span class="o">.</span><span class="n">build</span><span class="p">()</span>
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>    <span class="o">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="login">Login<a class="headerlink" href="#login" title="Permanent link">&para;</a></h3>
 <p>Once the kernel boots and init starts, you'll see a login prompt on the UART:</p>
@@ -1312,48 +1317,54 @@
 </ol>
 <h2 id="performance-notes">Performance Notes<a class="headerlink" href="#performance-notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>O3 backend (width=4)</strong>: Boots to shell in approximately 3-5 billion cycles</li>
+<li><strong>O3 backend (width=8)</strong>: Boots to shell in approximately 500M active cycles (1.59 active IPC)</li>
 <li><strong>In-order backend (width=1)</strong>: Boots to shell in approximately 8-12 billion cycles</li>
-<li><strong>Host speed</strong>: approximately 0.8 MHz simulated clock, so boot takes several minutes of wall-clock time</li>
+<li><strong>Host speed</strong>: approximately 0.5-2.2 MHz simulated clock, so boot takes several minutes of wall-clock time</li>
 <li><strong>Memory hierarchy</strong> matters: a realistic cache configuration (with MSHRs, L2/L3, DRAM timing) is essential for meaningful boot performance</li>
 </ul>
-<h3 id="out-of-order-width4">Out-of-Order (width=4)<a class="headerlink" href="#out-of-order-width4" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>host_seconds             693.2677 s
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sim_cycles               317664786
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>sim_freq                 458.21 kHz
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>sim_insts                314246742
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>sim_ipc                  0.9892
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>sim_ipc_active           1.1412
+<h3 id="out-of-order-width8">Out-of-Order (width=8)<a class="headerlink" href="#out-of-order-width8" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>host_seconds             900.4765 s
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sim_cycles               500136594
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>sim_freq                 555.41 kHz
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>sim_insts                306997285
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>sim_ipc                  0.6138
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>sim_ipc_active           1.5940
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
 <a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>CYCLE ACCOUNTING
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  cycles.retiring        104812792 (32.99%)
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>  cycles.rob_empty       15061527 (4.74%)
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  cycles.rob_stall       155496730 (48.95%)
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  cycles.wfi             42293737 (13.31%)
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>  retire.per_cycle       0:67.0%  1:9.7%  2:8.9%  3+:14.4%
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>PRIVILEGE BREAKDOWN
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>  cycles.user            35480805 (11.17%)
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>  cycles.kernel          275772748 (86.81%)
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>  cycles.machine         6411233 (2.02%)
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>
-<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>PIPELINE STALLS
-<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>  stalls.control         15484588 (4.87%)
-<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>  stalls.data            57372999 (18.06%)
-<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>  stalls.fu_structural   1520218 (0.48%)
-<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>  stalls.dispatch        9285038 (2.92%)
-<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>
-<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>BRANCH PREDICTION (COMMITTED)
-<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>  bp.committed_accuracy  96.45%
-<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>
-<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>BRANCH PREDICTION (SPECULATIVE)
-<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>  bp.spec_accuracy       75.97%
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  cycles.retiring        79324185 (15.86%)
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>  cycles.rob_empty       16648671 (3.33%)
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  cycles.rob_stall       96626978 (19.32%)
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  cycles.wfi             307536760 (61.49%)
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>  retire.per_cycle       0:84.1%  1:3.8%  2:3.3%  3+:8.7%
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>  retire.active          0:58.8%  1:10.0%  2:8.6%  3+:22.6%
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>PRIVILEGE BREAKDOWN
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>  cycles.user            25797251 (5.16%)
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>  cycles.kernel          470651369 (94.10%)
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>  cycles.machine         3687974 (0.74%)
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>PIPELINE STALLS
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>  stalls.memory          240 (0.00%)
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>  stalls.control         19135039 (3.83%)
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>  stalls.data            22239212 (4.45%)
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>  stalls.fu_structural   5938385 (1.19%)
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>  stalls.backpressure    493194 (0.10%)
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>  stalls.dispatch        15690034 (3.14%)
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>  stalls.checkpoint      9234 (0.00%)
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>  stalls.squash          30372347 (6.07%)
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>  stalls.rename_rebuild  2574553 (0.51%)
 <a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a>
-<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>MEMORY HIERARCHY
-<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>  L1-I   accesses: 95045393   | hits: 93163965   | miss_rate: 1.98%
-<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a>  L1-D   accesses: 134649190  | hits: 129921239  | miss_rate: 3.51%
-<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>  L2     accesses: 6609379    | hits: 6366556    | miss_rate: 3.67%
-<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a>  L3     accesses: 242823     | hits: 210340     | miss_rate: 13.38%
+<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>BRANCH PREDICTION (COMMITTED)
+<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>  bp.committed_accuracy  94.28%
+<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a>
+<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>BRANCH PREDICTION (SPECULATIVE)
+<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a>  bp.spec_accuracy       71.37%
+<a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>
+<a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a>MEMORY HIERARCHY
+<a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a>  L1-I   accesses: 142458813  | hits: 139979798  | miss_rate: 1.74%
+<a id="__codelineno-5-40" name="__codelineno-5-40" href="#__codelineno-5-40"></a>  L1-D   accesses: 141763550  | hits: 136371796  | miss_rate: 3.80%
+<a id="__codelineno-5-41" name="__codelineno-5-41" href="#__codelineno-5-41"></a>  L2     accesses: 7870769    | hits: 7575970    | miss_rate: 3.75%
+<a id="__codelineno-5-42" name="__codelineno-5-42" href="#__codelineno-5-42"></a>  L3     accesses: 294799     | hits: 258626     | miss_rate: 12.27%
 </code></pre></div>
 <h3 id="in-order-width1">In-Order (width=1)<a class="headerlink" href="#in-order-width1" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>host_seconds             392.5803 s
@@ -1393,7 +1404,7 @@
 <a id="__codelineno-6-35" name="__codelineno-6-35" href="#__codelineno-6-35"></a>  L2     accesses: 5032954    | hits: 4830768    | miss_rate: 4.02%
 <a id="__codelineno-6-36" name="__codelineno-6-36" href="#__codelineno-6-36"></a>  L3     accesses: 202186     | hits: 168405     | miss_rate: 16.71%
 </code></pre></div>
-<p>The O3 backend completes boot in <strong>2.8x fewer simulated cycles</strong> (318M vs 883M) with <strong>2.3x higher IPC</strong> (0.99 vs 0.43). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.5 MHz) due to simpler per-cycle logic, so it finishes in less wall-clock time (393s vs 693s) despite taking far more simulated cycles. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer.</p>
+<p>The O3 backend achieves <strong>1.59 active IPC</strong> with the 8-wide pipeline, a <strong>3.7x improvement</strong> over the in-order backend (0.47 IPC). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.6 MHz) due to simpler per-cycle logic. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer. The O3 raw IPC (0.61) is depressed by WFI cycles consuming 61% of total time.</p>
 
 
 

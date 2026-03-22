@@ -659,6 +659,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#sc-l-tage-statistical-corrector-loop-tage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SC-L-TAGE (Statistical Corrector + Loop + TAGE)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1208,6 +1219,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#sc-l-tage-statistical-corrector-loop-tage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SC-L-TAGE (Statistical Corrector + Loop + TAGE)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1245,7 +1267,7 @@
 
 
 <h1 id="branch-prediction">Branch Prediction<a class="headerlink" href="#branch-prediction" title="Permanent link">&para;</a></h1>
-<p>rvsim implements five pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 to steer the instruction stream speculatively.</p>
+<p>rvsim implements six pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 to steer the instruction stream speculatively.</p>
 <h2 id="shared-infrastructure">Shared Infrastructure<a class="headerlink" href="#shared-infrastructure" title="Permanent link">&para;</a></h2>
 <p>All predictors share these components:</p>
 <h3 id="branch-target-buffer-btb">Branch Target Buffer (BTB)<a class="headerlink" href="#branch-target-buffer-btb" title="Permanent link">&para;</a></h3>
@@ -1322,23 +1344,34 @@
 <p>Neural branch predictor. Each entry in the table is a vector of integer weights, one per GHR bit. The dot product of the weight vector and the recent branch history determines the prediction. Weights are trained on mispredictions using a threshold-based update rule.</p>
 <p>Configurable parameters: <code>history_length</code>, <code>table_bits</code>.</p>
 <h3 id="tage-tagged-geometric-history-length">TAGE (Tagged Geometric History Length)<a class="headerlink" href="#tage-tagged-geometric-history-length" title="Permanent link">&para;</a></h3>
-<p>The most accurate predictor available. Uses multiple tagged tables with geometrically increasing history lengths:</p>
+<p>Uses multiple tagged tables with geometrically increasing history lengths:</p>
 <ul>
 <li><strong>Base predictor</strong> — simple bimodal table (always consulted)</li>
-<li><strong>Tagged tables</strong> — each table uses a different history length (default: 5, 15, 44, 130). Entries are tagged with a hash of the PC and history to avoid aliasing.</li>
+<li><strong>Tagged tables</strong> — each table uses a different history length (default: 5, 11, 22, 44, 89, 178, 356, 712 for 8 banks). Entries are tagged with a hash of the PC and history to avoid aliasing.</li>
 <li><strong>Longest match wins</strong> — the prediction comes from the table with the longest matching history</li>
 <li><strong>Loop predictor</strong> — detects counted loops and predicts the loop exit iteration</li>
+<li><strong>USE_ALT_ON_NA</strong> — meta-counter that learns whether newly allocated (weak) provider entries should be trusted or whether the alternate (second-longest match) prediction is better. When the provider entry's counter is weak (0 or -1) and the meta-counter is non-negative, the alternate prediction is used instead.</li>
 <li><strong>Useful counter reset</strong> — periodically resets the "useful" counters to allow new entries to replace stale ones</li>
 </ul>
 <p>Configurable parameters: <code>num_banks</code>, <code>table_size</code>, <code>loop_table_size</code>, <code>reset_interval</code>, <code>history_lengths</code>, <code>tag_widths</code>.</p>
+<h3 id="sc-l-tage-statistical-corrector-loop-tage">SC-L-TAGE (Statistical Corrector + Loop + TAGE)<a class="headerlink" href="#sc-l-tage-statistical-corrector-loop-tage" title="Permanent link">&para;</a></h3>
+<p>The most accurate predictor available. Combines four sub-predictors into a single high-accuracy predictor, following Seznec's Championship Branch Prediction (CBP) winning designs:</p>
+<ol>
+<li><strong>TAGE</strong> — same tagged geometric history as the standalone TAGE predictor (default: 8 banks)</li>
+<li><strong>Loop Predictor</strong> — detects counted loops and overrides TAGE when a loop iteration count is learned</li>
+<li><strong>Statistical Corrector (SC)</strong> — a bank of small signed counters indexed by different history lengths that learns to correct systematic TAGE errors. The SC sum is initialized with a centered confidence value from the TAGE prediction: <code>(2 * |ctr| + 1) * direction</code>. When the total SC sum disagrees with TAGE and exceeds a threshold, the SC prediction overrides TAGE.</li>
+<li><strong>ITTAGE (Indirect Target TAGE)</strong> — predicts indirect branch targets (computed jumps, virtual dispatch) using the same geometric history structure as TAGE but storing target addresses instead of direction counters</li>
+</ol>
+<p><strong>USE_ALT_ON_NA</strong> is also applied within SC-L-TAGE's TAGE component, ensuring the SC receives the effective TAGE prediction (after alt-pred override) rather than the raw provider prediction.</p>
+<p>Configurable parameters: all TAGE parameters plus <code>sc_num_tables</code>, <code>sc_table_size</code>, <code>sc_history_lengths</code>, <code>sc_counter_bits</code>, <code>ittage_num_banks</code>, <code>ittage_table_size</code>, <code>ittage_history_lengths</code>, <code>ittage_tag_widths</code>, <code>ittage_reset_interval</code>.</p>
 <h2 id="predictor-comparison">Predictor Comparison<a class="headerlink" href="#predictor-comparison" title="Permanent link">&para;</a></h2>
 <p>Here's a representative comparison on the included benchmarks (width=1, default caches):</p>
 <table>
 <thead>
 <tr>
 <th>Predictor</th>
-<th>Accuracy (geomean)</th>
-<th>IPC (geomean)</th>
+<th>Accuracy (aggregate)</th>
+<th>IPC (aggregate)</th>
 <th>Speedup vs Static</th>
 </tr>
 </thead>
@@ -1346,36 +1379,42 @@
 <tr>
 <td>Static</td>
 <td>34.4%</td>
-<td>0.55</td>
+<td>0.49</td>
 <td>1.00×</td>
 </tr>
 <tr>
 <td>GShare</td>
-<td>60.1%</td>
-<td>0.62</td>
-<td>1.07×</td>
+<td>60.6%</td>
+<td>0.55</td>
+<td>1.08×</td>
 </tr>
 <tr>
 <td>Perceptron</td>
-<td>64.1%</td>
-<td>0.64</td>
-<td>1.06×</td>
+<td>67.9%</td>
+<td>0.58</td>
+<td>1.11×</td>
 </tr>
 <tr>
 <td>Tournament</td>
-<td>71.4%</td>
-<td>0.67</td>
-<td>1.21×</td>
+<td>70.9%</td>
+<td>0.59</td>
+<td>1.20×</td>
 </tr>
 <tr>
 <td>TAGE</td>
-<td>85.0%</td>
-<td>0.75</td>
-<td>1.30×</td>
+<td>73.2%</td>
+<td>0.58</td>
+<td>1.21×</td>
+</tr>
+<tr>
+<td>SC-L-TAGE</td>
+<td>84.1%</td>
+<td>0.66</td>
+<td>1.29×</td>
 </tr>
 </tbody>
 </table>
-<p>TAGE provides the best accuracy and performance across all workloads, with particularly strong results on branch-heavy programs like <code>qsort</code> (83% accuracy vs GShare's 60%).</p>
+<p>SC-L-TAGE provides the highest accuracy by combining TAGE with statistical correction and loop prediction. On <code>qsort</code>, SC-L-TAGE achieves 82.5% accuracy and 0.67 IPC versus standalone TAGE's 71.2% and 0.58 IPC — a 15.8% IPC improvement. Run <code>scripts/analysis/branch_predict.py</code> to regenerate numbers for your workloads.</p>
 
 
 

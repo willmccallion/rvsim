@@ -1252,18 +1252,18 @@
 <hr />
 <h2 id="available-scripts">Available Scripts<a class="headerlink" href="#available-scripts" title="Permanent link">&para;</a></h2>
 <h3 id="branch_predictpy">branch_predict.py<a class="headerlink" href="#branch_predictpy" title="Permanent link">&para;</a></h3>
-<p>Compares all five branch predictors across multiple workloads.</p>
+<p>Compares all six branch predictors across multiple workloads.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>rvsim<span class="w"> </span>scripts/analysis/branch_predict.py
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>rvsim<span class="w"> </span>scripts/analysis/branch_predict.py<span class="w"> </span>--width<span class="w"> </span><span class="m">4</span><span class="w"> </span>--programs<span class="w"> </span>maze<span class="w"> </span>qsort
 </code></pre></div>
 <p><strong>Metrics:</strong> cycles, IPC, branch accuracy, mispredictions, correct predictions</p>
 <p><strong>Example output:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>  ›  branch_accuracy_pct
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  predictor        Static   GShare     TAGE  Perceptron  Tournament
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  mandelbrot.elf  56.4375  57.3566  97.7840     54.3290     97.2340
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  maze.elf        51.6078  56.9724  98.6112     46.0765     80.7168
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  qsort.elf       32.5515  60.3781  83.4249     67.1985     69.7478
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  merge_sort.elf  53.7159  65.3798  84.9415     66.7236     82.8787
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  predictor        Static   GShare     TAGE  ScLTage  Perceptron  Tournament
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  mandelbrot.elf  56.4375  57.3566  97.7840      ...     54.3290     97.2340
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  maze.elf        51.6078  56.9724  98.6112      ...     46.0765     80.7168
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  qsort.elf       32.5515  60.3781  83.4249      ...     67.1985     69.7478
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  merge_sort.elf  53.7159  65.3798  84.9415      ...     66.7236     82.8787
 </code></pre></div>
 <h3 id="cache_sweeppy">cache_sweep.py<a class="headerlink" href="#cache_sweeppy" title="Permanent link">&para;</a></h3>
 <p>Sweeps L1 data cache size and measures miss rate and IPC impact.</p>

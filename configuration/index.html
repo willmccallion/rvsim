@@ -451,6 +451,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#memory-dependence-prediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Dependence Prediction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#caches" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1253,6 +1264,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#memory-dependence-prediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Dependence Prediction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#caches" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1425,7 +1447,7 @@
 <h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h1>
 <p>Every aspect of the simulated machine is runtime-configurable through the <code>Config</code> class. Parameters are flat (no nested objects) and use builder-style type classes for caches, predictors, and backends.</p>
 <h2 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">rvsim</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span><span class="p">,</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">Backend</span><span class="p">,</span> <span class="n">BranchPredictor</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">rvsim</span><span class="w"> </span><span class="kn">import</span> <span class="n">Config</span><span class="p">,</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">Backend</span><span class="p">,</span> <span class="n">BranchPredictor</span><span class="p">,</span> <span class="n">MemDepPredictor</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">Config</span><span class="p">(</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
@@ -1545,19 +1567,75 @@
 <a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>    <span class="n">history_lengths</span><span class="o">=</span><span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">44</span><span class="p">,</span> <span class="mi">130</span><span class="p">],</span>
 <a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>    <span class="n">tag_widths</span><span class="o">=</span><span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span>
 <a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="p">)</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">ScLTage</span><span class="p">(</span>          <span class="c1"># SC-L-TAGE + ITTAGE (highest accuracy)</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>    <span class="c1"># TAGE parameters</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>    <span class="n">num_banks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>    <span class="n">table_size</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>    <span class="n">loop_table_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>    <span class="n">reset_interval</span><span class="o">=</span><span class="mi">256_000</span><span class="p">,</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>    <span class="n">history_lengths</span><span class="o">=</span><span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">44</span><span class="p">,</span> <span class="mi">130</span><span class="p">,</span> <span class="mi">380</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="mi">4096</span><span class="p">],</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>    <span class="n">tag_widths</span><span class="o">=</span><span class="p">[</span><span class="mi">9</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">12</span><span class="p">],</span>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>    <span class="c1"># Statistical corrector</span>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>    <span class="n">sc_num_tables</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>    <span class="n">sc_table_size</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
+<a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a>    <span class="n">sc_counter_bits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>    <span class="c1"># Indirect target TAGE</span>
+<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>    <span class="n">ittage_num_banks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a>    <span class="n">ittage_table_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>    <span class="n">ittage_reset_interval</span><span class="o">=</span><span class="mi">256_000</span><span class="p">,</span>
+<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a><span class="p">)</span>
 </code></pre></div>
+<hr />
+<h2 id="memory-dependence-prediction">Memory Dependence Prediction<a class="headerlink" href="#memory-dependence-prediction" title="Permanent link">&para;</a></h2>
+<p>Controls how loads decide whether they can bypass unresolved older stores.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">MemDepPredictor</span><span class="o">.</span><span class="n">Blind</span><span class="p">()</span>           <span class="c1"># Conservative: loads wait for all older stores (default)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">MemDepPredictor</span><span class="o">.</span><span class="n">StoreSet</span><span class="p">(</span>         <span class="c1"># Store-set predictor (Chrysos &amp; Emer 1998)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">ssit_size</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>               <span class="c1"># Store Set ID Table entries</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">lfst_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>                <span class="c1"># Last Fetched Store Table entries</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mem_dep_predictor</code></td>
+<td><code>MemDepPredictor.*</code></td>
+<td><code>Blind()</code></td>
+<td>Memory dependence predictor type</td>
+</tr>
+<tr>
+<td><code>ssit_size</code></td>
+<td><code>int</code></td>
+<td><code>2048</code></td>
+<td>SSIT entries (StoreSet only) — maps PC → store set ID</td>
+</tr>
+<tr>
+<td><code>lfst_size</code></td>
+<td><code>int</code></td>
+<td><code>256</code></td>
+<td>LFST entries (StoreSet only) — maps store set ID → last dispatched store</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="caches">Caches<a class="headerlink" href="#caches" title="Permanent link">&para;</a></h2>
 <p>Each cache level is configured independently:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">Cache</span><span class="p">(</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">size</span><span class="o">=</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span>          <span class="c1"># Size: &quot;4KB&quot;, &quot;32KB&quot;, &quot;1MB&quot;, etc.</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">line</span><span class="o">=</span><span class="s2">&quot;64B&quot;</span><span class="p">,</span>           <span class="c1"># Line size (default: 64B)</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>               <span class="c1"># Associativity</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>            <span class="c1"># Hit latency in cycles</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">mshr_count</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>         <span class="c1"># MSHRs for non-blocking operation (0 = blocking)</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">policy</span><span class="o">=</span><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">LRU</span><span class="p">(),</span>       <span class="c1"># Eviction policy</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(),</span>       <span class="c1"># Hardware prefetcher</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">Cache</span><span class="p">(</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">size</span><span class="o">=</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span>          <span class="c1"># Size: &quot;4KB&quot;, &quot;32KB&quot;, &quot;1MB&quot;, etc.</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">line</span><span class="o">=</span><span class="s2">&quot;64B&quot;</span><span class="p">,</span>           <span class="c1"># Line size (default: 64B)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>               <span class="c1"># Associativity</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>            <span class="c1"># Hit latency in cycles</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">mshr_count</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>         <span class="c1"># MSHRs for non-blocking operation (0 = blocking)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">policy</span><span class="o">=</span><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">LRU</span><span class="p">(),</span>       <span class="c1"># Eviction policy</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(),</span>       <span class="c1"># Hardware prefetcher</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">)</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1612,23 +1690,23 @@
 <p>With <code>mshr_count=0</code> (the default), the L1D cache is <strong>blocking</strong> — every miss stalls the pipeline until the line arrives. Set <code>mshr_count=8</code> or higher for realistic non-blocking behavior where the O3 backend can execute other instructions while waiting for cache fills.</p>
 </div>
 <h3 id="replacement-policies">Replacement Policies<a class="headerlink" href="#replacement-policies" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">LRU</span><span class="p">()</span>      <span class="c1"># Least recently used (default)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">PLRU</span><span class="p">()</span>     <span class="c1"># Pseudo-LRU (tree-based)</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">FIFO</span><span class="p">()</span>     <span class="c1"># First in, first out</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">Random</span><span class="p">()</span>   <span class="c1"># Random eviction</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">MRU</span><span class="p">()</span>      <span class="c1"># Most recently used</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">LRU</span><span class="p">()</span>      <span class="c1"># Least recently used (default)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">PLRU</span><span class="p">()</span>     <span class="c1"># Pseudo-LRU (tree-based)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">FIFO</span><span class="p">()</span>     <span class="c1"># First in, first out</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">Random</span><span class="p">()</span>   <span class="c1"># Random eviction</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">ReplacementPolicy</span><span class="o">.</span><span class="n">MRU</span><span class="p">()</span>      <span class="c1"># Most recently used</span>
 </code></pre></div>
 <h3 id="prefetchers">Prefetchers<a class="headerlink" href="#prefetchers" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Off</span><span class="p">()</span>                              <span class="c1"># Disabled (default)</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                 <span class="c1"># Prefetch next line on access</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>    <span class="c1"># PC-indexed stride detection</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stream</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                   <span class="c1"># Sequential stream detection</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Tagged</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                   <span class="c1"># Prefetch-on-prefetch</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Off</span><span class="p">()</span>                              <span class="c1"># Disabled (default)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                 <span class="c1"># Prefetch next line on access</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>    <span class="c1"># PC-indexed stride detection</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stream</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                   <span class="c1"># Sequential stream detection</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Tagged</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                   <span class="c1"># Prefetch-on-prefetch</span>
 </code></pre></div>
 <h3 id="inclusion-policies">Inclusion Policies<a class="headerlink" href="#inclusion-policies" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">Cache</span><span class="o">.</span><span class="n">NINE</span><span class="p">()</span>        <span class="c1"># No inclusion, non-exclusive (default)</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">Cache</span><span class="o">.</span><span class="n">Inclusive</span><span class="p">()</span>    <span class="c1"># L2 eviction back-invalidates matching L1 lines</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">Cache</span><span class="o">.</span><span class="n">Exclusive</span><span class="p">()</span>   <span class="c1"># L1 eviction swaps line into L2</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">Cache</span><span class="o">.</span><span class="n">NINE</span><span class="p">()</span>        <span class="c1"># No inclusion, non-exclusive (default)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">Cache</span><span class="o">.</span><span class="n">Inclusive</span><span class="p">()</span>    <span class="c1"># L2 eviction back-invalidates matching L1 lines</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">Cache</span><span class="o">.</span><span class="n">Exclusive</span><span class="p">()</span>   <span class="c1"># L1 eviction swaps line into L2</span>
 </code></pre></div>
 <hr />
 <h2 id="memory">Memory<a class="headerlink" href="#memory" title="Permanent link">&para;</a></h2>
@@ -1681,13 +1759,13 @@
 </tbody>
 </table>
 <h3 id="memory-controller">Memory Controller<a class="headerlink" href="#memory-controller" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">MemoryController</span><span class="o">.</span><span class="n">Simple</span><span class="p">()</span>     <span class="c1"># Fixed latency (default)</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span>        <span class="c1"># Row-buffer aware timing</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Column access strobe latency</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">t_ras</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Row access strobe latency</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="n">t_pre</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Precharge latency</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>     <span class="c1"># Full row-miss penalty</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">MemoryController</span><span class="o">.</span><span class="n">Simple</span><span class="p">()</span>     <span class="c1"># Fixed latency (default)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span>        <span class="c1"># Row-buffer aware timing</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Column access strobe latency</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">t_ras</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Row access strobe latency</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">t_pre</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span>                 <span class="c1"># Precharge latency</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>     <span class="c1"># Full row-miss penalty</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="p">)</span>
 </code></pre></div>
 <hr />
 <h2 id="system">System<a class="headerlink" href="#system" title="Permanent link">&para;</a></h2>
@@ -1799,46 +1877,47 @@
 <hr />
 <h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>
 <h3 id="minimal-embedded-core">Minimal embedded core<a class="headerlink" href="#minimal-embedded-core" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">Config</span><span class="p">(</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">InOrder</span><span class="p">(),</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">Static</span><span class="p">(),</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    <span class="n">l2</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">Config</span><span class="p">(</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">InOrder</span><span class="p">(),</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">Static</span><span class="p">(),</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>    <span class="n">l2</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="high-performance-o3-core">High-performance O3 core<a class="headerlink" href="#high-performance-o3-core" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">Config</span><span class="p">(</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">OutOfOrder</span><span class="p">(</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>        <span class="n">rob_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>        <span class="n">issue_queue_size</span><span class="o">=</span><span class="mi">48</span><span class="p">,</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>        <span class="n">load_queue_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>        <span class="n">store_buffer_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>        <span class="n">prf_gpr_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>        <span class="n">prf_fpr_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>        <span class="n">fu_config</span><span class="o">=</span><span class="n">Fu</span><span class="p">([</span>
-<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntAlu</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntMul</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntDiv</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">35</span><span class="p">),</span>
-<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpAdd</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
-<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpMul</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
-<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpFma</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
-<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpDivSqrt</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">21</span><span class="p">),</span>
-<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">Branch</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
-<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">Mem</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
-<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>        <span class="p">]),</span>
-<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a>    <span class="p">),</span>
-<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">TAGE</span><span class="p">(),</span>
-<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-<a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)),</span>
-<a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-12-26" name="__codelineno-12-26" href="#__codelineno-12-26"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">2</span><span class="p">)),</span>
-<a id="__codelineno-12-27" name="__codelineno-12-27" href="#__codelineno-12-27"></a>    <span class="n">l2</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;256KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">16</span><span class="p">),</span>
-<a id="__codelineno-12-28" name="__codelineno-12-28" href="#__codelineno-12-28"></a>    <span class="n">l3</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4MB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">32</span><span class="p">),</span>
-<a id="__codelineno-12-29" name="__codelineno-12-29" href="#__codelineno-12-29"></a>    <span class="n">memory_controller</span><span class="o">=</span><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span><span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">),</span>
-<a id="__codelineno-12-30" name="__codelineno-12-30" href="#__codelineno-12-30"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">Config</span><span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">width</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">Backend</span><span class="o">.</span><span class="n">OutOfOrder</span><span class="p">(</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>        <span class="n">rob_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>        <span class="n">issue_queue_size</span><span class="o">=</span><span class="mi">48</span><span class="p">,</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>        <span class="n">load_queue_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>        <span class="n">store_buffer_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>        <span class="n">prf_gpr_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>        <span class="n">prf_fpr_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>        <span class="n">fu_config</span><span class="o">=</span><span class="n">Fu</span><span class="p">([</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntAlu</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntMul</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">IntDiv</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">35</span><span class="p">),</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpAdd</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpMul</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpFma</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">FpDivSqrt</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">21</span><span class="p">),</span>
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">Branch</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>            <span class="n">Fu</span><span class="o">.</span><span class="n">Mem</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>        <span class="p">]),</span>
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>    <span class="p">),</span>
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>    <span class="n">branch_predictor</span><span class="o">=</span><span class="n">BranchPredictor</span><span class="o">.</span><span class="n">ScLTage</span><span class="p">(),</span>
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>    <span class="n">mem_dep_predictor</span><span class="o">=</span><span class="n">MemDepPredictor</span><span class="o">.</span><span class="n">StoreSet</span><span class="p">(),</span>
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>    <span class="n">l1d</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">Stride</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">table_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)),</span>
+<a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a>    <span class="n">l1i</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;32KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a>              <span class="n">prefetcher</span><span class="o">=</span><span class="n">Prefetcher</span><span class="o">.</span><span class="n">NextLine</span><span class="p">(</span><span class="n">degree</span><span class="o">=</span><span class="mi">2</span><span class="p">)),</span>
+<a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a>    <span class="n">l2</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;256KB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">16</span><span class="p">),</span>
+<a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a>    <span class="n">l3</span><span class="o">=</span><span class="n">Cache</span><span class="p">(</span><span class="s2">&quot;4MB&quot;</span><span class="p">,</span> <span class="n">ways</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">latency</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">mshr_count</span><span class="o">=</span><span class="mi">32</span><span class="p">),</span>
+<a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a>    <span class="n">memory_controller</span><span class="o">=</span><span class="n">MemoryController</span><span class="o">.</span><span class="n">DRAM</span><span class="p">(</span><span class="n">t_cas</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">row_miss_latency</span><span class="o">=</span><span class="mi">120</span><span class="p">),</span>
+<a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="linux-capable-system">Linux-capable system<a class="headerlink" href="#linux-capable-system" title="Permanent link">&para;</a></h3>
 <p>See <a href="../examples/linux-boot/">Linux Boot</a> for a complete config that boots Linux.</p>
