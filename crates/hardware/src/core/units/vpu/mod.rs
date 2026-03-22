@@ -8,3 +8,9 @@ pub mod types;
 
 /// vsetvl/vsetvli/vsetivli execution logic.
 pub mod vsetvl;
+
+/// Vector integer ALU: element-wise arithmetic, comparison, and fixed-point.
+pub mod alu;
+
+/// Vector instruction execution dispatch (bridges pipeline to VPU).
+pub mod execute;

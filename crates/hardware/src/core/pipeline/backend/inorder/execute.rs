@@ -8,7 +8,9 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
-use crate::core::pipeline::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp};
+use crate::core::pipeline::signals::{
+    AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
+};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
@@ -626,6 +628,38 @@ pub fn execute_inorder(
                 });
                 continue;
             }
+        }
+
+        // Vector execution: dispatch to VPU, skip normal ALU path.
+        // Vector ops are serializing (system_op = System) so they drain the pipeline
+        // before executing here. The VPR is read/written directly at execute time;
+        // commit will set mstatus.VS=dirty and vstart=0.
+        if id.ctrl.vec_op != VectorOp::None {
+            let alu_out = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
+            // vsetvl family writes scalar rd — alu_out is the new vl.
+            // Other vector ops produce no scalar result (alu_out = 0).
+            // Flush pipeline after serializing instruction.
+            cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+            cpu.redirect_pending = true;
+            flush_remaining = true;
+
+            rob.complete(id.rob_tag, alu_out);
+            results.push(ExMem1Entry {
+                rob_tag: id.rob_tag,
+                pc: id.pc,
+                inst: id.inst,
+                inst_size: id.inst_size,
+                rd: id.rd,
+                alu: alu_out,
+                store_data: 0,
+                ctrl: id.ctrl,
+                trap: None,
+                exception_stage: None,
+                rd_phys: PhysReg::default(),
+                fp_flags: 0,
+                sfence_vma: None,
+            });
+            continue;
         }
 
         // ALU / FPU execution

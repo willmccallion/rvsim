@@ -257,11 +257,13 @@ impl Cpu {
             | MSTATUS_MXR
             | MSTATUS_UXL;
         let sstatus = mstatus & sstatus_mask;
+        let vlenb = config.pipeline.vlen / 8;
         let csrs = Csrs {
             mstatus,
             sstatus,
             misa: configured_misa,
             stimecmp: u64::MAX,
+            vlenb: vlenb as u64,
             ..Default::default()
         };
 
@@ -269,7 +271,7 @@ impl Cpu {
 
         let (ram_ptr, ram_start, ram_end) =
             system.bus.get_ram_info().unwrap_or((std::ptr::null_mut(), 0, 0));
-        let regs = if direct_mode {
+        let mut regs = if direct_mode {
             let sp = config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
             let mut r = RegisterFile::new();
             r.write(abi::REG_SP, sp);
@@ -277,6 +279,13 @@ impl Cpu {
         } else {
             RegisterFile::new()
         };
+        // Initialize vector register file if VLEN > 0
+        if config.pipeline.vlen > 0
+            && let Ok(vlen) = crate::core::units::vpu::types::Vlen::new(config.pipeline.vlen)
+        {
+            regs.init_vpr(vlen);
+        }
+
         // Always start in Machine mode. The riscv-tests switch to lower modes
         // via their own trap handlers; bare-metal binaries need M-mode too.
         let privilege = PrivilegeMode::Machine;

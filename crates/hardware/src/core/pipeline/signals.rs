@@ -377,18 +377,194 @@ pub struct ControlSignals {
     pub vec_src_encoding: VecSrcEncoding,
 }
 
-/// Vector operation type. Initially just configuration ops for Phase 1.
+/// Vector operation type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VectorOp {
     /// No vector operation.
     #[default]
     None,
-    /// vsetvli — set vl/vtype from rs1 and immediate.
+
+    // ── Configuration ────────────────────────────────────────────────────
+    /// `vsetvli` — set vl/vtype from rs1 and immediate.
     Vsetvli,
-    /// vsetivli — set vl/vtype from uimm and immediate.
+    /// `vsetivli` — set vl/vtype from uimm and immediate.
     Vsetivli,
-    /// vsetvl — set vl/vtype from rs1 and rs2.
+    /// `vsetvl` — set vl/vtype from rs1 and rs2.
     Vsetvl,
+
+    // ── Integer arithmetic ───────────────────────────────────────────────
+    /// `vadd` — vector add.
+    VAdd,
+    /// `vsub` — vector subtract.
+    VSub,
+    /// `vrsub` — vector reverse subtract (imm/scalar - vs2).
+    VRsub,
+    /// `vand` — vector bitwise AND.
+    VAnd,
+    /// `vor` — vector bitwise OR.
+    VOr,
+    /// `vxor` — vector bitwise XOR.
+    VXor,
+    /// `vsll` — vector shift left logical.
+    VSll,
+    /// `vsrl` — vector shift right logical.
+    VSrl,
+    /// `vsra` — vector shift right arithmetic.
+    VSra,
+    /// `vminu` — vector unsigned minimum.
+    VMinU,
+    /// `vmin` — vector signed minimum.
+    VMin,
+    /// `vmaxu` — vector unsigned maximum.
+    VMaxU,
+    /// `vmax` — vector signed maximum.
+    VMax,
+
+    // ── Merge / move ─────────────────────────────────────────────────────
+    /// `vmerge` / `vmv` — vector merge or move.
+    VMerge,
+
+    // ── Integer comparison (write mask) ──────────────────────────────────
+    /// `vmseq` — set mask if equal.
+    VMSeq,
+    /// `vmsne` — set mask if not equal.
+    VMSne,
+    /// `vmsltu` — set mask if less than unsigned.
+    VMSltu,
+    /// `vmslt` — set mask if less than signed.
+    VMSlt,
+    /// `vmsleu` — set mask if less than or equal unsigned.
+    VMSleu,
+    /// `vmsle` — set mask if less than or equal signed.
+    VMSle,
+    /// `vmsgtu` — set mask if greater than unsigned.
+    VMSgtu,
+    /// `vmsgt` — set mask if greater than signed.
+    VMSgt,
+
+    // ── Add/subtract with carry ──────────────────────────────────────────
+    /// `vadc` — add with carry from v0 mask.
+    VAdc,
+    /// `vmadc` — mask-producing add with carry.
+    VMadc,
+    /// `vsbc` — subtract with borrow from v0 mask.
+    VSbc,
+    /// `vmsbc` — mask-producing subtract with borrow.
+    VMsbc,
+
+    // ── Integer multiply ─────────────────────────────────────────────────
+    /// `vmul` — multiply low bits.
+    VMul,
+    /// `vmulh` — multiply high bits (signed × signed).
+    VMulh,
+    /// `vmulhu` — multiply high bits (unsigned × unsigned).
+    VMulhu,
+    /// `vmulhsu` — multiply high bits (signed × unsigned).
+    VMulhsu,
+    /// `vmacc` — multiply-accumulate (vd = vs1*vs2 + vd).
+    VMacc,
+    /// `vnmsac` — negated multiply-subtract accumulate (vd = -(vs1*vs2) + vd).
+    VNMSac,
+    /// `vmadd` — multiply-add (vd = vs1*vd + vs2).
+    VMadd,
+    /// `vnmsub` — negated multiply-subtract (vd = -(vs1*vd) + vs2).
+    VNMSub,
+
+    // ── Integer divide ───────────────────────────────────────────────────
+    /// `vdivu` — unsigned divide.
+    VDivU,
+    /// `vdiv` — signed divide.
+    VDiv,
+    /// `vremu` — unsigned remainder.
+    VRemU,
+    /// `vrem` — signed remainder.
+    VRem,
+
+    // ── Widening integer arithmetic ──────────────────────────────────────
+    /// `vwaddu` — widening unsigned add (SEW → 2×SEW).
+    VWAddU,
+    /// `vwadd` — widening signed add (SEW → 2×SEW).
+    VWAdd,
+    /// `vwsubu` — widening unsigned subtract (SEW → 2×SEW).
+    VWSubU,
+    /// `vwsub` — widening signed subtract (SEW → 2×SEW).
+    VWSub,
+    /// `vwaddu.w` — widening unsigned add wide (2×SEW op SEW → 2×SEW).
+    VWAddUW,
+    /// `vwadd.w` — widening signed add wide (2×SEW op SEW → 2×SEW).
+    VWAddW,
+    /// `vwsubu.w` — widening unsigned subtract wide (2×SEW op SEW → 2×SEW).
+    VWSubUW,
+    /// `vwsub.w` — widening signed subtract wide (2×SEW op SEW → 2×SEW).
+    VWSubW,
+
+    // ── Widening integer multiply ────────────────────────────────────────
+    /// `vwmulu` — widening unsigned multiply.
+    VWMulU,
+    /// `vwmul` — widening signed multiply.
+    VWMul,
+    /// `vwmulsu` — widening signed-unsigned multiply.
+    VWMulSU,
+    /// `vwmaccu` — widening unsigned multiply-accumulate.
+    VWMaccU,
+    /// `vwmacc` — widening signed multiply-accumulate.
+    VWMacc,
+    /// `vwmaccsu` — widening signed-unsigned multiply-accumulate.
+    VWMaccSU,
+    /// `vwmaccus` — widening unsigned-signed multiply-accumulate.
+    VWMaccUS,
+
+    // ── Narrowing ────────────────────────────────────────────────────────
+    /// `vnsrl` — narrowing shift right logical (2×SEW → SEW).
+    VNSrl,
+    /// `vnsra` — narrowing shift right arithmetic (2×SEW → SEW).
+    VNSra,
+    /// `vnclipu` — narrowing clip unsigned with saturation.
+    VNClipU,
+    /// `vnclip` — narrowing clip signed with saturation.
+    VNClip,
+
+    // ── Fixed-point saturating ───────────────────────────────────────────
+    /// `vsaddu` — saturating unsigned add.
+    VSAddU,
+    /// `vsadd` — saturating signed add.
+    VSAdd,
+    /// `vssubu` — saturating unsigned subtract.
+    VSSubU,
+    /// `vssub` — saturating signed subtract.
+    VSSub,
+
+    // ── Fixed-point averaging ────────────────────────────────────────────
+    /// `vaaddu` — averaging unsigned add.
+    VAAddU,
+    /// `vaadd` — averaging signed add.
+    VAAdd,
+    /// `vasubu` — averaging unsigned subtract.
+    VASubU,
+    /// `vasub` — averaging signed subtract.
+    VASub,
+
+    // ── Fixed-point scaling ──────────────────────────────────────────────
+    /// `vsmul` — signed fractional multiply with rounding.
+    VSmul,
+    /// `vssrl` — scaling shift right logical with rounding.
+    VSSrl,
+    /// `vssra` — scaling shift right arithmetic with rounding.
+    VSSra,
+
+    // ── Extension ────────────────────────────────────────────────────────
+    /// `vzext.vf2` — zero-extend SEW/2 to SEW.
+    VZextVf2,
+    /// `vzext.vf4` — zero-extend SEW/4 to SEW.
+    VZextVf4,
+    /// `vzext.vf8` — zero-extend SEW/8 to SEW.
+    VZextVf8,
+    /// `vsext.vf2` — sign-extend SEW/2 to SEW.
+    VSextVf2,
+    /// `vsext.vf4` — sign-extend SEW/4 to SEW.
+    VSextVf4,
+    /// `vsext.vf8` — sign-extend SEW/8 to SEW.
+    VSextVf8,
 }
 
 /// Vector operand source encoding category.

@@ -456,7 +456,7 @@ element-group is ready. Modeled by tracking per-element-group completion cycles.
 
 ## 7. Implementation Phases
 
-### Phase 1: Foundation — ISA Module, VRF, CSRs, vsetvl, Config
+### Phase 1: Foundation — ISA Module, VRF, CSRs, vsetvl, Config **COMPLETED**
 
 **Goal:** Decode vsetvl family, maintain vector CSRs, VRF with element-wise access,
 VLEN in config.

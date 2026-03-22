@@ -13,7 +13,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
-    VectorOp,
+    VecSrcEncoding, VectorOp,
 };
 use crate::core::units::vpu::types::VRegIdx;
 use crate::isa::decode::decode as instruction_decode;
@@ -25,7 +25,9 @@ use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
 use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
-use crate::isa::rvv::{encoding as v_enc, funct3 as v_funct3, opcodes as v_opcodes};
+use crate::isa::rvv::{
+    encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
+};
 
 /// ADDI x0, x0, 0 instruction encoding (canonical NOP).
 const INSTRUCTION_NOP: u32 = 0x0000_0013;
@@ -379,13 +381,267 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                 c.vs1 = VRegIdx::new(v_enc::vs1(inst));
                 c.vs2 = VRegIdx::new(v_enc::vs2(inst));
             } else {
-                // Other vector arithmetic ops — decoded in Phase 2
-                return Err(Trap::IllegalInstruction(inst));
+                // Vector arithmetic: funct6 is bits 31:26
+                let f6 = v_enc::funct6(inst);
+                c.vm = v_enc::vm(inst);
+                c.vd = VRegIdx::new(v_enc::vd(inst));
+                c.vs1 = VRegIdx::new(v_enc::vs1(inst));
+                c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+                // All vector arithmetic is serializing for Phase 2 (no vector rename yet)
+                c.system_op = SystemOp::System;
+
+                match d.funct3 {
+                    v_funct3::OPIVV => {
+                        c.vec_reg_write = true;
+                        c.vec_src_encoding = VecSrcEncoding::VV;
+                        c.vec_op = decode_opivv(f6, inst)?;
+                    }
+                    v_funct3::OPIVX => {
+                        c.vec_reg_write = true;
+                        c.vec_src_encoding = VecSrcEncoding::VX;
+                        c.vec_op = decode_opivx(f6, inst)?;
+                    }
+                    v_funct3::OPIVI => {
+                        c.vec_reg_write = true;
+                        c.vec_src_encoding = VecSrcEncoding::VI;
+                        c.vec_op = decode_opivi(f6, inst)?;
+                    }
+                    v_funct3::OPMVV => {
+                        c.vec_src_encoding = VecSrcEncoding::VV;
+                        let (op, writes_vec) = decode_opmvv(f6, inst)?;
+                        c.vec_op = op;
+                        c.vec_reg_write = writes_vec;
+                        // Some OPMVV ops write scalar rd (e.g., future vmv.x.s)
+                        // For now all write vec
+                    }
+                    v_funct3::OPMVX => {
+                        c.vec_src_encoding = VecSrcEncoding::VX;
+                        let (op, writes_vec) = decode_opmvx(f6, inst)?;
+                        c.vec_op = op;
+                        c.vec_reg_write = writes_vec;
+                    }
+                    _ => {
+                        // OPFVV, OPFVF — decoded in Phase 4
+                        return Err(Trap::IllegalInstruction(inst));
+                    }
+                }
             }
         }
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
     Ok(c)
+}
+
+// ── Vector arithmetic decode helpers ──────────────────────────────────────────
+
+/// Decode OPIVV funct3 (integer vector-vector) operations.
+const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+    Ok(match f6 {
+        v_f6::VSUB => VectorOp::VSub,
+        v_f6::VMINU => VectorOp::VMinU,
+        v_f6::VMIN => VectorOp::VMin,
+        v_f6::VMAXU => VectorOp::VMaxU,
+        v_f6::VMAX => VectorOp::VMax,
+        v_f6::VAND => VectorOp::VAnd,
+        v_f6::VOR => VectorOp::VOr,
+        v_f6::VXOR => VectorOp::VXor,
+        // TODO: Phase 4 permutations — VRGATHER decoded as VAdd placeholder
+        v_f6::VADD | v_f6::VRGATHER => VectorOp::VAdd,
+        v_f6::VADC => VectorOp::VAdc,
+        v_f6::VMADC => VectorOp::VMadc,
+        v_f6::VSBC => VectorOp::VSbc,
+        v_f6::VMSBC => VectorOp::VMsbc,
+        v_f6::VMERGE_VMV => VectorOp::VMerge,
+        v_f6::VMSEQ => VectorOp::VMSeq,
+        v_f6::VMSNE => VectorOp::VMSne,
+        v_f6::VMSLTU => VectorOp::VMSltu,
+        v_f6::VMSLT => VectorOp::VMSlt,
+        v_f6::VMSLEU => VectorOp::VMSleu,
+        v_f6::VMSLE => VectorOp::VMSle,
+        v_f6::VSADDU => VectorOp::VSAddU,
+        v_f6::VSADD => VectorOp::VSAdd,
+        v_f6::VSSUBU => VectorOp::VSSubU,
+        v_f6::VSSUB => VectorOp::VSSub,
+        v_f6::VSLL => VectorOp::VSll,
+        v_f6::VSMUL => VectorOp::VSmul,
+        v_f6::VSRL => VectorOp::VSrl,
+        v_f6::VSRA => VectorOp::VSra,
+        v_f6::VSSRL => VectorOp::VSSrl,
+        v_f6::VSSRA => VectorOp::VSSra,
+        v_f6::VNSRL => VectorOp::VNSrl,
+        v_f6::VNSRA => VectorOp::VNSra,
+        v_f6::VNCLIPU => VectorOp::VNClipU,
+        v_f6::VNCLIP => VectorOp::VNClip,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPIVX funct3 (integer vector-scalar) operations.
+const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+    Ok(match f6 {
+        v_f6::VSUB => VectorOp::VSub,
+        v_f6::VRSUB => VectorOp::VRsub,
+        v_f6::VMINU => VectorOp::VMinU,
+        v_f6::VMIN => VectorOp::VMin,
+        v_f6::VMAXU => VectorOp::VMaxU,
+        v_f6::VMAX => VectorOp::VMax,
+        v_f6::VAND => VectorOp::VAnd,
+        v_f6::VOR => VectorOp::VOr,
+        v_f6::VXOR => VectorOp::VXor,
+        // TODO: Phase 4 permutations — VSLIDEUP/VSLIDEDOWN decoded as VAdd placeholder
+        v_f6::VADD | v_f6::VSLIDEUP | v_f6::VSLIDEDOWN => VectorOp::VAdd,
+        v_f6::VADC => VectorOp::VAdc,
+        v_f6::VMADC => VectorOp::VMadc,
+        v_f6::VSBC => VectorOp::VSbc,
+        v_f6::VMSBC => VectorOp::VMsbc,
+        v_f6::VMERGE_VMV => VectorOp::VMerge,
+        v_f6::VMSEQ => VectorOp::VMSeq,
+        v_f6::VMSNE => VectorOp::VMSne,
+        v_f6::VMSLTU => VectorOp::VMSltu,
+        v_f6::VMSLT => VectorOp::VMSlt,
+        v_f6::VMSLEU => VectorOp::VMSleu,
+        v_f6::VMSLE => VectorOp::VMSle,
+        v_f6::VMSGTU => VectorOp::VMSgtu,
+        v_f6::VMSGT => VectorOp::VMSgt,
+        v_f6::VSADDU => VectorOp::VSAddU,
+        v_f6::VSADD => VectorOp::VSAdd,
+        v_f6::VSSUBU => VectorOp::VSSubU,
+        v_f6::VSSUB => VectorOp::VSSub,
+        v_f6::VSLL => VectorOp::VSll,
+        v_f6::VSMUL => VectorOp::VSmul,
+        v_f6::VSRL => VectorOp::VSrl,
+        v_f6::VSRA => VectorOp::VSra,
+        v_f6::VSSRL => VectorOp::VSSrl,
+        v_f6::VSSRA => VectorOp::VSSra,
+        v_f6::VNSRL => VectorOp::VNSrl,
+        v_f6::VNSRA => VectorOp::VNSra,
+        v_f6::VNCLIPU => VectorOp::VNClipU,
+        v_f6::VNCLIP => VectorOp::VNClip,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPIVI funct3 (integer vector-immediate) operations.
+const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+    Ok(match f6 {
+        v_f6::VRSUB => VectorOp::VRsub,
+        v_f6::VAND => VectorOp::VAnd,
+        v_f6::VOR => VectorOp::VOr,
+        v_f6::VXOR => VectorOp::VXor,
+        // TODO: Phase 4 permutations — VRGATHER/VSLIDEUP/VSLIDEDOWN decoded as VAdd placeholder
+        v_f6::VADD | v_f6::VRGATHER | v_f6::VSLIDEUP | v_f6::VSLIDEDOWN => VectorOp::VAdd,
+        v_f6::VADC => VectorOp::VAdc,
+        v_f6::VMADC => VectorOp::VMadc,
+        v_f6::VMERGE_VMV => VectorOp::VMerge,
+        v_f6::VMSEQ => VectorOp::VMSeq,
+        v_f6::VMSNE => VectorOp::VMSne,
+        v_f6::VMSLEU => VectorOp::VMSleu,
+        v_f6::VMSLE => VectorOp::VMSle,
+        v_f6::VMSGTU => VectorOp::VMSgtu,
+        v_f6::VMSGT => VectorOp::VMSgt,
+        v_f6::VSADDU => VectorOp::VSAddU,
+        v_f6::VSADD => VectorOp::VSAdd,
+        v_f6::VSLL => VectorOp::VSll,
+        v_f6::VSRL => VectorOp::VSrl,
+        v_f6::VSRA => VectorOp::VSra,
+        v_f6::VSSRL => VectorOp::VSSrl,
+        v_f6::VSSRA => VectorOp::VSSra,
+        v_f6::VNSRL => VectorOp::VNSrl,
+        v_f6::VNSRA => VectorOp::VNSra,
+        v_f6::VNCLIPU => VectorOp::VNClipU,
+        v_f6::VNCLIP => VectorOp::VNClip,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPMVV funct3 (mask/reduction vector-vector) operations.
+/// Returns `(VectorOp, writes_vec_reg)`.
+const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+    Ok(match f6 {
+        // Integer multiply
+        v_f6::VMUL => (VectorOp::VMul, true),
+        v_f6::VMULH => (VectorOp::VMulh, true),
+        v_f6::VMULHU => (VectorOp::VMulhu, true),
+        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
+        // Multiply-accumulate
+        v_f6::VMACC => (VectorOp::VMacc, true),
+        v_f6::VNMSAC => (VectorOp::VNMSac, true),
+        v_f6::VMADD => (VectorOp::VMadd, true),
+        v_f6::VNMSUB => (VectorOp::VNMSub, true),
+        // Integer divide
+        v_f6::VDIVU => (VectorOp::VDivU, true),
+        v_f6::VDIV => (VectorOp::VDiv, true),
+        v_f6::VREMU => (VectorOp::VRemU, true),
+        v_f6::VREM => (VectorOp::VRem, true),
+        // Widening integer add/sub
+        v_f6::VWADDU => (VectorOp::VWAddU, true),
+        v_f6::VWADD => (VectorOp::VWAdd, true),
+        v_f6::VWSUBU => (VectorOp::VWSubU, true),
+        v_f6::VWSUB => (VectorOp::VWSub, true),
+        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
+        v_f6::VWADD_W => (VectorOp::VWAddW, true),
+        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
+        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
+        // Widening multiply
+        v_f6::VWMULU => (VectorOp::VWMulU, true),
+        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
+        v_f6::VWMUL => (VectorOp::VWMul, true),
+        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
+        v_f6::VWMACC => (VectorOp::VWMacc, true),
+        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
+        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
+        // Averaging add/sub
+        v_f6::VAADDU => (VectorOp::VAAddU, true),
+        v_f6::VAADD => (VectorOp::VAAdd, true),
+        v_f6::VASUBU => (VectorOp::VASubU, true),
+        v_f6::VASUB => (VectorOp::VASub, true),
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPMVX funct3 (mask/move vector-scalar) operations.
+/// Returns `(VectorOp, writes_vec_reg)`.
+const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+    Ok(match f6 {
+        // Integer multiply
+        v_f6::VMUL => (VectorOp::VMul, true),
+        v_f6::VMULH => (VectorOp::VMulh, true),
+        v_f6::VMULHU => (VectorOp::VMulhu, true),
+        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
+        // Multiply-accumulate
+        v_f6::VMACC => (VectorOp::VMacc, true),
+        v_f6::VNMSAC => (VectorOp::VNMSac, true),
+        v_f6::VMADD => (VectorOp::VMadd, true),
+        v_f6::VNMSUB => (VectorOp::VNMSub, true),
+        // Integer divide
+        v_f6::VDIVU => (VectorOp::VDivU, true),
+        v_f6::VDIV => (VectorOp::VDiv, true),
+        v_f6::VREMU => (VectorOp::VRemU, true),
+        v_f6::VREM => (VectorOp::VRem, true),
+        // Widening integer add/sub
+        v_f6::VWADDU => (VectorOp::VWAddU, true),
+        v_f6::VWADD => (VectorOp::VWAdd, true),
+        v_f6::VWSUBU => (VectorOp::VWSubU, true),
+        v_f6::VWSUB => (VectorOp::VWSub, true),
+        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
+        v_f6::VWADD_W => (VectorOp::VWAddW, true),
+        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
+        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
+        // Widening multiply
+        v_f6::VWMULU => (VectorOp::VWMulU, true),
+        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
+        v_f6::VWMUL => (VectorOp::VWMul, true),
+        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
+        v_f6::VWMACC => (VectorOp::VWMacc, true),
+        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
+        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
+        // Averaging add/sub
+        v_f6::VAADDU => (VectorOp::VAAddU, true),
+        v_f6::VAADD => (VectorOp::VAAdd, true),
+        v_f6::VASUBU => (VectorOp::VASubU, true),
+        v_f6::VASUB => (VectorOp::VASub, true),
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
 }
 
 /// Executes the decode stage.
