@@ -8,11 +8,11 @@
 //! Reference: Phase 2 — Pipeline Logic & Hazards.
 
 use rvsim_core::config::{PerceptronConfig, TageConfig, TournamentConfig};
-use rvsim_core::core::units::bru::gshare::GSharePredictor;
-use rvsim_core::core::units::bru::perceptron::PerceptronPredictor;
-use rvsim_core::core::units::bru::static_bp::StaticPredictor;
-use rvsim_core::core::units::bru::tage::TagePredictor;
-use rvsim_core::core::units::bru::tournament::TournamentPredictor;
+use rvsim_core::core::units::bru::predictors::gshare::GSharePredictor;
+use rvsim_core::core::units::bru::predictors::perceptron::PerceptronPredictor;
+use rvsim_core::core::units::bru::predictors::static_bp::StaticPredictor;
+use rvsim_core::core::units::bru::predictors::tage::TagePredictor;
+use rvsim_core::core::units::bru::predictors::tournament::TournamentPredictor;
 use rvsim_core::core::units::bru::{BranchPredictor, Ghr};
 
 // ══════════════════════════════════════════════════════════

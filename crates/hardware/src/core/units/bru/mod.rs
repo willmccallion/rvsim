@@ -1,8 +1,9 @@
 //! Branch prediction unit (BRU) implementations.
 //!
 //! This module contains various branch prediction algorithms including
-//! static prediction, gshare, perceptron, TAGE, tournament predictors,
-//! branch target buffer (BTB), and return address stack (RAS).
+//! static prediction, gshare, perceptron, TAGE, tournament, and SC-L-TAGE
+//! predictors, along with branch target buffer (BTB) and return address
+//! stack (RAS).
 
 pub use self::branch_predictor::{BranchPredictor, Ghr};
 
@@ -12,27 +13,18 @@ pub mod branch_predictor;
 /// Branch Target Buffer for storing predicted branch targets.
 pub mod btb;
 
-/// Global history branch predictor (gshare algorithm).
-pub mod gshare;
-
-/// Perceptron-based neural branch predictor.
-pub mod perceptron;
-
 /// Return Address Stack for predicting return addresses.
 pub mod ras;
 
-/// Static branch predictor (always not-taken).
-pub mod static_bp;
+/// Reusable building blocks and sub-predictors.
+pub mod components;
 
-/// Tagged Geometric History Length branch predictor.
-pub mod tage;
+/// Full branch predictor implementations.
+pub mod predictors;
 
-/// Tournament branch predictor (combines local and global predictors).
-pub mod tournament;
-
-use self::{
-    gshare::GSharePredictor, perceptron::PerceptronPredictor, static_bp::StaticPredictor,
-    tage::TagePredictor, tournament::TournamentPredictor,
+use self::predictors::{
+    gshare::GSharePredictor, perceptron::PerceptronPredictor, sc_l_tage::ScLTagePredictor,
+    static_bp::StaticPredictor, tage::TagePredictor, tournament::TournamentPredictor,
 };
 use crate::config::{BranchPredictor as BpType, Config};
 
@@ -50,6 +42,8 @@ pub enum BranchPredictorWrapper {
     Tage(Box<TagePredictor>),
     /// Perceptron-based neural predictor.
     Perceptron(PerceptronPredictor),
+    /// SC-L-TAGE + ITTAGE composed predictor.
+    ScLTage(Box<ScLTagePredictor>),
 }
 
 impl BranchPredictorWrapper {
@@ -83,15 +77,19 @@ impl BranchPredictorWrapper {
                 btb_ways,
                 ras_size,
             )),
+            BpType::ScLTage => Self::ScLTage(Box::new(ScLTagePredictor::new(
+                &config.pipeline.tage,
+                &config.pipeline.sc,
+                &config.pipeline.ittage,
+                btb_size,
+                btb_ways,
+                ras_size,
+            ))),
         }
     }
 }
 
 impl BranchPredictor for BranchPredictorWrapper {
-    /// Predicts whether a branch at the given PC will be taken and its target.
-    ///
-    /// Returns a tuple of (taken, `target_opt`) where `target_opt` is Some(target)
-    /// if the branch is predicted taken, otherwise None.
     #[inline(always)]
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
         match self {
@@ -100,13 +98,10 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.predict_branch(pc),
             Self::Tage(bp) => bp.predict_branch(pc),
             Self::Perceptron(bp) => bp.predict_branch(pc),
+            Self::ScLTage(bp) => bp.predict_branch(pc),
         }
     }
 
-    /// Updates the branch predictor with the actual outcome of a branch.
-    ///
-    /// Called after branch resolution to train the predictor and update
-    /// internal state based on whether the branch was taken and its target.
     #[inline(always)]
     fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
         match self {
@@ -115,12 +110,10 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
             Self::Tage(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
             Self::Perceptron(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
+            Self::ScLTage(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
         }
     }
 
-    /// Predicts the target address for a branch at the given PC using the BTB.
-    ///
-    /// Returns Some(target) if a prediction exists in the BTB, otherwise None.
     #[inline(always)]
     fn predict_btb(&self, pc: u64) -> Option<u64> {
         match self {
@@ -129,12 +122,10 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.predict_btb(pc),
             Self::Tage(bp) => bp.predict_btb(pc),
             Self::Perceptron(bp) => bp.predict_btb(pc),
+            Self::ScLTage(bp) => bp.predict_btb(pc),
         }
     }
 
-    /// Records a function call for return address prediction.
-    ///
-    /// Pushes the return address onto the RAS when a call instruction is executed.
     #[inline(always)]
     fn on_call(&mut self, pc: u64, ret_addr: u64, target: u64) {
         match self {
@@ -143,13 +134,10 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.on_call(pc, ret_addr, target),
             Self::Tage(bp) => bp.on_call(pc, ret_addr, target),
             Self::Perceptron(bp) => bp.on_call(pc, ret_addr, target),
+            Self::ScLTage(bp) => bp.on_call(pc, ret_addr, target),
         }
     }
 
-    /// Predicts the return address for a return instruction.
-    ///
-    /// Pops the top address from the RAS, which should be the return address
-    /// from the most recent call.
     #[inline(always)]
     fn predict_return(&self) -> Option<u64> {
         match self {
@@ -158,12 +146,10 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.predict_return(),
             Self::Tage(bp) => bp.predict_return(),
             Self::Perceptron(bp) => bp.predict_return(),
+            Self::ScLTage(bp) => bp.predict_return(),
         }
     }
 
-    /// Records a function return for RAS management.
-    ///
-    /// Pops the return address from the RAS when a return instruction is executed.
     #[inline(always)]
     fn on_return(&mut self) {
         match self {
@@ -172,6 +158,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.on_return(),
             Self::Tage(bp) => bp.on_return(),
             Self::Perceptron(bp) => bp.on_return(),
+            Self::ScLTage(bp) => bp.on_return(),
         }
     }
 
@@ -183,6 +170,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.speculate(pc, taken),
             Self::Tage(bp) => bp.speculate(pc, taken),
             Self::Perceptron(bp) => bp.speculate(pc, taken),
+            Self::ScLTage(bp) => bp.speculate(pc, taken),
         }
     }
 
@@ -194,6 +182,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.snapshot_history(),
             Self::Tage(bp) => bp.snapshot_history(),
             Self::Perceptron(bp) => bp.snapshot_history(),
+            Self::ScLTage(bp) => bp.snapshot_history(),
         }
     }
 
@@ -205,6 +194,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.repair_history(ghr),
             Self::Tage(bp) => bp.repair_history(ghr),
             Self::Perceptron(bp) => bp.repair_history(ghr),
+            Self::ScLTage(bp) => bp.repair_history(ghr),
         }
     }
 
@@ -216,6 +206,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.snapshot_ras(),
             Self::Tage(bp) => bp.snapshot_ras(),
             Self::Perceptron(bp) => bp.snapshot_ras(),
+            Self::ScLTage(bp) => bp.snapshot_ras(),
         }
     }
 
@@ -227,6 +218,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.restore_ras(ptr),
             Self::Tage(bp) => bp.restore_ras(ptr),
             Self::Perceptron(bp) => bp.restore_ras(ptr),
+            Self::ScLTage(bp) => bp.restore_ras(ptr),
         }
     }
 
@@ -238,6 +230,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.update_btb(pc, target),
             Self::Tage(bp) => bp.update_btb(pc, target),
             Self::Perceptron(bp) => bp.update_btb(pc, target),
+            Self::ScLTage(bp) => bp.update_btb(pc, target),
         }
     }
 
@@ -249,6 +242,7 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::Tournament(bp) => bp.repair_to_committed(),
             Self::Tage(bp) => bp.repair_to_committed(),
             Self::Perceptron(bp) => bp.repair_to_committed(),
+            Self::ScLTage(bp) => bp.repair_to_committed(),
         }
     }
 }

@@ -14,7 +14,7 @@
 //! - **Best Case:** Correlated branches where outcome depends on recent history
 //! - **Worst Case:** Uncorrelated branches or history length too short/long for pattern
 
-use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Size of the Pattern History Table (2^12 entries).
 const TABLE_BITS: usize = 12;

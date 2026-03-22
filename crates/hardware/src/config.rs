@@ -354,6 +354,11 @@ pub enum BranchPredictor {
     ///
     /// Selects between local and global predictors based on performance.
     Tournament,
+    /// SC-L-TAGE + ITTAGE composed predictor.
+    ///
+    /// Combines TAGE, Loop, Statistical Corrector, and Indirect Target TAGE.
+    #[serde(alias = "SC-L-TAGE")]
+    ScLTage,
 }
 
 /// Specifies the memory dependence prediction algorithm used to determine
@@ -1004,6 +1009,14 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub tournament: TournamentConfig,
 
+    /// Statistical Corrector configuration (used by SC-L-TAGE)
+    #[serde(default)]
+    pub sc: ScConfig,
+
+    /// Indirect Target TAGE configuration (used by SC-L-TAGE)
+    #[serde(default)]
+    pub ittage: IttageConfig,
+
     /// Backend type (`InOrder` or `OutOfOrder`)
     #[serde(default)]
     pub backend: BackendType,
@@ -1143,6 +1156,8 @@ impl Default for PipelineConfig {
             tage: TageConfig::default(),
             perceptron: PerceptronConfig::default(),
             tournament: TournamentConfig::default(),
+            sc: ScConfig::default(),
+            ittage: IttageConfig::default(),
             backend: BackendType::default(),
             rob_size: defaults::ROB_SIZE,
             store_buffer_size: defaults::STORE_BUFFER_SIZE,
@@ -1234,6 +1249,113 @@ impl TageConfig {
     /// Tag widths increase with history length: [8, 8, 9, 9, 10, 10, 11, 11] bits.
     fn default_tag_widths() -> Vec<usize> {
         vec![8, 8, 9, 9, 10, 10, 11, 11]
+    }
+}
+
+/// Statistical Corrector configuration (used by SC-L-TAGE).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScConfig {
+    /// Number of SC tables
+    #[serde(default = "ScConfig::default_num_tables")]
+    pub num_tables: usize,
+
+    /// Entries per table
+    #[serde(default = "ScConfig::default_table_size")]
+    pub table_size: usize,
+
+    /// History lengths for each table
+    #[serde(default = "ScConfig::default_history_lengths")]
+    pub history_lengths: Vec<usize>,
+
+    /// Counter bit width
+    #[serde(default = "ScConfig::default_counter_bits")]
+    pub counter_bits: usize,
+}
+
+impl Default for ScConfig {
+    fn default() -> Self {
+        Self {
+            num_tables: Self::default_num_tables(),
+            table_size: Self::default_table_size(),
+            history_lengths: Self::default_history_lengths(),
+            counter_bits: Self::default_counter_bits(),
+        }
+    }
+}
+
+impl ScConfig {
+    const fn default_num_tables() -> usize {
+        6
+    }
+
+    const fn default_table_size() -> usize {
+        512
+    }
+
+    fn default_history_lengths() -> Vec<usize> {
+        vec![0, 2, 4, 8, 12, 16]
+    }
+
+    const fn default_counter_bits() -> usize {
+        3
+    }
+}
+
+/// Indirect Target TAGE configuration (used by SC-L-TAGE).
+#[derive(Debug, Clone, Deserialize)]
+pub struct IttageConfig {
+    /// Number of tagged tables
+    #[serde(default = "IttageConfig::default_num_banks")]
+    pub num_banks: usize,
+
+    /// Entries per table
+    #[serde(default = "IttageConfig::default_table_size")]
+    pub table_size: usize,
+
+    /// History lengths for each bank
+    #[serde(default = "IttageConfig::default_history_lengths")]
+    pub history_lengths: Vec<usize>,
+
+    /// Tag widths for each bank
+    #[serde(default = "IttageConfig::default_tag_widths")]
+    pub tag_widths: Vec<usize>,
+
+    /// Useful counter reset interval
+    #[serde(default = "IttageConfig::default_reset_interval")]
+    pub reset_interval: u32,
+}
+
+impl Default for IttageConfig {
+    fn default() -> Self {
+        Self {
+            num_banks: Self::default_num_banks(),
+            table_size: Self::default_table_size(),
+            history_lengths: Self::default_history_lengths(),
+            tag_widths: Self::default_tag_widths(),
+            reset_interval: Self::default_reset_interval(),
+        }
+    }
+}
+
+impl IttageConfig {
+    const fn default_num_banks() -> usize {
+        8
+    }
+
+    const fn default_table_size() -> usize {
+        256
+    }
+
+    fn default_history_lengths() -> Vec<usize> {
+        vec![4, 8, 16, 32, 64, 128, 256, 512]
+    }
+
+    fn default_tag_widths() -> Vec<usize> {
+        vec![9, 9, 10, 10, 11, 11, 12, 12]
+    }
+
+    const fn default_reset_interval() -> u32 {
+        256_000
     }
 }
 

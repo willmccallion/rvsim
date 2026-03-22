@@ -4,7 +4,7 @@
 //! It utilizes a BTB for unconditional jumps and a RAS for function returns, but
 //! assumes all conditional branches will fall through.
 
-use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Static Branch Predictor structure.
 #[derive(Debug)]

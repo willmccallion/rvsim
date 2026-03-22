@@ -134,20 +134,30 @@ def build(linux_dir: str) -> int:
 def config() -> Config:
     """Maximum-performance config for Linux boot.
 
-    8-wide O3 superscalar, 8-bank TAGE, Inclusive 4-level cache hierarchy with
-    aggressive prefetching at every level, large L2 TLB, and a DRAM controller.
+    8-wide O3 superscalar, SC-L-TAGE+ITTAGE predictor, Inclusive 4-level cache
+    hierarchy with aggressive prefetching at every level, large L2 TLB, and a
+    DRAM controller.
     """
     return Config(
         # ── Frontend ──────────────────────────────────────────────────────────
         width=8,
         mem_dep_predictor=MemDepPredictor.StoreSet(),
-        branch_predictor=BranchPredictor.TAGE(
+        branch_predictor=BranchPredictor.ScLTage(
             num_banks=8,
             table_size=8192,
             loop_table_size=1024,
             reset_interval=500_000,
             history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
             tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
+            sc_num_tables=6,
+            sc_table_size=1024,
+            sc_history_lengths=[0, 2, 4, 8, 12, 16],
+            sc_counter_bits=3,
+            ittage_num_banks=8,
+            ittage_table_size=512,
+            ittage_history_lengths=[4, 8, 16, 32, 64, 128, 256, 512],
+            ittage_tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
+            ittage_reset_interval=500_000,
         ),
         btb_size=16384,
         btb_ways=8,

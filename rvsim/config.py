@@ -237,12 +237,14 @@ def _bp_name(bp) -> str:
         return "Perceptron"
     if isinstance(bp, BranchPredictor.Tournament):
         return "Tournament"
+    if isinstance(bp, BranchPredictor.ScLTage):
+        return "ScLTage"
     raise TypeError(f"Unknown branch predictor type: {type(bp)}")
 
 
 def _bp_sub_dict(bp) -> dict:
     """Return the branch predictor sub-config dict."""
-    if isinstance(bp, BranchPredictor.TAGE):
+    if isinstance(bp, (BranchPredictor.TAGE, BranchPredictor.ScLTage)):
         return {
             "num_banks": bp.num_banks,
             "table_size": bp.table_size,
@@ -263,6 +265,42 @@ def _bp_sub_dict(bp) -> dict:
             "local_pred_bits": bp.local_pred_bits,
         }
     return {}
+
+
+def _sc_sub_dict(bp) -> dict:
+    """Return the SC sub-config dict for ScLTage."""
+    if isinstance(bp, BranchPredictor.ScLTage):
+        return {
+            "num_tables": bp.sc_num_tables,
+            "table_size": bp.sc_table_size,
+            "history_lengths": bp.sc_history_lengths,
+            "counter_bits": bp.sc_counter_bits,
+        }
+    return {
+        "num_tables": 6,
+        "table_size": 512,
+        "history_lengths": [0, 2, 4, 8, 12, 16],
+        "counter_bits": 6,
+    }
+
+
+def _ittage_sub_dict(bp) -> dict:
+    """Return the ITTAGE sub-config dict for ScLTage."""
+    if isinstance(bp, BranchPredictor.ScLTage):
+        return {
+            "num_banks": bp.ittage_num_banks,
+            "table_size": bp.ittage_table_size,
+            "history_lengths": bp.ittage_history_lengths,
+            "tag_widths": bp.ittage_tag_widths,
+            "reset_interval": bp.ittage_reset_interval,
+        }
+    return {
+        "num_banks": 8,
+        "table_size": 256,
+        "history_lengths": [4, 8, 16, 32, 64, 128, 256, 512],
+        "tag_widths": [9, 9, 10, 10, 11, 11, 12, 12],
+        "reset_interval": 256_000,
+    }
 
 
 def _mdp_name(mdp) -> str:
@@ -554,10 +592,12 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "wcb_entries": cfg.wcb_entries,
     }
 
-    # Pipeline — always emit all three BP sub-configs with defaults
+    # Pipeline — always emit all BP sub-configs with defaults
     bp = cfg.branch_predictor
     tage_dict = (
-        _bp_sub_dict(bp) if isinstance(bp, BranchPredictor.TAGE) else _TAGE_DEFAULTS
+        _bp_sub_dict(bp)
+        if isinstance(bp, (BranchPredictor.TAGE, BranchPredictor.ScLTage))
+        else _TAGE_DEFAULTS
     )
     perceptron_dict = (
         _bp_sub_dict(bp)
@@ -569,6 +609,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         if isinstance(bp, BranchPredictor.Tournament)
         else _TOURNAMENT_DEFAULTS
     )
+    sc_dict = _sc_sub_dict(bp)
+    ittage_dict = _ittage_sub_dict(bp)
 
     # MDP sub-config
     mdp = cfg.mem_dep_predictor
@@ -588,6 +630,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "tage": tage_dict,
         "perceptron": perceptron_dict,
         "tournament": tournament_dict,
+        "sc": sc_dict,
+        "ittage": ittage_dict,
         "mem_dep_predictor": _mdp_name(mdp),
         "store_set": store_set_dict,
         **_backend_to_pipeline_fields(cfg.backend),

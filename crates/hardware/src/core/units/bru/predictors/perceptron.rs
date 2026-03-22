@@ -4,7 +4,7 @@
 //! Instead of saturating counters, it uses a table of weight vectors. The
 //! prediction is the dot product of the weights and the history vector.
 
-use super::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 use crate::config::PerceptronConfig;
 
 /// Coefficient used to calculate the training threshold.

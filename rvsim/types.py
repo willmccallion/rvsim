@@ -135,6 +135,81 @@ class BranchPredictor:
                 f"local_pred_bits={self.local_pred_bits})"
             )
 
+    class ScLTage:
+        """SC-L-TAGE + ITTAGE composed predictor.
+
+        Combines TAGE (direction), Loop Predictor, Statistical Corrector,
+        and Indirect Target TAGE into a single high-accuracy predictor.
+
+        The TAGE parameters are shared with the standalone TAGE config.
+        SC and ITTAGE have their own sub-configs.
+        """
+
+        def __init__(
+            self,
+            # TAGE parameters
+            num_banks: int = 8,
+            table_size: int = 2048,
+            loop_table_size: int = 256,
+            reset_interval: int = 256_000,
+            history_lengths: Optional[List[int]] = None,
+            tag_widths: Optional[List[int]] = None,
+            # SC parameters
+            sc_num_tables: int = 6,
+            sc_table_size: int = 512,
+            sc_history_lengths: Optional[List[int]] = None,
+            sc_counter_bits: int = 6,
+            # ITTAGE parameters
+            ittage_num_banks: int = 8,
+            ittage_table_size: int = 256,
+            ittage_history_lengths: Optional[List[int]] = None,
+            ittage_tag_widths: Optional[List[int]] = None,
+            ittage_reset_interval: int = 256_000,
+        ):
+            self.num_banks = num_banks
+            self.table_size = table_size
+            self.loop_table_size = loop_table_size
+            self.reset_interval = reset_interval
+            self.history_lengths = (
+                history_lengths
+                if history_lengths is not None
+                else [5, 11, 22, 44, 89, 178, 356, 712]
+            )
+            self.tag_widths = (
+                tag_widths
+                if tag_widths is not None
+                else [8, 8, 9, 9, 10, 10, 11, 11]
+            )
+            self.sc_num_tables = sc_num_tables
+            self.sc_table_size = sc_table_size
+            self.sc_history_lengths = (
+                sc_history_lengths
+                if sc_history_lengths is not None
+                else [0, 2, 4, 8, 12, 16]
+            )
+            self.sc_counter_bits = sc_counter_bits
+            self.ittage_num_banks = ittage_num_banks
+            self.ittage_table_size = ittage_table_size
+            self.ittage_history_lengths = (
+                ittage_history_lengths
+                if ittage_history_lengths is not None
+                else [4, 8, 16, 32, 64, 128, 256, 512]
+            )
+            self.ittage_tag_widths = (
+                ittage_tag_widths
+                if ittage_tag_widths is not None
+                else [9, 9, 10, 10, 11, 11, 12, 12]
+            )
+            self.ittage_reset_interval = ittage_reset_interval
+
+        def __repr__(self) -> str:
+            return (
+                f"BranchPredictor.ScLTage(num_banks={self.num_banks}, "
+                f"table_size={self.table_size}, "
+                f"sc_num_tables={self.sc_num_tables}, "
+                f"ittage_num_banks={self.ittage_num_banks})"
+            )
+
 
 # ── Memory Dependence Predictor ──────────────────────────────────────────────
 
