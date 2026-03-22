@@ -162,6 +162,40 @@ impl GeoBankSet {
         ((pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & ((1 << width) - 1)) as u16
     }
 
+    /// Computes all bank indices and tags in one pass by recomputing CSRs from a
+    /// GHR snapshot. Returns `([indices; MAX_BANKS], [tags; MAX_BANKS])`.
+    /// Only the first `num_banks` elements are meaningful.
+    /// `O(sum of hist_lengths)` but called once instead of per-bank.
+    pub fn snapshot_all(&self, pc: u64, ghr: &Ghr) -> ([usize; MAX_BANKS], [u16; MAX_BANKS]) {
+        let mut indices = [0usize; MAX_BANKS];
+        let mut tags = [0u16; MAX_BANKS];
+        let pc_idx_hash = pc >> 2;
+        let pc_tag_hash = (pc >> 2) ^ (pc >> 18);
+
+        for i in 0..self.num_banks {
+            let hl = self.hist_lengths[i];
+            let tw = self.tag_widths[i];
+
+            // Index CSRs
+            let mut csr1 = FoldedHistory::new(self.table_bits, hl);
+            csr1.recompute(ghr);
+            let mut csr2 = FoldedHistory::new(self.table_bits.saturating_sub(1).max(1), hl);
+            csr2.recompute(ghr);
+            indices[i] =
+                (pc_idx_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & self.table_mask;
+
+            // Tag CSRs
+            let mut tcsr1 = FoldedHistory::new(tw, hl);
+            tcsr1.recompute(ghr);
+            let mut tcsr2 = FoldedHistory::new(tw.saturating_sub(1).max(1), hl);
+            tcsr2.recompute(ghr);
+            tags[i] = ((pc_tag_hash as usize ^ tcsr1.val as usize ^ tcsr2.val as usize)
+                & ((1 << tw) - 1)) as u16;
+        }
+
+        (indices, tags)
+    }
+
     /// Incrementally updates all CSRs for a new branch outcome. `O(num_banks)`.
     /// Must be called BEFORE `ghr.push()`.
     #[inline]
@@ -263,6 +297,38 @@ mod tests {
                 banks.snapshot_index(pc, bank, &ghr),
                 "Post-repair index mismatch for bank {bank}"
             );
+        }
+    }
+
+    #[test]
+    fn test_snapshot_all_matches_individual() {
+        let hist_lengths = [5, 15, 44, 130];
+        let tag_widths = [9, 9, 10, 10];
+        let table_bits = 8;
+        let banks = GeoBankSet::new(&hist_lengths, &tag_widths, table_bits);
+        let max_hist = *hist_lengths.iter().max().unwrap();
+        let mut ghr = Ghr::with_len(max_hist);
+
+        // Build up some history.
+        for i in 0u64..60 {
+            ghr.push(i % 3 != 0);
+        }
+
+        let pcs = [0x8000_1234u64, 0xDEAD_BEEFu64, 0x0000_0004u64];
+        for &pc in &pcs {
+            let (indices, tags) = banks.snapshot_all(pc, &ghr);
+            for bank in 0..4 {
+                assert_eq!(
+                    indices[bank],
+                    banks.snapshot_index(pc, bank, &ghr),
+                    "snapshot_all index mismatch for PC {pc:#x} bank {bank}"
+                );
+                assert_eq!(
+                    tags[bank],
+                    banks.snapshot_tag(pc, bank, &ghr),
+                    "snapshot_all tag mismatch for PC {pc:#x} bank {bank}"
+                );
+            }
         }
     }
 }

@@ -275,12 +275,20 @@ def _sc_sub_dict(bp) -> dict:
             "table_size": bp.sc_table_size,
             "history_lengths": bp.sc_history_lengths,
             "counter_bits": bp.sc_counter_bits,
+            "bias_table_size": bp.sc_bias_table_size,
+            "bias_counter_bits": bp.sc_bias_counter_bits,
+            "initial_threshold": bp.sc_initial_threshold,
+            "per_pc_threshold_bits": bp.sc_per_pc_threshold_bits,
         }
     return {
         "num_tables": 6,
         "table_size": 512,
         "history_lengths": [0, 2, 4, 8, 12, 16],
-        "counter_bits": 6,
+        "counter_bits": 3,
+        "bias_table_size": 256,
+        "bias_counter_bits": 6,
+        "initial_threshold": 35,
+        "per_pc_threshold_bits": 6,
     }
 
 
@@ -503,12 +511,12 @@ def _cache_to_dict(c: Cache) -> Dict[str, Any]:
 
 
 _TAGE_DEFAULTS = {
-    "num_banks": 4,
+    "num_banks": 8,
     "table_size": 2048,
     "loop_table_size": 256,
-    "reset_interval": 2000,
-    "history_lengths": [5, 15, 44, 130],
-    "tag_widths": [9, 9, 10, 10],
+    "reset_interval": 256_000,
+    "history_lengths": [5, 11, 22, 44, 89, 178, 356, 712],
+    "tag_widths": [8, 8, 9, 9, 10, 10, 11, 11],
 }
 
 _PERCEPTRON_DEFAULTS = {

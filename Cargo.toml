@@ -33,6 +33,11 @@ panic         = "abort"        # Improves performance and reduces binary size
 strip         = "symbols"      # Remove symbols for smaller binary
 incremental   = false          # Disable incremental for better final optimization
 
+[profile.profiling]
+inherits      = "release"
+debug         = 1              # Line tables for perf/flamegraph
+strip         = "none"         # Keep symbols for profiling
+
 # Dev builds at opt-level 1: the simulator is unusable at opt-level 0.
 # Full debug info and fast incremental compiles are preserved.
 [profile.dev]

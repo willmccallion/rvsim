@@ -104,20 +104,20 @@ impl Ittage {
 
         let num_banks = self.banks.num_banks();
 
+        // Precompute all bank indices and tags once.
+        let (indices, tags) = self.banks.snapshot_all(pc, ghr_snapshot);
+
         // Find provider (longest matching bank).
         let mut provider = None;
         for i in (0..num_banks).rev() {
-            let idx = self.banks.snapshot_index(pc, i, ghr_snapshot);
-            let tag = self.banks.snapshot_tag(pc, i, ghr_snapshot);
-            if self.tables[i][idx].tag == tag {
+            if self.tables[i][indices[i]].tag == tags[i] {
                 provider = Some(i);
                 break;
             }
         }
 
         if let Some(bank) = provider {
-            let idx = self.banks.snapshot_index(pc, bank, ghr_snapshot);
-            let entry = &mut self.tables[bank][idx];
+            let entry = &mut self.tables[bank][indices[bank]];
 
             if entry.target == target {
                 entry.u = entry.u.saturating_add(1).min(3);
@@ -129,20 +129,18 @@ impl Ittage {
         }
 
         // On misprediction, try to allocate in a longer-history bank.
-        let mispredicted = !provider.is_some_and(|bank| {
-            let idx = self.banks.snapshot_index(pc, bank, ghr_snapshot);
-            self.tables[bank][idx].target == target
-        });
+        let mispredicted =
+            provider.is_none_or(|bank| self.tables[bank][indices[bank]].target != target);
 
         if mispredicted {
             let start = provider.map_or(0, |b| b + 1);
             if start < num_banks {
                 let mut allocated = false;
-                for i in start..num_banks {
-                    let idx = self.banks.snapshot_index(pc, i, ghr_snapshot);
-                    let tag = self.banks.snapshot_tag(pc, i, ghr_snapshot);
-                    let entry = &mut self.tables[i][idx];
-
+                for (table, (&idx, &tag)) in self.tables[start..num_banks]
+                    .iter_mut()
+                    .zip(indices[start..num_banks].iter().zip(&tags[start..num_banks]))
+                {
+                    let entry = &mut table[idx];
                     if entry.u == 0 {
                         entry.tag = tag;
                         entry.target = target;
@@ -153,10 +151,11 @@ impl Ittage {
                 }
 
                 if !allocated {
-                    for i in start..num_banks {
-                        let idx = self.banks.snapshot_index(pc, i, ghr_snapshot);
-                        if self.tables[i][idx].u > 0 {
-                            self.tables[i][idx].u -= 1;
+                    for (table, &idx) in
+                        self.tables[start..num_banks].iter_mut().zip(&indices[start..num_banks])
+                    {
+                        if table[idx].u > 0 {
+                            table[idx].u -= 1;
                         }
                     }
                 }

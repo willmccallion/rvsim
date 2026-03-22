@@ -30,7 +30,7 @@ Or directly with Python:
 
 ### branch_predict.py
 
-Compares all five branch predictors across multiple workloads.
+Compares all six branch predictors across multiple workloads.
 
 ```bash
 rvsim scripts/analysis/branch_predict.py
@@ -43,11 +43,11 @@ rvsim scripts/analysis/branch_predict.py --width 4 --programs maze qsort
 
 ```
   ›  branch_accuracy_pct
-  predictor        Static   GShare     TAGE  Perceptron  Tournament
-  mandelbrot.elf  56.4375  57.3566  97.7840     54.3290     97.2340
-  maze.elf        51.6078  56.9724  98.6112     46.0765     80.7168
-  qsort.elf       32.5515  60.3781  83.4249     67.1985     69.7478
-  merge_sort.elf  53.7159  65.3798  84.9415     66.7236     82.8787
+  predictor        Static   GShare     TAGE  ScLTage  Perceptron  Tournament
+  mandelbrot.elf  56.4375  57.3566  97.7840      ...     54.3290     97.2340
+  maze.elf        51.6078  56.9724  98.6112      ...     46.0765     80.7168
+  qsort.elf       32.5515  60.3781  83.4249      ...     67.1985     69.7478
+  merge_sort.elf  53.7159  65.3798  84.9415      ...     66.7236     82.8787
 ```
 
 ### cache_sweep.py

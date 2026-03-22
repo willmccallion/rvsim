@@ -18,6 +18,7 @@ PREDICTORS = {
     "Static": BranchPredictor.Static,
     "GShare": BranchPredictor.GShare,
     "TAGE": BranchPredictor.TAGE,
+    "ScLTage": BranchPredictor.ScLTage,
     "Perceptron": BranchPredictor.Perceptron,
     "Tournament": BranchPredictor.Tournament,
 }

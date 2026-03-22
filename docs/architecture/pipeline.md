@@ -72,6 +72,20 @@ flowchart LR
 
 **Branch misprediction recovery** — GHR repaired from per-instruction snapshot, RAS restored from snapshot pointer, rename map rebuilt, pipeline flushed after the mispredicting instruction's ROB tag.
 
+**Memory dependence prediction.** The Memory Dependence Unit (MDU) determines at dispatch time whether a load can speculatively bypass unresolved older stores. Two predictors are available:
+
+- **Blind** (default) — conservative, loads always wait for all older stores to resolve their addresses before issuing. Safe but limits memory-level parallelism.
+- **Store Set** (Chrysos & Emer, ISCA 1998) — learns load-store dependencies from ordering violations. Each load/store PC is mapped to a *store set ID* via the SSIT (Store Set ID Table). When a load and store share a set, the load waits only for that specific store. Independent loads bypass freely.
+
+The MDU uses two structures:
+
+| Structure | Size | Purpose | Lifetime |
+|-----------|------|---------|----------|
+| **SSIT** | 2048 entries | Maps `(PC >> 2) % size` → store set ID | Persistent (periodically cleared) |
+| **LFST** | 256 entries | Maps store set ID → most recent dispatched store's ROB tag | Cleared on pipeline flush |
+
+On a memory ordering violation (detected at commit), the MDU trains the SSIT to associate the violating load and store PCs into the same store set. Store-store chains are also supported: when multiple stores share a set, each waits for its predecessor. The SSIT is periodically cleared (default: every 100K cycles) to prevent stale dependencies from permanently throttling parallelism.
+
 ---
 
 ## In-Order Backend

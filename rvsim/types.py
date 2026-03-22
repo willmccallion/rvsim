@@ -80,10 +80,10 @@ class BranchPredictor:
     class TAGE:
         def __init__(
             self,
-            num_banks: int = 4,
+            num_banks: int = 8,
             table_size: int = 2048,
             loop_table_size: int = 256,
-            reset_interval: int = 2000,
+            reset_interval: int = 256_000,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
         ):
@@ -92,9 +92,15 @@ class BranchPredictor:
             self.loop_table_size = loop_table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
-                history_lengths if history_lengths is not None else [5, 15, 44, 130]
+                history_lengths
+                if history_lengths is not None
+                else [5, 11, 22, 44, 89, 178, 356, 712]
             )
-            self.tag_widths = tag_widths if tag_widths is not None else [9, 9, 10, 10]
+            self.tag_widths = (
+                tag_widths
+                if tag_widths is not None
+                else [8, 8, 9, 9, 10, 10, 11, 11]
+            )
 
         def __repr__(self) -> str:
             return (
@@ -158,7 +164,11 @@ class BranchPredictor:
             sc_num_tables: int = 6,
             sc_table_size: int = 512,
             sc_history_lengths: Optional[List[int]] = None,
-            sc_counter_bits: int = 6,
+            sc_counter_bits: int = 3,
+            sc_bias_table_size: int = 256,
+            sc_bias_counter_bits: int = 6,
+            sc_initial_threshold: int = 35,
+            sc_per_pc_threshold_bits: int = 6,
             # ITTAGE parameters
             ittage_num_banks: int = 8,
             ittage_table_size: int = 256,
@@ -188,6 +198,10 @@ class BranchPredictor:
                 else [0, 2, 4, 8, 12, 16]
             )
             self.sc_counter_bits = sc_counter_bits
+            self.sc_bias_table_size = sc_bias_table_size
+            self.sc_bias_counter_bits = sc_bias_counter_bits
+            self.sc_initial_threshold = sc_initial_threshold
+            self.sc_per_pc_threshold_bits = sc_per_pc_threshold_bits
             self.ittage_num_banks = ittage_num_banks
             self.ittage_table_size = ittage_table_size
             self.ittage_history_lengths = (

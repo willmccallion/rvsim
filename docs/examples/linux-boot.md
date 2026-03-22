@@ -33,22 +33,27 @@ This uses a pre-configured setup with realistic memory hierarchy parameters.
 ```python
 from rvsim import (
     Simulator, Config, Cache, Backend, BranchPredictor,
-    MemoryController, Prefetcher,
+    MemoryController, Prefetcher, ReplacementPolicy, Fu, MemDepPredictor,
 )
 
 config = Config(
-    width=4,
-    backend=Backend.OutOfOrder(rob_size=128),
-    branch_predictor=BranchPredictor.TAGE(),
+    width=8,
+    mem_dep_predictor=MemDepPredictor.StoreSet(),
+    backend=Backend.OutOfOrder(rob_size=256),
+    branch_predictor=BranchPredictor.ScLTage(
+        num_banks=8, table_size=8192, loop_table_size=1024,
+    ),
     ram_size="256MB",
-    l1i=Cache("32KB", ways=4, latency=1,
-              prefetcher=Prefetcher.NextLine(degree=1)),
-    l1d=Cache("32KB", ways=4, latency=1, mshr_count=16,
-              prefetcher=Prefetcher.Stride(degree=1, table_size=64)),
-    l2=Cache("256KB", ways=8, latency=8, mshr_count=32),
-    l3=Cache("2MB", ways=16, latency=24),
+    l1i=Cache("64KB", ways=8, latency=1,
+              prefetcher=Prefetcher.NextLine(degree=4), mshr_count=8),
+    l1d=Cache("64KB", ways=8, latency=1, mshr_count=16,
+              prefetcher=Prefetcher.Stride(degree=4, table_size=256)),
+    l2=Cache("2MB", ways=16, latency=8, mshr_count=32,
+             prefetcher=Prefetcher.Stream(degree=8)),
+    l3=Cache("16MB", ways=16, latency=24, mshr_count=64,
+             prefetcher=Prefetcher.Tagged(degree=4)),
     memory_controller=MemoryController.DRAM(
-        t_cas=14, row_miss_latency=120,
+        t_cas=14, t_ras=14, t_pre=14, row_miss_latency=120,
     ),
 )
 
@@ -109,50 +114,56 @@ The boot process follows the standard RISC-V boot protocol:
 
 ## Performance Notes
 
-- **O3 backend (width=4)**: Boots to shell in approximately 3-5 billion cycles
+- **O3 backend (width=8)**: Boots to shell in approximately 500M active cycles (1.59 active IPC)
 - **In-order backend (width=1)**: Boots to shell in approximately 8-12 billion cycles
-- **Host speed**: approximately 0.8 MHz simulated clock, so boot takes several minutes of wall-clock time
+- **Host speed**: approximately 0.5-2.2 MHz simulated clock, so boot takes several minutes of wall-clock time
 - **Memory hierarchy** matters: a realistic cache configuration (with MSHRs, L2/L3, DRAM timing) is essential for meaningful boot performance
 
-### Out-of-Order (width=4)
+### Out-of-Order (width=8)
 
 ```
-host_seconds             693.2677 s
-sim_cycles               317664786
-sim_freq                 458.21 kHz
-sim_insts                314246742
-sim_ipc                  0.9892
-sim_ipc_active           1.1412
+host_seconds             900.4765 s
+sim_cycles               500136594
+sim_freq                 555.41 kHz
+sim_insts                306997285
+sim_ipc                  0.6138
+sim_ipc_active           1.5940
 
 CYCLE ACCOUNTING
-  cycles.retiring        104812792 (32.99%)
-  cycles.rob_empty       15061527 (4.74%)
-  cycles.rob_stall       155496730 (48.95%)
-  cycles.wfi             42293737 (13.31%)
-  retire.per_cycle       0:67.0%  1:9.7%  2:8.9%  3+:14.4%
+  cycles.retiring        79324185 (15.86%)
+  cycles.rob_empty       16648671 (3.33%)
+  cycles.rob_stall       96626978 (19.32%)
+  cycles.wfi             307536760 (61.49%)
+  retire.per_cycle       0:84.1%  1:3.8%  2:3.3%  3+:8.7%
+  retire.active          0:58.8%  1:10.0%  2:8.6%  3+:22.6%
 
 PRIVILEGE BREAKDOWN
-  cycles.user            35480805 (11.17%)
-  cycles.kernel          275772748 (86.81%)
-  cycles.machine         6411233 (2.02%)
+  cycles.user            25797251 (5.16%)
+  cycles.kernel          470651369 (94.10%)
+  cycles.machine         3687974 (0.74%)
 
 PIPELINE STALLS
-  stalls.control         15484588 (4.87%)
-  stalls.data            57372999 (18.06%)
-  stalls.fu_structural   1520218 (0.48%)
-  stalls.dispatch        9285038 (2.92%)
+  stalls.memory          240 (0.00%)
+  stalls.control         19135039 (3.83%)
+  stalls.data            22239212 (4.45%)
+  stalls.fu_structural   5938385 (1.19%)
+  stalls.backpressure    493194 (0.10%)
+  stalls.dispatch        15690034 (3.14%)
+  stalls.checkpoint      9234 (0.00%)
+  stalls.squash          30372347 (6.07%)
+  stalls.rename_rebuild  2574553 (0.51%)
 
 BRANCH PREDICTION (COMMITTED)
-  bp.committed_accuracy  96.45%
+  bp.committed_accuracy  94.28%
 
 BRANCH PREDICTION (SPECULATIVE)
-  bp.spec_accuracy       75.97%
+  bp.spec_accuracy       71.37%
 
 MEMORY HIERARCHY
-  L1-I   accesses: 95045393   | hits: 93163965   | miss_rate: 1.98%
-  L1-D   accesses: 134649190  | hits: 129921239  | miss_rate: 3.51%
-  L2     accesses: 6609379    | hits: 6366556    | miss_rate: 3.67%
-  L3     accesses: 242823     | hits: 210340     | miss_rate: 13.38%
+  L1-I   accesses: 142458813  | hits: 139979798  | miss_rate: 1.74%
+  L1-D   accesses: 141763550  | hits: 136371796  | miss_rate: 3.80%
+  L2     accesses: 7870769    | hits: 7575970    | miss_rate: 3.75%
+  L3     accesses: 294799     | hits: 258626     | miss_rate: 12.27%
 ```
 
 ### In-Order (width=1)
@@ -196,4 +207,4 @@ MEMORY HIERARCHY
   L3     accesses: 202186     | hits: 168405     | miss_rate: 16.71%
 ```
 
-The O3 backend completes boot in **2.8x fewer simulated cycles** (318M vs 883M) with **2.3x higher IPC** (0.99 vs 0.43). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.5 MHz) due to simpler per-cycle logic, so it finishes in less wall-clock time (393s vs 693s) despite taking far more simulated cycles. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer.
+The O3 backend achieves **1.59 active IPC** with the 8-wide pipeline, a **3.7x improvement** over the in-order backend (0.47 IPC). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.6 MHz) due to simpler per-cycle logic. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer. The O3 raw IPC (0.61) is depressed by WFI cycles consuming 61% of total time.

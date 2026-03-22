@@ -1254,21 +1254,37 @@ impl TageConfig {
 /// Statistical Corrector configuration (used by SC-L-TAGE).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ScConfig {
-    /// Number of SC tables
+    /// Number of GEHL tables
     #[serde(default = "ScConfig::default_num_tables")]
     pub num_tables: usize,
 
-    /// Entries per table
+    /// Entries per GEHL table
     #[serde(default = "ScConfig::default_table_size")]
     pub table_size: usize,
 
-    /// History lengths for each table
+    /// History lengths for each GEHL table
     #[serde(default = "ScConfig::default_history_lengths")]
     pub history_lengths: Vec<usize>,
 
-    /// Counter bit width
+    /// GEHL counter bit width
     #[serde(default = "ScConfig::default_counter_bits")]
     pub counter_bits: usize,
+
+    /// Entries per bias table
+    #[serde(default = "ScConfig::default_bias_table_size")]
+    pub bias_table_size: usize,
+
+    /// Bias counter bit width
+    #[serde(default = "ScConfig::default_bias_counter_bits")]
+    pub bias_counter_bits: usize,
+
+    /// Initial correction threshold (before <<3 scaling)
+    #[serde(default = "ScConfig::default_initial_threshold")]
+    pub initial_threshold: usize,
+
+    /// Bits for per-PC threshold table (2^N entries)
+    #[serde(default = "ScConfig::default_per_pc_threshold_bits")]
+    pub per_pc_threshold_bits: usize,
 }
 
 impl Default for ScConfig {
@@ -1278,6 +1294,10 @@ impl Default for ScConfig {
             table_size: Self::default_table_size(),
             history_lengths: Self::default_history_lengths(),
             counter_bits: Self::default_counter_bits(),
+            bias_table_size: Self::default_bias_table_size(),
+            bias_counter_bits: Self::default_bias_counter_bits(),
+            initial_threshold: Self::default_initial_threshold(),
+            per_pc_threshold_bits: Self::default_per_pc_threshold_bits(),
         }
     }
 }
@@ -1297,6 +1317,22 @@ impl ScConfig {
 
     const fn default_counter_bits() -> usize {
         3
+    }
+
+    const fn default_bias_table_size() -> usize {
+        256
+    }
+
+    const fn default_bias_counter_bits() -> usize {
+        6
+    }
+
+    const fn default_initial_threshold() -> usize {
+        35
+    }
+
+    const fn default_per_pc_threshold_bits() -> usize {
+        6
     }
 }
 

@@ -5,7 +5,7 @@ Every aspect of the simulated machine is runtime-configurable through the `Confi
 ## Basic Usage
 
 ```python
-from rvsim import Config, Cache, Backend, BranchPredictor
+from rvsim import Config, Cache, Backend, BranchPredictor, MemDepPredictor
 
 config = Config(
     width=4,
@@ -107,7 +107,44 @@ BranchPredictor.TAGE(             # Tagged geometric history length
     history_lengths=[5, 15, 44, 130],
     tag_widths=[9, 9, 10, 10],
 )
+BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
+    # TAGE parameters
+    num_banks=8,
+    table_size=2048,
+    loop_table_size=256,
+    reset_interval=256_000,
+    history_lengths=[5, 15, 44, 130, 380, 1024, 2048, 4096],
+    tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
+    # Statistical corrector
+    sc_num_tables=6,
+    sc_table_size=512,
+    sc_counter_bits=3,
+    # Indirect target TAGE
+    ittage_num_banks=8,
+    ittage_table_size=256,
+    ittage_reset_interval=256_000,
+)
 ```
+
+---
+
+## Memory Dependence Prediction
+
+Controls how loads decide whether they can bypass unresolved older stores.
+
+```python
+MemDepPredictor.Blind()           # Conservative: loads wait for all older stores (default)
+MemDepPredictor.StoreSet(         # Store-set predictor (Chrysos & Emer 1998)
+    ssit_size=2048,               # Store Set ID Table entries
+    lfst_size=256,                # Last Fetched Store Table entries
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mem_dep_predictor` | `MemDepPredictor.*` | `Blind()` | Memory dependence predictor type |
+| `ssit_size` | `int` | `2048` | SSIT entries (StoreSet only) — maps PC → store set ID |
+| `lfst_size` | `int` | `256` | LFST entries (StoreSet only) — maps store set ID → last dispatched store |
 
 ---
 
@@ -262,7 +299,8 @@ Config(
             Fu.Mem(count=2, latency=1),
         ]),
     ),
-    branch_predictor=BranchPredictor.TAGE(),
+    branch_predictor=BranchPredictor.ScLTage(),
+    mem_dep_predictor=MemDepPredictor.StoreSet(),
     l1d=Cache("32KB", ways=8, latency=1, mshr_count=8,
               prefetcher=Prefetcher.Stride(degree=2, table_size=128)),
     l1i=Cache("32KB", ways=8, latency=1,

@@ -36,6 +36,7 @@ endif
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: run-example run-linux
+.PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -62,6 +63,9 @@ help:
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
+	@printf "\n  $(CYAN)Profiling$(RESET)\n"
+	@printf "    %-$(HELP_W)s  Build with profiling symbols\n" "make profile-build"
+	@printf "    %-$(HELP_W)s  Generate flamegraph (ARGS=…)\n" "make flamegraph"
 	@printf "\n  $(CYAN)Housekeeping$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Remove all build artifacts\n" "make clean"
 	@printf "    %-$(HELP_W)s  Remove Rust artifacts only\n" "make clean-rust"
@@ -153,6 +157,18 @@ run-example: software
 run-linux:
 	@printf "$(GREEN)Booting Linux…$(RESET)\n"
 	.venv/bin/rvsim --script scripts/setup/boot_linux.py
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Profiling
+# ═══════════════════════════════════════════════════════════════════════════════
+
+profile-build:
+	@printf "$(GREEN)Building with profiling symbols…$(RESET)\n"
+	.venv/bin/maturin develop --profile profiling
+
+flamegraph: profile-build
+	@printf "$(GREEN)Recording flamegraph…$(RESET)\n"
+	flamegraph -o flamegraph.svg -- .venv/bin/rvsim $(ARGS)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Housekeeping
