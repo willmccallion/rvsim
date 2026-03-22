@@ -175,7 +175,7 @@ def config() -> Config:
                     Fu.Mem(count=4, latency=1),
                 ]
             ),
-            checkpoint_count=0,
+            checkpoint_count=64,
         ),
         # ── Cache hierarchy ───────────────────────────────────────────────────
         l1i=Cache(

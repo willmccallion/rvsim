@@ -311,9 +311,13 @@ impl IssueQueue {
                     if !mem_ready {
                         continue;
                     }
-                    // System/CSR instructions are serializing: wait for all
-                    // older instructions to complete before issuing.
+                    // System/CSR instructions (excluding FENCE) are serializing:
+                    // wait for all older instructions to complete before issuing.
+                    // FENCE is excluded here because it has its own granular check
+                    // below that only waits for operations matching its pred bits,
+                    // rather than draining the entire pipeline.
                     if iq.entry.ctrl.system_op != SystemOp::None
+                        && iq.entry.ctrl.system_op != SystemOp::Fence
                         && !rob.all_before_completed(iq.entry.rob_tag)
                     {
                         continue;
