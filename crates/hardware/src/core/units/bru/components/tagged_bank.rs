@@ -35,11 +35,18 @@ pub struct GeoBankSet {
     /// Mask for indexing the tables.
     table_mask: usize,
 
-    // 4 CSR arrays: idx, idx2, tag, tag2
+    // 4 speculative CSR arrays: idx, idx2, tag, tag2
     idx_csr: [FoldedHistory; MAX_BANKS],
     idx_csr2: [FoldedHistory; MAX_BANKS],
     tag_csr: [FoldedHistory; MAX_BANKS],
     tag_csr2: [FoldedHistory; MAX_BANKS],
+
+    // 4 committed CSR arrays: mirrors of the speculative CSRs, advanced
+    // incrementally via `update_committed_csrs()` at commit time.
+    committed_idx_csr: [FoldedHistory; MAX_BANKS],
+    committed_idx_csr2: [FoldedHistory; MAX_BANKS],
+    committed_tag_csr: [FoldedHistory; MAX_BANKS],
+    committed_tag_csr2: [FoldedHistory; MAX_BANKS],
 }
 
 impl GeoBankSet {
@@ -82,6 +89,10 @@ impl GeoBankSet {
             tag_widths: tw,
             table_bits,
             table_mask: (1 << table_bits) - 1,
+            committed_idx_csr: idx_csr,
+            committed_idx_csr2: idx_csr2,
+            committed_tag_csr: tag_csr,
+            committed_tag_csr2: tag_csr2,
             idx_csr,
             idx_csr2,
             tag_csr,
@@ -210,8 +221,8 @@ impl GeoBankSet {
         }
     }
 
-    /// Recomputes all CSRs from scratch from the given GHR. `O(sum of hist_lengths)`.
-    /// Used after misprediction recovery.
+    /// Recomputes all speculative CSRs from scratch from the given GHR.
+    /// `O(sum of hist_lengths)`. Used after misprediction recovery.
     pub fn recompute_all(&mut self, ghr: &Ghr) {
         for i in 0..self.num_banks {
             self.idx_csr[i].recompute(ghr);
@@ -219,6 +230,54 @@ impl GeoBankSet {
             self.tag_csr[i].recompute(ghr);
             self.tag_csr2[i].recompute(ghr);
         }
+    }
+
+    /// Incrementally updates all committed CSRs for a new branch outcome. `O(num_banks)`.
+    /// Must be called BEFORE `commit_ghr.push()`.
+    #[inline]
+    pub fn update_committed_csrs(&mut self, taken: bool, ghr: &Ghr) {
+        for i in 0..self.num_banks {
+            let hl = self.hist_lengths[i];
+            let old_bit = if hl > 0 { ghr.bit(hl - 1) } else { false };
+            self.committed_idx_csr[i].update(taken, old_bit);
+            self.committed_idx_csr2[i].update(taken, old_bit);
+            self.committed_tag_csr[i].update(taken, old_bit);
+            self.committed_tag_csr2[i].update(taken, old_bit);
+        }
+    }
+
+    /// Computes all bank indices and tags from committed CSRs. `O(num_banks)`.
+    /// Returns `([indices; MAX_BANKS], [tags; MAX_BANKS])`.
+    pub fn committed_all(&self, pc: u64) -> ([usize; MAX_BANKS], [u16; MAX_BANKS]) {
+        let mut indices = [0usize; MAX_BANKS];
+        let mut tags = [0u16; MAX_BANKS];
+        let pc_idx_hash = pc >> 2;
+        let pc_tag_hash = (pc >> 2) ^ (pc >> 18);
+
+        for i in 0..self.num_banks {
+            let tw = self.tag_widths[i];
+
+            indices[i] = (pc_idx_hash as usize
+                ^ self.committed_idx_csr[i].val as usize
+                ^ self.committed_idx_csr2[i].val as usize)
+                & self.table_mask;
+
+            tags[i] = ((pc_tag_hash as usize
+                ^ self.committed_tag_csr[i].val as usize
+                ^ self.committed_tag_csr2[i].val as usize)
+                & ((1 << tw) - 1)) as u16;
+        }
+
+        (indices, tags)
+    }
+
+    /// Copies committed CSRs to speculative CSRs. `O(num_banks)`.
+    /// Used in `repair_to_committed()` to avoid expensive `recompute_all()`.
+    pub const fn copy_committed_to_spec(&mut self) {
+        self.idx_csr = self.committed_idx_csr;
+        self.idx_csr2 = self.committed_idx_csr2;
+        self.tag_csr = self.committed_tag_csr;
+        self.tag_csr2 = self.committed_tag_csr2;
     }
 }
 

@@ -114,56 +114,60 @@ The boot process follows the standard RISC-V boot protocol:
 
 ## Performance Notes
 
-- **O3 backend (width=8)**: Boots to shell in approximately 500M active cycles (1.59 active IPC)
+- **O3 backend (width=8)**: Boots to shell in approximately 250M active cycles (1.60 active IPC)
 - **In-order backend (width=1)**: Boots to shell in approximately 8-12 billion cycles
-- **Host speed**: approximately 0.5-2.2 MHz simulated clock, so boot takes several minutes of wall-clock time
+- **Host speed**: approximately 0.6-2.2 MHz simulated clock, so boot takes several minutes of wall-clock time
 - **Memory hierarchy** matters: a realistic cache configuration (with MSHRs, L2/L3, DRAM timing) is essential for meaningful boot performance
 
 ### Out-of-Order (width=8)
 
 ```
-host_seconds             900.4765 s
-sim_cycles               500136594
-sim_freq                 555.41 kHz
-sim_insts                306997285
-sim_ipc                  0.6138
-sim_ipc_active           1.5940
+host_seconds             416.9260 s
+sim_cycles               247731327
+sim_freq                 594.19 kHz
+sim_insts                306010020
+sim_ipc                  1.2352
+sim_ipc_active           1.5960
 
 CYCLE ACCOUNTING
-  cycles.retiring        79324185 (15.86%)
-  cycles.rob_empty       16648671 (3.33%)
-  cycles.rob_stall       96626978 (19.32%)
-  cycles.wfi             307536760 (61.49%)
-  retire.per_cycle       0:84.1%  1:3.8%  2:3.3%  3+:8.7%
+  cycles.retiring        79044845 (31.91%)
+  cycles.rob_empty       16550957 (6.68%)
+  cycles.rob_stall       96139700 (38.81%)
+  cycles.wfi             55995825 (22.60%)
+  retire.per_cycle       0:68.1%  1:7.7%  2:6.7%  3+:17.5%
   retire.active          0:58.8%  1:10.0%  2:8.6%  3+:22.6%
 
 PRIVILEGE BREAKDOWN
-  cycles.user            25797251 (5.16%)
-  cycles.kernel          470651369 (94.10%)
-  cycles.machine         3687974 (0.74%)
+  cycles.user            25824642 (10.42%)
+  cycles.kernel          218267482 (88.11%)
+  cycles.machine         3639203 (1.47%)
 
 PIPELINE STALLS
   stalls.memory          240 (0.00%)
-  stalls.control         19135039 (3.83%)
-  stalls.data            22239212 (4.45%)
-  stalls.fu_structural   5938385 (1.19%)
-  stalls.backpressure    493194 (0.10%)
-  stalls.dispatch        15690034 (3.14%)
-  stalls.checkpoint      9234 (0.00%)
-  stalls.squash          30372347 (6.07%)
-  stalls.rename_rebuild  2574553 (0.51%)
+  stalls.control         18995271 (7.67%)
+  stalls.data            22095424 (8.92%)
+  stalls.fu_structural   5901573 (2.38%)
+  stalls.backpressure    484787 (0.20%)
+  stalls.dispatch        15732923 (6.35%)
+  stalls.checkpoint      9576 (0.00%)
+  stalls.squash          30287660 (12.23%)
+  stalls.rename_rebuild  2545723 (1.03%)
 
 BRANCH PREDICTION (COMMITTED)
-  bp.committed_accuracy  94.28%
+  bp.committed_lookups   35704632
+  bp.committed_mispreds  2027449
+  bp.committed_accuracy  94.32%
 
 BRANCH PREDICTION (SPECULATIVE)
-  bp.spec_accuracy       71.37%
+  bp.spec_lookups        62156792
+  bp.spec_mispredicts    17725874
+  bp.spec_accuracy       71.48%
 
 MEMORY HIERARCHY
-  L1-I   accesses: 142458813  | hits: 139979798  | miss_rate: 1.74%
-  L1-D   accesses: 141763550  | hits: 136371796  | miss_rate: 3.80%
-  L2     accesses: 7870769    | hits: 7575970    | miss_rate: 3.75%
-  L3     accesses: 294799     | hits: 258626     | miss_rate: 12.27%
+  L1-I   accesses: 141755255  | hits: 139309237  | miss_rate: 1.73%
+  L1-D   accesses: 141389383  | hits: 136015198  | miss_rate: 3.80%
+  L2     accesses: 7820203    | hits: 7525703    | miss_rate: 3.77%
+  L3     accesses: 294500     | hits: 258216     | miss_rate: 12.32%
 ```
 
 ### In-Order (width=1)
@@ -207,4 +211,4 @@ MEMORY HIERARCHY
   L3     accesses: 202186     | hits: 168405     | miss_rate: 16.71%
 ```
 
-The O3 backend achieves **1.59 active IPC** with the 8-wide pipeline, a **3.7x improvement** over the in-order backend (0.47 IPC). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.6 MHz) due to simpler per-cycle logic. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer. The O3 raw IPC (0.61) is depressed by WFI cycles consuming 61% of total time.
+The O3 backend achieves **1.60 active IPC** with the 8-wide pipeline, a **3.4x improvement** over the in-order backend (0.47 IPC). The in-order pipeline simulates faster on the host (2.2 MHz vs 0.6 MHz) due to simpler per-cycle logic. The in-order backend is dominated by data stalls (26%) and memory stalls (17%), while the O3 backend hides much of this latency in the reorder buffer.

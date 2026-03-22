@@ -50,10 +50,14 @@ impl FoldedHistory {
         self.val &= mask;
     }
 
-    /// Recomputes the CSR from scratch by replaying history bits oldest→newest.
+    /// Recomputes the CSR from scratch using word-level XOR-folding.
     ///
     /// Used after `repair_history()` (misprediction recovery) and in
     /// `update_branch()` to reconstruct CSRs from a snapshot GHR.
+    ///
+    /// Algorithm: for each 64-bit GHR word, XOR-fold it into `fold_width` bits,
+    /// rotate by `(word_idx * 64) % fold_width` to correct alignment, then XOR
+    /// into accumulator.
     pub fn recompute(&mut self, ghr: &Ghr) {
         let w = self.fold_width;
         if w == 0 {
@@ -61,10 +65,51 @@ impl FoldedHistory {
             return;
         }
         let mask = (1u64 << w) - 1;
+        let mut result = 0u64;
+        let num_words = self.hist_length.div_ceil(64);
+
+        for word_idx in 0..num_words {
+            let mut word = ghr.word(word_idx);
+            // Mask last word to hist_length boundary.
+            let bits_in_word = (self.hist_length - word_idx * 64).min(64);
+            if bits_in_word < 64 {
+                word &= (1u64 << bits_in_word) - 1;
+            }
+            if word == 0 {
+                continue;
+            }
+
+            // Fold 64-bit word into w bits by XOR-ing w-bit chunks.
+            let mut folded = 0u64;
+            let mut v = word;
+            while v != 0 {
+                folded ^= v & mask;
+                v >>= w;
+            }
+
+            // Rotate to correct alignment: bit position `word_idx*64 + b` in the
+            // GHR maps to CSR position `(word_idx*64 + b) % w`. The fold above
+            // placed bits as if `word_idx*64 == 0`, so rotate left by the offset.
+            let rot = (word_idx * 64) % w;
+            if rot > 0 {
+                folded = ((folded << rot) | (folded >> (w - rot))) & mask;
+            }
+            result ^= folded;
+        }
+        self.val = result & mask;
+    }
+
+    /// Reference implementation: recomputes by replaying history bits one at a time.
+    /// Used only in tests to verify the fast word-level `recompute()`.
+    #[cfg(test)]
+    pub fn recompute_reference(&mut self, ghr: &Ghr) {
+        let w = self.fold_width;
+        if w == 0 {
+            self.val = 0;
+            return;
+        }
+        let mask = (1u64 << w) - 1;
         self.val = 0;
-        // Replay from oldest (position hist_length-1) to newest (position 0).
-        // During replay, no bits leave the window (it grows from 0 to hist_length),
-        // so old_bit is always false.
         for i in (0..self.hist_length).rev() {
             let msb = (self.val >> (w - 1)) & 1;
             self.val = ((self.val << 1) | msb) & mask;
@@ -119,6 +164,47 @@ mod tests {
                 csr.val, recomputed.val,
                 "Mismatch for hist_len={hist_len}, fold_w={fold_w}: {:#x} != {:#x}",
                 csr.val, recomputed.val
+            );
+        }
+    }
+
+    #[test]
+    fn test_fast_recompute_matches_reference() {
+        // All TAGE and ITTAGE history length / fold width combos.
+        let cases = [
+            // TAGE-like: table_bits=11, tag_widths 9-10, hist lengths up to 712
+            (5, 11), (5, 10), (5, 9), (5, 8),
+            (15, 11), (15, 10), (15, 9),
+            (44, 11), (44, 10),
+            (130, 11), (130, 10),
+            (247, 11), (247, 10),
+            (375, 11), (375, 10),
+            (512, 11), (512, 10),
+            (712, 11), (712, 10), (712, 9),
+            // ITTAGE-like: shorter histories
+            (4, 9), (8, 9), (16, 10), (32, 10),
+            (64, 11), (128, 11), (256, 11), (512, 11),
+            // Edge cases
+            (1, 1), (2, 1), (63, 7), (64, 8), (65, 8), (127, 10), (128, 10),
+        ];
+
+        for &(hist_len, fold_w) in &cases {
+            let mut ghr = Ghr::with_len(hist_len);
+            for i in 0..500u64 {
+                ghr.push((i.wrapping_mul(7) ^ i.wrapping_mul(13)) & 1 != 0);
+            }
+
+            let mut fast = FoldedHistory::new(fold_w, hist_len);
+            fast.recompute(&ghr);
+
+            let mut reference = FoldedHistory::new(fold_w, hist_len);
+            reference.recompute_reference(&ghr);
+
+            assert_eq!(
+                fast.val, reference.val,
+                "Fast vs reference mismatch for hist_len={hist_len}, fold_w={fold_w}: \
+                 fast={:#x} ref={:#x}",
+                fast.val, reference.val
             );
         }
     }

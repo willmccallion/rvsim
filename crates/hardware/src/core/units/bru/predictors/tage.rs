@@ -46,6 +46,7 @@ impl BranchPredictor for TagePredictor {
         // Use committed GHR (actual outcomes) for training, matching Seznec's
         // CBP functional model where the GHR only contains verified outcomes.
         let _result = self.tage.update(pc, taken, &self.commit_ghr);
+        self.tage.commit_advance(taken, &self.commit_ghr);
         self.commit_ghr.push(taken);
 
         if let Some(tgt) = target {
@@ -98,7 +99,7 @@ impl BranchPredictor for TagePredictor {
 
     fn repair_to_committed(&mut self) {
         self.spec_ghr = self.commit_ghr;
-        self.tage.repair(&self.spec_ghr);
+        self.tage.repair_to_committed_csrs();
     }
 }
 

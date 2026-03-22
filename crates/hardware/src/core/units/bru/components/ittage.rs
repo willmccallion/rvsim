@@ -175,9 +175,21 @@ impl Ittage {
         self.banks.recompute_all(ghr);
     }
 
-    /// Recomputes ITTAGE's CSRs from the committed GHR.
+    /// Recomputes ITTAGE's speculative CSRs from the committed GHR.
     pub fn repair_to_committed(&mut self, committed_ghr: &Ghr) {
         self.banks.recompute_all(committed_ghr);
+    }
+
+    /// Incrementally advances committed CSRs for a committed branch outcome.
+    /// Must be called BEFORE `commit_ghr.push()`.
+    #[inline]
+    pub fn commit_advance(&mut self, taken: bool, ghr: &Ghr) {
+        self.banks.update_committed_csrs(taken, ghr);
+    }
+
+    /// Copies committed CSRs to speculative CSRs (full pipeline flush recovery).
+    pub const fn repair_to_committed_csrs(&mut self) {
+        self.banks.copy_committed_to_spec();
     }
 }
 

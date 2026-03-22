@@ -105,8 +105,8 @@ impl BranchPredictor for ScLTagePredictor {
     fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
         self.loop_pred.update(pc, taken);
 
-        // TAGE direction update — use committed GHR (actual outcomes) to match
-        // Seznec's CBP functional model.
+        // TAGE direction update — reads committed CSRs (O(num_banks) lookup).
+        // Must happen BEFORE commit_advance so CSRs match current commit_ghr.
         let result = self.tage.update(pc, taken, &self.commit_ghr);
         let meta = result.meta;
 
@@ -126,6 +126,12 @@ impl BranchPredictor for ScLTagePredictor {
             self.ittage.update(pc, tgt, ghr_snapshot);
             self.btb.update(pc, tgt);
         }
+
+        // Advance committed CSRs AFTER update() reads them, but BEFORE
+        // commit_ghr.push() — FoldedHistory::update() needs to read the
+        // old bit at ghr.bit(hist_length - 1) before it's shifted out.
+        self.tage.commit_advance(taken, &self.commit_ghr);
+        self.ittage.commit_advance(taken, &self.commit_ghr);
 
         self.commit_ghr.push(taken);
     }
@@ -177,8 +183,8 @@ impl BranchPredictor for ScLTagePredictor {
 
     fn repair_to_committed(&mut self) {
         self.spec_ghr = self.commit_ghr;
-        self.tage.repair(&self.spec_ghr);
-        self.ittage.repair_to_committed(&self.commit_ghr);
+        self.tage.repair_to_committed_csrs();
+        self.ittage.repair_to_committed_csrs();
     }
 }
 

@@ -173,7 +173,7 @@ impl TageCore {
     /// Commit-time update. Recomputes indices/tags from the GHR snapshot,
     /// updates counters, useful bits, `USE_ALT_ON_NA`, and allocates on
     /// misprediction. Returns metadata for SC consumption.
-    pub fn update(&mut self, pc: u64, taken: bool, ghr: &Ghr) -> TageUpdateResult {
+    pub fn update(&mut self, pc: u64, taken: bool, _ghr: &Ghr) -> TageUpdateResult {
         // Periodic useful-bit reset.
         self.clock_counter += 1;
         if self.clock_counter >= self.reset_interval {
@@ -185,7 +185,7 @@ impl TageCore {
             }
         }
 
-        let (indices, tags) = self.geo_banks.snapshot_all(pc, ghr);
+        let (indices, tags) = self.geo_banks.committed_all(pc);
         let num_banks = self.tables.len();
 
         // Find provider (longest matching) and alt.
@@ -329,9 +329,21 @@ impl TageCore {
         self.geo_banks.update_csrs(taken, ghr);
     }
 
-    /// Recomputes CSRs from a GHR snapshot (misprediction recovery).
+    /// Recomputes speculative CSRs from a GHR snapshot (misprediction recovery).
     pub fn repair(&mut self, ghr: &Ghr) {
         self.geo_banks.recompute_all(ghr);
+    }
+
+    /// Incrementally advances committed CSRs for a committed branch outcome.
+    /// Must be called BEFORE `commit_ghr.push()`.
+    #[inline]
+    pub fn commit_advance(&mut self, taken: bool, ghr: &Ghr) {
+        self.geo_banks.update_committed_csrs(taken, ghr);
+    }
+
+    /// Copies committed CSRs to speculative CSRs (full pipeline flush recovery).
+    pub const fn repair_to_committed_csrs(&mut self) {
+        self.geo_banks.copy_committed_to_spec();
     }
 }
 

@@ -69,6 +69,15 @@ impl Ghr {
         self.bits[0]
     }
 
+    /// Returns the raw u64 word at the given index into the backing store.
+    ///
+    /// Returns 0 for out-of-bounds indices. Useful for word-level algorithms
+    /// that process the GHR in 64-bit chunks.
+    #[inline]
+    pub const fn word(&self, idx: usize) -> u64 {
+        if idx < GHR_MAX_WORDS { self.bits[idx] } else { 0 }
+    }
+
     /// Returns the bit at position `pos` (0 = most recent outcome).
     ///
     /// Returns `false` for positions beyond storage capacity.
