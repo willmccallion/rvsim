@@ -12,6 +12,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
+use crate::core::pipeline::signals::ControlFlow;
 use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.
@@ -47,6 +48,23 @@ pub fn rename_stage<E: ExecutionEngine>(
 
         if engine.has_prf() {
             // ── O3 backend: full physical register renaming ────────────────
+            // Stall if this is a branch/jump and the checkpoint table is full
+            let is_branch_or_jump =
+                matches!(id.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
+            if is_branch_or_jump
+                && engine.checkpoint_count() > 0
+                && engine.checkpoint_table().is_full()
+            {
+                cpu.stats.stalls_checkpoint += 1;
+                // Can't break — remaining entries in the iterator would be
+                // dropped (lost forever, PC already advanced past them).
+                // Set budget=0 so subsequent iterations hit the budget check
+                // and push their entries back into input too.
+                budget = 0;
+                input.push(id);
+                continue;
+            }
+
             // Capture source physical regs BEFORE updating rename map for rd
             let rs1_phys = engine.rename_map().get(id.rs1, id.ctrl.rs1_fp);
             let rs2_phys = engine.rename_map().get(id.rs2, id.ctrl.rs2_fp);
@@ -111,6 +129,18 @@ pub fn rename_stage<E: ExecutionEngine>(
                     input.push(id);
                     break;
                 }
+            }
+
+            // Allocate checkpoint for branch/jump (snapshot rename map *after* rd rename)
+            if is_branch_or_jump && engine.checkpoint_count() > 0 {
+                let map_snapshot = engine.rename_map().clone();
+
+                let ckpt_id = engine
+                    .checkpoint_table_mut()
+                    .allocate(rob_tag, &map_snapshot)
+                    .expect("checkpoint table full after stall check");
+
+                engine.rob_mut().set_checkpoint_id(rob_tag, ckpt_id);
             }
 
             // Build RenameIssueEntry with physical register identifiers

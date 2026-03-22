@@ -178,6 +178,10 @@ mod defaults {
     /// Default number of store ports (stores issued per cycle) for out-of-order backend.
     pub const STORE_PORTS: usize = 1;
 
+    /// Default checkpoint count for O(1) branch recovery (32 slots).
+    /// Real OoO processors (e.g., BOOM, ARM Cortex-A77) typically have 16–64 checkpoint slots.
+    pub const CHECKPOINT_COUNT: usize = 32;
+
     /// Default Physical Register File GPR size (256 entries).
     pub const PRF_GPR_SIZE: usize = 256;
 
@@ -1042,6 +1046,10 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub fu_config: FuConfig,
 
+    /// Number of checkpoint slots for O(1) branch recovery (0 = disabled).
+    #[serde(default = "PipelineConfig::default_checkpoint_count")]
+    pub checkpoint_count: usize,
+
     /// Memory dependence predictor type
     #[serde(default)]
     pub mem_dep_predictor: MemDepPredictor,
@@ -1111,6 +1119,12 @@ impl PipelineConfig {
     const fn default_store_ports() -> usize {
         defaults::STORE_PORTS
     }
+
+    /// Returns the default checkpoint count.
+    const fn default_checkpoint_count() -> usize {
+        defaults::CHECKPOINT_COUNT
+    }
+
 }
 
 impl Default for PipelineConfig {
@@ -1139,6 +1153,7 @@ impl Default for PipelineConfig {
             load_ports: defaults::LOAD_PORTS,
             store_ports: defaults::STORE_PORTS,
             fu_config: FuConfig::default(),
+            checkpoint_count: defaults::CHECKPOINT_COUNT,
             mem_dep_predictor: MemDepPredictor::default(),
             store_set: StoreSetConfig::default(),
         }

@@ -6,6 +6,7 @@
 //! 3. **`ExecutionEngine`** — high-level trait covering the entire backend.
 //! 4. **`PipelineDispatch`** — enum dispatch for type-erased pipeline storage.
 
+use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::load_queue::LoadQueue;
@@ -90,6 +91,19 @@ pub trait ExecutionEngine {
     /// Returns true if this backend uses physical register renaming.
     fn has_prf(&self) -> bool {
         false
+    }
+
+    /// Access the checkpoint table (O3 only).
+    fn checkpoint_table(&self) -> &CheckpointTable {
+        panic!("checkpoint_table only available for O3 backend")
+    }
+    /// Access the checkpoint table mutably (O3 only).
+    fn checkpoint_table_mut(&mut self) -> &mut CheckpointTable {
+        panic!("checkpoint_table_mut only available for O3 backend")
+    }
+    /// Returns the configured checkpoint count (0 = disabled).
+    fn checkpoint_count(&self) -> usize {
+        0
     }
 }
 

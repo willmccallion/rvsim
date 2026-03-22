@@ -430,6 +430,7 @@ def _backend_to_pipeline_fields(be) -> dict:
             "prf_gpr_size": be.prf_gpr_size,
             "prf_fpr_size": be.prf_fpr_size,
             "fu_config": _fu_config_to_dict(be.fu_config),
+            "checkpoint_count": be.checkpoint_count,
         }
     # InOrder: emit safe defaults so Rust serde never chokes on missing keys
     return {

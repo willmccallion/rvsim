@@ -416,6 +416,7 @@ class Backend:
             prf_gpr_size: int = 256,
             prf_fpr_size: int = 128,
             fu_config=None,
+            checkpoint_count: int = 0,
         ):
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
@@ -426,6 +427,7 @@ class Backend:
             self.prf_gpr_size = prf_gpr_size
             self.prf_fpr_size = prf_fpr_size
             self.fu_config = fu_config if fu_config is not None else Fu()
+            self.checkpoint_count = checkpoint_count
 
         def __repr__(self) -> str:
             return (

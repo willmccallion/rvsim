@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
 use crate::common::{CsrAddr, InstSize, RegIdx};
+use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
@@ -147,6 +148,8 @@ pub struct RobEntry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.
     pub lr_sc: Option<LrScRecord>,
+    /// Checkpoint table slot allocated for this branch/jump (O3 backend).
+    pub checkpoint_id: Option<CheckpointId>,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -261,6 +264,7 @@ impl Rob {
             pte_update: None,
             sfence_vma: None,
             lr_sc: None,
+            checkpoint_id: None,
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -382,6 +386,13 @@ impl Rob {
     pub fn set_lr_sc(&mut self, tag: RobTag, record: LrScRecord) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.lr_sc = Some(record);
+        }
+    }
+
+    /// Sets the checkpoint ID for a given entry (branch/jump at dispatch).
+    pub fn set_checkpoint_id(&mut self, tag: RobTag, id: CheckpointId) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.checkpoint_id = Some(id);
         }
     }
 

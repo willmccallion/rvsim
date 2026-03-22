@@ -49,6 +49,9 @@ impl PyStats {
         d.set_item("flushes_system", s.flushes_system)?;
         d.set_item("mem_ordering_violations", s.mem_ordering_violations)?;
         d.set_item("stalls_dispatch", s.stalls_dispatch)?;
+        d.set_item("stalls_checkpoint", s.stalls_checkpoint)?;
+        d.set_item("stalls_squash", s.stalls_squash)?;
+        d.set_item("stalls_rename_rebuild", s.stalls_rename_rebuild)?;
         d.set_item("stalls_mshr_full", s.stalls_mshr_full)?;
 
         d.set_item("cycles_user", s.cycles_user)?;

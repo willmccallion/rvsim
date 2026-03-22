@@ -124,6 +124,7 @@ impl ExecutionEngine for InOrderEngine {
             self.width,
             None, // in-order backend: no load queue
             None, // in-order backend: no PRF
+            None, // in-order backend: no checkpoints
         );
 
         // Handle trap: flush everything

@@ -17,6 +17,7 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::cpu::PC_TRACE_MAX;
+use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::PhysRegFile;
@@ -47,6 +48,7 @@ pub fn commit_stage(
     width: usize,
     mut load_queue: Option<&mut LoadQueue>,
     mut prf: Option<&mut PhysRegFile>,
+    mut checkpoints: Option<&mut CheckpointTable>,
 ) -> Option<(Trap, u64)> {
     let mut trap_event: Option<(Trap, u64)> = None;
 
@@ -510,6 +512,13 @@ pub fn commit_stage(
             lq.deallocate(entry.tag);
         }
 
+        // Free checkpoint slot when a branch/jump commits
+        if let Some(ckpt_id) = entry.checkpoint_id {
+            if let Some(ref mut ckpt_table) = checkpoints {
+                ckpt_table.free(ckpt_id);
+            }
+        }
+
         // FENCE.I always drains all committed stores — FENCE.I must see
         // prior stores before refilling I-cache.
         // SFENCE.VMA does NOT need drain_all_committed here because the
@@ -905,6 +914,7 @@ mod tests {
             &mut committed_rename_map,
             &mut free_list,
             1,
+            None,
             None,
             None,
         );

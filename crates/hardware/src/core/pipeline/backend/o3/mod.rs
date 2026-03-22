@@ -12,6 +12,7 @@ pub mod issue_queue;
 use crate::config::Config;
 use crate::core::Cpu;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
+use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
@@ -82,6 +83,19 @@ pub struct O3Engine {
     pub cycle: u64,
     /// Memory dependence unit for load-store ordering speculation.
     pub mdp: MemDepUnit,
+    /// Checkpoint table for O(1) branch misprediction recovery.
+    pub checkpoints: CheckpointTable,
+    /// Remaining stall cycles for in-progress squash recovery.
+    ///
+    /// Models the physical bandwidth limit of the ROB: the processor can only
+    /// process `width` ROB entries per cycle during squash (reclaiming physical
+    /// registers, cleaning up IQ/LSQ entries). While this counter is > 0,
+    /// dispatch is blocked (rename cannot send instructions to the backend).
+    ///
+    /// When no checkpoint is available, additional cycles are added for the
+    /// rename map rebuild (forward-walking surviving ROB entries at `width`
+    /// entries per cycle). Checkpoints eliminate this cost entirely.
+    pub squash_stall_remaining: u64,
 }
 
 impl O3Engine {
@@ -123,6 +137,8 @@ impl O3Engine {
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             cycle: 0,
             mdp: MemDepUnit::new(config),
+            checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
+            squash_stall_remaining: 0,
         }
     }
 
@@ -151,6 +167,24 @@ impl O3Engine {
         }
     }
 
+    /// Compute the squash stall penalty in cycles.
+    ///
+    /// Models the physical bandwidth limit of walking the ROB during recovery.
+    /// The ROB has `width` read ports, so we can process at most `width` entries
+    /// per cycle. The flush detection cycle itself counts as the first processing
+    /// cycle, so the *additional* stall cycles are `ceil(entries / width) - 1`.
+    ///
+    /// `squashed`: number of entries being removed (ROB reclaim cost).
+    /// `surviving`: number of entries remaining (rename rebuild cost, 0 if checkpoint used).
+    fn compute_squash_stall(&self, squashed: usize, surviving: usize) -> u64 {
+        let w = self.width.max(1);
+        // ROB squash walk: reclaiming squashed entries
+        let squash_cycles = squashed.div_ceil(w).saturating_sub(1);
+        // Rename map rebuild: forward-walking surviving entries (only without checkpoint)
+        let rebuild_cycles = surviving.div_ceil(w);
+        (squash_cycles + rebuild_cycles) as u64
+    }
+
     /// Rebuild the speculative rename map after a partial flush (misprediction).
     ///
     /// Starts from the committed map and re-applies surviving ROB entries in order.
@@ -175,6 +209,15 @@ impl ExecutionEngine for O3Engine {
         self.mdp.tick();
         let now = self.cycle;
 
+        // Drain squash recovery stall: the ROB read ports are busy processing
+        // the squash walk (reclaiming entries / rebuilding rename map).
+        // Dispatch is blocked via can_accept() returning 0; all other stages
+        // (commit, writeback, memory) continue draining normally.
+        if self.squash_stall_remaining > 0 {
+            self.squash_stall_remaining -= 1;
+            cpu.stats.stalls_squash += 1;
+        }
+
         let pc_before_commit = cpu.pc;
 
         // ── 1. Commit ──────────────────────────────────────────────────
@@ -188,11 +231,17 @@ impl ExecutionEngine for O3Engine {
             self.width,
             Some(&mut self.load_queue),
             Some(&mut self.prf),
+            Some(&mut self.checkpoints),
         );
 
         // Handle trap: flush everything
         if let Some((trap, pc)) = trap_event {
+            // Capture ROB occupancy before flush for squash stall calculation.
+            // Full flush: all entries squashed, 0 surviving, no rename rebuild needed
+            // (committed_rename_map is used directly).
+            let squashed = self.rob.len();
             self.flush(cpu);
+            self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
             cpu.redirect_pending = true;
             cpu.trap(&trap, pc);
             cpu.committed_next_pc = cpu.pc;
@@ -201,7 +250,9 @@ impl ExecutionEngine for O3Engine {
 
         // Handle MRET/SRET redirect
         if cpu.pc != pc_before_commit {
+            let squashed = self.rob.len();
             self.flush(cpu);
+            self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
             rename_output.clear();
             return;
         }
@@ -315,8 +366,8 @@ impl ExecutionEngine for O3Engine {
                 for entry in self.rob.iter_after(keep_tag) {
                     self.free_list.reclaim(entry.phys_dst);
                 }
-                let squashed = self.rob.iter_after(keep_tag).count() as u64;
-                cpu.stats.misprediction_penalty += squashed;
+                let squashed = self.rob.iter_after(keep_tag).count();
+                cpu.stats.misprediction_penalty += squashed as u64;
 
                 self.issue_queue.flush_after(keep_tag);
                 self.rob.flush_after(keep_tag);
@@ -329,14 +380,21 @@ impl ExecutionEngine for O3Engine {
                 self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
                 self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+
+                // Memory violations never have checkpoints (the violating load
+                // is not a branch), so rename rebuild is always needed.
+                let surviving = self.rob.len();
+                self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
+                cpu.stats.stalls_rename_rebuild +=
+                    surviving.div_ceil(self.width.max(1)) as u64;
             } else {
                 // The violating load is at the ROB head (no preceding entry),
                 // or the preceding entry was already committed. Full flush.
                 for entry in self.rob.iter_all() {
                     self.free_list.reclaim(entry.phys_dst);
                 }
-                let squashed = self.rob.len() as u64;
-                cpu.stats.misprediction_penalty += squashed;
+                let squashed = self.rob.len();
+                cpu.stats.misprediction_penalty += squashed as u64;
 
                 self.issue_queue.flush();
                 self.rob.flush_all();
@@ -349,10 +407,20 @@ impl ExecutionEngine for O3Engine {
                 self.mem2_wb.clear();
                 self.pending_results.clear();
                 self.execute_mem1.clear();
+
+                // Full flush: 0 surviving, no rename rebuild needed.
+                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
             }
 
             self.rebuild_rename_map();
             self.scoreboard.rebuild_from_rob(&self.rob);
+            // Flush stale checkpoints (memory violations use rebuild_rename_map
+            // since the violating load is not a branch and has no checkpoint).
+            if let Some(keep_tag) = keep_tag {
+                self.checkpoints.flush_after(keep_tag);
+            } else {
+                self.checkpoints.flush_all();
+            }
 
             cpu.pc = violation_pc;
             cpu.redirect_pending = true;
@@ -600,10 +668,11 @@ impl ExecutionEngine for O3Engine {
             // younger than the committed instruction).
             let keep_in_rob = self.rob.find_entry(keep_tag).is_some();
 
+            let squashed: usize;
             if keep_in_rob {
                 // Count squashed entries for misprediction penalty stat
-                let squashed: u64 = self.rob.iter_after(keep_tag).count() as u64;
-                cpu.stats.misprediction_penalty += squashed;
+                squashed = self.rob.iter_after(keep_tag).count();
+                cpu.stats.misprediction_penalty += squashed as u64;
                 // Reclaim physical registers for squashed ROB entries before flushing
                 for entry in self.rob.iter_after(keep_tag) {
                     self.free_list.reclaim(entry.phys_dst);
@@ -624,7 +693,8 @@ impl ExecutionEngine for O3Engine {
                 for entry in self.rob.iter_all() {
                     self.free_list.reclaim(entry.phys_dst);
                 }
-                cpu.stats.misprediction_penalty += self.rob.len() as u64;
+                squashed = self.rob.len();
+                cpu.stats.misprediction_penalty += squashed as u64;
                 self.issue_queue.flush();
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
@@ -637,8 +707,33 @@ impl ExecutionEngine for O3Engine {
             self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
             self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            // Rebuild speculative rename map from committed map + surviving ROB
-            self.rebuild_rename_map();
+            // Restore speculative rename map: try checkpoint (O(1)), fallback to rebuild (O(n)).
+            // With a checkpoint, the rename map is restored in O(1) from the snapshot
+            // RAM — no ROB walk needed, so surviving=0 for the stall calculation.
+            // Without a checkpoint (CSR/FENCE/no-checkpoint-config), the rename map
+            // must be rebuilt by forward-walking surviving ROB entries, adding
+            // ceil(surviving / width) stall cycles on top of the squash walk.
+            let surviving = self.rob.len();
+            if self.checkpoints.capacity() > 0 {
+                if let Some(ckpt) = self.checkpoints.find_by_tag(keep_tag) {
+                    self.rename_map = ckpt.rename_map.clone();
+                    // Checkpoint found: O(1) rename restore, no rebuild penalty.
+                    self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+                } else {
+                    self.rebuild_rename_map(); // non-branch flush (CSR/FENCE)
+                    // No checkpoint: must pay rebuild cost for surviving entries.
+                    self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
+                    cpu.stats.stalls_rename_rebuild +=
+                        surviving.div_ceil(self.width.max(1)) as u64;
+                }
+                self.checkpoints.flush_after(keep_tag);
+            } else {
+                self.rebuild_rename_map();
+                // No checkpoint support: always pay rebuild cost.
+                self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
+                cpu.stats.stalls_rename_rebuild +=
+                    surviving.div_ceil(self.width.max(1)) as u64;
+            }
             // Scoreboard is still used by in-order; rebuild from remaining ROB entries
             self.scoreboard.rebuild_from_rob(&self.rob);
         }
@@ -666,6 +761,12 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn can_accept(&self) -> usize {
+        // Block dispatch while the squash recovery walk is in progress.
+        // The ROB read ports are busy reclaiming squashed entries / rebuilding
+        // the rename map, so the rename stage cannot dispatch new instructions.
+        if self.squash_stall_remaining > 0 {
+            return 0;
+        }
         let rob_free = self.rob.free_slots();
         let sb_free = self.store_buffer.free_slots();
         let lq_free = self.load_queue.free_slots();
@@ -688,6 +789,10 @@ impl ExecutionEngine for O3Engine {
         self.scoreboard.flush();
         self.issue_queue.flush();
         self.mdp.flush();
+        self.checkpoints.flush_all();
+        // Note: squash_stall_remaining is NOT cleared here — the caller
+        // (trap/MRET paths) sets it after this call. External callers that
+        // need a hard reset should clear it explicitly.
         self.pending_results.clear();
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
@@ -765,6 +870,18 @@ impl ExecutionEngine for O3Engine {
 
     fn has_prf(&self) -> bool {
         true
+    }
+
+    fn checkpoint_table(&self) -> &CheckpointTable {
+        &self.checkpoints
+    }
+
+    fn checkpoint_table_mut(&mut self) -> &mut CheckpointTable {
+        &mut self.checkpoints
+    }
+
+    fn checkpoint_count(&self) -> usize {
+        self.checkpoints.capacity()
     }
 }
 

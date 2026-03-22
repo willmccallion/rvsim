@@ -39,6 +39,9 @@ pub mod free_list;
 /// Speculative rename map (arch reg → physical reg).
 pub mod rename_map;
 
+/// Checkpoint table for O(1) branch misprediction recovery.
+pub mod checkpoint;
+
 /// Load queue for memory ordering and violation detection.
 pub mod load_queue;
 

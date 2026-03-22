@@ -145,6 +145,18 @@ pub struct SimStats {
     /// (ROB/SB/LQ/IQ/PRF full).
     pub stalls_dispatch: u64,
 
+    /// Stall cycles where a branch/jump could not dispatch because the checkpoint table was full.
+    pub stalls_checkpoint: u64,
+
+    /// Stall cycles where rename could not dispatch because the rename map was being rebuilt
+    /// by walking the ROB (no checkpoint available for this flush).
+    pub stalls_rename_rebuild: u64,
+
+    /// Total stall cycles where dispatch is blocked during squash recovery.
+    /// Includes both the ROB squash walk (always) and rename rebuild (without checkpoint).
+    /// This is the physical cost of rate-limited ROB entry reclamation.
+    pub stalls_squash: u64,
+
     /// Pipeline flushes caused by branch/jump mispredictions.
     pub flushes_branch: u64,
     /// Pipeline flushes caused by serializing instructions (CSR, FENCE.I, MRET/SRET, etc.).
@@ -221,6 +233,9 @@ impl Default for SimStats {
             pf_dedup_l2: 0,
             pf_dedup_l3: 0,
             stalls_dispatch: 0,
+            stalls_checkpoint: 0,
+            stalls_rename_rebuild: 0,
+            stalls_squash: 0,
             flushes_branch: 0,
             flushes_system: 0,
             mdp_predictions_bypass: 0,
@@ -407,6 +422,27 @@ impl SimStats {
                     "  stalls.dispatch        {} ({:.2}%)",
                     self.stalls_dispatch,
                     (self.stalls_dispatch as f64 / cyc as f64) * 100.0
+                );
+            }
+            if self.stalls_checkpoint > 0 {
+                println!(
+                    "  stalls.checkpoint      {} ({:.2}%)",
+                    self.stalls_checkpoint,
+                    (self.stalls_checkpoint as f64 / cyc as f64) * 100.0
+                );
+            }
+            if self.stalls_squash > 0 {
+                println!(
+                    "  stalls.squash          {} ({:.2}%)",
+                    self.stalls_squash,
+                    (self.stalls_squash as f64 / cyc as f64) * 100.0
+                );
+            }
+            if self.stalls_rename_rebuild > 0 {
+                println!(
+                    "  stalls.rename_rebuild  {} ({:.2}%)",
+                    self.stalls_rename_rebuild,
+                    (self.stalls_rename_rebuild as f64 / cyc as f64) * 100.0
                 );
             }
             println!("{sep}");
