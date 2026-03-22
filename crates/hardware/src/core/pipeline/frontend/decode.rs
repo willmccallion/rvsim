@@ -13,7 +13,9 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
+    VectorOp,
 };
+use crate::core::units::vpu::types::VRegIdx;
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
@@ -23,6 +25,7 @@ use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
 use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
+use crate::isa::rvv::{encoding as v_enc, funct3 as v_funct3, opcodes as v_opcodes};
 
 /// ADDI x0, x0, 0 instruction encoding (canonical NOP).
 const INSTRUCTION_NOP: u32 = 0x0000_0013;
@@ -349,6 +352,37 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             i_funct3::FENCE_I => c.system_op = SystemOp::FenceI,
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
+        v_opcodes::OP_V => {
+            if d.funct3 == v_funct3::OPCFG {
+                // vsetvl family: all write scalar rd and are serializing.
+                let bit31 = (inst >> 31) & 1;
+                let bit30 = (inst >> 30) & 1;
+
+                if bit31 == 0 {
+                    // vsetvli: zimm[10:0] from bits 30:20
+                    c.vec_op = VectorOp::Vsetvli;
+                    c.reg_write = true;
+                } else if bit30 == 1 {
+                    // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
+                    c.vec_op = VectorOp::Vsetivli;
+                    c.reg_write = true;
+                } else {
+                    // vsetvl: vtype from rs2
+                    c.vec_op = VectorOp::Vsetvl;
+                    c.reg_write = true;
+                    c.b_src = OpBSrc::Reg2;
+                }
+                c.system_op = SystemOp::System;
+
+                // Store decoded vector register indices for downstream
+                c.vd = VRegIdx::new(v_enc::vd(inst));
+                c.vs1 = VRegIdx::new(v_enc::vs1(inst));
+                c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+            } else {
+                // Other vector arithmetic ops — decoded in Phase 2
+                return Err(Trap::IllegalInstruction(inst));
+            }
+        }
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
     Ok(c)

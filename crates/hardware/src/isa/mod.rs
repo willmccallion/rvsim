@@ -45,3 +45,6 @@ pub mod rv64m;
 
 /// Compressed instruction extension (16-bit instruction encoding).
 pub mod rvc;
+
+/// Vector extension (RVV 1.0).
+pub mod rvv;

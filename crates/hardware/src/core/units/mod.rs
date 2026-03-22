@@ -27,3 +27,6 @@ pub mod mmu;
 
 /// Hardware prefetcher implementations (stride, stream, tagged).
 pub mod prefetch;
+
+/// Vector Processing Unit (RVV 1.0).
+pub mod vpu;

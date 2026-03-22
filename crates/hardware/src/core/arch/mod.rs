@@ -22,3 +22,6 @@ pub mod mode;
 
 /// Trap handling and exception processing.
 pub mod trap;
+
+/// Architectural Vector Register File (RVV 1.0).
+pub mod vpr;

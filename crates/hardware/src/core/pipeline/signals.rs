@@ -7,6 +7,7 @@
 //! 4. **System Control:** Manages privilege transitions and system-level instructions.
 
 use crate::common::CsrAddr;
+use crate::core::units::vpu::types::VRegIdx;
 
 /// ALU operation types for integer and floating-point instructions.
 #[derive(Clone, Copy, Debug, Default)]
@@ -358,4 +359,50 @@ pub struct ControlSignals {
     pub rs3_fp: bool,
     /// Atomic memory operation type.
     pub atomic_op: AtomicOp,
+    /// Vector operation type.
+    pub vec_op: VectorOp,
+    /// Vector destination register.
+    pub vd: VRegIdx,
+    /// Vector source register 1.
+    pub vs1: VRegIdx,
+    /// Vector source register 2.
+    pub vs2: VRegIdx,
+    /// Vector source register 3 (FMA, stores).
+    pub vs3: VRegIdx,
+    /// Masking bit (true = unmasked).
+    pub vm: bool,
+    /// Enable write to vector destination register.
+    pub vec_reg_write: bool,
+    /// Vector source encoding category.
+    pub vec_src_encoding: VecSrcEncoding,
+}
+
+/// Vector operation type. Initially just configuration ops for Phase 1.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VectorOp {
+    /// No vector operation.
+    #[default]
+    None,
+    /// vsetvli — set vl/vtype from rs1 and immediate.
+    Vsetvli,
+    /// vsetivli — set vl/vtype from uimm and immediate.
+    Vsetivli,
+    /// vsetvl — set vl/vtype from rs1 and rs2.
+    Vsetvl,
+}
+
+/// Vector operand source encoding category.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VecSrcEncoding {
+    /// Not a vector source encoding.
+    #[default]
+    None,
+    /// Vector-vector (OPIVV, OPFVV, OPMVV).
+    VV,
+    /// Vector-scalar integer (OPIVX, OPMVX).
+    VX,
+    /// Vector-immediate (OPIVI).
+    VI,
+    /// Vector-scalar FP (OPFVF).
+    VF,
 }

@@ -1070,6 +1070,22 @@ pub struct PipelineConfig {
     /// Store-set predictor configuration
     #[serde(default)]
     pub store_set: StoreSetConfig,
+
+    /// Vector register width in bits (VLEN). Must be power of 2 in [128, 2048].
+    #[serde(default = "PipelineConfig::default_vlen")]
+    pub vlen: usize,
+
+    /// Number of vector execution lanes. Defaults to vlen/64 (min 1).
+    #[serde(default)]
+    pub num_vec_lanes: Option<usize>,
+
+    /// Vector Physical Register File size (O3 backend).
+    #[serde(default = "PipelineConfig::default_prf_vpr_size")]
+    pub prf_vpr_size: usize,
+
+    /// Enable vector operation chaining.
+    #[serde(default = "PipelineConfig::default_vec_chaining")]
+    pub vec_chaining: bool,
 }
 
 impl PipelineConfig {
@@ -1137,6 +1153,21 @@ impl PipelineConfig {
     const fn default_checkpoint_count() -> usize {
         defaults::CHECKPOINT_COUNT
     }
+
+    /// Returns the default VLEN.
+    const fn default_vlen() -> usize {
+        128
+    }
+
+    /// Returns the default vector PRF size.
+    const fn default_prf_vpr_size() -> usize {
+        64
+    }
+
+    /// Returns the default vector chaining setting.
+    const fn default_vec_chaining() -> bool {
+        true
+    }
 }
 
 impl Default for PipelineConfig {
@@ -1170,6 +1201,10 @@ impl Default for PipelineConfig {
             checkpoint_count: defaults::CHECKPOINT_COUNT,
             mem_dep_predictor: MemDepPredictor::default(),
             store_set: StoreSetConfig::default(),
+            vlen: 128,
+            num_vec_lanes: None,
+            prf_vpr_size: 64,
+            vec_chaining: true,
         }
     }
 }

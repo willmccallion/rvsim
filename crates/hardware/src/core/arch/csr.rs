@@ -8,6 +8,27 @@
 
 use crate::common::CsrAddr;
 
+/// Vector start position CSR address.
+pub const VSTART: CsrAddr = CsrAddr::from_u32(0x008);
+
+/// Vector fixed-point saturation flag CSR address.
+pub const VXSAT: CsrAddr = CsrAddr::from_u32(0x009);
+
+/// Vector fixed-point rounding mode CSR address.
+pub const VXRM: CsrAddr = CsrAddr::from_u32(0x00A);
+
+/// Vector control and status register (combined vxsat|vxrm) CSR address.
+pub const VCSR: CsrAddr = CsrAddr::from_u32(0x00F);
+
+/// Vector length CSR address (read-only, set by vsetvl family).
+pub const VL: CsrAddr = CsrAddr::from_u32(0xC20);
+
+/// Vector type CSR address (read-only, set by vsetvl family).
+pub const VTYPE: CsrAddr = CsrAddr::from_u32(0xC21);
+
+/// Vector register byte length CSR address (read-only, = VLEN/8).
+pub const VLENB: CsrAddr = CsrAddr::from_u32(0xC22);
+
 /// Floating-point accrued exceptions CSR address.
 pub const FFLAGS: CsrAddr = CsrAddr::from_u32(0x001);
 
@@ -218,6 +239,21 @@ pub const MSTATUS_FS_CLEAN: u64 = 2 << 13;
 /// Floating-point state: dirty (FPU state has been modified).
 pub const MSTATUS_FS_DIRTY: u64 = 3 << 13;
 
+/// Vector extension state field mask in `mstatus` register (bits 10:9).
+pub const MSTATUS_VS: u64 = 3 << 9;
+
+/// Vector state: off (vector unit disabled).
+pub const MSTATUS_VS_OFF: u64 = 0 << 9;
+
+/// Vector state: initial (vector state present but clean).
+pub const MSTATUS_VS_INIT: u64 = 1 << 9;
+
+/// Vector state: clean (vector state not modified since last save).
+pub const MSTATUS_VS_CLEAN: u64 = 2 << 9;
+
+/// Vector state: dirty (vector state has been modified).
+pub const MSTATUS_VS_DIRTY: u64 = 3 << 9;
+
 /// SD (State Dirty) summary bit in `mstatus`/`sstatus` (bit 63 for RV64).
 /// Set when FS, VS, or XS is Dirty.
 pub const MSTATUS_SD: u64 = 1 << 63;
@@ -295,6 +331,9 @@ pub const MISA_EXT_S: u64 = 1 << 18;
 /// MISA extension bit for user mode (U extension).
 pub const MISA_EXT_U: u64 = 1 << 20;
 
+/// MISA extension bit for vector operations (V extension).
+pub const MISA_EXT_V: u64 = 1 << 21;
+
 /// MISA XLEN field value for 32-bit architecture.
 pub const MISA_XLEN_32: u64 = 1 << 62;
 
@@ -333,7 +372,9 @@ pub const fn csr_serialization_type(addr: CsrAddr) -> CsrSerializationType {
             || x == MTVEC.as_u32()
             || x == STVEC.as_u32()
             || x == MEDELEG.as_u32()
-            || x == MIDELEG.as_u32() =>
+            || x == MIDELEG.as_u32()
+            || x == VSTART.as_u32()
+            || x == VXRM.as_u32() =>
         {
             CsrSerializationType::Serializing
         }
@@ -411,6 +452,18 @@ pub struct Csrs {
     pub scounteren: u64,
     /// Machine environment configuration register.
     pub menvcfg: u64,
+    /// Vector start position.
+    pub vstart: u64,
+    /// Vector fixed-point saturation flag.
+    pub vxsat: u64,
+    /// Vector fixed-point rounding mode.
+    pub vxrm: u64,
+    /// Vector length (set by vsetvl family only).
+    pub vl: u64,
+    /// Vector type (set by vsetvl family only).
+    pub vtype: u64,
+    /// Vector register byte length (VLEN/8, constant).
+    pub vlenb: u64,
 }
 
 impl Csrs {
@@ -430,7 +483,9 @@ impl Csrs {
             x if x == FCSR.as_u32() => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
             x if x == MSTATUS.as_u32() => {
                 let val = self.mstatus & !MSTATUS_SD;
-                if val & MSTATUS_FS == MSTATUS_FS_DIRTY { val | MSTATUS_SD } else { val }
+                let fs_dirty = val & MSTATUS_FS == MSTATUS_FS_DIRTY;
+                let vs_dirty = val & MSTATUS_VS == MSTATUS_VS_DIRTY;
+                if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
             }
             x if x == MISA.as_u32() => self.misa,
             x if x == MEDELEG.as_u32() => self.medeleg,
@@ -444,7 +499,9 @@ impl Csrs {
             x if x == MIP.as_u32() => self.mip,
             x if x == SSTATUS.as_u32() => {
                 let val = self.sstatus & !MSTATUS_SD;
-                if val & MSTATUS_FS == MSTATUS_FS_DIRTY { val | MSTATUS_SD } else { val }
+                let fs_dirty = val & MSTATUS_FS == MSTATUS_FS_DIRTY;
+                let vs_dirty = val & MSTATUS_VS == MSTATUS_VS_DIRTY;
+                if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
             }
             x if x == SIE.as_u32() => self.sie,
             x if x == STVEC.as_u32() => self.stvec,
@@ -462,6 +519,13 @@ impl Csrs {
             x if x == MCOUNTEREN.as_u32() => self.mcounteren,
             x if x == SCOUNTEREN.as_u32() => self.scounteren,
             x if x == MENVCFG.as_u32() => self.menvcfg,
+            x if x == VSTART.as_u32() => self.vstart,
+            x if x == VXSAT.as_u32() => self.vxsat & 0x1,
+            x if x == VXRM.as_u32() => self.vxrm & 0x3,
+            x if x == VCSR.as_u32() => (self.vxsat & 0x1) | ((self.vxrm & 0x3) << 1),
+            x if x == VL.as_u32() => self.vl,
+            x if x == VTYPE.as_u32() => self.vtype,
+            x if x == VLENB.as_u32() => self.vlenb,
             _ => 0,
         }
     }
@@ -512,6 +576,15 @@ impl Csrs {
             x if x == MINSTRET.as_u32() => self.minstret = val,
             x if x == MCOUNTEREN.as_u32() => self.mcounteren = val,
             x if x == SCOUNTEREN.as_u32() => self.scounteren = val,
+            x if x == VSTART.as_u32() => self.vstart = val,
+            x if x == VXSAT.as_u32() => self.vxsat = val & 0x1,
+            x if x == VXRM.as_u32() => self.vxrm = val & 0x3,
+            x if x == VCSR.as_u32() => {
+                self.vxsat = val & 0x1;
+                self.vxrm = (val >> 1) & 0x3;
+            }
+            // VL, VTYPE, VLENB are not writable via CSR instructions
+            // (only writable by vsetvl family, handled in execute stage)
             _ => {}
         }
     }
