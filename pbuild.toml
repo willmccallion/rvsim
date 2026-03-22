@@ -122,6 +122,28 @@ description = "Boot Linux (requires build-linux first)"
 type        = "task"
 command     = ["rvsim", "scripts/setup/boot_linux.py"]
 
+# ── Documentation ─────────────────────────────────────────────────────────────
+
+[docs-serve]
+group       = "Documentation"
+description = "Serve docs locally with live reload"
+type        = "task"
+shell       = true
+commands    = [
+    [".venv/bin/pip install --quiet mkdocs mkdocs-material"],
+    [".venv/bin/mkdocs serve"],
+]
+
+[docs-deploy]
+group       = "Documentation"
+description = "Build and deploy docs to GitHub Pages"
+type        = "task"
+shell       = true
+commands    = [
+    [".venv/bin/pip install --quiet mkdocs mkdocs-material"],
+    [".venv/bin/mkdocs gh-deploy"],
+]
+
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
 [clean]
