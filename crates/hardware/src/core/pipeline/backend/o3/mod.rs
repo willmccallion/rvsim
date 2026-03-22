@@ -330,10 +330,10 @@ impl ExecutionEngine for O3Engine {
 
         // Notify MDP when stores resolve — wake instructions waiting on them.
         for entry in &self.mem2_wb[wb_before..] {
-            if entry.ctrl.mem_write {
-                if let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag) {
-                    self.issue_queue.wakeup_mem_dep(&[store_tag]);
-                }
+            if entry.ctrl.mem_write
+                && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
+            {
+                self.issue_queue.wakeup_mem_dep(&[store_tag]);
             }
         }
 
@@ -385,8 +385,7 @@ impl ExecutionEngine for O3Engine {
                 // is not a branch), so rename rebuild is always needed.
                 let surviving = self.rob.len();
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                cpu.stats.stalls_rename_rebuild +=
-                    surviving.div_ceil(self.width.max(1)) as u64;
+                cpu.stats.stalls_rename_rebuild += surviving.div_ceil(self.width.max(1)) as u64;
             } else {
                 // The violating load is at the ROB head (no preceding entry),
                 // or the preceding entry was already committed. Full flush.
@@ -552,9 +551,8 @@ impl ExecutionEngine for O3Engine {
                 // when the memory pipeline is busy, but allow non-memory ops
                 // (ALU, branch) to continue issuing freely.
                 if mem_backpressured && fu_type == FuType::Mem {
-                    let ok = self.issue_queue.dispatch(
-                        entry, &self.rob, cpu, Some(&self.prf), mem_dep,
-                    );
+                    let ok =
+                        self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), mem_dep);
                     debug_assert!(ok, "re-dispatch after mem backpressure failed");
                     continue;
                 }
@@ -565,9 +563,8 @@ impl ExecutionEngine for O3Engine {
                     stalled_fu = true;
                     // Leave entry in IQ (select already removed it — re-dispatch needed)
                     // For simplicity: re-dispatch back into IQ
-                    let ok = self.issue_queue.dispatch(
-                        entry, &self.rob, cpu, Some(&self.prf), mem_dep,
-                    );
+                    let ok =
+                        self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), mem_dep);
                     debug_assert!(ok, "re-dispatch after FU stall failed");
                     continue;
                 }
@@ -723,16 +720,14 @@ impl ExecutionEngine for O3Engine {
                     self.rebuild_rename_map(); // non-branch flush (CSR/FENCE)
                     // No checkpoint: must pay rebuild cost for surviving entries.
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                    cpu.stats.stalls_rename_rebuild +=
-                        surviving.div_ceil(self.width.max(1)) as u64;
+                    cpu.stats.stalls_rename_rebuild += surviving.div_ceil(self.width.max(1)) as u64;
                 }
                 self.checkpoints.flush_after(keep_tag);
             } else {
                 self.rebuild_rename_map();
                 // No checkpoint support: always pay rebuild cost.
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                cpu.stats.stalls_rename_rebuild +=
-                    surviving.div_ceil(self.width.max(1)) as u64;
+                cpu.stats.stalls_rename_rebuild += surviving.div_ceil(self.width.max(1)) as u64;
             }
             // Scoreboard is still used by in-order; rebuild from remaining ROB entries
             self.scoreboard.rebuild_from_rob(&self.rob);
@@ -745,9 +740,7 @@ impl ExecutionEngine for O3Engine {
                 let is_load = entry.ctrl.mem_read;
                 let is_store = entry.ctrl.mem_write;
                 let mem_dep = self.mdp.dispatch(entry.pc, entry.rob_tag, is_load, is_store);
-                let ok = self.issue_queue.dispatch(
-                    entry, &self.rob, cpu, Some(&self.prf), mem_dep,
-                );
+                let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), mem_dep);
                 debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
             }
         }

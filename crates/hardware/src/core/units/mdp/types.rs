@@ -11,7 +11,7 @@ pub struct SsitIndex(pub u32);
 impl SsitIndex {
     /// Compute the SSIT index for a given PC and table size.
     #[inline]
-    pub fn from_pc(pc: u64, table_size: usize) -> Self {
+    pub const fn from_pc(pc: u64, table_size: usize) -> Self {
         Self(((pc >> 2) as u32) % (table_size as u32))
     }
 }

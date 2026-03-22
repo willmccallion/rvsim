@@ -1,6 +1,6 @@
-//! GShare Branch Predictor.
+//! `GShare` Branch Predictor.
 //!
-//! GShare correlates global branch history with the program counter using an XOR
+//! `GShare` correlates global branch history with the program counter using an XOR
 //! hash. This allows the predictor to distinguish the same branch instruction
 //! in different execution contexts.
 //!

@@ -50,6 +50,10 @@ fn clamp_counter(val: i32, bits: usize) -> i8 {
 
 impl StatCorrector {
     /// Creates a new Statistical Corrector from config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `num_tables` exceeds `MAX_SC_TABLES`.
     pub fn new(config: &ScConfig) -> Self {
         assert!(
             config.num_tables <= MAX_SC_TABLES,
@@ -94,7 +98,7 @@ impl StatCorrector {
     /// SC histories are short (≤16 bits), so no CSR needed — but we fold
     /// at word granularity instead of bit-by-bit for speed.
     #[inline]
-    fn table_index(&self, pc: u64, ghr: &Ghr, table: usize) -> usize {
+    const fn table_index(&self, pc: u64, ghr: &Ghr, table: usize) -> usize {
         let pc_hash = (pc >> 2) as usize;
         let hl = self.hist_lengths[table];
         if hl == 0 {
@@ -117,7 +121,7 @@ impl StatCorrector {
         (pc_hash ^ h as usize) & self.table_mask
     }
 
-    /// Computes the SC prediction. Returns (corrected_prediction, sc_sum).
+    /// Computes the SC prediction. Returns `(corrected_prediction, sc_sum)`.
     ///
     /// `base_taken` is the base predictor's direction, `base_confidence` is
     /// the provider counter's signed value (positive = taken bias, negative = not-taken).
@@ -132,8 +136,7 @@ impl StatCorrector {
         base_taken: bool,
         base_confidence: i32,
     ) -> (bool, i32) {
-        let centered =
-            (2 * base_confidence.abs() + 1) * if base_taken { 1 } else { -1 };
+        let centered = (2 * base_confidence.abs() + 1) * if base_taken { 1 } else { -1 };
         let mut sum: i32 = centered;
 
         for t in 0..self.num_tables {
@@ -152,14 +155,7 @@ impl StatCorrector {
     }
 
     /// Updates the SC tables at commit time.
-    pub fn update(
-        &mut self,
-        pc: u64,
-        ghr: &Ghr,
-        taken: bool,
-        base_taken: bool,
-        sc_sum: i32,
-    ) {
+    pub fn update(&mut self, pc: u64, ghr: &Ghr, taken: bool, base_taken: bool, sc_sum: i32) {
         let sc_taken = sc_sum >= 0;
         let sc_corrected = sc_taken != base_taken && sc_sum.abs() > self.threshold;
         let base_wrong = base_taken != taken;
@@ -189,11 +185,8 @@ impl StatCorrector {
         for t in 0..self.num_tables {
             let idx = self.table_index(pc, ghr, t);
             let ctr = self.counter(t, idx) as i32;
-            *self.counter_mut(t, idx) = if taken {
-                clamp_counter(ctr + 1, bits)
-            } else {
-                clamp_counter(ctr - 1, bits)
-            };
+            *self.counter_mut(t, idx) =
+                if taken { clamp_counter(ctr + 1, bits) } else { clamp_counter(ctr - 1, bits) };
         }
     }
 }

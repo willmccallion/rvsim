@@ -304,9 +304,7 @@ impl IssueQueue {
                         MemDepState::WaitAll => {
                             !store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
                         }
-                        MemDepState::WaitFor(barrier) => {
-                            !store_buffer.is_unresolved(*barrier)
-                        }
+                        MemDepState::WaitFor(barrier) => !store_buffer.is_unresolved(*barrier),
                     };
                     if !mem_ready {
                         continue;
@@ -387,12 +385,14 @@ impl IssueQueue {
                 debug_assert!(
                     !matches!(iq.src1.readiness, OperandReady::NotReady),
                     "IQ select: src1 not ready for rob_tag={} pc={:#x}",
-                    entry.rob_tag.0, entry.pc,
+                    entry.rob_tag.0,
+                    entry.pc,
                 );
                 debug_assert!(
                     !matches!(iq.src2.readiness, OperandReady::NotReady),
                     "IQ select: src2 not ready for rob_tag={} pc={:#x}",
-                    entry.rob_tag.0, entry.pc,
+                    entry.rob_tag.0,
+                    entry.pc,
                 );
                 entry.rv1 = Self::resolve_value(&iq.src1, prf);
                 entry.rv2 = Self::resolve_value(&iq.src2, prf);
@@ -468,10 +468,10 @@ impl IssueQueue {
     /// returns woken tags. Transitions `WaitFor` → `Resolved` so `select()` can issue them.
     pub fn wakeup_mem_dep(&mut self, resolved_tags: &[RobTag]) {
         for slot in self.slots.iter_mut().flatten() {
-            if let MemDepState::WaitFor(barrier) = &slot.mem_dep {
-                if resolved_tags.contains(barrier) {
-                    slot.mem_dep = MemDepState::Resolved(*barrier);
-                }
+            if let MemDepState::WaitFor(barrier) = &slot.mem_dep
+                && resolved_tags.contains(barrier)
+            {
+                slot.mem_dep = MemDepState::Resolved(*barrier);
             }
         }
     }

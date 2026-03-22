@@ -43,7 +43,7 @@ pub struct TagePredictor {
 
     /// Base bimodal predictor table.
     base: Vec<i8>,
-    /// Tagged component banks (managed by GeoBankSet for CSR/indexing).
+    /// Tagged component banks (managed by `GeoBankSet` for CSR/indexing).
     geo_banks: GeoBankSet,
     /// Tagged bank entry storage.
     banks: Vec<Vec<TageEntry>>,
@@ -58,7 +58,7 @@ pub struct TagePredictor {
     /// Interval for resetting useful bits.
     reset_interval: u32,
 
-    /// USE_ALT_ON_NA: 4-bit counter that learns whether to trust newly
+    /// `USE_ALT_ON_NA`: 4-bit counter that learns whether to trust newly
     /// allocated (weak) provider entries or prefer the alt prediction.
     use_alt_on_na_ctr: i8,
 
@@ -171,13 +171,13 @@ impl BranchPredictor for TagePredictor {
         // USE_ALT_ON_NA: prefer alt when provider is weak (newly allocated).
         let provider_weak = prov_ctr == 0 || prov_ctr == -1;
         if provider_weak && self.use_alt_on_na_ctr >= 0 {
-            let alt_taken = match alt {
-                Some(bank) => {
+            let alt_taken = alt.map_or_else(
+                || self.base[base_idx] >= 0,
+                |bank| {
                     let idx = self.geo_banks.spec_index(pc, bank);
                     self.banks[bank][idx].ctr >= 0
-                }
-                None => self.base[base_idx] >= 0,
-            };
+                },
+            );
             return (alt_taken, self.btb.lookup(pc));
         }
 
@@ -237,8 +237,8 @@ impl BranchPredictor for TagePredictor {
         };
 
         // USE_ALT_ON_NA: update meta-counter when provider is weak.
-        let provider_weak = self.provider_bank > 0
-            && (prov_confidence == 0 || prov_confidence == -1);
+        let provider_weak =
+            self.provider_bank > 0 && (prov_confidence == 0 || prov_confidence == -1);
         if provider_weak && prov_taken != alt_taken {
             if alt_taken == taken {
                 self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr + 1).min(7);
@@ -248,11 +248,8 @@ impl BranchPredictor for TagePredictor {
         }
 
         // Effective prediction after USE_ALT_ON_NA (for allocation).
-        let tage_taken = if provider_weak && self.use_alt_on_na_ctr >= 0 {
-            alt_taken
-        } else {
-            prov_taken
-        };
+        let tage_taken =
+            if provider_weak && self.use_alt_on_na_ctr >= 0 { alt_taken } else { prov_taken };
 
         let provider_mispred = prov_taken != taken;
         let tage_mispred = tage_taken != taken;

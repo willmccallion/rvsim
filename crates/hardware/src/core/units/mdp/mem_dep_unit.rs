@@ -65,9 +65,9 @@ impl MemDepUnit {
     pub fn new(config: &Config) -> Self {
         let predictor = match config.pipeline.mem_dep_predictor {
             MdpType::Blind => PredictorKind::Blind,
-            MdpType::StoreSet => {
-                PredictorKind::StoreSet(Box::new(StoreSetPredictor::new(&config.pipeline.store_set)))
-            }
+            MdpType::StoreSet => PredictorKind::StoreSet(Box::new(StoreSetPredictor::new(
+                &config.pipeline.store_set,
+            ))),
         };
         Self { predictor, deps: HashMap::new(), stats: MdpStats::default() }
     }
@@ -112,8 +112,8 @@ impl MemDepUnit {
                     }
                     MemPrediction::DepOn(barrier) => {
                         if barrier.is_older_than(rob_tag) {
-                            let _ = self.deps
-                                .insert(rob_tag.0, DepRecord { barrier, resolved: false });
+                            let _ =
+                                self.deps.insert(rob_tag.0, DepRecord { barrier, resolved: false });
                             self.stats.predictions_wait_for += 1;
                             MemDepState::WaitFor(barrier)
                         } else {
@@ -138,7 +138,7 @@ impl MemDepUnit {
     /// `WaitFor(barrier)` matches it.
     pub fn store_resolved(&mut self, store_rob_tag: RobTag) -> Option<RobTag> {
         let mut any_woken = false;
-        for (_waiter_tag, dep) in &mut self.deps {
+        for dep in self.deps.values_mut() {
             if dep.barrier == store_rob_tag && !dep.resolved {
                 dep.resolved = true;
                 any_woken = true;
@@ -214,11 +214,8 @@ mod tests {
     fn store_set_config() -> Config {
         let mut c = Config::default();
         c.pipeline.mem_dep_predictor = MdpType::StoreSet;
-        c.pipeline.store_set = StoreSetConfig {
-            ssit_size: 64,
-            lfst_size: 16,
-            ssit_clear_interval: 0,
-        };
+        c.pipeline.store_set =
+            StoreSetConfig { ssit_size: 64, lfst_size: 16, ssit_clear_interval: 0 };
         c
     }
 
@@ -268,10 +265,7 @@ mod tests {
 
         // Dispatch load — depends on store.
         let l1 = RobTag(10);
-        assert_eq!(
-            mdu.dispatch(load_pc, l1, true, false),
-            MemDepState::WaitFor(s1)
-        );
+        assert_eq!(mdu.dispatch(load_pc, l1, true, false), MemDepState::WaitFor(s1));
         assert_eq!(mdu.stats().predictions_wait_for, 1);
     }
 
@@ -349,9 +343,6 @@ mod tests {
         // Dispatch another load — LFST points to s1 which is younger, so NoDep for
         // loads older than s1... but l2 is newer than s1, so DepOn(s1).
         let l2 = RobTag(10);
-        assert_eq!(
-            mdu.dispatch(load_pc, l2, true, false),
-            MemDepState::WaitFor(s1)
-        );
+        assert_eq!(mdu.dispatch(load_pc, l2, true, false), MemDepState::WaitFor(s1));
     }
 }

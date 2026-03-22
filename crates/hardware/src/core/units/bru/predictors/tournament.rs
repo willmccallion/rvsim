@@ -4,8 +4,8 @@
 //! between a Global predictor (GShare-like) and a Local predictor (PAg/PAp).
 //! This allows the predictor to adapt to different types of branch behaviors.
 
-use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 use crate::config::TournamentConfig;
+use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Tournament Predictor structure.
 #[derive(Debug)]

@@ -45,6 +45,10 @@ pub struct Ittage {
 
 impl Ittage {
     /// Creates a new ITTAGE predictor from config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `history_lengths` or `tag_widths` length does not match `num_banks`.
     pub fn new(config: &IttageConfig) -> Self {
         let num_banks = config.num_banks;
         let table_size = config.table_size.next_power_of_two();
@@ -70,12 +74,7 @@ impl Ittage {
             tables.push(vec![IttageEntry::default(); table_size]);
         }
 
-        Self {
-            banks,
-            tables,
-            clock_counter: 0,
-            reset_interval: config.reset_interval,
-        }
+        Self { banks, tables, clock_counter: 0, reset_interval: config.reset_interval }
     }
 
     /// Predicts the target for an indirect branch. Returns `Some(target)` on hit.
@@ -130,12 +129,10 @@ impl Ittage {
         }
 
         // On misprediction, try to allocate in a longer-history bank.
-        let mispredicted = provider
-            .map(|bank| {
-                let idx = self.banks.snapshot_index(pc, bank, ghr_snapshot);
-                self.tables[bank][idx].target != target
-            })
-            .unwrap_or(true);
+        let mispredicted = !provider.is_some_and(|bank| {
+            let idx = self.banks.snapshot_index(pc, bank, ghr_snapshot);
+            self.tables[bank][idx].target == target
+        });
 
         if mispredicted {
             let start = provider.map_or(0, |b| b + 1);

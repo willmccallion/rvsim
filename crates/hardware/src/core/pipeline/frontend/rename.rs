@@ -16,6 +16,10 @@ use crate::core::pipeline::signals::ControlFlow;
 use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.
+///
+/// # Panics
+///
+/// Panics if checkpoint allocation fails after the stall check indicated a slot was available.
 pub fn rename_stage<E: ExecutionEngine>(
     cpu: &mut Cpu,
     input: &mut Vec<IdExEntry>,
@@ -135,10 +139,10 @@ pub fn rename_stage<E: ExecutionEngine>(
             if is_branch_or_jump && engine.checkpoint_count() > 0 {
                 let map_snapshot = engine.rename_map().clone();
 
-                let ckpt_id = engine
-                    .checkpoint_table_mut()
-                    .allocate(rob_tag, &map_snapshot)
-                    .expect("checkpoint table full after stall check");
+                let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(rob_tag, &map_snapshot)
+                else {
+                    unreachable!("checkpoint table full after stall check");
+                };
 
                 engine.rob_mut().set_checkpoint_id(rob_tag, ckpt_id);
             }

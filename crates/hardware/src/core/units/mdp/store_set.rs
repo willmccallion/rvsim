@@ -30,7 +30,7 @@ pub struct StoreSetPredictor {
     lfst: Vec<Option<RobTag>>,
     /// Next free store set ID for allocation.
     next_set_id: u16,
-    /// Maximum number of store sets (= lfst.len()).
+    /// Maximum number of store sets (= `lfst.len()`).
     max_sets: u16,
     /// Cycle counter for periodic SSIT clear.
     tick_counter: u64,
@@ -53,7 +53,7 @@ impl StoreSetPredictor {
 
     /// Hash a PC into an SSIT index.
     #[inline]
-    fn ssit_index(&self, pc: u64) -> SsitIndex {
+    const fn ssit_index(&self, pc: u64) -> SsitIndex {
         SsitIndex::from_pc(pc, self.ssit.len())
     }
 }
@@ -64,10 +64,7 @@ impl MemDepPredictor for StoreSetPredictor {
         let Some(set_id) = self.ssit[idx.0 as usize] else {
             return MemPrediction::NoDep;
         };
-        match self.lfst[set_id.0 as usize] {
-            Some(store_tag) => MemPrediction::DepOn(store_tag),
-            None => MemPrediction::NoDep,
-        }
+        self.lfst[set_id.0 as usize].map_or(MemPrediction::NoDep, MemPrediction::DepOn)
     }
 
     fn register_store(&mut self, store_pc: u64, rob_tag: RobTag) {
@@ -133,10 +130,10 @@ impl MemDepPredictor for StoreSetPredictor {
     fn flush_after(&mut self, keep_tag: RobTag) {
         // Clear LFST entries for stores newer than keep_tag.
         for entry in &mut self.lfst {
-            if let Some(tag) = *entry {
-                if tag.is_newer_than(keep_tag) {
-                    *entry = None;
-                }
+            if let Some(tag) = *entry
+                && tag.is_newer_than(keep_tag)
+            {
+                *entry = None;
             }
         }
     }
@@ -144,7 +141,7 @@ impl MemDepPredictor for StoreSetPredictor {
     fn tick(&mut self) {
         self.tick_counter += 1;
         if self.ssit_clear_interval > 0
-            && self.tick_counter % self.ssit_clear_interval == 0
+            && self.tick_counter.is_multiple_of(self.ssit_clear_interval)
         {
             self.ssit.fill(None);
         }
@@ -242,8 +239,8 @@ mod tests {
         // PCs chosen to produce distinct SSIT indices: (pc >> 2) % 64.
         let store_pc_a = 0x1004; // index 1
         let store_pc_b = 0x1008; // index 2
-        let load_pc_a = 0x100C;  // index 3
-        let load_pc_b = 0x1010;  // index 4
+        let load_pc_a = 0x100C; // index 3
+        let load_pc_b = 0x1010; // index 4
 
         p.train(load_pc_a, store_pc_a);
         p.train(load_pc_b, store_pc_b);

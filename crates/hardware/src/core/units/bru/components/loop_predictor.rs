@@ -87,8 +87,7 @@ impl LoopPredictor {
             }
         } else if taken {
             if entry.age == 0 || entry.tag == 0 {
-                *entry =
-                    LoopEntry { tag, current_iter: 1, trip_count: 0, confidence: 0, age: 1 };
+                *entry = LoopEntry { tag, current_iter: 1, trip_count: 0, confidence: 0, age: 1 };
             } else {
                 entry.age = entry.age.saturating_sub(1);
             }

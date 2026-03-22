@@ -48,7 +48,7 @@ pub struct ScLTagePredictor {
     clock_counter: u32,
     reset_interval: u32,
 
-    // USE_ALT_ON_NA: 4-bit counter that learns whether to trust newly
+    // `USE_ALT_ON_NA`: 4-bit counter that learns whether to trust newly
     // allocated (weak) provider entries or prefer the alt prediction.
     use_alt_on_na_ctr: i8,
 
@@ -60,6 +60,11 @@ pub struct ScLTagePredictor {
 
 impl ScLTagePredictor {
     /// Creates a new SC-L-TAGE + ITTAGE predictor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `table_size` is not a power of two, or if `history_lengths`
+    /// and `tag_widths` have different lengths, or max history exceeds 1024.
     pub fn new(
         tage_config: &TageConfig,
         sc_config: &ScConfig,
@@ -68,10 +73,7 @@ impl ScLTagePredictor {
         btb_ways: usize,
         ras_size: usize,
     ) -> Self {
-        assert!(
-            tage_config.table_size.is_power_of_two(),
-            "TAGE table size must be power of 2"
-        );
+        assert!(tage_config.table_size.is_power_of_two(), "TAGE table size must be power of 2");
 
         let num_banks = tage_config.num_banks;
         let hist_lengths = &tage_config.history_lengths;
@@ -114,7 +116,7 @@ impl ScLTagePredictor {
         }
     }
 
-    /// Core TAGE prediction with USE_ALT_ON_NA: find provider and alt banks,
+    /// Core TAGE prediction with `USE_ALT_ON_NA`: find provider and alt banks,
     /// prefer alt when the provider entry is newly allocated (weak counter)
     /// and the meta-counter favors alt. Returns (taken, confidence).
     fn tage_predict(&self, pc: u64) -> (bool, i32) {
@@ -152,17 +154,17 @@ impl ScLTagePredictor {
         // Provider is weak (newly allocated) — consider using alt instead.
         let provider_weak = prov_ctr == 0 || prov_ctr == -1;
         if provider_weak && self.use_alt_on_na_ctr >= 0 {
-            let (alt_taken, alt_conf) = match alt {
-                Some(bank) => {
+            let (alt_taken, alt_conf) = alt.map_or_else(
+                || {
+                    let ctr = self.base[base_idx];
+                    (ctr >= 0, ctr as i32)
+                },
+                |bank| {
                     let idx = self.geo_banks.spec_index(pc, bank);
                     let ctr = self.tage_tables[bank][idx].ctr;
                     (ctr >= 0, ctr as i32)
-                }
-                None => {
-                    let ctr = self.base[base_idx];
-                    (ctr >= 0, ctr as i32)
-                }
-            };
+                },
+            );
             return (alt_taken, alt_conf);
         }
 
@@ -181,8 +183,7 @@ impl BranchPredictor for ScLTagePredictor {
         }
 
         // 3. SC correction.
-        let (sc_taken, _sc_sum) =
-            self.sc.predict(pc, &self.spec_ghr, tage_taken, tage_confidence);
+        let (sc_taken, _sc_sum) = self.sc.predict(pc, &self.spec_ghr, tage_taken, tage_confidence);
 
         (sc_taken, if sc_taken { self.btb.lookup(pc) } else { None })
     }
@@ -242,8 +243,8 @@ impl BranchPredictor for ScLTagePredictor {
         };
 
         // USE_ALT_ON_NA: update meta-counter when provider is weak.
-        let provider_weak = self.provider_bank > 0
-            && (prov_confidence == 0 || prov_confidence == -1);
+        let provider_weak =
+            self.provider_bank > 0 && (prov_confidence == 0 || prov_confidence == -1);
         if provider_weak && prov_taken != alt_taken {
             if alt_taken == taken {
                 self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr + 1).min(7);
@@ -326,8 +327,7 @@ impl BranchPredictor for ScLTagePredictor {
         }
 
         // Update SC using the effective TAGE prediction (after USE_ALT_ON_NA).
-        let (_sc_pred, sc_sum) =
-            self.sc.predict(pc, ghr_snapshot, tage_taken, tage_confidence);
+        let (_sc_pred, sc_sum) = self.sc.predict(pc, ghr_snapshot, tage_taken, tage_confidence);
         self.sc.update(pc, ghr_snapshot, taken, tage_taken, sc_sum);
 
         // Update ITTAGE for indirect branches (when target is present).

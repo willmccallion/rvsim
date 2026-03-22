@@ -179,7 +179,7 @@ mod defaults {
     pub const STORE_PORTS: usize = 1;
 
     /// Default checkpoint count for O(1) branch recovery (32 slots).
-    /// Real OoO processors (e.g., BOOM, ARM Cortex-A77) typically have 16–64 checkpoint slots.
+    /// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
     pub const CHECKPOINT_COUNT: usize = 32;
 
     /// Default Physical Register File GPR size (256 entries).
@@ -1137,7 +1137,6 @@ impl PipelineConfig {
     const fn default_checkpoint_count() -> usize {
         defaults::CHECKPOINT_COUNT
     }
-
 }
 
 impl Default for PipelineConfig {

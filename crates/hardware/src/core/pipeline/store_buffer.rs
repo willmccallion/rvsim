@@ -190,7 +190,8 @@ impl StoreBuffer {
             debug_assert!(
                 matches!(entry.resolution, StoreResolution::Ready { .. }),
                 "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
-                rob_tag.0, entry.resolution,
+                rob_tag.0,
+                entry.resolution,
             );
             if let StoreResolution::Ready { paddr, data } = entry.resolution {
                 entry.resolution = StoreResolution::Committed { paddr, data };
@@ -286,9 +287,7 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if entry.valid
-                && entry.rob_tag.is_older_than(rob_tag)
-                && entry.resolution.is_pending()
+            if entry.valid && entry.rob_tag.is_older_than(rob_tag) && entry.resolution.is_pending()
             {
                 return true;
             }
@@ -542,10 +541,7 @@ mod tests {
         let entry = sb.drain_one().unwrap();
         assert_eq!(
             entry.resolution,
-            StoreResolution::Committed {
-                paddr: PhysAddr::new(0x8000_0000),
-                data: 0xDEADBEEF,
-            }
+            StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 0xDEADBEEF }
         );
         assert!(sb.is_empty());
     }
@@ -611,10 +607,7 @@ mod tests {
         let entry = sb.drain_one().unwrap();
         assert_eq!(
             entry.resolution,
-            StoreResolution::Committed {
-                paddr: PhysAddr::new(0x8000_0000),
-                data: 10,
-            }
+            StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 10 }
         );
     }
 
@@ -639,10 +632,7 @@ mod tests {
             let entry = sb.drain_one().unwrap();
             assert_eq!(
                 entry.resolution,
-                StoreResolution::Committed {
-                    paddr: PhysAddr::new(0x8000_0000),
-                    data: i as u64,
-                }
+                StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: i as u64 }
             );
         }
     }

@@ -320,7 +320,8 @@ impl Cpu {
             pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
-            has_register_renaming: config.pipeline.backend == crate::core::pipeline::engine::BackendType::OutOfOrder,
+            has_register_renaming: config.pipeline.backend
+                == crate::core::pipeline::engine::BackendType::OutOfOrder,
             i_cache_line_bytes: config.cache.l1_i.line_bytes.max(1),
             clint_divider: config.system.clint_divider,
             last_pc: 0,

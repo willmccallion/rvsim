@@ -39,19 +39,19 @@ impl CheckpointTable {
 
     /// Returns the table capacity.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.slots.len()
     }
 
     /// Returns true if all slots are occupied.
     #[inline]
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.count == self.slots.len()
     }
 
     /// Returns the number of free slots.
     #[inline]
-    pub fn available(&self) -> usize {
+    pub const fn available(&self) -> usize {
         self.slots.len() - self.count
     }
 
@@ -85,11 +85,11 @@ impl CheckpointTable {
     /// Frees all checkpoints whose `branch_tag` is newer than `keep_tag`.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
         for slot in &mut self.slots {
-            if let &mut Some(ref ckpt) = slot {
-                if ckpt.branch_tag.is_newer_than(keep_tag) {
-                    *slot = None;
-                    self.count -= 1;
-                }
+            if let &mut Some(ref ckpt) = slot
+                && ckpt.branch_tag.is_newer_than(keep_tag)
+            {
+                *slot = None;
+                self.count -= 1;
             }
         }
     }

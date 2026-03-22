@@ -278,7 +278,8 @@ pub fn commit_stage(
         debug_assert!(
             entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
             "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
-            entry.tag.0, entry.pc,
+            entry.tag.0,
+            entry.pc,
         );
         let val = entry.result.unwrap_or(0);
         if entry.ctrl.fp_reg_write {
@@ -513,10 +514,10 @@ pub fn commit_stage(
         }
 
         // Free checkpoint slot when a branch/jump commits
-        if let Some(ckpt_id) = entry.checkpoint_id {
-            if let Some(ref mut ckpt_table) = checkpoints {
-                ckpt_table.free(ckpt_id);
-            }
+        if let Some(ckpt_id) = entry.checkpoint_id
+            && let Some(ref mut ckpt_table) = checkpoints
+        {
+            ckpt_table.free(ckpt_id);
         }
 
         // FENCE.I always drains all committed stores — FENCE.I must see
