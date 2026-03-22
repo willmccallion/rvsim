@@ -5,7 +5,7 @@
 #  Override tools:  CARGO=cargo  MATURIN=maturin  PYTHON=python3
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SHELL           := /bin/bash
+SHELL           := $(shell command -v bash)
 .DEFAULT_GOAL   := help
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
@@ -166,9 +166,9 @@ profile-build:
 	@printf "$(GREEN)Building with profiling symbols…$(RESET)\n"
 	.venv/bin/maturin develop --profile profiling
 
-flamegraph: profile-build
+flamegraph:
 	@printf "$(GREEN)Recording flamegraph…$(RESET)\n"
-	flamegraph -o flamegraph.svg -- .venv/bin/rvsim $(ARGS)
+	$$HOME/.cargo/bin/flamegraph -o flamegraph.svg -F 99 -- .venv/bin/rvsim $(ARGS)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Housekeeping
