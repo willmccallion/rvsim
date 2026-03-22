@@ -44,6 +44,8 @@ pub struct VecExecResult {
     pub vxsat: bool,
     /// Scalar result for instructions that write rd (reserved for future use).
     pub scalar_result: Option<u64>,
+    /// Accumulated floating-point exception flags (OR of all elements).
+    pub fp_flags: crate::core::units::fpu::exception_flags::FpFlags,
 }
 
 /// Context bundle for vector execution loops.
@@ -724,7 +726,11 @@ fn exec_standard(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat, scalar_result: None }
+    VecExecResult {
+        vxsat,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Comparison loop: writes mask bits to vd.
@@ -761,7 +767,11 @@ fn exec_comparison(
         vpr.write_mask_bit(vd_idx, ElemIdx::new(i), result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Add/subtract with carry loop.
@@ -820,7 +830,11 @@ fn exec_carry(
         }
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Multiply-accumulate loop (vmacc, vnmsac, vmadd, vnmsub).
@@ -870,7 +884,11 @@ fn exec_macc(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Merge/move loop.
@@ -907,7 +925,11 @@ fn exec_merge(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Widening (non-accumulate) loop.
@@ -920,7 +942,11 @@ fn exec_widening(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None };
+        return VecExecResult {
+            vxsat: false,
+            scalar_result: None,
+            fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+        };
     };
     // Destination VLMAX is computed at the wider SEW with doubled LMUL.
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
@@ -949,7 +975,11 @@ fn exec_widening(
         vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Widening multiply-accumulate loop.
@@ -962,7 +992,11 @@ fn exec_widening_macc(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None };
+        return VecExecResult {
+            vxsat: false,
+            scalar_result: None,
+            fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+        };
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
@@ -990,7 +1024,11 @@ fn exec_widening_macc(
         vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Narrowing loop.
@@ -1003,7 +1041,11 @@ fn exec_narrowing(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None };
+        return VecExecResult {
+            vxsat: false,
+            scalar_result: None,
+            fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+        };
     };
     // sew is the destination width; wsew = 2*sew is the source width.
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
@@ -1034,7 +1076,11 @@ fn exec_narrowing(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat, scalar_result: None }
+    VecExecResult {
+        vxsat,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 /// Extension loop (vzext, vsext).
@@ -1058,7 +1104,11 @@ fn exec_extension(
     };
 
     let Some(src_sew) = frac_sew(ctx.sew, factor) else {
-        return VecExecResult { vxsat: false, scalar_result: None };
+        return VecExecResult {
+            vxsat: false,
+            scalar_result: None,
+            fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+        };
     };
 
     for i in 0..vlmax {
@@ -1084,7 +1134,11 @@ fn exec_extension(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None }
+    VecExecResult {
+        vxsat: false,
+        scalar_result: None,
+        fp_flags: crate::core::units::fpu::exception_flags::FpFlags::NONE,
+    }
 }
 
 // ============================================================================

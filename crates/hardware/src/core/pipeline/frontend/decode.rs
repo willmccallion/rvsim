@@ -482,8 +482,10 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         let (op, writes_vec) = decode_opmvv(f6, inst)?;
                         c.vec_op = op;
                         c.vec_reg_write = writes_vec;
-                        // Some OPMVV ops write scalar rd (e.g., future vmv.x.s)
-                        // For now all write vec
+                        // Some OPMVV ops write scalar rd instead of vec
+                        if matches!(op, VectorOp::VMvXS | VectorOp::VCPopM | VectorOp::VFirstM) {
+                            c.reg_write = true;
+                        }
                     }
                     v_funct3::OPMVX => {
                         c.vec_src_encoding = VecSrcEncoding::VX;
@@ -491,8 +493,23 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         c.vec_op = op;
                         c.vec_reg_write = writes_vec;
                     }
+                    v_funct3::OPFVV => {
+                        c.vec_src_encoding = VecSrcEncoding::VV;
+                        let (op, writes_vec) = decode_opfvv(f6, inst)?;
+                        c.vec_op = op;
+                        c.vec_reg_write = writes_vec;
+                        // Scalar-to-FP move (vfmv.f.s) writes FP rd, not vec
+                        if matches!(op, VectorOp::VFMvFS) {
+                            c.fp_reg_write = true;
+                        }
+                    }
+                    v_funct3::OPFVF => {
+                        c.vec_src_encoding = VecSrcEncoding::VF;
+                        let (op, writes_vec) = decode_opfvf(f6, inst)?;
+                        c.vec_op = op;
+                        c.vec_reg_write = writes_vec;
+                    }
                     _ => {
-                        // OPFVV, OPFVF — decoded in Phase 4
                         return Err(Trap::IllegalInstruction(inst));
                     }
                 }
@@ -516,8 +533,8 @@ const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VAND => VectorOp::VAnd,
         v_f6::VOR => VectorOp::VOr,
         v_f6::VXOR => VectorOp::VXor,
-        // TODO: Phase 4 permutations — VRGATHER decoded as VAdd placeholder
-        v_f6::VADD | v_f6::VRGATHER => VectorOp::VAdd,
+        v_f6::VADD => VectorOp::VAdd,
+        v_f6::VRGATHER => VectorOp::VRgather,
         v_f6::VADC => VectorOp::VAdc,
         v_f6::VMADC => VectorOp::VMadc,
         v_f6::VSBC => VectorOp::VSbc,
@@ -559,8 +576,9 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VAND => VectorOp::VAnd,
         v_f6::VOR => VectorOp::VOr,
         v_f6::VXOR => VectorOp::VXor,
-        // TODO: Phase 4 permutations — VSLIDEUP/VSLIDEDOWN decoded as VAdd placeholder
-        v_f6::VADD | v_f6::VSLIDEUP | v_f6::VSLIDEDOWN => VectorOp::VAdd,
+        v_f6::VADD => VectorOp::VAdd,
+        v_f6::VSLIDEUP => VectorOp::VSlideUp,
+        v_f6::VSLIDEDOWN => VectorOp::VSlideDown,
         v_f6::VADC => VectorOp::VAdc,
         v_f6::VMADC => VectorOp::VMadc,
         v_f6::VSBC => VectorOp::VSbc,
@@ -599,8 +617,21 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VAND => VectorOp::VAnd,
         v_f6::VOR => VectorOp::VOr,
         v_f6::VXOR => VectorOp::VXor,
-        // TODO: Phase 4 permutations — VRGATHER/VSLIDEUP/VSLIDEDOWN decoded as VAdd placeholder
-        v_f6::VADD | v_f6::VRGATHER | v_f6::VSLIDEUP | v_f6::VSLIDEDOWN => VectorOp::VAdd,
+        v_f6::VADD => VectorOp::VAdd,
+        v_f6::VRGATHER => VectorOp::VRgather,
+        v_f6::VSLIDEUP => VectorOp::VSlideUp,
+        v_f6::VSLIDEDOWN => VectorOp::VSlideDown,
+        // Whole-register move: funct6=0b100111 in OPIVI with simm5 encoding nregs
+        v_f6::VSMUL => {
+            let vs1_field = v_enc::vs1(inst);
+            match vs1_field {
+                0b00000 => VectorOp::VMv1r,
+                0b00001 => VectorOp::VMv2r,
+                0b00011 => VectorOp::VMv4r,
+                0b00111 => VectorOp::VMv8r,
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
         v_f6::VADC => VectorOp::VAdc,
         v_f6::VMADC => VectorOp::VMadc,
         v_f6::VMERGE_VMV => VectorOp::VMerge,
@@ -629,6 +660,102 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
+        // Integer reductions (funct6 0b000000..0b000111)
+        v_f6::VREDSUM => (VectorOp::VRedSum, true),
+        v_f6::VREDAND => (VectorOp::VRedAnd, true),
+        v_f6::VREDOR => (VectorOp::VRedOr, true),
+        v_f6::VREDXOR => (VectorOp::VRedXor, true),
+        v_f6::VREDMINU => (VectorOp::VRedMinU, true),
+        v_f6::VREDMIN => (VectorOp::VRedMin, true),
+        v_f6::VREDMAXU => (VectorOp::VRedMaxU, true),
+        v_f6::VREDMAX => (VectorOp::VRedMax, true),
+        // Averaging add/sub
+        v_f6::VAADDU => (VectorOp::VAAddU, true),
+        v_f6::VAADD => (VectorOp::VAAdd, true),
+        v_f6::VASUBU => (VectorOp::VASubU, true),
+        v_f6::VASUB => (VectorOp::VASub, true),
+        // Unary ops: vmv.x.s, vcpop.m, vfirst.m (funct6 = 0b010000)
+        0b010000 => {
+            let vs1_field = v_enc::vs1(inst);
+            match vs1_field {
+                0b00000 => (VectorOp::VMvXS, false),
+                0b10000 => (VectorOp::VCPopM, false),
+                0b10001 => (VectorOp::VFirstM, false),
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
+        // Mask-producing and misc unary (funct6 = 0b010100)
+        0b010100 => {
+            let vs1_field = v_enc::vs1(inst);
+            match vs1_field {
+                0b00001 => (VectorOp::VMSbfM, true),
+                0b00010 => (VectorOp::VMSofM, true),
+                0b00011 => (VectorOp::VMSifM, true),
+                0b10000 => (VectorOp::VIotaM, true),
+                0b10001 => (VectorOp::VIdV, true),
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
+        // Compress (funct6 = 0b010111, same value as VMERGE_VMV but in OPMVV)
+        v_f6::VMERGE_VMV => (VectorOp::VCompress, true),
+        // Mask-register logical (funct6 0b011000..0b011111)
+        v_f6::VMANDN => (VectorOp::VMAndnMM, true),
+        v_f6::VMAND => (VectorOp::VMAndMM, true),
+        v_f6::VMOR => (VectorOp::VMOrMM, true),
+        v_f6::VMXOR => (VectorOp::VMXorMM, true),
+        v_f6::VMORN => (VectorOp::VMOrnMM, true),
+        v_f6::VMNAND => (VectorOp::VMNandMM, true),
+        v_f6::VMNOR => (VectorOp::VMNorMM, true),
+        v_f6::VMXNOR => (VectorOp::VMXnorMM, true),
+        // Integer multiply
+        v_f6::VMUL => (VectorOp::VMul, true),
+        v_f6::VMULH => (VectorOp::VMulh, true),
+        v_f6::VMULHU => (VectorOp::VMulhu, true),
+        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
+        // Multiply-accumulate
+        v_f6::VMACC => (VectorOp::VMacc, true),
+        v_f6::VNMSAC => (VectorOp::VNMSac, true),
+        v_f6::VMADD => (VectorOp::VMadd, true),
+        v_f6::VNMSUB => (VectorOp::VNMSub, true),
+        // Integer divide
+        v_f6::VDIVU => (VectorOp::VDivU, true),
+        v_f6::VDIV => (VectorOp::VDiv, true),
+        v_f6::VREMU => (VectorOp::VRemU, true),
+        v_f6::VREM => (VectorOp::VRem, true),
+        // Widening integer add/sub
+        // NOTE: VWADDU (0b110000) overlaps VWREDSUMU — decoded as widening add;
+        // VWADD (0b110001) overlaps VWREDSUM — decoded as widening add.
+        // TODO: Widening reductions share encoding with widening add/sub.
+        v_f6::VWADDU => (VectorOp::VWAddU, true),
+        v_f6::VWADD => (VectorOp::VWAdd, true),
+        v_f6::VWSUBU => (VectorOp::VWSubU, true),
+        v_f6::VWSUB => (VectorOp::VWSub, true),
+        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
+        v_f6::VWADD_W => (VectorOp::VWAddW, true),
+        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
+        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
+        // Widening multiply
+        v_f6::VWMULU => (VectorOp::VWMulU, true),
+        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
+        v_f6::VWMUL => (VectorOp::VWMul, true),
+        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
+        v_f6::VWMACC => (VectorOp::VWMacc, true),
+        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
+        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPMVX funct3 (mask/move vector-scalar) operations.
+/// Returns `(VectorOp, writes_vec_reg)`.
+const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+    Ok(match f6 {
+        // vmv.s.x — move scalar GPR to vector element 0
+        0b010000 => (VectorOp::VMvSX, true),
+        // vslide1up.vx
+        v_f6::VSLIDEUP => (VectorOp::VSlide1Up, true),
+        // vslide1down.vx
+        v_f6::VSLIDEDOWN => (VectorOp::VSlide1Down, true),
         // Integer multiply
         v_f6::VMUL => (VectorOp::VMul, true),
         v_f6::VMULH => (VectorOp::VMulh, true),
@@ -670,47 +797,168 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     })
 }
 
-/// Decode OPMVX funct3 (mask/move vector-scalar) operations.
+// ── Vector FP decode helpers ──────────────────────────────────────────────────
+
+/// Decode `VFUNARY0` sub-operations (conversion ops) from the vs1 field.
+const fn decode_vfunary0(inst: u32) -> Result<VectorOp, Trap> {
+    let vs1_field = v_enc::vs1(inst);
+    Ok(match vs1_field {
+        // Single-width conversions
+        0b00000 => VectorOp::VFCvtXuF,
+        0b00001 => VectorOp::VFCvtXF,
+        0b00010 => VectorOp::VFCvtFXu,
+        0b00011 => VectorOp::VFCvtFX,
+        0b00110 => VectorOp::VFCvtRtzXuF,
+        0b00111 => VectorOp::VFCvtRtzXF,
+        // Widening conversions
+        0b01000 => VectorOp::VFWCvtXuF,
+        0b01001 => VectorOp::VFWCvtXF,
+        0b01010 => VectorOp::VFWCvtFXu,
+        0b01011 => VectorOp::VFWCvtFX,
+        0b01100 => VectorOp::VFWCvtFF,
+        0b01110 => VectorOp::VFWCvtRtzXuF,
+        0b01111 => VectorOp::VFWCvtRtzXF,
+        // Narrowing conversions
+        0b10000 => VectorOp::VFNCvtXuF,
+        0b10001 => VectorOp::VFNCvtXF,
+        0b10010 => VectorOp::VFNCvtFXu,
+        0b10011 => VectorOp::VFNCvtFX,
+        0b10100 => VectorOp::VFNCvtFF,
+        0b10101 => VectorOp::VFNCvtRodFF,
+        0b10110 => VectorOp::VFNCvtRtzXuF,
+        0b10111 => VectorOp::VFNCvtRtzXF,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode `VFUNARY1` sub-operations (`vfsqrt`, `vfrsqrt7`, `vfrec7`, `vfclass`)
+/// from the vs1 field.
+const fn decode_vfunary1(inst: u32) -> Result<VectorOp, Trap> {
+    let vs1_field = v_enc::vs1(inst);
+    Ok(match vs1_field {
+        0b00000 => VectorOp::VFSqrt,
+        0b00100 => VectorOp::VFRsqrt7,
+        0b00101 => VectorOp::VFRec7,
+        0b10000 => VectorOp::VFClass,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPFVV funct3 (FP vector-vector) operations.
 /// Returns `(VectorOp, writes_vec_reg)`.
-const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        // Integer multiply
-        v_f6::VMUL => (VectorOp::VMul, true),
-        v_f6::VMULH => (VectorOp::VMulh, true),
-        v_f6::VMULHU => (VectorOp::VMulhu, true),
-        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
-        // Multiply-accumulate
-        v_f6::VMACC => (VectorOp::VMacc, true),
-        v_f6::VNMSAC => (VectorOp::VNMSac, true),
-        v_f6::VMADD => (VectorOp::VMadd, true),
-        v_f6::VNMSUB => (VectorOp::VNMSub, true),
-        // Integer divide
-        v_f6::VDIVU => (VectorOp::VDivU, true),
-        v_f6::VDIV => (VectorOp::VDiv, true),
-        v_f6::VREMU => (VectorOp::VRemU, true),
-        v_f6::VREM => (VectorOp::VRem, true),
-        // Widening integer add/sub
-        v_f6::VWADDU => (VectorOp::VWAddU, true),
-        v_f6::VWADD => (VectorOp::VWAdd, true),
-        v_f6::VWSUBU => (VectorOp::VWSubU, true),
-        v_f6::VWSUB => (VectorOp::VWSub, true),
-        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
-        v_f6::VWADD_W => (VectorOp::VWAddW, true),
-        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
-        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
-        // Widening multiply
-        v_f6::VWMULU => (VectorOp::VWMulU, true),
-        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
-        v_f6::VWMUL => (VectorOp::VWMul, true),
-        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
-        v_f6::VWMACC => (VectorOp::VWMacc, true),
-        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
-        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
-        // Averaging add/sub
-        v_f6::VAADDU => (VectorOp::VAAddU, true),
-        v_f6::VAADD => (VectorOp::VAAdd, true),
-        v_f6::VASUBU => (VectorOp::VASubU, true),
-        v_f6::VASUB => (VectorOp::VASub, true),
+        // FP arithmetic
+        v_f6::VFADD => (VectorOp::VFAdd, true),
+        v_f6::VFSUB => (VectorOp::VFSub, true),
+        v_f6::VFMIN => (VectorOp::VFMin, true),
+        v_f6::VFMAX => (VectorOp::VFMax, true),
+        // FP sign injection
+        v_f6::VFSGNJ => (VectorOp::VFSgnj, true),
+        v_f6::VFSGNJN => (VectorOp::VFSgnjn, true),
+        v_f6::VFSGNJX => (VectorOp::VFSgnjx, true),
+        // FP comparison (write mask)
+        v_f6::VMFEQ => (VectorOp::VMFEq, true),
+        v_f6::VMFLE => (VectorOp::VMFLe, true),
+        v_f6::VMFLT => (VectorOp::VMFLt, true),
+        v_f6::VMFNE => (VectorOp::VMFNe, true),
+        // FP divide/multiply
+        v_f6::VFDIV => (VectorOp::VFDiv, true),
+        v_f6::VFMUL => (VectorOp::VFMul, true),
+        // FP fused multiply-add
+        v_f6::VFMACC => (VectorOp::VFMacc, true),
+        v_f6::VFNMACC => (VectorOp::VFNMacc, true),
+        v_f6::VFMSAC => (VectorOp::VFMSac, true),
+        v_f6::VFNMSAC => (VectorOp::VFNMSac, true),
+        v_f6::VFMADD => (VectorOp::VFMAdd, true),
+        v_f6::VFNMADD => (VectorOp::VFNMAdd, true),
+        v_f6::VFMSUB => (VectorOp::VFMSub, true),
+        v_f6::VFNMSUB => (VectorOp::VFNMSub, true),
+        // FP widening arithmetic
+        v_f6::VFWADD => (VectorOp::VFWAdd, true),
+        v_f6::VFWSUB => (VectorOp::VFWSub, true),
+        v_f6::VFWADD_W => (VectorOp::VFWAddW, true),
+        v_f6::VFWSUB_W => (VectorOp::VFWSubW, true),
+        v_f6::VFWMUL => (VectorOp::VFWMul, true),
+        // FP widening FMA
+        v_f6::VFWMACC => (VectorOp::VFWMacc, true),
+        v_f6::VFWNMACC => (VectorOp::VFWNMacc, true),
+        v_f6::VFWMSAC => (VectorOp::VFWMSac, true),
+        v_f6::VFWNMSAC => (VectorOp::VFWNMSac, true),
+        // FP unary: conversion (VFUNARY0)
+        v_f6::VFUNARY0 => match decode_vfunary0(inst) {
+            Ok(op) => (op, true),
+            Err(e) => return Err(e),
+        },
+        // FP unary: sqrt/class/rec (VFUNARY1)
+        v_f6::VFUNARY1 => match decode_vfunary1(inst) {
+            Ok(op) => (op, true),
+            Err(e) => return Err(e),
+        },
+        // FP merge/move (funct6 = 0b010111 in OPFVV = vfmv.f.s)
+        v_f6::VMERGE_VMV => (VectorOp::VFMvFS, false),
+        // FP reductions
+        v_f6::VFREDUSUM => (VectorOp::VFRedUSum, true),
+        v_f6::VFREDOSUM => (VectorOp::VFRedOSum, true),
+        v_f6::VFREDMIN => (VectorOp::VFRedMin, true),
+        v_f6::VFREDMAX => (VectorOp::VFRedMax, true),
+        // FP widening reductions
+        v_f6::VFWREDUSUM => (VectorOp::VFWRedUSum, true),
+        v_f6::VFWREDOSUM => (VectorOp::VFWRedOSum, true),
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    })
+}
+
+/// Decode OPFVF funct3 (FP vector-scalar) operations.
+/// Returns `(VectorOp, writes_vec_reg)`.
+const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+    Ok(match f6 {
+        // FP arithmetic
+        v_f6::VFADD => (VectorOp::VFAdd, true),
+        v_f6::VFSUB => (VectorOp::VFSub, true),
+        v_f6::VFMIN => (VectorOp::VFMin, true),
+        v_f6::VFMAX => (VectorOp::VFMax, true),
+        // FP sign injection
+        v_f6::VFSGNJ => (VectorOp::VFSgnj, true),
+        v_f6::VFSGNJN => (VectorOp::VFSgnjn, true),
+        v_f6::VFSGNJX => (VectorOp::VFSgnjx, true),
+        // FP comparison (write mask)
+        v_f6::VMFEQ => (VectorOp::VMFEq, true),
+        v_f6::VMFLE => (VectorOp::VMFLe, true),
+        v_f6::VMFLT => (VectorOp::VMFLt, true),
+        v_f6::VMFNE => (VectorOp::VMFNe, true),
+        v_f6::VMFGT => (VectorOp::VMFGt, true),
+        v_f6::VMFGE => (VectorOp::VMFGe, true),
+        // FP divide/multiply (OPFVF includes reverse variants)
+        v_f6::VFDIV => (VectorOp::VFDiv, true),
+        v_f6::VFRDIV => (VectorOp::VFRDiv, true),
+        v_f6::VFMUL => (VectorOp::VFMul, true),
+        // FP fused multiply-add
+        v_f6::VFMACC => (VectorOp::VFMacc, true),
+        v_f6::VFNMACC => (VectorOp::VFNMacc, true),
+        v_f6::VFMSAC => (VectorOp::VFMSac, true),
+        v_f6::VFNMSAC => (VectorOp::VFNMSac, true),
+        v_f6::VFMADD => (VectorOp::VFMAdd, true),
+        v_f6::VFNMADD => (VectorOp::VFNMAdd, true),
+        v_f6::VFMSUB => (VectorOp::VFMSub, true),
+        v_f6::VFNMSUB => (VectorOp::VFNMSub, true),
+        // FP widening arithmetic
+        v_f6::VFWADD => (VectorOp::VFWAdd, true),
+        v_f6::VFWSUB => (VectorOp::VFWSub, true),
+        v_f6::VFWADD_W => (VectorOp::VFWAddW, true),
+        v_f6::VFWSUB_W => (VectorOp::VFWSubW, true),
+        v_f6::VFWMUL => (VectorOp::VFWMul, true),
+        // FP widening FMA
+        v_f6::VFWMACC => (VectorOp::VFWMacc, true),
+        v_f6::VFWNMACC => (VectorOp::VFWNMacc, true),
+        v_f6::VFWMSAC => (VectorOp::VFWMSac, true),
+        v_f6::VFWNMSAC => (VectorOp::VFWNMSac, true),
+        // FP slides (OPFVF only)
+        v_f6::VFSLIDE1UP => (VectorOp::VFSlide1Up, true),
+        v_f6::VFSLIDE1DOWN => (VectorOp::VFSlide1Down, true),
+        // FP merge/move (funct6 = 0b010111 in OPFVF)
+        // vm=0: vfmerge.vfm, vm=1: vfmv.v.f
+        v_f6::VMERGE_VMV => (VectorOp::VFMerge, true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }

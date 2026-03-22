@@ -1,16 +1,16 @@
 //! Vector instruction execution dispatch.
 //!
-//! Bridges the pipeline (which carries scalar values in latches) to the VPU ALU
-//! (which operates on the architectural VPR). All vector ops are serializing,
-//! so we can safely read/write the VPR at execute time.
+//! Bridges the pipeline (which carries scalar values in latches) to the VPU
+//! execution modules (which operate on the architectural VPR). All vector ops
+//! are serializing, so we can safely read/write the VPR at execute time.
 
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
-use crate::core::units::vpu::alu::{VecOperand, vec_execute};
-use crate::core::units::vpu::mem;
-use crate::core::units::vpu::types::{Vlmax, parse_vtype};
+use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
+use crate::core::units::vpu::types::{Vxrm, parse_vtype};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
+use crate::core::units::vpu::{fpu, mask, mem, permute, reduction};
 use crate::isa::rvv::encoding as v_enc;
 
 /// Execute a vector operation. Returns the scalar result (for vsetvl family)
@@ -23,6 +23,10 @@ pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         VectorOp::None => 0,
         op if mem::is_vec_load(op) => execute_vec_load(cpu, id),
         op if mem::is_vec_store(op) => execute_vec_store(cpu, id),
+        op if fpu::is_vec_fp(op) => execute_vec_fp(cpu, id),
+        op if reduction::is_reduction(op) => execute_vec_reduction(cpu, id),
+        op if mask::is_mask_op(op) => execute_vec_mask(cpu, id),
+        op if permute::is_permute(op) => execute_vec_permute(cpu, id),
         _ => execute_vec_arith(cpu, id),
     }
 }
@@ -75,30 +79,49 @@ fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     new_vl
 }
 
-/// Execute a vector arithmetic operation on the VPR.
+/// Build the common execution context from CPU state.
+const fn build_ctx(cpu: &Cpu) -> VecExecCtx {
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    VecExecCtx {
+        sew: vtype.vsew,
+        vl: cpu.csrs.vl as usize,
+        vstart: cpu.csrs.vstart as usize,
+        vma: vtype.vma,
+        vta: vtype.vta,
+        vlmul: vtype.vlmul,
+        vm: true, // overridden per-instruction
+        vxrm: Vxrm::from_bits(cpu.csrs.vxrm as u8),
+    }
+}
+
+/// Build operand1 from pipeline latch data based on source encoding.
+const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
+    match id.ctrl.vec_src_encoding {
+        VecSrcEncoding::VV => VecOperand::Vector(id.ctrl.vs1),
+        VecSrcEncoding::VX | VecSrcEncoding::VF => VecOperand::Scalar(id.rv1),
+        VecSrcEncoding::VI => VecOperand::Immediate(v_enc::simm5(id.inst)),
+        VecSrcEncoding::None => VecOperand::Scalar(0),
+    }
+}
+
+/// Mark `mstatus.VS` and `sstatus.VS` as dirty.
+const fn mark_vs_dirty(cpu: &mut Cpu) {
+    cpu.csrs.mstatus = (cpu.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
+        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+    cpu.csrs.sstatus = (cpu.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
+        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+}
+
+/// Execute a vector integer arithmetic operation on the VPR.
 fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     let vtype = parse_vtype(cpu.csrs.vtype);
-
-    // If vtype is illegal, the instruction is a no-op (spec: vill=1 means
-    // all vector arithmetic instructions raise illegal instruction).
-    // However, since we already decoded it, we treat it as a NOP here.
-    // In a real implementation, this would trap. For now, just return 0.
     if vtype.vill {
         return 0;
     }
 
-    let vl = cpu.csrs.vl as usize;
-    let vstart = cpu.csrs.vstart as usize;
-    let vlen = cpu.regs.vpr().vlen();
-    let _vlmax = Vlmax::compute(vlen, vtype.vsew, vtype.vlmul).as_usize();
-
-    // Build operand1 based on source encoding
-    let operand1 = match id.ctrl.vec_src_encoding {
-        VecSrcEncoding::VV => VecOperand::Vector(id.ctrl.vs1),
-        VecSrcEncoding::VX => VecOperand::Scalar(id.rv1),
-        VecSrcEncoding::VI => VecOperand::Immediate(v_enc::simm5(id.inst)),
-        VecSrcEncoding::VF | VecSrcEncoding::None => VecOperand::Scalar(0),
-    };
+    let mut ctx = build_ctx(cpu);
+    ctx.vm = id.ctrl.vm;
+    let operand1 = build_operand1(id);
 
     let result = vec_execute(
         id.ctrl.vec_op,
@@ -107,30 +130,123 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         id.ctrl.vs2,
         operand1,
         vtype.vsew,
-        vl,
-        vstart,
+        ctx.vl,
+        ctx.vstart,
         vtype.vma,
         vtype.vta,
         vtype.vlmul,
         id.ctrl.vm,
-        crate::core::units::vpu::types::Vxrm::from_bits(cpu.csrs.vxrm as u8),
+        ctx.vxrm,
     );
 
-    // Apply vxsat if saturation occurred
     if result.vxsat {
         cpu.csrs.vxsat = 1;
     }
-
-    // Clear vstart after successful execution
     cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    result.scalar_result.unwrap_or(0)
+}
 
-    // Set mstatus.VS = Dirty
-    cpu.csrs.mstatus = (cpu.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
-        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
-    cpu.csrs.sstatus = (cpu.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
-        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+/// Execute a vector floating-point operation.
+fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    if vtype.vill {
+        return 0;
+    }
 
-    // Vector arithmetic ops produce no scalar result
+    let mut ctx = build_ctx(cpu);
+    ctx.vm = id.ctrl.vm;
+    let operand1 = build_operand1(id);
+
+    let result = fpu::vec_fp_execute(
+        id.ctrl.vec_op,
+        cpu.regs.vpr_mut(),
+        id.ctrl.vd,
+        id.ctrl.vs2,
+        operand1,
+        &ctx,
+    );
+
+    // Accumulate FP exception flags
+    cpu.csrs.fflags |= result.fp_flags.bits() as u64;
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    result.scalar_result.unwrap_or(0)
+}
+
+/// Execute a vector reduction operation.
+fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    if vtype.vill {
+        return 0;
+    }
+
+    let mut ctx = build_ctx(cpu);
+    ctx.vm = id.ctrl.vm;
+
+    let operand1 = VecOperand::Vector(id.ctrl.vs1);
+    let result = reduction::vec_reduce(
+        id.ctrl.vec_op,
+        cpu.regs.vpr_mut(),
+        id.ctrl.vd,
+        id.ctrl.vs2,
+        &operand1,
+        &ctx,
+    );
+
+    cpu.csrs.fflags |= result.fp_flags.bits() as u64;
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    result.scalar_result.unwrap_or(0)
+}
+
+/// Execute a vector mask operation.
+fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    if vtype.vill {
+        return 0;
+    }
+
+    let mut ctx = build_ctx(cpu);
+    ctx.vm = id.ctrl.vm;
+    let operand1 = build_operand1(id);
+
+    let result = mask::vec_mask_execute(
+        id.ctrl.vec_op,
+        cpu.regs.vpr_mut(),
+        id.ctrl.vd,
+        id.ctrl.vs2,
+        &operand1,
+        &ctx,
+    );
+
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    result.scalar_result.unwrap_or(0)
+}
+
+/// Execute a vector permutation operation.
+fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    if vtype.vill {
+        return 0;
+    }
+
+    let mut ctx = build_ctx(cpu);
+    ctx.vm = id.ctrl.vm;
+    let operand1 = build_operand1(id);
+
+    let result = permute::vec_permute_execute(
+        id.ctrl.vec_op,
+        cpu.regs.vpr_mut(),
+        id.ctrl.vd,
+        id.ctrl.vs2,
+        &operand1,
+        &ctx,
+    );
+
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
     result.scalar_result.unwrap_or(0)
 }
 
@@ -138,13 +254,8 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     match mem::execute_vec_load(cpu, id) {
         Ok(result) => {
-            // Clear vstart after successful execution
             cpu.csrs.vstart = 0;
-            // Set mstatus.VS = Dirty
-            cpu.csrs.mstatus = (cpu.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
-                | crate::core::arch::csr::MSTATUS_VS_DIRTY;
-            cpu.csrs.sstatus = (cpu.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
-                | crate::core::arch::csr::MSTATUS_VS_DIRTY;
+            mark_vs_dirty(cpu);
             result
         }
         Err(_trap) => {

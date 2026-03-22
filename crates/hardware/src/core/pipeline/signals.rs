@@ -601,6 +601,266 @@ pub enum VectorOp {
     VLoadIndexUnord,
     /// Indexed unordered vector store (`vsuxei8/16/32/64`).
     VStoreIndexUnord,
+
+    // ── FP arithmetic ───────────────────────────────────────────────────
+    /// `vfadd` — vector FP add.
+    VFAdd,
+    /// `vfsub` — vector FP subtract.
+    VFSub,
+    /// `vfrsub` — vector FP reverse subtract (scalar - vs2).
+    VFRSub,
+    /// `vfmul` — vector FP multiply.
+    VFMul,
+    /// `vfdiv` — vector FP divide.
+    VFDiv,
+    /// `vfrdiv` — vector FP reverse divide (scalar / vs2).
+    VFRDiv,
+
+    // ── FP min/max ──────────────────────────────────────────────────────
+    /// `vfmin` — vector FP minimum.
+    VFMin,
+    /// `vfmax` — vector FP maximum.
+    VFMax,
+
+    // ── FP sign injection ───────────────────────────────────────────────
+    /// `vfsgnj` — vector FP sign injection (copy sign).
+    VFSgnj,
+    /// `vfsgnjn` — vector FP negated sign injection.
+    VFSgnjn,
+    /// `vfsgnjx` — vector FP XOR sign injection.
+    VFSgnjx,
+
+    // ── FP comparison (write mask) ──────────────────────────────────────
+    /// `vmfeq` — set mask if FP equal.
+    VMFEq,
+    /// `vmfne` — set mask if FP not equal.
+    VMFNe,
+    /// `vmflt` — set mask if FP less than.
+    VMFLt,
+    /// `vmfle` — set mask if FP less than or equal.
+    VMFLe,
+    /// `vmfgt` — set mask if FP greater than.
+    VMFGt,
+    /// `vmfge` — set mask if FP greater than or equal.
+    VMFGe,
+
+    // ── FP fused multiply-add ───────────────────────────────────────────
+    /// `vfmacc` — FP multiply-accumulate (vd = vs1*vs2 + vd).
+    VFMacc,
+    /// `vfnmacc` — FP negated multiply-accumulate (vd = -(vs1*vs2) - vd).
+    VFNMacc,
+    /// `vfmsac` — FP multiply-subtract accumulate (vd = vs1*vs2 - vd).
+    VFMSac,
+    /// `vfnmsac` — FP negated multiply-subtract accumulate (vd = -(vs1*vs2) + vd).
+    VFNMSac,
+    /// `vfmadd` — FP multiply-add (vd = vs1*vd + vs2).
+    VFMAdd,
+    /// `vfnmadd` — FP negated multiply-add (vd = -(vs1*vd) - vs2).
+    VFNMAdd,
+    /// `vfmsub` — FP multiply-subtract (vd = vs1*vd - vs2).
+    VFMSub,
+    /// `vfnmsub` — FP negated multiply-subtract (vd = -(vs1*vd) + vs2).
+    VFNMSub,
+
+    // ── FP unary ────────────────────────────────────────────────────────
+    /// `vfsqrt` — vector FP square root.
+    VFSqrt,
+    /// `vfrsqrt7` — vector FP reciprocal square root (7-bit accuracy).
+    VFRsqrt7,
+    /// `vfrec7` — vector FP reciprocal (7-bit accuracy).
+    VFRec7,
+    /// `vfclass` — vector FP classify.
+    VFClass,
+
+    // ── FP conversion (int<->float) ─────────────────────────────────────
+    /// `vfcvt.xu.f` — convert FP to unsigned integer.
+    VFCvtXuF,
+    /// `vfcvt.x.f` — convert FP to signed integer.
+    VFCvtXF,
+    /// `vfcvt.f.xu` — convert unsigned integer to FP.
+    VFCvtFXu,
+    /// `vfcvt.f.x` — convert signed integer to FP.
+    VFCvtFX,
+    /// `vfcvt.rtz.xu.f` — convert FP to unsigned integer (round toward zero).
+    VFCvtRtzXuF,
+    /// `vfcvt.rtz.x.f` — convert FP to signed integer (round toward zero).
+    VFCvtRtzXF,
+
+    // ── FP widening arithmetic ──────────────────────────────────────────
+    /// `vfwadd` — widening FP add (SEW -> 2*SEW).
+    VFWAdd,
+    /// `vfwsub` — widening FP subtract (SEW -> 2*SEW).
+    VFWSub,
+    /// `vfwmul` — widening FP multiply (SEW -> 2*SEW).
+    VFWMul,
+    /// `vfwadd.w` — widening FP add wide (2*SEW op SEW -> 2*SEW).
+    VFWAddW,
+    /// `vfwsub.w` — widening FP subtract wide (2*SEW op SEW -> 2*SEW).
+    VFWSubW,
+
+    // ── FP widening FMA ─────────────────────────────────────────────────
+    /// `vfwmacc` — widening FP multiply-accumulate.
+    VFWMacc,
+    /// `vfwnmacc` — widening FP negated multiply-accumulate.
+    VFWNMacc,
+    /// `vfwmsac` — widening FP multiply-subtract accumulate.
+    VFWMSac,
+    /// `vfwnmsac` — widening FP negated multiply-subtract accumulate.
+    VFWNMSac,
+
+    // ── FP widening conversion ──────────────────────────────────────────
+    /// `vfwcvt.xu.f` — widening convert FP to unsigned integer.
+    VFWCvtXuF,
+    /// `vfwcvt.x.f` — widening convert FP to signed integer.
+    VFWCvtXF,
+    /// `vfwcvt.f.xu` — widening convert unsigned integer to FP.
+    VFWCvtFXu,
+    /// `vfwcvt.f.x` — widening convert signed integer to FP.
+    VFWCvtFX,
+    /// `vfwcvt.f.f` — widening convert FP to wider FP.
+    VFWCvtFF,
+    /// `vfwcvt.rtz.xu.f` — widening convert FP to unsigned integer (round toward zero).
+    VFWCvtRtzXuF,
+    /// `vfwcvt.rtz.x.f` — widening convert FP to signed integer (round toward zero).
+    VFWCvtRtzXF,
+
+    // ── FP narrowing conversion ─────────────────────────────────────────
+    /// `vfncvt.xu.f` — narrowing convert FP to unsigned integer.
+    VFNCvtXuF,
+    /// `vfncvt.x.f` — narrowing convert FP to signed integer.
+    VFNCvtXF,
+    /// `vfncvt.f.xu` — narrowing convert unsigned integer to FP.
+    VFNCvtFXu,
+    /// `vfncvt.f.x` — narrowing convert signed integer to FP.
+    VFNCvtFX,
+    /// `vfncvt.f.f` — narrowing convert FP to narrower FP.
+    VFNCvtFF,
+    /// `vfncvt.rod.f.f` — narrowing convert FP to narrower FP (round-odd).
+    VFNCvtRodFF,
+    /// `vfncvt.rtz.xu.f` — narrowing convert FP to unsigned integer (round toward zero).
+    VFNCvtRtzXuF,
+    /// `vfncvt.rtz.x.f` — narrowing convert FP to signed integer (round toward zero).
+    VFNCvtRtzXF,
+
+    // ── FP merge/move ───────────────────────────────────────────────────
+    /// `vfmerge` — vector FP merge with mask.
+    VFMerge,
+    /// `vfmv.s.f` — move FP scalar to vector element 0.
+    VFMvSF,
+    /// `vfmv.f.s` — move vector element 0 to FP scalar.
+    VFMvFS,
+
+    // ── FP slides ───────────────────────────────────────────────────────
+    /// `vfslide1up` — slide up by one with FP scalar.
+    VFSlide1Up,
+    /// `vfslide1down` — slide down by one with FP scalar.
+    VFSlide1Down,
+
+    // ── Integer reductions ──────────────────────────────────────────────
+    /// `vredsum` — reduction sum.
+    VRedSum,
+    /// `vredand` — reduction AND.
+    VRedAnd,
+    /// `vredor` — reduction OR.
+    VRedOr,
+    /// `vredxor` — reduction XOR.
+    VRedXor,
+    /// `vredminu` — reduction unsigned minimum.
+    VRedMinU,
+    /// `vredmin` — reduction signed minimum.
+    VRedMin,
+    /// `vredmaxu` — reduction unsigned maximum.
+    VRedMaxU,
+    /// `vredmax` — reduction signed maximum.
+    VRedMax,
+
+    // ── Widening integer reductions ─────────────────────────────────────
+    /// `vwredsumu` — widening unsigned reduction sum.
+    VWRedSumU,
+    /// `vwredsum` — widening signed reduction sum.
+    VWRedSum,
+
+    // ── FP reductions ───────────────────────────────────────────────────
+    /// `vfredosum` — FP ordered reduction sum.
+    VFRedOSum,
+    /// `vfredusum` — FP unordered reduction sum.
+    VFRedUSum,
+    /// `vfredmax` — FP reduction maximum.
+    VFRedMax,
+    /// `vfredmin` — FP reduction minimum.
+    VFRedMin,
+
+    // ── FP widening reductions ──────────────────────────────────────────
+    /// `vfwredosum` — widening FP ordered reduction sum.
+    VFWRedOSum,
+    /// `vfwredusum` — widening FP unordered reduction sum.
+    VFWRedUSum,
+
+    // ── Mask-register logical ───────────────────────────────────────────
+    /// `vmand.mm` — mask AND.
+    VMAndMM,
+    /// `vmnand.mm` — mask NAND.
+    VMNandMM,
+    /// `vmandn.mm` — mask AND-NOT.
+    VMAndnMM,
+    /// `vmor.mm` — mask OR.
+    VMOrMM,
+    /// `vmnor.mm` — mask NOR.
+    VMNorMM,
+    /// `vmorn.mm` — mask OR-NOT.
+    VMOrnMM,
+    /// `vmxor.mm` — mask XOR.
+    VMXorMM,
+    /// `vmxnor.mm` — mask XNOR.
+    VMXnorMM,
+
+    // ── Mask scalar ─────────────────────────────────────────────────────
+    /// `vcpop.m` — count population of mask register.
+    VCPopM,
+    /// `vfirst.m` — find first set bit in mask register.
+    VFirstM,
+
+    // ── Mask-producing ──────────────────────────────────────────────────
+    /// `vmsbf.m` — set-before-first mask bit.
+    VMSbfM,
+    /// `vmsif.m` — set-including-first mask bit.
+    VMSifM,
+    /// `vmsof.m` — set-only-first mask bit.
+    VMSofM,
+
+    // ── Mask misc ───────────────────────────────────────────────────────
+    /// `viota.m` — iota (prefix sum of mask bits).
+    VIotaM,
+    /// `vid.v` — vector element index.
+    VIdV,
+
+    // ── Permutations ────────────────────────────────────────────────────
+    /// `vmv.x.s` — move vector element 0 to scalar GPR.
+    VMvXS,
+    /// `vmv.s.x` — move scalar GPR to vector element 0.
+    VMvSX,
+    /// `vslideup` — slide elements up.
+    VSlideUp,
+    /// `vslidedown` — slide elements down.
+    VSlideDown,
+    /// `vslide1up` — slide up by one with scalar.
+    VSlide1Up,
+    /// `vslide1down` — slide down by one with scalar.
+    VSlide1Down,
+    /// `vrgather` — register gather (permute by index).
+    VRgather,
+    /// `vrgatherei16` — register gather with 16-bit indices.
+    VRgatherEi16,
+    /// `vcompress` — compress active elements.
+    VCompress,
+    /// `vmv1r` — whole-register move (1 register).
+    VMv1r,
+    /// `vmv2r` — whole-register move (2 registers).
+    VMv2r,
+    /// `vmv4r` — whole-register move (4 registers).
+    VMv4r,
+    /// `vmv8r` — whole-register move (8 registers).
+    VMv8r,
 }
 
 /// Vector operand source encoding category.
