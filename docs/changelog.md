@@ -4,4 +4,5 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Releases
 
+- [v1.1.0](versions/V1_1_CHANGELOG.md) — 2026-03-21 (memory dependence prediction)
 - [v1.0.0](versions/V1_CHANGELOG.md) — 2026-03-20 (initial stable release)
