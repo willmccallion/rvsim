@@ -392,15 +392,22 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
             Err(t) => (ControlSignals::default(), Some(t), Some(ExceptionStage::Decode)),
         };
 
-        // Check for intra-bundle hazards (superscalar)
+        // Check for intra-bundle hazards (superscalar, in-order only).
+        // With register renaming (O3 backend), rename resolves all RAW hazards
+        // by mapping source operands to physical registers before updating the
+        // rename map for the destination. Splitting the bundle here would
+        // create unnecessary 1-cycle bubbles.
         let rs3_idx = inst.rs3();
-        let hazard = ((!d.rs1.is_zero() || ctrl.rs1_fp)
-            && bundle_writes.contains(&(d.rs1, ctrl.rs1_fp)))
-            || ((!d.rs2.is_zero() || ctrl.rs2_fp) && bundle_writes.contains(&(d.rs2, ctrl.rs2_fp)))
-            || (ctrl.rs3_fp && bundle_writes.contains(&(rs3_idx, true)));
+        if !cpu.has_register_renaming {
+            let hazard = ((!d.rs1.is_zero() || ctrl.rs1_fp)
+                && bundle_writes.contains(&(d.rs1, ctrl.rs1_fp)))
+                || ((!d.rs2.is_zero() || ctrl.rs2_fp)
+                    && bundle_writes.contains(&(d.rs2, ctrl.rs2_fp)))
+                || (ctrl.rs3_fp && bundle_writes.contains(&(rs3_idx, true)));
 
-        if hazard {
-            break;
+            if hazard {
+                break;
+            }
         }
 
         if ctrl.reg_write && !d.rd.is_zero() {

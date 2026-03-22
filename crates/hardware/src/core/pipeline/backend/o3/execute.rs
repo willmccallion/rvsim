@@ -693,8 +693,21 @@ fn execute_csr(
         );
     }
 
-    cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-    cpu.redirect_pending = true;
+    // Only flush the pipeline for CSR writes. CSR writes modify global
+    // architectural state that younger speculative instructions may have
+    // already observed, so a flush is required to re-fetch with the new
+    // CSR value visible.
+    //
+    // Pure CSR reads (CSRRS/CSRRC with rs1=x0, CSRRSI/CSRRCI with uimm=0)
+    // have no side effects. They are still serializing at issue time
+    // (all_before_completed gate in issue_queue.rs) which guarantees the
+    // read sees the latest committed CSR value, but they do NOT need to
+    // flush younger instructions.
+    let needs_flush = would_write;
+    if needs_flush {
+        cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+        cpu.redirect_pending = true;
+    }
 
     (
         ExMem1Entry {
@@ -712,7 +725,7 @@ fn execute_csr(
             fp_flags: 0,
             sfence_vma: None,
         },
-        true,
+        needs_flush,
     )
 }
 

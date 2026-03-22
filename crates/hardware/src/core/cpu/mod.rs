@@ -80,6 +80,9 @@ pub struct Cpu {
     pub branch_predictor: BranchPredictorWrapper,
     /// Pipeline width (superscalar degree).
     pub pipeline_width: usize,
+    /// True when using an O3 backend with register renaming.
+    /// Decode skips intra-bundle RAW hazard checks (rename handles them).
+    pub has_register_renaming: bool,
     /// I-cache line size in bytes (for cache-line-aligned fetch).
     pub i_cache_line_bytes: usize,
 
@@ -317,6 +320,7 @@ impl Cpu {
             pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
+            has_register_renaming: config.pipeline.backend == crate::core::pipeline::engine::BackendType::OutOfOrder,
             i_cache_line_bytes: config.cache.l1_i.line_bytes.max(1),
             clint_divider: config.system.clint_divider,
             last_pc: 0,
