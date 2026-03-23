@@ -476,6 +476,21 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         c.vec_reg_write = true;
                         c.vec_src_encoding = VecSrcEncoding::VI;
                         c.vec_op = decode_opivi(f6, inst)?;
+                        // Whole-register moves: validate vd+nregs and vs2+nregs <= 32
+                        let nregs: u8 = match c.vec_op {
+                            VectorOp::VMv1r => 1,
+                            VectorOp::VMv2r => 2,
+                            VectorOp::VMv4r => 4,
+                            VectorOp::VMv8r => 8,
+                            _ => 0,
+                        };
+                        if nregs > 0 {
+                            let vd_raw = v_enc::vd(inst);
+                            let vs2_raw = v_enc::vs2(inst);
+                            if vd_raw + nregs > 32 || vs2_raw + nregs > 32 {
+                                return Err(Trap::IllegalInstruction(inst));
+                            }
+                        }
                     }
                     v_funct3::OPMVV => {
                         c.vec_src_encoding = VecSrcEncoding::VV;
@@ -536,6 +551,7 @@ const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VXOR => VectorOp::VXor,
         v_f6::VADD => VectorOp::VAdd,
         v_f6::VRGATHER => VectorOp::VRgather,
+        v_f6::VRGATHEREI16 => VectorOp::VRgatherEi16,
         v_f6::VADC => VectorOp::VAdc,
         v_f6::VMADC => VectorOp::VMadc,
         v_f6::VSBC => VectorOp::VSbc,
@@ -561,6 +577,10 @@ const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VNSRA => VectorOp::VNSra,
         v_f6::VNCLIPU => VectorOp::VNClipU,
         v_f6::VNCLIP => VectorOp::VNClip,
+        // Widening integer reductions live in OPIVV (funct3=000), distinct from
+        // vwaddu/vwadd in OPMVV (funct3=010) despite sharing the same funct6.
+        v_f6::VWREDSUMU => VectorOp::VWRedSumU,
+        v_f6::VWREDSUM => VectorOp::VWRedSum,
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -675,25 +695,38 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VAADD => (VectorOp::VAAdd, true),
         v_f6::VASUBU => (VectorOp::VASubU, true),
         v_f6::VASUB => (VectorOp::VASub, true),
-        // Unary ops: vmv.x.s, vcpop.m, vfirst.m (funct6 = 0b010000)
-        0b010000 => {
+        // Unary ops: vmv.x.s, vcpop.m, vfirst.m
+        v_f6::VWXUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                0b00000 => (VectorOp::VMvXS, false),
-                0b10000 => (VectorOp::VCPopM, false),
-                0b10001 => (VectorOp::VFirstM, false),
+                v_f6::VWXUNARY0_VMV_X_S => (VectorOp::VMvXS, false),
+                v_f6::VWXUNARY0_VCPOP_M => (VectorOp::VCPopM, false),
+                v_f6::VWXUNARY0_VFIRST_M => (VectorOp::VFirstM, false),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
-        // Mask-producing and misc unary (funct6 = 0b010100)
-        0b010100 => {
+        // Integer extension: vzext, vsext
+        v_f6::VXUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                0b00001 => (VectorOp::VMSbfM, true),
-                0b00010 => (VectorOp::VMSofM, true),
-                0b00011 => (VectorOp::VMSifM, true),
-                0b10000 => (VectorOp::VIotaM, true),
-                0b10001 => (VectorOp::VIdV, true),
+                v_f6::VXUNARY0_VZEXT_VF8 => (VectorOp::VZextVf8, true),
+                v_f6::VXUNARY0_VSEXT_VF8 => (VectorOp::VSextVf8, true),
+                v_f6::VXUNARY0_VZEXT_VF4 => (VectorOp::VZextVf4, true),
+                v_f6::VXUNARY0_VSEXT_VF4 => (VectorOp::VSextVf4, true),
+                v_f6::VXUNARY0_VZEXT_VF2 => (VectorOp::VZextVf2, true),
+                v_f6::VXUNARY0_VSEXT_VF2 => (VectorOp::VSextVf2, true),
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
+        // Mask-source unary: vmsbf, vmsof, vmsif, viota, vid
+        v_f6::VMUNARY0 => {
+            let vs1_field = v_enc::vs1(inst);
+            match vs1_field {
+                v_f6::VMUNARY0_VMSBF_M => (VectorOp::VMSbfM, true),
+                v_f6::VMUNARY0_VMSOF_M => (VectorOp::VMSofM, true),
+                v_f6::VMUNARY0_VMSIF_M => (VectorOp::VMSifM, true),
+                v_f6::VMUNARY0_VIOTA_M => (VectorOp::VIotaM, true),
+                v_f6::VMUNARY0_VID_V => (VectorOp::VIdV, true),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
@@ -723,10 +756,9 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VDIV => (VectorOp::VDiv, true),
         v_f6::VREMU => (VectorOp::VRemU, true),
         v_f6::VREM => (VectorOp::VRem, true),
-        // Widening integer add/sub
-        // NOTE: VWADDU (0b110000) overlaps VWREDSUMU — decoded as widening add;
-        // VWADD (0b110001) overlaps VWREDSUM — decoded as widening add.
-        // TODO: Widening reductions share encoding with widening add/sub.
+        // Widening integer add/sub (OPMVV funct3=010).
+        // Note: VWREDSUMU/VWREDSUM share the same funct6 values but live in
+        // OPIVV (funct3=000) and are decoded in decode_opivv().
         v_f6::VWADDU => (VectorOp::VWAddU, true),
         v_f6::VWADD => (VectorOp::VWAdd, true),
         v_f6::VWSUBU => (VectorOp::VWSubU, true),
@@ -1004,10 +1036,17 @@ const fn decode_vec_load(inst: u32, funct3: u32, c: &mut ControlSignals) -> Resu
         return Err(Trap::IllegalInstruction(inst));
     }
 
+    let vd_raw = v_enc::vd(inst);
+
+    // Segment/whole-register ops access vd..vd+nf; reject if that exceeds v31.
+    if vd_raw + nf >= 32 {
+        return Err(Trap::IllegalInstruction(inst));
+    }
+
     c.vec_eew = eew;
     c.vec_nf = nf;
     c.vm = vm;
-    c.vd = VRegIdx::new(v_enc::vd(inst));
+    c.vd = VRegIdx::new(vd_raw);
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = true;
     c.system_op = SystemOp::System; // serializing
@@ -1051,10 +1090,17 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
         return Err(Trap::IllegalInstruction(inst));
     }
 
+    let vd_raw = v_enc::vd(inst);
+
+    // Segment/whole-register ops access vs3..vs3+nf; reject if that exceeds v31.
+    if vd_raw + nf >= 32 {
+        return Err(Trap::IllegalInstruction(inst));
+    }
+
     c.vec_eew = eew;
     c.vec_nf = nf;
     c.vm = vm;
-    c.vd = VRegIdx::new(v_enc::vd(inst)); // vd is vs3 (store data) for stores
+    c.vd = VRegIdx::new(vd_raw); // vd is vs3 (store data) for stores
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = false; // stores don't write vector registers
     c.system_op = SystemOp::System; // serializing
@@ -1117,7 +1163,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
 
         let d = instruction_decode(inst);
 
-        let (mut ctrl, trap, ex_stage) = match decode_instruction(inst, if_entry.pc, &d) {
+        let (mut ctrl, mut trap, mut ex_stage) = match decode_instruction(inst, if_entry.pc, &d) {
             Ok(c) => (c, None, None),
             Err(t) => (ControlSignals::default(), Some(t), Some(ExceptionStage::Decode)),
         };
@@ -1130,7 +1176,30 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
         {
             let vtype = crate::core::units::vpu::types::parse_vtype(cpu.csrs.vtype);
             if !vtype.vill {
-                ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();
+                let lmul = vtype.vlmul.group_regs().regs();
+                ctrl.vec_lmul_regs = lmul;
+
+                // RVV 1.0 §3.4.2: vector register operands must be LMUL-aligned
+                // and the group must fit within v0-v31.  Unaligned or overflowing
+                // encodings are reserved (illegal instruction).
+                if lmul > 1 && trap.is_none() {
+                    let vd  = ctrl.vd.as_u8();
+                    let vs2 = ctrl.vs2.as_u8();
+                    let vs1 = ctrl.vs1.as_u8();
+                    let misaligned = (vd % lmul != 0)
+                        || (vs2 % lmul != 0)
+                        || (ctrl.vec_src_encoding == VecSrcEncoding::VV && vs1 % lmul != 0);
+                    let overflow = (vd.saturating_add(lmul) > 32)
+                        || (vs2.saturating_add(lmul) > 32)
+                        || (ctrl.vec_src_encoding == VecSrcEncoding::VV
+                            && vs1.saturating_add(lmul) > 32);
+                    if misaligned || overflow {
+                        // Convert to illegal-instruction trap
+                        ctrl = ControlSignals::default();
+                        trap = Some(Trap::IllegalInstruction(inst));
+                        ex_stage = Some(ExceptionStage::Decode);
+                    }
+                }
             }
         }
 

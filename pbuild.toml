@@ -24,6 +24,20 @@ commands    = [
     [".venv/bin/maturin build --release --out target/wheels"],
 ]
 
+[build-debug]
+group       = "Build"
+description = "Build debug-opt binary + Python bindings (full opt, with symbols)"
+type        = "task"
+cache       = false
+max_time    = "15m"
+shell       = true
+commands    = [
+    ["{{cargo}}", "build", "--profile", "debug-opt"],
+    ["[ -d .venv ] || python3 -m venv .venv"],
+    [".venv/bin/pip install --quiet maturin"],
+    [".venv/bin/maturin develop --profile debug-opt"],
+]
+
 [python-wheel]
 group       = "Build"
 description = "Build distributable Python wheel into target/wheels"

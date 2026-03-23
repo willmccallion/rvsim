@@ -999,6 +999,14 @@ fn exec_fp_widening(
     let Some(wsew) = widen_sew(ctx.sew) else {
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     };
+
+    // Handle widening FMA BEFORE the main loop — the FMA reads vd as the
+    // accumulator, so we must not overwrite it with the arithmetic path first.
+    if matches!(op, VectorOp::VFWMacc | VectorOp::VFWNMacc | VectorOp::VFWMSac | VectorOp::VFWNMSac)
+    {
+        return exec_fp_widening_fma(op, vpr, vd_idx, vs2_idx, operand1, ctx);
+    }
+
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut flags = FpFlags::NONE;
 
@@ -1094,12 +1102,6 @@ fn exec_fp_widening(
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
         }
         // SEW=16 or others: not typically used for FP widening, skip
-    }
-
-    // Handle widening FMA separately in this same function
-    if matches!(op, VectorOp::VFWMacc | VectorOp::VFWNMacc | VectorOp::VFWMSac | VectorOp::VFWNMSac)
-    {
-        return exec_fp_widening_fma(op, vpr, vd_idx, vs2_idx, operand1, ctx);
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }

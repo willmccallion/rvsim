@@ -321,6 +321,46 @@ pub const VFWMSAC: u32 = 0b111110;
 /// Vector FP widening negated multiply-subtract accumulate (`vfwnmsac`).
 pub const VFWNMSAC: u32 = 0b111111;
 
+// ── OPMVV unary groups ────────────────────────────────────────────────────
+
+/// Unary scalar-result ops in OPMVV: `vmv.x.s`, `vcpop.m`, `vfirst.m`.
+pub const VWXUNARY0: u32 = 0b010000;
+/// Integer extension unary ops in OPMVV: `vzext`, `vsext`.
+pub const VXUNARY0: u32 = 0b010010;
+/// Mask-source unary ops in OPMVV: `vmsbf.m`, `vmsof.m`, `vmsif.m`, `viota.m`, `vid.v`.
+pub const VMUNARY0: u32 = 0b010100;
+
+// ── vs1 sub-field values for OPMVV unary operations ─────────────────────
+
+/// vs1 for `vmv.x.s` within VWXUNARY0.
+pub const VWXUNARY0_VMV_X_S: u8 = 0b00000;
+/// vs1 for `vcpop.m` within VWXUNARY0.
+pub const VWXUNARY0_VCPOP_M: u8 = 0b10000;
+/// vs1 for `vfirst.m` within VWXUNARY0.
+pub const VWXUNARY0_VFIRST_M: u8 = 0b10001;
+/// vs1 for `vzext.vf8` within VXUNARY0.
+pub const VXUNARY0_VZEXT_VF8: u8 = 0b00010;
+/// vs1 for `vsext.vf8` within VXUNARY0.
+pub const VXUNARY0_VSEXT_VF8: u8 = 0b00011;
+/// vs1 for `vzext.vf4` within VXUNARY0.
+pub const VXUNARY0_VZEXT_VF4: u8 = 0b00100;
+/// vs1 for `vsext.vf4` within VXUNARY0.
+pub const VXUNARY0_VSEXT_VF4: u8 = 0b00101;
+/// vs1 for `vzext.vf2` within VXUNARY0.
+pub const VXUNARY0_VZEXT_VF2: u8 = 0b00110;
+/// vs1 for `vsext.vf2` within VXUNARY0.
+pub const VXUNARY0_VSEXT_VF2: u8 = 0b00111;
+/// vs1 for `vmsbf.m` within VMUNARY0.
+pub const VMUNARY0_VMSBF_M: u8 = 0b00001;
+/// vs1 for `vmsof.m` within VMUNARY0.
+pub const VMUNARY0_VMSOF_M: u8 = 0b00010;
+/// vs1 for `vmsif.m` within VMUNARY0.
+pub const VMUNARY0_VMSIF_M: u8 = 0b00011;
+/// vs1 for `viota.m` within VMUNARY0.
+pub const VMUNARY0_VIOTA_M: u8 = 0b10000;
+/// vs1 for `vid.v` within VMUNARY0.
+pub const VMUNARY0_VID_V: u8 = 0b10001;
+
 // ── Mask operations (OPMVV) ─────────────────────────────────────────────────
 
 /// Mask AND (`vmand.mm`).

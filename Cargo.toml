@@ -38,6 +38,11 @@ inherits      = "release"
 debug         = 1              # Line tables for perf/flamegraph
 strip         = "none"         # Keep symbols for profiling
 
+[profile.debug-opt]
+inherits      = "release"
+debug         = 2              # Full debug info (symbols + line tables + types)
+strip         = "none"         # Keep everything for backtraces
+
 # Dev builds at opt-level 1: the simulator is unusable at opt-level 0.
 # Full debug info and fast incremental compiles are preserved.
 [profile.dev]
