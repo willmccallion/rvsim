@@ -279,22 +279,22 @@ pub const VFMUL: u32 = 0b100100;
 
 // ── FP fused multiply-add (OPFVV/OPFVF) ────────────────────────────────────
 
-/// Vector FP multiply-subtract (`vfmsub`).
-pub const VFMSUB: u32 = 0b101000;
 /// Vector FP multiply-add (`vfmadd`).
-pub const VFMADD: u32 = 0b101001;
-/// Vector FP negated multiply-subtract (`vfnmsub`).
-pub const VFNMSUB: u32 = 0b101010;
+pub const VFMADD: u32 = 0b101000;
 /// Vector FP negated multiply-add (`vfnmadd`).
-pub const VFNMADD: u32 = 0b101011;
-/// Vector FP multiply-subtract accumulate (`vfmsac`).
-pub const VFMSAC: u32 = 0b101100;
+pub const VFNMADD: u32 = 0b101001;
+/// Vector FP multiply-subtract (`vfmsub`).
+pub const VFMSUB: u32 = 0b101010;
+/// Vector FP negated multiply-subtract (`vfnmsub`).
+pub const VFNMSUB: u32 = 0b101011;
 /// Vector FP multiply-add accumulate (`vfmacc`).
-pub const VFMACC: u32 = 0b101101;
-/// Vector FP negated multiply-subtract accumulate (`vfnmsac`).
-pub const VFNMSAC: u32 = 0b101110;
+pub const VFMACC: u32 = 0b101100;
 /// Vector FP negated multiply-add accumulate (`vfnmacc`).
-pub const VFNMACC: u32 = 0b101111;
+pub const VFNMACC: u32 = 0b101101;
+/// Vector FP multiply-subtract accumulate (`vfmsac`).
+pub const VFMSAC: u32 = 0b101110;
+/// Vector FP negated multiply-subtract accumulate (`vfnmsac`).
+pub const VFNMSAC: u32 = 0b101111;
 
 // ── FP widening (OPFVV/OPFVF) ──────────────────────────────────────────────
 
