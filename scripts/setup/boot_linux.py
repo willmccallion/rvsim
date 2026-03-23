@@ -36,6 +36,7 @@ BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.
 DEFCONFIG = """BR2_riscv=y
 BR2_RISCV_64=y
 BR2_RISCV_ISA_RVC=y
+BR2_RISCV_ISA_RVV=y
 BR2_RISCV_ABI_LP64D=y
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_CUSTOM_VERSION=y
@@ -43,7 +44,7 @@ BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.6.44"
 BR2_LINUX_KERNEL_USE_ARCH_DEFAULT_CONFIG=y
 BR2_TARGET_OPENSBI=y
 BR2_TARGET_OPENSBI_PLAT="generic"
-BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="PLATFORM_RISCV_ISA=rv64imafdc_zifencei"
+BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="PLATFORM_RISCV_ISA=rv64imafdcv_zifencei"
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_SIZE="60M"
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_6=y
@@ -134,9 +135,10 @@ def build(linux_dir: str) -> int:
 def config() -> Config:
     """Maximum-performance config for Linux boot.
 
-    8-wide O3 superscalar, SC-L-TAGE+ITTAGE predictor, Inclusive 4-level cache
-    hierarchy with aggressive prefetching at every level, large L2 TLB, and a
-    DRAM controller.
+    8-wide O3 superscalar with full vector support (VLEN=256), SC-L-TAGE+ITTAGE
+    predictor, Inclusive 4-level cache hierarchy with aggressive prefetching at
+    every level, large L2 TLB, DRAM controller, and dedicated vector FUs with
+    chaining enabled.
     """
     return Config(
         # ── Frontend ──────────────────────────────────────────────────────────
@@ -172,6 +174,8 @@ def config() -> Config:
             store_ports=2,
             prf_gpr_size=512,
             prf_fpr_size=256,
+            prf_vpr_size=96,
+            vec_chaining=True,
             fu_config=Fu(
                 [
                     Fu.IntAlu(count=6, latency=1),
@@ -183,10 +187,22 @@ def config() -> Config:
                     Fu.FpDivSqrt(count=2, latency=21),
                     Fu.Branch(count=4, latency=1),
                     Fu.Mem(count=4, latency=1),
+                    # Vector
+                    Fu.VecIntAlu(count=4, latency=1),
+                    Fu.VecIntMul(count=2, latency=3),
+                    Fu.VecIntDiv(count=1, latency=20),
+                    Fu.VecFpAlu(count=2, latency=4),
+                    Fu.VecFpFma(count=2, latency=5),
+                    Fu.VecFpDivSqrt(count=1, latency=20),
+                    Fu.VecMem(count=2, latency=1),
+                    Fu.VecPermute(count=2, latency=1),
                 ]
             ),
             checkpoint_count=64,
         ),
+        # ── Vector ISA ────────────────────────────────────────────────────────
+        vlen=256,
+        num_vec_lanes=4,
         # ── Cache hierarchy ───────────────────────────────────────────────────
         l1i=Cache(
             size="64KB",
