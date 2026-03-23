@@ -204,6 +204,11 @@ _COUNT_METRICS = {
     "inst_fp_arith",
     "inst_fp_fma",
     "inst_fp_div_sqrt",
+    "inst_vec_int",
+    "inst_vec_fp",
+    "inst_vec_load",
+    "inst_vec_store",
+    "inst_vec_misc",
 }
 
 

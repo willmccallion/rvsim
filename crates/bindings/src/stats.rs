@@ -93,6 +93,12 @@ impl PyStats {
         d.set_item("inst_fp_fma", s.inst_fp_fma)?;
         d.set_item("inst_fp_div_sqrt", s.inst_fp_div_sqrt)?;
 
+        d.set_item("inst_vec_int", s.inst_vec_int)?;
+        d.set_item("inst_vec_fp", s.inst_vec_fp)?;
+        d.set_item("inst_vec_load", s.inst_vec_load)?;
+        d.set_item("inst_vec_store", s.inst_vec_store)?;
+        d.set_item("inst_vec_misc", s.inst_vec_misc)?;
+
         d.set_item("pf_dedup_l1", s.pf_dedup_l1)?;
         d.set_item("pf_dedup_l2", s.pf_dedup_l2)?;
         d.set_item("pf_dedup_l3", s.pf_dedup_l3)?;

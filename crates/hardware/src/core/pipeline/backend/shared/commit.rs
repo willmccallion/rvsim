@@ -24,7 +24,7 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp};
+use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
@@ -779,6 +779,12 @@ fn check_interrupts(cpu: &Cpu) -> Option<Trap> {
 
 /// Updates instruction statistics based on the committed entry.
 const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::RobEntry) {
+    // Vector instructions — check first since vec loads/stores also set mem_read/mem_write.
+    if !matches!(entry.ctrl.vec_op, VectorOp::None) {
+        update_vec_instruction_stats(cpu, entry.ctrl.vec_op);
+        return;
+    }
+
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
             cpu.stats.inst_fp_load += 1;
@@ -827,6 +833,223 @@ const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::
             }
             _ => cpu.stats.inst_alu += 1,
         }
+    }
+}
+
+/// Categorize a vector instruction into the appropriate stat counter.
+const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
+    match op {
+        VectorOp::None => {}
+        // Loads
+        VectorOp::VLoadUnit
+        | VectorOp::VLoadFF
+        | VectorOp::VLoadMask
+        | VectorOp::VLoadWholeReg
+        | VectorOp::VLoadStride
+        | VectorOp::VLoadIndexOrd
+        | VectorOp::VLoadIndexUnord => cpu.stats.inst_vec_load += 1,
+        // Stores
+        VectorOp::VStoreUnit
+        | VectorOp::VStoreMask
+        | VectorOp::VStoreWholeReg
+        | VectorOp::VStoreStride
+        | VectorOp::VStoreIndexOrd
+        | VectorOp::VStoreIndexUnord => cpu.stats.inst_vec_store += 1,
+        // Integer arithmetic, compare, shifts, saturating, widening int, narrowing, extension
+        VectorOp::VAdd
+        | VectorOp::VSub
+        | VectorOp::VRsub
+        | VectorOp::VAnd
+        | VectorOp::VOr
+        | VectorOp::VXor
+        | VectorOp::VSll
+        | VectorOp::VSrl
+        | VectorOp::VSra
+        | VectorOp::VMinU
+        | VectorOp::VMin
+        | VectorOp::VMaxU
+        | VectorOp::VMax
+        | VectorOp::VMerge
+        | VectorOp::VMSeq
+        | VectorOp::VMSne
+        | VectorOp::VMSltu
+        | VectorOp::VMSlt
+        | VectorOp::VMSleu
+        | VectorOp::VMSle
+        | VectorOp::VMSgtu
+        | VectorOp::VMSgt
+        | VectorOp::VAdc
+        | VectorOp::VMadc
+        | VectorOp::VSbc
+        | VectorOp::VMsbc
+        | VectorOp::VSAddU
+        | VectorOp::VSAdd
+        | VectorOp::VSSubU
+        | VectorOp::VSSub
+        | VectorOp::VAAddU
+        | VectorOp::VAAdd
+        | VectorOp::VASubU
+        | VectorOp::VASub
+        | VectorOp::VSmul
+        | VectorOp::VSSrl
+        | VectorOp::VSSra
+        | VectorOp::VZextVf2
+        | VectorOp::VZextVf4
+        | VectorOp::VZextVf8
+        | VectorOp::VSextVf2
+        | VectorOp::VSextVf4
+        | VectorOp::VSextVf8
+        | VectorOp::VNSrl
+        | VectorOp::VNSra
+        | VectorOp::VNClipU
+        | VectorOp::VNClip => cpu.stats.inst_vec_int += 1,
+        // Integer multiply/divide and widening mul
+        VectorOp::VMul
+        | VectorOp::VMulh
+        | VectorOp::VMulhu
+        | VectorOp::VMulhsu
+        | VectorOp::VMacc
+        | VectorOp::VNMSac
+        | VectorOp::VMadd
+        | VectorOp::VNMSub
+        | VectorOp::VDivU
+        | VectorOp::VDiv
+        | VectorOp::VRemU
+        | VectorOp::VRem
+        | VectorOp::VWAddU
+        | VectorOp::VWAdd
+        | VectorOp::VWSubU
+        | VectorOp::VWSub
+        | VectorOp::VWAddUW
+        | VectorOp::VWAddW
+        | VectorOp::VWSubUW
+        | VectorOp::VWSubW
+        | VectorOp::VWMulU
+        | VectorOp::VWMul
+        | VectorOp::VWMulSU
+        | VectorOp::VWMaccU
+        | VectorOp::VWMacc
+        | VectorOp::VWMaccSU
+        | VectorOp::VWMaccUS => cpu.stats.inst_vec_int += 1,
+        // Integer/widening reductions
+        VectorOp::VRedSum
+        | VectorOp::VRedAnd
+        | VectorOp::VRedOr
+        | VectorOp::VRedXor
+        | VectorOp::VRedMinU
+        | VectorOp::VRedMin
+        | VectorOp::VRedMaxU
+        | VectorOp::VRedMax
+        | VectorOp::VWRedSumU
+        | VectorOp::VWRedSum => cpu.stats.inst_vec_int += 1,
+        // FP arithmetic, compare, conversion, unary
+        VectorOp::VFAdd
+        | VectorOp::VFSub
+        | VectorOp::VFRSub
+        | VectorOp::VFMul
+        | VectorOp::VFDiv
+        | VectorOp::VFRDiv
+        | VectorOp::VFMin
+        | VectorOp::VFMax
+        | VectorOp::VFSgnj
+        | VectorOp::VFSgnjn
+        | VectorOp::VFSgnjx
+        | VectorOp::VMFEq
+        | VectorOp::VMFNe
+        | VectorOp::VMFLt
+        | VectorOp::VMFLe
+        | VectorOp::VMFGt
+        | VectorOp::VMFGe
+        | VectorOp::VFSqrt
+        | VectorOp::VFRsqrt7
+        | VectorOp::VFRec7
+        | VectorOp::VFClass
+        | VectorOp::VFCvtXuF
+        | VectorOp::VFCvtXF
+        | VectorOp::VFCvtFXu
+        | VectorOp::VFCvtFX
+        | VectorOp::VFCvtRtzXuF
+        | VectorOp::VFCvtRtzXF => cpu.stats.inst_vec_fp += 1,
+        // FP FMA
+        VectorOp::VFMacc
+        | VectorOp::VFNMacc
+        | VectorOp::VFMSac
+        | VectorOp::VFNMSac
+        | VectorOp::VFMAdd
+        | VectorOp::VFNMAdd
+        | VectorOp::VFMSub
+        | VectorOp::VFNMSub => cpu.stats.inst_vec_fp += 1,
+        // FP widening
+        VectorOp::VFWAdd
+        | VectorOp::VFWSub
+        | VectorOp::VFWMul
+        | VectorOp::VFWAddW
+        | VectorOp::VFWSubW
+        | VectorOp::VFWMacc
+        | VectorOp::VFWNMacc
+        | VectorOp::VFWMSac
+        | VectorOp::VFWNMSac => cpu.stats.inst_vec_fp += 1,
+        // FP widening/narrowing conversion
+        VectorOp::VFWCvtXuF
+        | VectorOp::VFWCvtXF
+        | VectorOp::VFWCvtFXu
+        | VectorOp::VFWCvtFX
+        | VectorOp::VFWCvtFF
+        | VectorOp::VFWCvtRtzXuF
+        | VectorOp::VFWCvtRtzXF
+        | VectorOp::VFNCvtXuF
+        | VectorOp::VFNCvtXF
+        | VectorOp::VFNCvtFXu
+        | VectorOp::VFNCvtFX
+        | VectorOp::VFNCvtFF
+        | VectorOp::VFNCvtRodFF
+        | VectorOp::VFNCvtRtzXuF
+        | VectorOp::VFNCvtRtzXF => cpu.stats.inst_vec_fp += 1,
+        // FP merge/move/slide
+        VectorOp::VFMerge
+        | VectorOp::VFMvSF
+        | VectorOp::VFMvFS
+        | VectorOp::VFSlide1Up
+        | VectorOp::VFSlide1Down => cpu.stats.inst_vec_fp += 1,
+        // FP reductions
+        VectorOp::VFRedOSum
+        | VectorOp::VFRedUSum
+        | VectorOp::VFRedMax
+        | VectorOp::VFRedMin
+        | VectorOp::VFWRedOSum
+        | VectorOp::VFWRedUSum => cpu.stats.inst_vec_fp += 1,
+        // Permute, mask, config, whole-reg move, scalar moves
+        VectorOp::Vsetvli
+        | VectorOp::Vsetivli
+        | VectorOp::Vsetvl
+        | VectorOp::VMAndMM
+        | VectorOp::VMNandMM
+        | VectorOp::VMAndnMM
+        | VectorOp::VMOrMM
+        | VectorOp::VMNorMM
+        | VectorOp::VMOrnMM
+        | VectorOp::VMXorMM
+        | VectorOp::VMXnorMM
+        | VectorOp::VCPopM
+        | VectorOp::VFirstM
+        | VectorOp::VMSbfM
+        | VectorOp::VMSifM
+        | VectorOp::VMSofM
+        | VectorOp::VIotaM
+        | VectorOp::VIdV
+        | VectorOp::VMvXS
+        | VectorOp::VMvSX
+        | VectorOp::VSlideUp
+        | VectorOp::VSlideDown
+        | VectorOp::VSlide1Up
+        | VectorOp::VSlide1Down
+        | VectorOp::VRgather
+        | VectorOp::VRgatherEi16
+        | VectorOp::VCompress
+        | VectorOp::VMv1r
+        | VectorOp::VMv2r
+        | VectorOp::VMv4r
+        | VectorOp::VMv8r => cpu.stats.inst_vec_misc += 1,
     }
 }
 

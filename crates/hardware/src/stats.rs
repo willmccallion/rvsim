@@ -45,6 +45,17 @@ pub struct SimStats {
     /// Count of FP divide/sqrt instructions retired.
     pub inst_fp_div_sqrt: u64,
 
+    /// Count of vector integer instructions retired.
+    pub inst_vec_int: u64,
+    /// Count of vector FP instructions retired.
+    pub inst_vec_fp: u64,
+    /// Count of vector load instructions retired.
+    pub inst_vec_load: u64,
+    /// Count of vector store instructions retired.
+    pub inst_vec_store: u64,
+    /// Count of vector permute/mask/config instructions retired.
+    pub inst_vec_misc: u64,
+
     /// Number of committed branch predictions that were correct.
     pub committed_branch_predictions: u64,
     /// Number of committed branch predictions that were wrong (mispredictions).
@@ -193,6 +204,11 @@ impl Default for SimStats {
             inst_fp_arith: 0,
             inst_fp_fma: 0,
             inst_fp_div_sqrt: 0,
+            inst_vec_int: 0,
+            inst_vec_fp: 0,
+            inst_vec_load: 0,
+            inst_vec_store: 0,
+            inst_vec_misc: 0,
             committed_branch_predictions: 0,
             committed_branch_mispredictions: 0,
             speculative_branch_predictions: 0,
@@ -500,6 +516,33 @@ impl SimStats {
                 }
                 if self.inst_fp_div_sqrt > 0 {
                     println!("    fp.div_sqrt          {}", self.inst_fp_div_sqrt);
+                }
+            }
+            let vec_total = self.inst_vec_int
+                + self.inst_vec_fp
+                + self.inst_vec_load
+                + self.inst_vec_store
+                + self.inst_vec_misc;
+            if vec_total > 0 {
+                println!(
+                    "  op.vec                 {} ({:.2}%)",
+                    vec_total,
+                    (vec_total as f64 / total_inst) * 100.0
+                );
+                if self.inst_vec_int > 0 {
+                    println!("    vec.int              {}", self.inst_vec_int);
+                }
+                if self.inst_vec_fp > 0 {
+                    println!("    vec.fp               {}", self.inst_vec_fp);
+                }
+                if self.inst_vec_load > 0 {
+                    println!("    vec.load             {}", self.inst_vec_load);
+                }
+                if self.inst_vec_store > 0 {
+                    println!("    vec.store            {}", self.inst_vec_store);
+                }
+                if self.inst_vec_misc > 0 {
+                    println!("    vec.misc             {}", self.inst_vec_misc);
                 }
             }
             println!("{sep}");
