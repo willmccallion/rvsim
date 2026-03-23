@@ -107,6 +107,12 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     // because they carry `system_op = System` (serializing) but aren't MRET/CSR/etc.
     if id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
         let scalar_result = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
+        // Redirect PC to the next instruction and signal the frontend to flush,
+        // just like FENCE.I and the InOrder vector handler do. Without this,
+        // Pipeline::tick() never flushes the frontend, so already-fetched
+        // wrong-path instructions keep flowing into the backend.
+        cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+        cpu.redirect_pending = true;
         let result = ExMem1Entry {
             rob_tag: id.rob_tag,
             pc: id.pc,
