@@ -636,8 +636,11 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
     VtypeFields {
         vsew,
         vlmul,
-        vta: TailPolicy::from_bit(vta_bit),
-        vma: MaskPolicy::from_bit(vma_bit),
+        // Implement agnostic as undisturbed: both are valid per RVV 1.0 spec,
+        // and undisturbed matches real hardware behavior (e.g. QEMU, most cores).
+        // Toolchains (GCC) emit ta/ma but expect undisturbed semantics.
+        vta: TailPolicy::Undisturbed,
+        vma: MaskPolicy::Undisturbed,
         vill: false,
     }
 }
