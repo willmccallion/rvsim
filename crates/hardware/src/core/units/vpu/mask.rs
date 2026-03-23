@@ -7,10 +7,10 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
-use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
 
 // ============================================================================
@@ -46,7 +46,7 @@ pub const fn is_mask_op(op: VectorOp) -> bool {
 /// vector-producing ops, results are written to `vd` in the VPR.
 pub fn vec_mask_execute(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -86,13 +86,13 @@ pub fn vec_mask_execute(
 
 /// Read v0 mask bit for element `i`.
 #[inline]
-fn mask_active(vpr: &Vpr, i: usize) -> bool {
+fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Write all-1s at the given SEW width to a destination element.
 #[inline]
-fn write_ones(vpr: &mut Vpr, vd: VRegIdx, i: usize, sew: Sew) {
+fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
     vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
@@ -148,7 +148,7 @@ fn compute_mask_logical(op: VectorOp, s2: bool, s1: bool) -> bool {
 /// if [`TailPolicy::Agnostic`].
 fn exec_mask_logical(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -187,7 +187,7 @@ fn exec_mask_logical(
 /// Counts mask bits in `vs2` over the range `[vstart, vl)` that are set.
 /// When masking is active (`vm=false`), only bits where v0 is also set are
 /// counted. The count is returned as a scalar `u64`.
-fn exec_vcpop(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_vcpop(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     let mut count: u64 = 0;
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
@@ -206,7 +206,7 @@ fn exec_vcpop(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
 /// only positions where v0 is set are considered. Returns the index of the
 /// first set bit, or `u64::MAX` (representing -1 in two's complement) if
 /// no set bit is found.
-fn exec_vfirst(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_vfirst(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
             continue;
@@ -234,7 +234,7 @@ fn exec_vfirst(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
 /// policy. Tail bits follow the tail-agnostic policy.
 fn exec_mask_set(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     ctx: &VecExecCtx,
@@ -302,7 +302,12 @@ fn exec_mask_set(
 /// For each element `i` in `[vstart, vl)`, writes to `vd[i]` (at current
 /// SEW) the count of set bits in the source mask `vs2` at positions
 /// `[0, i)`. Can be masked by v0.
-fn exec_viota(vpr: &mut Vpr, vd: VRegIdx, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_viota(
+    vpr: &mut impl VectorRegFile,
+    vd: VRegIdx,
+    vs2: VRegIdx,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     // Pre-compute the running sum of mask bits for positions [0, i).
@@ -355,7 +360,7 @@ fn exec_viota(vpr: &mut Vpr, vd: VRegIdx, vs2: VRegIdx, ctx: &VecExecCtx) -> Vec
 ///
 /// For each active element `i` in `[vstart, vl)`, writes `i` to `vd[i]`
 /// at the current SEW. Independent of any source register.
-fn exec_vid(vpr: &mut Vpr, vd: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
@@ -384,6 +389,7 @@ fn exec_vid(vpr: &mut Vpr, vd: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::arch::vpr::Vpr;
     use crate::core::units::vpu::types::{Vlen, Vlmul, Vxrm};
 
     /// Create a 128-bit VPR for testing.

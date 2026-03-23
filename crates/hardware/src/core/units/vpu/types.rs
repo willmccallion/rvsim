@@ -561,6 +561,18 @@ impl VecPhysReg {
     }
 }
 
+impl crate::core::pipeline::free_list::PhysRegister for VecPhysReg {
+    #[inline]
+    fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    fn from_index(idx: u16) -> Self {
+        Self(idx)
+    }
+}
+
 // ============================================================================
 // vtype CSR parsing and encoding
 // ============================================================================

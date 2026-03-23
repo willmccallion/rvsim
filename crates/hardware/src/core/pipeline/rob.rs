@@ -16,6 +16,7 @@ use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
+use crate::core::units::vpu::types::VecPhysReg;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
 ///
@@ -150,6 +151,12 @@ pub struct RobEntry {
     pub lr_sc: Option<LrScRecord>,
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
+    /// Physical vector registers allocated for destination LMUL group (O3 backend).
+    pub vec_phys_dst: [VecPhysReg; 8],
+    /// Previous physical mappings for destination LMUL group (reclaimed at commit).
+    pub vec_old_phys_dst: [VecPhysReg; 8],
+    /// Number of destination vector registers in the LMUL group (0 for non-vector).
+    pub vec_dst_count: u8,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -265,6 +272,9 @@ impl Rob {
             sfence_vma: None,
             lr_sc: None,
             checkpoint_id: None,
+            vec_phys_dst: [VecPhysReg::ZERO; 8],
+            vec_old_phys_dst: [VecPhysReg::ZERO; 8],
+            vec_dst_count: 0,
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -393,6 +403,21 @@ impl Rob {
     pub fn set_checkpoint_id(&mut self, tag: RobTag, id: CheckpointId) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.checkpoint_id = Some(id);
+        }
+    }
+
+    /// Sets the vector physical destination registers for a given entry.
+    pub fn set_vec_phys_dst(
+        &mut self,
+        tag: RobTag,
+        phys_dst: [VecPhysReg; 8],
+        old_phys_dst: [VecPhysReg; 8],
+        count: u8,
+    ) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vec_phys_dst = phys_dst;
+            entry.vec_old_phys_dst = old_phys_dst;
+            entry.vec_dst_count = count;
         }
     }
 

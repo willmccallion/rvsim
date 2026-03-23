@@ -5,29 +5,34 @@
 //! in O3Engine tracks the last committed state for flush recovery.
 
 use crate::common::RegIdx;
+use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 
 use super::prf::PhysReg;
 
-/// Speculative rename map for GPRs and FPRs.
+/// Speculative rename map for GPRs, FPRs, and VPRs.
 #[derive(Clone, Debug)]
 pub struct RenameMap {
     /// GPR rename map: gpr[i] = current physical reg for `x_i`
     gpr: [PhysReg; 32],
     /// FPR rename map: fpr[i] = current physical reg for `f_i`
     fpr: [PhysReg; 32],
+    /// VPR rename map: vpr[i] = current physical vec reg for `v_i`
+    vpr: [VecPhysReg; 32],
 }
 
 impl RenameMap {
     /// Create a new rename map with identity mapping.
-    /// GPR i → PhysReg(i), FPR i → PhysReg(32 + i).
+    /// GPR i → PhysReg(i), FPR i → PhysReg(32 + i), VPR i → VecPhysReg(i).
     pub fn new() -> Self {
         let mut gpr = [PhysReg(0); 32];
         let mut fpr = [PhysReg(0); 32];
+        let mut vpr = [VecPhysReg::ZERO; 32];
         for i in 0..32 {
             gpr[i] = PhysReg(i as u16);
             fpr[i] = PhysReg((32 + i) as u16);
+            vpr[i] = VecPhysReg::new(i as u16);
         }
-        Self { gpr, fpr }
+        Self { gpr, fpr, vpr }
     }
 
     /// Get the current physical register for an architectural register.
@@ -54,6 +59,19 @@ impl RenameMap {
         } else {
             self.gpr[idx] = p;
         }
+    }
+
+    /// Get the current physical vector register for an architectural vector register.
+    #[inline]
+    pub const fn get_vec(&self, vreg: VRegIdx) -> VecPhysReg {
+        self.vpr[vreg.as_usize()]
+    }
+
+    /// Update the mapping for an architectural vector register.
+    /// No zero-register skip (vectors have no hardwired zero register).
+    #[inline]
+    pub const fn set_vec(&mut self, vreg: VRegIdx, p: VecPhysReg) {
+        self.vpr[vreg.as_usize()] = p;
     }
 }
 
@@ -99,5 +117,25 @@ mod tests {
         rm.set(RegIdx::new(3), true, PhysReg(200));
         assert_eq!(rm.get(RegIdx::new(3), true), PhysReg(200));
         assert_eq!(rm.get(RegIdx::new(3), false), PhysReg(3)); // GPR unaffected
+    }
+
+    #[test]
+    fn test_vec_identity_mapping() {
+        let rm = RenameMap::new();
+        for i in 0u8..32 {
+            assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::new(i as u16));
+        }
+    }
+
+    #[test]
+    fn test_vec_set_get() {
+        let mut rm = RenameMap::new();
+        let v5 = VRegIdx::new(5);
+        rm.set_vec(v5, VecPhysReg::new(40));
+        assert_eq!(rm.get_vec(v5), VecPhysReg::new(40));
+        // v0 can be remapped (no hardwired zero for vectors)
+        let v0 = VRegIdx::new(0);
+        rm.set_vec(v0, VecPhysReg::new(50));
+        assert_eq!(rm.get_vec(v0), VecPhysReg::new(50));
     }
 }

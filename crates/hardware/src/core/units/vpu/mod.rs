@@ -29,3 +29,12 @@ pub mod permute;
 
 /// Vector reduction operations (integer, FP, widening).
 pub mod reduction;
+
+/// VectorRegFile trait for abstracting VPR access (arch vs O3 physical).
+pub mod regfile;
+
+/// Vector lane execution model (latency computation).
+pub mod lane_model;
+
+/// Vector chaining model (element-group granularity scoreboarding).
+pub mod chaining;

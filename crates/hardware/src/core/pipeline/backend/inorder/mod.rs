@@ -13,6 +13,7 @@ use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
@@ -79,7 +80,7 @@ pub struct InOrderEngine {
     /// Committed rename map stub (unused; required by shared `commit_stage` signature).
     committed_rename_map: RenameMap,
     /// Free list stub (unused; required by shared `commit_stage` signature).
-    free_list: FreeList,
+    free_list: FreeList<PhysReg>,
 }
 
 impl InOrderEngine {
@@ -125,6 +126,8 @@ impl ExecutionEngine for InOrderEngine {
             None, // in-order backend: no load queue
             None, // in-order backend: no PRF
             None, // in-order backend: no checkpoints
+            None, // in-order backend: no vec PRF
+            None, // in-order backend: no vec free list
         );
 
         // Handle trap: flush everything

@@ -4,9 +4,23 @@
 //! Each physical register tracks both a value and a ready bit.
 //! PhysReg(0) is hardwired zero: always ready, value always 0.
 
+use super::free_list::PhysRegister;
+
 /// A physical register identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct PhysReg(pub u16);
+
+impl PhysRegister for PhysReg {
+    #[inline]
+    fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    fn from_index(idx: u16) -> Self {
+        Self(idx)
+    }
+}
 
 /// Physical register file with per-register ready bits.
 #[derive(Debug)]

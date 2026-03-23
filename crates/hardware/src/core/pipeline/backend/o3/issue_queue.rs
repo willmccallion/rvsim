@@ -15,7 +15,9 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
+use crate::core::units::vpu::types::VecPhysReg;
 
 /// Readiness state of a single source operand.
 ///
@@ -71,6 +73,50 @@ impl OperandState {
     }
 }
 
+/// Readiness state of a vector source operand group (LMUL registers).
+///
+/// All physical registers in the group must be ready for the group to be ready.
+/// Unlike scalar operands, vector values are read from Vec PRF at execute time,
+/// not forwarded through the IQ.
+#[derive(Clone, Debug)]
+pub struct VecOperandState {
+    /// Physical registers in this LMUL group.
+    pub phys: [VecPhysReg; 8],
+    /// Number of registers in this group.
+    pub count: u8,
+    /// True when ALL registers in the group are ready.
+    pub ready: bool,
+}
+
+impl Default for VecOperandState {
+    fn default() -> Self {
+        Self { phys: [VecPhysReg::ZERO; 8], count: 0, ready: true }
+    }
+}
+
+impl VecOperandState {
+    /// Check if all physical registers in this group are ready in the Vec PRF.
+    pub fn check_ready(&mut self, vec_prf: &VecPhysRegFile) {
+        if self.count == 0 {
+            self.ready = true;
+            return;
+        }
+        self.ready = (0..self.count as usize).all(|i| vec_prf.is_ready(self.phys[i]));
+    }
+
+    /// Re-check readiness after a wakeup broadcast of physical register `p`.
+    pub fn wakeup_check(&mut self, p: VecPhysReg, vec_prf: &VecPhysRegFile) {
+        if self.ready || self.count == 0 {
+            return;
+        }
+        // Only re-check if this group contains the woken register
+        let contains = (0..self.count as usize).any(|i| self.phys[i] == p);
+        if contains {
+            self.check_ready(vec_prf);
+        }
+    }
+}
+
 /// A single entry in the issue queue.
 #[derive(Clone, Debug)]
 pub struct IssueQueueEntry {
@@ -82,6 +128,12 @@ pub struct IssueQueueEntry {
     pub src2: OperandState,
     /// Source operand 3 state (FP fused multiply-add).
     pub src3: OperandState,
+    /// Vector source 1 operand group state.
+    pub vec_src1: VecOperandState,
+    /// Vector source 2 operand group state.
+    pub vec_src2: VecOperandState,
+    /// Vector source 3 operand group state (vd-as-source for accumulating ops).
+    pub vec_src3: VecOperandState,
     /// Cached memory dependency state (set once at dispatch).
     pub mem_dep: MemDepState,
 }
@@ -157,7 +209,25 @@ impl IssueQueue {
             (s1, s2, s3)
         };
 
-        let iq_entry = IssueQueueEntry { entry, src1, src2, src3, mem_dep };
+        // Initialize vector operand states (default ready if no vec sources)
+        let vec_src1 = VecOperandState {
+            phys: entry.vs1_phys,
+            count: entry.vec_src1_count,
+            ready: entry.vec_src1_count == 0,
+        };
+        let vec_src2 = VecOperandState {
+            phys: entry.vs2_phys,
+            count: entry.vec_src2_count,
+            ready: entry.vec_src2_count == 0,
+        };
+        let vec_src3 = VecOperandState {
+            phys: entry.vs3_phys,
+            count: entry.vec_src3_count,
+            ready: entry.vec_src3_count == 0,
+        };
+
+        let iq_entry =
+            IssueQueueEntry { entry, src1, src2, src3, vec_src1, vec_src2, vec_src3, mem_dep };
 
         // Find first free slot
         for slot in &mut self.slots {
@@ -252,6 +322,21 @@ impl IssueQueue {
         }
     }
 
+    /// Broadcast a vector physical register wakeup to all waiting entries.
+    ///
+    /// Called when a vector destination register becomes ready (chaining wakeup).
+    /// Re-checks each `VecOperandState` group that contains `p`.
+    pub fn wakeup_vec_phys(&mut self, p: VecPhysReg, vec_prf: &VecPhysRegFile) {
+        if p.is_zero() {
+            return;
+        }
+        for iq in self.slots.iter_mut().flatten() {
+            iq.vec_src1.wakeup_check(p, vec_prf);
+            iq.vec_src2.wakeup_check(p, vec_prf);
+            iq.vec_src3.wakeup_check(p, vec_prf);
+        }
+    }
+
     /// Select up to `width` ready entries, oldest first (lowest `rob_tag.0`).
     ///
     /// Selected entries have their `rv1/rv2/rv3` fields populated from the
@@ -287,7 +372,10 @@ impl IssueQueue {
                 let all_ready = iq.entry.trap.is_some()
                     || (iq.src1.readiness.is_ready()
                         && iq.src2.readiness.is_ready()
-                        && iq.src3.readiness.is_ready());
+                        && iq.src3.readiness.is_ready()
+                        && iq.vec_src1.ready
+                        && iq.vec_src2.ready
+                        && iq.vec_src3.ready);
                 // PRF validation: if an operand was speculatively woken (IQ says
                 // ready) but the PRF still says not-ready, the speculative wakeup
                 // hasn't been confirmed yet — treat as not ready.
@@ -593,6 +681,13 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: crate::core::units::bru::Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         }
     }
 
@@ -625,6 +720,9 @@ mod tests {
             src1: ready_operand(42),
             src2: ready_operand(10),
             src3: ready_operand(0),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
         });
         iq.count = 1;
@@ -650,6 +748,9 @@ mod tests {
             src1: not_ready_operand_phys(p5),
             src2: ready_operand(0),
             src3: ready_operand(0),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
         });
         iq.count = 1;
@@ -680,6 +781,9 @@ mod tests {
             src1: not_ready_operand_tag(RobTag(5)),
             src2: ready_operand(0),
             src3: ready_operand(0),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
         });
         iq.count = 1;
@@ -704,6 +808,9 @@ mod tests {
                 src1: ready_operand(tag as u64),
                 src2: ready_operand(0),
                 src3: ready_operand(0),
+                vec_src1: VecOperandState::default(),
+                vec_src2: VecOperandState::default(),
+                vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
             });
         }
@@ -732,6 +839,9 @@ mod tests {
             src1: OperandState::default(),
             src2: OperandState::default(),
             src3: OperandState::default(),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
         });
         iq.slots[5] = Some(IssueQueueEntry {
@@ -739,6 +849,9 @@ mod tests {
             src1: OperandState::default(),
             src2: OperandState::default(),
             src3: OperandState::default(),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
         });
         iq.count = 2;
@@ -757,6 +870,9 @@ mod tests {
                 src1: OperandState::default(),
                 src2: OperandState::default(),
                 src3: OperandState::default(),
+                vec_src1: VecOperandState::default(),
+                vec_src2: VecOperandState::default(),
+                vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
             });
         }
@@ -782,6 +898,9 @@ mod tests {
                 src1: OperandState::default(),
                 src2: OperandState::default(),
                 src3: OperandState::default(),
+                vec_src1: VecOperandState::default(),
+                vec_src2: VecOperandState::default(),
+                vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
             });
         }
@@ -814,6 +933,9 @@ mod tests {
                 src1: ready_operand(0),
                 src2: ready_operand(0),
                 src3: ready_operand(0),
+                vec_src1: VecOperandState::default(),
+                vec_src2: VecOperandState::default(),
+                vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
             });
         }

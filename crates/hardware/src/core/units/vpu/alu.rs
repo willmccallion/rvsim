@@ -16,8 +16,8 @@
 //! - Fixed-point scaling: smul, ssrl, ssra
 //! - Extension: zero/sign-extend at various ratios
 
-use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::signals::VectorOp;
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{
     ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm,
 };
@@ -109,19 +109,19 @@ const fn frac_sew(sew: Sew, factor: usize) -> Option<Sew> {
 
 /// Read v0 mask bit for element `i`.
 #[inline]
-fn mask_active(vpr: &Vpr, i: usize) -> bool {
+fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Write all-1s at the given SEW width to a destination element.
 #[inline]
-fn write_ones(vpr: &mut Vpr, vd: VRegIdx, i: usize, sew: Sew) {
+fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
     vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
 /// Read operand1 value for element `i` at the given SEW, applying the mask.
 #[inline]
-fn read_op1(vpr: &Vpr, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
+fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
     match operand1 {
         VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(i), sew),
         VecOperand::Scalar(s) => *s & sew.mask(),
@@ -641,7 +641,7 @@ const fn is_extension(op: VectorOp) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub fn vec_execute(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -693,7 +693,7 @@ pub fn vec_execute(
 /// Standard (non-widening, non-narrowing) element-wise loop.
 fn exec_standard(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -736,7 +736,7 @@ fn exec_standard(
 /// Comparison loop: writes mask bits to vd.
 fn exec_comparison(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -777,7 +777,7 @@ fn exec_comparison(
 /// Add/subtract with carry loop.
 fn exec_carry(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -840,7 +840,7 @@ fn exec_carry(
 /// Multiply-accumulate loop (vmacc, vnmsac, vmadd, vnmsub).
 fn exec_macc(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -896,7 +896,7 @@ fn exec_macc(
 /// `vmerge.vvm vd, vs2, vs1, v0` — masked merge. When `vm=true` this acts
 /// as a simple move of operand1 into vd (all elements from op1).
 fn exec_merge(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -935,7 +935,7 @@ fn exec_merge(
 /// Widening (non-accumulate) loop.
 fn exec_widening(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -985,7 +985,7 @@ fn exec_widening(
 /// Widening multiply-accumulate loop.
 fn exec_widening_macc(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -1034,7 +1034,7 @@ fn exec_widening_macc(
 /// Narrowing loop.
 fn exec_narrowing(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -1086,7 +1086,7 @@ fn exec_narrowing(
 /// Extension loop (vzext, vsext).
 fn exec_extension(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     ctx: &VecExecCtx,
@@ -1149,6 +1149,7 @@ fn exec_extension(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::core::arch::vpr::Vpr;
     use crate::core::units::vpu::types::Vlen;
 
     /// Helper: create a 128-bit VLEN VPR.

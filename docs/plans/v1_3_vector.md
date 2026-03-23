@@ -507,7 +507,7 @@ VLEN in config.
 - `core/units/vpu/mem.rs` — Vector memory sequencer
 - `isa/rvv/mem_encoding.rs` — Load/store encoding decode
 
-### Phase 4: Vector FP, Reductions, Mask Ops, Permutations
+### Phase 4: Vector FP, Reductions, Mask Ops, Permutations **COMPLETED**
 
 **Goal:** Complete RVV 1.0 instruction coverage.
 

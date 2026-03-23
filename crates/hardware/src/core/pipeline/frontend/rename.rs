@@ -12,7 +12,9 @@ use crate::core::Cpu;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::signals::{ControlFlow, VecSrcEncoding};
+use crate::core::units::vpu::mem::is_vec_store;
+use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.
@@ -69,13 +71,54 @@ pub fn rename_stage<E: ExecutionEngine>(
                 continue;
             }
 
+            // ── Scalar source physical register lookup ────────────────
             // Capture source physical regs BEFORE updating rename map for rd
             let rs1_phys = engine.rename_map().get(id.rs1, id.ctrl.rs1_fp);
             let rs2_phys = engine.rename_map().get(id.rs2, id.ctrl.rs2_fp);
             let rs3_phys =
                 if id.ctrl.rs3_fp { engine.rename_map().get(id.rs3, true) } else { PhysReg(0) };
 
-            // Allocate destination physical register
+            // ── Vector source physical register lookup ────────────────
+            // Must happen BEFORE vector destination rename (same principle
+            // as scalar: capture old mappings before rename map update).
+            let lmul = id.ctrl.vec_lmul_regs;
+            let mut vs1_phys = [VecPhysReg::ZERO; 8];
+            let mut vs2_phys = [VecPhysReg::ZERO; 8];
+            let mut vs3_phys = [VecPhysReg::ZERO; 8];
+            let mut vec_src1_count: u8 = 0;
+            let mut vec_src2_count: u8 = 0;
+            let mut vec_src3_count: u8 = 0;
+
+            if lmul > 0 {
+                // vs2 is always a vector source for vector data ops
+                vec_src2_count = lmul;
+                let vs2_base = id.ctrl.vs2.as_u8();
+                for (i, slot) in vs2_phys.iter_mut().enumerate().take(lmul as usize) {
+                    *slot = engine.rename_map().get_vec(VRegIdx::new(vs2_base + i as u8));
+                }
+
+                // vs1 is a vector source only for VV encoding
+                if id.ctrl.vec_src_encoding == VecSrcEncoding::VV {
+                    vec_src1_count = lmul;
+                    let vs1_base = id.ctrl.vs1.as_u8();
+                    for (i, slot) in vs1_phys.iter_mut().enumerate().take(lmul as usize) {
+                        *slot = engine.rename_map().get_vec(VRegIdx::new(vs1_base + i as u8));
+                    }
+                }
+
+                // vs3 (=old vd) is a source when:
+                // - vec_reg_write: execute merges old vd values for tail/mask undisturbed
+                // - vec store: vd field encodes the store data source register
+                if id.ctrl.vec_reg_write || is_vec_store(id.ctrl.vec_op) {
+                    vec_src3_count = lmul;
+                    let vd_base = id.ctrl.vd.as_u8();
+                    for (i, slot) in vs3_phys.iter_mut().enumerate().take(lmul as usize) {
+                        *slot = engine.rename_map().get_vec(VRegIdx::new(vd_base + i as u8));
+                    }
+                }
+            }
+
+            // ── Scalar destination allocation ─────────────────────────
             // Skip x0 for integer writes — x0 is hardwired zero and must not
             // consume a physical register (it would never be freed at commit).
             let needs_dst = (id.ctrl.reg_write && !id.rd.is_zero()) || id.ctrl.fp_reg_write;
@@ -90,6 +133,19 @@ pub fn rename_stage<E: ExecutionEngine>(
             } else {
                 (PhysReg(0), PhysReg(0))
             };
+
+            // ── Vector destination pre-check ──────────────────────────
+            let vec_dst_count = if id.ctrl.vec_reg_write && lmul > 0 { lmul } else { 0 };
+            if vec_dst_count > 0 && engine.vec_free_list_mut().available() < vec_dst_count as usize
+            {
+                // Not enough vec physical regs — reclaim scalar alloc and stall
+                if needs_dst {
+                    engine.free_list_mut().reclaim(rd_phys);
+                }
+                budget = 0;
+                input.push(id);
+                continue;
+            }
 
             // Allocate ROB entry — ROB full: reclaim the physical reg we just allocated
             let Some(rob_tag) = engine.rob_mut().allocate(
@@ -109,10 +165,30 @@ pub fn rename_stage<E: ExecutionEngine>(
                 break;
             };
 
-            // Update speculative rename map and mark PRF not-ready
+            // Update scalar speculative rename map and mark PRF not-ready
             if needs_dst {
                 engine.rename_map_mut().set(id.rd, id.ctrl.fp_reg_write, rd_phys);
                 engine.prf_mut().allocate(rd_phys);
+            }
+
+            // ── Vector destination allocation ─────────────────────────
+            let mut vd_phys = [VecPhysReg::ZERO; 8];
+            if vec_dst_count > 0 {
+                let mut vec_old_phys = [VecPhysReg::ZERO; 8];
+                let vd_base = id.ctrl.vd.as_u8();
+                for i in 0..vec_dst_count as usize {
+                    let vreg = VRegIdx::new(vd_base + i as u8);
+                    let old_p = engine.rename_map().get_vec(vreg);
+                    // Pre-check guarantees sufficient capacity
+                    let Some(new_p) = engine.vec_free_list_mut().allocate() else {
+                        unreachable!("vec free list pre-check guarantees capacity");
+                    };
+                    vec_old_phys[i] = old_p;
+                    vd_phys[i] = new_p;
+                    engine.rename_map_mut().set_vec(vreg, new_p);
+                    engine.vec_prf_mut().allocate(new_p);
+                }
+                engine.rob_mut().set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vec_dst_count);
             }
 
             // Allocate store buffer entry if this is a store
@@ -148,8 +224,6 @@ pub fn rename_stage<E: ExecutionEngine>(
             }
 
             // Build RenameIssueEntry with physical register identifiers
-            // rs*_tag fields carry the physical reg as a packed tag for the IQ
-            // (the IQ will look them up in the PRF at dispatch time)
             let entry = RenameIssueEntry {
                 rob_tag,
                 pc: id.pc,
@@ -163,12 +237,10 @@ pub fn rename_stage<E: ExecutionEngine>(
                 rv1: 0,
                 rv2: 0,
                 rv3: 0,
-                // Store physical regs in the rs*_phys fields
                 rs1_phys,
                 rs2_phys,
                 rs3_phys,
                 rd_phys,
-                // Legacy tag fields unused with PRF
                 rs1_tag: None,
                 rs2_tag: None,
                 rs3_tag: None,
@@ -179,6 +251,13 @@ pub fn rename_stage<E: ExecutionEngine>(
                 pred_target: id.pred_target,
                 ghr_snapshot: id.ghr_snapshot,
                 ras_snapshot: id.ras_snapshot,
+                vs1_phys,
+                vs2_phys,
+                vs3_phys,
+                vd_phys,
+                vec_src1_count,
+                vec_src2_count,
+                vec_src3_count,
             };
 
             trace_rename!(cpu.trace;
@@ -263,6 +342,13 @@ pub fn rename_stage<E: ExecutionEngine>(
                 pred_target: id.pred_target,
                 ghr_snapshot: id.ghr_snapshot,
                 ras_snapshot: id.ras_snapshot,
+                vs1_phys: [VecPhysReg::ZERO; 8],
+                vs2_phys: [VecPhysReg::ZERO; 8],
+                vs3_phys: [VecPhysReg::ZERO; 8],
+                vd_phys: [VecPhysReg::ZERO; 8],
+                vec_src1_count: 0,
+                vec_src2_count: 0,
+                vec_src3_count: 0,
             };
 
             trace_rename!(cpu.trace;

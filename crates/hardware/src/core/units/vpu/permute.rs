@@ -8,10 +8,10 @@
 //! The main entry point [`vec_permute_execute`] dispatches to the appropriate
 //! operation based on the [`VectorOp`] variant.
 
-use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
 
 // ============================================================================
@@ -45,7 +45,7 @@ pub const fn is_permute(op: VectorOp) -> bool {
 /// results are written directly to `vd` in the VPR.
 pub fn vec_permute_execute(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -75,13 +75,13 @@ pub fn vec_permute_execute(
 
 /// Read v0 mask bit for element `i`.
 #[inline]
-fn mask_active(vpr: &Vpr, i: usize) -> bool {
+fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Write all-1s at the given SEW width to a destination element.
 #[inline]
-fn write_ones(vpr: &mut Vpr, vd: VRegIdx, i: usize, sew: Sew) {
+fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
     vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
@@ -124,7 +124,7 @@ const fn no_flags_result(scalar: Option<u64>) -> VecExecResult {
 ///
 /// Reads element 0 of `vs2` at the current SEW and returns it as the scalar
 /// result.  Does not write any vector register.
-fn exec_vmv_xs(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_vmv_xs(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     let val = vpr.read_element(vs2, ElemIdx::new(0), ctx.sew);
     no_flags_result(Some(val))
 }
@@ -134,7 +134,7 @@ fn exec_vmv_xs(vpr: &Vpr, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
 /// Writes the scalar to element 0 of `vd` at the current SEW.  Remaining
 /// elements (indices 1..vlmax) follow the tail policy.
 fn exec_vmv_sx(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     operand1: &VecOperand,
     ctx: &VecExecCtx,
@@ -169,7 +169,7 @@ fn exec_vmv_sx(
 ///
 /// Elements in [vl, vlmax) follow the tail policy.  Masking applies normally.
 fn exec_slideup(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -216,7 +216,7 @@ fn exec_slideup(
 ///
 /// Elements in [vl, vlmax) follow the tail policy.  Masking applies normally.
 fn exec_slidedown(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -258,7 +258,7 @@ fn exec_slidedown(
 ///
 /// Elements in [vl, vlmax) follow the tail policy.  Masking applies normally.
 fn exec_slide1up(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -299,7 +299,7 @@ fn exec_slide1up(
 ///
 /// Elements in [vl, vlmax) follow the tail policy.  Masking applies normally.
 fn exec_slide1down(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -349,7 +349,7 @@ fn exec_slide1down(
 ///
 /// Elements in [vl, vlmax) follow the tail policy.  Masking applies normally.
 fn exec_rgather(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -394,7 +394,7 @@ fn exec_rgather(
 /// [`Sew::E16`] regardless of the current SEW.  Data from vs2 is read at the
 /// current SEW.
 fn exec_rgather_ei16(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -448,7 +448,12 @@ fn exec_rgather_ei16(
 /// to include, not which destination elements to write.
 ///
 /// Tail elements (after the last compressed element) follow the tail policy.
-fn exec_compress(vpr: &mut Vpr, vd: VRegIdx, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+fn exec_compress(
+    vpr: &mut impl VectorRegFile,
+    vd: VRegIdx,
+    vs2: VRegIdx,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut dst = 0usize;
 
@@ -479,7 +484,12 @@ fn exec_compress(vpr: &mut Vpr, vd: VRegIdx, vs2: VRegIdx, ctx: &VecExecCtx) -> 
 ///
 /// Copies raw register bytes from vs2..vs2+(n-1) to vd..vd+(n-1).  Ignores
 /// `vl`, `vtype`, masking, and tail policy — this is a raw byte copy.
-fn exec_whole_reg_move(vpr: &mut Vpr, vd: VRegIdx, vs2: VRegIdx, nregs: u8) -> VecExecResult {
+fn exec_whole_reg_move(
+    vpr: &mut impl VectorRegFile,
+    vd: VRegIdx,
+    vs2: VRegIdx,
+    nregs: u8,
+) -> VecExecResult {
     for offset in 0..nregs {
         let src = VRegIdx::new(vs2.as_u8() + offset);
         let dst = VRegIdx::new(vd.as_u8() + offset);

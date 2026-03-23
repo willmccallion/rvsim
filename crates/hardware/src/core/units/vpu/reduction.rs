@@ -17,7 +17,6 @@
 // IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
 #![allow(clippy::float_cmp)]
 
-use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::nan_handling::{
@@ -25,6 +24,7 @@ use crate::core::units::fpu::nan_handling::{
 };
 use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, Sew, TailPolicy, VRegIdx, Vlmax};
 
 // ============================================================================
@@ -82,7 +82,7 @@ pub const fn is_reduction(op: VectorOp) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub fn vec_reduce(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -131,13 +131,13 @@ const fn sign_extend(val: u64, sew: Sew) -> i64 {
 
 /// Read v0 mask bit for element `i`.
 #[inline]
-fn mask_active(vpr: &Vpr, i: usize) -> bool {
+fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Write all-1s at the given SEW width to a destination element.
 #[inline]
-fn write_ones(vpr: &mut Vpr, vd: VRegIdx, i: usize, sew: Sew) {
+fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
     vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
@@ -157,7 +157,7 @@ const fn widen_sew(sew: Sew) -> Option<Sew> {
 /// For `VecOperand::Vector(vs1)` this reads element 0 from the vector register.
 /// For scalar/immediate operands the value is masked to the element width.
 #[inline]
-fn read_initial_accum(vpr: &Vpr, operand1: &VecOperand, sew: Sew) -> u64 {
+fn read_initial_accum(vpr: &impl VectorRegFile, operand1: &VecOperand, sew: Sew) -> u64 {
     match operand1 {
         VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(0), sew),
         VecOperand::Scalar(s) => *s & sew.mask(),
@@ -169,7 +169,14 @@ fn read_initial_accum(vpr: &Vpr, operand1: &VecOperand, sew: Sew) -> u64 {
 ///
 /// Under `TailPolicy::Agnostic`, tail elements are overwritten with all-1s.
 /// Under `TailPolicy::Undisturbed`, tail elements are preserved (no writes).
-fn apply_tail(vpr: &mut Vpr, vd: VRegIdx, start: usize, vlmax: usize, sew: Sew, vta: TailPolicy) {
+fn apply_tail(
+    vpr: &mut impl VectorRegFile,
+    vd: VRegIdx,
+    start: usize,
+    vlmax: usize,
+    sew: Sew,
+    vta: TailPolicy,
+) {
     if matches!(vta, TailPolicy::Agnostic) {
         for i in start..vlmax {
             write_ones(vpr, vd, i, sew);
@@ -188,7 +195,7 @@ fn apply_tail(vpr: &mut Vpr, vd: VRegIdx, start: usize, vlmax: usize, sew: Sew, 
 /// to `vd[0]`; elements `1..vlmax` of `vd` follow the tail policy.
 fn exec_int_reduction(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -268,7 +275,7 @@ fn int_reduce_step(op: VectorOp, acc: u64, elem: u64, sew: Sew, mask: u64) -> u6
 /// The accumulator (from `vs1[0]`) and the result are at 2*SEW width.
 fn exec_widen_int_reduction(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -330,7 +337,7 @@ fn exec_widen_int_reduction(
 /// semantics, matching the scalar `fmin`/`fmax` helpers.
 fn exec_fp_reduction(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -362,7 +369,7 @@ fn exec_fp_reduction(
 /// canonical f32 result suitable for writing at SEW=32.
 fn fp_reduce_f32(
     op: VectorOp,
-    vpr: &Vpr,
+    vpr: &impl VectorRegFile,
     vs2: VRegIdx,
     operand1: &VecOperand,
     ctx: &VecExecCtx,
@@ -404,7 +411,7 @@ fn fp_reduce_f32(
 /// f64 bit pattern suitable for writing at SEW=64.
 fn fp_reduce_f64(
     op: VectorOp,
-    vpr: &Vpr,
+    vpr: &impl VectorRegFile,
     vs2: VRegIdx,
     operand1: &VecOperand,
     ctx: &VecExecCtx,
@@ -450,7 +457,7 @@ fn fp_reduce_f64(
 /// Elements are converted from f32 to f64 before accumulation.
 fn exec_fp_widen_reduction(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
     operand1: &VecOperand,
@@ -507,6 +514,7 @@ fn exec_fp_widen_reduction(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::core::arch::vpr::Vpr;
     use crate::core::units::vpu::types::{MaskPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a standard execution context with the given SEW and vl.

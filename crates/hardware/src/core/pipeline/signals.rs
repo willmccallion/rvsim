@@ -379,6 +379,9 @@ pub struct ControlSignals {
     pub vec_eew: Sew,
     /// Segment field count minus 1 (nf encoding: 0 = 1 field, 7 = 8 fields).
     pub vec_nf: u8,
+    /// Number of registers in the destination LMUL group (1, 2, 4, or 8).
+    /// Derived from LMUL at decode time. 0 for non-vector instructions.
+    pub vec_lmul_regs: u8,
 }
 
 /// Vector operation type.

@@ -10,12 +10,15 @@ use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::load_queue::LoadQueue;
+use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::snapshot::PipelineSnapshot;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_prf::VecPhysRegFile;
+use crate::core::units::vpu::types::VecPhysReg;
 use serde::Deserialize;
 
 /// Backend type selection.
@@ -79,7 +82,7 @@ pub trait ExecutionEngine {
     }
 
     /// Access the free list (O3 only).
-    fn free_list_mut(&mut self) -> &mut FreeList {
+    fn free_list_mut(&mut self) -> &mut FreeList<PhysReg> {
         panic!("free_list_mut only available for O3 backend")
     }
 
@@ -104,6 +107,19 @@ pub trait ExecutionEngine {
     /// Returns the configured checkpoint count (0 = disabled).
     fn checkpoint_count(&self) -> usize {
         0
+    }
+
+    /// Access the vector physical register file (O3 only).
+    fn vec_prf(&self) -> &VecPhysRegFile {
+        panic!("vec_prf only available for O3 backend")
+    }
+    /// Access the vector physical register file mutably (O3 only).
+    fn vec_prf_mut(&mut self) -> &mut VecPhysRegFile {
+        panic!("vec_prf_mut only available for O3 backend")
+    }
+    /// Access the vector free list mutably (O3 only).
+    fn vec_free_list_mut(&mut self) -> &mut FreeList<VecPhysReg> {
+        panic!("vec_free_list_mut only available for O3 backend")
     }
 }
 

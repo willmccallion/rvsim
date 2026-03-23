@@ -17,14 +17,17 @@ use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
-use crate::core::pipeline::prf::PhysRegFile;
+use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
+use crate::core::units::vpu::chaining::VecPendingResult;
+use crate::core::units::vpu::types::{VecPhysReg, Vlen};
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
@@ -54,7 +57,7 @@ pub struct O3Engine {
     /// Physical register file (64-bit values + ready bits).
     pub prf: PhysRegFile,
     /// Free list of available physical register indices.
-    pub free_list: FreeList,
+    pub free_list: FreeList<PhysReg>,
     /// Speculative rename map: arch reg → physical reg.
     pub rename_map: RenameMap,
     /// Committed rename map — restored on full trap flush.
@@ -96,6 +99,12 @@ pub struct O3Engine {
     /// rename map rebuild (forward-walking surviving ROB entries at `width`
     /// entries per cycle). Checkpoints eliminate this cost entirely.
     pub squash_stall_remaining: u64,
+    /// Vector physical register file (VLEN-bit storage per register + ready bits).
+    pub vec_prf: VecPhysRegFile,
+    /// Vector physical register free list.
+    pub vec_free_list: FreeList<VecPhysReg>,
+    /// Pending vector results tracking chaining wakeup and completion.
+    pub vec_pending: Vec<VecPendingResult>,
 }
 
 impl O3Engine {
@@ -139,6 +148,15 @@ impl O3Engine {
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_stall_remaining: 0,
+            vec_prf: {
+                let prf_vpr_size = config.pipeline.prf_vpr_size;
+                let vlen = Vlen::new_unchecked(config.pipeline.vlen);
+                let mut vprf = VecPhysRegFile::new(prf_vpr_size, vlen);
+                vprf.mark_arch_ready(32); // identity-mapped arch slots 0..31
+                vprf
+            },
+            vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, 32),
+            vec_pending: Vec::new(),
         }
     }
 
@@ -151,6 +169,7 @@ impl O3Engine {
     pub fn sync_arch_regs(&mut self, cpu: &crate::core::Cpu) {
         use crate::common::RegIdx;
         use crate::core::pipeline::prf::PhysReg;
+        use crate::core::units::vpu::types::VRegIdx;
         // GPRs: arch reg i → PhysReg(i), skip x0 (hardwired zero)
         for i in 1u8..32 {
             let val = cpu.regs.read(RegIdx::new(i));
@@ -164,6 +183,12 @@ impl O3Engine {
             if val != 0 {
                 self.prf.write(PhysReg((32 + i) as u16), val);
             }
+        }
+        // VPRs: arch reg i → VecPhysReg(i)
+        for i in 0u8..32 {
+            let vreg = VRegIdx::new(i);
+            let bytes = cpu.regs.vpr().read_bytes(vreg);
+            self.vec_prf.write_bytes(VecPhysReg::new(i as u16), bytes);
         }
     }
 
@@ -232,6 +257,8 @@ impl ExecutionEngine for O3Engine {
             Some(&mut self.load_queue),
             Some(&mut self.prf),
             Some(&mut self.checkpoints),
+            Some(&mut self.vec_prf),
+            Some(&mut self.vec_free_list),
         );
 
         // Handle trap: flush everything
@@ -365,6 +392,9 @@ impl ExecutionEngine for O3Engine {
                 // Reclaim physical registers for squashed entries
                 for entry in self.rob.iter_after(keep_tag) {
                     self.free_list.reclaim(entry.phys_dst);
+                    for i in 0..entry.vec_dst_count as usize {
+                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                    }
                 }
                 let squashed = self.rob.iter_after(keep_tag).count();
                 cpu.stats.misprediction_penalty += squashed as u64;
@@ -379,6 +409,7 @@ impl ExecutionEngine for O3Engine {
                 self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
                 self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
                 self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+                self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
 
                 // Memory violations never have checkpoints (the violating load
@@ -391,6 +422,9 @@ impl ExecutionEngine for O3Engine {
                 // or the preceding entry was already committed. Full flush.
                 for entry in self.rob.iter_all() {
                     self.free_list.reclaim(entry.phys_dst);
+                    for i in 0..entry.vec_dst_count as usize {
+                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                    }
                 }
                 let squashed = self.rob.len();
                 cpu.stats.misprediction_penalty += squashed as u64;
@@ -405,6 +439,7 @@ impl ExecutionEngine for O3Engine {
                 self.mem1_mem2.clear();
                 self.mem2_wb.clear();
                 self.pending_results.clear();
+                self.vec_pending.clear();
                 self.execute_mem1.clear();
 
                 // Full flush: 0 surviving, no rename rebuild needed.
@@ -521,6 +556,31 @@ impl ExecutionEngine for O3Engine {
             }
         }
 
+        // ── 6b. Process vector pending results (chaining model) ──────
+        {
+            let mut i = 0;
+            while i < self.vec_pending.len() {
+                let vp = &mut self.vec_pending[i];
+                // At first_group_ready: mark vec PRF ready, broadcast wakeup (chaining)
+                if !vp.wakeup_fired && now >= vp.first_group_ready {
+                    for j in 0..vp.vd_count as usize {
+                        self.vec_prf.mark_ready(vp.vd_phys[j]);
+                    }
+                    for j in 0..vp.vd_count as usize {
+                        self.issue_queue.wakeup_vec_phys(vp.vd_phys[j], &self.vec_prf);
+                    }
+                    vp.wakeup_fired = true;
+                }
+                // At full_complete: mark ROB entry complete, remove from pending
+                if now >= vp.full_complete {
+                    self.rob.complete(vp.rob_tag, 0);
+                    let _ = self.vec_pending.swap_remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
         // ── 6. Issue + Execute ─────────────────────────────────────────
         // `flush_keep_tag`: the rob_tag of the instruction that triggered a
         // flush (branch misprediction, CSR, FENCE.I, etc.).  Set when any
@@ -577,8 +637,31 @@ impl ExecutionEngine for O3Engine {
                 let complete_cycle = self.fu_pool.acquire(fu_type, now);
                 let is_pipelined = self.fu_pool.is_pipelined(fu_type);
 
+                // Save vector destination info before execute_one consumes the entry.
+                // After execute, we sync vec_prf from the arch VPR so the commit
+                // path (vec_prf → arch VPR) has the correct data.
+                let vec_dst_info = if entry.ctrl.vec_reg_write && entry.ctrl.vec_lmul_regs > 0 {
+                    Some((entry.vd_phys, entry.ctrl.vec_lmul_regs, entry.ctrl.vd))
+                } else {
+                    None
+                };
+
                 let (ex_result, flush) = execute::execute_one(cpu, entry, &mut self.rob);
                 issued_count += 1;
+
+                // Sync vec_prf from arch VPR after vector execute.
+                // execute_vec_op writes directly to the architectural VPR (serializing);
+                // copy the results into the allocated physical registers so the commit
+                // path has the correct data for vec_prf → arch VPR writeback.
+                if let Some((vd_phys, count, vd)) = vec_dst_info {
+                    use crate::core::units::vpu::types::VRegIdx;
+                    for (i, &phys) in vd_phys.iter().enumerate().take(count as usize) {
+                        let vreg = VRegIdx::new(vd.as_u8() + i as u8);
+                        let bytes = cpu.regs.vpr().read_bytes(vreg);
+                        self.vec_prf.write_bytes(phys, bytes);
+                        self.vec_prf.mark_ready(phys);
+                    }
+                }
 
                 let is_mem = ex_result.ctrl.mem_read
                     || ex_result.ctrl.mem_write
@@ -673,6 +756,9 @@ impl ExecutionEngine for O3Engine {
                 // Reclaim physical registers for squashed ROB entries before flushing
                 for entry in self.rob.iter_after(keep_tag) {
                     self.free_list.reclaim(entry.phys_dst);
+                    for i in 0..entry.vec_dst_count as usize {
+                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                    }
                 }
                 // Use flush_after (NOT flush) — older IQ entries that haven't
                 // been issued yet (waiting on operands) must survive; flushing
@@ -689,6 +775,9 @@ impl ExecutionEngine for O3Engine {
                 // Reclaim physical registers for all remaining ROB entries.
                 for entry in self.rob.iter_all() {
                     self.free_list.reclaim(entry.phys_dst);
+                    for i in 0..entry.vec_dst_count as usize {
+                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                    }
                 }
                 squashed = self.rob.len();
                 cpu.stats.misprediction_penalty += squashed as u64;
@@ -703,6 +792,7 @@ impl ExecutionEngine for O3Engine {
             self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
+            self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
             self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             // Restore speculative rename map: try checkpoint (O(1)), fallback to rebuild (O(n)).
             // With a checkpoint, the rename map is restored in O(1) from the snapshot
@@ -765,13 +855,24 @@ impl ExecutionEngine for O3Engine {
         let lq_free = self.load_queue.free_slots();
         let iq_free = self.issue_queue.available_slots();
         let prf_free = self.free_list.available();
-        rob_free.min(sb_free).min(lq_free).min(iq_free).min(prf_free).min(self.width)
+        let vec_prf_free = self.vec_free_list.available();
+        rob_free
+            .min(sb_free)
+            .min(lq_free)
+            .min(iq_free)
+            .min(prf_free)
+            .min(vec_prf_free)
+            .min(self.width)
     }
 
     fn flush(&mut self, cpu: &mut Cpu) {
         // Reclaim all phys_dst regs for every in-flight ROB entry
         for entry in self.rob.iter_all() {
             self.free_list.reclaim(entry.phys_dst);
+            // Reclaim vector physical destinations
+            for i in 0..entry.vec_dst_count as usize {
+                self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+            }
         }
         // Restore speculative rename map to committed state
         self.rename_map = self.committed_rename_map.clone();
@@ -787,6 +888,7 @@ impl ExecutionEngine for O3Engine {
         // (trap/MRET paths) sets it after this call. External callers that
         // need a hard reset should clear it explicitly.
         self.pending_results.clear();
+        self.vec_pending.clear();
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
@@ -806,6 +908,13 @@ impl ExecutionEngine for O3Engine {
             "PRF register leak detected: free={} + 64 mapped != {} total",
             self.free_list.available(),
             self.prf.capacity(),
+        );
+        debug_assert_eq!(
+            self.vec_free_list.available() + 32, // 32 VPR mapped
+            self.vec_prf.capacity(),
+            "Vec PRF register leak detected: free={} + 32 mapped != {} total",
+            self.vec_free_list.available(),
+            self.vec_prf.capacity(),
         );
     }
 
@@ -853,7 +962,7 @@ impl ExecutionEngine for O3Engine {
         &mut self.prf
     }
 
-    fn free_list_mut(&mut self) -> &mut FreeList {
+    fn free_list_mut(&mut self) -> &mut FreeList<PhysReg> {
         &mut self.free_list
     }
 
@@ -875,6 +984,18 @@ impl ExecutionEngine for O3Engine {
 
     fn checkpoint_count(&self) -> usize {
         self.checkpoints.capacity()
+    }
+
+    fn vec_prf(&self) -> &VecPhysRegFile {
+        &self.vec_prf
+    }
+
+    fn vec_prf_mut(&mut self) -> &mut VecPhysRegFile {
+        &mut self.vec_prf
+    }
+
+    fn vec_free_list_mut(&mut self) -> &mut FreeList<VecPhysReg> {
+        &mut self.vec_free_list
     }
 }
 

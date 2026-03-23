@@ -102,6 +102,29 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     };
     let op_c = fwd_c;
 
+    // Vector operations: dispatch to VPU, flush pipeline (still serializing).
+    // Vector ops are intercepted here before the system-instruction handler
+    // because they carry `system_op = System` (serializing) but aren't MRET/CSR/etc.
+    if id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
+        let scalar_result = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
+        let result = ExMem1Entry {
+            rob_tag: id.rob_tag,
+            pc: id.pc,
+            inst: id.inst,
+            inst_size: id.inst_size,
+            rd: id.rd,
+            alu: scalar_result,
+            store_data: 0,
+            ctrl: id.ctrl,
+            trap: None,
+            exception_stage: None,
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
+            sfence_vma: None,
+        };
+        return (result, true);
+    }
+
     // FENCE.I: flush the pipeline so younger instructions are squashed.
     // The I-cache flush is deferred to COMMIT time (after store drain)
     // to ensure that all prior stores are visible in RAM before the
@@ -888,6 +911,13 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -943,6 +973,13 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1001,6 +1038,13 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1063,6 +1107,13 @@ mod tests {
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1124,6 +1175,13 @@ mod tests {
             pred_target: 0, // Predicted NOT taken
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1183,6 +1241,13 @@ mod tests {
             pred_target: 0, // Predicted incorrectly
             ghr_snapshot: Ghr::default(),
             ras_snapshot: 0,
+            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vec_src1_count: 0,
+            vec_src2_count: 0,
+            vec_src3_count: 0,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);

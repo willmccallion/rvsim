@@ -13,6 +13,7 @@ use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
+use crate::core::units::vpu::types::VecPhysReg;
 
 /// Entry in the IF/ID pipeline latch (Fetch to Decode stage).
 ///
@@ -220,6 +221,20 @@ pub struct RenameIssueEntry {
     pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
     pub ras_snapshot: usize,
+    /// Physical vector registers for vs1 LMUL group (O3 backend).
+    pub vs1_phys: [VecPhysReg; 8],
+    /// Physical vector registers for vs2 LMUL group (O3 backend).
+    pub vs2_phys: [VecPhysReg; 8],
+    /// Physical vector registers for vs3/vd-as-source LMUL group (O3 backend).
+    pub vs3_phys: [VecPhysReg; 8],
+    /// Physical vector registers for vd destination LMUL group (O3 backend).
+    pub vd_phys: [VecPhysReg; 8],
+    /// Number of registers in vs1 LMUL group.
+    pub vec_src1_count: u8,
+    /// Number of registers in vs2 LMUL group.
+    pub vec_src2_count: u8,
+    /// Number of registers in vs3 LMUL group.
+    pub vec_src3_count: u8,
 }
 
 /// Entry from Execute -> Memory1 latch.

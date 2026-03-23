@@ -18,7 +18,6 @@
 
 #![allow(clippy::float_cmp)]
 
-use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::nan_handling::{
@@ -26,6 +25,7 @@ use crate::core::units::fpu::nan_handling::{
 };
 use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
 
 // ============================================================================
@@ -123,7 +123,7 @@ pub const fn is_vec_fp(op: VectorOp) -> bool {
 #[allow(clippy::too_many_lines)]
 pub fn vec_fp_execute(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -194,19 +194,19 @@ pub fn vec_fp_execute(
 
 /// Read v0 mask bit for element `i`.
 #[inline]
-fn mask_active(vpr: &Vpr, i: usize) -> bool {
+fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Write all-1s at the given SEW width to a destination element.
 #[inline]
-fn write_ones(vpr: &mut Vpr, vd: VRegIdx, i: usize, sew: Sew) {
+fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
     vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
 /// Read operand1 value for element `i` at the given SEW.
 #[inline]
-fn read_op1(vpr: &Vpr, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
+fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
     match operand1 {
         VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(i), sew),
         VecOperand::Scalar(s) => *s & sew.mask(),
@@ -621,7 +621,7 @@ fn compute_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
 /// Standard (non-widening, non-narrowing, non-FMA) FP element-wise loop.
 fn exec_fp_standard(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -669,7 +669,7 @@ fn exec_fp_standard(
 /// FMA operations: vd is both source (accumulator) and destination.
 fn exec_fp_fma(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -788,7 +788,7 @@ fn compute_fma_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64, vd_bits: u64) -> 
 /// FP comparison loop: writes mask bits to vd.
 fn exec_fp_comparison(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -892,7 +892,7 @@ const fn is_snan_f64(f: f64) -> bool {
 
 /// FP merge: like integer merge but for FP values.
 fn exec_fp_merge(
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -930,7 +930,7 @@ fn exec_fp_merge(
 /// FP slide1up/slide1down operations.
 fn exec_fp_slide1(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -990,7 +990,7 @@ fn exec_fp_slide1(
 #[allow(clippy::too_many_lines)]
 fn exec_fp_widening(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -1108,7 +1108,7 @@ fn exec_fp_widening(
 /// Widening FMA operations.
 fn exec_fp_widening_fma(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
@@ -1174,7 +1174,7 @@ fn exec_fp_widening_fma(
 /// Narrowing FP operations: read at 2*SEW (or SEW for destination), write at SEW.
 fn exec_fp_narrowing(
     op: VectorOp,
-    vpr: &mut Vpr,
+    vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     _operand1: VecOperand,
@@ -1276,6 +1276,7 @@ fn exec_fp_narrowing(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::core::arch::vpr::Vpr;
     use crate::core::units::vpu::types::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {

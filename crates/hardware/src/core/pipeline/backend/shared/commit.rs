@@ -20,13 +20,15 @@ use crate::core::cpu::PC_TRACE_MAX;
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
-use crate::core::pipeline::prf::PhysRegFile;
+use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
+use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
+use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -44,11 +46,13 @@ pub fn commit_stage(
     store_buffer: &mut StoreBuffer,
     scoreboard: &mut Scoreboard,
     committed_rename_map: &mut RenameMap,
-    free_list: &mut FreeList,
+    free_list: &mut FreeList<PhysReg>,
     width: usize,
     mut load_queue: Option<&mut LoadQueue>,
     mut prf: Option<&mut PhysRegFile>,
     mut checkpoints: Option<&mut CheckpointTable>,
+    mut vec_prf: Option<&mut VecPhysRegFile>,
+    mut vec_free_list: Option<&mut FreeList<VecPhysReg>>,
 ) -> Option<(Trap, u64)> {
     let mut trap_event: Option<(Trap, u64)> = None;
 
@@ -170,6 +174,14 @@ pub fn commit_stage(
                 // phys_dst would leak without this explicit reclaim.
                 if entry.phys_dst.0 != 0 {
                     free_list.reclaim(entry.phys_dst);
+                }
+                // Reclaim faulting instruction's vector physical registers.
+                if let Some(ref mut vfl) = vec_free_list {
+                    for i in 0..entry.vec_dst_count as usize {
+                        if !entry.vec_phys_dst[i].is_zero() {
+                            vfl.reclaim(entry.vec_phys_dst[i]);
+                        }
+                    }
                 }
                 trap_event = Some((the_trap.clone(), entry.pc));
             }
@@ -321,6 +333,35 @@ pub fn commit_stage(
                 is_fp    = false,
                 "CM: integer register write"
             );
+        }
+
+        // ── Vector register writeback ─────────────────────────────────
+        // Copy data from vec physical regs → architectural VPR.
+        // Reclaim old vec physical regs and update committed rename map.
+        if entry.vec_dst_count > 0 {
+            let vd_base = entry.ctrl.vd.as_u8();
+            for i in 0..entry.vec_dst_count as usize {
+                let vreg = VRegIdx::new(vd_base + i as u8);
+                // Copy vec_prf data to architectural VPR
+                if let Some(ref mut vprf) = vec_prf {
+                    let bytes = vprf.read_bytes(entry.vec_phys_dst[i]);
+                    cpu.regs.vpr_mut().write_bytes(vreg, bytes);
+                }
+                // Reclaim old physical reg
+                if let Some(ref mut vfl) = vec_free_list
+                    && entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i]
+                {
+                    vfl.reclaim(entry.vec_old_phys_dst[i]);
+                }
+                // Update committed rename map
+                committed_rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
+                // Clear scoreboard producer for this vec register
+                scoreboard.clear_vec_if_match(vreg, entry.tag);
+            }
+            // Set mstatus.VS = Dirty and vstart = 0
+            cpu.csrs.mstatus = (cpu.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            cpu.csrs.vstart = 0;
         }
 
         // Write deferred commit log entry (now that rd has been written).
@@ -915,6 +956,8 @@ mod tests {
             &mut committed_rename_map,
             &mut free_list,
             1,
+            None,
+            None,
             None,
             None,
             None,

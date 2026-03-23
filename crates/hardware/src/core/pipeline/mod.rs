@@ -36,6 +36,9 @@ pub mod prf;
 /// Physical register free list.
 pub mod free_list;
 
+/// Vector physical register file with ready bits and VecPrfView.
+pub mod vec_prf;
+
 /// Speculative rename map (arch reg → physical reg).
 pub mod rename_map;
 

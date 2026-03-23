@@ -1102,10 +1102,22 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
 
         let d = instruction_decode(inst);
 
-        let (ctrl, trap, ex_stage) = match decode_instruction(inst, if_entry.pc, &d) {
+        let (mut ctrl, trap, ex_stage) = match decode_instruction(inst, if_entry.pc, &d) {
             Ok(c) => (c, None, None),
             Err(t) => (ControlSignals::default(), Some(t), Some(ExceptionStage::Decode)),
         };
+
+        // Set vec_lmul_regs from the current vtype CSR for vector data ops.
+        // vsetvl family instructions are config ops and don't use LMUL groups.
+        // Since vsetvl is serializing, vtype is always up-to-date at decode.
+        if ctrl.vec_op != VectorOp::None
+            && !matches!(ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl)
+        {
+            let vtype = crate::core::units::vpu::types::parse_vtype(cpu.csrs.vtype);
+            if !vtype.vill {
+                ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();
+            }
+        }
 
         // Check for intra-bundle hazards (superscalar, in-order only).
         // With register renaming (O3 backend), rename resolves all RAW hazards
