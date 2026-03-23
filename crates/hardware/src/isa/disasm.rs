@@ -1,4 +1,4 @@
-//! Instruction Disassembler for RISC-V RV64GC.
+//! Instruction Disassembler for RISC-V RV64GCV.
 //!
 //! Converts a 32-bit instruction encoding into a human-readable mnemonic
 //! string for debug tracing, logging, and test diagnostics.
@@ -10,6 +10,7 @@
 //! - RV64A (atomic)
 //! - RV64F (single-precision float)
 //! - RV64D (double-precision float)
+//! - RVV 1.0 (vector)
 //! - Privileged (ECALL, EBREAK, xRET, CSR, FENCE, WFI)
 //!
 //! # Usage
@@ -29,6 +30,7 @@ use crate::isa::rv64f::{funct3 as f_f3, funct7 as f_f7, opcodes as f_op};
 use crate::isa::rv64i::{funct3 as i_f3, funct7 as i_f7, opcodes as i_op};
 use crate::isa::rv64m::{funct3 as m_f3, opcodes as m_op};
 use crate::isa::rvc;
+use crate::isa::{disasm_vec, rvv::opcodes as v_opcodes};
 
 /// ABI register names for x0–x31.
 const REG_NAMES: [&str; 32] = [
@@ -116,9 +118,12 @@ pub fn disassemble(inst: u32) -> String {
             };
             format!("{mn} {}, {imm_i}({})", xreg(rd), xreg(rs1))
         }
-        f_op::OP_LOAD_FP => {
-            let mn = if f3 == i_f3::LW { "flw" } else { "fld" };
-            format!("{mn} {}, {imm_i}({})", freg(rd), xreg(rs1))
+        f_op::OP_LOAD_FP => match f3 {
+            0b000 | 0b101 | 0b110 | 0b111 => disasm_vec::disasm_vec_load(inst),
+            _ => {
+                let mn = if f3 == i_f3::LW { "flw" } else { "fld" };
+                format!("{mn} {}, {imm_i}({})", freg(rd), xreg(rs1))
+            }
         }
 
         // ── Stores ────────────────────────────────────────
@@ -132,9 +137,12 @@ pub fn disassemble(inst: u32) -> String {
             };
             format!("{mn} {}, {imm_s}({})", xreg(rs2), xreg(rs1))
         }
-        f_op::OP_STORE_FP => {
-            let mn = if f3 == i_f3::SW { "fsw" } else { "fsd" };
-            format!("{mn} {}, {imm_s}({})", freg(rs2), xreg(rs1))
+        f_op::OP_STORE_FP => match f3 {
+            0b000 | 0b101 | 0b110 | 0b111 => disasm_vec::disasm_vec_store(inst),
+            _ => {
+                let mn = if f3 == i_f3::SW { "fsw" } else { "fsd" };
+                format!("{mn} {}, {imm_s}({})", freg(rs2), xreg(rs1))
+            }
         }
 
         // ── Branches ──────────────────────────────────────
@@ -220,6 +228,9 @@ pub fn disassemble(inst: u32) -> String {
         }
 
         sys_op::OP_SYSTEM => disasm_system(inst, rd, rs1, f3),
+
+        // ── Vector arithmetic (OP-V) ───────────────────────
+        v_opcodes::OP_V => disasm_vec::disasm_vec_arith(inst),
 
         _ => format!("unknown ({inst:#010x})"),
     }

@@ -77,6 +77,9 @@ class Config:
         l2_tlb_latency: int = 4,
         software_ad_bits: bool = True,
         misaligned_access_trap: bool = False,
+        # Vector ISA
+        vlen: int = 128,
+        num_vec_lanes: Optional[int] = None,
         # General
         trace: bool = False,
         initial_sp: Optional[int] = None,
@@ -123,6 +126,10 @@ class Config:
         self.l2_tlb_latency = l2_tlb_latency
         self.software_ad_bits = software_ad_bits
         self.misaligned_access_trap = misaligned_access_trap
+
+        # Vector ISA
+        self.vlen = vlen
+        self.num_vec_lanes = num_vec_lanes
 
         # General
         self.trace = trace
@@ -176,6 +183,8 @@ class Config:
             l2_tlb_latency=self.l2_tlb_latency,
             software_ad_bits=self.software_ad_bits,
             misaligned_access_trap=self.misaligned_access_trap,
+            vlen=self.vlen,
+            num_vec_lanes=self.num_vec_lanes,
             trace=self.trace,
             initial_sp=self.initial_sp,
             ram_base=self.ram_base,
@@ -429,6 +438,22 @@ def _fu_config_to_dict(fc: Fu) -> dict:
         "branch_latency": 1,
         "num_mem": 0,
         "mem_latency": 1,
+        "num_vec_int_alu": 0,
+        "vec_int_alu_latency": 1,
+        "num_vec_int_mul": 0,
+        "vec_int_mul_latency": 3,
+        "num_vec_int_div": 0,
+        "vec_int_div_latency": 20,
+        "num_vec_fp_alu": 0,
+        "vec_fp_alu_latency": 4,
+        "num_vec_fp_fma": 0,
+        "vec_fp_fma_latency": 5,
+        "num_vec_fp_div_sqrt": 0,
+        "vec_fp_div_sqrt_latency": 20,
+        "num_vec_mem": 0,
+        "vec_mem_latency": 1,
+        "num_vec_permute": 0,
+        "vec_permute_latency": 1,
     }
     for u in fc.units:
         if isinstance(u, Fu.IntAlu):
@@ -458,6 +483,30 @@ def _fu_config_to_dict(fc: Fu) -> dict:
         elif isinstance(u, Fu.Mem):
             d["num_mem"] = u.count
             d["mem_latency"] = u.latency
+        elif isinstance(u, Fu.VecIntAlu):
+            d["num_vec_int_alu"] = u.count
+            d["vec_int_alu_latency"] = u.latency
+        elif isinstance(u, Fu.VecIntMul):
+            d["num_vec_int_mul"] = u.count
+            d["vec_int_mul_latency"] = u.latency
+        elif isinstance(u, Fu.VecIntDiv):
+            d["num_vec_int_div"] = u.count
+            d["vec_int_div_latency"] = u.latency
+        elif isinstance(u, Fu.VecFpAlu):
+            d["num_vec_fp_alu"] = u.count
+            d["vec_fp_alu_latency"] = u.latency
+        elif isinstance(u, Fu.VecFpFma):
+            d["num_vec_fp_fma"] = u.count
+            d["vec_fp_fma_latency"] = u.latency
+        elif isinstance(u, Fu.VecFpDivSqrt):
+            d["num_vec_fp_div_sqrt"] = u.count
+            d["vec_fp_div_sqrt_latency"] = u.latency
+        elif isinstance(u, Fu.VecMem):
+            d["num_vec_mem"] = u.count
+            d["vec_mem_latency"] = u.latency
+        elif isinstance(u, Fu.VecPermute):
+            d["num_vec_permute"] = u.count
+            d["vec_permute_latency"] = u.latency
         else:
             raise TypeError(f"Unknown Fu type: {type(u)}")
     return d
@@ -477,6 +526,8 @@ def _backend_to_pipeline_fields(be) -> dict:
             "prf_fpr_size": be.prf_fpr_size,
             "fu_config": _fu_config_to_dict(be.fu_config),
             "checkpoint_count": be.checkpoint_count,
+            "prf_vpr_size": be.prf_vpr_size,
+            "vec_chaining": be.vec_chaining,
         }
     # InOrder: emit safe defaults so Rust serde never chokes on missing keys
     return {
@@ -489,6 +540,8 @@ def _backend_to_pipeline_fields(be) -> dict:
         "prf_gpr_size": 64,
         "prf_fpr_size": 64,
         "fu_config": _fu_config_to_dict(Fu()),
+        "prf_vpr_size": 64,
+        "vec_chaining": True,
     }
 
 
@@ -642,8 +695,11 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "ittage": ittage_dict,
         "mem_dep_predictor": _mdp_name(mdp),
         "store_set": store_set_dict,
+        "vlen": cfg.vlen,
         **_backend_to_pipeline_fields(cfg.backend),
     }
+    if cfg.num_vec_lanes is not None:
+        pipeline["num_vec_lanes"] = cfg.num_vec_lanes
 
     return {
         "general": general,

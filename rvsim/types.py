@@ -459,6 +459,19 @@ class Fu:
         def __repr__(self) -> str:
             return f"Fu.Mem(count={self.count}, latency={self.latency})"
 
+    # ── Vector FU classes (factory-generated) ──────────────────────────────
+
+    @staticmethod
+    def _make_vec_fu(name, doc, default_count, default_latency):
+        def init(self, count=default_count, latency=default_latency):
+            self.count = count
+            self.latency = latency
+
+        def repr_(self):
+            return f"Fu.{name}(count={self.count}, latency={self.latency})"
+
+        return type(name, (), {"__init__": init, "__repr__": repr_, "__doc__": doc})
+
     # Default pool matching Skylake-class hardware
     _DEFAULTS: "list"
 
@@ -470,6 +483,19 @@ class Fu:
         return f"Fu([{inner}])"
 
 
+# Attach vector FU classes to Fu namespace
+for _name, _doc, _count, _lat in [
+    ("VecIntAlu", "Vector integer ALU", 1, 1),
+    ("VecIntMul", "Vector integer multiplier", 1, 3),
+    ("VecIntDiv", "Vector integer divider", 1, 20),
+    ("VecFpAlu", "Vector FP ALU", 1, 4),
+    ("VecFpFma", "Vector FP FMA", 1, 5),
+    ("VecFpDivSqrt", "Vector FP div/sqrt", 1, 20),
+    ("VecMem", "Vector memory unit", 1, 1),
+    ("VecPermute", "Vector permute unit", 1, 1),
+]:
+    setattr(Fu, _name, Fu._make_vec_fu(_name, _doc, _count, _lat))
+
 Fu._DEFAULTS = [
     Fu.IntAlu(count=4, latency=1),
     Fu.IntMul(count=1, latency=3),
@@ -480,6 +506,14 @@ Fu._DEFAULTS = [
     Fu.FpDivSqrt(count=1, latency=21),
     Fu.Branch(count=2, latency=1),
     Fu.Mem(count=2, latency=1),
+    Fu.VecIntAlu(count=1, latency=1),
+    Fu.VecIntMul(count=1, latency=3),
+    Fu.VecIntDiv(count=1, latency=20),
+    Fu.VecFpAlu(count=1, latency=4),
+    Fu.VecFpFma(count=1, latency=5),
+    Fu.VecFpDivSqrt(count=1, latency=20),
+    Fu.VecMem(count=1, latency=1),
+    Fu.VecPermute(count=1, latency=1),
 ]
 
 
@@ -506,6 +540,8 @@ class Backend:
             prf_fpr_size: int = 128,
             fu_config=None,
             checkpoint_count: int = 0,
+            prf_vpr_size: int = 64,
+            vec_chaining: bool = True,
         ):
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
@@ -517,6 +553,8 @@ class Backend:
             self.prf_fpr_size = prf_fpr_size
             self.fu_config = fu_config if fu_config is not None else Fu()
             self.checkpoint_count = checkpoint_count
+            self.prf_vpr_size = prf_vpr_size
+            self.vec_chaining = vec_chaining
 
         def __repr__(self) -> str:
             return (

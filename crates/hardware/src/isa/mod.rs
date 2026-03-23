@@ -22,6 +22,9 @@ pub mod decode;
 /// Instruction disassembler for debug tracing and diagnostics.
 pub mod disasm;
 
+/// Vector instruction disassembler (RVV 1.0).
+pub mod disasm_vec;
+
 /// Instruction encoding structures and bit extraction utilities.
 pub mod instruction;
 

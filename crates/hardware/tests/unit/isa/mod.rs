@@ -17,6 +17,7 @@ pub mod decode_properties;
 /// and privileged instructions.
 pub mod disasm;
 pub mod disasm_all_instructions;
+pub mod disasm_vec;
 
 /// RISC-V Compressed (RVC) instruction set extension tests.
 ///
