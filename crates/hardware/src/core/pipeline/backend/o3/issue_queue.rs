@@ -181,6 +181,7 @@ impl IssueQueue {
         rob: &Rob,
         cpu: &Cpu,
         prf: Option<&PhysRegFile>,
+        vec_prf: Option<&VecPhysRegFile>,
         mem_dep: MemDepState,
     ) -> bool {
         if self.count >= self.capacity {
@@ -210,21 +211,28 @@ impl IssueQueue {
         };
 
         // Initialize vector operand states (default ready if no vec sources)
-        let vec_src1 = VecOperandState {
+        let mut vec_src1 = VecOperandState {
             phys: entry.vs1_phys,
             count: entry.vec_src1_count,
             ready: entry.vec_src1_count == 0,
         };
-        let vec_src2 = VecOperandState {
+        let mut vec_src2 = VecOperandState {
             phys: entry.vs2_phys,
             count: entry.vec_src2_count,
             ready: entry.vec_src2_count == 0,
         };
-        let vec_src3 = VecOperandState {
+        let mut vec_src3 = VecOperandState {
             phys: entry.vs3_phys,
             count: entry.vec_src3_count,
             ready: entry.vec_src3_count == 0,
         };
+
+        // Check initial readiness against vec PRF (sources may already be ready)
+        if let Some(vprf) = vec_prf {
+            vec_src1.check_ready(vprf);
+            vec_src2.check_ready(vprf);
+            vec_src3.check_ready(vprf);
+        }
 
         let iq_entry =
             IssueQueueEntry { entry, src1, src2, src3, vec_src1, vec_src2, vec_src3, mem_dep };
