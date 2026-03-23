@@ -25,6 +25,8 @@ import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TORTURE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Directories are set per test type in main()
 GEN_DIR = os.path.join(TORTURE_DIR, "generated")
 BUILD_DIR = os.path.join(TORTURE_DIR, "build")
 FAIL_DIR = os.path.join(TORTURE_DIR, "failures")
@@ -47,11 +49,11 @@ SIG_REGS = [r for r in range(5, 32) if r != 4]
 SIG_SIZE = len(SIG_REGS) * 8  # bytes
 
 
-def assemble_test(src_path, elf_path):
+def assemble_test(src_path, elf_path, march="rv64gc"):
     """Assemble a torture .S file into an ELF."""
     cmd = [
         CC,
-        "-march=rv64gc", "-mabi=lp64d",
+        f"-march={march}", "-mabi=lp64d",
         "-static", "-mcmodel=medany",
         "-fvisibility=hidden", "-nostdlib", "-nostartfiles",
         f"-I{os.path.join(ENV_DIR, 'p')}",
@@ -88,13 +90,13 @@ def get_signature_addr(elf_path):
     return None
 
 
-def run_spike(elf_path):
+def run_spike(elf_path, isa="rv64gc"):
     """Run test on Spike, return (exit_code, signature_bytes)."""
     sig_addr = get_signature_addr(elf_path)
 
     # Run Spike
     result = subprocess.run(
-        [SPIKE, "--isa=rv64gc", elf_path],
+        [SPIKE, f"--isa={isa}", elf_path],
         capture_output=True, text=True, timeout=30,
     )
 
@@ -113,7 +115,7 @@ def run_spike(elf_path):
         sig_path = sigf.name
 
     result2 = subprocess.run(
-        [SPIKE, "--isa=rv64gc", f"+signature={sig_path}", elf_path],
+        [SPIKE, f"--isa={isa}", f"+signature={sig_path}", elf_path],
         capture_output=True, text=True, timeout=30,
     )
 
@@ -129,7 +131,7 @@ def run_spike(elf_path):
     return result2.returncode, sig_data
 
 
-def run_rvsim(elf_path, config_name="default"):
+def run_rvsim(elf_path, config_name="default", cycle_limit=500_000):
     """Run test on rvsim, return (exit_code, signature_bytes)."""
     sig_addr = get_signature_addr(elf_path)
 
@@ -207,7 +209,7 @@ def run_rvsim(elf_path, config_name="default"):
         contextlib.redirect_stdout(io.StringIO()),
         contextlib.redirect_stderr(io.StringIO()),
     ):
-        rc = sim.run(limit=500_000, stats_sections=None)
+        rc = sim.run(limit=cycle_limit, stats_sections=None)
 
     # TODO: extract signature from simulator memory if API supports it
     return rc, None
@@ -235,13 +237,36 @@ def main():
         help="rvsim pipeline config to test",
     )
     ap.add_argument(
+        "--type", default="scalar", choices=["scalar", "vec"],
+        help="Test type: scalar or vector",
+    )
+    ap.add_argument(
         "--mem-pct", type=int, default=30, help="Percentage of memory operations"
     )
     ap.add_argument(
         "--branch-pct", type=int, default=15, help="Percentage of branch blocks"
     )
+    ap.add_argument(
+        "--fp-pct", type=int, default=15, help="FP test percentage (vec only)"
+    )
     ap.add_argument("--jobs", "-j", type=int, default=1, help="Parallel jobs (build only)")
     args = ap.parse_args()
+
+    global GEN_DIR, BUILD_DIR, FAIL_DIR
+    if args.type == "vec":
+        GEN_DIR = os.path.join(TORTURE_DIR, "generated_vec")
+        BUILD_DIR = os.path.join(TORTURE_DIR, "build_vec")
+        SPIKE_ISA = "rv64gcv"
+        CC_MARCH = "rv64gcv"
+        CYCLE_LIMIT = 2_000_000
+        if args.length == 500:
+            args.length = 50  # default for vec is fewer blocks
+    else:
+        SPIKE_ISA = "rv64gc"
+        CC_MARCH = "rv64gc"
+        CYCLE_LIMIT = 500_000
+
+    FAIL_DIR = os.path.join(TORTURE_DIR, "failures")
 
     os.makedirs(BUILD_DIR, exist_ok=True)
     os.makedirs(GEN_DIR, exist_ok=True)
@@ -250,20 +275,34 @@ def main():
 
     # Step 1: Generate
     if not args.skip_generate:
-        print(f"[torture] Generating {args.count} tests (seed={args.seed}, length={args.length})...")
-        from generate import TortureGenerator
-        for i in range(args.count):
-            seed = args.seed + i
-            gen = TortureGenerator(
-                seed=seed,
-                length=args.length,
-                mem_ops_pct=args.mem_pct,
-                branch_pct=args.branch_pct,
-            )
-            code = gen.generate()
-            path = os.path.join(GEN_DIR, f"torture_{seed:06d}.S")
-            with open(path, "w") as f:
-                f.write(code)
+        print(f"[torture] Generating {args.count} {args.type} tests (seed={args.seed}, length={args.length})...")
+        if args.type == "vec":
+            from generate_vec import VecTortureGenerator
+            for i in range(args.count):
+                seed = args.seed + i
+                gen = VecTortureGenerator(
+                    seed=seed,
+                    length=args.length,
+                    vec_fp_pct=args.fp_pct,
+                )
+                code = gen.generate()
+                path = os.path.join(GEN_DIR, f"vec_torture_{seed:06d}.S")
+                with open(path, "w") as f:
+                    f.write(code)
+        else:
+            from generate import TortureGenerator
+            for i in range(args.count):
+                seed = args.seed + i
+                gen = TortureGenerator(
+                    seed=seed,
+                    length=args.length,
+                    mem_ops_pct=args.mem_pct,
+                    branch_pct=args.branch_pct,
+                )
+                code = gen.generate()
+                path = os.path.join(GEN_DIR, f"torture_{seed:06d}.S")
+                with open(path, "w") as f:
+                    f.write(code)
 
     # Collect .S files
     src_files = sorted(
@@ -282,7 +321,7 @@ def main():
         src_path = os.path.join(GEN_DIR, src_name)
         elf_name = src_name.replace(".S", "")
         elf_path = os.path.join(BUILD_DIR, elf_name)
-        if assemble_test(src_path, elf_path):
+        if assemble_test(src_path, elf_path, march=CC_MARCH):
             elfs.append((elf_name, elf_path))
         else:
             build_fail += 1
@@ -301,13 +340,13 @@ def main():
     for i, (name, elf_path) in enumerate(elfs):
         # Run Spike
         try:
-            spike_rc, spike_sig = run_spike(elf_path)
+            spike_rc, spike_sig = run_spike(elf_path, isa=SPIKE_ISA)
         except subprocess.TimeoutExpired:
             spike_rc = -1
             spike_sig = None
 
         # Run rvsim
-        rvsim_rc, rvsim_sig = run_rvsim(elf_path, args.config)
+        rvsim_rc, rvsim_sig = run_rvsim(elf_path, args.config, cycle_limit=CYCLE_LIMIT)
 
         status = compare_exit_codes(spike_rc, rvsim_rc)
 
