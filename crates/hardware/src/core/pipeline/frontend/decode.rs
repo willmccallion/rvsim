@@ -890,7 +890,7 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VWFUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                0b00000 => (VectorOp::VFMvFS, false),
+                v_f6::VWFUNARY0_VFMV_F_S => (VectorOp::VFMvFS, false),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
@@ -963,6 +963,14 @@ const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         // FP slides (OPFVF only)
         v_f6::VFSLIDE1UP => (VectorOp::VFSlide1Up, true),
         v_f6::VFSLIDE1DOWN => (VectorOp::VFSlide1Down, true),
+        // FP reverse-unary0: vfmv.s.f (funct6 = 0b010000, vs2 = 00000)
+        v_f6::VRFUNARY0 => {
+            let vs2_field = v_enc::vs2(inst);
+            match vs2_field {
+                v_f6::VRFUNARY0_VFMV_S_F => (VectorOp::VFMvSF, true),
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
         // FP merge/move (funct6 = 0b010111 in OPFVF)
         // vm=0: vfmerge.vfm, vm=1: vfmv.v.f
         v_f6::VMERGE_VMV => (VectorOp::VFMerge, true),

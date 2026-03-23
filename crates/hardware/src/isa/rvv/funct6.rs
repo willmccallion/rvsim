@@ -236,6 +236,16 @@ pub const VFSLIDE1DOWN: u32 = 0b001111;
 
 /// Vector FP widening-unary0 encoding (`vfmv.f.s`; OPFVV funct6=010000).
 pub const VWFUNARY0: u32 = 0b010000;
+
+// ── vs1 sub-field values for unary operations ───────────────────────────────
+
+/// vs1 sub-field for `vfmv.f.s` within VWFUNARY0.
+pub const VWFUNARY0_VFMV_F_S: u8 = 0b00000;
+/// Vector FP reverse-unary0 encoding (`vfmv.s.f`; OPFVF funct6=010000).
+/// Same numeric value as VWFUNARY0 but used in OPFVF context.
+pub const VRFUNARY0: u32 = 0b010000;
+/// vs2 sub-field for `vfmv.s.f` within VRFUNARY0.
+pub const VRFUNARY0_VFMV_S_F: u8 = 0b00000;
 /// Vector FP unary0 encoding (`vfcvt`, `vfwcvt`, `vfncvt`).
 pub const VFUNARY0: u32 = 0b010010;
 /// Vector FP unary1 encoding (`vfsqrt`, `vfclass`, `vfrec7`, `vfrsqrt7`).
