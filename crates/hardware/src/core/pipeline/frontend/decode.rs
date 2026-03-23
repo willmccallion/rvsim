@@ -505,6 +505,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     }
                     v_funct3::OPFVF => {
                         c.vec_src_encoding = VecSrcEncoding::VF;
+                        c.rs1_fp = true;
                         let (op, writes_vec) = decode_opfvf(f6, inst)?;
                         c.vec_op = op;
                         c.vec_reg_write = writes_vec;
