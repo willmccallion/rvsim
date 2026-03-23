@@ -99,6 +99,16 @@ impl Cpu {
                     | ((self.pmp.get_cfg(15) as u64) << 56)
             }
             0x3B0..=0x3BF => self.pmp.get_addr((raw - 0x3B0) as usize),
+            // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
+            x if x == csr::VSTART.as_u32() => self.csrs.vstart,
+            x if x == csr::VXSAT.as_u32() => self.csrs.vxsat & 0x1,
+            x if x == csr::VXRM.as_u32() => self.csrs.vxrm & 0x3,
+            x if x == csr::VCSR.as_u32() => {
+                (self.csrs.vxsat & 0x1) | ((self.csrs.vxrm & 0x3) << 1)
+            }
+            x if x == csr::VL.as_u32() => self.csrs.vl,
+            x if x == csr::VTYPE.as_u32() => self.csrs.vtype,
+            x if x == csr::VLENB.as_u32() => self.csrs.vlenb,
             _ => 0,
         }
     }
@@ -282,6 +292,15 @@ impl Cpu {
                 self.mmu.itlb.flush();
                 self.mmu.l2_tlb.flush();
             }
+            // Writable vector CSRs
+            x if x == csr::VSTART.as_u32() => self.csrs.vstart = val,
+            x if x == csr::VXSAT.as_u32() => self.csrs.vxsat = val & 0x1,
+            x if x == csr::VXRM.as_u32() => self.csrs.vxrm = val & 0x3,
+            x if x == csr::VCSR.as_u32() => {
+                self.csrs.vxsat = val & 0x1;
+                self.csrs.vxrm = (val >> 1) & 0x3;
+            }
+            // VL, VTYPE, VLENB are read-only (writes silently ignored)
             _ => {}
         }
     }
