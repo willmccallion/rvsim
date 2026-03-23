@@ -234,6 +234,8 @@ pub const VFSLIDE1DOWN: u32 = 0b001111;
 
 // ── FP conversion/class/sqrt (OPFVV, vs1 field encodes variant) ─────────────
 
+/// Vector FP widening-unary0 encoding (`vfmv.f.s`; OPFVV funct6=010000).
+pub const VWFUNARY0: u32 = 0b010000;
 /// Vector FP unary0 encoding (`vfcvt`, `vfwcvt`, `vfncvt`).
 pub const VFUNARY0: u32 = 0b010010;
 /// Vector FP unary1 encoding (`vfsqrt`, `vfclass`, `vfrec7`, `vfrsqrt7`).

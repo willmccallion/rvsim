@@ -886,6 +886,14 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VFWNMACC => (VectorOp::VFWNMacc, true),
         v_f6::VFWMSAC => (VectorOp::VFWMSac, true),
         v_f6::VFWNMSAC => (VectorOp::VFWNMSac, true),
+        // FP widening-unary0: vfmv.f.s (funct6 = 0b010000, vs1 = 00000)
+        v_f6::VWFUNARY0 => {
+            let vs1_field = v_enc::vs1(inst);
+            match vs1_field {
+                0b00000 => (VectorOp::VFMvFS, false),
+                _ => return Err(Trap::IllegalInstruction(inst)),
+            }
+        }
         // FP unary: conversion (VFUNARY0)
         v_f6::VFUNARY0 => match decode_vfunary0(inst) {
             Ok(op) => (op, true),
@@ -896,8 +904,6 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
             Ok(op) => (op, true),
             Err(e) => return Err(e),
         },
-        // FP merge/move (funct6 = 0b010111 in OPFVV = vfmv.f.s)
-        v_f6::VMERGE_VMV => (VectorOp::VFMvFS, false),
         // FP reductions
         v_f6::VFREDUSUM => (VectorOp::VFRedUSum, true),
         v_f6::VFREDOSUM => (VectorOp::VFRedOSum, true),

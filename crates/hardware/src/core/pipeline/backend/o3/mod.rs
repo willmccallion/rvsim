@@ -853,6 +853,7 @@ impl ExecutionEngine for O3Engine {
         cpu.stats.mdp_predictions_wait_all = mdp_stats.predictions_wait_all;
         cpu.stats.mdp_predictions_wait_for = mdp_stats.predictions_wait_for;
         cpu.stats.mdp_violations = mdp_stats.violations;
+
     }
 
     fn can_accept(&self) -> usize {
