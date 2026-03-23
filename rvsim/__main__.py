@@ -144,6 +144,10 @@ def _print_help() -> None:
         "--config [cyan]FILE[/cyan]",
         "Python config file  [dim](must export config or get_config)[/dim]",
     )
+    opt_table.add_row(
+        "--preset [cyan]basic[/cyan]|[cyan]fast[/cyan]",
+        "built-in config  [dim](basic: 4-wide OoO, fast: 10-wide superscalar)[/dim]",
+    )
     opt_table.add_row("--json [cyan]FILE[/cyan]", "write stats as JSON to FILE")
     console.print(Padding(opt_table, (0, 2)))
     console.print()
@@ -158,6 +162,9 @@ def _print_help() -> None:
     ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
     ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
     ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
+    ex_table.add_row(
+        "rvsim qsort.elf --preset fast", "run with the aggressive 10-wide config"
+    )
     ex_table.add_row(
         "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
     )
@@ -210,6 +217,7 @@ def main() -> None:
             "  rvsim mandelbrot.elf               run with default config, print stats\n"
             "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
             "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
+            "  rvsim mandelbrot.elf --preset fast   run with the aggressive 10-wide config\n"
             "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
             "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"
             "  rvsim mandelbrot.elf --json out.json  save stats to JSON\n"
@@ -253,6 +261,12 @@ def main() -> None:
         help="Python config file (must export a Config object or callable)",
     )
     parser.add_argument(
+        "--preset",
+        choices=["basic", "fast"],
+        default=None,
+        help="use a built-in config preset (basic: 4-wide OoO; fast: 10-wide superscalar)",
+    )
+    parser.add_argument(
         "--json",
         metavar="FILE",
         default=None,
@@ -283,7 +297,14 @@ def main() -> None:
     from .config import Config
     from .objects import Simulator
 
-    if args.config:
+    if args.config and args.preset:
+        parser.error("--config and --preset are mutually exclusive")
+
+    if args.preset:
+        from .presets import PRESETS
+
+        cfg = PRESETS[args.preset]()
+    elif args.config:
         sim_tmp = Simulator().config(args.config)
         cfg = sim_tmp._config_obj if sim_tmp._config_obj is not None else Config()
     else:

@@ -65,6 +65,19 @@ def _parse_cycles(s) -> int:
 
 # ── Branch Predictor ─────────────────────────────────────────────────────────
 
+_GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
+
+
+def _validate_history_lengths(lengths: List[int], name: str) -> None:
+    """Validate that no history length exceeds the GHR capacity."""
+    max_len = max(lengths) if lengths else 0
+    if max_len > _GHR_MAX_BITS:
+        raise ValueError(
+            f"{name}: maximum history length {max_len} exceeds the "
+            f"GHR capacity of {_GHR_MAX_BITS} bits. "
+            f"All history lengths must be <= {_GHR_MAX_BITS}."
+        )
+
 
 class BranchPredictor:
     """Namespace for branch predictor configurations."""
@@ -100,6 +113,9 @@ class BranchPredictor:
                 tag_widths
                 if tag_widths is not None
                 else [8, 8, 9, 9, 10, 10, 11, 11]
+            )
+            _validate_history_lengths(
+                self.history_lengths, "TAGE history_lengths"
             )
 
         def __repr__(self) -> str:
@@ -215,6 +231,12 @@ class BranchPredictor:
                 else [9, 9, 10, 10, 11, 11, 12, 12]
             )
             self.ittage_reset_interval = ittage_reset_interval
+            _validate_history_lengths(
+                self.history_lengths, "ScLTage history_lengths"
+            )
+            _validate_history_lengths(
+                self.ittage_history_lengths, "ScLTage ittage_history_lengths"
+            )
 
         def __repr__(self) -> str:
             return (

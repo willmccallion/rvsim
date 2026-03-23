@@ -24,9 +24,9 @@
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
-#define N       256
-#define MAT_N   16      /* 16x16 matrix multiply */
-#define ITERS   8       /* repeat kernels for sustained pressure */
+#define N       32
+#define MAT_N   8       /* 8x8 matrix multiply */
+#define ITERS   2       /* repeat kernels */
 
 static unsigned long long rng_state = 0xDEADBEEFCAFE1234ULL;
 

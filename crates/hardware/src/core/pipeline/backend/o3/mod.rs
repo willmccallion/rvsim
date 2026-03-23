@@ -27,7 +27,7 @@ use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
-use crate::core::units::vpu::types::{VecPhysReg, Vlen};
+use crate::core::units::vpu::types::{VRegIdx, VecPhysReg, Vlen};
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
@@ -222,6 +222,18 @@ impl O3Engine {
                 self.rename_map.set(entry.rd, false, entry.phys_dst);
             } else if entry.ctrl.fp_reg_write {
                 self.rename_map.set(entry.rd, true, entry.phys_dst);
+            }
+            // Re-apply vector destination mappings (same principle as scalar).
+            // Without this, a serializing vector instruction's flush reverts
+            // the rename map to committed state, losing the vector phys reg
+            // mappings and causing subsequent instructions to reference stale
+            // physical registers — leading to not-ready operands and deadlock.
+            if entry.vec_dst_count > 0 {
+                let vd_base = entry.ctrl.vd.as_u8();
+                for i in 0..entry.vec_dst_count as usize {
+                    let vreg = VRegIdx::new(vd_base + i as u8);
+                    self.rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
+                }
             }
         }
     }

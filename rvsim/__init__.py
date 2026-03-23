@@ -12,6 +12,7 @@ A Python-first interface to the cycle-accurate RISC-V simulator:
 
 from importlib.metadata import version as _metadata_version
 
+from . import presets
 from .config import Config
 from .experiment import Environment, Result
 from .isa import Disassemble, csr, reg
@@ -41,6 +42,7 @@ _rvsim_dict = _sys.modules[__name__].__dict__
 for _name in (
     "config",
     "experiment",
+    "presets",
     "isa",
     "objects",
     "pipeline",
@@ -63,6 +65,7 @@ def version() -> str:
 __all__ = [
     "__version__",
     "version",
+    "presets",
     "Config",
     "BranchPredictor",
     "MemDepPredictor",

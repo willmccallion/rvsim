@@ -19,16 +19,10 @@ import tarfile
 import urllib.request
 
 from rvsim import (
-    Backend,
-    BranchPredictor,
     Cache,
-    Config,
-    Fu,
-    MemDepPredictor,
     MemoryController,
-    Prefetcher,
-    ReplacementPolicy,
     Simulator,
+    presets,
 )
 
 BUILDROOT_VER = "2024.08"
@@ -132,137 +126,20 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def config() -> Config:
+def config():
     """Maximum-performance config for Linux boot.
 
-    10-wide O3 superscalar with VLEN=512 vector, SC-L-TAGE+ITTAGE predictor,
-    Inclusive 4-level cache hierarchy with aggressive prefetching, large TLBs,
-    DRAM controller, and dedicated vector FUs with chaining.
+    Starts from the ``fast`` preset and overrides system addresses /
+    memory-map settings that must match the device tree.
     """
-    return Config(
-        # ── Frontend ──────────────────────────────────────────────────────────
-        width=10,
-        mem_dep_predictor=MemDepPredictor.StoreSet(
-            ssit_size=4096,
-            lfst_size=512,
-        ),
-        branch_predictor=BranchPredictor.ScLTage(
-            num_banks=12,
-            table_size=16384,
-            loop_table_size=2048,
-            reset_interval=1_000_000,
-            history_lengths=[4, 8, 15, 29, 56, 108, 210, 406, 785, 1517, 2932, 5667],
-            tag_widths=[8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13],
-            sc_num_tables=6,
-            sc_table_size=2048,
-            sc_history_lengths=[0, 2, 4, 8, 16, 32],
-            sc_counter_bits=3,
-            ittage_num_banks=12,
-            ittage_table_size=1024,
-            ittage_history_lengths=[4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192],
-            ittage_tag_widths=[9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14],
-            ittage_reset_interval=1_000_000,
-        ),
-        btb_size=32768,
-        btb_ways=8,
-        ras_size=128,
-        # ── Out-of-order backend ──────────────────────────────────────────────
-        backend=Backend.OutOfOrder(
-            rob_size=512,
-            store_buffer_size=96,
-            issue_queue_size=160,
-            load_queue_size=128,
-            load_ports=4,
-            store_ports=3,
-            prf_gpr_size=640,
-            prf_fpr_size=384,
-            prf_vpr_size=128,
-            vec_chaining=True,
-            fu_config=Fu(
-                [
-                    # Scalar
-                    Fu.IntAlu(count=8, latency=1),
-                    Fu.IntMul(count=3, latency=3),
-                    Fu.IntDiv(count=2, latency=12),
-                    Fu.FpAdd(count=4, latency=3),
-                    Fu.FpMul(count=4, latency=4),
-                    Fu.FpFma(count=4, latency=4),
-                    Fu.FpDivSqrt(count=2, latency=14),
-                    Fu.Branch(count=4, latency=1),
-                    Fu.Mem(count=5, latency=1),
-                    # Vector
-                    Fu.VecIntAlu(count=4, latency=1),
-                    Fu.VecIntMul(count=2, latency=3),
-                    Fu.VecIntDiv(count=1, latency=12),
-                    Fu.VecFpAlu(count=2, latency=3),
-                    Fu.VecFpFma(count=2, latency=4),
-                    Fu.VecFpDivSqrt(count=1, latency=14),
-                    Fu.VecMem(count=2, latency=1),
-                    Fu.VecPermute(count=2, latency=1),
-                ]
-            ),
-            checkpoint_count=96,
-        ),
-        # ── Vector ISA ────────────────────────────────────────────────────────
-        vlen=512,
-        num_vec_lanes=8,
-        # ── Cache hierarchy ───────────────────────────────────────────────────
-        l1i=Cache(
-            size="96KB",
-            line="64B",
-            ways=12,
-            policy=ReplacementPolicy.PLRU(),
-            latency=1,
-            prefetcher=Prefetcher.NextLine(degree=4),
-            mshr_count=12,
-        ),
-        l1d=Cache(
-            size="96KB",
-            line="64B",
-            ways=12,
-            policy=ReplacementPolicy.PLRU(),
-            latency=1,
-            prefetcher=Prefetcher.Stride(degree=4, table_size=512),
-            mshr_count=24,
-        ),
-        l2=Cache(
-            size="4MB",
-            line="64B",
-            ways=16,
-            policy=ReplacementPolicy.PLRU(),
-            latency=6,
-            prefetcher=Prefetcher.Stream(degree=8),
-            mshr_count=48,
-        ),
-        l3=Cache(
-            size="32MB",
-            line="64B",
-            ways=16,
-            policy=ReplacementPolicy.PLRU(),
-            latency=20,
-            prefetcher=Prefetcher.Tagged(degree=4),
-            mshr_count=96,
-        ),
-        inclusion_policy=Cache.Inclusive(),
-        wcb_entries=24,
-        # ── Memory ────────────────────────────────────────────────────────────
-        ram_size="256MB",
-        tlb_size=512,
-        l2_tlb_size=4096,
-        l2_tlb_ways=12,
-        l2_tlb_latency=2,
-        memory_controller=MemoryController.DRAM(
-            t_cas=10, t_ras=10, t_pre=10, row_miss_latency=80
-        ),
-        # ── System addresses (must match device tree) ─────────────────────────
+    return presets.fast().replace(
+        ram_size=256 * 1024 * 1024,
         ram_base=0x80000000,
         uart_base=0x10000000,
         disk_base=0x10001000,
         clint_base=0x02000000,
         syscon_base=0x00100000,
         kernel_offset=0x200000,
-        bus_width=8,
-        bus_latency=1,
         clint_divider=1,
     )
 
