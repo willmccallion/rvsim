@@ -787,8 +787,11 @@ class VecTortureGenerator:
         lines.append(f"  li x{r2}, {acc_val}")
         lines.extend(self.emit_vsetvli(sew_str, lmul_str))
         lines.append(f"  vmv.v.x v{vs2}, x{r1}")
-        # For accumulator, set just element 0
+        # Switch to m1 for accumulator init (vs1/vd are single-register for reductions)
+        lines.extend(self.emit_vsetvli(sew_str, "m1"))
         lines.append(f"  vmv.v.x v{vs1}, x{r2}")
+        # Switch back to original LMUL for the reduction
+        lines.extend(self.emit_vsetvli(sew_str, lmul_str))
 
         lines.append(f"  vredsum.vs v{vd}, v{vs2}, v{vs1}")
         lines.extend(self.emit_extract_elem0(r3, vd))
