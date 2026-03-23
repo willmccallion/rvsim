@@ -18,3 +18,7 @@ software/linux/
 software/riscv-tests/
 software/bin
 software/build
+
+software/torture/build_vec/
+software/torture/failures/
+software/torture/generated_vec/

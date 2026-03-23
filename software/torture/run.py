@@ -37,10 +37,10 @@ ENV_DIR = os.path.join(RISCV_TESTS_DIR, "env")
 ISA_MACROS = os.path.join(RISCV_TESTS_DIR, "isa", "macros", "scalar")
 LINK_SCRIPT = os.path.join(ENV_DIR, "p", "link.ld")
 
-CC = "riscv64-elf-gcc"
-OBJCOPY = "riscv64-elf-objcopy"
-OBJDUMP = "riscv64-elf-objdump"
-READELF = "riscv64-elf-readelf"
+CC = "riscv64-none-elf-gcc"
+OBJCOPY = "riscv64-none-elf-objcopy"
+OBJDUMP = "riscv64-none-elf-objdump"
+READELF = "riscv64-none-elf-readelf"
 
 SPIKE = "spike"
 

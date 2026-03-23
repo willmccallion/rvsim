@@ -1,8 +1,8 @@
 # Torture test build system
 # Generates, assembles, and runs OoO pipeline torture tests
 
-CC       = riscv64-elf-gcc
-OBJDUMP  = riscv64-elf-objdump
+CC       = riscv64-none-elf-gcc
+OBJDUMP  = riscv64-none-elf-objdump
 
 RISCV_TESTS = ../riscv-tests
 ENV_DIR     = $(RISCV_TESTS)/env
