@@ -13,9 +13,9 @@ EXAM_DIR  = ../examples
 LINUX_DIR = linux
 
 # Base Flags
-# -march=rv64gc: RV64I + M (multiply) + A (atomics) + F (single-float) + D (double-float) + C (compressed)
+# -march=rv64gcv: RV64I + M (multiply) + A (atomics) + F (single-float) + D (double-float) + C (compressed) + V (vector)
 # -mabi=lp64d: LP64 with double-precision hard-float calling convention
-CFLAGS = -march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding -nostdlib -g
+CFLAGS = -march=rv64gcv -mabi=lp64d -mcmodel=medany -ffreestanding -nostdlib -g
 INCLUDES = -I$(LIB_DIR)
 
 # Specific Optimization Levels
