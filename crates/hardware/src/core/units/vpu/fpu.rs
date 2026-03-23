@@ -130,8 +130,15 @@ pub fn vec_fp_execute(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     // Scalar move: vfmv.f.s — read vs2[0] as scalar result
+    // The result is written to a 64-bit FP register; NaN-box sub-64-bit values
+    // per RISC-V spec §13.2 (upper bits all-1s for narrower FP widths).
     if op == VectorOp::VFMvFS {
-        let val = vpr.read_element(vs2_idx, ElemIdx::new(0), ctx.sew);
+        let raw = vpr.read_element(vs2_idx, ElemIdx::new(0), ctx.sew);
+        let val = match ctx.sew {
+            Sew::E32 => raw | 0xFFFF_FFFF_0000_0000, // NaN-box f32 in f64 register
+            Sew::E16 => raw | 0xFFFF_FFFF_FFFF_0000, // NaN-box f16 in f64 register
+            _ => raw,                                  // E64: no boxing needed
+        };
         return VecExecResult { vxsat: false, scalar_result: Some(val), fp_flags: FpFlags::NONE };
     }
 
