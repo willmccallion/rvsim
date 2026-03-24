@@ -95,11 +95,26 @@ const fn build_ctx(cpu: &Cpu) -> VecExecCtx {
 }
 
 /// Build operand1 from pipeline latch data based on source encoding.
+///
+/// Shift ops (vsll, vsrl, vsra, vnsrl, vnsra, vnclip, vnclip, vssrl, vssra)
+/// use an unsigned 5-bit immediate per RVV 1.0 §11.7, while other OPIVI
+/// instructions use a sign-extended immediate.
 const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
     match id.ctrl.vec_src_encoding {
         VecSrcEncoding::VV => VecOperand::Vector(id.ctrl.vs1),
         VecSrcEncoding::VX | VecSrcEncoding::VF => VecOperand::Scalar(id.rv1),
-        VecSrcEncoding::VI => VecOperand::Immediate(v_enc::simm5(id.inst)),
+        VecSrcEncoding::VI => {
+            use VectorOp::*;
+            let uses_uimm = matches!(
+                id.ctrl.vec_op,
+                VSll | VSrl | VSra | VNSrl | VNSra | VNClipU | VNClip | VSSrl | VSSra
+            );
+            if uses_uimm {
+                VecOperand::Immediate(v_enc::uimm5(id.inst) as i64)
+            } else {
+                VecOperand::Immediate(v_enc::simm5(id.inst))
+            }
+        }
         VecSrcEncoding::None => VecOperand::Scalar(0),
     }
 }

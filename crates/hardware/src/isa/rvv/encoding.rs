@@ -70,6 +70,15 @@ pub const fn simm5(inst: u32) -> i64 {
     ((raw << 27) >> 27) as i64
 }
 
+/// Extract uimm5 (bits 19:15): zero-extended 5-bit unsigned immediate.
+///
+/// Used by shift ops (vsll.vi, vsrl.vi, vsra.vi) which treat the immediate
+/// as an unsigned shift amount per RVV 1.0 §11.7.
+#[inline(always)]
+pub const fn uimm5(inst: u32) -> u64 {
+    ((inst >> 15) & 0x1F) as u64
+}
+
 /// Extract zimm for vsetvli (bits 30:20): 11-bit unsigned immediate.
 #[inline(always)]
 pub const fn zimm_vsetvli(inst: u32) -> u64 {
