@@ -1182,17 +1182,62 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
                 // RVV 1.0 §3.4.2: vector register operands must be LMUL-aligned
                 // and the group must fit within v0-v31.  Unaligned or overflowing
                 // encodings are reserved (illegal instruction).
+                //
+                // Not all instruction fields are vector register groups:
+                //  - vd may be a scalar GPR/FPR (vmv.x.s, vcpop, vfirst, vfmv.f.s)
+                //    or a single mask register (comparisons, vmadc, vmsbf, etc.)
+                //  - vs1 may be a sub-opcode field (UNARY0 family instructions)
+                //  - vs2 may be a mask-only source or sub-opcode field
                 if lmul > 1 && trap.is_none() {
+                    use VectorOp::*;
+
+                    // vd is an LMUL group only when writing a vector register
+                    // that isn't a single mask register.
+                    let vd_is_group = ctrl.vec_reg_write && !matches!(ctrl.vec_op,
+                        VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt |
+                        VMFEq | VMFNe | VMFLt | VMFLe | VMFGt | VMFGe |
+                        VMadc | VMsbc |
+                        VMSbfM | VMSofM | VMSifM
+                    );
+
+                    // vs1 is a register group only for VV-encoded ops where vs1
+                    // is actually a vector register, not a sub-opcode selector.
+                    let vs1_is_group = ctrl.vec_src_encoding == VecSrcEncoding::VV
+                        && !matches!(ctrl.vec_op,
+                            // VWXUNARY0 family (vs1 = sub-opcode)
+                            VMvXS | VCPopM | VFirstM |
+                            // VMUNARY0 family (vs1 = sub-opcode)
+                            VMSbfM | VMSofM | VMSifM | VIotaM | VIdV |
+                            // VWFUNARY0 family (vs1 = sub-opcode)
+                            VFMvFS |
+                            // VFUNARY0 — conversions (vs1 = sub-opcode)
+                            VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX |
+                            VFCvtRtzXuF | VFCvtRtzXF |
+                            VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX |
+                            VFWCvtFF | VFWCvtRtzXuF | VFWCvtRtzXF |
+                            VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX |
+                            VFNCvtFF | VFNCvtRodFF | VFNCvtRtzXuF | VFNCvtRtzXF |
+                            // VFUNARY1 — sqrt/rsqrt/rec/class (vs1 = sub-opcode)
+                            VFSqrt | VFRsqrt7 | VFRec7 | VFClass
+                        );
+
+                    // vs2 is a register group for most ops, but mask-only source
+                    // ops read a single mask register, and vid.v has no source.
+                    let vs2_is_group = !matches!(ctrl.vec_op,
+                        VCPopM | VFirstM |
+                        VMSbfM | VMSofM | VMSifM |
+                        VIotaM | VIdV
+                    );
+
                     let vd  = ctrl.vd.as_u8();
                     let vs2 = ctrl.vs2.as_u8();
                     let vs1 = ctrl.vs1.as_u8();
-                    let misaligned = (vd % lmul != 0)
-                        || (vs2 % lmul != 0)
-                        || (ctrl.vec_src_encoding == VecSrcEncoding::VV && vs1 % lmul != 0);
-                    let overflow = (vd.saturating_add(lmul) > 32)
-                        || (vs2.saturating_add(lmul) > 32)
-                        || (ctrl.vec_src_encoding == VecSrcEncoding::VV
-                            && vs1.saturating_add(lmul) > 32);
+                    let misaligned = (vd_is_group && vd % lmul != 0)
+                        || (vs2_is_group && vs2 % lmul != 0)
+                        || (vs1_is_group && vs1 % lmul != 0);
+                    let overflow = (vd_is_group && vd.saturating_add(lmul) > 32)
+                        || (vs2_is_group && vs2.saturating_add(lmul) > 32)
+                        || (vs1_is_group && vs1.saturating_add(lmul) > 32);
                     if misaligned || overflow {
                         // Convert to illegal-instruction trap
                         ctrl = ControlSignals::default();
