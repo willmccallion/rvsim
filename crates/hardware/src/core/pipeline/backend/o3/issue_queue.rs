@@ -13,7 +13,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::SystemOp;
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
@@ -413,6 +413,14 @@ impl IssueQueue {
                     if iq.entry.ctrl.system_op != SystemOp::None
                         && iq.entry.ctrl.system_op != SystemOp::Fence
                         && !rob.all_before_completed(iq.entry.rob_tag)
+                    {
+                        continue;
+                    }
+                    // Vector instructions access memory directly via the bus,
+                    // bypassing the store buffer. They must not issue until all
+                    // committed stores have drained to memory.
+                    if iq.entry.ctrl.vec_op != VectorOp::None
+                        && store_buffer.has_committed_stores()
                     {
                         continue;
                     }

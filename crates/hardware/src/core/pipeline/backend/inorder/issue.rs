@@ -10,7 +10,7 @@ use crate::common::RegIdx;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::SystemOp;
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::trace_issue;
 
@@ -106,6 +106,13 @@ impl InOrderIssueUnit {
             // Loads must wait for all older stores to have resolved addresses,
             // otherwise store-to-load forwarding can miss an overlap.
             if entry.ctrl.mem_read && store_buffer.has_unresolved_store_before(entry.rob_tag) {
+                break;
+            }
+
+            // Vector instructions access memory directly via the bus,
+            // bypassing the store buffer. They must not issue until all
+            // committed stores have drained to memory.
+            if entry.ctrl.vec_op != VectorOp::None && store_buffer.has_committed_stores() {
                 break;
             }
 

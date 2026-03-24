@@ -37,12 +37,44 @@ ENV_DIR = os.path.join(RISCV_TESTS_DIR, "env")
 ISA_MACROS = os.path.join(RISCV_TESTS_DIR, "isa", "macros", "scalar")
 LINK_SCRIPT = os.path.join(ENV_DIR, "p", "link.ld")
 
-CC = "riscv64-none-elf-gcc"
-OBJCOPY = "riscv64-none-elf-objcopy"
-OBJDUMP = "riscv64-none-elf-objdump"
-READELF = "riscv64-none-elf-readelf"
+def _find_in_nix_store(binary):
+    """Find a binary on PATH or in /nix/store as a fallback."""
+    import shutil
+    found = shutil.which(binary)
+    if found:
+        return found
+    import glob
+    candidates = glob.glob(f"/nix/store/*/bin/{binary}")
+    # Prefer paths containing "wrapper" (nix convention for usable gcc)
+    wrappers = [c for c in candidates if "wrapper" in c]
+    if wrappers:
+        return wrappers[0]
+    if candidates:
+        return candidates[0]
+    return binary  # fall back to bare name (will fail later with a clear error)
 
-SPIKE = "spike"
+def _augment_path():
+    """Add directories of discovered nix-store tools to PATH so dependencies
+    (e.g. dtc for Spike, as for gcc) are also reachable."""
+    extra_dirs = set()
+    for tool in (CC, OBJCOPY, OBJDUMP, READELF, SPIKE):
+        d = os.path.dirname(tool)
+        if d and d not in os.environ.get("PATH", ""):
+            extra_dirs.add(d)
+    # Also find dtc explicitly — Spike needs it at runtime.
+    dtc = _find_in_nix_store("dtc")
+    d = os.path.dirname(dtc)
+    if d:
+        extra_dirs.add(d)
+    if extra_dirs:
+        os.environ["PATH"] = ":".join(extra_dirs) + ":" + os.environ.get("PATH", "")
+
+CC = _find_in_nix_store("riscv64-none-elf-gcc")
+OBJCOPY = _find_in_nix_store("riscv64-none-elf-objcopy")
+OBJDUMP = _find_in_nix_store("riscv64-none-elf-objdump")
+READELF = _find_in_nix_store("riscv64-none-elf-readelf")
+SPIKE = _find_in_nix_store("spike")
+_augment_path()
 
 # Registers dumped in signature (x5-x31, skipping x4/tp)
 SIG_REGS = [r for r in range(5, 32) if r != 4]
