@@ -11,7 +11,7 @@ use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
+use crate::core::units::vpu::types::{ElemIdx, VRegIdx, Vlmax};
 
 // ============================================================================
 // Public API
@@ -90,12 +90,6 @@ fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
-/// Write all-1s at the given SEW width to a destination element.
-#[inline]
-fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
-    vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
-}
-
 /// Extract the vs1 register index from a [`VecOperand`].
 ///
 /// Mask logical operations always use vector-vector form, so `operand1`
@@ -164,9 +158,6 @@ fn exec_mask_logical(
         }
         if i >= ctx.vl {
             // Tail region.
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
-            }
             continue;
         }
         let s2 = vpr.read_mask_bit(vs2, ElemIdx::new(i));
@@ -250,16 +241,10 @@ fn exec_mask_set(
         }
         if i >= ctx.vl {
             // Tail region.
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
-            }
             continue;
         }
         // Masking check.
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
-            }
             continue;
         }
 
@@ -326,9 +311,6 @@ fn exec_viota(
         }
         if i >= ctx.vl {
             // Tail region.
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             // No need to keep accumulating past vl.
             continue;
         }
@@ -344,9 +326,6 @@ fn exec_viota(
 
         // Masking check.
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -368,15 +347,9 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -390,7 +363,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::core::units::vpu::types::{Vlen, Vlmul, Vxrm};
+    use crate::core::units::vpu::types::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a 128-bit VPR for testing.
     fn test_vpr() -> Vpr {
@@ -488,14 +461,18 @@ mod tests {
         let vs2 = VRegIdx::new(3);
         let vs1 = VRegIdx::new(4);
 
+        // Pre-fill tail bits with known values
+        vpr.write_mask_bit(vd, ElemIdx::new(2), false);
+        vpr.write_mask_bit(vd, ElemIdx::new(3), true);
+
         let mut ctx = default_ctx(2);
         ctx.vta = TailPolicy::Agnostic;
 
         let operand = VecOperand::Vector(vs1);
         let _ = vec_mask_execute(VectorOp::VMAndMM, &mut vpr, vd, vs2, &operand, &ctx);
 
-        // Tail bits (>= vl=2) should be set to 1.
-        assert!(vpr.read_mask_bit(vd, ElemIdx::new(2)));
+        // Tail bits (>= vl=2) should be undisturbed (implementation choice per RVV 1.0).
+        assert!(!vpr.read_mask_bit(vd, ElemIdx::new(2)));
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(3)));
     }
 

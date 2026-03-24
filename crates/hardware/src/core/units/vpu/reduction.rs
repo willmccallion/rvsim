@@ -25,7 +25,7 @@ use crate::core::units::fpu::nan_handling::{
 use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, Sew, TailPolicy, VRegIdx, Vlmax};
+use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx};
 
 // ============================================================================
 // Public API
@@ -136,11 +136,6 @@ fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
 }
 
 /// Write all-1s at the given SEW width to a destination element.
-#[inline]
-fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
-    vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
-}
-
 /// Widen a SEW to the next larger width. Returns `None` for E64.
 #[inline]
 const fn widen_sew(sew: Sew) -> Option<Sew> {
@@ -165,25 +160,6 @@ fn read_initial_accum(vpr: &impl VectorRegFile, operand1: &VecOperand, sew: Sew)
     }
 }
 
-/// Apply tail policy to elements `start..vlmax` of `vd` at the given element width.
-///
-/// Under `TailPolicy::Agnostic`, tail elements are overwritten with all-1s.
-/// Under `TailPolicy::Undisturbed`, tail elements are preserved (no writes).
-fn apply_tail(
-    vpr: &mut impl VectorRegFile,
-    vd: VRegIdx,
-    start: usize,
-    vlmax: usize,
-    sew: Sew,
-    vta: TailPolicy,
-) {
-    if matches!(vta, TailPolicy::Agnostic) {
-        for i in start..vlmax {
-            write_ones(vpr, vd, i, sew);
-        }
-    }
-}
-
 // ============================================================================
 // Integer reductions
 // ============================================================================
@@ -203,7 +179,6 @@ fn exec_int_reduction(
 ) -> VecExecResult {
     let sew = ctx.sew;
     let mask = sew.mask();
-    let vlmax = Vlmax::compute(vpr.vlen(), sew, ctx.vlmul).as_usize();
 
     // Read initial accumulator from vs1[0].
     let mut acc = read_initial_accum(vpr, operand1, sew);
@@ -219,9 +194,6 @@ fn exec_int_reduction(
 
     // Write result to vd[0].
     vpr.write_element(vd, ElemIdx::new(0), sew, acc & mask);
-
-    // Tail policy for elements 1..vlmax.
-    apply_tail(vpr, vd, 1, vlmax, sew, ctx.vta);
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
 }
@@ -286,7 +258,6 @@ fn exec_widen_int_reduction(
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     };
     let dst_mask = dst_sew.mask();
-    let dst_vlmax = Vlmax::compute(vpr.vlen(), dst_sew, ctx.vlmul).as_usize();
 
     // Initial accumulator is at 2*SEW from vs1[0].
     let mut acc = read_initial_accum(vpr, operand1, dst_sew);
@@ -317,9 +288,6 @@ fn exec_widen_int_reduction(
     // Write result to vd[0] at 2*SEW.
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, acc);
 
-    // Tail policy for elements 1..vlmax at 2*SEW.
-    apply_tail(vpr, vd, 1, dst_vlmax, dst_sew, ctx.vta);
-
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
 }
 
@@ -344,19 +312,16 @@ fn exec_fp_reduction(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let sew = ctx.sew;
-    let vlmax = Vlmax::compute(vpr.vlen(), sew, ctx.vlmul).as_usize();
 
     match sew {
         Sew::E32 => {
             let (result_bits, flags) = fp_reduce_f32(op, vpr, vs2, operand1, ctx);
             vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            apply_tail(vpr, vd, 1, vlmax, sew, ctx.vta);
             VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
         }
         Sew::E64 => {
             let (result_bits, flags) = fp_reduce_f64(op, vpr, vs2, operand1, ctx);
             vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            apply_tail(vpr, vd, 1, vlmax, sew, ctx.vta);
             VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
         }
         _ => unreachable!("FP reduction with SEW={:?} is not supported", sew),
@@ -467,8 +432,6 @@ fn exec_fp_widen_reduction(
     let Some(dst_sew) = widen_sew(src_sew) else {
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     };
-    let dst_vlmax = Vlmax::compute(vpr.vlen(), dst_sew, ctx.vlmul).as_usize();
-
     // Initial accumulator at 2*SEW (f64).
     let init_bits = read_initial_accum(vpr, operand1, dst_sew);
     let mut acc = f64::from_bits(init_bits);
@@ -500,9 +463,6 @@ fn exec_fp_widen_reduction(
     // Write result at 2*SEW.
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, canonicalize_f64_bits(acc));
 
-    // Tail policy for elements 1..vlmax at 2*SEW.
-    apply_tail(vpr, vd, 1, dst_vlmax, dst_sew, ctx.vta);
-
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
 }
 
@@ -515,7 +475,7 @@ fn exec_fp_widen_reduction(
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::core::units::vpu::types::{MaskPolicy, Vlen, Vlmul, Vxrm};
+    use crate::core::units::vpu::types::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a standard execution context with the given SEW and vl.
     fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {

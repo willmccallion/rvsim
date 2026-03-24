@@ -899,6 +899,7 @@ impl VectorOp {
     ///  - Sub-opcode in vs1 (UNARY0 families): vs1 = 0.
     ///  - Mask logical: all operands are single mask registers = 1.
     ///  - Whole-register moves/loads/stores: fixed group sizes independent of LMUL.
+    #[allow(clippy::enum_glob_use)]
     pub fn operand_groups(self, lmul: u8, src_enc: VecSrcEncoding, nf: u8) -> VecOperandGroups {
         use VectorOp::*;
 
@@ -936,17 +937,13 @@ impl VectorOp {
             VAdc | VSbc
             => VecOperandGroups { vd: lmul, vs2: lmul, vs1: vs1_base },
 
-            // Reductions: vd and vs1 are single registers (scalar accumulator
-            // in element 0), vs2 is the full LMUL group being reduced.
+            // Reductions (standard + widening): vd and vs1 are single registers
+            // (scalar accumulator in element 0), vs2 is the full LMUL group.
             // RVV 1.0 §14.1: "any vector register can be the scalar source or
             // destination of a reduction regardless of LMUL setting."
             VRedSum | VRedAnd | VRedOr | VRedXor |
             VRedMinU | VRedMin | VRedMaxU | VRedMax |
-            VFRedOSum | VFRedUSum | VFRedMax | VFRedMin
-            => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
-
-            // ── Widening reductions (vd=1, vs1=1, vs2=LMUL) ────────────
-            // Same as standard reductions: scalar accumulator in single register.
+            VFRedOSum | VFRedUSum | VFRedMax | VFRedMin |
             VWRedSumU | VWRedSum | VFWRedOSum | VFWRedUSum
             => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
 
@@ -985,9 +982,12 @@ impl VectorOp {
             VZextVf4 | VSextVf4 => VecOperandGroups { vd: lmul, vs2: (lmul / 4).max(1), vs1: 0 },
             VZextVf8 | VSextVf8 => VecOperandGroups { vd: lmul, vs2: (lmul / 8).max(1), vs1: 0 },
 
-            // ── FP conversions (unary: vd=LMUL, vs2=LMUL, vs1=sub-opcode) ──
+            // ── FP conversions, unary, and indexed mem (vd=LMUL, vs2=LMUL, vs1=0)
             VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX |
-            VFCvtRtzXuF | VFCvtRtzXF
+            VFCvtRtzXuF | VFCvtRtzXF |
+            VFSqrt | VFRsqrt7 | VFRec7 | VFClass |
+            VLoadIndexOrd | VLoadIndexUnord |
+            VStoreIndexOrd | VStoreIndexUnord
             => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
 
             // ── Widening FP conversions (vd=2×LMUL, vs2=LMUL) ──────────
@@ -1006,34 +1006,27 @@ impl VectorOp {
                 VecOperandGroups { vd: lmul, vs2: emul2, vs1: 0 }
             }
 
-            // ── FP unary (sqrt, rsqrt, rec, class): vs1=sub-opcode ──────
-            VFSqrt | VFRsqrt7 | VFRec7 | VFClass
-            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
-
             // ── Scalar-result ops (vd is a GPR/FPR, not a vreg) ─────────
             // vmv.x.s / vfmv.f.s read only element 0 from vs2, not a group.
             // RVV 1.0 §16.1: "unaffected by … the current LMUL setting."
-            VMvXS => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
-            VFMvFS => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
-            VCPopM | VFirstM => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
+            VMvXS | VFMvFS | VCPopM | VFirstM
+            => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
 
-            // ── Scalar-to-vector (vmv.s.x, vfmv.s.f) ───────────────────
-            // Writes only element 0. RVV 1.0 §16.1: unaffected by LMUL.
-            // Rename tracks old vd for tail preservation (only 1 register).
-            VMvSX => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
-            VFMvSF => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
+            // ── Scalar-to-vector / mask load-store (vd=1, no vreg sources) ─
+            // vmv.s.x / vfmv.s.f: write only element 0 (§16.1).
+            // vlm.v / vsm.v: single mask register.
+            VMvSX | VFMvSF | VLoadMask | VStoreMask
+            => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
 
-            // ── Mask-producing comparisons (vd = single mask register) ──
+            // ── Mask-producing comparisons + carry/borrow flag output ────
+            // (vd = single mask register)
             VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt |
-            VMFEq | VMFNe | VMFLt | VMFLe | VMFGt | VMFGe
-            => VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base },
-
-            // ── Carry/borrow flag output (vd = single mask register) ────
+            VMFEq | VMFNe | VMFLt | VMFLe | VMFGt | VMFGe |
             VMadc | VMsbc
             => VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base },
 
-            // ── Mask-source unary (vs2 = single mask reg, vd varies) ────
-            VMSbfM | VMSofM | VMSifM
+            // ── Mask-source unary (vs2 = single mask reg, vd = 1) ────────
+            VMSbfM | VMSofM | VMSifM | VMv1r
             => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
 
             VIotaM => VecOperandGroups { vd: lmul, vs2: 1, vs1: 0 },
@@ -1044,20 +1037,15 @@ impl VectorOp {
             => VecOperandGroups { vd: 1, vs2: 1, vs1: 1 },
 
             // ── Whole-register moves (group size from opcode, not LMUL) ─
-            VMv1r => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
             VMv2r => VecOperandGroups { vd: 2, vs2: 2, vs1: 0 },
             VMv4r => VecOperandGroups { vd: 4, vs2: 4, vs1: 0 },
             VMv8r => VecOperandGroups { vd: 8, vs2: 8, vs1: 0 },
 
             // ── Whole-register loads/stores (group from nf, not LMUL) ───
             // nf encoding: 0=1reg, 1=2reg, 3=4reg, 7=8reg.  Group = nf+1.
-            VLoadWholeReg => {
+            // Store: vd field encodes the source register (vs3).
+            VLoadWholeReg | VStoreWholeReg => {
                 let regs = nf + 1;
-                VecOperandGroups { vd: regs, vs2: 0, vs1: 0 }
-            }
-            VStoreWholeReg => {
-                let regs = nf + 1;
-                // Store: vd field encodes the source register (vs3)
                 VecOperandGroups { vd: regs, vs2: 0, vs1: 0 }
             }
 
@@ -1066,15 +1054,6 @@ impl VectorOp {
             VLoadStride | VStoreStride
             => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
 
-            VLoadIndexOrd | VLoadIndexUnord
-            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
-
-            VStoreIndexOrd | VStoreIndexUnord
-            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
-
-            // ── Mask load/store ──────────────────────────────────────────
-            VLoadMask | VStoreMask
-            => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
         }
     }
 }

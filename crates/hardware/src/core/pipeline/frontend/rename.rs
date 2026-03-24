@@ -12,7 +12,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::signals::{ControlFlow, VecSrcEncoding};
+use crate::core::pipeline::signals::ControlFlow;
 use crate::core::units::vpu::mem::is_vec_store;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::trace_rename;

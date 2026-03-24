@@ -902,9 +902,9 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
         | VectorOp::VNSrl
         | VectorOp::VNSra
         | VectorOp::VNClipU
-        | VectorOp::VNClip => cpu.stats.inst_vec_int += 1,
+        | VectorOp::VNClip
         // Integer multiply/divide and widening mul
-        VectorOp::VMul
+        | VectorOp::VMul
         | VectorOp::VMulh
         | VectorOp::VMulhu
         | VectorOp::VMulhsu
@@ -930,9 +930,9 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
         | VectorOp::VWMaccU
         | VectorOp::VWMacc
         | VectorOp::VWMaccSU
-        | VectorOp::VWMaccUS => cpu.stats.inst_vec_int += 1,
+        | VectorOp::VWMaccUS
         // Integer/widening reductions
-        VectorOp::VRedSum
+        | VectorOp::VRedSum
         | VectorOp::VRedAnd
         | VectorOp::VRedOr
         | VectorOp::VRedXor
@@ -969,18 +969,18 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
         | VectorOp::VFCvtFXu
         | VectorOp::VFCvtFX
         | VectorOp::VFCvtRtzXuF
-        | VectorOp::VFCvtRtzXF => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFCvtRtzXF
         // FP FMA
-        VectorOp::VFMacc
+        | VectorOp::VFMacc
         | VectorOp::VFNMacc
         | VectorOp::VFMSac
         | VectorOp::VFNMSac
         | VectorOp::VFMAdd
         | VectorOp::VFNMAdd
         | VectorOp::VFMSub
-        | VectorOp::VFNMSub => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFNMSub
         // FP widening
-        VectorOp::VFWAdd
+        | VectorOp::VFWAdd
         | VectorOp::VFWSub
         | VectorOp::VFWMul
         | VectorOp::VFWAddW
@@ -988,9 +988,9 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
         | VectorOp::VFWMacc
         | VectorOp::VFWNMacc
         | VectorOp::VFWMSac
-        | VectorOp::VFWNMSac => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFWNMSac
         // FP widening/narrowing conversion
-        VectorOp::VFWCvtXuF
+        | VectorOp::VFWCvtXuF
         | VectorOp::VFWCvtXF
         | VectorOp::VFWCvtFXu
         | VectorOp::VFWCvtFX
@@ -1004,15 +1004,15 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
         | VectorOp::VFNCvtFF
         | VectorOp::VFNCvtRodFF
         | VectorOp::VFNCvtRtzXuF
-        | VectorOp::VFNCvtRtzXF => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFNCvtRtzXF
         // FP merge/move/slide
-        VectorOp::VFMerge
+        | VectorOp::VFMerge
         | VectorOp::VFMvSF
         | VectorOp::VFMvFS
         | VectorOp::VFSlide1Up
-        | VectorOp::VFSlide1Down => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFSlide1Down
         // FP reductions
-        VectorOp::VFRedOSum
+        | VectorOp::VFRedOSum
         | VectorOp::VFRedUSum
         | VectorOp::VFRedMax
         | VectorOp::VFRedMin

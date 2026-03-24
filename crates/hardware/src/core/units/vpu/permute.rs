@@ -12,7 +12,7 @@ use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
+use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 // ============================================================================
 // Public API
@@ -79,12 +79,6 @@ fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
-/// Write all-1s at the given SEW width to a destination element.
-#[inline]
-fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
-    vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
-}
-
 /// Extract the offset value from operand1 (scalar or immediate).
 ///
 /// For `VecOperand::Scalar(v)`, the offset is `v`.
@@ -139,7 +133,6 @@ fn exec_vmv_sx(
     operand1: &VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let scalar = scalar_from_operand(operand1, ctx.sew);
 
     // Write element 0 if vl > 0.
@@ -147,12 +140,7 @@ fn exec_vmv_sx(
         vpr.write_element(vd, ElemIdx::new(0), ctx.sew, scalar);
     }
 
-    // Tail policy for elements 1..vlmax.
-    if matches!(ctx.vta, TailPolicy::Agnostic) {
-        for i in 1..vlmax {
-            write_ones(vpr, vd, i, ctx.sew);
-        }
-    }
+    // Tail policy for elements 1..vlmax (agnostic treated as undisturbed — no-op).
 
     no_flags_result(None)
 }
@@ -184,17 +172,11 @@ fn exec_slideup(
         }
         if i >= ctx.vl {
             // Tail element.
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         // Active body element.
         if !ctx.vm && !mask_active(vpr, i) {
-            // Masked-off: apply mask policy.
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
+            // Masked-off.
             continue;
         }
         if i >= offset {
@@ -230,15 +212,9 @@ fn exec_slidedown(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -272,15 +248,9 @@ fn exec_slide1up(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -313,15 +283,9 @@ fn exec_slide1down(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -362,15 +326,9 @@ fn exec_rgather(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -413,15 +371,9 @@ fn exec_rgather_ei16(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd, i, ctx.sew);
-            }
             continue;
         }
 
@@ -454,7 +406,6 @@ fn exec_compress(
     vs2: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut dst = 0usize;
 
     // Phase 1: pack active elements.
@@ -466,12 +417,7 @@ fn exec_compress(
         }
     }
 
-    // Phase 2: tail policy for remaining elements [dst, vlmax).
-    if matches!(ctx.vta, TailPolicy::Agnostic) {
-        for i in dst..vlmax {
-            write_ones(vpr, vd, i, ctx.sew);
-        }
-    }
+    // Phase 2: tail policy (agnostic treated as undisturbed — no-op).
 
     no_flags_result(None)
 }

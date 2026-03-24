@@ -43,7 +43,7 @@ fn freg(idx: u8) -> &'static str {
 
 /// Returns `", v0.t"` for masked instructions (vm=0), `""` for unmasked (vm=1).
 #[inline]
-fn vm_suffix(inst: u32) -> &'static str {
+const fn vm_suffix(inst: u32) -> &'static str {
     if encoding::vm(inst) {
         ""
     } else {
@@ -52,7 +52,7 @@ fn vm_suffix(inst: u32) -> &'static str {
 }
 
 /// Returns the element width string from the width/funct3 field.
-fn eew_str(width: u32) -> &'static str {
+const fn eew_str(width: u32) -> &'static str {
     match width {
         0b000 => "8",
         0b101 => "16",
@@ -160,7 +160,7 @@ fn disasm_cfg(inst: u32) -> String {
 }
 
 /// Integer VV mnemonic from funct6 (OPIVV only — no vslideup overlap).
-fn ivv_mnemonic(f6val: u32) -> &'static str {
+const fn ivv_mnemonic(f6val: u32) -> &'static str {
     match f6val {
         f6::VADD => "vadd",
         f6::VSUB => "vsub",
@@ -206,7 +206,7 @@ fn ivv_mnemonic(f6val: u32) -> &'static str {
 }
 
 /// Integer VX/VI mnemonic — handles vslideup (funct6=0b001110 is vslideup, not vrgatherei16).
-fn ivx_mnemonic(f6val: u32) -> &'static str {
+const fn ivx_mnemonic(f6val: u32) -> &'static str {
     match f6val {
         0b001110 => "vslideup",
         _ => ivv_mnemonic(f6val),

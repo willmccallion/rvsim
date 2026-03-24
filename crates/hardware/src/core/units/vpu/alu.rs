@@ -113,12 +113,6 @@ fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
-/// Write all-1s at the given SEW width to a destination element.
-#[inline]
-fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
-    vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
-}
-
 /// Read operand1 value for element `i` at the given SEW, applying the mask.
 #[inline]
 fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
@@ -707,15 +701,9 @@ fn exec_standard(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -749,15 +737,9 @@ fn exec_comparison(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
-            }
             continue;
         }
 
@@ -785,20 +767,13 @@ fn exec_carry(
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mask = ctx.sew.mask();
-    let writes_mask = is_mask_producing_carry(op);
+    let _writes_mask = is_mask_producing_carry(op);
 
     for i in 0..vlmax {
         if i < ctx.vstart {
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                if writes_mask {
-                    vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
-                } else {
-                    write_ones(vpr, vd_idx, i, ctx.sew);
-                }
-            }
             continue;
         }
 
@@ -854,15 +829,9 @@ fn exec_macc(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -909,9 +878,6 @@ fn exec_merge(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -957,15 +923,9 @@ fn exec_widening(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
 
@@ -1005,15 +965,9 @@ fn exec_widening_macc(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
 
@@ -1056,15 +1010,9 @@ fn exec_narrowing(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -1116,15 +1064,9 @@ fn exec_extension(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -1474,8 +1416,8 @@ mod tests {
         );
 
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 15);
-        // Tail element with agnostic: all-1s
-        assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), 0xFFFF_FFFF);
+        // Tail element with agnostic: undisturbed (implementation choice per RVV 1.0)
+        assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), 0x1234);
     }
 
     // ── Merge ───────────────────────────────────────────────────────────

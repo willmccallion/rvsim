@@ -1190,7 +1190,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
                     let vs1 = ctrl.vs1.as_u8();
 
                     let bad = |reg: u8, grp: u8| -> bool {
-                        grp > 1 && (reg % grp != 0 || reg.saturating_add(grp) > 32)
+                        grp > 1 && (!reg.is_multiple_of(grp) || reg.saturating_add(grp) > 32)
                     };
 
                     if bad(vd, g.vd) || bad(vs2, g.vs2) || bad(vs1, g.vs1) {

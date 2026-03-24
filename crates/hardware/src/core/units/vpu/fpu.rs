@@ -26,7 +26,7 @@ use crate::core::units::fpu::nan_handling::{
 use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax};
+use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 // ============================================================================
 // Public helpers
@@ -151,13 +151,7 @@ pub fn vec_fp_execute(
         if ctx.vl > 0 {
             vpr.write_element(vd_idx, ElemIdx::new(0), ctx.sew, scalar & ctx.sew.mask());
         }
-        // Tail elements
-        let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-        for i in 1..vlmax {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
-        }
+        // Tail elements (agnostic treated as undisturbed — no-op).
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     }
 
@@ -203,12 +197,6 @@ pub fn vec_fp_execute(
 #[inline]
 fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
-}
-
-/// Write all-1s at the given SEW width to a destination element.
-#[inline]
-fn write_ones(vpr: &mut impl VectorRegFile, vd: VRegIdx, i: usize, sew: Sew) {
-    vpr.write_element(vd, ElemIdx::new(i), sew, sew.mask());
 }
 
 /// Read operand1 value for element `i` at the given SEW.
@@ -642,15 +630,9 @@ fn exec_fp_standard(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -690,15 +672,9 @@ fn exec_fp_fma(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -809,15 +785,9 @@ fn exec_fp_comparison(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
-            }
             continue;
         }
 
@@ -912,9 +882,6 @@ fn exec_fp_merge(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -954,15 +921,9 @@ fn exec_fp_slide1(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 
@@ -1025,15 +986,9 @@ fn exec_fp_widening(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
 
@@ -1134,15 +1089,9 @@ fn exec_fp_widening_fma(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, wsew);
-            }
             continue;
         }
 
@@ -1201,15 +1150,9 @@ fn exec_fp_narrowing(
             continue;
         }
         if i >= ctx.vl {
-            if matches!(ctx.vta, TailPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
-            if matches!(ctx.vma, MaskPolicy::Agnostic) {
-                write_ones(vpr, vd_idx, i, ctx.sew);
-            }
             continue;
         }
 

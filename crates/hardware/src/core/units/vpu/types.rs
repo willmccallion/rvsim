@@ -593,8 +593,16 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
 
     let vlmul_enc = (vtype_bits & 0x7) as u8;
     let vsew_enc = ((vtype_bits >> 3) & 0x7) as u8;
-    let _vta_bit = (vtype_bits >> 6) & 1 != 0;
-    let _vma_bit = (vtype_bits >> 7) & 1 != 0;
+    let vta = if (vtype_bits >> 6) & 1 != 0 {
+        TailPolicy::Agnostic
+    } else {
+        TailPolicy::Undisturbed
+    };
+    let vma = if (vtype_bits >> 7) & 1 != 0 {
+        MaskPolicy::Agnostic
+    } else {
+        MaskPolicy::Undisturbed
+    };
 
     // Check for invalid encodings
     let Some(vlmul) = Vlmul::from_encoding(vlmul_enc) else {
@@ -636,11 +644,8 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
     VtypeFields {
         vsew,
         vlmul,
-        // Implement agnostic as undisturbed: both are valid per RVV 1.0 spec,
-        // and undisturbed matches real hardware behavior (e.g. QEMU, most cores).
-        // Toolchains (GCC) emit ta/ma but expect undisturbed semantics.
-        vta: TailPolicy::Undisturbed,
-        vma: MaskPolicy::Undisturbed,
+        vta,
+        vma,
         vill: false,
     }
 }

@@ -1,4 +1,5 @@
 //! Vector disassembler unit tests (RVV 1.0).
+#![allow(clippy::too_many_arguments)]
 
 use rvsim_core::isa::disasm::disassemble;
 
@@ -52,7 +53,7 @@ fn test_rvv_config() {
     // vsetvli a0, a1, e32, m4, ta, ma — bit31=0
     // zimm = e32(010 << 3) + m4(010) + ta(1<<6) + ma(1<<7) = 0b11_010_010 = 0xD2
     let zimm: u32 = 0xD2;
-    let inst = (0 << 31) | (zimm << 20) | (11 << 15) | (OPCFG << 12) | (10 << 7) | OP_V;
+    let inst = (zimm << 20) | (11 << 15) | (OPCFG << 12) | (10 << 7) | OP_V;
     let text = disassemble(inst);
     assert!(text.starts_with("vsetvli"), "got '{text}'");
     assert!(text.contains("a0"), "expected a0 in '{text}'");
@@ -71,7 +72,7 @@ fn test_rvv_config() {
     assert!(text.contains("16"), "expected 16 in '{text}'");
 
     // vsetvl a0, a1, a2 — bit31=1, bit30=0
-    let inst = (1 << 31) | (0 << 30) | (12 << 20) | (11 << 15) | (OPCFG << 12) | (10 << 7) | OP_V;
+    let inst = (1 << 31) | (12 << 20) | (11 << 15) | (OPCFG << 12) | (10 << 7) | OP_V;
     let text = disassemble(inst);
     assert!(text.starts_with("vsetvl "), "got '{text}'");
     assert!(text.contains("a0"), "expected a0 in '{text}'");
@@ -205,8 +206,10 @@ fn test_rvv_fp_arith() {
     assert!(disassemble(inst).starts_with("vfclass.v"), "{}", disassemble(inst));
 
     // FMA
-    assert!(disassemble(vec_arith(0b101101, 1, 2, 3, OPFVV, 1)).starts_with("vfmacc.vv"));
-    assert!(disassemble(vec_arith(0b101001, 1, 2, 3, OPFVV, 1)).starts_with("vfmadd.vv"));
+    assert!(disassemble(vec_arith(0b101100, 1, 2, 3, OPFVV, 1)).starts_with("vfmacc.vv"));
+    assert!(disassemble(vec_arith(0b101101, 1, 2, 3, OPFVV, 1)).starts_with("vfnmacc.vv"));
+    assert!(disassemble(vec_arith(0b101000, 1, 2, 3, OPFVV, 1)).starts_with("vfmadd.vv"));
+    assert!(disassemble(vec_arith(0b101001, 1, 2, 3, OPFVV, 1)).starts_with("vfnmadd.vv"));
 
     // .vf variants
     assert!(disassemble(vec_arith(0b000000, 1, 2, 3, OPFVF, 1)).starts_with("vfadd.vf"));
