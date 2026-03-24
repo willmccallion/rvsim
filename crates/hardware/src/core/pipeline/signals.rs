@@ -1011,17 +1011,17 @@ impl VectorOp {
             => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
 
             // ── Scalar-result ops (vd is a GPR/FPR, not a vreg) ─────────
-            // vmv.x.s reads vs2[0] only — but rename tracks full group
-            // dependency conservatively (correct, slightly pessimistic).
-            VMvXS => VecOperandGroups { vd: 0, vs2: lmul, vs1: 0 },
-            VFMvFS => VecOperandGroups { vd: 0, vs2: lmul, vs1: 0 },
+            // vmv.x.s / vfmv.f.s read only element 0 from vs2, not a group.
+            // RVV 1.0 §16.1: "unaffected by … the current LMUL setting."
+            VMvXS => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
+            VFMvFS => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
             VCPopM | VFirstM => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
 
             // ── Scalar-to-vector (vmv.s.x, vfmv.s.f) ───────────────────
-            // Writes only element 0 of vd. Still an LMUL group for rename
-            // (old vd is needed for tail elements).
-            VMvSX => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
-            VFMvSF => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+            // Writes only element 0. RVV 1.0 §16.1: unaffected by LMUL.
+            // Rename tracks old vd for tail preservation (only 1 register).
+            VMvSX => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
+            VFMvSF => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
 
             // ── Mask-producing comparisons (vd = single mask register) ──
             VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt |
