@@ -899,7 +899,7 @@ impl VectorOp {
     ///  - Sub-opcode in vs1 (UNARY0 families): vs1 = 0.
     ///  - Mask logical: all operands are single mask registers = 1.
     ///  - Whole-register moves/loads/stores: fixed group sizes independent of LMUL.
-    pub fn operand_groups(self, lmul: u8, src_enc: VecSrcEncoding) -> VecOperandGroups {
+    pub fn operand_groups(self, lmul: u8, src_enc: VecSrcEncoding, nf: u8) -> VecOperandGroups {
         use VectorOp::*;
 
         // vs1 is only a vector register for VV encoding; for VX/VI/VF it's a
@@ -1050,10 +1050,16 @@ impl VectorOp {
             VMv8r => VecOperandGroups { vd: 8, vs2: 8, vs1: 0 },
 
             // ── Whole-register loads/stores (group from nf, not LMUL) ───
-            // These are handled separately in decode via vec_nf; here we
-            // report LMUL as the conservative group.
-            VLoadWholeReg | VStoreWholeReg
-            => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+            // nf encoding: 0=1reg, 1=2reg, 3=4reg, 7=8reg.  Group = nf+1.
+            VLoadWholeReg => {
+                let regs = nf + 1;
+                VecOperandGroups { vd: regs, vs2: 0, vs1: 0 }
+            }
+            VStoreWholeReg => {
+                let regs = nf + 1;
+                // Store: vd field encodes the source register (vs3)
+                VecOperandGroups { vd: regs, vs2: 0, vs1: 0 }
+            }
 
             // ── Memory ops (vd/vs3 = LMUL group, vs2 = index vector) ───
             VLoadUnit | VLoadFF | VStoreUnit |

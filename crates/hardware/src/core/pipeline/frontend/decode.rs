@@ -1184,7 +1184,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
                 // v0-v31.  The per-operand group sizes come from the single
                 // source of truth: VectorOp::operand_groups().
                 if trap.is_none() {
-                    let g = ctrl.vec_op.operand_groups(lmul, ctrl.vec_src_encoding);
+                    let g = ctrl.vec_op.operand_groups(lmul, ctrl.vec_src_encoding, ctrl.vec_nf);
                     let vd  = ctrl.vd.as_u8();
                     let vs2 = ctrl.vs2.as_u8();
                     let vs1 = ctrl.vs1.as_u8();
