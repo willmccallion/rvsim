@@ -932,31 +932,31 @@ impl VectorOp {
             VFMerge |
             // FP slides
             VFSlide1Up | VFSlide1Down |
-            // Reductions: vd is written as single element but still occupies
-            // a single register (not a group), vs2 is the full LMUL source.
-            // However, the spec says vd is treated as a single vector register.
-            VRedSum | VRedAnd | VRedOr | VRedXor |
-            VRedMinU | VRedMin | VRedMaxU | VRedMax |
-            VFRedOSum | VFRedUSum | VFRedMax | VFRedMin |
             // Carry/borrow input ops (read v0 mask + full group operands)
             VAdc | VSbc
             => VecOperandGroups { vd: lmul, vs2: lmul, vs1: vs1_base },
 
-            // ── Reductions need special vd handling ──────────────────────
-            // Destination is a single register (element 0), not an LMUL group.
-            // Moved above into the standard group since the execute path still
-            // reads the old vd[0] as the accumulator identity — keep vd=lmul
-            // for rename dependency tracking (conservative but correct).
+            // Reductions: vd and vs1 are single registers (scalar accumulator
+            // in element 0), vs2 is the full LMUL group being reduced.
+            // RVV 1.0 §14.1: "any vector register can be the scalar source or
+            // destination of a reduction regardless of LMUL setting."
+            VRedSum | VRedAnd | VRedOr | VRedXor |
+            VRedMinU | VRedMin | VRedMaxU | VRedMax |
+            VFRedOSum | VFRedUSum | VFRedMax | VFRedMin
+            => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
+
+            // ── Widening reductions (vd=1, vs1=1, vs2=LMUL) ────────────
+            // Same as standard reductions: scalar accumulator in single register.
+            VWRedSumU | VWRedSum | VFWRedOSum | VFWRedUSum
+            => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
 
             // ── Widening integer (vd=2×LMUL, sources=LMUL) ──────────────
             VWAddU | VWAdd | VWSubU | VWSub |
             VWMulU | VWMul | VWMulSU |
             VWMaccU | VWMacc | VWMaccSU | VWMaccUS |
-            VWRedSumU | VWRedSum |
             // FP widening
             VFWAdd | VFWSub | VFWMul |
-            VFWMacc | VFWNMacc | VFWMSac | VFWNMSac |
-            VFWRedOSum | VFWRedUSum
+            VFWMacc | VFWNMacc | VFWMSac | VFWNMSac
             => {
                 let emul2 = (lmul * 2).min(8);
                 VecOperandGroups { vd: emul2, vs2: lmul, vs1: vs1_base }
