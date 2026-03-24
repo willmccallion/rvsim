@@ -379,7 +379,7 @@ pub struct ControlSignals {
     pub vec_eew: Sew,
     /// Segment field count minus 1 (nf encoding: 0 = 1 field, 7 = 8 fields).
     pub vec_nf: u8,
-    /// Number of registers in the destination LMUL group (1, 2, 4, or 8).
+    /// Number of registers in the LMUL group (1, 2, 4, or 8).
     /// Derived from LMUL at decode time. 0 for non-vector instructions.
     pub vec_lmul_regs: u8,
 }
@@ -864,6 +864,213 @@ pub enum VectorOp {
     VMv4r,
     /// `vmv8r` — whole-register move (8 registers).
     VMv8r,
+}
+
+/// Per-operand vector register group sizes for a given instruction.
+///
+/// Models how real hardware derives operand grouping from the opcode and LMUL.
+/// A value of 0 means the operand field is not a vector register (it may be a
+/// scalar GPR/FPR or a sub-opcode selector encoded in the vs1/vs2 field).
+#[derive(Clone, Copy, Debug)]
+pub struct VecOperandGroups {
+    /// Number of registers in vd group (0 = scalar/sub-opcode, not a vreg).
+    pub vd: u8,
+    /// Number of registers in vs1 group (0 = scalar/immediate/sub-opcode).
+    pub vs1: u8,
+    /// Number of registers in vs2 group (0 = not used as vreg source).
+    pub vs2: u8,
+}
+
+impl VectorOp {
+    /// Compute the vector register group size for each operand given the base
+    /// LMUL (1, 2, 4, or 8) and the source encoding.
+    ///
+    /// This is the single source of truth for operand grouping — every pipeline
+    /// stage (decode alignment check, rename, execute sync, commit) should call
+    /// this rather than maintaining separate per-stage logic.
+    ///
+    /// RVV 1.0 operand semantics:
+    ///  - Most arithmetic: vd, vs2, vs1 are all LMUL-sized groups.
+    ///  - Widening: vd = 2×LMUL, vs2 = LMUL (or 2×LMUL for .wv/.wf), vs1 = LMUL.
+    ///  - Narrowing: vd = LMUL, vs2 = 2×LMUL.
+    ///  - Scalar-result (vmv.x.s, vcpop, vfirst, vfmv.f.s): vd = 0 (scalar GPR/FPR).
+    ///  - Mask-destination (comparisons, vmadc, vmsbf …): vd = 1 (single mask reg).
+    ///  - Mask-source (vcpop, vmsbf …): vs2 = 1 (single mask reg).
+    ///  - Sub-opcode in vs1 (UNARY0 families): vs1 = 0.
+    ///  - Mask logical: all operands are single mask registers = 1.
+    ///  - Whole-register moves/loads/stores: fixed group sizes independent of LMUL.
+    pub fn operand_groups(self, lmul: u8, src_enc: VecSrcEncoding) -> VecOperandGroups {
+        use VectorOp::*;
+
+        // vs1 is only a vector register for VV encoding; for VX/VI/VF it's a
+        // scalar or immediate, so group size = 0.
+        let vs1_base = if src_enc == VecSrcEncoding::VV { lmul } else { 0 };
+
+        match self {
+            // ── Configuration (no vector register operands) ──────────────
+            None | Vsetvli | Vsetivli | Vsetvl => VecOperandGroups { vd: 0, vs1: 0, vs2: 0 },
+
+            // ── Standard arithmetic (vd=LMUL, vs2=LMUL, vs1=LMUL|0) ────
+            VAdd | VSub | VRsub | VAnd | VOr | VXor |
+            VSll | VSrl | VSra |
+            VMinU | VMin | VMaxU | VMax |
+            VMul | VMulh | VMulhu | VMulhsu |
+            VMacc | VNMSac | VMadd | VNMSub |
+            VDivU | VDiv | VRemU | VRem |
+            VSAddU | VSAdd | VSSubU | VSSub |
+            VAAddU | VAAdd | VASubU | VASub |
+            VSmul | VSSrl | VSSra |
+            VMerge | VIdV |
+            // Slides, gather, compress read full groups
+            VSlideUp | VSlideDown | VSlide1Up | VSlide1Down |
+            VRgather | VRgatherEi16 | VCompress |
+            // FP standard arithmetic
+            VFAdd | VFSub | VFRSub | VFMul | VFDiv | VFRDiv |
+            VFMin | VFMax | VFSgnj | VFSgnjn | VFSgnjx |
+            VFMacc | VFNMacc | VFMSac | VFNMSac |
+            VFMAdd | VFNMAdd | VFMSub | VFNMSub |
+            VFMerge |
+            // FP slides
+            VFSlide1Up | VFSlide1Down |
+            // Reductions: vd is written as single element but still occupies
+            // a single register (not a group), vs2 is the full LMUL source.
+            // However, the spec says vd is treated as a single vector register.
+            VRedSum | VRedAnd | VRedOr | VRedXor |
+            VRedMinU | VRedMin | VRedMaxU | VRedMax |
+            VFRedOSum | VFRedUSum | VFRedMax | VFRedMin |
+            // Carry/borrow input ops (read v0 mask + full group operands)
+            VAdc | VSbc
+            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: vs1_base },
+
+            // ── Reductions need special vd handling ──────────────────────
+            // Destination is a single register (element 0), not an LMUL group.
+            // Moved above into the standard group since the execute path still
+            // reads the old vd[0] as the accumulator identity — keep vd=lmul
+            // for rename dependency tracking (conservative but correct).
+
+            // ── Widening integer (vd=2×LMUL, sources=LMUL) ──────────────
+            VWAddU | VWAdd | VWSubU | VWSub |
+            VWMulU | VWMul | VWMulSU |
+            VWMaccU | VWMacc | VWMaccSU | VWMaccUS |
+            VWRedSumU | VWRedSum |
+            // FP widening
+            VFWAdd | VFWSub | VFWMul |
+            VFWMacc | VFWNMacc | VFWMSac | VFWNMSac |
+            VFWRedOSum | VFWRedUSum
+            => {
+                let emul2 = (lmul * 2).min(8);
+                VecOperandGroups { vd: emul2, vs2: lmul, vs1: vs1_base }
+            }
+
+            // ── Widening with wide source (.wv/.wf: vd=2×LMUL, vs2=2×LMUL, vs1=LMUL)
+            VWAddUW | VWAddW | VWSubUW | VWSubW |
+            VFWAddW | VFWSubW
+            => {
+                let emul2 = (lmul * 2).min(8);
+                VecOperandGroups { vd: emul2, vs2: emul2, vs1: vs1_base }
+            }
+
+            // ── Narrowing (vd=LMUL, vs2=2×LMUL) ────────────────────────
+            VNSrl | VNSra | VNClipU | VNClip
+            => {
+                let emul2 = (lmul * 2).min(8);
+                VecOperandGroups { vd: lmul, vs2: emul2, vs1: vs1_base }
+            }
+
+            // ── Zero/sign extension (vd=LMUL, vs2=LMUL/factor) ─────────
+            // These read narrower source elements; vs2 group is smaller.
+            // However, in practice EMUL for vs2 = LMUL/factor, which may be
+            // fractional (< 1 register). Use 1 as minimum.
+            VZextVf2 | VSextVf2 => VecOperandGroups { vd: lmul, vs2: (lmul / 2).max(1), vs1: 0 },
+            VZextVf4 | VSextVf4 => VecOperandGroups { vd: lmul, vs2: (lmul / 4).max(1), vs1: 0 },
+            VZextVf8 | VSextVf8 => VecOperandGroups { vd: lmul, vs2: (lmul / 8).max(1), vs1: 0 },
+
+            // ── FP conversions (unary: vd=LMUL, vs2=LMUL, vs1=sub-opcode) ──
+            VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX |
+            VFCvtRtzXuF | VFCvtRtzXF
+            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
+
+            // ── Widening FP conversions (vd=2×LMUL, vs2=LMUL) ──────────
+            VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX |
+            VFWCvtFF | VFWCvtRtzXuF | VFWCvtRtzXF
+            => {
+                let emul2 = (lmul * 2).min(8);
+                VecOperandGroups { vd: emul2, vs2: lmul, vs1: 0 }
+            }
+
+            // ── Narrowing FP conversions (vd=LMUL, vs2=2×LMUL) ─────────
+            VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX |
+            VFNCvtFF | VFNCvtRodFF | VFNCvtRtzXuF | VFNCvtRtzXF
+            => {
+                let emul2 = (lmul * 2).min(8);
+                VecOperandGroups { vd: lmul, vs2: emul2, vs1: 0 }
+            }
+
+            // ── FP unary (sqrt, rsqrt, rec, class): vs1=sub-opcode ──────
+            VFSqrt | VFRsqrt7 | VFRec7 | VFClass
+            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
+
+            // ── Scalar-result ops (vd is a GPR/FPR, not a vreg) ─────────
+            // vmv.x.s reads vs2[0] only — but rename tracks full group
+            // dependency conservatively (correct, slightly pessimistic).
+            VMvXS => VecOperandGroups { vd: 0, vs2: lmul, vs1: 0 },
+            VFMvFS => VecOperandGroups { vd: 0, vs2: lmul, vs1: 0 },
+            VCPopM | VFirstM => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
+
+            // ── Scalar-to-vector (vmv.s.x, vfmv.s.f) ───────────────────
+            // Writes only element 0 of vd. Still an LMUL group for rename
+            // (old vd is needed for tail elements).
+            VMvSX => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+            VFMvSF => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+
+            // ── Mask-producing comparisons (vd = single mask register) ──
+            VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt |
+            VMFEq | VMFNe | VMFLt | VMFLe | VMFGt | VMFGe
+            => VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base },
+
+            // ── Carry/borrow flag output (vd = single mask register) ────
+            VMadc | VMsbc
+            => VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base },
+
+            // ── Mask-source unary (vs2 = single mask reg, vd varies) ────
+            VMSbfM | VMSofM | VMSifM
+            => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
+
+            VIotaM => VecOperandGroups { vd: lmul, vs2: 1, vs1: 0 },
+
+            // ── Mask logical (all operands are single mask registers) ────
+            VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM | VMOrnMM |
+            VMXorMM | VMXnorMM
+            => VecOperandGroups { vd: 1, vs2: 1, vs1: 1 },
+
+            // ── Whole-register moves (group size from opcode, not LMUL) ─
+            VMv1r => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
+            VMv2r => VecOperandGroups { vd: 2, vs2: 2, vs1: 0 },
+            VMv4r => VecOperandGroups { vd: 4, vs2: 4, vs1: 0 },
+            VMv8r => VecOperandGroups { vd: 8, vs2: 8, vs1: 0 },
+
+            // ── Whole-register loads/stores (group from nf, not LMUL) ───
+            // These are handled separately in decode via vec_nf; here we
+            // report LMUL as the conservative group.
+            VLoadWholeReg | VStoreWholeReg
+            => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+
+            // ── Memory ops (vd/vs3 = LMUL group, vs2 = index vector) ───
+            VLoadUnit | VLoadFF | VStoreUnit |
+            VLoadStride | VStoreStride
+            => VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 },
+
+            VLoadIndexOrd | VLoadIndexUnord
+            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
+
+            VStoreIndexOrd | VStoreIndexUnord
+            => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
+
+            // ── Mask load/store ──────────────────────────────────────────
+            VLoadMask | VStoreMask
+            => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
+        }
+    }
 }
 
 /// Vector operand source encoding category.

@@ -82,6 +82,7 @@ pub fn rename_stage<E: ExecutionEngine>(
             // Must happen BEFORE vector destination rename (same principle
             // as scalar: capture old mappings before rename map update).
             let lmul = id.ctrl.vec_lmul_regs;
+            let grp = id.ctrl.vec_op.operand_groups(lmul, id.ctrl.vec_src_encoding);
             let mut vs1_phys = [VecPhysReg::ZERO; 8];
             let mut vs2_phys = [VecPhysReg::ZERO; 8];
             let mut vs3_phys = [VecPhysReg::ZERO; 8];
@@ -90,18 +91,20 @@ pub fn rename_stage<E: ExecutionEngine>(
             let mut vec_src3_count: u8 = 0;
 
             if lmul > 0 {
-                // vs2 is always a vector source for vector data ops
-                vec_src2_count = lmul;
-                let vs2_base = id.ctrl.vs2.as_u8();
-                for (i, slot) in vs2_phys.iter_mut().enumerate().take(lmul as usize) {
-                    *slot = engine.rename_map().get_vec(VRegIdx::new(vs2_base + i as u8));
+                // vs2 source group (size from operand_groups; 0 = not a vreg)
+                if grp.vs2 > 0 {
+                    vec_src2_count = grp.vs2;
+                    let vs2_base = id.ctrl.vs2.as_u8();
+                    for (i, slot) in vs2_phys.iter_mut().enumerate().take(grp.vs2 as usize) {
+                        *slot = engine.rename_map().get_vec(VRegIdx::new(vs2_base + i as u8));
+                    }
                 }
 
-                // vs1 is a vector source only for VV encoding
-                if id.ctrl.vec_src_encoding == VecSrcEncoding::VV {
-                    vec_src1_count = lmul;
+                // vs1 source group (only for VV-encoded ops with an actual vreg)
+                if grp.vs1 > 0 {
+                    vec_src1_count = grp.vs1;
                     let vs1_base = id.ctrl.vs1.as_u8();
-                    for (i, slot) in vs1_phys.iter_mut().enumerate().take(lmul as usize) {
+                    for (i, slot) in vs1_phys.iter_mut().enumerate().take(grp.vs1 as usize) {
                         *slot = engine.rename_map().get_vec(VRegIdx::new(vs1_base + i as u8));
                     }
                 }
@@ -109,10 +112,10 @@ pub fn rename_stage<E: ExecutionEngine>(
                 // vs3 (=old vd) is a source when:
                 // - vec_reg_write: execute merges old vd values for tail/mask undisturbed
                 // - vec store: vd field encodes the store data source register
-                if id.ctrl.vec_reg_write || is_vec_store(id.ctrl.vec_op) {
-                    vec_src3_count = lmul;
+                if grp.vd > 0 && (id.ctrl.vec_reg_write || is_vec_store(id.ctrl.vec_op)) {
+                    vec_src3_count = grp.vd;
                     let vd_base = id.ctrl.vd.as_u8();
-                    for (i, slot) in vs3_phys.iter_mut().enumerate().take(lmul as usize) {
+                    for (i, slot) in vs3_phys.iter_mut().enumerate().take(grp.vd as usize) {
                         *slot = engine.rename_map().get_vec(VRegIdx::new(vd_base + i as u8));
                     }
                 }
@@ -135,7 +138,7 @@ pub fn rename_stage<E: ExecutionEngine>(
             };
 
             // ── Vector destination pre-check ──────────────────────────
-            let vec_dst_count = if id.ctrl.vec_reg_write && lmul > 0 { lmul } else { 0 };
+            let vec_dst_count = if id.ctrl.vec_reg_write && grp.vd > 0 { grp.vd } else { 0 };
             if vec_dst_count > 0 && engine.vec_free_list_mut().available() < vec_dst_count as usize
             {
                 // Not enough vec physical regs — reclaim scalar alloc and stall

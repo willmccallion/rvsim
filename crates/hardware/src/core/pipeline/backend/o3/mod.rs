@@ -652,8 +652,11 @@ impl ExecutionEngine for O3Engine {
                 // Save vector destination info before execute_one consumes the entry.
                 // After execute, we sync vec_prf from the arch VPR so the commit
                 // path (vec_prf → arch VPR) has the correct data.
-                let vec_dst_info = if entry.ctrl.vec_reg_write && entry.ctrl.vec_lmul_regs > 0 {
-                    Some((entry.vd_phys, entry.ctrl.vec_lmul_regs, entry.ctrl.vd))
+                let vec_grp = entry.ctrl.vec_op.operand_groups(
+                    entry.ctrl.vec_lmul_regs, entry.ctrl.vec_src_encoding,
+                );
+                let vec_dst_info = if entry.ctrl.vec_reg_write && vec_grp.vd > 0 {
+                    Some((entry.vd_phys, vec_grp.vd, entry.ctrl.vd))
                 } else {
                     None
                 };
