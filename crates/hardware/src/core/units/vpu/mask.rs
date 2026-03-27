@@ -158,6 +158,9 @@ fn exec_mask_logical(
         }
         if i >= ctx.vl {
             // Tail region.
+            if ctx.vta.is_agnostic() {
+                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+            }
             continue;
         }
         let s2 = vpr.read_mask_bit(vs2, ElemIdx::new(i));
@@ -241,10 +244,16 @@ fn exec_mask_set(
         }
         if i >= ctx.vl {
             // Tail region.
+            if ctx.vta.is_agnostic() {
+                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+            }
             continue;
         }
         // Masking check.
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+            }
             continue;
         }
 
@@ -311,6 +320,9 @@ fn exec_viota(
         }
         if i >= ctx.vl {
             // Tail region.
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             // No need to keep accumulating past vl.
             continue;
         }
@@ -326,6 +338,9 @@ fn exec_viota(
 
         // Masking check.
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -347,9 +362,15 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -471,8 +492,8 @@ mod tests {
         let operand = VecOperand::Vector(vs1);
         let _ = vec_mask_execute(VectorOp::VMAndMM, &mut vpr, vd, vs2, &operand, &ctx);
 
-        // Tail bits (>= vl=2) should be undisturbed (implementation choice per RVV 1.0).
-        assert!(!vpr.read_mask_bit(vd, ElemIdx::new(2)));
+        // Tail bits (>= vl=2) should be all-1s when tail-agnostic.
+        assert!(vpr.read_mask_bit(vd, ElemIdx::new(2)));
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(3)));
     }
 

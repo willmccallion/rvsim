@@ -120,7 +120,9 @@ const fn no_flags_result(scalar: Option<u64>) -> VecExecResult {
 /// result.  Does not write any vector register.
 fn exec_vmv_xs(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     let val = vpr.read_element(vs2, ElemIdx::new(0), ctx.sew);
-    no_flags_result(Some(val))
+    // RVV 1.0: vmv.x.s sign-extends the SEW-width value to XLEN.
+    let sign_extended = ctx.sew.sign_extend(val) as u64;
+    no_flags_result(Some(sign_extended))
 }
 
 /// `vmv.s.x` — move a scalar GPR value into vd[0].
@@ -140,7 +142,13 @@ fn exec_vmv_sx(
         vpr.write_element(vd, ElemIdx::new(0), ctx.sew, scalar);
     }
 
-    // Tail policy for elements 1..vlmax (agnostic treated as undisturbed — no-op).
+    // Tail policy for elements 1..vlmax.
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+        for i in 1..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+        }
+    }
 
     no_flags_result(None)
 }
@@ -172,11 +180,17 @@ fn exec_slideup(
         }
         if i >= ctx.vl {
             // Tail element.
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         // Active body element.
         if !ctx.vm && !mask_active(vpr, i) {
             // Masked-off.
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if i >= offset {
@@ -212,9 +226,15 @@ fn exec_slidedown(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -248,9 +268,15 @@ fn exec_slide1up(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -283,9 +309,15 @@ fn exec_slide1down(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -326,9 +358,15 @@ fn exec_rgather(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -371,9 +409,15 @@ fn exec_rgather_ei16(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -417,7 +461,13 @@ fn exec_compress(
         }
     }
 
-    // Phase 2: tail policy (agnostic treated as undisturbed — no-op).
+    // Phase 2: tail policy — write all-1s for remaining elements if agnostic.
+    let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+    if ctx.vta.is_agnostic() {
+        for i in dst..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+        }
+    }
 
     no_flags_result(None)
 }

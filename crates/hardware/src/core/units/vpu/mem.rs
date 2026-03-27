@@ -9,7 +9,7 @@ use crate::common::{AccessType, Trap, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::VectorOp;
-use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, parse_vtype};
+use crate::core::units::vpu::types::{ElemIdx, Emul, Sew, VRegIdx, parse_vtype};
 
 /// Execute a vector load operation. Returns 0 (no scalar result).
 ///
@@ -176,6 +176,8 @@ fn exec_unit_stride_load(
     let eew_bytes = eew.bytes() as u64;
     let nf = (id.ctrl.vec_nf as usize) + 1; // nf encoding is nf-1
     let vm = id.ctrl.vm;
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
             continue;
@@ -183,7 +185,7 @@ fn exec_unit_stride_load(
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
             let val = mem_read_element(cpu, addr, eew)?;
-            let dest = VRegIdx::new(vd.as_u8() + seg as u8);
+            let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
     }
@@ -251,6 +253,8 @@ fn exec_strided_load(
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
     let eew_bytes = eew.bytes() as u64;
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
@@ -260,7 +264,7 @@ fn exec_strided_load(
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
             let val = mem_read_element(cpu, addr, eew)?;
-            let dest = VRegIdx::new(vd.as_u8() + seg as u8);
+            let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
     }
@@ -293,6 +297,8 @@ fn exec_indexed_load(
     let idx_eew = eew; // index element width = EEW from instruction
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let data_bytes = data_sew.bytes() as u64;
+    // Data EMUL: field spacing for the destination register group.
+    let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
 
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
@@ -303,7 +309,7 @@ fn exec_indexed_load(
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
             let val = mem_read_element(cpu, addr, data_sew)?;
-            let dest = VRegIdx::new(vd.as_u8() + seg as u8);
+            let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), data_sew, val);
         }
     }
@@ -382,6 +388,8 @@ fn exec_unit_stride_store(
     let eew_bytes = eew.bytes() as u64;
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
@@ -389,7 +397,7 @@ fn exec_unit_stride_store(
         }
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
-            let src = VRegIdx::new(vs3.as_u8() + seg as u8);
+            let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), eew);
             mem_write_element(cpu, addr, eew, val)?;
         }
@@ -415,6 +423,8 @@ fn exec_strided_store(
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
     let eew_bytes = eew.bytes() as u64;
+    let vtype = parse_vtype(cpu.csrs.vtype);
+    let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
@@ -423,7 +433,7 @@ fn exec_strided_store(
         let elem_base = base.wrapping_add((i as i64).wrapping_mul(stride) as u64);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
-            let src = VRegIdx::new(vs3.as_u8() + seg as u8);
+            let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), eew);
             mem_write_element(cpu, addr, eew, val)?;
         }
@@ -454,6 +464,7 @@ fn exec_indexed_store(
     let idx_eew = eew;
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let data_bytes = data_sew.bytes() as u64;
+    let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
 
     for i in vstart..vl {
         if !is_element_active(cpu, i, vm) {
@@ -463,7 +474,7 @@ fn exec_indexed_store(
         let elem_base = base.wrapping_add(offset);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
-            let src = VRegIdx::new(vs3.as_u8() + seg as u8);
+            let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * data_emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), data_sew);
             mem_write_element(cpu, addr, data_sew, val)?;
         }

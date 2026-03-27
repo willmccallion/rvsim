@@ -99,6 +99,32 @@ impl Sew {
         }
     }
 
+    /// All-ones fill value for agnostic policy at this width.
+    /// Alias for [`mask`](Self::mask) — reads better at call sites.
+    #[inline(always)]
+    pub const fn ones(self) -> u64 {
+        self.mask()
+    }
+
+    /// Maximum representable signed value at this SEW (e.g. 127 for E8).
+    #[inline(always)]
+    pub const fn signed_max(self) -> i64 {
+        (1i64 << (self.bits() - 1)) - 1
+    }
+
+    /// Minimum representable signed value at this SEW (e.g. -128 for E8).
+    #[inline(always)]
+    pub const fn signed_min(self) -> i64 {
+        -(1i64 << (self.bits() - 1))
+    }
+
+    /// Sign-extend a SEW-width value stored in a `u64` to a full `i64`.
+    #[inline(always)]
+    pub const fn sign_extend(self, val: u64) -> i64 {
+        let shift = 64 - self.bits();
+        ((val << shift) as i64) >> shift
+    }
+
     /// Decode from the 3-bit vsew encoding.
     #[inline(always)]
     pub const fn from_encoding(enc: u8) -> Option<Self> {
@@ -414,6 +440,33 @@ impl Nf {
     }
 }
 
+/// Effective LMUL for a vector operand. Determines how many physical
+/// registers one segment field spans. Used for segment load/store field spacing
+/// (RVV 1.0 §7.8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Emul(u8);
+
+impl Emul {
+    /// Compute EMUL = max(1, (EEW / SEW) * LMUL).
+    ///
+    /// For unit-stride and strided loads where EEW == SEW, this equals the
+    /// LMUL group size. For indexed loads the EEW of indices may differ from
+    /// the data SEW, producing a different EMUL.
+    pub const fn compute(eew: Sew, sew: Sew, lmul: Vlmul) -> Self {
+        let (lnum, lden) = lmul.as_fraction();
+        let emul_num = eew.bits() * lnum;
+        let emul_den = sew.bits() * lden;
+        let emul = if emul_num >= emul_den { emul_num / emul_den } else { 1 };
+        Self(emul as u8)
+    }
+
+    /// Number of consecutive registers per segment field.
+    #[inline(always)]
+    pub const fn regs(self) -> u8 {
+        self.0
+    }
+}
+
 /// Tail element policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum TailPolicy {
@@ -434,6 +487,12 @@ impl TailPolicy {
     /// Returns the vta bit value.
     #[inline(always)]
     pub const fn as_bit(self) -> bool {
+        matches!(self, Self::Agnostic)
+    }
+
+    /// Returns `true` if tail elements should be overwritten with all-1s.
+    #[inline(always)]
+    pub const fn is_agnostic(self) -> bool {
         matches!(self, Self::Agnostic)
     }
 }
@@ -458,6 +517,12 @@ impl MaskPolicy {
     /// Returns the vma bit value.
     #[inline(always)]
     pub const fn as_bit(self) -> bool {
+        matches!(self, Self::Agnostic)
+    }
+
+    /// Returns `true` if masked-off elements should be overwritten with all-1s.
+    #[inline(always)]
+    pub const fn is_agnostic(self) -> bool {
         matches!(self, Self::Agnostic)
     }
 }

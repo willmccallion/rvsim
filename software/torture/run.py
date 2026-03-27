@@ -69,10 +69,20 @@ def _augment_path():
     if extra_dirs:
         os.environ["PATH"] = ":".join(extra_dirs) + ":" + os.environ.get("PATH", "")
 
-CC = _find_in_nix_store("riscv64-none-elf-gcc")
-OBJCOPY = _find_in_nix_store("riscv64-none-elf-objcopy")
-OBJDUMP = _find_in_nix_store("riscv64-none-elf-objdump")
-READELF = _find_in_nix_store("riscv64-none-elf-readelf")
+def _find_riscv_tool(name):
+    """Find a RISC-V tool under any common prefix."""
+    import shutil
+    for prefix in ("riscv64-none-elf-", "riscv64-elf-", "riscv64-unknown-elf-"):
+        found = shutil.which(prefix + name)
+        if found:
+            return found
+    # Fall back to nix-store search with the canonical prefix
+    return _find_in_nix_store("riscv64-none-elf-" + name)
+
+CC = _find_riscv_tool("gcc")
+OBJCOPY = _find_riscv_tool("objcopy")
+OBJDUMP = _find_riscv_tool("objdump")
+READELF = _find_riscv_tool("readelf")
 SPIKE = _find_in_nix_store("spike")
 _augment_path()
 

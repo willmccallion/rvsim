@@ -267,15 +267,12 @@ fn compute_standard(op: VectorOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vxrm) -> (
             if sum < vs2 { (mask, true) } else { (sum, false) }
         }
         VectorOp::VSAdd => {
-            let max_pos = (1u64 << (bits - 1)) - 1;
-            let min_neg = 1u64 << (bits - 1); // as unsigned representation
-            let sum = s2.wrapping_add(s1);
-            if s1 > 0 && sum < s2 {
-                // positive overflow
-                (max_pos, true)
-            } else if s1 < 0 && sum > s2 {
-                // negative overflow
-                (min_neg & mask, true)
+            // Use i128 to avoid overflow at any SEW width.
+            let sum = s2 as i128 + s1 as i128;
+            if sum > sew.signed_max() as i128 {
+                ((sew.signed_max() as u64) & mask, true)
+            } else if sum < sew.signed_min() as i128 {
+                ((sew.signed_min() as u64) & mask, true)
             } else {
                 (sum as u64 & mask, false)
             }
@@ -288,15 +285,12 @@ fn compute_standard(op: VectorOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vxrm) -> (
             }
         }
         VectorOp::VSSub => {
-            let max_pos = (1u64 << (bits - 1)) - 1;
-            let min_neg = 1u64 << (bits - 1);
-            let diff = s2.wrapping_sub(s1);
-            if s1 < 0 && diff < s2 {
-                // positive overflow (subtracting negative overflowed positive)
-                (max_pos, true)
-            } else if s1 > 0 && diff > s2 {
-                // negative overflow
-                (min_neg & mask, true)
+            // Use i128 to avoid overflow at any SEW width.
+            let diff = s2 as i128 - s1 as i128;
+            if diff > sew.signed_max() as i128 {
+                ((sew.signed_max() as u64) & mask, true)
+            } else if diff < sew.signed_min() as i128 {
+                ((sew.signed_min() as u64) & mask, true)
             } else {
                 (diff as u64 & mask, false)
             }
@@ -701,9 +695,15 @@ fn exec_standard(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -737,9 +737,15 @@ fn exec_comparison(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+            }
             continue;
         }
 
@@ -774,6 +780,13 @@ fn exec_carry(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                if is_mask_producing_carry(op) {
+                    vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                } else {
+                    vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                }
+            }
             continue;
         }
 
@@ -829,9 +842,15 @@ fn exec_macc(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -878,6 +897,9 @@ fn exec_merge(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -923,9 +945,15 @@ fn exec_widening(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+            }
             continue;
         }
 
@@ -965,9 +993,15 @@ fn exec_widening_macc(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+            }
             continue;
         }
 
@@ -1010,9 +1044,15 @@ fn exec_narrowing(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -1064,9 +1104,15 @@ fn exec_extension(
             continue;
         }
         if i >= ctx.vl {
+            if ctx.vta.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
+            if ctx.vma.is_agnostic() {
+                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            }
             continue;
         }
 
@@ -1416,8 +1462,8 @@ mod tests {
         );
 
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 15);
-        // Tail element with agnostic: undisturbed (implementation choice per RVV 1.0)
-        assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), 0x1234);
+        // Tail element with agnostic: written with all-1s per RVV 1.0
+        assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), Sew::E32.ones());
     }
 
     // ── Merge ───────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ use crate::core::units::fpu::nan_handling::{
 use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx};
+use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
 
 // ============================================================================
 // Public API
@@ -195,6 +195,14 @@ fn exec_int_reduction(
     // Write result to vd[0].
     vpr.write_element(vd, ElemIdx::new(0), sew, acc & mask);
 
+    // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), sew, Vlmul::M1).as_usize();
+        for i in 1..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), sew, sew.ones());
+        }
+    }
+
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
 }
 
@@ -288,6 +296,14 @@ fn exec_widen_int_reduction(
     // Write result to vd[0] at 2*SEW.
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, acc);
 
+    // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), dst_sew, Vlmul::M1).as_usize();
+        for i in 1..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), dst_sew, dst_sew.ones());
+        }
+    }
+
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
 }
 
@@ -313,19 +329,29 @@ fn exec_fp_reduction(
 ) -> VecExecResult {
     let sew = ctx.sew;
 
-    match sew {
+    let flags = match sew {
         Sew::E32 => {
             let (result_bits, flags) = fp_reduce_f32(op, vpr, vs2, operand1, ctx);
             vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+            flags
         }
         Sew::E64 => {
             let (result_bits, flags) = fp_reduce_f64(op, vpr, vs2, operand1, ctx);
             vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+            flags
         }
         _ => unreachable!("FP reduction with SEW={:?} is not supported", sew),
+    };
+
+    // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), sew, Vlmul::M1).as_usize();
+        for i in 1..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), sew, sew.ones());
+        }
     }
+
+    VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
 }
 
 /// Single-precision (f32) reduction loop.
@@ -462,6 +488,14 @@ fn exec_fp_widen_reduction(
 
     // Write result at 2*SEW.
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, canonicalize_f64_bits(acc));
+
+    // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), dst_sew, Vlmul::M1).as_usize();
+        for i in 1..vlmax {
+            vpr.write_element(vd, ElemIdx::new(i), dst_sew, dst_sew.ones());
+        }
+    }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
 }
