@@ -620,7 +620,7 @@ class VecTortureGenerator:
             lines.append(f"  vmv.v.x v{vd}, x{r1}")
             # Set vl=0
             lines.append(f"  li x{r2}, 0")
-            lines.append(f"  vsetvli x1, x{r2}, e32, m1, ta, ma")
+            lines.append(f"  vsetvli x1, x{r2}, e32, m1, tu, mu")
             lines.append(f"  li x{r3}, {new_val}")
             lines.append(f"  vmv.v.x v{vd}, x{r3}")  # should be no-op
             # Restore full vl
