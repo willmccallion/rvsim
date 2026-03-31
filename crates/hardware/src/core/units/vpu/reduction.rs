@@ -135,7 +135,26 @@ fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
     vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
-/// Write all-1s at the given SEW width to a destination element.
+/// Checks if an f32 value is a signaling NaN.
+#[inline]
+const fn is_snan_f32(f: f32) -> bool {
+    let bits = f.to_bits();
+    let exp = (bits >> 23) & 0xFF;
+    let mantissa = bits & 0x007F_FFFF;
+    let quiet_bit = bits & 0x0040_0000;
+    exp == 0xFF && mantissa != 0 && quiet_bit == 0
+}
+
+/// Checks if an f64 value is a signaling NaN.
+#[inline]
+const fn is_snan_f64(f: f64) -> bool {
+    let bits = f.to_bits();
+    let exp = (bits >> 52) & 0x7FF;
+    let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
+    let quiet_bit = bits & 0x0008_0000_0000_0000;
+    exp == 0x7FF && mantissa != 0 && quiet_bit == 0
+}
+
 /// Widen a SEW to the next larger width. Returns `None` for E64.
 #[inline]
 const fn widen_sew(sew: Sew) -> Option<Sew> {
@@ -384,9 +403,15 @@ fn fp_reduce_f32(
                 flags = flags | read_host_fp_flags();
             }
             VectorOp::VFRedMin => {
+                if is_snan_f32(acc) || is_snan_f32(elem) {
+                    flags = flags | FpFlags::NV;
+                }
                 acc = fmin_f32(acc, elem);
             }
             VectorOp::VFRedMax => {
+                if is_snan_f32(acc) || is_snan_f32(elem) {
+                    flags = flags | FpFlags::NV;
+                }
                 acc = fmax_f32(acc, elem);
             }
             _ => unreachable!(),
@@ -426,9 +451,15 @@ fn fp_reduce_f64(
                 flags = flags | read_host_fp_flags();
             }
             VectorOp::VFRedMin => {
+                if is_snan_f64(acc) || is_snan_f64(elem) {
+                    flags = flags | FpFlags::NV;
+                }
                 acc = fmin_f64(acc, elem);
             }
             VectorOp::VFRedMax => {
+                if is_snan_f64(acc) || is_snan_f64(elem) {
+                    flags = flags | FpFlags::NV;
+                }
                 acc = fmax_f64(acc, elem);
             }
             _ => unreachable!(),

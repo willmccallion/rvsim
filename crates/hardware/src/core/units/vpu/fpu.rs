@@ -431,11 +431,14 @@ fn compute_f32(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
         }
         VectorOp::VFMin => {
             let r = fmin_f32(a, b);
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+            // IEEE 754-2008 minNum: raise NV if either operand is a signaling NaN.
+            let f = if is_snan_f32(a) || is_snan_f32(b) { FpFlags::NV } else { FpFlags::NONE };
+            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, f)
         }
         VectorOp::VFMax => {
             let r = fmax_f32(a, b);
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+            let f = if is_snan_f32(a) || is_snan_f32(b) { FpFlags::NV } else { FpFlags::NONE };
+            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, f)
         }
         VectorOp::VFSgnj => {
             let r = f32::from_bits((a.to_bits() & !F32_SIGN_BIT) | (b.to_bits() & F32_SIGN_BIT));
@@ -472,14 +475,26 @@ fn compute_f32(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
         }
         // Conversions with RTZ: float -> unsigned int
         VectorOp::VFCvtRtzXuF => {
-            let r = if a.is_nan() { u32::MAX as u64 } else { a.trunc() as u32 as u64 };
-            (r, FpFlags::NONE)
+            clear_host_fp_flags();
+            let r = if a.is_nan() {
+                u32::MAX as u64
+            } else {
+                std::hint::black_box(std::hint::black_box(a) as u32) as u64
+            };
+            // NaN: hardware path skipped, manually report NV.
+            let f = read_host_fp_flags() | if a.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
         }
         // Conversions with RTZ: float -> signed int
         VectorOp::VFCvtRtzXF => {
-            let r =
-                if a.is_nan() { i32::MAX as u32 as u64 } else { a.trunc() as i32 as u32 as u64 };
-            (r, FpFlags::NONE)
+            clear_host_fp_flags();
+            let r = if a.is_nan() {
+                i32::MAX as u64
+            } else {
+                std::hint::black_box(std::hint::black_box(a) as i32) as u64
+            };
+            let f = read_host_fp_flags() | if a.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r & 0xFFFF_FFFF, f)
         }
         // Conversions: unsigned int -> float
         VectorOp::VFCvtFXu => {
@@ -557,11 +572,13 @@ fn compute_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
         }
         VectorOp::VFMin => {
             let r = fmin_f64(a, b);
-            (r.to_bits(), FpFlags::NONE)
+            let f = if is_snan_f64(a) || is_snan_f64(b) { FpFlags::NV } else { FpFlags::NONE };
+            (r.to_bits(), f)
         }
         VectorOp::VFMax => {
             let r = fmax_f64(a, b);
-            (r.to_bits(), FpFlags::NONE)
+            let f = if is_snan_f64(a) || is_snan_f64(b) { FpFlags::NV } else { FpFlags::NONE };
+            (r.to_bits(), f)
         }
         VectorOp::VFSgnj => {
             let r = f64::from_bits((a.to_bits() & !F64_SIGN_BIT) | (b.to_bits() & F64_SIGN_BIT));
@@ -595,12 +612,24 @@ fn compute_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
             (r, read_host_fp_flags())
         }
         VectorOp::VFCvtRtzXuF => {
-            let r = if a.is_nan() { u64::MAX } else { a.trunc() as u64 };
-            (r, FpFlags::NONE)
+            clear_host_fp_flags();
+            let r = if a.is_nan() {
+                u64::MAX
+            } else {
+                std::hint::black_box(std::hint::black_box(a) as u64)
+            };
+            let f = read_host_fp_flags() | if a.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
         }
         VectorOp::VFCvtRtzXF => {
-            let r = if a.is_nan() { i64::MAX as u64 } else { a.trunc() as i64 as u64 };
-            (r, FpFlags::NONE)
+            clear_host_fp_flags();
+            let r = if a.is_nan() {
+                i64::MAX as u64
+            } else {
+                std::hint::black_box(std::hint::black_box(a) as i64) as u64
+            };
+            let f = read_host_fp_flags() | if a.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
         }
         VectorOp::VFCvtFXu => {
             clear_host_fp_flags();
@@ -1069,21 +1098,35 @@ fn exec_fp_widening(
                     }
                     VectorOp::VFWCvtRtzXuF => {
                         let a = elem_to_f32(vs2_raw);
-                        if a.is_nan() { u64::MAX } else { a.trunc() as u64 }
+                        if a.is_nan() {
+                            u64::MAX
+                        } else {
+                            std::hint::black_box(std::hint::black_box(a) as u64)
+                        }
                     }
                     VectorOp::VFWCvtRtzXF => {
                         let a = elem_to_f32(vs2_raw);
-                        if a.is_nan() { i64::MAX as u64 } else { a.trunc() as i64 as u64 }
+                        if a.is_nan() {
+                            i64::MAX as u64
+                        } else {
+                            std::hint::black_box(std::hint::black_box(a) as i64) as u64
+                        }
                     }
                     VectorOp::VFWCvtFXu => (vs2_raw as u32 as f64).to_bits(),
                     VectorOp::VFWCvtFX => (sign_extend(vs2_raw, ctx.sew) as i32 as f64).to_bits(),
                     _ => 0,
                 };
-                let f = if matches!(op, VectorOp::VFWCvtRtzXuF | VectorOp::VFWCvtRtzXF) {
-                    FpFlags::NONE
-                } else {
-                    read_host_fp_flags()
-                };
+                // RTZ variants previously skipped flag reporting. All float→int
+                // conversions must report NV for NaN/out-of-range and NX for inexact.
+                let nan_input = matches!(
+                    op,
+                    VectorOp::VFWCvtRtzXuF
+                        | VectorOp::VFWCvtRtzXF
+                        | VectorOp::VFWCvtXuF
+                        | VectorOp::VFWCvtXF
+                ) && elem_to_f32(vs2_raw).is_nan();
+                let f = read_host_fp_flags()
+                    | if nan_input { FpFlags::NV } else { FpFlags::NONE };
                 flags = flags | f;
                 vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
                 continue;
@@ -1243,16 +1286,26 @@ fn exec_fp_narrowing(
                     (r, read_host_fp_flags())
                 }
                 VectorOp::VFNCvtRtzXuF => {
-                    let r = if a64.is_nan() { u32::MAX as u64 } else { a64.trunc() as u32 as u64 };
-                    (r, FpFlags::NONE)
+                    clear_host_fp_flags();
+                    let r = if a64.is_nan() {
+                        u32::MAX as u64
+                    } else {
+                        std::hint::black_box(std::hint::black_box(a64) as u32) as u64
+                    };
+                    let f = read_host_fp_flags()
+                        | if a64.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
                 }
                 VectorOp::VFNCvtRtzXF => {
+                    clear_host_fp_flags();
                     let r = if a64.is_nan() {
                         i32::MAX as u32 as u64
                     } else {
-                        a64.trunc() as i32 as u32 as u64
+                        std::hint::black_box(std::hint::black_box(a64) as i32) as u32 as u64
                     };
-                    (r, FpFlags::NONE)
+                    let f = read_host_fp_flags()
+                        | if a64.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
                 }
                 VectorOp::VFNCvtFXu => {
                     // Convert full 2*SEW unsigned integer to SEW float.
