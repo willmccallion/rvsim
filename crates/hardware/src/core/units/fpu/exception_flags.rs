@@ -36,6 +36,11 @@ impl FpFlags {
     /// Inexact.
     pub const NX: Self = Self(1 << 0);
 
+    /// Creates `FpFlags` from a raw 5-bit value.
+    pub const fn from_bits(val: u8) -> Self {
+        Self(val & 0x1F)
+    }
+
     /// Returns the raw 5-bit flag value for writing into `fcsr`.
     pub const fn bits(self) -> u8 {
         self.0

@@ -297,6 +297,231 @@ const fn classify_f64(val: u64) -> u64 {
     }
 }
 
+// ============================================================================
+// vfrsqrt7 / vfrec7 lookup tables (RVV 1.0 §13.9–13.10)
+// ============================================================================
+
+/// vfrsqrt7 lookup table. Indexed by `{exp[0], sig[MSB-1:MSB-6]}` (7 bits).
+/// `RSQRT7_TABLE[0..64]`  → exp[0]=0,  `RSQRT7_TABLE[64..128]` → exp[0]=1.
+#[rustfmt::skip]
+static RSQRT7_TABLE: [u8; 128] = [
+    // exp[0] = 0
+    52, 51, 50, 48, 47, 46, 44, 43, 42, 41, 40, 39, 38, 36, 35, 34,
+    33, 32, 31, 30, 30, 29, 28, 27, 26, 25, 24, 24, 23, 22, 21, 21,
+    20, 19, 19, 18, 18, 17, 16, 16, 15, 15, 14, 14, 13, 13, 12, 12,
+    11, 11, 10, 10,  9,  9,  9,  8,  8,  7,  7,  7,  6,  6,  6,  5,
+    // exp[0] = 1
+    127, 125, 123, 121, 119, 118, 116, 114, 113, 111, 109, 108, 106, 105, 103, 102,
+    100,  99,  97,  96,  95,  93,  92,  91,  90,  88,  87,  86,  85,  84,  83,  82,
+     80,  79,  78,  77,  76,  75,  74,  73,  72,  71,  70,  70,  69,  68,  67,  66,
+     65,  65,  64,  63,  62,  61,  61,  60,  59,  59,  58,  57,  57,  56,  56,  55,
+];
+
+/// vfrec7 lookup table. Indexed by `sig[MSB-1:MSB-7]` (7 bits → 128 entries).
+#[rustfmt::skip]
+static REC7_TABLE: [u8; 128] = [
+    127, 125, 123, 121, 119, 117, 116, 114, 112, 110, 109, 107, 105, 104, 102, 100,
+     99,  97,  96,  94,  93,  91,  90,  88,  87,  85,  84,  83,  81,  80,  79,  77,
+     76,  75,  74,  72,  71,  70,  69,  68,  66,  65,  64,  63,  62,  61,  60,  59,
+     58,  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,
+     42,  41,  40,  40,  39,  38,  37,  36,  36,  35,  34,  33,  33,  32,  31,  31,
+     30,  29,  29,  28,  27,  27,  26,  26,  25,  24,  24,  23,  23,  22,  22,  21,
+     21,  20,  20,  19,  19,  18,  18,  17,  17,  16,  16,  15,  15,  14,  14,  14,
+     13,  13,  12,  12,  12,  11,  11,  10,  10,  10,   9,   9,   9,   8,   8,   8,
+];
+
+/// Compute vfrsqrt7 for an f32 value. Returns `(result_bits, flags)`.
+///
+/// Implements the RVV 1.0 §13.9 lookup-table algorithm for a 7-bit accurate
+/// approximation of `1/sqrt(x)`.
+fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
+    let sign = bits >> 31;
+    let mut exp = (bits >> 23) as i32 & 0xFF;
+    let mut sig = bits & 0x007F_FFFF;
+
+    // Special cases
+    if exp == 0xFF && sig != 0 {
+        let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
+        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, f);
+    }
+    if exp == 0xFF && sig == 0 {
+        if sign != 0 {
+            return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, FpFlags::NV);
+        }
+        return (0xFFFF_FFFF_0000_0000, FpFlags::NONE); // +0.0 NaN-boxed
+    }
+    if exp == 0 && sig == 0 {
+        let r = if sign != 0 { 0xFF80_0000u32 } else { 0x7F80_0000u32 };
+        return ((r as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::DZ);
+    }
+    if sign != 0 {
+        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, FpFlags::NV);
+    }
+
+    // Normalize subnormals: shift sig left until bit 22 is set, adjust exp.
+    if exp == 0 {
+        while sig & 0x0040_0000 == 0 {
+            sig <<= 1;
+            exp -= 1;
+        }
+        sig &= !0x0040_0000; // clear the implicit leading 1
+    }
+
+    // Lookup: index = {exp[0], sig[21:16]} (7 bits)
+    let idx = (((exp & 1) << 6) | ((sig >> 16) as i32 & 0x3F)) as usize;
+    let out_sig = RSQRT7_TABLE[idx] as u32;
+
+    // Result exponent: (3 * 127 - 1 - exp) / 2
+    let out_exp = ((3 * 127 - 1 - exp) >> 1) as u32;
+
+    let result = (out_exp << 23) | (out_sig << 16);
+    ((result as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+}
+
+/// Compute vfrsqrt7 for an f64 value. Returns `(result_bits, flags)`.
+fn vfrsqrt7_64(bits: u64) -> (u64, FpFlags) {
+    let sign = bits >> 63;
+    let mut exp = ((bits >> 52) & 0x7FF) as i32;
+    let mut sig = bits & 0x000F_FFFF_FFFF_FFFF;
+
+    if exp == 0x7FF && sig != 0 {
+        let f = if sig & 0x0008_0000_0000_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
+        return (canonicalize_f64_bits(f64::NAN), f);
+    }
+    if exp == 0x7FF && sig == 0 {
+        if sign != 0 {
+            return (canonicalize_f64_bits(f64::NAN), FpFlags::NV);
+        }
+        return (0, FpFlags::NONE); // +0.0
+    }
+    if exp == 0 && sig == 0 {
+        let r: u64 = if sign != 0 { 0xFFF0_0000_0000_0000 } else { 0x7FF0_0000_0000_0000 };
+        return (r, FpFlags::DZ);
+    }
+    if sign != 0 {
+        return (canonicalize_f64_bits(f64::NAN), FpFlags::NV);
+    }
+
+    // Normalize subnormals: shift sig left until bit 51 is set.
+    if exp == 0 {
+        while sig & 0x0008_0000_0000_0000 == 0 {
+            sig <<= 1;
+            exp -= 1;
+        }
+        sig &= !0x0008_0000_0000_0000;
+    }
+
+    let idx = (((exp & 1) << 6) | ((sig >> 45) as i32 & 0x3F)) as usize;
+    let out_sig = RSQRT7_TABLE[idx] as u64;
+
+    let out_exp = ((3 * 1023 - 1 - exp) >> 1) as u64;
+
+    let result = (out_exp << 52) | (out_sig << 45);
+    (result, FpFlags::NONE)
+}
+
+/// Compute vfrec7 for an f32 value. Returns `(result_bits, flags)`.
+///
+/// Implements the RVV 1.0 §13.10 lookup-table algorithm for a 7-bit accurate
+/// approximation of `1/x`.
+fn vfrec7_32(bits: u32) -> (u64, FpFlags) {
+    let sign = bits >> 31;
+    let mut exp = (bits >> 23) as i32 & 0xFF;
+    let mut sig = bits & 0x007F_FFFF;
+
+    // Special cases
+    if exp == 0xFF && sig != 0 {
+        let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
+        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, f);
+    }
+    if exp == 0xFF && sig == 0 {
+        // ±inf → ±0
+        let r = sign << 31;
+        return ((r as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE);
+    }
+    if exp == 0 && sig == 0 {
+        let r = (sign << 31) | 0x7F80_0000;
+        return ((r as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::DZ);
+    }
+
+    // Normalize subnormals
+    if exp == 0 {
+        while sig & 0x0040_0000 == 0 {
+            sig <<= 1;
+            exp -= 1;
+        }
+        sig &= !0x0040_0000;
+    }
+
+    // Lookup: index = sig[21:15] (7 bits)
+    let idx = ((sig >> 15) & 0x7F) as usize;
+    let out_sig = REC7_TABLE[idx] as u32;
+
+    // Result exponent: 2 * 127 - 1 - exp
+    let out_exp = 253 - exp;
+
+    if out_exp <= 0 {
+        // Subnormal result: add implicit 1, shift right by (1 - out_exp)
+        let shift = (1 - out_exp) as u32;
+        let result = (sign << 31) | ((out_sig | 0x80) >> shift << 15);
+        return ((result as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE);
+    }
+    if out_exp >= 0xFF {
+        let result = (sign << 31) | 0x7F80_0000;
+        return ((result as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::OF | FpFlags::NX);
+    }
+
+    let result = (sign << 31) | ((out_exp as u32) << 23) | (out_sig << 16);
+    ((result as u64) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+}
+
+/// Compute vfrec7 for an f64 value. Returns `(result_bits, flags)`.
+fn vfrec7_64(bits: u64) -> (u64, FpFlags) {
+    let sign = bits >> 63;
+    let mut exp = ((bits >> 52) & 0x7FF) as i32;
+    let mut sig = bits & 0x000F_FFFF_FFFF_FFFF;
+
+    if exp == 0x7FF && sig != 0 {
+        let f = if sig & 0x0008_0000_0000_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
+        return (canonicalize_f64_bits(f64::NAN), f);
+    }
+    if exp == 0x7FF && sig == 0 {
+        return (sign << 63, FpFlags::NONE);
+    }
+    if exp == 0 && sig == 0 {
+        let r = (sign << 63) | 0x7FF0_0000_0000_0000;
+        return (r, FpFlags::DZ);
+    }
+
+    // Normalize subnormals
+    if exp == 0 {
+        while sig & 0x0008_0000_0000_0000 == 0 {
+            sig <<= 1;
+            exp -= 1;
+        }
+        sig &= !0x0008_0000_0000_0000;
+    }
+
+    let idx = ((sig >> 44) & 0x7F) as usize;
+    let out_sig = REC7_TABLE[idx] as u64;
+
+    // Result exponent: 2 * 1023 - 1 - exp
+    let out_exp = 2045 - exp;
+
+    if out_exp <= 0 {
+        let shift = (1 - out_exp) as u64;
+        let result = (sign << 63) | (((out_sig | 0x80) >> shift) << 44);
+        return (result, FpFlags::NONE);
+    }
+    if out_exp >= 0x7FF {
+        let result = (sign << 63) | 0x7FF0_0000_0000_0000;
+        return (result, FpFlags::OF | FpFlags::NX);
+    }
+
+    let result = (sign << 63) | ((out_exp as u64) << 52) | (out_sig << 45);
+    (result, FpFlags::NONE)
+}
+
 /// Bit mask for the sign bit in a 32-bit IEEE 754 float.
 const F32_SIGN_BIT: u32 = 0x8000_0000;
 
@@ -417,18 +642,8 @@ fn compute_f32(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
             let r = std::hint::black_box(std::hint::black_box(a).sqrt());
             (box_f32_canon(r), read_host_fp_flags())
         }
-        VectorOp::VFRsqrt7 => {
-            // Approximation: full precision 1/sqrt for simulator
-            clear_host_fp_flags();
-            let r = std::hint::black_box(1.0f32 / std::hint::black_box(a).sqrt());
-            (box_f32_canon(r), read_host_fp_flags())
-        }
-        VectorOp::VFRec7 => {
-            // Approximation: full precision 1/x for simulator
-            clear_host_fp_flags();
-            let r = std::hint::black_box(1.0f32 / std::hint::black_box(a));
-            (box_f32_canon(r), read_host_fp_flags())
-        }
+        VectorOp::VFRsqrt7 => vfrsqrt7_32(vs2_bits as u32),
+        VectorOp::VFRec7 => vfrec7_32(vs2_bits as u32),
         VectorOp::VFMin => {
             let r = fmin_f32(a, b);
             // IEEE 754-2008 minNum: raise NV if either operand is a signaling NaN.
@@ -560,16 +775,8 @@ fn compute_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
             let r = std::hint::black_box(std::hint::black_box(a).sqrt());
             (canonicalize_f64_bits(r), read_host_fp_flags())
         }
-        VectorOp::VFRsqrt7 => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(1.0f64 / std::hint::black_box(a).sqrt());
-            (canonicalize_f64_bits(r), read_host_fp_flags())
-        }
-        VectorOp::VFRec7 => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(1.0f64 / std::hint::black_box(a));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
-        }
+        VectorOp::VFRsqrt7 => vfrsqrt7_64(vs2_bits),
+        VectorOp::VFRec7 => vfrec7_64(vs2_bits),
         VectorOp::VFMin => {
             let r = fmin_f64(a, b);
             let f = if is_snan_f64(a) || is_snan_f64(b) { FpFlags::NV } else { FpFlags::NONE };
@@ -1262,10 +1469,28 @@ fn exec_fp_narrowing(
         let (result, f) = if ctx.sew == Sew::E32 {
             let a64 = elem_to_f64(vs2_raw);
             match op {
-                VectorOp::VFNCvtFF | VectorOp::VFNCvtRodFF => {
+                VectorOp::VFNCvtFF => {
                     clear_host_fp_flags();
                     let r = std::hint::black_box(std::hint::black_box(a64) as f32);
                     (box_f32_canon(r) & 0xFFFF_FFFF, read_host_fp_flags())
+                }
+                VectorOp::VFNCvtRodFF => {
+                    // Round-to-odd (jamming): if the f64→f32 conversion is
+                    // inexact, set the LSB of the f32 mantissa to 1. This
+                    // prevents double-rounding errors in chained narrowing
+                    // (e.g. f64→f32→f16). Per SoftFloat semantics, round-to-odd
+                    // does not raise the inexact (NX) flag.
+                    clear_host_fp_flags();
+                    let r = std::hint::black_box(std::hint::black_box(a64) as f32);
+                    let hw_flags = read_host_fp_flags();
+                    if !r.is_nan() && !r.is_infinite() && (r as f64) != a64 {
+                        // Inexact: jam LSB to 1, suppress NX
+                        let jammed = f32::from_bits(r.to_bits() | 1);
+                        let flags_no_nx = FpFlags::from_bits(hw_flags.bits() & !FpFlags::NX.bits());
+                        (box_f32_canon(jammed) & 0xFFFF_FFFF, flags_no_nx)
+                    } else {
+                        (box_f32_canon(r) & 0xFFFF_FFFF, hw_flags)
+                    }
                 }
                 VectorOp::VFNCvtXuF => {
                     clear_host_fp_flags();

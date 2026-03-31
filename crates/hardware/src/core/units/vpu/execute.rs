@@ -44,6 +44,7 @@ fn execute_vsetvl_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    mark_vs_dirty(cpu);
     new_vl
 }
 
@@ -60,6 +61,7 @@ fn execute_vsetivli_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, false, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    mark_vs_dirty(cpu);
     new_vl
 }
 
@@ -76,6 +78,7 @@ fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    mark_vs_dirty(cpu);
     new_vl
 }
 
@@ -287,6 +290,7 @@ fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     match mem::execute_vec_store(cpu, id) {
         Ok(result) => {
             cpu.csrs.vstart = 0;
+            mark_vs_dirty(cpu);
             result
         }
         Err(_trap) => {
