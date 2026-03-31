@@ -722,6 +722,10 @@ fn exec_standard(
 }
 
 /// Comparison loop: writes mask bits to vd.
+///
+/// Mask-producing instructions write one bit per element. The tail comprises
+/// bits `[vl, VLEN)` in the destination mask register (RVV 1.0 §3.4.3), so
+/// the loop must iterate over all VLEN mask bits, not just VLMAX elements.
 fn exec_comparison(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,
@@ -730,9 +734,10 @@ fn exec_comparison(
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+    // Mask registers hold VLEN bits; the tail extends from vl to VLEN-1.
+    let vlen_bits = vpr.vlen().bits();
 
-    for i in 0..vlmax {
+    for i in 0..vlen_bits {
         if i < ctx.vstart {
             continue;
         }
@@ -763,6 +768,11 @@ fn exec_comparison(
 }
 
 /// Add/subtract with carry loop.
+///
+/// For mask-producing variants (`vmadc`, `vmsbc`), the tail comprises bits
+/// `[vl, VLEN)` in the destination mask register (RVV 1.0 §3.4.3). For
+/// non-mask variants (`vadc`, `vsbc`), the tail is `[vl, VLMAX)` at SEW.
+/// We iterate to the larger of the two bounds so both cases are covered.
 fn exec_carry(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,
@@ -772,16 +782,19 @@ fn exec_carry(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+    let vlen_bits = vpr.vlen().bits();
     let mask = ctx.sew.mask();
-    let _writes_mask = is_mask_producing_carry(op);
+    let writes_mask = is_mask_producing_carry(op);
+    // Mask-producing ops need tail up to VLEN bits; element-producing up to VLMAX.
+    let loop_end = if writes_mask { vlen_bits } else { vlmax };
 
-    for i in 0..vlmax {
+    for i in 0..loop_end {
         if i < ctx.vstart {
             continue;
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                if is_mask_producing_carry(op) {
+                if writes_mask {
                     vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
                 } else {
                     vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());

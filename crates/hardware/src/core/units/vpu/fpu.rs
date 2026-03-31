@@ -788,6 +788,10 @@ fn compute_fma_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64, vd_bits: u64) -> 
 // ============================================================================
 
 /// FP comparison loop: writes mask bits to vd.
+///
+/// Mask-producing instructions write one bit per element. The tail comprises
+/// bits `[vl, VLEN)` in the destination mask register (RVV 1.0 §3.4.3), so
+/// the loop must iterate over all VLEN mask bits, not just VLMAX elements.
 fn exec_fp_comparison(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,
@@ -796,10 +800,11 @@ fn exec_fp_comparison(
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+    // Mask registers hold VLEN bits; the tail extends from vl to VLEN-1.
+    let vlen_bits = vpr.vlen().bits();
     let mut flags = FpFlags::NONE;
 
-    for i in 0..vlmax {
+    for i in 0..vlen_bits {
         if i < ctx.vstart {
             continue;
         }
@@ -1250,13 +1255,17 @@ fn exec_fp_narrowing(
                     (r, FpFlags::NONE)
                 }
                 VectorOp::VFNCvtFXu => {
+                    // Convert full 2*SEW unsigned integer to SEW float.
+                    // Must not truncate to u32 first — the source is a 64-bit integer.
                     clear_host_fp_flags();
-                    let r = std::hint::black_box(vs2_raw as u32 as f32);
+                    let r = std::hint::black_box(vs2_raw as f32);
                     (r.to_bits() as u64, read_host_fp_flags())
                 }
                 VectorOp::VFNCvtFX => {
+                    // Convert full 2*SEW signed integer to SEW float.
+                    // Must not truncate to i32 first — the source is a 64-bit integer.
                     clear_host_fp_flags();
-                    let r = std::hint::black_box(sign_extend(vs2_raw, src_sew) as i32 as f32);
+                    let r = std::hint::black_box(sign_extend(vs2_raw, src_sew) as f32);
                     (r.to_bits() as u64, read_host_fp_flags())
                 }
                 _ => (0, FpFlags::NONE),
