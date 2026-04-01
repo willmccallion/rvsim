@@ -5,6 +5,7 @@ region from simulator memory after execution.
 """
 
 import os
+import sys
 import shutil
 import logging
 
@@ -35,12 +36,8 @@ class rvsim(pluginTemplate):
         # Path to the rvsim_run.py helper script
         self.run_script = os.path.join(self.pluginpath, 'rvsim_run.py')
 
-        # Find Python from the venv
-        repo_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
-        self.python = venv_python if os.path.exists(venv_python) else 'python3'
+        # Use the same Python that's running riscof (the venv Python)
+        self.python = sys.executable
 
     def initialise(self, suite, work_dir, archtest_env):
         self.work_dir = work_dir
