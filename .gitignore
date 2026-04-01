@@ -19,8 +19,4 @@ software/riscv-tests/
 software/bin
 software/build
 
-software/torture/failures/
-software/torture/build_vec/
-software/torture/build/
-software/torture/generated_vec/
-software/torture/generated/
+testing/riscof/riscof_work/

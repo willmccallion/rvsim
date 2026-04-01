@@ -35,6 +35,7 @@ endif
 # ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
+.PHONY: arch-test
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -60,6 +61,7 @@ help:
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
 	@printf "    %-$(HELP_W)s  fmt-check + clippy\n" "make lint"
 	@printf "    %-$(HELP_W)s  Full pre-release check (git+lint+test+versions+build)\n" "make prerelease"
+	@printf "    %-$(HELP_W)s  Run riscv-arch-test compliance suite via riscof\n" "make arch-test"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
@@ -142,6 +144,17 @@ fmt-check:
 	$(PYTHON) -m ruff format --check rvsim/*.py
 
 lint: fmt-check clippy
+
+arch-test:
+	@printf "$(GREEN)Running riscv-arch-test compliance suite via riscof…$(RESET)\n"
+	@if [ ! -d testing/riscof/riscv-arch-test ]; then \
+		printf "$(GREEN)Cloning riscv-arch-test suite…$(RESET)\n"; \
+		.venv/bin/riscof arch-test --clone --dir testing/riscof/riscv-arch-test; \
+	fi
+	cd testing/riscof && ../../.venv/bin/riscof run --no-browser \
+		--config config.ini \
+		--suite riscv-arch-test/riscv-test-suite/ \
+		--env riscv-arch-test/riscv-test-suite/env
 
 prerelease:
 	@tools/prerelease
