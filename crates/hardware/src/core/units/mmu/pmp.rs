@@ -232,8 +232,19 @@ impl Pmp {
                 PmpAddrMatch::Off => continue,
             };
 
-            // Check if the access range overlaps with this entry
-            if byte_addr >= lo && access_end <= hi {
+            // Per spec §3.7.1: the lowest-numbered PMP entry that matches
+            // *any byte* of the access determines the outcome.  If that entry
+            // does not cover *all bytes*, the access fails regardless of
+            // permissions (partial-match denial).
+            let any_byte_match = byte_addr < hi && access_end > lo;
+            if any_byte_match {
+                let all_bytes_match = byte_addr >= lo && access_end <= hi;
+
+                if !all_bytes_match {
+                    // Partial overlap — spec mandates denial.
+                    return PmpResult::Deny;
+                }
+
                 // M-mode: if the entry is NOT locked, M-mode bypasses PMP.
                 if is_machine_mode && !entry.is_locked() {
                     return PmpResult::Allow;

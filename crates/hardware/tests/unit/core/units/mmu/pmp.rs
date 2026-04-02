@@ -163,9 +163,9 @@ fn na4_matches_exactly_four_bytes() {
     let result = pmp.check(0x4004, 1, true, false, false, false);
     assert_eq!(result, PmpResult::NoMatch);
 
-    // Overlapping the end
+    // Overlapping the end — partial match must deny per spec §3.7.1.
     let result = pmp.check(0x4002, 4, true, false, false, false);
-    assert_eq!(result, PmpResult::NoMatch);
+    assert_eq!(result, PmpResult::Deny);
 }
 
 // ══════════════════════════════════════════════════════════

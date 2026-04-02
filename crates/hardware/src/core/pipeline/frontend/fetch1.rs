@@ -59,7 +59,7 @@ pub fn fetch1_stage(cpu: &mut Cpu, output: &mut Vec<Fetch1Fetch2Entry>, stall_ou
 
         // I-TLB lookup
         let TranslationResult { paddr, cycles, trap, .. } = if fetch_trap.is_none() {
-            cpu.translate(VirtAddr::new(current_pc), AccessType::Fetch, 4)
+            cpu.translate(VirtAddr::new(current_pc), AccessType::Fetch, 2)
         } else {
             TranslationResult::success(crate::common::PhysAddr::new(0), 0)
         };
