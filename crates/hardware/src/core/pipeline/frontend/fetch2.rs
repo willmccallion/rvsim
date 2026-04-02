@@ -140,7 +140,12 @@ pub fn fetch2_stage(
                 *stall_out += result.cycles;
                 (result.paddr, result.trap)
             } else {
-                (crate::common::PhysAddr::new(phys_addr + 2), None)
+                // Same page — MMU translation is the same, but PMP may
+                // differ if a fine-grained region boundary falls between
+                // the two halves of this 4-byte instruction.
+                let result = cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2);
+                *stall_out += result.cycles;
+                (result.paddr, result.trap)
             };
 
             if let Some(t) = upper_fault {
