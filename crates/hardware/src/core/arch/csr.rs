@@ -92,6 +92,19 @@ pub const MTVAL: CsrAddr = CsrAddr::from_u32(0x343);
 /// Machine interrupt pending register CSR address.
 pub const MIP: CsrAddr = CsrAddr::from_u32(0x344);
 
+/// PMP configuration register 0 (entries 0–7) CSR address.
+pub const PMPCFG0: CsrAddr = CsrAddr::from_u32(0x3A0);
+
+/// PMP configuration register 2 (entries 8–15) CSR address.
+/// Note: pmpcfg1 / pmpcfg3 do not exist in RV64.
+pub const PMPCFG2: CsrAddr = CsrAddr::from_u32(0x3A2);
+
+/// First PMP address register CSR address (pmpaddr0).
+pub const PMPADDR0: CsrAddr = CsrAddr::from_u32(0x3B0);
+
+/// Last PMP address register CSR address (pmpaddr15).
+pub const PMPADDR15: CsrAddr = CsrAddr::from_u32(0x3BF);
+
 /// Supervisor status register CSR address.
 pub const SSTATUS: CsrAddr = CsrAddr::from_u32(0x100);
 

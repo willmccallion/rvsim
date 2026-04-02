@@ -468,6 +468,32 @@ pub fn execute_inorder(
                     }
                 }
 
+                // Existence check: non-existent CSRs must trap (spec §2.2).
+                if !cpu.is_valid_csr(id.ctrl.csr_addr) {
+                    rob.fault(
+                        id.rob_tag,
+                        Trap::IllegalInstruction(id.inst),
+                        ExceptionStage::Execute,
+                    );
+                    flush_remaining = true;
+                    results.push(ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: PhysReg::default(),
+                        fp_flags: 0,
+                        sfence_vma: None,
+                    });
+                    continue;
+                }
+
                 // Privilege check: CSR bits [9:8] encode minimum privilege level.
                 let csr_priv = id.ctrl.csr_addr.privilege_level() as u32;
                 if (cpu.privilege.to_u8() as u32) < csr_priv {
