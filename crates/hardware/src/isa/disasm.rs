@@ -124,7 +124,7 @@ pub fn disassemble(inst: u32) -> String {
                 let mn = if f3 == i_f3::LW { "flw" } else { "fld" };
                 format!("{mn} {}, {imm_i}({})", freg(rd), xreg(rs1))
             }
-        }
+        },
 
         // ── Stores ────────────────────────────────────────
         i_op::OP_STORE => {
@@ -143,7 +143,7 @@ pub fn disassemble(inst: u32) -> String {
                 let mn = if f3 == i_f3::SW { "fsw" } else { "fsd" };
                 format!("{mn} {}, {imm_s}({})", freg(rs2), xreg(rs1))
             }
-        }
+        },
 
         // ── Branches ──────────────────────────────────────
         i_op::OP_BRANCH => {

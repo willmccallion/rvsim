@@ -419,8 +419,7 @@ impl IssueQueue {
                     // Vector instructions access memory directly via the bus,
                     // bypassing the store buffer. They must not issue until all
                     // committed stores have drained to memory.
-                    if iq.entry.ctrl.vec_op != VectorOp::None
-                        && store_buffer.has_committed_stores()
+                    if iq.entry.ctrl.vec_op != VectorOp::None && store_buffer.has_committed_stores()
                     {
                         continue;
                     }

@@ -103,9 +103,7 @@ impl Cpu {
             x if x == csr::VSTART.as_u32() => self.csrs.vstart,
             x if x == csr::VXSAT.as_u32() => self.csrs.vxsat & 0x1,
             x if x == csr::VXRM.as_u32() => self.csrs.vxrm & 0x3,
-            x if x == csr::VCSR.as_u32() => {
-                (self.csrs.vxsat & 0x1) | ((self.csrs.vxrm & 0x3) << 1)
-            }
+            x if x == csr::VCSR.as_u32() => (self.csrs.vxsat & 0x1) | ((self.csrs.vxrm & 0x3) << 1),
             x if x == csr::VL.as_u32() => self.csrs.vl,
             x if x == csr::VTYPE.as_u32() => self.csrs.vtype,
             x if x == csr::VLENB.as_u32() => self.csrs.vlenb,

@@ -8,9 +8,9 @@ use crate::isa::rvv::{encoding, funct3 as vf3, funct6 as f6};
 
 /// ABI-style vector register names v0–v31.
 const VREG_NAMES: [&str; 32] = [
-    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13",
-    "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26",
-    "v27", "v28", "v29", "v30", "v31",
+    "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14",
+    "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27",
+    "v28", "v29", "v30", "v31",
 ];
 
 /// ABI integer register names (duplicated here to avoid circular dep on disasm).
@@ -44,11 +44,7 @@ fn freg(idx: u8) -> &'static str {
 /// Returns `", v0.t"` for masked instructions (vm=0), `""` for unmasked (vm=1).
 #[inline]
 const fn vm_suffix(inst: u32) -> &'static str {
-    if encoding::vm(inst) {
-        ""
-    } else {
-        ", v0.t"
-    }
+    if encoding::vm(inst) { "" } else { ", v0.t" }
 }
 
 /// Returns the element width string from the width/funct3 field.
@@ -107,11 +103,7 @@ pub(crate) fn disasm_vec_arith(inst: u32) -> String {
                 return format!("vmv{nr}r.v {}, {}", vreg(vd), vreg(vs2));
             }
             // funct6=0b001110 is vrgatherei16 under OPIVV (not vslideup)
-            let mn = if f6val == 0b001110 {
-                "vrgatherei16"
-            } else {
-                ivv_mnemonic(f6val)
-            };
+            let mn = if f6val == 0b001110 { "vrgatherei16" } else { ivv_mnemonic(f6val) };
             format!("{mn}.vv {}, {}, {}{vm}", vreg(vd), vreg(vs2), vreg(vs1))
         }
         vf3::OPIVX => {
@@ -484,20 +476,10 @@ fn disasm_opfvf(inst: u32, f6val: u32, vd: u8, rs1: u8, vs2: u8, vm: &str) -> St
         f6::VFSGNJN => format!("vfsgnjn.vf {}, {}, {}{vm}", vreg(vd), vreg(vs2), freg(rs1)),
         f6::VFSGNJX => format!("vfsgnjx.vf {}, {}, {}{vm}", vreg(vd), vreg(vs2), freg(rs1)),
         f6::VFSLIDE1UP => {
-            format!(
-                "vfslide1up.vf {}, {}, {}{vm}",
-                vreg(vd),
-                vreg(vs2),
-                freg(rs1)
-            )
+            format!("vfslide1up.vf {}, {}, {}{vm}", vreg(vd), vreg(vs2), freg(rs1))
         }
         f6::VFSLIDE1DOWN => {
-            format!(
-                "vfslide1down.vf {}, {}, {}{vm}",
-                vreg(vd),
-                vreg(vs2),
-                freg(rs1)
-            )
+            format!("vfslide1down.vf {}, {}, {}{vm}", vreg(vd), vreg(vs2), freg(rs1))
         }
         // VRFUNARY0 — vfmv.s.f
         0b010000 => format!("vfmv.s.f {}, {}", vreg(vd), freg(rs1)),
@@ -594,19 +576,9 @@ pub(crate) fn disasm_vec_load(inst: u32) -> String {
             let rs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vlsseg{seg}e{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    xreg(rs2)
-                )
+                format!("vlsseg{seg}e{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), xreg(rs2))
             } else {
-                format!(
-                    "vlse{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    xreg(rs2)
-                )
+                format!("vlse{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), xreg(rs2))
             }
         }
         // Indexed unordered
@@ -614,19 +586,9 @@ pub(crate) fn disasm_vec_load(inst: u32) -> String {
             let vs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vluxseg{seg}ei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vluxseg{seg}ei{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), vreg(vs2))
             } else {
-                format!(
-                    "vluxei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vluxei{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), vreg(vs2))
             }
         }
         // Indexed ordered
@@ -634,19 +596,9 @@ pub(crate) fn disasm_vec_load(inst: u32) -> String {
             let vs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vloxseg{seg}ei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vloxseg{seg}ei{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), vreg(vs2))
             } else {
-                format!(
-                    "vloxei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vd),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vloxei{eew}.v {}, ({}), {}{vm}", vreg(vd), xreg(rs1), vreg(vs2))
             }
         }
         _ => format!("vl?? ({inst:#010x})"),
@@ -695,19 +647,9 @@ pub(crate) fn disasm_vec_store(inst: u32) -> String {
             let rs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vssseg{seg}e{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    xreg(rs2)
-                )
+                format!("vssseg{seg}e{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), xreg(rs2))
             } else {
-                format!(
-                    "vsse{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    xreg(rs2)
-                )
+                format!("vsse{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), xreg(rs2))
             }
         }
         // Indexed unordered
@@ -715,19 +657,9 @@ pub(crate) fn disasm_vec_store(inst: u32) -> String {
             let vs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vsuxseg{seg}ei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vsuxseg{seg}ei{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), vreg(vs2))
             } else {
-                format!(
-                    "vsuxei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vsuxei{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), vreg(vs2))
             }
         }
         // Indexed ordered
@@ -735,19 +667,9 @@ pub(crate) fn disasm_vec_store(inst: u32) -> String {
             let vs2 = encoding::vs2(inst);
             if nf_val > 0 {
                 let seg = nf_val + 1;
-                format!(
-                    "vsoxseg{seg}ei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vsoxseg{seg}ei{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), vreg(vs2))
             } else {
-                format!(
-                    "vsoxei{eew}.v {}, ({}), {}{vm}",
-                    vreg(vs3),
-                    xreg(rs1),
-                    vreg(vs2)
-                )
+                format!("vsoxei{eew}.v {}, ({}), {}{vm}", vreg(vs3), xreg(rs1), vreg(vs2))
             }
         }
         _ => format!("vs?? ({inst:#010x})"),

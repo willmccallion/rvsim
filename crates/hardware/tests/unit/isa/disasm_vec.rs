@@ -15,23 +15,91 @@ fn vec_arith(funct6: u32, vm: u32, vs2: u32, vs1: u32, funct3: u32, vd: u32) -> 
 }
 
 /// Build a vector load instruction (unit-stride).
-fn vec_load_unit(nf: u32, mew: u32, mop: u32, vm: u32, lumop: u32, rs1: u32, width: u32, vd: u32) -> u32 {
-    (nf << 29) | (mew << 28) | (mop << 26) | (vm << 25) | (lumop << 20) | (rs1 << 15) | (width << 12) | (vd << 7) | OP_LOAD_FP
+fn vec_load_unit(
+    nf: u32,
+    mew: u32,
+    mop: u32,
+    vm: u32,
+    lumop: u32,
+    rs1: u32,
+    width: u32,
+    vd: u32,
+) -> u32 {
+    (nf << 29)
+        | (mew << 28)
+        | (mop << 26)
+        | (vm << 25)
+        | (lumop << 20)
+        | (rs1 << 15)
+        | (width << 12)
+        | (vd << 7)
+        | OP_LOAD_FP
 }
 
 /// Build a vector store instruction (unit-stride).
-fn vec_store_unit(nf: u32, mew: u32, mop: u32, vm: u32, sumop: u32, rs1: u32, width: u32, vs3: u32) -> u32 {
-    (nf << 29) | (mew << 28) | (mop << 26) | (vm << 25) | (sumop << 20) | (rs1 << 15) | (width << 12) | (vs3 << 7) | OP_STORE_FP
+fn vec_store_unit(
+    nf: u32,
+    mew: u32,
+    mop: u32,
+    vm: u32,
+    sumop: u32,
+    rs1: u32,
+    width: u32,
+    vs3: u32,
+) -> u32 {
+    (nf << 29)
+        | (mew << 28)
+        | (mop << 26)
+        | (vm << 25)
+        | (sumop << 20)
+        | (rs1 << 15)
+        | (width << 12)
+        | (vs3 << 7)
+        | OP_STORE_FP
 }
 
 /// Build a vector load with rs2/vs2 (strided or indexed).
-fn vec_load_rs2(nf: u32, mew: u32, mop: u32, vm: u32, rs2: u32, rs1: u32, width: u32, vd: u32) -> u32 {
-    (nf << 29) | (mew << 28) | (mop << 26) | (vm << 25) | (rs2 << 20) | (rs1 << 15) | (width << 12) | (vd << 7) | OP_LOAD_FP
+fn vec_load_rs2(
+    nf: u32,
+    mew: u32,
+    mop: u32,
+    vm: u32,
+    rs2: u32,
+    rs1: u32,
+    width: u32,
+    vd: u32,
+) -> u32 {
+    (nf << 29)
+        | (mew << 28)
+        | (mop << 26)
+        | (vm << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (width << 12)
+        | (vd << 7)
+        | OP_LOAD_FP
 }
 
 /// Build a vector store with rs2/vs2 (strided or indexed).
-fn vec_store_rs2(nf: u32, mew: u32, mop: u32, vm: u32, rs2: u32, rs1: u32, width: u32, vs3: u32) -> u32 {
-    (nf << 29) | (mew << 28) | (mop << 26) | (vm << 25) | (rs2 << 20) | (rs1 << 15) | (width << 12) | (vs3 << 7) | OP_STORE_FP
+fn vec_store_rs2(
+    nf: u32,
+    mew: u32,
+    mop: u32,
+    vm: u32,
+    rs2: u32,
+    rs1: u32,
+    width: u32,
+    vs3: u32,
+) -> u32 {
+    (nf << 29)
+        | (mew << 28)
+        | (mop << 26)
+        | (vm << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (width << 12)
+        | (vs3 << 7)
+        | OP_STORE_FP
 }
 
 // funct3 categories

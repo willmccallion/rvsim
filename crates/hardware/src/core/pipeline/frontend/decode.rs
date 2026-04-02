@@ -21,10 +21,10 @@ use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
 
 use crate::isa::rv64a::{funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes};
+use crate::isa::rv64b::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
-use crate::isa::rv64b::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
@@ -200,31 +200,33 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     }
                 }
                 i_funct3::SRL_SRA => {
-                    let top6 = d.funct7 >> 1; // bits 31:26
-                    match top6 {
-                        // Zbb: rori / roriw
-                        _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
-                        // Zbs: bexti (OP_IMM only)
-                        _ if d.opcode == i_opcodes::OP_IMM
-                            && top6 == (b_funct7::BEXT >> 1) =>
-                        {
-                            AluOp::Bext
-                        }
-                        // Base I: sra / srai / sraiw
-                        _ if (d.funct7 & FUNCT7_ALT_BIT) != 0 => AluOp::Sra,
-                        // Base I: srl / srli / srliw
-                        _ => AluOp::Srl,
-                    }
-                }
-                // Zbb: orc.b, rev8 (OP_IMM funct3=101, full imm[11:0] selects)
-                _ if d.funct3 == b_funct3::ORC_REV_SEXT
-                    && d.opcode == i_opcodes::OP_IMM =>
-                {
                     let imm12 = (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF;
-                    match imm12 {
-                        b_funct3::ORC_B_IMM => AluOp::OrcB,
-                        b_funct3::REV8_IMM => AluOp::Rev8,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
+                    let top6 = d.funct7 >> 1; // bits 31:26
+
+                    if d.opcode == i_opcodes::OP_IMM {
+                        match imm12 {
+                            // Zbb: orc.b, rev8 (full imm[11:0] selects)
+                            b_funct3::ORC_B_IMM => AluOp::OrcB,
+                            b_funct3::REV8_IMM => AluOp::Rev8,
+                            // Zbb: rori
+                            _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
+                            // Zbs: bexti
+                            _ if top6 == (b_funct7::BEXT >> 1) => AluOp::Bext,
+                            // Base I: srai
+                            _ if (d.funct7 & FUNCT7_ALT_BIT) != 0 => AluOp::Sra,
+                            // Base I: srli
+                            _ => AluOp::Srl,
+                        }
+                    } else {
+                        // OP_IMM_32
+                        match top6 {
+                            // Zbb: roriw
+                            _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
+                            // Base I: sraiw
+                            _ if (d.funct7 & FUNCT7_ALT_BIT) != 0 => AluOp::Sra,
+                            // Base I: srliw
+                            _ => AluOp::Srl,
+                        }
                     }
                 }
                 _ => return Err(Trap::IllegalInstruction(inst)),
@@ -264,44 +266,30 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
 
                     // ── Zba: Address generation ──────────────────────────────
                     // sh1add / sh2add / sh3add (OP_REG only)
-                    (b_funct3::SH1ADD, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::SH1ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Sh1Add
                     }
-                    (b_funct3::SH2ADD, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::SH2ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Sh2Add
                     }
-                    (b_funct3::SH3ADD, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::SH3ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Sh3Add
                     }
                     // add.uw (OP_REG_32 only, but produces a 64-bit result)
-                    (b_funct3::ADD_UW, b_funct7::ADD_UW)
-                        if d.opcode == i_opcodes::OP_REG_32 =>
-                    {
+                    (b_funct3::ADD_UW, b_funct7::ADD_UW) if d.opcode == i_opcodes::OP_REG_32 => {
                         c.is_rv32 = false;
                         AluOp::AddUw
                     }
                     // sh1add.uw / sh2add.uw / sh3add.uw (OP_REG_32, 64-bit result)
-                    (b_funct3::SH1ADD_UW, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG_32 =>
-                    {
+                    (b_funct3::SH1ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
                         c.is_rv32 = false;
                         AluOp::Sh1AddUw
                     }
-                    (b_funct3::SH2ADD_UW, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG_32 =>
-                    {
+                    (b_funct3::SH2ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
                         c.is_rv32 = false;
                         AluOp::Sh2AddUw
                     }
-                    (b_funct3::SH3ADD_UW, b_funct7::SH_ADD)
-                        if d.opcode == i_opcodes::OP_REG_32 =>
-                    {
+                    (b_funct3::SH3ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
                         c.is_rv32 = false;
                         AluOp::Sh3AddUw
                     }
@@ -321,27 +309,19 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     // ror
                     (b_funct3::ROR, b_funct7::ROTATE_RIGHT) => AluOp::Ror,
                     // zext.h (OP_REG_32, but produces a 64-bit result)
-                    (b_funct3::ZEXT_H, b_funct7::ZEXT_H)
-                        if d.opcode == i_opcodes::OP_REG_32 =>
-                    {
+                    (b_funct3::ZEXT_H, b_funct7::ZEXT_H) if d.opcode == i_opcodes::OP_REG_32 => {
                         c.is_rv32 = false;
                         AluOp::ZextH
                     }
 
                     // ── Zbc: Carry-less multiplication ───────────────────────
-                    (b_funct3::CLMUL, b_funct7::CLMUL)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::CLMUL, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Clmul
                     }
-                    (b_funct3::CLMULH, b_funct7::CLMUL)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::CLMULH, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Clmulh
                     }
-                    (b_funct3::CLMULR, b_funct7::CLMUL)
-                        if d.opcode == i_opcodes::OP_REG =>
-                    {
+                    (b_funct3::CLMULR, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Clmulr
                     }
 
@@ -1334,7 +1314,7 @@ pub fn decode_stage(cpu: &mut Cpu, input: &mut Vec<IfIdEntry>, output: &mut Vec<
                 // source of truth: VectorOp::operand_groups().
                 if trap.is_none() {
                     let g = ctrl.vec_op.operand_groups(lmul, ctrl.vec_src_encoding, ctrl.vec_nf);
-                    let vd  = ctrl.vd.as_u8();
+                    let vd = ctrl.vd.as_u8();
                     let vs2 = ctrl.vs2.as_u8();
                     let vs1 = ctrl.vs1.as_u8();
 

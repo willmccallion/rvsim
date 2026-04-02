@@ -623,8 +623,14 @@ impl ExecutionEngine for O3Engine {
                 // when the memory pipeline is busy, but allow non-memory ops
                 // (ALU, branch) to continue issuing freely.
                 if mem_backpressured && fu_type == FuType::Mem {
-                    let ok =
-                        self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), Some(&self.vec_prf), mem_dep);
+                    let ok = self.issue_queue.dispatch(
+                        entry,
+                        &self.rob,
+                        cpu,
+                        Some(&self.prf),
+                        Some(&self.vec_prf),
+                        mem_dep,
+                    );
                     debug_assert!(ok, "re-dispatch after mem backpressure failed");
                     continue;
                 }
@@ -635,8 +641,14 @@ impl ExecutionEngine for O3Engine {
                     stalled_fu = true;
                     // Leave entry in IQ (select already removed it — re-dispatch needed)
                     // For simplicity: re-dispatch back into IQ
-                    let ok =
-                        self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), Some(&self.vec_prf), mem_dep);
+                    let ok = self.issue_queue.dispatch(
+                        entry,
+                        &self.rob,
+                        cpu,
+                        Some(&self.prf),
+                        Some(&self.vec_prf),
+                        mem_dep,
+                    );
                     debug_assert!(ok, "re-dispatch after FU stall failed");
                     continue;
                 }
@@ -653,7 +665,9 @@ impl ExecutionEngine for O3Engine {
                 // After execute, we sync vec_prf from the arch VPR so the commit
                 // path (vec_prf → arch VPR) has the correct data.
                 let vec_grp = entry.ctrl.vec_op.operand_groups(
-                    entry.ctrl.vec_lmul_regs, entry.ctrl.vec_src_encoding, entry.ctrl.vec_nf,
+                    entry.ctrl.vec_lmul_regs,
+                    entry.ctrl.vec_src_encoding,
+                    entry.ctrl.vec_nf,
                 );
                 let vec_dst_info = if entry.ctrl.vec_reg_write && vec_grp.vd > 0 {
                     Some((entry.vd_phys, vec_grp.vd, entry.ctrl.vd))
@@ -845,7 +859,14 @@ impl ExecutionEngine for O3Engine {
                 let is_load = entry.ctrl.mem_read;
                 let is_store = entry.ctrl.mem_write;
                 let mem_dep = self.mdp.dispatch(entry.pc, entry.rob_tag, is_load, is_store);
-                let ok = self.issue_queue.dispatch(entry, &self.rob, cpu, Some(&self.prf), Some(&self.vec_prf), mem_dep);
+                let ok = self.issue_queue.dispatch(
+                    entry,
+                    &self.rob,
+                    cpu,
+                    Some(&self.prf),
+                    Some(&self.vec_prf),
+                    mem_dep,
+                );
                 debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
             }
         }
@@ -856,7 +877,6 @@ impl ExecutionEngine for O3Engine {
         cpu.stats.mdp_predictions_wait_all = mdp_stats.predictions_wait_all;
         cpu.stats.mdp_predictions_wait_for = mdp_stats.predictions_wait_for;
         cpu.stats.mdp_violations = mdp_stats.violations;
-
     }
 
     fn can_accept(&self) -> usize {

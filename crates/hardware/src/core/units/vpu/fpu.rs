@@ -137,7 +137,7 @@ pub fn vec_fp_execute(
         let val = match ctx.sew {
             Sew::E32 => raw | 0xFFFF_FFFF_0000_0000, // NaN-box f32 in f64 register
             Sew::E16 => raw | 0xFFFF_FFFF_FFFF_0000, // NaN-box f16 in f64 register
-            _ => raw,                                  // E64: no boxing needed
+            _ => raw,                                // E64: no boxing needed
         };
         return VecExecResult { vxsat: false, scalar_result: Some(val), fp_flags: FpFlags::NONE };
     }
@@ -1332,8 +1332,7 @@ fn exec_fp_widening(
                         | VectorOp::VFWCvtXuF
                         | VectorOp::VFWCvtXF
                 ) && elem_to_f32(vs2_raw).is_nan();
-                let f = read_host_fp_flags()
-                    | if nan_input { FpFlags::NV } else { FpFlags::NONE };
+                let f = read_host_fp_flags() | if nan_input { FpFlags::NV } else { FpFlags::NONE };
                 flags = flags | f;
                 vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
                 continue;

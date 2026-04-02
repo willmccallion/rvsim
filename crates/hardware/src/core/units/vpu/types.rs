@@ -658,16 +658,10 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
 
     let vlmul_enc = (vtype_bits & 0x7) as u8;
     let vsew_enc = ((vtype_bits >> 3) & 0x7) as u8;
-    let vta = if (vtype_bits >> 6) & 1 != 0 {
-        TailPolicy::Agnostic
-    } else {
-        TailPolicy::Undisturbed
-    };
-    let vma = if (vtype_bits >> 7) & 1 != 0 {
-        MaskPolicy::Agnostic
-    } else {
-        MaskPolicy::Undisturbed
-    };
+    let vta =
+        if (vtype_bits >> 6) & 1 != 0 { TailPolicy::Agnostic } else { TailPolicy::Undisturbed };
+    let vma =
+        if (vtype_bits >> 7) & 1 != 0 { MaskPolicy::Agnostic } else { MaskPolicy::Undisturbed };
 
     // Check for invalid encodings
     let Some(vlmul) = Vlmul::from_encoding(vlmul_enc) else {
@@ -706,13 +700,7 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
         };
     }
 
-    VtypeFields {
-        vsew,
-        vlmul,
-        vta,
-        vma,
-        vill: false,
-    }
+    VtypeFields { vsew, vlmul, vta, vma, vill: false }
 }
 
 /// Encode vtype fields back to the raw CSR bits.

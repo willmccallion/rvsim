@@ -34,7 +34,6 @@ const fn sext32(val: u32) -> u64 {
 pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
     match op {
         // ── Zba: Address generation ──────────────────────────────────────
-
         AluOp::Sh1Add => (a << 1).wrapping_add(b),
         AluOp::Sh2Add => (a << 2).wrapping_add(b),
         AluOp::Sh3Add => (a << 3).wrapping_add(b),
@@ -66,7 +65,6 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         }
 
         // ── Zbb: Basic bit manipulation ──────────────────────────────────
-
         AluOp::Andn => a & !b,
         AluOp::Orn => a | !b,
         AluOp::Xnor => !(a ^ b),
@@ -188,7 +186,6 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         }
 
         // ── Zbc: Carry-less multiplication ───────────────────────────────
-
         AluOp::Clmul => {
             // Carry-less multiply (low half).
             let mut result: u64 = 0;
@@ -227,41 +224,24 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         }
 
         // ── Zbs: Single-bit operations ───────────────────────────────────
-
         AluOp::Bclr => {
             // Clear bit at position b[5:0] (or b[4:0] for RV32).
-            let shamt = if is32 {
-                b as u32 & SHAMT_MASK_RV32
-            } else {
-                b as u32 & SHAMT_MASK_RV64
-            };
+            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
             a & !(1u64 << shamt)
         }
         AluOp::Bext => {
             // Extract bit at position b[5:0] (or b[4:0] for RV32).
-            let shamt = if is32 {
-                b as u32 & SHAMT_MASK_RV32
-            } else {
-                b as u32 & SHAMT_MASK_RV64
-            };
+            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
             (a >> shamt) & 1
         }
         AluOp::Binv => {
             // Invert bit at position b[5:0] (or b[4:0] for RV32).
-            let shamt = if is32 {
-                b as u32 & SHAMT_MASK_RV32
-            } else {
-                b as u32 & SHAMT_MASK_RV64
-            };
+            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
             a ^ (1u64 << shamt)
         }
         AluOp::Bset => {
             // Set bit at position b[5:0] (or b[4:0] for RV32).
-            let shamt = if is32 {
-                b as u32 & SHAMT_MASK_RV32
-            } else {
-                b as u32 & SHAMT_MASK_RV64
-            };
+            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
             a | (1u64 << shamt)
         }
 

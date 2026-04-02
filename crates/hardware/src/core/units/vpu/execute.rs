@@ -109,10 +109,15 @@ const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
         VecSrcEncoding::VI => {
             let uses_uimm = matches!(
                 id.ctrl.vec_op,
-                VectorOp::VSll | VectorOp::VSrl | VectorOp::VSra |
-                VectorOp::VNSrl | VectorOp::VNSra |
-                VectorOp::VNClipU | VectorOp::VNClip |
-                VectorOp::VSSrl | VectorOp::VSSra
+                VectorOp::VSll
+                    | VectorOp::VSrl
+                    | VectorOp::VSra
+                    | VectorOp::VNSrl
+                    | VectorOp::VNSra
+                    | VectorOp::VNClipU
+                    | VectorOp::VNClip
+                    | VectorOp::VSSrl
+                    | VectorOp::VSSra
             );
             if uses_uimm {
                 VecOperand::Immediate(v_enc::uimm5(id.inst) as i64)

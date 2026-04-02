@@ -158,7 +158,6 @@ pub enum AluOp {
     FMvToF,
 
     // ── Zba: Address generation ──────────────────────────────────────────
-
     /// Shift-left-1 and add (sh1add).
     Sh1Add,
 
@@ -184,7 +183,6 @@ pub enum AluOp {
     SlliUw,
 
     // ── Zbb: Basic bit manipulation ──────────────────────────────────────
-
     /// Bitwise AND with complement (andn).
     Andn,
 
@@ -237,7 +235,6 @@ pub enum AluOp {
     Rev8,
 
     // ── Zbc: Carry-less multiplication ───────────────────────────────────
-
     /// Carry-less multiply (low half).
     Clmul,
 
@@ -248,7 +245,6 @@ pub enum AluOp {
     Clmulr,
 
     // ── Zbs: Single-bit operations ───────────────────────────────────────
-
     /// Clear single bit (bclr / bclri).
     Bclr,
 
