@@ -188,14 +188,21 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         }
                     } else {
                         // OP_IMM_32
-                        match top6 {
-                            // Zba: slli.uw (produces 64-bit result)
-                            _ if top6 == (b_funct7::SLLI_UW >> 1) => {
-                                c.is_rv32 = false;
-                                AluOp::SlliUw
-                            }
-                            // Base I: slliw
-                            _ => AluOp::Sll,
+                        let imm12_w = (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF;
+                        match imm12_w {
+                            // Zbb: clzw, ctzw, cpopw
+                            b_funct3::CLZ_IMM => AluOp::Clz,
+                            b_funct3::CTZ_IMM => AluOp::Ctz,
+                            b_funct3::CPOP_IMM => AluOp::Cpop,
+                            _ => match top6 {
+                                // Zba: slli.uw (produces 64-bit result)
+                                _ if top6 == (b_funct7::SLLI_UW >> 1) => {
+                                    c.is_rv32 = false;
+                                    AluOp::SlliUw
+                                }
+                                // Base I: slliw
+                                _ => AluOp::Sll,
+                            },
                         }
                     }
                 }
