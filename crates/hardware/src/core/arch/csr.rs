@@ -105,6 +105,21 @@ pub const PMPADDR0: CsrAddr = CsrAddr::from_u32(0x3B0);
 /// Last PMP address register CSR address (pmpaddr15).
 pub const PMPADDR15: CsrAddr = CsrAddr::from_u32(0x3BF);
 
+/// Machine counter-inhibit register CSR address.
+pub const MCOUNTINHIBIT: CsrAddr = CsrAddr::from_u32(0x320);
+
+/// First machine hardware performance-monitoring event selector (mhpmevent3).
+pub const MHPMEVENT3: CsrAddr = CsrAddr::from_u32(0x323);
+
+/// Last machine hardware performance-monitoring event selector (mhpmevent31).
+pub const MHPMEVENT31: CsrAddr = CsrAddr::from_u32(0x33F);
+
+/// First machine hardware performance-monitoring counter (mhpmcounter3).
+pub const MHPMCOUNTER3: CsrAddr = CsrAddr::from_u32(0xB03);
+
+/// Last machine hardware performance-monitoring counter (mhpmcounter31).
+pub const MHPMCOUNTER31: CsrAddr = CsrAddr::from_u32(0xB1F);
+
 /// Supervisor status register CSR address.
 pub const SSTATUS: CsrAddr = CsrAddr::from_u32(0x100);
 

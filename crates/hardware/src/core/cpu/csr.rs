@@ -64,7 +64,10 @@ impl Cpu {
         ) || matches!(raw,
             x if x == csr::PMPCFG0.as_u32()
                 || x == csr::PMPCFG2.as_u32()
+                || x == csr::MCOUNTINHIBIT.as_u32()
         ) || (raw >= csr::PMPADDR0.as_u32() && raw <= csr::PMPADDR15.as_u32())
+            || (raw >= csr::MHPMEVENT3.as_u32() && raw <= csr::MHPMEVENT31.as_u32())
+            || (raw >= csr::MHPMCOUNTER3.as_u32() && raw <= csr::MHPMCOUNTER31.as_u32())
     }
 
     /// Reads a value from a Control and Status Register (CSR).
