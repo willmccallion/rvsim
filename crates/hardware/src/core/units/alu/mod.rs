@@ -3,15 +3,19 @@
 //! This module implements the integer ALU used in the Execute stage.
 //! It handles standard arithmetic, logical operations, and shifts
 //! for both 32-bit and 64-bit operands. It also implements the
-//! Multiply/Divide (M) extension operations.
+//! Multiply/Divide (M) and Bit-Manipulation (B) extension operations.
 //!
 //! Operations are organized into submodules by category:
 //! - [`arithmetic`]: Add, Sub, Mul, Mulh, Mulhsu, Mulhu, Div, Divu, Rem, Remu
 //! - [`logic`]:      Or, And, Xor, Slt, Sltu
 //! - [`shifts`]:     Sll, Srl, Sra
+//! - [`bitmanip`]:   Zba (address gen), Zbb (basic bitmanip), Zbc (clmul), Zbs (single-bit)
 
 /// Integer arithmetic operations (add, subtract, multiply, divide).
 pub mod arithmetic;
+
+/// Bit-manipulation operations (B extension: Zba, Zbb, Zbc, Zbs).
+pub mod bitmanip;
 
 /// Bitwise logical and comparison operations (or, and, xor, slt).
 pub mod logic;
@@ -95,6 +99,40 @@ impl Alu {
 
             // Shifts: sll, srl, sra
             AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, is32),
+
+            // B-extension: Zba, Zbb, Zbc, Zbs
+            AluOp::Sh1Add
+            | AluOp::Sh2Add
+            | AluOp::Sh3Add
+            | AluOp::AddUw
+            | AluOp::Sh1AddUw
+            | AluOp::Sh2AddUw
+            | AluOp::Sh3AddUw
+            | AluOp::SlliUw
+            | AluOp::Andn
+            | AluOp::Orn
+            | AluOp::Xnor
+            | AluOp::Clz
+            | AluOp::Ctz
+            | AluOp::Cpop
+            | AluOp::Max
+            | AluOp::Maxu
+            | AluOp::Min
+            | AluOp::Minu
+            | AluOp::SextB
+            | AluOp::SextH
+            | AluOp::ZextH
+            | AluOp::Rol
+            | AluOp::Ror
+            | AluOp::OrcB
+            | AluOp::Rev8
+            | AluOp::Clmul
+            | AluOp::Clmulh
+            | AluOp::Clmulr
+            | AluOp::Bclr
+            | AluOp::Bext
+            | AluOp::Binv
+            | AluOp::Bset => bitmanip::execute(op, a, b, is32),
 
             // Non-integer operations (FP, etc.) are not handled here.
             _ => 0,

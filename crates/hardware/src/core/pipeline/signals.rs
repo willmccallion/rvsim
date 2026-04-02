@@ -156,6 +156,110 @@ pub enum AluOp {
 
     /// Move integer register to floating-point register.
     FMvToF,
+
+    // ── Zba: Address generation ──────────────────────────────────────────
+
+    /// Shift-left-1 and add (sh1add).
+    Sh1Add,
+
+    /// Shift-left-2 and add (sh2add).
+    Sh2Add,
+
+    /// Shift-left-3 and add (sh3add).
+    Sh3Add,
+
+    /// Add unsigned word (add.uw) — zero-extends rs1[31:0] before adding.
+    AddUw,
+
+    /// Shift-left-1 and add unsigned word (sh1add.uw).
+    Sh1AddUw,
+
+    /// Shift-left-2 and add unsigned word (sh2add.uw).
+    Sh2AddUw,
+
+    /// Shift-left-3 and add unsigned word (sh3add.uw).
+    Sh3AddUw,
+
+    /// Shift-left-logical unsigned word immediate (slli.uw).
+    SlliUw,
+
+    // ── Zbb: Basic bit manipulation ──────────────────────────────────────
+
+    /// Bitwise AND with complement (andn).
+    Andn,
+
+    /// Bitwise OR with complement (orn).
+    Orn,
+
+    /// Bitwise exclusive NOR (xnor).
+    Xnor,
+
+    /// Count leading zeros (clz / clzw).
+    Clz,
+
+    /// Count trailing zeros (ctz / ctzw).
+    Ctz,
+
+    /// Count set bits / population count (cpop / cpopw).
+    Cpop,
+
+    /// Maximum (signed).
+    Max,
+
+    /// Maximum (unsigned).
+    Maxu,
+
+    /// Minimum (signed).
+    Min,
+
+    /// Minimum (unsigned).
+    Minu,
+
+    /// Sign-extend byte.
+    SextB,
+
+    /// Sign-extend halfword.
+    SextH,
+
+    /// Zero-extend halfword.
+    ZextH,
+
+    /// Rotate left (rol / rolw).
+    Rol,
+
+    /// Rotate right (ror / rorw / rori / roriw).
+    Ror,
+
+    /// OR-combine bytes (orc.b).
+    OrcB,
+
+    /// Byte-reverse (rev8).
+    Rev8,
+
+    // ── Zbc: Carry-less multiplication ───────────────────────────────────
+
+    /// Carry-less multiply (low half).
+    Clmul,
+
+    /// Carry-less multiply (high half).
+    Clmulh,
+
+    /// Carry-less multiply (reversed / remainder).
+    Clmulr,
+
+    // ── Zbs: Single-bit operations ───────────────────────────────────────
+
+    /// Clear single bit (bclr / bclri).
+    Bclr,
+
+    /// Extract single bit (bext / bexti).
+    Bext,
+
+    /// Invert single bit (binv / binvi).
+    Binv,
+
+    /// Set single bit (bset / bseti).
+    Bset,
 }
 
 /// Atomic memory operation types (RISC-V A extension).
