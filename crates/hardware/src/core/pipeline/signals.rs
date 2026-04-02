@@ -7,6 +7,7 @@
 //! 4. **System Control:** Manages privilege transitions and system-level instructions.
 
 use crate::common::CsrAddr;
+use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::types::{Sew, VRegIdx};
 
 /// ALU operation types for integer and floating-point instructions.
@@ -470,6 +471,9 @@ pub struct ControlSignals {
     pub csr_addr: CsrAddr,
     /// CSR operation type.
     pub csr_op: CsrOp,
+    /// Floating-point rounding mode for FP arithmetic and conversions.
+    /// `None` means use `fcsr.frm` (dynamic). Set during decode from funct3.
+    pub fp_rm: Option<RoundingMode>,
     /// `rs1` is a floating-point register.
     pub rs1_fp: bool,
     /// `rs2` is a floating-point register.

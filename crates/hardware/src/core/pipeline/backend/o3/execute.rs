@@ -17,6 +17,7 @@ use crate::core::pipeline::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, 
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
+use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
@@ -194,7 +195,12 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     }
 
     // ALU / FPU execution
-    let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
+    // Resolve rounding mode: instruction-specified or dynamic from fcsr.frm.
+    let fp_rm = id
+        .ctrl
+        .fp_rm
+        .or_else(|| RoundingMode::from_bits(cpu.csrs.frm as u8));
+    let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32, fp_rm);
     trace_execute!(cpu.trace;
         rob_tag  = id.rob_tag.0,
         pc       = %crate::trace::Hex(id.pc),
@@ -759,7 +765,14 @@ fn execute_csr(
 }
 
 /// Compute ALU/FPU result and return (result, `fp_flags`).
-fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> (u64, u8) {
+fn compute_alu(
+    alu_op: AluOp,
+    op_a: u64,
+    op_b: u64,
+    op_c: u64,
+    is_rv32: bool,
+    fp_rm: Option<RoundingMode>,
+) -> (u64, u8) {
     // FP conversions and moves that need special handling.
     // Int-to-float and float-to-float conversions can raise FP exception
     // flags (INEXACT, OVERFLOW, etc.), so we use the host FPU to detect them.
@@ -853,7 +866,8 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
     );
 
     if is_fp_op {
-        let (result, fp_flags) = Fpu::execute_full(alu_op, op_a, op_b, op_c, is_rv32);
+        let rm = fp_rm.unwrap_or(RoundingMode::Rne);
+        let (result, fp_flags) = Fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_rv32, rm);
         (result, fp_flags.bits())
     } else {
         (Alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0)

@@ -21,6 +21,7 @@ use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
 
 use crate::isa::rv64a::{funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes};
+use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
@@ -454,6 +455,9 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                 return Err(Trap::IllegalInstruction(inst));
             }
 
+            // Decode rounding mode from funct3. 0b111 = dynamic (use fcsr.frm).
+            c.fp_rm = RoundingMode::from_bits(d.funct3 as u8);
+
             c.rs1_fp = true;
             c.rs2_fp = true;
             c.fp_reg_write = true;
@@ -539,6 +543,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             c.b_src = OpBSrc::Reg2;
             let fmt = d.funct7 & 0x3;
             c.is_rv32 = fmt == FP_FMT_SINGLE;
+            c.fp_rm = RoundingMode::from_bits(d.funct3 as u8);
 
             c.alu = match d.opcode {
                 d_opcodes::OP_FMADD => AluOp::FMAdd,

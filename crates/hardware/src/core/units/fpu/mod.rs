@@ -136,6 +136,8 @@ const U32_MAX_P1_F64: f64 = (u32::MAX as f64) + 1.0;
 const I64_MAX_P1_F64: f64 = 9223372036854775808.0; // 2^63 exactly
 /// `i64::MIN` as f64 (-2^63). Values < this overflow i64.
 const I64_MIN_F64: f64 = i64::MIN as f64;
+/// `u64::MAX` + 1 as f64 (2^64). Values >= this overflow u64.
+const U64_MAX_P1_F64: f64 = 18446744073709551616.0; // 2^64 exactly
 
 // ---- RISC-V float-to-integer conversion helpers ----
 // Rust's `f as i32` saturates correctly for ±Inf and out-of-range values,
@@ -383,6 +385,169 @@ impl Fpu {
             if is32 { Self::execute_f32(op, a, b, c) } else { Self::execute_f64(op, a, b, c) };
 
         (result, flags)
+    }
+
+    /// Rounds an f64 value to an integer using the specified RISC-V rounding mode.
+    fn round_to_integer(val: f64, rm: RoundingMode) -> f64 {
+        match rm {
+            RoundingMode::Rne => {
+                // Round to nearest, ties to even — IEEE 754 default.
+                // Rust's f64::round_ties_even is available since 1.77.
+                val.round_ties_even()
+            }
+            RoundingMode::Rtz => val.trunc(),
+            RoundingMode::Rdn => val.floor(),
+            RoundingMode::Rup => val.ceil(),
+            RoundingMode::Rmm => {
+                // Round to nearest, ties to max magnitude (away from zero).
+                // f64::round() does ties-away-from-zero, which is RMM.
+                val.round()
+            }
+        }
+    }
+
+    /// Executes a floating-point operation with an explicit rounding mode,
+    /// returning the result and accrued exception flags.
+    ///
+    /// This is the primary entry point from the pipeline execute stages.
+    /// For float-to-integer conversions, the rounding mode determines how
+    /// the floating-point value is rounded before being cast to integer.
+    /// For FP arithmetic, the rounding mode affects the result precision.
+    pub fn execute_full_rm(
+        op: AluOp,
+        a: u64,
+        b: u64,
+        c: u64,
+        is32: bool,
+        rm: RoundingMode,
+    ) -> (u64, FpFlags) {
+        // Float-to-integer conversions need rounding-mode-aware handling.
+        if matches!(
+            op,
+            AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS
+        ) {
+            let val = if is32 { unbox_f32(a) as f64 } else { f64::from_bits(a) };
+            let mut flags = FpFlags::NONE;
+
+            if val.is_nan() {
+                // NaN → positive max for the target type
+                flags = flags | FpFlags::NV;
+                let result = match op {
+                    AluOp::FCvtWS => i32::MAX as i64 as u64,
+                    AluOp::FCvtWUS => u32::MAX as i32 as i64 as u64,
+                    AluOp::FCvtLS => i64::MAX as u64,
+                    AluOp::FCvtLUS => u64::MAX,
+                    _ => unreachable!(),
+                };
+                return (result, flags);
+            }
+
+            if val.is_infinite() {
+                flags = flags | FpFlags::NV;
+                let result = match op {
+                    AluOp::FCvtWS => {
+                        if val > 0.0 { i32::MAX as i64 as u64 } else { i32::MIN as i64 as u64 }
+                    }
+                    AluOp::FCvtWUS => {
+                        if val > 0.0 { u32::MAX as i32 as i64 as u64 } else { 0 }
+                    }
+                    AluOp::FCvtLS => {
+                        if val > 0.0 { i64::MAX as u64 } else { i64::MIN as u64 }
+                    }
+                    AluOp::FCvtLUS => {
+                        if val > 0.0 { u64::MAX } else { 0 }
+                    }
+                    _ => unreachable!(),
+                };
+                return (result, flags);
+            }
+
+            // Round to integer using the specified rounding mode
+            let rounded = Self::round_to_integer(val, rm);
+            let inexact = val != rounded;
+
+            // Range check the ROUNDED value
+            let (overflow, result) = match op {
+                AluOp::FCvtWS => {
+                    if !(I32_MIN_F64..I32_MAX_P1_F64).contains(&rounded) {
+                        (true, if rounded > 0.0 { i32::MAX } else { i32::MIN } as i64 as u64)
+                    } else {
+                        (false, rounded as i32 as i64 as u64)
+                    }
+                }
+                AluOp::FCvtWUS => {
+                    if !(0.0..U32_MAX_P1_F64).contains(&rounded) {
+                        (
+                            true,
+                            if rounded > 0.0 {
+                                u32::MAX as i32 as i64 as u64
+                            } else {
+                                0
+                            },
+                        )
+                    } else {
+                        (false, rounded as u32 as i32 as i64 as u64)
+                    }
+                }
+                AluOp::FCvtLS => {
+                    if !(I64_MIN_F64..I64_MAX_P1_F64).contains(&rounded) {
+                        (true, if rounded > 0.0 { i64::MAX } else { i64::MIN } as u64)
+                    } else {
+                        (false, rounded as i64 as u64)
+                    }
+                }
+                AluOp::FCvtLUS => {
+                    if rounded < 0.0 {
+                        (true, 0u64)
+                    } else if rounded >= U64_MAX_P1_F64 {
+                        (true, u64::MAX)
+                    } else {
+                        (false, rounded as u64)
+                    }
+                }
+                _ => unreachable!(),
+            };
+
+            if overflow {
+                flags = flags | FpFlags::NV;
+            } else if inexact {
+                flags = flags | FpFlags::NX;
+            }
+
+            return (result, flags);
+        }
+
+        // For FP arithmetic with non-default rounding mode, use execute_with_rm.
+        let is_rm_sensitive = matches!(
+            op,
+            AluOp::FAdd
+                | AluOp::FSub
+                | AluOp::FMul
+                | AluOp::FDiv
+                | AluOp::FSqrt
+                | AluOp::FMAdd
+                | AluOp::FMSub
+                | AluOp::FNMAdd
+                | AluOp::FNMSub
+                | AluOp::FCvtSW
+                | AluOp::FCvtSWU
+                | AluOp::FCvtSL
+                | AluOp::FCvtSLU
+                | AluOp::FCvtSD
+                | AluOp::FCvtDS
+        );
+
+        if is_rm_sensitive && rm != RoundingMode::Rne {
+            // Use the rounding-mode-aware path for non-default modes.
+            // Flag computation is approximate here (host FPU uses RNE).
+            clear_host_fp_flags();
+            let result = std::hint::black_box(Self::execute_with_rm(op, a, b, c, is32, rm));
+            let flags = read_host_fp_flags();
+            return (result, flags);
+        }
+
+        // Default: delegate to execute_full (uses host FPU default = RNE)
+        Self::execute_full(op, a, b, c, is32)
     }
 
     /// Executes a floating-point operation with an explicit rounding mode.

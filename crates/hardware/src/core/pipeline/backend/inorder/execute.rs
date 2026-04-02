@@ -14,6 +14,7 @@ use crate::core::pipeline::signals::{
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
+use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
@@ -663,7 +664,12 @@ pub fn execute_inorder(
         }
 
         // ALU / FPU execution
-        let (alu_out, fp_flags) = compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32);
+        let fp_rm = id
+            .ctrl
+            .fp_rm
+            .or_else(|| RoundingMode::from_bits(cpu.csrs.frm as u8));
+        let (alu_out, fp_flags) =
+            compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32, fp_rm);
 
         // FP exception flags are deferred to commit via the ROB entry
         // (applied by commit_stage in shared/commit.rs).
@@ -793,7 +799,14 @@ pub fn execute_inorder(
 
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`.
 /// `fp_flags` is non-zero only for floating-point arithmetic operations.
-fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) -> (u64, u8) {
+fn compute_alu(
+    alu_op: AluOp,
+    op_a: u64,
+    op_b: u64,
+    op_c: u64,
+    is_rv32: bool,
+    fp_rm: Option<RoundingMode>,
+) -> (u64, u8) {
     // FP conversions and moves that need special handling.
     // Int-to-float and float-to-float conversions can raise FP exception
     // flags (INEXACT, OVERFLOW, etc.), so we use the host FPU to detect them.
@@ -887,7 +900,8 @@ fn compute_alu(alu_op: AluOp, op_a: u64, op_b: u64, op_c: u64, is_rv32: bool) ->
     );
 
     if is_fp_op {
-        let (result, fp_flags) = Fpu::execute_full(alu_op, op_a, op_b, op_c, is_rv32);
+        let rm = fp_rm.unwrap_or(RoundingMode::Rne);
+        let (result, fp_flags) = Fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_rv32, rm);
         (result, fp_flags.bits())
     } else {
         (Alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0)
@@ -900,15 +914,17 @@ mod tests {
 
     #[test]
     fn test_compute_alu_fp_conversions() {
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false);
+        let rne = Some(RoundingMode::Rne);
+
+        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, rne);
         assert_eq!(res, (1.0f64).to_bits());
         assert_eq!(flags, 0);
 
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, true);
+        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, true, rne);
         assert_eq!(res, 0xFFFF_FFFF_0000_0000 | (1.0f32).to_bits() as u64); // nan-boxed
         assert_eq!(flags, 0);
 
-        let (res, flags) = compute_alu(AluOp::FMvToF, 42, 0, 0, false);
+        let (res, flags) = compute_alu(AluOp::FMvToF, 42, 0, 0, false, rne);
         assert_eq!(res, 42);
         assert_eq!(flags, 0);
     }
