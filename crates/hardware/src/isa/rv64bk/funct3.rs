@@ -91,6 +91,25 @@ pub const BINV: u32 = 0b001;
 /// bset / bseti (funct3 for OP_REG/OP_IMM with funct7 = BSET).
 pub const BSET: u32 = 0b001;
 
+// ── Zbkb: Bitwise operations for cryptography ───────────────────────────────
+
+/// pack (funct3 for OP_REG with funct7 = PACK).
+pub const PACK: u32 = 0b100;
+
+/// packh (funct3 for OP_REG with funct7 = PACK).
+pub const PACKH: u32 = 0b111;
+
+/// packw (funct3 for OP_REG_32 with funct7 = PACK).
+pub const PACKW: u32 = 0b100;
+
+// ── Zbkx: Crossbar permutations for cryptography ────────────────────────────
+
+/// xperm4 (funct3 for OP_REG with funct7 = XPERM).
+pub const XPERM4: u32 = 0b010;
+
+/// xperm8 (funct3 for OP_REG with funct7 = XPERM).
+pub const XPERM8: u32 = 0b100;
+
 // ── Full I-type immediate encodings for unary instructions ───────────────────
 //
 // Several B-extension instructions are encoded as I-type with a fixed
@@ -123,3 +142,7 @@ pub const ORC_B_IMM: u32 = 0x287;
 
 /// rev8 (RV64): imm[11:0] = 0x6B8 (funct7=0b0110101, rs2=0b11000).
 pub const REV8_IMM: u32 = 0x6B8;
+
+/// brev8 (Zbkb): imm[11:0] = 0x687 (funct7=0b0110100, rs2=0b00111).
+/// Bit-reverse within each byte. Encoded as I-type with funct3 = SRL_SRA.
+pub const BREV8_IMM: u32 = 0x687;

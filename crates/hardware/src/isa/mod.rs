@@ -34,8 +34,8 @@ pub mod privileged;
 /// Atomic memory operations extension (AMO instructions).
 pub mod rv64a;
 
-/// Bit-manipulation extension (Zba, Zbb, Zbc, Zbs).
-pub mod rv64b;
+/// Bit-manipulation and scalar cryptography extensions (Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx).
+pub mod rv64bk;
 
 /// Double-precision floating-point extension (64-bit FP operations).
 pub mod rv64d;

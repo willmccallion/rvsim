@@ -219,9 +219,6 @@ pub enum AluOp {
     /// Sign-extend halfword.
     SextH,
 
-    /// Zero-extend halfword.
-    ZextH,
-
     /// Rotate left (rol / rolw).
     Rol,
 
@@ -256,6 +253,28 @@ pub enum AluOp {
 
     /// Set single bit (bset / bseti).
     Bset,
+
+    // ── Zbkb: Bitwise operations for cryptography ────────────────────────
+
+    /// Bit-reverse within each byte (brev8).
+    Brev8,
+
+    /// Pack lower halves of two registers (pack).
+    Pack,
+
+    /// Pack lowest bytes of two registers (packh).
+    Packh,
+
+    /// Pack lower halves, 32-bit variant (packw).
+    Packw,
+
+    // ── Zbkx: Crossbar permutations for cryptography ─────────────────────
+
+    /// 4-bit crossbar permutation (xperm4).
+    Xperm4,
+
+    /// 8-bit crossbar permutation (xperm8).
+    Xperm8,
 }
 
 /// Atomic memory operation types (RISC-V A extension).

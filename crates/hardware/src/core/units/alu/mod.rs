@@ -121,7 +121,6 @@ impl Alu {
             | AluOp::Minu
             | AluOp::SextB
             | AluOp::SextH
-            | AluOp::ZextH
             | AluOp::Rol
             | AluOp::Ror
             | AluOp::OrcB
@@ -132,7 +131,13 @@ impl Alu {
             | AluOp::Bclr
             | AluOp::Bext
             | AluOp::Binv
-            | AluOp::Bset => bitmanip::execute(op, a, b, is32),
+            | AluOp::Bset
+            | AluOp::Brev8
+            | AluOp::Pack
+            | AluOp::Packh
+            | AluOp::Packw
+            | AluOp::Xperm4
+            | AluOp::Xperm8 => bitmanip::execute(op, a, b, is32),
 
             // Non-integer operations (FP, etc.) are not handled here.
             _ => 0,

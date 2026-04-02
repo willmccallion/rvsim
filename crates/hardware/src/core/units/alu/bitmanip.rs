@@ -140,11 +140,6 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
             // Sign-extend bit 15 to XLEN
             a as i16 as i64 as u64
         }
-        AluOp::ZextH => {
-            // Zero-extend bits 15:0 to XLEN (pack rd, rs1, zero)
-            a & 0xFFFF
-        }
-
         AluOp::Rol => {
             if is32 {
                 let val = a as u32;
@@ -243,6 +238,85 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
             // Set bit at position b[5:0] (or b[4:0] for RV32).
             let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
             a | (1u64 << shamt)
+        }
+
+        // ── Zbkb: Bitwise operations for cryptography ────────────────────
+
+        AluOp::Brev8 => {
+            // Reverse the bits within each byte of the 64-bit value.
+            let mut result: u64 = 0;
+            let mut i = 0;
+            while i < 8 {
+                let byte = ((a >> (i * 8)) & 0xFF) as u8;
+                let reversed = byte.reverse_bits();
+                result |= (reversed as u64) << (i * 8);
+                i += 1;
+            }
+            result
+        }
+
+        AluOp::Pack => {
+            // Pack lower halves: rd = {rs2[31:0], rs1[31:0]}
+            if is32 {
+                // packw: rd = sext32({rs2[15:0], rs1[15:0]})
+                let lo = a as u16 as u32;
+                let hi = b as u16 as u32;
+                sext32(lo | (hi << 16))
+            } else {
+                let lo = a as u32 as u64;
+                let hi = b as u32 as u64;
+                lo | (hi << 32)
+            }
+        }
+
+        AluOp::Packh => {
+            // Pack lowest bytes: rd = {0..., rs2[7:0], rs1[7:0]}
+            let lo = a & 0xFF;
+            let hi = b & 0xFF;
+            lo | (hi << 8)
+        }
+
+        AluOp::Packw => {
+            // Pack lower halves, 32-bit: rd = sext32({rs2[15:0], rs1[15:0]})
+            let lo = a as u16 as u32;
+            let hi = b as u16 as u32;
+            sext32(lo | (hi << 16))
+        }
+
+        // ── Zbkx: Crossbar permutations for cryptography ─────────────────
+
+        AluOp::Xperm4 => {
+            // 4-bit crossbar permutation.
+            // For each 4-bit nibble i in rs2, output nibble i is
+            // the nibble at index rs2_nibble[i] from rs1.
+            let mut result: u64 = 0;
+            let mut i = 0;
+            while i < 16 {
+                let idx = ((b >> (i * 4)) & 0xF) as u32;
+                if idx < 16 {
+                    let nibble = (a >> (idx * 4)) & 0xF;
+                    result |= nibble << (i * 4);
+                }
+                i += 1;
+            }
+            result
+        }
+
+        AluOp::Xperm8 => {
+            // 8-bit crossbar permutation.
+            // For each byte i in rs2, output byte i is
+            // the byte at index rs2_byte[i] from rs1.
+            let mut result: u64 = 0;
+            let mut i = 0;
+            while i < 8 {
+                let idx = ((b >> (i * 8)) & 0xFF) as u32;
+                if idx < 8 {
+                    let byte = (a >> (idx * 8)) & 0xFF;
+                    result |= byte << (i * 8);
+                }
+                i += 1;
+            }
+            result
         }
 
         _ => 0,

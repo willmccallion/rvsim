@@ -21,7 +21,7 @@ use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
 
 use crate::isa::rv64a::{funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes};
-use crate::isa::rv64b::{funct3 as b_funct3, funct7 as b_funct7};
+use crate::isa::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
@@ -215,6 +215,8 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                             // Zbb: orc.b, rev8 (full imm[11:0] selects)
                             b_funct3::ORC_B_IMM => AluOp::OrcB,
                             b_funct3::REV8_IMM => AluOp::Rev8,
+                            // Zbkb: brev8
+                            b_funct3::BREV8_IMM => AluOp::Brev8,
                             // Zbb: rori
                             _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
                             // Zbs: bexti
@@ -315,12 +317,6 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     (b_funct3::ROL, b_funct7::ROTATE) => AluOp::Rol,
                     // ror
                     (b_funct3::ROR, b_funct7::ROTATE_RIGHT) => AluOp::Ror,
-                    // zext.h (OP_REG_32, but produces a 64-bit result)
-                    (b_funct3::ZEXT_H, b_funct7::ZEXT_H) if d.opcode == i_opcodes::OP_REG_32 => {
-                        c.is_rv32 = false;
-                        AluOp::ZextH
-                    }
-
                     // ── Zbc: Carry-less multiplication ───────────────────────
                     (b_funct3::CLMUL, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
                         AluOp::Clmul
@@ -337,6 +333,35 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     (b_funct3::BEXT, b_funct7::BEXT) => AluOp::Bext,
                     (b_funct3::BINV, b_funct7::BINV) => AluOp::Binv,
                     (b_funct3::BSET, b_funct7::BSET) => AluOp::Bset,
+
+                    // ── Zbkb: Pack operations ────────────────────────────────
+                    (b_funct3::PACK, b_funct7::PACK)
+                        if d.opcode == i_opcodes::OP_REG =>
+                    {
+                        AluOp::Pack
+                    }
+                    (b_funct3::PACKH, b_funct7::PACK)
+                        if d.opcode == i_opcodes::OP_REG =>
+                    {
+                        AluOp::Packh
+                    }
+                    (b_funct3::PACKW, b_funct7::PACK)
+                        if d.opcode == i_opcodes::OP_REG_32 =>
+                    {
+                        AluOp::Packw
+                    }
+
+                    // ── Zbkx: Crossbar permutations ──────────────────────────
+                    (b_funct3::XPERM4, b_funct7::XPERM)
+                        if d.opcode == i_opcodes::OP_REG =>
+                    {
+                        AluOp::Xperm4
+                    }
+                    (b_funct3::XPERM8, b_funct7::XPERM)
+                        if d.opcode == i_opcodes::OP_REG =>
+                    {
+                        AluOp::Xperm8
+                    }
 
                     _ => return Err(Trap::IllegalInstruction(inst)),
                 };
