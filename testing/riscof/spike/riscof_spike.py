@@ -58,13 +58,38 @@ class spike(pluginTemplate):
         ispec = utils.load_yaml(isa_yaml)['hart0']
         self.xlen = '64' if 64 in ispec['supported_xlen'] else '32'
 
-        # Build the ISA string for spike --isa flag
+        # Build the ISA string for spike --isa flag.
+        # Start with the base single-letter extensions.
         self.isa = 'rv' + self.xlen
-        for ext in ['i', 'm', 'a', 'f', 'd', 'c', 'v']:
+        for ext in 'iemafdqlcbjktpvnshu':
             if ext.upper() in ispec['ISA']:
                 self.isa += ext
 
-        self.mabi = 'lp64d' if self.xlen == '64' else 'ilp32d'
+        # Append Z-extensions that Spike understands (skip Zicsr/Zifencei
+        # which Spike enables implicitly and may not parse via --isa).
+        import re
+        z_exts = re.findall(r'Z[a-z]+', ispec['ISA'])
+        for z in z_exts:
+            if z.lower() in ('zicsr', 'zifencei'):
+                continue
+            self.isa += '_' + z.lower()
+
+    @staticmethod
+    def _mabi_for_march(march, xlen):
+        """Pick the correct ABI based on which FP extensions are in march."""
+        base = march.split('_')[0].upper()
+        if xlen == '64':
+            if 'D' in base:
+                return 'lp64d'
+            if 'F' in base:
+                return 'lp64f'
+            return 'lp64'
+        else:
+            if 'D' in base:
+                return 'ilp32d'
+            if 'F' in base:
+                return 'ilp32f'
+            return 'ilp32'
 
     def runTests(self, testList):
         if os.path.exists(self.work_dir + "/Makefile." + self.name[:-1]):
@@ -86,10 +111,14 @@ class spike(pluginTemplate):
             compile_macros = ' -D' + " -D".join(testentry['macros'])
 
             march = testentry['isa'].lower()
+            mabi = self._mabi_for_march(march, self.xlen)
             cmd = self.compile_cmd.format(
-                march, self.mabi, test, elf, compile_macros
+                march, mabi, test, elf, compile_macros
             )
 
+            # Spike 1.x doesn't understand underscore Z-extension syntax
+            # (e.g. rv64ifd_zicsr). Use the full base ISA which implicitly
+            # enables all sub-extensions Spike supports.
             simcmd = (
                 f'{self.spike_exe} --isa={self.isa} '
                 f'+signature={sig_file} +signature-granularity=4 {elf}'

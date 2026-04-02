@@ -55,7 +55,23 @@ class rvsim(pluginTemplate):
     def build(self, isa_yaml, platform_yaml):
         ispec = utils.load_yaml(isa_yaml)['hart0']
         self.xlen = '64' if 64 in ispec['supported_xlen'] else '32'
-        self.mabi = 'lp64d' if self.xlen == '64' else 'ilp32d'
+
+    @staticmethod
+    def _mabi_for_march(march, xlen):
+        """Pick the correct ABI based on which FP extensions are in march."""
+        base = march.split('_')[0].upper()
+        if xlen == '64':
+            if 'D' in base:
+                return 'lp64d'
+            if 'F' in base:
+                return 'lp64f'
+            return 'lp64'
+        else:
+            if 'D' in base:
+                return 'ilp32d'
+            if 'F' in base:
+                return 'ilp32f'
+            return 'ilp32'
 
     def runTests(self, testList):
         if os.path.exists(self.work_dir + "/Makefile." + self.name[:-1]):
@@ -77,8 +93,9 @@ class rvsim(pluginTemplate):
             compile_macros = ' -D' + " -D".join(testentry['macros'])
 
             march = testentry['isa'].lower()
+            mabi = self._mabi_for_march(march, self.xlen)
             cmd = self.compile_cmd.format(
-                march, self.mabi, test, elf, compile_macros
+                march, mabi, test, elf, compile_macros
             )
 
             simcmd = f'{self.python} {self.run_script} {elf} {sig_file}'
