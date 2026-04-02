@@ -76,7 +76,7 @@ class Config:
         l2_tlb_ways: int = 4,
         l2_tlb_latency: int = 4,
         software_ad_bits: bool = True,
-        misaligned_access_trap: bool = False,
+        misaligned_access_trap: bool = True,
         # Vector ISA
         vlen: int = 128,
         num_vec_lanes: Optional[int] = None,
