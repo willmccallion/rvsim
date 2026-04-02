@@ -30,6 +30,30 @@ impl Cpu {
     ) -> TranslationResult {
         if self.direct_mode {
             let paddr = PhysAddr::new(vaddr.val());
+
+            // PMP operates on physical addresses independent of virtual memory
+            // translation (RISC-V Privileged Spec §3.7).  M-mode with no
+            // matching entries gets full access, so this is transparent to
+            // programs that do not configure PMP.
+            let is_machine =
+                self.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
+            let pmp_result = self.pmp.check(
+                paddr.val(),
+                size,
+                matches!(access, AccessType::Read),
+                matches!(access, AccessType::Write),
+                matches!(access, AccessType::Fetch),
+                is_machine,
+            );
+            if pmp_result != PmpResult::Allow {
+                let trap = match access {
+                    AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
+                    AccessType::Read => Trap::LoadAccessFault(vaddr.val()),
+                    AccessType::Write => Trap::StoreAccessFault(vaddr.val()),
+                };
+                return TranslationResult::fault(trap, 0);
+            }
+
             if !self.bus.bus.is_valid_address(paddr) {
                 let trap = match access {
                     AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
@@ -356,6 +380,40 @@ mod tests {
         // Test invalid address translation trap in direct mode
         let result = cpu.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
         assert!(result.trap.is_some());
+    }
+
+    #[test]
+    fn test_translate_direct_mode_pmp_deny() {
+        use crate::core::arch::mode::PrivilegeMode;
+
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // Configure PMP entry 0: TOR covering [0, 0x9000_0000), locked, no
+        // permissions.  Locked entries apply even to M-mode.
+        cpu.pmp.set_addr(0, 0x9000_0000u64 >> 2);
+        cpu.pmp.set_cfg(0, 0x88); // A=TOR(1<<3), L=locked(1<<7), R=0,W=0,X=0
+
+        // Drop to S-mode so the locked entry denies the access.
+        cpu.privilege = PrivilegeMode::Supervisor;
+
+        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
+        assert!(result.trap.is_some(), "PMP should deny the access");
+    }
+
+    #[test]
+    fn test_translate_direct_mode_pmp_allow_mmode() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // No PMP entries configured — M-mode gets full access per spec §3.7.1.
+        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
+        assert!(result.trap.is_none(), "M-mode should have full access with no PMP entries");
+        assert_eq!(result.paddr.val(), 0x8000_0000);
     }
 
     #[test]

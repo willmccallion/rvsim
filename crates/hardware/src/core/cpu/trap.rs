@@ -27,10 +27,12 @@ impl Cpu {
     pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.load_reservation = None;
 
-        if self.direct_mode {
-            // In direct mode, ecall is handled here at commit time so that
-            // all preceding instructions have retired and the architectural
-            // register file contains the correct syscall arguments.
+        if self.direct_mode && self.csrs.mtvec == 0 {
+            // In direct mode with no trap handler installed (mtvec == 0),
+            // handle traps directly: ecall triggers SYS_EXIT and everything
+            // else is fatal.  When mtvec has been written (e.g. by arch-test
+            // bootstrap code), we fall through to the standard dispatch path
+            // so that the installed handler runs normally.
             if matches!(
                 cause,
                 Trap::EnvironmentCallFromUMode
@@ -138,6 +140,7 @@ impl Cpu {
         let tval = match *cause {
             Trap::InstructionAddressMisaligned(a)
             | Trap::InstructionAccessFault(a)
+            | Trap::Breakpoint(a)
             | Trap::LoadAddressMisaligned(a)
             | Trap::LoadAccessFault(a)
             | Trap::StoreAddressMisaligned(a)
@@ -285,6 +288,52 @@ mod tests {
 
         cpu.trap(&Trap::IllegalInstruction(0), 0x1000);
         assert_eq!(cpu.exit_code, Some(0));
+    }
+
+    #[test]
+    fn test_trap_direct_mode_breakpoint_with_mtvec() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // Install a trap handler — trap dispatch should use the standard path.
+        cpu.csrs.mtvec = 0x8000_1000;
+        cpu.trap(&Trap::Breakpoint(0x400), 0x400);
+
+        assert!(cpu.exit_code.is_none(), "should not be fatal when mtvec is set");
+        assert_eq!(cpu.csrs.mepc, 0x400);
+        assert_eq!(cpu.csrs.mcause, 3); // BREAKPOINT
+        assert_eq!(cpu.csrs.mtval, 0x400); // ebreak PC written to mtval
+        assert_eq!(cpu.pc, 0x8000_1000);
+    }
+
+    #[test]
+    fn test_trap_direct_mode_breakpoint_no_mtvec() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // No trap handler — should be fatal.
+        cpu.trap(&Trap::Breakpoint(0x400), 0x400);
+        assert_eq!(cpu.exit_code, Some(1));
+    }
+
+    #[test]
+    fn test_trap_direct_mode_ecall_with_mtvec() {
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        let system = System::new(&config, "");
+        let mut cpu = Cpu::new(system, &config);
+
+        // With mtvec set, ecall dispatches to the handler (not SYS_EXIT).
+        cpu.csrs.mtvec = 0x8000_2000;
+        cpu.trap(&Trap::EnvironmentCallFromMMode, 0x500);
+
+        assert!(cpu.exit_code.is_none());
+        assert_eq!(cpu.csrs.mepc, 0x500);
+        assert_eq!(cpu.pc, 0x8000_2000);
     }
 
     #[test]
