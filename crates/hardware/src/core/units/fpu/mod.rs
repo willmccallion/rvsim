@@ -353,11 +353,22 @@ impl Fpu {
     /// f16 with the given RISC-V rounding mode by [`half::f64_to_f16`],
     /// which also accumulates the IEEE 754 exception flags.
     fn execute_f16(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
+        // Set the host FPU rounding mode for the intermediate f64 step. This
+        // matters for edge cases like `a + (-a)` under RDN where the host
+        // must produce `-0` — the software round-to-f16 cannot recover a
+        // negative-zero result from a host-RNE `+0`.
+        let saved_round = set_host_round_mode(rm);
+        let result = Self::execute_f16_inner(op, a, b, c, rm);
+        restore_host_round_mode(saved_round);
+        result
+    }
+
+    fn execute_f16_inner(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
         let ha = unbox_f16(a);
         let hb = unbox_f16(b);
         let hc = unbox_f16(c);
 
-        // Helper: compute an arith op in f64 and round the result to f16.
+        // Helper: round an f64 arith result to f16 and merge any extra flags.
         let arith = |val: f64, extra: FpFlags| {
             let (bits, flags) = f64_to_f16(val, rm);
             (box_f16(bits), flags | extra)
@@ -522,8 +533,11 @@ impl Fpu {
 
             AluOp::FClass => (classify_f16(ha), FpFlags::NONE),
 
-            // fmv.x.h: sign-extend the 16-bit pattern to XLEN.
-            AluOp::FMvToX => (((ha as i16) as i64) as u64, FpFlags::NONE),
+            // fmv.x.h: RAW bit-cast of the low 16 bits of the f register,
+            // sign-extended to XLEN. Per spec, this is NOT NaN-boxing-aware
+            // — `unbox_f16` would incorrectly canonicalize a non-NaN-boxed
+            // value so we read from `a` directly instead.
+            AluOp::FMvToX => (((a as i16) as i64) as u64, FpFlags::NONE),
             // fmv.h.x: take the low 16 bits of the integer operand, NaN-box.
             AluOp::FMvToF => (box_f16(a as u16), FpFlags::NONE),
 
@@ -532,6 +546,22 @@ impl Fpu {
             AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS => {
                 let val = f16_to_f32(ha) as f64;
                 Self::fp_to_int_convert(op, val, rm)
+            }
+
+            // Float → f16 conversions (target = half).
+            AluOp::FCvtHS => {
+                // fcvt.h.s: source is NaN-boxed f32 in `a`.
+                let fval = unbox_f32(a);
+                let nv = if Self::is_snan_f32(fval) { FpFlags::NV } else { FpFlags::NONE };
+                let (bits, flags) = f64_to_f16(fval as f64, rm);
+                (box_f16(bits), flags | nv)
+            }
+            AluOp::FCvtHD => {
+                // fcvt.h.d: source is f64 in `a`.
+                let fval = f64::from_bits(a);
+                let nv = if Self::is_snan_f64(fval) { FpFlags::NV } else { FpFlags::NONE };
+                let (bits, flags) = f64_to_f16(fval, rm);
+                (box_f16(bits), flags | nv)
             }
 
             // integer → f16 conversions.

@@ -926,7 +926,14 @@ fn compute_alu(
         }
         AluOp::FMvToF => {
             // Bit-level move — no FP exceptions possible.
-            let val = if is_rv32 { Fpu::box_f32(f32::from_bits(op_a as u32)) } else { op_a };
+            let val = if is_f16 {
+                use crate::core::units::fpu::half::box_f16;
+                box_f16(op_a as u16)
+            } else if is_rv32 {
+                Fpu::box_f32(f32::from_bits(op_a as u32))
+            } else {
+                op_a
+            };
             return (val, 0);
         }
         _ => {}
@@ -956,6 +963,16 @@ fn compute_alu(
             | AluOp::FCvtWUS
             | AluOp::FCvtLS
             | AluOp::FCvtLUS
+            | AluOp::FCvtSW
+            | AluOp::FCvtSWU
+            | AluOp::FCvtSL
+            | AluOp::FCvtSLU
+            | AluOp::FCvtSD
+            | AluOp::FCvtDS
+            | AluOp::FCvtSH
+            | AluOp::FCvtHS
+            | AluOp::FCvtDH
+            | AluOp::FCvtHD
             | AluOp::FMvToX
     );
 
