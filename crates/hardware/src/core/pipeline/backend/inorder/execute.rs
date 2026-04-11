@@ -886,9 +886,10 @@ fn compute_alu(
                     box_f32_canon(val_s)
                 }
                 AluOp::FCvtDS => {
+                    use crate::core::units::fpu::nan_handling::canonicalize_f64_bits;
                     let val_s = unbox_f32(op_a);
                     let val_d = std::hint::black_box(val_s) as f64;
-                    val_d.to_bits()
+                    canonicalize_f64_bits(val_d)
                 }
                 _ => unreachable!(),
             });
