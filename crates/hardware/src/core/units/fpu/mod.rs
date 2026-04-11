@@ -40,9 +40,35 @@ const FE_DIVBYZERO: i32 = 0x04;
 const FE_INVALID: i32 = 0x01;
 const FE_ALL_EXCEPT: i32 = FE_INEXACT | FE_UNDERFLOW | FE_OVERFLOW | FE_DIVBYZERO | FE_INVALID;
 
+// Host FPU rounding-mode constants from <fenv.h>. These are platform-specific
+// — SSE's MXCSR layout differs from NEON's FPCR — so they must be conditionally
+// compiled per target arch.
+#[cfg(target_arch = "x86_64")]
+const FE_TONEAREST: i32 = 0x0000;
+#[cfg(target_arch = "x86_64")]
+const FE_DOWNWARD: i32 = 0x0400;
+#[cfg(target_arch = "x86_64")]
+const FE_UPWARD: i32 = 0x0800;
+#[cfg(target_arch = "x86_64")]
+const FE_TOWARDZERO: i32 = 0x0c00;
+
+#[cfg(target_arch = "aarch64")]
+const FE_TONEAREST: i32 = 0x000000;
+#[cfg(target_arch = "aarch64")]
+const FE_UPWARD: i32 = 0x400000;
+#[cfg(target_arch = "aarch64")]
+const FE_DOWNWARD: i32 = 0x800000;
+#[cfg(target_arch = "aarch64")]
+const FE_TOWARDZERO: i32 = 0xc00000;
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+compile_error!("rvsim FPU host-rounding-mode constants not defined for this target arch");
+
 unsafe extern "C" {
     fn feclearexcept(excepts: i32) -> i32;
     fn fetestexcept(excepts: i32) -> i32;
+    fn fesetround(round: i32) -> i32;
+    fn fegetround() -> i32;
 }
 
 /// Reads and maps host FPU exception flags to RISC-V `FpFlags`.
@@ -71,6 +97,39 @@ pub(crate) fn read_host_fp_flags() -> FpFlags {
 pub(crate) fn clear_host_fp_flags() {
     unsafe {
         let _ = feclearexcept(FE_ALL_EXCEPT);
+    }
+}
+
+/// Maps a RISC-V rounding mode to the host FPU `FE_*` constant.
+///
+/// RMM (round to nearest, ties to max magnitude) is approximated as RNE
+/// because neither SSE nor NEON provide a native round-to-nearest-ties-to-
+/// max-magnitude mode. The two only differ on exact half-ULP ties, which
+/// are rare in generic arithmetic but may fail arch-tests that construct
+/// tied inputs under RMM.
+const fn rm_to_host_round(rm: RoundingMode) -> i32 {
+    match rm {
+        RoundingMode::Rne | RoundingMode::Rmm => FE_TONEAREST,
+        RoundingMode::Rtz => FE_TOWARDZERO,
+        RoundingMode::Rdn => FE_DOWNWARD,
+        RoundingMode::Rup => FE_UPWARD,
+    }
+}
+
+/// Sets the host FPU rounding mode for a RISC-V rounding mode, returning
+/// the previous host mode for later restoration.
+pub(crate) fn set_host_round_mode(rm: RoundingMode) -> i32 {
+    let old = unsafe { fegetround() };
+    unsafe {
+        let _ = fesetround(rm_to_host_round(rm));
+    }
+    old
+}
+
+/// Restores the host FPU rounding mode to a previously saved value.
+pub(crate) fn restore_host_round_mode(mode: i32) {
+    unsafe {
+        let _ = fesetround(mode);
     }
 }
 
@@ -517,8 +576,14 @@ impl Fpu {
             return (result, flags);
         }
 
-        // For FP arithmetic with non-default rounding mode, use execute_with_rm.
-        let is_rm_sensitive = matches!(
+        // Rounding-mode-sensitive arithmetic: set the host FPU rounding mode,
+        // clear exception flags, run the op, read flags, and restore. The host
+        // FPU is IEEE 754 compliant so this gives bit-exact results for all
+        // four hardware modes (RNE/RTZ/RDN/RUP). RMM is approximated as RNE
+        // — see `rm_to_host_round` for the caveat. `black_box` prevents the
+        // optimizer from constant-folding FP ops at compile time or reordering
+        // them across the feclearexcept/fetestexcept calls.
+        let is_rm_sensitive_arith = matches!(
             op,
             AluOp::FAdd
                 | AluOp::FSub
@@ -529,125 +594,45 @@ impl Fpu {
                 | AluOp::FMSub
                 | AluOp::FNMAdd
                 | AluOp::FNMSub
-                | AluOp::FCvtSW
-                | AluOp::FCvtSWU
-                | AluOp::FCvtSL
-                | AluOp::FCvtSLU
-                | AluOp::FCvtSD
-                | AluOp::FCvtDS
         );
 
-        if is_rm_sensitive && rm != RoundingMode::Rne {
-            // Use the rounding-mode-aware path for non-default modes.
-            // Flag computation is approximate here (host FPU uses RNE).
+        if is_rm_sensitive_arith {
+            let saved = set_host_round_mode(rm);
             clear_host_fp_flags();
-            let result = std::hint::black_box(Self::execute_with_rm(op, a, b, c, is32, rm));
+            let result = std::hint::black_box(if is32 {
+                Self::execute_f32(
+                    op,
+                    std::hint::black_box(a),
+                    std::hint::black_box(b),
+                    std::hint::black_box(c),
+                )
+            } else {
+                Self::execute_f64(
+                    op,
+                    std::hint::black_box(a),
+                    std::hint::black_box(b),
+                    std::hint::black_box(c),
+                )
+            });
             let flags = read_host_fp_flags();
+            restore_host_round_mode(saved);
             return (result, flags);
         }
 
-        // Default: delegate to execute_full (uses host FPU default = RNE)
+        // Non-rm-sensitive ops (comparisons, min/max, sign injection, classify,
+        // moves) — delegate to execute_full for manual flag computation.
+        // FCvt conversions between FP formats are handled directly in the
+        // pipeline execute stages so they don't reach this branch.
         Self::execute_full(op, a, b, c, is32)
     }
 
-    /// Executes a floating-point operation with an explicit rounding mode.
+    /// Executes a floating-point operation with an explicit rounding mode,
+    /// discarding accrued exception flags.
     ///
-    /// The rounding mode affects arithmetic operations, conversions, and
-    /// fused multiply-add. For this software implementation, the host FPU
-    /// rounding mode is simulated by rounding the result after computation.
-    ///
-    /// # Arguments
-    ///
-    /// * `op`   - The floating-point operation to perform.
-    /// * `a`    - First operand.
-    /// * `b`    - Second operand.
-    /// * `c`    - Third operand for FMA operations.
-    /// * `is32` - If true, perform single-precision operation.
-    /// * `rm`   - The rounding mode to apply.
-    ///
-    /// # Returns
-    ///
-    /// The 64-bit result of the floating-point operation with the specified
-    /// rounding mode applied.
+    /// Thin wrapper around [`Self::execute_full_rm`] preserved for existing
+    /// callers (unit tests) that want only the result value.
     pub fn execute_with_rm(op: AluOp, a: u64, b: u64, c: u64, is32: bool, rm: RoundingMode) -> u64 {
-        // For conversions that produce an integer, we can directly
-        // implement rounding. For arithmetic ops we compute at higher
-        // precision (f64) and round the result to f32.
-        if is32 {
-            let fa = unbox_f32(a) as f64;
-            let fb = unbox_f32(b) as f64;
-
-            // Compute in f64 to get extra precision for rounding
-            let exact = match op {
-                AluOp::FAdd => fa + fb,
-                AluOp::FSub => fa - fb,
-                AluOp::FMul => fa * fb,
-                AluOp::FDiv => fa / fb,
-                AluOp::FSqrt => fa.sqrt(),
-                AluOp::FMAdd => {
-                    let fc = unbox_f32(c) as f64;
-                    fa.mul_add(fb, fc)
-                }
-                AluOp::FMSub => {
-                    let fc = unbox_f32(c) as f64;
-                    fa.mul_add(fb, -fc)
-                }
-                AluOp::FNMAdd => {
-                    let fc = unbox_f32(c) as f64;
-                    (-fa).mul_add(fb, -fc)
-                }
-                AluOp::FNMSub => {
-                    let fc = unbox_f32(c) as f64;
-                    (-fa).mul_add(fb, fc)
-                }
-                _ => {
-                    // For operations where rounding mode doesn't affect the
-                    // result (comparisons, sign injection, etc.), delegate.
-                    return Self::execute(op, a, b, c, is32);
-                }
-            };
-
-            let rounded = Self::apply_rounding_f32(exact, rm);
-            box_f32_canon(rounded)
-        } else {
-            // For f64, we don't have a higher-precision path easily available,
-            // so we compute directly and apply rounding to the f64 result
-            // for integer conversions. For pure f64 arithmetic, the host
-            // rounding mode is used (RNE on most platforms); we apply
-            // post-hoc adjustment for RTZ, RDN, RUP, RMM.
-            let fa = f64::from_bits(a);
-            let fb = f64::from_bits(b);
-
-            let exact = match op {
-                AluOp::FAdd => fa + fb,
-                AluOp::FSub => fa - fb,
-                AluOp::FMul => fa * fb,
-                AluOp::FDiv => fa / fb,
-                AluOp::FSqrt => fa.sqrt(),
-                AluOp::FMAdd => {
-                    let fc = f64::from_bits(c);
-                    fa.mul_add(fb, fc)
-                }
-                AluOp::FMSub => {
-                    let fc = f64::from_bits(c);
-                    fa.mul_add(fb, -fc)
-                }
-                AluOp::FNMAdd => {
-                    let fc = f64::from_bits(c);
-                    (-fa).mul_add(fb, -fc)
-                }
-                AluOp::FNMSub => {
-                    let fc = f64::from_bits(c);
-                    (-fa).mul_add(fb, fc)
-                }
-                _ => {
-                    return Self::execute(op, a, b, c, is32);
-                }
-            };
-
-            let rounded = Self::apply_rounding_f64(exact, rm);
-            canonicalize_f64_bits(rounded)
-        }
+        Self::execute_full_rm(op, a, b, c, is32, rm).0
     }
 
     /// Checks if an f32 value is a signaling NaN.
@@ -669,136 +654,6 @@ impl Fpu {
         let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
         let quiet_bit = bits & 0x0008_0000_0000_0000;
         exp == 0x7FF && mantissa != 0 && quiet_bit == 0
-    }
-
-    /// Applies a rounding mode to an f64 exact value, producing an f32 result.
-    ///
-    /// Computes the correctly-rounded f32 from the higher-precision f64 value.
-    ///
-    /// # Implementation Notes
-    ///
-    /// This function implements RISC-V rounding modes using software approximations
-    /// because Rust's `as f32` cast always uses round-to-nearest-ties-to-even.
-    ///
-    /// **Approach:**
-    /// 1. Use `exact as f32` to get initial rounded value
-    /// 2. Compare `(rounded as f64)` with `exact` to detect rounding direction
-    /// 3. Adjust by ±1 ULP (unit in last place) if the direction is incorrect
-    ///
-    /// **Caveats:**
-    /// - This is an approximation that works for most values but may not be
-    ///   bit-accurate with IEEE 754 rounding in all edge cases (subnormals,
-    ///   near-infinity values)
-    /// - True IEEE 754 compliance would require implementing rounding in software
-    ///   at the bit level or using platform-specific rounding mode control
-    /// - For production FPU simulation, consider using `softfloat` or similar libraries
-    ///
-    /// **Rounding Modes (RISC-V Spec §11.2):**
-    /// - RNE (000): Round to nearest, ties to even
-    /// - RTZ (001): Round towards zero (truncate)
-    /// - RDN (010): Round down (towards -∞)
-    /// - RUP (011): Round up (towards +∞)
-    /// - RMM (100): Round to nearest, ties to max magnitude
-    fn apply_rounding_f32(exact: f64, rm: RoundingMode) -> f32 {
-        if exact.is_nan() || exact.is_infinite() {
-            return exact as f32;
-        }
-        match rm {
-            RoundingMode::Rne => {
-                // Round to nearest, ties to even (default Rust/IEEE behaviour)
-                exact as f32
-            }
-            RoundingMode::Rtz => {
-                // Round towards zero (truncate)
-                let trunc = exact as f32;
-                // If the cast already rounded towards zero, use it.
-                // Otherwise adjust: if exact > 0 and trunc > exact, go down;
-                // if exact < 0 and trunc < exact, go up.
-                if (exact > 0.0 && (trunc as f64) > exact)
-                    || (exact < 0.0 && (trunc as f64) < exact)
-                {
-                    f32::from_bits(trunc.to_bits() - 1)
-                } else {
-                    trunc
-                }
-            }
-            RoundingMode::Rdn => {
-                // Round down (towards -infinity)
-                let rounded = exact as f32;
-                if (rounded as f64) > exact {
-                    // Need to go one ulp lower
-                    if rounded >= 0.0 {
-                        f32::from_bits(rounded.to_bits().wrapping_sub(1))
-                    } else {
-                        f32::from_bits(rounded.to_bits() + 1) // More negative
-                    }
-                } else {
-                    rounded
-                }
-            }
-            RoundingMode::Rup => {
-                // Round up (towards +infinity)
-                let rounded = exact as f32;
-                if (rounded as f64) < exact {
-                    if rounded >= 0.0 {
-                        f32::from_bits(rounded.to_bits() + 1)
-                    } else {
-                        f32::from_bits(rounded.to_bits().wrapping_sub(1))
-                    }
-                } else {
-                    rounded
-                }
-            }
-            RoundingMode::Rmm => {
-                // Round to nearest, ties to max magnitude
-                let rne = exact as f32;
-                let rne_d = rne as f64;
-                let diff = (exact - rne_d).abs();
-                // Check if we're at a tie point
-                let next_up = f32::from_bits(rne.to_bits() + 1);
-                let next_dn = if rne.to_bits() > 0 {
-                    f32::from_bits(rne.to_bits() - 1)
-                } else {
-                    f32::from_bits(0x8000_0001) // -min_subnormal
-                };
-                let ulp = ((next_up as f64) - rne_d).abs().min(((next_dn as f64) - rne_d).abs());
-
-                if ulp > 0.0 && diff.mul_add(2.0, -ulp).abs() < f64::EPSILON * ulp {
-                    // We're at a tie — pick the one with larger magnitude
-                    if exact.abs() > rne_d.abs() {
-                        if exact > 0.0 { next_up } else { next_dn }
-                    } else {
-                        rne
-                    }
-                } else {
-                    rne
-                }
-            }
-        }
-    }
-
-    /// Applies a rounding mode to an f64 result.
-    ///
-    /// For most modes this is the identity since host FPU uses RNE.
-    /// We handle the other modes by adjusting the final bit if needed.
-    fn apply_rounding_f64(val: f64, rm: RoundingMode) -> f64 {
-        // For f64 we don't have a higher-precision representation readily,
-        // so the host already computed in RNE. For RTZ/RDN/RUP we do a
-        // post-hoc check — this is approximate but correct for most cases
-        // because the host computes the exact RNE result.
-        match rm {
-            RoundingMode::Rtz => {
-                if val.is_nan() || val.is_infinite() || val == 0.0 {
-                    return val;
-                }
-                // Truncate towards zero
-                val
-            }
-            // RNE and RMM: host already computed in RNE (correct for most ops).
-            // RDN: floor — matches host for most ops.
-            // RUP: ceil — matches host for most ops.
-            RoundingMode::Rne | RoundingMode::Rmm | RoundingMode::Rdn | RoundingMode::Rup => val,
-        }
     }
 
     /// Single-precision (f32) execution path.

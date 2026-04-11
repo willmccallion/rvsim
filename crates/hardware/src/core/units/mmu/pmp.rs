@@ -211,7 +211,10 @@ impl Pmp {
         is_exec: bool,
         is_machine_mode: bool,
     ) -> PmpResult {
-        let access_end = byte_addr + size;
+        // Saturate on overflow: an access that runs past u64::MAX can't
+        // physically fit in the address space, so clamping to u64::MAX still
+        // gives the correct partial-overlap / no-match behavior downstream.
+        let access_end = byte_addr.saturating_add(size);
 
         for i in 0..self.entries.len() {
             let entry = &self.entries[i];

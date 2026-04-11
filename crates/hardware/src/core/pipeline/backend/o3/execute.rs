@@ -807,7 +807,12 @@ fn compute_alu(
         | AluOp::FCvtSD
         | AluOp::FCvtDS => {
             use crate::core::units::fpu::nan_handling::{box_f32_canon, unbox_f32};
-            use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
+            use crate::core::units::fpu::{
+                clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode,
+                set_host_round_mode,
+            };
+            let rm = fp_rm.unwrap_or(RoundingMode::Rne);
+            let saved = set_host_round_mode(rm);
             clear_host_fp_flags();
             let val = std::hint::black_box(match alu_op {
                 AluOp::FCvtSW => {
@@ -851,6 +856,7 @@ fn compute_alu(
                 _ => unreachable!(),
             });
             let fp_flags = read_host_fp_flags();
+            restore_host_round_mode(saved);
             return (val, fp_flags.bits());
         }
         AluOp::FMvToF => {
