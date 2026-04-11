@@ -108,6 +108,19 @@ impl Cpu {
                 };
                 return TranslationResult::fault(trap, result.cycles);
             }
+
+            // Accesses to unmapped physical memory raise an access fault —
+            // real hardware reports a bus error that the CPU turns into a
+            // load/store/inst access fault. Firmware that probes memory
+            // must install a trap handler (same as real hardware).
+            if !self.bus.bus.is_valid_address(result.paddr) {
+                let trap = match access {
+                    AccessType::Fetch => Trap::InstructionAccessFault(vaddr.val()),
+                    AccessType::Read => Trap::LoadAccessFault(vaddr.val()),
+                    AccessType::Write => Trap::StoreAccessFault(vaddr.val()),
+                };
+                return TranslationResult::fault(trap, result.cycles);
+            }
         }
 
         result
