@@ -825,6 +825,10 @@ const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::
             | AluOp::FCvtSLU
             | AluOp::FCvtSD
             | AluOp::FCvtDS
+            | AluOp::FCvtSH
+            | AluOp::FCvtHS
+            | AluOp::FCvtDH
+            | AluOp::FCvtHD
             | AluOp::FMvToX
             | AluOp::FMvToF => cpu.stats.inst_fp_arith += 1,
             AluOp::FDiv | AluOp::FSqrt => cpu.stats.inst_fp_div_sqrt += 1,

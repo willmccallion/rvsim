@@ -25,6 +25,7 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
 use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
+use crate::isa::rv64zfh::funct7 as h_funct7;
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
 use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::rvv::{
@@ -36,6 +37,9 @@ const INSTRUCTION_NOP: u32 = 0x0000_0013;
 
 /// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
 const FUNCT7_ALT_BIT: u32 = 0x20;
+
+/// Floating-point width encoding for 16-bit half operations (Zfh).
+const FP_WIDTH_HALF: u32 = 0x1;
 
 /// Floating-point width encoding for 32-bit word operations.
 const FP_WIDTH_WORD: u32 = 0x2;
@@ -93,6 +97,9 @@ const FP_FMT_SINGLE: u32 = 0;
 
 /// Floating-point format encoding for double-precision (64-bit).
 const FP_FMT_DOUBLE: u32 = 1;
+
+/// Floating-point format encoding for half-precision (16-bit, Zfh).
+const FP_FMT_HALF: u32 = 2;
 
 /// Decodes a single instruction into control signals.
 fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals, Trap> {
@@ -401,6 +408,13 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         f_opcodes::OP_LOAD_FP => {
             match d.funct3 {
                 // Scalar FP loads
+                FP_WIDTH_HALF => {
+                    c.fp_reg_write = true;
+                    c.mem_read = true;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Half;
+                    c.is_f16 = true;
+                }
                 FP_WIDTH_WORD => {
                     c.fp_reg_write = true;
                     c.mem_read = true;
@@ -423,6 +437,15 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         f_opcodes::OP_STORE_FP => {
             match d.funct3 {
                 // Scalar FP stores
+                FP_WIDTH_HALF => {
+                    c.mem_write = true;
+                    c.rs1_fp = false;
+                    c.rs2_fp = true;
+                    c.b_src = OpBSrc::Imm;
+                    c.alu = AluOp::Add;
+                    c.width = MemWidth::Half;
+                    c.is_f16 = true;
+                }
                 FP_WIDTH_WORD => {
                     c.mem_write = true;
                     c.rs1_fp = false;
@@ -449,9 +472,10 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         f_opcodes::OP_FP => {
             let fmt = d.funct7 & 0x3;
             c.is_rv32 = fmt == FP_FMT_SINGLE;
+            c.is_f16 = fmt == FP_FMT_HALF;
             let is_double = fmt == FP_FMT_DOUBLE;
 
-            if !c.is_rv32 && !is_double {
+            if !c.is_rv32 && !is_double && !c.is_f16 {
                 return Err(Trap::IllegalInstruction(inst));
             }
 
@@ -464,23 +488,23 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             c.b_src = OpBSrc::Reg2;
 
             c.alu = match d.funct7 {
-                f_funct7::FADD | d_funct7::FADD_D => AluOp::FAdd,
-                f_funct7::FSUB | d_funct7::FSUB_D => AluOp::FSub,
-                f_funct7::FMUL | d_funct7::FMUL_D => AluOp::FMul,
-                f_funct7::FDIV | d_funct7::FDIV_D => AluOp::FDiv,
-                f_funct7::FSQRT | d_funct7::FSQRT_D => AluOp::FSqrt,
-                f_funct7::FSGNJ | d_funct7::FSGNJ_D => match d.funct3 {
+                f_funct7::FADD | d_funct7::FADD_D | h_funct7::FADD_H => AluOp::FAdd,
+                f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => AluOp::FSub,
+                f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => AluOp::FMul,
+                f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => AluOp::FDiv,
+                f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H => AluOp::FSqrt,
+                f_funct7::FSGNJ | d_funct7::FSGNJ_D | h_funct7::FSGNJ_H => match d.funct3 {
                     f_funct3::FSGNJ => AluOp::FSgnJ,
                     f_funct3::FSGNJN => AluOp::FSgnJN,
                     f_funct3::FSGNJX => AluOp::FSgnJX,
                     _ => return Err(Trap::IllegalInstruction(inst)),
                 },
-                f_funct7::FMIN_MAX | d_funct7::FMIN_MAX_D => match d.funct3 {
+                f_funct7::FMIN_MAX | d_funct7::FMIN_MAX_D | h_funct7::FMIN_MAX_H => match d.funct3 {
                     f_funct3::FMIN => AluOp::FMin,
                     f_funct3::FMAX => AluOp::FMax,
                     _ => return Err(Trap::IllegalInstruction(inst)),
                 },
-                f_funct7::FCMP | d_funct7::FCMP_D => {
+                f_funct7::FCMP | d_funct7::FCMP_D | h_funct7::FCMP_H => {
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     match d.funct3 {
@@ -490,7 +514,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D => {
+                f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H => {
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     c.rs1_fp = true;
@@ -500,13 +524,13 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FMV_F_X | d_funct7::FMV_D_X => {
+                f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X => {
                     c.rs1_fp = false;
                     c.fp_reg_write = true;
                     c.a_src = OpASrc::Reg1;
                     AluOp::FMvToF
                 }
-                f_funct7::FCVT_W_F | d_funct7::FCVT_W_D => {
+                f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     c.rs1_fp = true;
@@ -518,7 +542,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FCVT_F_W | d_funct7::FCVT_D_W => {
+                f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
                     c.rs1_fp = false;
                     c.fp_reg_write = true;
                     c.a_src = OpASrc::Reg1;
@@ -530,8 +554,37 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FCVT_DS => AluOp::FCvtDS,
-                d_funct7::FCVT_S_D => AluOp::FCvtSD,
+                // FP↔FP conversion: target fmt in funct7[1:0], source fmt in rs2[1:0].
+                f_funct7::FCVT_DS => {
+                    // Target = double (fmt=01). Source selected by rs2.
+                    c.is_rv32 = false;
+                    c.is_f16 = false;
+                    match d.rs2.as_u8() {
+                        0 => AluOp::FCvtDS, // fcvt.d.s (source single)
+                        2 => AluOp::FCvtDH, // fcvt.d.h (source half)
+                        _ => return Err(Trap::IllegalInstruction(inst)),
+                    }
+                }
+                d_funct7::FCVT_S_D => {
+                    // Target = single (fmt=00). Source selected by rs2.
+                    c.is_rv32 = true;
+                    c.is_f16 = false;
+                    match d.rs2.as_u8() {
+                        1 => AluOp::FCvtSD, // fcvt.s.d (source double)
+                        2 => AluOp::FCvtSH, // fcvt.s.h (source half)
+                        _ => return Err(Trap::IllegalInstruction(inst)),
+                    }
+                }
+                h_funct7::FCVT_H_FP => {
+                    // Target = half (fmt=10). Source selected by rs2.
+                    c.is_rv32 = false;
+                    c.is_f16 = true;
+                    match d.rs2.as_u8() {
+                        0 => AluOp::FCvtHS, // fcvt.h.s (source single)
+                        1 => AluOp::FCvtHD, // fcvt.h.d (source double)
+                        _ => return Err(Trap::IllegalInstruction(inst)),
+                    }
+                }
                 _ => return Err(Trap::IllegalInstruction(inst)),
             };
         }
@@ -543,6 +596,11 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             c.b_src = OpBSrc::Reg2;
             let fmt = d.funct7 & 0x3;
             c.is_rv32 = fmt == FP_FMT_SINGLE;
+            c.is_f16 = fmt == FP_FMT_HALF;
+            let is_double = fmt == FP_FMT_DOUBLE;
+            if !c.is_rv32 && !c.is_f16 && !is_double {
+                return Err(Trap::IllegalInstruction(inst));
+            }
             c.fp_rm = RoundingMode::from_bits(d.funct3 as u8);
 
             c.alu = match d.opcode {

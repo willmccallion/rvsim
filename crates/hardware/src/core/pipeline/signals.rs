@@ -131,6 +131,18 @@ pub enum AluOp {
     /// Convert double-precision to single-precision float.
     FCvtDS,
 
+    /// Convert half-precision to single-precision float (Zfh).
+    FCvtSH,
+
+    /// Convert single-precision to half-precision float (Zfh).
+    FCvtHS,
+
+    /// Convert half-precision to double-precision float (Zfh).
+    FCvtDH,
+
+    /// Convert double-precision to half-precision float (Zfh).
+    FCvtHD,
+
     /// Floating-point sign injection (copy sign).
     FSgnJ,
 
@@ -455,6 +467,9 @@ pub struct ControlSignals {
     pub control_flow: ControlFlow,
     /// Instruction uses 32-bit operands.
     pub is_rv32: bool,
+    /// Instruction operates on 16-bit half-precision floats (Zfh).
+    /// When set, `is_rv32` is ignored by the FP units.
+    pub is_f16: bool,
     /// Width of memory access.
     pub width: MemWidth,
     /// Load should be sign-extended.

@@ -694,8 +694,15 @@ pub fn execute_inorder(
             .ctrl
             .fp_rm
             .or_else(|| RoundingMode::from_bits(cpu.csrs.frm as u8));
-        let (alu_out, fp_flags) =
-            compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_rv32, fp_rm);
+        let (alu_out, fp_flags) = compute_alu(
+            id.ctrl.alu,
+            op_a,
+            op_b,
+            op_c,
+            id.ctrl.is_f16,
+            id.ctrl.is_rv32,
+            fp_rm,
+        );
 
         // FP exception flags are deferred to commit via the ROB entry
         // (applied by commit_stage in shared/commit.rs).
@@ -830,6 +837,7 @@ fn compute_alu(
     op_a: u64,
     op_b: u64,
     op_c: u64,
+    is_f16: bool,
     is_rv32: bool,
     fp_rm: Option<RoundingMode>,
 ) -> (u64, u8) {
@@ -842,7 +850,15 @@ fn compute_alu(
         | AluOp::FCvtSWU
         | AluOp::FCvtSLU
         | AluOp::FCvtSD
-        | AluOp::FCvtDS => {
+        | AluOp::FCvtDS
+        | AluOp::FCvtSH
+        | AluOp::FCvtDH
+            // When is_f16 is set, int↔f16 and f16↔f16 ops go through
+            // execute_full_rm → execute_f16 for software rounding. Only
+            // non-f16-target conversions are handled inline here.
+            if !is_f16 =>
+        {
+            use crate::core::units::fpu::half::{f16_to_f32, unbox_f16};
             use crate::core::units::fpu::nan_handling::{box_f32_canon, unbox_f32};
             use crate::core::units::fpu::{
                 clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode,
@@ -891,6 +907,17 @@ fn compute_alu(
                     let val_d = std::hint::black_box(val_s) as f64;
                     canonicalize_f64_bits(val_d)
                 }
+                AluOp::FCvtSH => {
+                    // Half → single: lossless, just rebox.
+                    let val_s = f16_to_f32(unbox_f16(op_a));
+                    box_f32_canon(val_s)
+                }
+                AluOp::FCvtDH => {
+                    // Half → double: lossless.
+                    use crate::core::units::fpu::nan_handling::canonicalize_f64_bits;
+                    let val_s = f16_to_f32(unbox_f16(op_a));
+                    canonicalize_f64_bits(std::hint::black_box(val_s) as f64)
+                }
                 _ => unreachable!(),
             });
             let fp_flags = read_host_fp_flags();
@@ -934,7 +961,8 @@ fn compute_alu(
 
     if is_fp_op {
         let rm = fp_rm.unwrap_or(RoundingMode::Rne);
-        let (result, fp_flags) = Fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_rv32, rm);
+        let (result, fp_flags) =
+            Fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
         (result, fp_flags.bits())
     } else {
         (Alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0)
@@ -949,15 +977,15 @@ mod tests {
     fn test_compute_alu_fp_conversions() {
         let rne = Some(RoundingMode::Rne);
 
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, rne);
+        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, false, rne);
         assert_eq!(res, (1.0f64).to_bits());
         assert_eq!(flags, 0);
 
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, true, rne);
+        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, true, rne);
         assert_eq!(res, 0xFFFF_FFFF_0000_0000 | (1.0f32).to_bits() as u64); // nan-boxed
         assert_eq!(flags, 0);
 
-        let (res, flags) = compute_alu(AluOp::FMvToF, 42, 0, 0, false, rne);
+        let (res, flags) = compute_alu(AluOp::FMvToF, 42, 0, 0, false, false, rne);
         assert_eq!(res, 42);
         assert_eq!(flags, 0);
     }

@@ -192,8 +192,15 @@ pub fn memory2_stage(
                         forwarded
                     };
                     // NaN-boxing for FP loads forwarded from store buffer
-                    if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
-                        ld |= 0xFFFF_FFFF_0000_0000;
+                    if mem.ctrl.fp_reg_write {
+                        match mem.ctrl.width {
+                            MemWidth::Word => ld |= 0xFFFF_FFFF_0000_0000,
+                            MemWidth::Half => {
+                                // Zfh flh: NaN-box to 64 bits (upper 48 = 1).
+                                ld = (ld & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000;
+                            }
+                            _ => {}
+                        }
                     }
 
                     trace_fwd!(cpu.trace;
@@ -293,8 +300,15 @@ pub fn memory2_stage(
                     };
 
                     // NaN-boxing for FP loads
-                    if mem.ctrl.fp_reg_write && matches!(mem.ctrl.width, MemWidth::Word) {
-                        ld |= 0xFFFF_FFFF_0000_0000;
+                    if mem.ctrl.fp_reg_write {
+                        match mem.ctrl.width {
+                            MemWidth::Word => ld |= 0xFFFF_FFFF_0000_0000,
+                            MemWidth::Half => {
+                                // Zfh flh: NaN-box to 64 bits (upper 48 = 1).
+                                ld = (ld & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000;
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

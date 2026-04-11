@@ -43,6 +43,9 @@ pub mod rv64d;
 /// Single-precision floating-point extension (32-bit FP operations).
 pub mod rv64f;
 
+/// Half-precision floating-point extension (Zfh, 16-bit FP operations).
+pub mod rv64zfh;
+
 /// Base integer instruction set (64-bit RISC-V core instructions).
 pub mod rv64i;
 

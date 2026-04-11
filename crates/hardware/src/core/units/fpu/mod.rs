@@ -22,9 +22,15 @@ pub mod rounding_modes;
 /// Floating-point exception flag types.
 pub mod exception_flags;
 
+/// Half-precision (Zfh) helpers and software rounding.
+pub mod half;
+
 use crate::core::pipeline::signals::AluOp;
 
 use self::exception_flags::FpFlags;
+use self::half::{
+    CANONICAL_NAN_F16, box_f16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16, unbox_f16,
+};
 use self::nan_handling::{
     box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
     unbox_f32,
@@ -337,6 +343,311 @@ impl Fpu {
         box_f32(f)
     }
 
+    /// Executes a half-precision (Zfh) floating-point operation and returns
+    /// `(result, flags)`.
+    ///
+    /// The host has no native f16 type, so half-precision arithmetic is
+    /// performed by upcasting operands to f64 (lossless for f16 inputs on
+    /// add/sub/mul/fma; near-exact for div/sqrt which still have >50 bits
+    /// of working precision). The f64 result is then software-rounded to
+    /// f16 with the given RISC-V rounding mode by [`half::f64_to_f16`],
+    /// which also accumulates the IEEE 754 exception flags.
+    fn execute_f16(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
+        let ha = unbox_f16(a);
+        let hb = unbox_f16(b);
+        let hc = unbox_f16(c);
+
+        // Helper: compute an arith op in f64 and round the result to f16.
+        let arith = |val: f64, extra: FpFlags| {
+            let (bits, flags) = f64_to_f16(val, rm);
+            (box_f16(bits), flags | extra)
+        };
+
+        match op {
+            AluOp::FAdd => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith(fa + fb, nv)
+            }
+            AluOp::FSub => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith(fa - fb, nv)
+            }
+            AluOp::FMul => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith(fa * fb, nv)
+            }
+            AluOp::FDiv => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let mut extra = FpFlags::NONE;
+                if is_snan_f16(ha) || is_snan_f16(hb) {
+                    extra = extra | FpFlags::NV;
+                }
+                if fb == 0.0 && fa.is_finite() && fa != 0.0 {
+                    extra = extra | FpFlags::DZ;
+                } else if fb == 0.0 && fa == 0.0 {
+                    extra = extra | FpFlags::NV; // 0/0 → NaN, invalid
+                } else if fa.is_infinite() && fb.is_infinite() {
+                    extra = extra | FpFlags::NV; // inf/inf → NaN, invalid
+                }
+                arith(fa / fb, extra)
+            }
+            AluOp::FSqrt => {
+                let fa = f16_to_f32(ha) as f64;
+                let mut extra = FpFlags::NONE;
+                if is_snan_f16(ha) {
+                    extra = extra | FpFlags::NV;
+                } else if fa < 0.0 {
+                    // sqrt of strictly negative → invalid (sqrt(-0) is fine)
+                    extra = extra | FpFlags::NV;
+                }
+                arith(fa.sqrt(), extra)
+            }
+            AluOp::FMAdd => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let fc = f16_to_f32(hc) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith(fa.mul_add(fb, fc), nv)
+            }
+            AluOp::FMSub => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let fc = f16_to_f32(hc) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith(fa.mul_add(fb, -fc), nv)
+            }
+            AluOp::FNMAdd => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let fc = f16_to_f32(hc) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith((-fa).mul_add(fb, -fc), nv)
+            }
+            AluOp::FNMSub => {
+                let fa = f16_to_f32(ha) as f64;
+                let fb = f16_to_f32(hb) as f64;
+                let fc = f16_to_f32(hc) as f64;
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                arith((-fa).mul_add(fb, fc), nv)
+            }
+
+            AluOp::FSgnJ => (box_f16((ha & 0x7FFF) | (hb & 0x8000)), FpFlags::NONE),
+            AluOp::FSgnJN => (box_f16((ha & 0x7FFF) | (!hb & 0x8000)), FpFlags::NONE),
+            AluOp::FSgnJX => (box_f16(ha ^ (hb & 0x8000)), FpFlags::NONE),
+
+            AluOp::FMin | AluOp::FMax => {
+                let fa = f16_to_f32(ha);
+                let fb = f16_to_f32(hb);
+                let mut flags = FpFlags::NONE;
+                if is_snan_f16(ha) || is_snan_f16(hb) {
+                    flags = flags | FpFlags::NV;
+                }
+                let r = if matches!(op, AluOp::FMin) {
+                    fmin_f32(fa, fb)
+                } else {
+                    fmax_f32(fa, fb)
+                };
+                if r.is_nan() {
+                    return (box_f16(CANONICAL_NAN_F16), flags);
+                }
+                let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
+                (box_f16(bits), flags)
+            }
+
+            AluOp::FEq => {
+                let nv = if is_snan_f16(ha) || is_snan_f16(hb) {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                let fa = f16_to_f32(ha);
+                let fb = f16_to_f32(hb);
+                ((fa == fb) as u64, nv)
+            }
+            AluOp::FLt => {
+                let fa = f16_to_f32(ha);
+                let fb = f16_to_f32(hb);
+                let nv = if fa.is_nan() || fb.is_nan() {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                ((fa < fb) as u64, nv)
+            }
+            AluOp::FLe => {
+                let fa = f16_to_f32(ha);
+                let fb = f16_to_f32(hb);
+                let nv = if fa.is_nan() || fb.is_nan() {
+                    FpFlags::NV
+                } else {
+                    FpFlags::NONE
+                };
+                ((fa <= fb) as u64, nv)
+            }
+
+            AluOp::FClass => (classify_f16(ha), FpFlags::NONE),
+
+            // fmv.x.h: sign-extend the 16-bit pattern to XLEN.
+            AluOp::FMvToX => (((ha as i16) as i64) as u64, FpFlags::NONE),
+            // fmv.h.x: take the low 16 bits of the integer operand, NaN-box.
+            AluOp::FMvToF => (box_f16(a as u16), FpFlags::NONE),
+
+            // f16 → integer conversions. Upcast f16 to f64, then use the
+            // existing integer-range rounding logic (same as f32/f64 ints).
+            AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS => {
+                let val = f16_to_f32(ha) as f64;
+                Self::fp_to_int_convert(op, val, rm)
+            }
+
+            // integer → f16 conversions.
+            AluOp::FCvtSW => {
+                let r = (a as i32) as f64;
+                let (bits, flags) = f64_to_f16(r, rm);
+                (box_f16(bits), flags)
+            }
+            AluOp::FCvtSWU => {
+                let r = (a as u32) as f64;
+                let (bits, flags) = f64_to_f16(r, rm);
+                (box_f16(bits), flags)
+            }
+            AluOp::FCvtSL => {
+                let r = (a as i64) as f64;
+                let (bits, flags) = f64_to_f16(r, rm);
+                (box_f16(bits), flags)
+            }
+            AluOp::FCvtSLU => {
+                let r = a as f64;
+                let (bits, flags) = f64_to_f16(r, rm);
+                (box_f16(bits), flags)
+            }
+
+            _ => (0, FpFlags::NONE),
+        }
+    }
+
+    /// Converts an f64 value to a RISC-V integer result with the given
+    /// rounding mode. Used by [`execute_f16`] for f16→int conversions;
+    /// mirrors the logic inline in [`execute_full_rm`] for f32/f64→int.
+    fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, FpFlags) {
+        let mut flags = FpFlags::NONE;
+        if val.is_nan() {
+            flags = flags | FpFlags::NV;
+            let result = match op {
+                AluOp::FCvtWS => i32::MAX as i64 as u64,
+                AluOp::FCvtWUS => u32::MAX as i32 as i64 as u64,
+                AluOp::FCvtLS => i64::MAX as u64,
+                AluOp::FCvtLUS => u64::MAX,
+                _ => 0,
+            };
+            return (result, flags);
+        }
+        if val.is_infinite() {
+            flags = flags | FpFlags::NV;
+            let result = match op {
+                AluOp::FCvtWS => {
+                    if val > 0.0 { i32::MAX as i64 as u64 } else { i32::MIN as i64 as u64 }
+                }
+                AluOp::FCvtWUS => {
+                    if val > 0.0 { u32::MAX as i32 as i64 as u64 } else { 0 }
+                }
+                AluOp::FCvtLS => {
+                    if val > 0.0 { i64::MAX as u64 } else { i64::MIN as u64 }
+                }
+                AluOp::FCvtLUS => {
+                    if val > 0.0 { u64::MAX } else { 0 }
+                }
+                _ => 0,
+            };
+            return (result, flags);
+        }
+
+        let rounded = Self::round_to_integer(val, rm);
+        let inexact = val != rounded;
+
+        let (overflow, result) = match op {
+            AluOp::FCvtWS => {
+                if !(I32_MIN_F64..I32_MAX_P1_F64).contains(&rounded) {
+                    (true, if rounded > 0.0 { i32::MAX } else { i32::MIN } as i64 as u64)
+                } else {
+                    (false, rounded as i32 as i64 as u64)
+                }
+            }
+            AluOp::FCvtWUS => {
+                if !(0.0..U32_MAX_P1_F64).contains(&rounded) {
+                    (
+                        true,
+                        if rounded > 0.0 {
+                            u32::MAX as i32 as i64 as u64
+                        } else {
+                            0
+                        },
+                    )
+                } else {
+                    (false, rounded as u32 as i32 as i64 as u64)
+                }
+            }
+            AluOp::FCvtLS => {
+                if !(I64_MIN_F64..I64_MAX_P1_F64).contains(&rounded) {
+                    (true, if rounded > 0.0 { i64::MAX } else { i64::MIN } as u64)
+                } else {
+                    (false, rounded as i64 as u64)
+                }
+            }
+            AluOp::FCvtLUS => {
+                if rounded < 0.0 {
+                    (true, 0u64)
+                } else if rounded >= U64_MAX_P1_F64 {
+                    (true, u64::MAX)
+                } else {
+                    (false, rounded as u64)
+                }
+            }
+            _ => (false, 0),
+        };
+
+        if overflow {
+            flags = flags | FpFlags::NV;
+        } else if inexact {
+            flags = flags | FpFlags::NX;
+        }
+        (result, flags)
+    }
+
     /// Executes a floating-point operation.
     ///
     /// Performs the specified floating-point operation on operands `a`, `b`,
@@ -566,9 +877,14 @@ impl Fpu {
         a: u64,
         b: u64,
         c: u64,
+        is_f16: bool,
         is32: bool,
         rm: RoundingMode,
     ) -> (u64, FpFlags) {
+        // Half-precision (Zfh) ops are handled entirely in software.
+        if is_f16 {
+            return Self::execute_f16(op, a, b, c, rm);
+        }
         // Float-to-integer conversions need rounding-mode-aware handling.
         if matches!(
             op,
@@ -759,7 +1075,7 @@ impl Fpu {
     /// Thin wrapper around [`Self::execute_full_rm`] preserved for existing
     /// callers (unit tests) that want only the result value.
     pub fn execute_with_rm(op: AluOp, a: u64, b: u64, c: u64, is32: bool, rm: RoundingMode) -> u64 {
-        Self::execute_full_rm(op, a, b, c, is32, rm).0
+        Self::execute_full_rm(op, a, b, c, false, is32, rm).0
     }
 
     /// Checks if an f32 value is a signaling NaN.

@@ -119,6 +119,10 @@ impl FuType {
             | AluOp::FCvtSLU
             | AluOp::FCvtSD
             | AluOp::FCvtDS
+            | AluOp::FCvtSH
+            | AluOp::FCvtHS
+            | AluOp::FCvtDH
+            | AluOp::FCvtHD
             | AluOp::FMvToX
             | AluOp::FMvToF => Self::FpAdd,
             _ => Self::IntAlu,
