@@ -38,7 +38,7 @@ endif
 .PHONY: arch-test arch-test-multi
 .PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
-.PHONY: test-all
+.PHONY: test-all test-all-smoke clean-testing
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -73,6 +73,8 @@ help:
 	@printf "    %-$(HELP_W)s  Smoke RVV suite (vadd/vsub/vmul/etc only)\n" "make vector-test-smoke"
 	@printf "    %-$(HELP_W)s  Run RVV cosim across all PIPELINES (slow)\n" "make vector-test-multi"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
+	@printf "    %-$(HELP_W)s  Smoke EVERY suite (single pipeline, ~2 min)\n" "make test-all-smoke"
+	@printf "    %-$(HELP_W)s  Wipe testing/builds/ (forces full rebuild)\n" "make clean-testing"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
@@ -195,9 +197,23 @@ $(TESTING_BUILDS)/riscv-tests:
 		$(TESTING_BUILDS)/riscv-tests
 	cd $(TESTING_BUILDS)/riscv-tests && git submodule update --init --recursive
 
-riscv-tests-build: $(TESTING_BUILDS)/riscv-tests
-	@printf "$(GREEN)Building riscv-tests ISA suite…$(RESET)\n"
-	$(MAKE) RISCV_PREFIX=riscv64-elf- -C $(TESTING_BUILDS)/riscv-tests/isa XLEN=64
+RISCV_TESTS_STAMP := $(TESTING_BUILDS)/riscv-tests/.built-p
+
+riscv-tests-build: $(RISCV_TESTS_STAMP)
+
+# Build only the -p- (physical-mode) variants. The -v- variants need libc
+# headers (string.h, stdint.h) that the bare-metal toolchain doesn't ship; we
+# don't run them anyway. Output is silenced to a log; if anything matters the
+# stamp file won't exist after the build.
+$(RISCV_TESTS_STAMP): $(TESTING_BUILDS)/riscv-tests
+	@printf "$(GREEN)Building riscv-tests -p- ELFs (this is noisy, logging to .build.log)…$(RESET)\n"
+	@-$(MAKE) -k RISCV_PREFIX=riscv64-elf- \
+	    -C $(TESTING_BUILDS)/riscv-tests/isa XLEN=64 \
+	    > $(TESTING_BUILDS)/riscv-tests/.build.log 2>&1
+	@n=$$(find $(TESTING_BUILDS)/riscv-tests/isa -maxdepth 1 -type f \
+	      \( -name 'rv64*-p-*' -o -name 'rv32*-p-*' \) ! -name '*.dump' | wc -l); \
+	  printf "$(GREEN)Built $$n -p- test ELFs$(RESET)\n"; \
+	  if [ "$$n" -gt 0 ]; then touch $(RISCV_TESTS_STAMP); fi
 
 riscv-tests: riscv-tests-build python
 	@printf "$(GREEN)Running riscv-tests across all PIPELINES…$(RESET)\n"
@@ -233,8 +249,17 @@ test-all: riscv-tests-build $(TESTING_BUILDS)/riscof-work vector-test-build pyth
 	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
 	.venv/bin/python testing/run_all.py
 
+# Quick variant: smoke each suite (small subset, single pipeline). ~2 minutes.
+test-all-smoke: riscv-tests-build $(TESTING_BUILDS)/riscof-work vector-test-build python
+	.venv/bin/python testing/run_all.py --smoke
+
 $(TESTING_BUILDS)/riscof-work:
 	@$(MAKE) arch-test
+
+# Wipe everything under testing/builds/ — forces full rebuild on next run.
+clean-testing:
+	@printf "$(GREEN)Removing $(TESTING_BUILDS) (all test build artifacts)…$(RESET)\n"
+	rm -rf $(TESTING_BUILDS)
 
 prerelease:
 	@tools/prerelease
