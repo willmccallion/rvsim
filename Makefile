@@ -35,7 +35,7 @@ endif
 # ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
-.PHONY: arch-test
+.PHONY: arch-test vector-test vector-test-build vector-test-smoke
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -62,6 +62,9 @@ help:
 	@printf "    %-$(HELP_W)s  fmt-check + clippy\n" "make lint"
 	@printf "    %-$(HELP_W)s  Full pre-release check (git+lint+test+versions+build)\n" "make prerelease"
 	@printf "    %-$(HELP_W)s  Run riscv-arch-test compliance suite via riscof\n" "make arch-test"
+	@printf "    %-$(HELP_W)s  Build chipsalliance RVV test ELFs\n" "make vector-test-build"
+	@printf "    %-$(HELP_W)s  Run RVV cosim suite (rvsim vs spike)\n" "make vector-test"
+	@printf "    %-$(HELP_W)s  Smoke RVV suite (vadd/vsub/vmul/etc only)\n" "make vector-test-smoke"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
@@ -155,6 +158,36 @@ arch-test:
 		--config config.ini \
 		--suite riscv-arch-test/riscv-test-suite/ \
 		--env riscv-arch-test/riscv-test-suite/env
+
+# ── Vector tests (chipsalliance generator + spike cosim) ──────────────────────
+# Required local spike: testing/vector/third_party/spike-install/bin/spike
+# Built from source because Arch's spike 1.1.0 is too old for modern Z exts.
+VECTOR_DIR     := testing/vector
+VECTOR_PATTERN ?= .*
+VECTOR_VLEN    ?= 128
+
+$(VECTOR_DIR)/third_party/spike-install/bin/spike:
+	@printf "$(GREEN)Building local spike from source (one-time, ~2 min)…$(RESET)\n"
+	@mkdir -p $(VECTOR_DIR)/third_party
+	@if [ ! -d $(VECTOR_DIR)/third_party/spike-src ]; then \
+		git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git \
+			$(VECTOR_DIR)/third_party/spike-src; \
+	fi
+	@mkdir -p $(VECTOR_DIR)/third_party/spike-build
+	@cd $(VECTOR_DIR)/third_party/spike-build && \
+		../spike-src/configure --prefix=$$(pwd)/../spike-install >/dev/null && \
+		$(MAKE) -j$$(nproc) install >/dev/null
+
+vector-test-build: $(VECTOR_DIR)/third_party/spike-install/bin/spike
+	@printf "$(GREEN)Building RVV test ELFs (VLEN=$(VECTOR_VLEN), pattern='$(VECTOR_PATTERN)')…$(RESET)\n"
+	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash $(VECTOR_DIR)/build_tests.sh
+
+vector-test: vector-test-build python
+	@printf "$(GREEN)Running RVV cosim suite (rvsim vs spike)…$(RESET)\n"
+	.venv/bin/python $(VECTOR_DIR)/run_vector_tests.py --vlen $(VECTOR_VLEN)
+
+vector-test-smoke:
+	@$(MAKE) vector-test VECTOR_PATTERN='^v(add|sub|and|or|xor|sll|srl|sra|min|max|mul)\.'
 
 prerelease:
 	@tools/prerelease
