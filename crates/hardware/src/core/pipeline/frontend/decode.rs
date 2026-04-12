@@ -682,8 +682,6 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                 c.vd = VRegIdx::new(v_enc::vd(inst));
                 c.vs1 = VRegIdx::new(v_enc::vs1(inst));
                 c.vs2 = VRegIdx::new(v_enc::vs2(inst));
-                // All vector arithmetic is serializing for Phase 2 (no vector rename yet)
-                c.system_op = SystemOp::System;
 
                 match d.funct3 {
                     v_funct3::OPIVV => {

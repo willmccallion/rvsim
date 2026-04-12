@@ -249,7 +249,8 @@ pub fn memory1_stage(
             if ex.ctrl.mem_read
                 && let Some(ref mut lq) = load_queue
             {
-                lq.fill_address(ex.rob_tag, VirtAddr::new(ex.alu), paddr);
+                let lq_elem = ex.vec_mem.as_ref().map(|vme| vme.elem_idx);
+                lq.fill_address(ex.rob_tag, lq_elem, VirtAddr::new(ex.alu), paddr);
             }
 
             // D-cache/bus latency: only cacheable addresses (RAM) go through

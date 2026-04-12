@@ -157,6 +157,8 @@ pub struct RobEntry {
     pub vec_old_phys_dst: [VecPhysReg; 8],
     /// Number of destination vector registers in the LMUL group (0 for non-vector).
     pub vec_dst_count: u8,
+    /// Deferred vxsat (fixed-point saturation) flag from vector execution (applied at commit).
+    pub vxsat: bool,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -275,6 +277,7 @@ impl Rob {
             vec_phys_dst: [VecPhysReg::ZERO; 8],
             vec_old_phys_dst: [VecPhysReg::ZERO; 8],
             vec_dst_count: 0,
+            vxsat: false,
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -353,6 +356,13 @@ impl Rob {
     pub fn set_fp_flags(&mut self, tag: RobTag, fp_flags: u8) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.fp_flags |= fp_flags;
+        }
+    }
+
+    /// Sets the deferred vxsat (fixed-point saturation) flag for a vector instruction.
+    pub fn set_vxsat(&mut self, tag: RobTag, val: bool) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vxsat |= val;
         }
     }
 

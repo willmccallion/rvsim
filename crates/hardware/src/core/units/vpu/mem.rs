@@ -8,7 +8,8 @@
 use crate::common::{AccessType, Trap, VirtAddr};
 use crate::core::Cpu;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
-use crate::core::pipeline::signals::VectorOp;
+use crate::core::pipeline::signals::{ControlSignals, VectorOp};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, Emul, Nf, Sew, VRegIdx, VecPhysReg, parse_vtype};
 
 /// A single element address micro-op generated for the O3 vector memory pipeline.
@@ -374,6 +375,184 @@ fn gen_whole_reg_addrs(
         });
     }
     ops
+}
+
+// ── Generic address generation for O3 backend (VecPrfView) ──────────────────
+
+/// Compute the physical destination register for a given element.
+///
+/// For non-segment ops: `vd_phys[elem / elements_per_reg]`
+/// For segment ops: `vd_phys[seg * emul_regs + elem / elements_per_reg]`
+fn compute_vd_phys(
+    vd_phys: &[VecPhysReg; 8],
+    vd_count: u8,
+    elem: usize,
+    seg: usize,
+    emul_regs: usize,
+    elements_per_reg: usize,
+) -> VecPhysReg {
+    let reg_in_seg = if elements_per_reg > 0 { elem / elements_per_reg } else { 0 };
+    let idx = seg * emul_regs + reg_in_seg;
+    if idx < vd_count as usize {
+        vd_phys[idx]
+    } else {
+        VecPhysReg::ZERO
+    }
+}
+
+/// Generate per-element address micro-ops using any `VectorRegFile` implementation.
+///
+/// This is the O3 backend's address generation path. Unlike [`generate_element_addrs`],
+/// it reads store data and index values from the provided `VectorRegFile` (typically a
+/// `VecPrfView` backed by the physical register file) and computes the correct
+/// physical destination register for each element.
+///
+/// Does NOT perform any memory access.
+#[must_use]
+pub fn generate_element_addrs_vrf<V: VectorRegFile>(
+    vrf: &V,
+    base_addr: u64,
+    stride: i64,
+    ctrl: &ControlSignals,
+    vtype_bits: u64,
+    vl: usize,
+    vstart: usize,
+    vec_op: VectorOp,
+    vd_phys: &[VecPhysReg; 8],
+    vd_count: u8,
+) -> Vec<VecMemAddrOp> {
+    let vtype = parse_vtype(vtype_bits);
+    if vtype.vill {
+        return Vec::new();
+    }
+
+    let is_store = is_vec_store(vec_op);
+    let eew = ctrl.vec_eew;
+    let vm = ctrl.vm;
+    let vd = ctrl.vd;
+    let nf = Nf::from_encoding(ctrl.vec_nf);
+    let vlen = vrf.vlen();
+
+    match vec_op {
+        VectorOp::VLoadUnit | VectorOp::VStoreUnit | VectorOp::VLoadFF => {
+            let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
+            let eew_bytes = eew.bytes() as u64;
+            let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
+            let emul_regs = emul.regs() as usize;
+            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
+            for i in vstart..vl {
+                if !is_element_active_vrf(vrf, i, vm) { continue; }
+                for seg in 0..nf.fields_usize() {
+                    let addr = base_addr.wrapping_add(
+                        ((i * nf.fields_usize() + seg) as u64).wrapping_mul(eew_bytes),
+                    );
+                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
+                    let store_data = if is_store {
+                        vrf.read_element(dest, ElemIdx::new(i), eew)
+                    } else { 0 };
+                    let phys = compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
+                    ops.push(VecMemAddrOp {
+                        vaddr: VirtAddr::new(addr), store_data, elem_idx: ElemIdx::new(i), eew, vd_phys: phys,
+                    });
+                }
+            }
+            ops
+        }
+        VectorOp::VLoadStride | VectorOp::VStoreStride => {
+            let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
+            let eew_bytes = eew.bytes() as u64;
+            let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
+            let emul_regs = emul.regs() as usize;
+            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
+            for i in vstart..vl {
+                if !is_element_active_vrf(vrf, i, vm) { continue; }
+                let elem_base = base_addr.wrapping_add((i as i64).wrapping_mul(stride) as u64);
+                for seg in 0..nf.fields_usize() {
+                    let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
+                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
+                    let store_data = if is_store {
+                        vrf.read_element(dest, ElemIdx::new(i), eew)
+                    } else { 0 };
+                    let phys = compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
+                    ops.push(VecMemAddrOp {
+                        vaddr: VirtAddr::new(addr), store_data, elem_idx: ElemIdx::new(i), eew, vd_phys: phys,
+                    });
+                }
+            }
+            ops
+        }
+        VectorOp::VLoadIndexOrd | VectorOp::VLoadIndexUnord
+        | VectorOp::VStoreIndexOrd | VectorOp::VStoreIndexUnord => {
+            let vs2 = ctrl.vs2;
+            let data_sew = vtype.vsew;
+            let idx_eew = eew;
+            let data_bytes = data_sew.bytes() as u64;
+            let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
+            let elements_per_reg = vlen.bits() / (data_sew.bytes() * 8);
+            let emul_regs = data_emul.regs() as usize;
+            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
+            for i in vstart..vl {
+                if !is_element_active_vrf(vrf, i, vm) { continue; }
+                let offset = vrf.read_element(vs2, ElemIdx::new(i), idx_eew);
+                let elem_base = base_addr.wrapping_add(offset);
+                for seg in 0..nf.fields_usize() {
+                    let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
+                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
+                    let store_data = if is_store {
+                        vrf.read_element(dest, ElemIdx::new(i), data_sew)
+                    } else { 0 };
+                    let phys = compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
+                    ops.push(VecMemAddrOp {
+                        vaddr: VirtAddr::new(addr), store_data, elem_idx: ElemIdx::new(i), eew: data_sew, vd_phys: phys,
+                    });
+                }
+            }
+            ops
+        }
+        VectorOp::VLoadMask | VectorOp::VStoreMask => {
+            let num_bytes = vl.div_ceil(8);
+            let elements_per_reg = vlen.bits() / 8; // E8
+            let mut ops = Vec::with_capacity(num_bytes);
+            for i in 0..num_bytes {
+                let addr = base_addr.wrapping_add(i as u64);
+                let store_data = if is_store {
+                    vrf.read_element(vd, ElemIdx::new(i), Sew::E8)
+                } else { 0 };
+                let phys = compute_vd_phys(vd_phys, vd_count, i, 0, 1, elements_per_reg);
+                ops.push(VecMemAddrOp {
+                    vaddr: VirtAddr::new(addr), store_data, elem_idx: ElemIdx::new(i), eew: Sew::E8, vd_phys: phys,
+                });
+            }
+            ops
+        }
+        VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg => {
+            let nreg = (ctrl.vec_nf as usize) + 1;
+            let vlen_bytes = vlen.bytes();
+            let total_bytes = nreg * vlen_bytes;
+            let mut ops = Vec::with_capacity(total_bytes);
+            for i in 0..total_bytes {
+                let addr = base_addr.wrapping_add(i as u64);
+                let reg_offset = i / vlen_bytes;
+                let byte_offset = i % vlen_bytes;
+                let src = VRegIdx::new(vd.as_u8() + reg_offset as u8);
+                let store_data = if is_store {
+                    vrf.read_element(src, ElemIdx::new(byte_offset), Sew::E8)
+                } else { 0 };
+                let phys = if reg_offset < vd_count as usize { vd_phys[reg_offset] } else { VecPhysReg::ZERO };
+                ops.push(VecMemAddrOp {
+                    vaddr: VirtAddr::new(addr), store_data, elem_idx: ElemIdx::new(byte_offset), eew: Sew::E8, vd_phys: phys,
+                });
+            }
+            ops
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Check if element `i` is active under the mask using a generic VectorRegFile.
+fn is_element_active_vrf<V: VectorRegFile>(vrf: &V, i: usize, vm: bool) -> bool {
+    if vm { return true; }
+    vrf.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

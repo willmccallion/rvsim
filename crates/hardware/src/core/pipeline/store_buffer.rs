@@ -11,6 +11,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
+use crate::core::units::vpu::types::ElemIdx;
 
 /// Result of store-to-load forwarding check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +84,8 @@ pub struct StoreBufferEntry {
     pub resolution: StoreResolution,
     /// Whether this slot is occupied.
     pub valid: bool,
+    /// Element index for vector store micro-ops (`None` for scalar stores).
+    pub elem_idx: Option<ElemIdx>,
 }
 
 /// Store buffer — FIFO queue of pending stores.
@@ -158,7 +161,10 @@ impl StoreBuffer {
     }
 
     /// Allocates a slot for a new store. Returns false if the buffer is full.
-    pub fn allocate(&mut self, rob_tag: RobTag, width: MemWidth) -> bool {
+    ///
+    /// `elem_idx` is `None` for scalar stores and `Some(i)` for vector store
+    /// element micro-ops, enabling per-element tracking in the store buffer.
+    pub fn allocate(&mut self, rob_tag: RobTag, width: MemWidth, elem_idx: Option<ElemIdx>) -> bool {
         if self.is_full() {
             return false;
         }
@@ -169,6 +175,7 @@ impl StoreBuffer {
             width,
             resolution: StoreResolution::Pending,
             valid: true,
+            elem_idx,
         };
 
         self.tail = (self.tail + 1) % self.entries.len();
@@ -177,25 +184,38 @@ impl StoreBuffer {
     }
 
     /// Resolves a store's address and data after memory translation.
-    pub fn resolve(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: u64) {
-        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
+    ///
+    /// `elem_idx` is `None` for scalar stores and `Some(i)` for vector store
+    /// element micro-ops.
+    pub fn resolve(&mut self, rob_tag: RobTag, elem_idx: Option<ElemIdx>, vaddr: VirtAddr, paddr: PhysAddr, data: u64) {
+        if let Some(entry) = self.find_by_tag_and_elem_mut(rob_tag, elem_idx) {
             entry.vaddr = vaddr;
             entry.resolution = StoreResolution::Ready { paddr, data };
         }
     }
 
     /// Marks a store as committed (the ROB has retired the instruction).
+    ///
+    /// For vector stores, this marks ALL element entries with the same `rob_tag`
+    /// as committed, since the entire instruction commits atomically.
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
-        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
-            debug_assert!(
-                matches!(entry.resolution, StoreResolution::Ready { .. }),
-                "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
-                rob_tag.0,
-                entry.resolution,
-            );
-            if let StoreResolution::Ready { paddr, data } = entry.resolution {
-                entry.resolution = StoreResolution::Committed { paddr, data };
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &mut self.entries[idx];
+            if entry.valid && entry.rob_tag == rob_tag {
+                debug_assert!(
+                    matches!(entry.resolution, StoreResolution::Ready { .. }),
+                    "mark_committed on non-Ready entry: rob_tag={} resolution={:?} elem_idx={:?}",
+                    rob_tag.0,
+                    entry.resolution,
+                    entry.elem_idx,
+                );
+                if let StoreResolution::Ready { paddr, data } = entry.resolution {
+                    entry.resolution = StoreResolution::Committed { paddr, data };
+                }
             }
+            idx = (idx + 1) % cap;
         }
     }
 
@@ -491,12 +511,22 @@ impl StoreBuffer {
         None
     }
 
-    /// Finds the entry with the given ROB tag.
-    fn find_by_tag_mut(&mut self, rob_tag: RobTag) -> Option<&mut StoreBufferEntry> {
+    /// Finds the entry with the given ROB tag and element index.
+    ///
+    /// For scalar stores, `elem_idx` is `None`. For vector store elements,
+    /// `elem_idx` is `Some(i)` to match the specific element.
+    fn find_by_tag_and_elem_mut(
+        &mut self,
+        rob_tag: RobTag,
+        elem_idx: Option<ElemIdx>,
+    ) -> Option<&mut StoreBufferEntry> {
         let cap = self.entries.len();
         let mut idx = self.head;
         for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
+            if self.entries[idx].valid
+                && self.entries[idx].rob_tag == rob_tag
+                && self.entries[idx].elem_idx == elem_idx
+            {
                 return Some(&mut self.entries[idx]);
             }
             idx = (idx + 1) % cap;
@@ -527,13 +557,13 @@ mod tests {
         assert!(sb.is_empty());
 
         let tag = RobTag(1);
-        assert!(sb.allocate(tag, MemWidth::Word));
+        assert!(sb.allocate(tag, MemWidth::Word, None));
         assert_eq!(sb.len(), 1);
 
         // Can't drain yet (still Pending)
         assert!(sb.drain_one().is_none());
 
-        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0xDEADBEEF);
+        sb.resolve(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0xDEADBEEF);
         // Can't drain yet (Ready but not Committed)
         assert!(sb.drain_one().is_none());
 
@@ -549,18 +579,18 @@ mod tests {
     #[test]
     fn test_full_buffer() {
         let mut sb = StoreBuffer::new(2);
-        assert!(sb.allocate(RobTag(1), MemWidth::Word));
-        assert!(sb.allocate(RobTag(2), MemWidth::Word));
+        assert!(sb.allocate(RobTag(1), MemWidth::Word, None));
+        assert!(sb.allocate(RobTag(2), MemWidth::Word, None));
         assert!(sb.is_full());
-        assert!(!sb.allocate(RobTag(3), MemWidth::Word));
+        assert!(!sb.allocate(RobTag(3), MemWidth::Word, None));
     }
 
     #[test]
     fn test_forward_load() {
         let mut sb = StoreBuffer::new(4);
         let tag = RobTag(1);
-        sb.allocate(tag, MemWidth::Word);
-        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
+        sb.allocate(tag, MemWidth::Word, None);
+        sb.resolve(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
         // Forward should find the store (load is younger: tag 2 > store tag 1)
         let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
@@ -575,8 +605,8 @@ mod tests {
     fn test_forward_load_byte() {
         let mut sb = StoreBuffer::new(4);
         let tag = RobTag(1);
-        sb.allocate(tag, MemWidth::Word);
-        sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
+        sb.allocate(tag, MemWidth::Word, None);
+        sb.resolve(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
         // Forward a byte from the same address
         let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
@@ -590,14 +620,14 @@ mod tests {
         let t2 = RobTag(2);
         let t3 = RobTag(3);
 
-        sb.allocate(t1, MemWidth::Word);
-        sb.allocate(t2, MemWidth::Word);
-        sb.allocate(t3, MemWidth::Word);
+        sb.allocate(t1, MemWidth::Word, None);
+        sb.allocate(t2, MemWidth::Word, None);
+        sb.allocate(t3, MemWidth::Word, None);
 
-        sb.resolve(t1, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 10);
+        sb.resolve(t1, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 10);
         sb.mark_committed(t1);
 
-        sb.resolve(t2, VirtAddr::new(0x1004), PhysAddr::new(0x8000_0004), 20);
+        sb.resolve(t2, None, VirtAddr::new(0x1004), PhysAddr::new(0x8000_0004), 20);
         // t2 is Ready but not committed
         // t3 is still Pending
 
@@ -614,8 +644,8 @@ mod tests {
     #[test]
     fn test_flush_all() {
         let mut sb = StoreBuffer::new(4);
-        sb.allocate(RobTag(1), MemWidth::Word);
-        sb.allocate(RobTag(2), MemWidth::Word);
+        sb.allocate(RobTag(1), MemWidth::Word, None);
+        sb.allocate(RobTag(2), MemWidth::Word, None);
 
         sb.flush_all();
         assert!(sb.is_empty());
@@ -626,8 +656,8 @@ mod tests {
         let mut sb = StoreBuffer::new(2);
         for i in 1..=10 {
             let tag = RobTag(i);
-            sb.allocate(tag, MemWidth::Word);
-            sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
+            sb.allocate(tag, MemWidth::Word, None);
+            sb.resolve(tag, None, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
             sb.mark_committed(tag);
             let entry = sb.drain_one().unwrap();
             assert_eq!(

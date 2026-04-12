@@ -7,6 +7,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
+use crate::core::units::vpu::types::ElemIdx;
 
 /// Lifecycle state of a load queue entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -37,6 +38,8 @@ pub struct LoadQueueEntry {
     pub state: LoadState,
     /// Whether this slot is occupied.
     pub valid: bool,
+    /// Element index for vector load micro-ops (`None` for scalar loads).
+    pub elem_idx: Option<ElemIdx>,
 }
 
 /// Load queue — FIFO queue of pending loads.
@@ -90,7 +93,10 @@ impl LoadQueue {
     }
 
     /// Allocates a slot for a new load. Returns false if the buffer is full.
-    pub fn allocate(&mut self, rob_tag: RobTag, width: MemWidth) -> bool {
+    ///
+    /// `elem_idx` is `None` for scalar loads and `Some(i)` for vector load
+    /// element micro-ops.
+    pub fn allocate(&mut self, rob_tag: RobTag, width: MemWidth, elem_idx: Option<ElemIdx>) -> bool {
         if self.is_full() {
             return false;
         }
@@ -103,6 +109,7 @@ impl LoadQueue {
             width,
             state: LoadState::Pending,
             valid: true,
+            elem_idx,
         };
 
         self.tail = (self.tail + 1) % self.entries.len();
@@ -111,8 +118,10 @@ impl LoadQueue {
     }
 
     /// Fills the translated address for a load after Memory1.
-    pub fn fill_address(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr) {
-        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
+    ///
+    /// `elem_idx` is `None` for scalar loads and `Some(i)` for vector load elements.
+    pub fn fill_address(&mut self, rob_tag: RobTag, elem_idx: Option<ElemIdx>, vaddr: VirtAddr, paddr: PhysAddr) {
+        if let Some(entry) = self.find_by_tag_and_elem_mut(rob_tag, elem_idx) {
             entry.vaddr = vaddr;
             entry.paddr = Some(paddr);
             entry.state = LoadState::Translated;
@@ -120,8 +129,10 @@ impl LoadQueue {
     }
 
     /// Fills the loaded data for a load after Memory2.
-    pub fn fill_data(&mut self, rob_tag: RobTag, data: u64) {
-        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
+    ///
+    /// `elem_idx` is `None` for scalar loads and `Some(i)` for vector load elements.
+    pub fn fill_data(&mut self, rob_tag: RobTag, elem_idx: Option<ElemIdx>, data: u64) {
+        if let Some(entry) = self.find_by_tag_and_elem_mut(rob_tag, elem_idx) {
             entry.data = data;
             entry.state = LoadState::Executed;
         }
@@ -178,35 +189,28 @@ impl LoadQueue {
         oldest_violator
     }
 
-    /// Deallocates the oldest load (at head). Called when a load commits.
+    /// Deallocates all load queue entries with the given ROB tag.
+    ///
+    /// For scalar loads this removes a single entry. For vector loads this
+    /// removes all per-element entries that share the same `rob_tag`.
     pub fn deallocate(&mut self, rob_tag: RobTag) {
         if self.count == 0 {
             return;
         }
 
-        // The committed load should be at the head (in-order commit).
-        if self.entries[self.head].valid && self.entries[self.head].rob_tag == rob_tag {
-            self.entries[self.head].valid = false;
-            self.head = (self.head + 1) % self.entries.len();
-            self.count -= 1;
-            return;
-        }
-
-        // Fallback: search for it (shouldn't normally happen with in-order commit).
         let cap = self.entries.len();
         let mut idx = self.head;
         for _ in 0..self.count {
             if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
                 self.entries[idx].valid = false;
-                // Don't adjust head/tail — just mark invalid.
-                // Advance head past any invalid entries at the front.
-                while self.count > 0 && !self.entries[self.head].valid {
-                    self.head = (self.head + 1) % cap;
-                    self.count -= 1;
-                }
-                return;
             }
             idx = (idx + 1) % cap;
+        }
+
+        // Advance head past any invalid entries at the front.
+        while self.count > 0 && !self.entries[self.head].valid {
+            self.head = (self.head + 1) % cap;
+            self.count -= 1;
         }
     }
 
@@ -250,12 +254,19 @@ impl LoadQueue {
         self.count = new_count;
     }
 
-    /// Finds the entry with the given ROB tag.
-    fn find_by_tag_mut(&mut self, rob_tag: RobTag) -> Option<&mut LoadQueueEntry> {
+    /// Finds the entry with the given ROB tag and element index.
+    fn find_by_tag_and_elem_mut(
+        &mut self,
+        rob_tag: RobTag,
+        elem_idx: Option<ElemIdx>,
+    ) -> Option<&mut LoadQueueEntry> {
         let cap = self.entries.len();
         let mut idx = self.head;
         for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
+            if self.entries[idx].valid
+                && self.entries[idx].rob_tag == rob_tag
+                && self.entries[idx].elem_idx == elem_idx
+            {
                 return Some(&mut self.entries[idx]);
             }
             idx = (idx + 1) % cap;
@@ -286,11 +297,11 @@ mod tests {
         assert!(lq.is_empty());
 
         let tag = RobTag(1);
-        assert!(lq.allocate(tag, MemWidth::Word));
+        assert!(lq.allocate(tag, MemWidth::Word, None));
         assert_eq!(lq.len(), 1);
 
-        lq.fill_address(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(tag, 0xDEADBEEF);
+        lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
+        lq.fill_data(tag, None, 0xDEADBEEF);
 
         lq.deallocate(tag);
         assert!(lq.is_empty());
@@ -299,10 +310,10 @@ mod tests {
     #[test]
     fn test_full_queue() {
         let mut lq = LoadQueue::new(2);
-        assert!(lq.allocate(RobTag(1), MemWidth::Word));
-        assert!(lq.allocate(RobTag(2), MemWidth::Word));
+        assert!(lq.allocate(RobTag(1), MemWidth::Word, None));
+        assert!(lq.allocate(RobTag(2), MemWidth::Word, None));
         assert!(lq.is_full());
-        assert!(!lq.allocate(RobTag(3), MemWidth::Word));
+        assert!(!lq.allocate(RobTag(3), MemWidth::Word, None));
     }
 
     #[test]
@@ -311,9 +322,9 @@ mod tests {
 
         // Younger load (tag=3) executes before older store (tag=2) resolves
         let load_tag = RobTag(3);
-        lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(load_tag, 0x12345678);
+        lq.allocate(load_tag, MemWidth::Word, None);
+        lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
+        lq.fill_data(load_tag, None, 0x12345678);
 
         // Store (tag=2) resolves to same address — violation!
         let result =
@@ -326,9 +337,9 @@ mod tests {
         let mut lq = LoadQueue::new(4);
 
         let load_tag = RobTag(3);
-        lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, VirtAddr::new(0x2000), PhysAddr::new(0x8000_0004));
-        lq.fill_data(load_tag, 0x12345678);
+        lq.allocate(load_tag, MemWidth::Word, None);
+        lq.fill_address(load_tag, None, VirtAddr::new(0x2000), PhysAddr::new(0x8000_0004));
+        lq.fill_data(load_tag, None, 0x12345678);
 
         // Store to different address — no violation
         let result =
@@ -342,9 +353,9 @@ mod tests {
 
         // Load is older than store — no violation (correct ordering)
         let load_tag = RobTag(1);
-        lq.allocate(load_tag, MemWidth::Word);
-        lq.fill_address(load_tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(load_tag, 0x12345678);
+        lq.allocate(load_tag, MemWidth::Word, None);
+        lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
+        lq.fill_data(load_tag, None, 0x12345678);
 
         let result =
             lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
@@ -354,9 +365,9 @@ mod tests {
     #[test]
     fn test_flush_after() {
         let mut lq = LoadQueue::new(4);
-        lq.allocate(RobTag(1), MemWidth::Word);
-        lq.allocate(RobTag(2), MemWidth::Word);
-        lq.allocate(RobTag(3), MemWidth::Word);
+        lq.allocate(RobTag(1), MemWidth::Word, None);
+        lq.allocate(RobTag(2), MemWidth::Word, None);
+        lq.allocate(RobTag(3), MemWidth::Word, None);
 
         lq.flush_after(RobTag(1));
         assert_eq!(lq.len(), 1);
@@ -365,8 +376,8 @@ mod tests {
     #[test]
     fn test_flush_all() {
         let mut lq = LoadQueue::new(4);
-        lq.allocate(RobTag(1), MemWidth::Word);
-        lq.allocate(RobTag(2), MemWidth::Word);
+        lq.allocate(RobTag(1), MemWidth::Word, None);
+        lq.allocate(RobTag(2), MemWidth::Word, None);
 
         lq.flush();
         assert!(lq.is_empty());
@@ -377,9 +388,9 @@ mod tests {
         let mut lq = LoadQueue::new(2);
         for i in 1..=10 {
             let tag = RobTag(i);
-            lq.allocate(tag, MemWidth::Word);
-            lq.fill_address(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-            lq.fill_data(tag, i as u64);
+            lq.allocate(tag, MemWidth::Word, None);
+            lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
+            lq.fill_data(tag, None, i as u64);
             lq.deallocate(tag);
         }
     }

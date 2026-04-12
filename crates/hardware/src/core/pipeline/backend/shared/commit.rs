@@ -394,6 +394,11 @@ pub fn commit_stage(
             cpu.csrs.sstatus = (cpu.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
         }
 
+        // Apply deferred vxsat (fixed-point saturation) flag from vector execution.
+        if entry.vxsat {
+            cpu.csrs.vxsat = 1;
+        }
+
         // Apply deferred CSR write
         if let Some(csr_update) = entry.csr_update {
             // SATP writes change the address translation mode. All preceding

@@ -112,7 +112,8 @@ pub fn memory2_stage(
                     // buffer and return 0 (success).  The commit stage will
                     // verify the reservation and, if invalid, cancel the
                     // store and flush the pipeline.
-                    store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, mem.store_data);
+                    let sb_elem = mem.vec_mem.as_ref().map(|vme| vme.elem_idx);
+                    store_buffer.resolve(mem.rob_tag, sb_elem, mem.vaddr, raw_paddr, mem.store_data);
                     ld = 0; // optimistic success
                     lr_sc = Some(LrScRecord::Sc { paddr: raw_paddr });
 
@@ -153,7 +154,7 @@ pub fn memory2_stage(
                     );
 
                     // Resolve store buffer with the computed new value
-                    store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, new_val);
+                    store_buffer.resolve(mem.rob_tag, None, mem.vaddr, raw_paddr, new_val);
 
                     // Check for memory ordering violation (same as regular stores).
                     if let Some(ref lq) = load_queue
@@ -316,7 +317,8 @@ pub fn memory2_stage(
 
             // Fill load queue with completed data
             if let Some(ref mut lq) = load_queue {
-                lq.fill_data(mem.rob_tag, ld);
+                let lq_elem = mem.vec_mem.as_ref().map(|vme| vme.elem_idx);
+                lq.fill_data(mem.rob_tag, lq_elem, ld);
             }
 
             trace_mem!(cpu.trace;
@@ -333,7 +335,8 @@ pub fn memory2_stage(
             );
         } else if mem.ctrl.mem_write {
             // Stores: resolve store buffer with paddr + data, NO memory write
-            store_buffer.resolve(mem.rob_tag, mem.vaddr, raw_paddr, mem.store_data);
+            let sb_elem = mem.vec_mem.as_ref().map(|vme| vme.elem_idx);
+            store_buffer.resolve(mem.rob_tag, sb_elem, mem.vaddr, raw_paddr, mem.store_data);
 
             // Check for memory ordering violation: did a younger load already
             // execute with stale data at this address?
@@ -552,7 +555,7 @@ mod tests {
             width: crate::core::pipeline::signals::MemWidth::Word,
             ..Default::default()
         };
-        store_buffer.allocate(RobTag(2), crate::core::pipeline::signals::MemWidth::Word);
+        store_buffer.allocate(RobTag(2), crate::core::pipeline::signals::MemWidth::Word, None);
 
         let mut input_sc = vec![Mem1Mem2Entry {
             rob_tag: RobTag(2),
@@ -593,9 +596,9 @@ mod tests {
         let mut load_queue = LoadQueue::new(4);
 
         // A younger load already executed to the same address
-        load_queue.allocate(RobTag(5), crate::core::pipeline::signals::MemWidth::Word);
-        load_queue.fill_address(RobTag(5), VirtAddr::new(0x8000_0000), PhysAddr::new(0x8000_0000));
-        load_queue.fill_data(RobTag(5), 0);
+        load_queue.allocate(RobTag(5), crate::core::pipeline::signals::MemWidth::Word, None);
+        load_queue.fill_address(RobTag(5), None, VirtAddr::new(0x8000_0000), PhysAddr::new(0x8000_0000));
+        load_queue.fill_data(RobTag(5), None, 0);
 
         let ctrl_store = ControlSignals {
             mem_write: true,
@@ -603,7 +606,7 @@ mod tests {
             ..Default::default()
         };
 
-        store_buffer.allocate(RobTag(2), crate::core::pipeline::signals::MemWidth::Word);
+        store_buffer.allocate(RobTag(2), crate::core::pipeline::signals::MemWidth::Word, None);
 
         let mut input = vec![Mem1Mem2Entry {
             rob_tag: RobTag(2), // Older store

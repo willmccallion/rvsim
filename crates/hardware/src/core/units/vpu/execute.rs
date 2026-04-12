@@ -1,13 +1,19 @@
 //! Vector instruction execution dispatch.
 //!
 //! Bridges the pipeline (which carries scalar values in latches) to the VPU
-//! execution modules (which operate on the architectural VPR). All vector ops
-//! are serializing, so we can safely read/write the VPR at execute time.
+//! execution modules (which operate on the architectural VPR or VecPrfView).
+//!
+//! Two execution paths:
+//! - **In-order / serializing:** `execute_vec_op()` — writes results to arch VPR
+//!   and applies CSR side effects immediately (used by in-order backend and vsetvl).
+//! - **O3 / deferred:** `execute_vec_op_on()` — writes results to `&mut impl VectorRegFile`
+//!   (typically a `VecPrfView`) and returns side effects for commit-time application.
 
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
+use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{Vxrm, parse_vtype};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::core::units::vpu::{fpu, mask, mem, permute, reduction};
@@ -302,5 +308,138 @@ fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
             // TODO: propagate trap through pipeline
             0
         }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// O3 deferred execution path: operates on VecPrfView, returns side effects
+// ──────────────────────────────────────────────────────────────────────
+
+/// Side effects produced by a deferred vector execution.
+///
+/// These are NOT applied to CSRs immediately. The O3 backend stores them in
+/// the ROB and applies them at commit time.
+#[derive(Clone, Debug, Default)]
+pub struct VecOpResult {
+    /// Scalar result value (vsetvl → new vl; vmv.x.s/vcpop.m/vfirst.m → scalar).
+    pub scalar_result: u64,
+    /// FP exception flags (IEEE 754 NV/DZ/OF/UF/NX bits).
+    pub fp_flags: u8,
+    /// Fixed-point saturation flag (vxsat).
+    pub vxsat: bool,
+}
+
+/// Build execution context from raw CSR values (no Cpu reference needed).
+fn build_ctx_from_csrs(vtype_bits: u64, vl: u64, vstart: u64, vxrm: u64) -> VecExecCtx {
+    let vtype = parse_vtype(vtype_bits);
+    VecExecCtx {
+        sew: vtype.vsew,
+        vl: vl as usize,
+        vstart: vstart as usize,
+        vma: vtype.vma,
+        vta: vtype.vta,
+        vlmul: vtype.vlmul,
+        vm: true, // overridden per-instruction
+        vxrm: Vxrm::from_bits(vxrm as u8),
+    }
+}
+
+/// Execute a non-memory, non-vsetvl vector operation on any `VectorRegFile`.
+///
+/// This is the O3 deferred execution path. It performs the functional
+/// computation on the provided register file (typically a `VecPrfView`) and
+/// returns the side effects (fp_flags, vxsat) without modifying any CSRs.
+///
+/// # Panics
+///
+/// Panics if called with vsetvl or memory vector ops (those have separate paths).
+pub fn execute_vec_op_on<V: VectorRegFile>(
+    vpr: &mut V,
+    vtype_bits: u64,
+    vl: u64,
+    vstart: u64,
+    vxrm: u64,
+    id: &RenameIssueEntry,
+) -> VecOpResult {
+    debug_assert!(
+        !matches!(
+            id.ctrl.vec_op,
+            VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None
+        ),
+        "execute_vec_op_on called with vsetvl/None — use execute_vec_op instead"
+    );
+    debug_assert!(
+        !mem::is_vec_load(id.ctrl.vec_op) && !mem::is_vec_store(id.ctrl.vec_op),
+        "execute_vec_op_on called with memory op — use generate_element_addrs_vrf instead"
+    );
+
+    let vtype = parse_vtype(vtype_bits);
+    if vtype.vill {
+        return VecOpResult::default();
+    }
+
+    let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm);
+    ctx.vm = id.ctrl.vm;
+    let operand1 = build_operand1(id);
+    let vec_op = id.ctrl.vec_op;
+
+    if fpu::is_vec_fp(vec_op) {
+        let result = fpu::vec_fp_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, operand1, &ctx);
+        return VecOpResult {
+            scalar_result: result.scalar_result.unwrap_or(0),
+            fp_flags: result.fp_flags.bits() as u8,
+            vxsat: false,
+        };
+    }
+
+    if reduction::is_reduction(vec_op) {
+        let operand1_ref = VecOperand::Vector(id.ctrl.vs1);
+        let result = reduction::vec_reduce(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1_ref, &ctx);
+        return VecOpResult {
+            scalar_result: result.scalar_result.unwrap_or(0),
+            fp_flags: result.fp_flags.bits() as u8,
+            vxsat: false,
+        };
+    }
+
+    if mask::is_mask_op(vec_op) {
+        let result = mask::vec_mask_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
+        return VecOpResult {
+            scalar_result: result.scalar_result.unwrap_or(0),
+            fp_flags: 0,
+            vxsat: false,
+        };
+    }
+
+    if permute::is_permute(vec_op) {
+        let result = permute::vec_permute_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
+        return VecOpResult {
+            scalar_result: result.scalar_result.unwrap_or(0),
+            fp_flags: 0,
+            vxsat: false,
+        };
+    }
+
+    // Integer arithmetic (default)
+    let result = vec_execute(
+        vec_op,
+        vpr,
+        id.ctrl.vd,
+        id.ctrl.vs2,
+        operand1,
+        vtype.vsew,
+        ctx.vl,
+        ctx.vstart,
+        vtype.vma,
+        vtype.vta,
+        vtype.vlmul,
+        id.ctrl.vm,
+        ctx.vxrm,
+    );
+
+    VecOpResult {
+        scalar_result: result.scalar_result.unwrap_or(0),
+        fp_flags: 0,
+        vxsat: result.vxsat,
     }
 }
