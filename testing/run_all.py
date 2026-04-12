@@ -98,8 +98,14 @@ def main():
     suites = []
 
     if "riscv-tests" not in args.skip:
-        cmd = [PYTHON, os.path.join(ROOT, "testing/run_riscv_tests.py")]
-        suites.append(("riscv-tests (in-process, all PIPELINES)", cmd, None))
+        out = os.path.join(RESULTS_DIR, "riscv-tests.json")
+        cmd = [PYTHON, os.path.join(ROOT, "testing/run_riscv_tests.py"),
+               "--out", out]
+        if args.pipelines:
+            cmd += ["--pipelines", args.pipelines]
+        if args.smoke:
+            cmd += ["--smoke"]
+        suites.append(("riscv-tests multi-config", cmd, out))
 
     if "riscof" not in args.skip:
         out = os.path.join(RESULTS_DIR, "riscof-multi.json")
@@ -155,6 +161,41 @@ def main():
     print("=" * 78)
     print(f"  total: {fmt_seconds(total)}, overall rc={overall_rc}")
     print("=" * 78)
+
+    # ── Failure breakdown ────────────────────────────────────────────────────
+    # The point of running every test on every pipeline config is to learn
+    # which failures are config-invariant (real bugs in correctness logic) vs.
+    # config-specific (a particular pipeline knob trips a corner case). Group
+    # failures by test name and show the pipeline count.
+    any_failures = False
+    for name, _rc, _elapsed, summary in suite_results:
+        if not summary or "results" not in summary:
+            continue
+        bad = [r for r in summary["results"] if r["status"] != "pass"]
+        if not bad:
+            continue
+        any_failures = True
+        print()
+        print(f"  {name} — {len(bad)} non-pass results")
+        # Group by test name → set of pipelines
+        by_test = {}
+        for r in bad:
+            key = r.get("test", r.get("name", "?"))
+            by_test.setdefault(key, []).append(r.get("pipeline", "?"))
+        total_pipelines = len(summary.get("pipelines") or [None])
+        for test in sorted(by_test):
+            pipes = by_test[test]
+            scope = (
+                "ALL configs" if len(pipes) == total_pipelines
+                else f"{len(pipes)}/{total_pipelines} configs"
+            )
+            sample = pipes[0] if len(pipes) == 1 else ""
+            print(f"    {test:40} {scope:20} {sample}")
+    if any_failures:
+        print()
+        print("  → 'ALL configs' = config-invariant (likely correctness bug or "
+              "missing extension)")
+        print("  → 'N/M configs' = config-specific (a particular knob trips it)")
     sys.exit(overall_rc)
 
 

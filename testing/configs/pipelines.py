@@ -113,6 +113,9 @@ PIPELINES = [
 
     # ── FU pool: one unit of each type ────────────────────────────────────────
     # Every FU class becomes a bottleneck; hits structural stall for all types.
+    # Vector FUs are required: when fu_config is overridden, the rvsim FU pool
+    # creates ONLY the units listed here, so omitting Vec* would deadlock any
+    # vector op. Each variant scales scalar and vector pools together.
     ("o3 w4 fu-minimal",    Config(width=4, backend=Backend.OutOfOrder(fu_config=Fu([
         Fu.IntAlu(count=1, latency=1),
         Fu.IntMul(count=1, latency=3),
@@ -123,6 +126,14 @@ PIPELINES = [
         Fu.FpDivSqrt(count=1, latency=21),
         Fu.Branch(count=1, latency=1),
         Fu.Mem(count=1, latency=1),
+        Fu.VecIntAlu(count=1, latency=1),
+        Fu.VecIntMul(count=1, latency=3),
+        Fu.VecIntDiv(count=1, latency=35),
+        Fu.VecFpAlu(count=1, latency=4),
+        Fu.VecFpFma(count=1, latency=5),
+        Fu.VecFpDivSqrt(count=1, latency=21),
+        Fu.VecMem(count=1, latency=1),
+        Fu.VecPermute(count=1, latency=1),
     ])))),
     # Two of each, moderate latencies: intermediate structural pressure.
     ("o3 w4 fu-mid",        Config(width=4, backend=Backend.OutOfOrder(fu_config=Fu([
@@ -135,6 +146,14 @@ PIPELINES = [
         Fu.FpDivSqrt(count=1, latency=30),
         Fu.Branch(count=2, latency=1),
         Fu.Mem(count=2, latency=1),
+        Fu.VecIntAlu(count=2, latency=1),
+        Fu.VecIntMul(count=2, latency=4),
+        Fu.VecIntDiv(count=1, latency=35),
+        Fu.VecFpAlu(count=2, latency=6),
+        Fu.VecFpFma(count=2, latency=7),
+        Fu.VecFpDivSqrt(count=1, latency=30),
+        Fu.VecMem(count=2, latency=1),
+        Fu.VecPermute(count=2, latency=1),
     ])))),
     # Many units, long latencies: deep in-flight chains, stresses wakeup logic.
     ("o3 w4 fu-wide",       Config(width=4, backend=Backend.OutOfOrder(fu_config=Fu([
@@ -147,6 +166,14 @@ PIPELINES = [
         Fu.FpDivSqrt(count=2, latency=40),
         Fu.Branch(count=4, latency=1),
         Fu.Mem(count=4, latency=1),
+        Fu.VecIntAlu(count=8, latency=1),
+        Fu.VecIntMul(count=4, latency=6),
+        Fu.VecIntDiv(count=2, latency=35),
+        Fu.VecFpAlu(count=4, latency=8),
+        Fu.VecFpFma(count=4, latency=10),
+        Fu.VecFpDivSqrt(count=2, latency=40),
+        Fu.VecMem(count=4, latency=1),
+        Fu.VecPermute(count=4, latency=1),
     ])))),
     # High latencies across all units: maximises data-hazard stall counts.
     ("o3 w4 fu-slow",       Config(width=4, backend=Backend.OutOfOrder(fu_config=Fu([
@@ -159,6 +186,14 @@ PIPELINES = [
         Fu.FpDivSqrt(count=1, latency=50),
         Fu.Branch(count=2, latency=2),
         Fu.Mem(count=2, latency=2),
+        Fu.VecIntAlu(count=4, latency=4),
+        Fu.VecIntMul(count=1, latency=10),
+        Fu.VecIntDiv(count=1, latency=60),
+        Fu.VecFpAlu(count=2, latency=10),
+        Fu.VecFpFma(count=2, latency=12),
+        Fu.VecFpDivSqrt(count=1, latency=50),
+        Fu.VecMem(count=2, latency=2),
+        Fu.VecPermute(count=2, latency=2),
     ])))),
 
     # ── LSU ports ─────────────────────────────────────────────────────────────

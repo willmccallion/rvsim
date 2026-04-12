@@ -67,9 +67,24 @@ if [ ! -x "$GEN_DIR/build/generator" ]; then
   (cd "$GEN_DIR" && go build -o build/generator)
 fi
 
+# ── Cache check: skip everything if a previous build had identical inputs ────
+ELF_DIR=$BUILD/vlen${VLEN}
+STAMP_FILE=$ELF_DIR/.build-stamp
+# Stamp records (VLEN, XLEN, MARCH, PATTERN, generator mtime). If all match,
+# the existing ELFs are still valid and we skip generation+compilation.
+GEN_MTIME=$(stat -c %Y "$GEN_DIR/build/generator" 2>/dev/null || echo 0)
+WANT_STAMP="vlen=$VLEN xlen=$XLEN march=$MARCH pattern=$PATTERN gen_mtime=$GEN_MTIME"
+if [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$WANT_STAMP" ]; then
+  NUM_ELF=$(find "$ELF_DIR" -name '*.elf' -type f | wc -l)
+  log "Cached: $NUM_ELF ELFs in $ELF_DIR (stamp matches)"
+  log "  to force rebuild: rm $STAMP_FILE  (or change VLEN/PATTERN/MARCH)"
+  exit 0
+fi
+
 # ── 3. Generate stage1 .S files ──────────────────────────────────────────────
 STAGE1=$BUILD/stage1
-mkdir -p "$STAGE1"
+rm -rf "$STAGE1" "$ELF_DIR"
+mkdir -p "$STAGE1" "$ELF_DIR"
 log "Generating stage1 tests (VLEN=$VLEN XLEN=$XLEN pattern='$PATTERN')"
 log "  MARCH=$MARCH"
 (cd "$GEN_DIR" && \
@@ -94,8 +109,6 @@ if [ "$NUM_S" -eq 0 ]; then
 fi
 
 # ── 4. Strip magic insns + compile in parallel ───────────────────────────────
-ELF_DIR=$BUILD/vlen${VLEN}
-mkdir -p "$ELF_DIR"
 
 compile_one() {
   local s=$1
@@ -128,3 +141,6 @@ log "Built $NUM_ELF / $NUM_S ELFs into $ELF_DIR"
 if [ "$NUM_ELF" -lt "$NUM_S" ]; then
   echo "WARNING: $((NUM_S - NUM_ELF)) tests failed to compile" >&2
 fi
+
+# Stamp the dir so the next build with identical inputs is a no-op.
+echo "$WANT_STAMP" > "$STAMP_FILE"

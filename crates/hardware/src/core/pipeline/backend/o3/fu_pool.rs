@@ -483,6 +483,25 @@ impl FuPool {
             true,
         );
 
+        // Safety net: guarantee at least 1 of each vector FU type exists.
+        // Custom fu_configs that only list scalar FUs would otherwise deadlock
+        // on any vector instruction.
+        let vec_defaults: &[(FuType, u64, bool)] = &[
+            (FuType::VecIntAlu, default_vec_int_alu_latency(), true),
+            (FuType::VecIntMul, default_vec_int_mul_latency(), true),
+            (FuType::VecIntDiv, default_vec_int_div_latency(), false),
+            (FuType::VecFpAlu, default_vec_fp_alu_latency(), true),
+            (FuType::VecFpFma, default_vec_fp_fma_latency(), true),
+            (FuType::VecFpDivSqrt, default_vec_fp_div_sqrt_latency(), false),
+            (FuType::VecMem, default_vec_mem_latency(), true),
+            (FuType::VecPermute, default_vec_permute_latency(), true),
+        ];
+        for &(ft, lat, pipe) in vec_defaults {
+            if !units.iter().any(|u| u.fu_type == ft) {
+                units.push(FuUnit { fu_type: ft, latency: lat, is_pipelined: pipe, busy_until: 0 });
+            }
+        }
+
         Self { units }
     }
 
