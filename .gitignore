@@ -15,11 +15,14 @@ site/
 
 # Linux build output
 software/linux/
-software/riscv-tests/
 software/bin
 software/build
 
+# All test build artifacts (cloned sources, built spike, generated/compiled
+# test ELFs, riscof work dir, JSON result files) live under testing/builds/.
+testing/builds/
+# Legacy: pre-2026-04 paths, kept until safe to remove.
 testing/riscof/riscof_work/
-testing/vector/third_party
-testing/vector/build
-testing/vector/results
+testing/vector/third_party/
+testing/vector/build/
+testing/vector/results/

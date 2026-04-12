@@ -24,7 +24,9 @@ from rvsim._core import Cpu  # noqa: E402
 from rvsim.config import _config_to_dict  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPIKE = os.path.join(HERE, "third_party", "spike-install", "bin", "spike")
+TESTING = os.path.dirname(HERE)
+BUILDS = os.path.join(TESTING, "builds")
+SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
 READELF = "riscv64-elf-readelf"
 
 

@@ -15,10 +15,11 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-THIRD=$HERE/third_party
-GEN_DIR=$THIRD/riscv-vector-tests
-SPIKE_DIR=$THIRD/spike-install
-BUILD=$HERE/build
+TESTING=$(cd "$HERE/.." && pwd)
+BUILDS=$TESTING/builds
+GEN_DIR=$BUILDS/riscv-vector-tests
+SPIKE_DIR=$BUILDS/spike-install
+BUILD=$BUILDS/vector
 
 VLEN=${VLEN:-128}
 XLEN=${XLEN:-64}
@@ -50,7 +51,7 @@ log() { printf "${GREEN}[vector]${RESET} %s\n" "$*"; }
 # ── 1. Clone generator if needed ─────────────────────────────────────────────
 if [ ! -d "$GEN_DIR" ]; then
   log "Cloning chipsalliance/riscv-vector-tests"
-  mkdir -p "$THIRD"
+  mkdir -p "$BUILDS"
   git clone --depth 1 https://github.com/chipsalliance/riscv-vector-tests.git "$GEN_DIR"
 fi
 

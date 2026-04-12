@@ -35,7 +35,10 @@ endif
 # ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
-.PHONY: arch-test vector-test vector-test-build vector-test-smoke
+.PHONY: arch-test arch-test-multi
+.PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
+.PHONY: riscv-tests riscv-tests-build
+.PHONY: test-all
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -61,10 +64,15 @@ help:
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
 	@printf "    %-$(HELP_W)s  fmt-check + clippy\n" "make lint"
 	@printf "    %-$(HELP_W)s  Full pre-release check (git+lint+test+versions+build)\n" "make prerelease"
+	@printf "    %-$(HELP_W)s  Build riscv-tests ELFs (one-time)\n" "make riscv-tests-build"
+	@printf "    %-$(HELP_W)s  Run riscv-tests across all PIPELINES\n" "make riscv-tests"
 	@printf "    %-$(HELP_W)s  Run riscv-arch-test compliance suite via riscof\n" "make arch-test"
-	@printf "    %-$(HELP_W)s  Build chipsalliance RVV test ELFs\n" "make vector-test-build"
+	@printf "    %-$(HELP_W)s  Run riscof tests across all PIPELINES\n" "make arch-test-multi"
+	@printf "    %-$(HELP_W)s  Build chipsalliance RVV test ELFs (one-time)\n" "make vector-test-build"
 	@printf "    %-$(HELP_W)s  Run RVV cosim suite (rvsim vs spike)\n" "make vector-test"
 	@printf "    %-$(HELP_W)s  Smoke RVV suite (vadd/vsub/vmul/etc only)\n" "make vector-test-smoke"
+	@printf "    %-$(HELP_W)s  Run RVV cosim across all PIPELINES (slow)\n" "make vector-test-multi"
+	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
@@ -154,40 +162,79 @@ arch-test:
 		printf "$(GREEN)Cloning riscv-arch-test suite…$(RESET)\n"; \
 		.venv/bin/riscof arch-test --clone --dir testing/riscof/riscv-arch-test; \
 	fi
+	@mkdir -p testing/builds/riscof-work
 	cd testing/riscof && ../../.venv/bin/riscof run --no-browser \
 		--config config.ini \
 		--suite riscv-arch-test/riscv-test-suite/ \
-		--env riscv-arch-test/riscv-test-suite/env
+		--env riscv-arch-test/riscv-test-suite/env \
+		--work-dir ../builds/riscof-work
 
-# ── Vector tests (chipsalliance generator + spike cosim) ──────────────────────
-# Required local spike: testing/vector/third_party/spike-install/bin/spike
-# Built from source because Arch's spike 1.1.0 is too old for modern Z exts.
-VECTOR_DIR     := testing/vector
+# ── Centralized test build artifact directory ────────────────────────────────
+TESTING_BUILDS := testing/builds
+SPIKE_LOCAL    := $(TESTING_BUILDS)/spike-install/bin/spike
 VECTOR_PATTERN ?= .*
 VECTOR_VLEN    ?= 128
 
-$(VECTOR_DIR)/third_party/spike-install/bin/spike:
+$(SPIKE_LOCAL):
 	@printf "$(GREEN)Building local spike from source (one-time, ~2 min)…$(RESET)\n"
-	@mkdir -p $(VECTOR_DIR)/third_party
-	@if [ ! -d $(VECTOR_DIR)/third_party/spike-src ]; then \
+	@mkdir -p $(TESTING_BUILDS)
+	@if [ ! -d $(TESTING_BUILDS)/spike-src ]; then \
 		git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git \
-			$(VECTOR_DIR)/third_party/spike-src; \
+			$(TESTING_BUILDS)/spike-src; \
 	fi
-	@mkdir -p $(VECTOR_DIR)/third_party/spike-build
-	@cd $(VECTOR_DIR)/third_party/spike-build && \
+	@mkdir -p $(TESTING_BUILDS)/spike-build
+	@cd $(TESTING_BUILDS)/spike-build && \
 		../spike-src/configure --prefix=$$(pwd)/../spike-install >/dev/null && \
 		$(MAKE) -j$$(nproc) install >/dev/null
 
-vector-test-build: $(VECTOR_DIR)/third_party/spike-install/bin/spike
+# ── riscv-tests source + build (was software/riscv-tests) ─────────────────────
+$(TESTING_BUILDS)/riscv-tests:
+	@printf "$(GREEN)Cloning riscv-tests…$(RESET)\n"
+	@mkdir -p $(TESTING_BUILDS)
+	git clone --depth 1 https://github.com/riscv-software-src/riscv-tests.git \
+		$(TESTING_BUILDS)/riscv-tests
+	cd $(TESTING_BUILDS)/riscv-tests && git submodule update --init --recursive
+
+riscv-tests-build: $(TESTING_BUILDS)/riscv-tests
+	@printf "$(GREEN)Building riscv-tests ISA suite…$(RESET)\n"
+	$(MAKE) RISCV_PREFIX=riscv64-elf- -C $(TESTING_BUILDS)/riscv-tests/isa XLEN=64
+
+riscv-tests: riscv-tests-build python
+	@printf "$(GREEN)Running riscv-tests across all PIPELINES…$(RESET)\n"
+	.venv/bin/python testing/run_riscv_tests.py
+
+# ── Vector tests (chipsalliance generator + spike cosim) ──────────────────────
+vector-test-build: $(SPIKE_LOCAL)
 	@printf "$(GREEN)Building RVV test ELFs (VLEN=$(VECTOR_VLEN), pattern='$(VECTOR_PATTERN)')…$(RESET)\n"
-	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash $(VECTOR_DIR)/build_tests.sh
+	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash testing/vector/build_tests.sh
 
 vector-test: vector-test-build python
 	@printf "$(GREEN)Running RVV cosim suite (rvsim vs spike)…$(RESET)\n"
-	.venv/bin/python $(VECTOR_DIR)/run_vector_tests.py --vlen $(VECTOR_VLEN)
+	.venv/bin/python testing/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
 
 vector-test-smoke:
 	@$(MAKE) vector-test VECTOR_PATTERN='^v(add|sub|and|or|xor|sll|srl|sra|min|max|mul)\.'
+
+# ── Multi-config runners ──────────────────────────────────────────────────────
+# Each runs every test in its suite across every Config in
+# testing/configs/pipelines.py.
+arch-test-multi: arch-test python
+	@printf "$(GREEN)Running riscof tests across all PIPELINES…$(RESET)\n"
+	.venv/bin/python testing/run_riscof_tests.py
+
+vector-test-multi: vector-test-build python
+	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
+	.venv/bin/python testing/run_vector_tests_multi.py --vlen $(VECTOR_VLEN)
+
+# ── The big one ──────────────────────────────────────────────────────────────
+# Builds everything, runs every suite × every PIPELINES config, prints unified
+# summary, exits non-zero on any failure. Several CPU-hours.
+test-all: riscv-tests-build $(TESTING_BUILDS)/riscof-work vector-test-build python
+	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
+	.venv/bin/python testing/run_all.py
+
+$(TESTING_BUILDS)/riscof-work:
+	@$(MAKE) arch-test
 
 prerelease:
 	@tools/prerelease
