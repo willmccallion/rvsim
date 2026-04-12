@@ -13,7 +13,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::SystemOp;
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
@@ -242,12 +242,12 @@ impl IssueQueue {
 
         // Track v0 mask register dependency for masked vector ops (vm=0).
         let needs_mask = !entry.ctrl.vm
-            && entry.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None
+            && entry.ctrl.vec_op != VectorOp::None
             && !matches!(
                 entry.ctrl.vec_op,
-                crate::core::pipeline::signals::VectorOp::Vsetvli
-                    | crate::core::pipeline::signals::VectorOp::Vsetivli
-                    | crate::core::pipeline::signals::VectorOp::Vsetvl
+                VectorOp::Vsetvli
+                    | VectorOp::Vsetivli
+                    | VectorOp::Vsetvl
             );
         let mask_phys = if needs_mask {
             // v0 physical register from the rename map (captured in entry)

@@ -12,7 +12,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::signals::{ControlFlow, VectorOp};
 use crate::core::units::vpu::mem::is_vec_store;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::trace_rename;
@@ -262,7 +262,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src2_count,
                 vec_src3_count,
                 // Physical register for v0 mask (needed for masked vector ops)
-                mask_phys: if !id.ctrl.vm && id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
+                mask_phys: if !id.ctrl.vm && id.ctrl.vec_op != VectorOp::None {
                     engine.rename_map().get_vec(VRegIdx::new(0))
                 } else {
                     VecPhysReg::ZERO

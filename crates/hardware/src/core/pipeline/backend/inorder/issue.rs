@@ -11,6 +11,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::signals::SystemOp;
+use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::trace_issue;
 
@@ -112,8 +113,7 @@ impl InOrderIssueUnit {
             // Vector memory ops access memory directly via the bus (in-order
             // backend), bypassing the store buffer. They must wait for ALL
             // older instructions to complete so that memory state is consistent.
-            if (crate::core::units::vpu::mem::is_vec_load(entry.ctrl.vec_op)
-                || crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op))
+            if (is_vec_load(entry.ctrl.vec_op) || is_vec_store(entry.ctrl.vec_op))
                 && !rob.all_before_completed(entry.rob_tag)
             {
                 break;
