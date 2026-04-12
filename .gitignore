@@ -21,3 +21,5 @@ software/build
 
 testing/riscof/riscof_work/
 testing/vector/third_party
+testing/vector/build
+testing/vector/results
