@@ -255,6 +255,8 @@ pub struct RenameIssueEntry {
     pub vec_src2_count: u8,
     /// Number of registers in vs3 LMUL group.
     pub vec_src3_count: u8,
+    /// Physical register for v0 mask (populated by rename for masked vector ops).
+    pub mask_phys: VecPhysReg,
 }
 
 /// Entry from Execute -> Memory1 latch.

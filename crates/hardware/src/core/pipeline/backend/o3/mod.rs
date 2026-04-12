@@ -29,7 +29,10 @@ use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
-use crate::core::units::vpu::types::{NumLanes, VRegIdx, VecPhysReg, Vlen};
+use crate::core::units::vpu::execute::VecOpResult;
+use crate::core::units::vpu::mem::{generate_element_addrs_vrf, is_vec_load, is_vec_store};
+use crate::core::units::vpu::types::{ElemIdx, NumLanes, VRegIdx, VecPhysReg, Vlen};
+use crate::core::pipeline::vec_prf::VecPrfView;
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;

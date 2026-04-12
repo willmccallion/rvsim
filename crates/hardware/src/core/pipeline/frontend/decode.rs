@@ -1271,7 +1271,6 @@ const fn decode_vec_load(inst: u32, funct3: u32, c: &mut ControlSignals) -> Resu
     c.vd = VRegIdx::new(vd_raw);
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = true;
-    c.system_op = SystemOp::System; // serializing
 
     match mop {
         MOP_UNIT => {
@@ -1325,7 +1324,6 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
     c.vd = VRegIdx::new(vd_raw); // vd is vs3 (store data) for stores
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = false; // stores don't write vector registers
-    c.system_op = SystemOp::System; // serializing
 
     match mop {
         MOP_UNIT => {

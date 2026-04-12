@@ -261,6 +261,12 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src1_count,
                 vec_src2_count,
                 vec_src3_count,
+                // Physical register for v0 mask (needed for masked vector ops)
+                mask_phys: if !id.ctrl.vm && id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
+                    engine.rename_map().get_vec(VRegIdx::new(0))
+                } else {
+                    VecPhysReg::ZERO
+                },
             };
 
             trace_rename!(cpu.trace;
@@ -352,6 +358,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src1_count: 0,
                 vec_src2_count: 0,
                 vec_src3_count: 0,
+                mask_phys: VecPhysReg::ZERO,
             };
 
             trace_rename!(cpu.trace;

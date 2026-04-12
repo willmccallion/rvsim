@@ -104,25 +104,46 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
     };
     let op_c = fwd_c;
 
-    // Vector operations: dispatch to VPU, flush pipeline (still serializing).
-    // Vector ops are intercepted here before the system-instruction handler
-    // because they carry `system_op = System` (serializing) but aren't MRET/CSR/etc.
+    // Vector operations: intercept before the system-instruction handler.
     if id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
-        let scalar_result = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
-        // Redirect PC to the next instruction and signal the frontend to flush,
-        // just like FENCE.I and the InOrder vector handler do. Without this,
-        // Pipeline::tick() never flushes the frontend, so already-fetched
-        // wrong-path instructions keep flowing into the backend.
-        cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-        cpu.redirect_pending = true;
+        use crate::core::pipeline::signals::VectorOp;
+
+        // vsetvl family: still serializing — modifies CSR state that affects decode.
+        if matches!(id.ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl) {
+            let scalar_result = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
+            cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+            cpu.redirect_pending = true;
+            let result = ExMem1Entry {
+                rob_tag: id.rob_tag,
+                pc: id.pc,
+                inst: id.inst,
+                inst_size: id.inst_size,
+                rd: id.rd,
+                alu: scalar_result,
+                store_data: 0,
+                ctrl: id.ctrl,
+                trap: None,
+                exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
+                sfence_vma: None,
+                vec_mem: None,
+            };
+            return (result, true);
+        }
+
+        // Non-vsetvl vector ops: do NOT execute here. Functional execution is
+        // deferred to O3Engine::tick() where VecPrfView is available.
+        // Return the entry with base address (alu) and stride/rs2 (store_data)
+        // for address generation by generate_element_addrs_vrf.
         let result = ExMem1Entry {
             rob_tag: id.rob_tag,
             pc: id.pc,
             inst: id.inst,
             inst_size: id.inst_size,
             rd: id.rd,
-            alu: scalar_result,
-            store_data: 0,
+            alu: op_a,          // rs1 base address for vector memory ops
+            store_data: fwd_b,  // rs2 (stride for strided ops, index reg for indexed)
             ctrl: id.ctrl,
             trap: None,
             exception_stage: None,
@@ -131,7 +152,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, true);
+        return (result, false); // no flush
     }
 
     // FENCE.I: flush the pipeline so younger instructions are squashed.
@@ -1025,6 +1046,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1087,6 +1109,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1152,6 +1175,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1221,6 +1245,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1289,6 +1314,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);
@@ -1355,6 +1381,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         };
 
         let (_result, flush) = execute_one(&mut cpu, issue, &mut rob);

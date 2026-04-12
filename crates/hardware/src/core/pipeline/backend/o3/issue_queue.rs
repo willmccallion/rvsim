@@ -13,7 +13,7 @@ use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::{SystemOp, VectorOp};
+use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
@@ -136,6 +136,12 @@ pub struct IssueQueueEntry {
     pub vec_src3: VecOperandState,
     /// Cached memory dependency state (set once at dispatch).
     pub mem_dep: MemDepState,
+    /// Physical register for v0 mask (tracked for masked vector ops).
+    pub mask_phys: VecPhysReg,
+    /// Whether the mask register v0 is ready.
+    pub mask_ready: bool,
+    /// Whether this instruction requires a ready mask register (vm=0 for vector ops).
+    pub needs_mask: bool,
 }
 
 /// An instruction selected from the IQ for execution.
@@ -234,8 +240,47 @@ impl IssueQueue {
             vec_src3.check_ready(vprf);
         }
 
-        let iq_entry =
-            IssueQueueEntry { entry, src1, src2, src3, vec_src1, vec_src2, vec_src3, mem_dep };
+        // Track v0 mask register dependency for masked vector ops (vm=0).
+        let needs_mask = !entry.ctrl.vm
+            && entry.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None
+            && !matches!(
+                entry.ctrl.vec_op,
+                crate::core::pipeline::signals::VectorOp::Vsetvli
+                    | crate::core::pipeline::signals::VectorOp::Vsetivli
+                    | crate::core::pipeline::signals::VectorOp::Vsetvl
+            );
+        let mask_phys = if needs_mask {
+            // v0 physical register from the rename map (captured in entry)
+            // v0 is at VRegIdx(0) — its physical mapping is vs1_phys[0] only
+            // if vs1 == v0. We need the rename map's mapping for v0, which
+            // is not directly in the entry. Use the vec_prf identity for now:
+            // the rename stage should populate this. For now, read from the
+            // first slot of the rename map via a helper on the entry.
+            //
+            // The correct mapping is stored by rename in the entry's vs-phys
+            // arrays only if vs1/vs2/vs3 happens to be v0. We need a dedicated
+            // field. For now, we'll add it to RenameIssueEntry.
+            //
+            // TEMPORARY: use VecPhysReg::ZERO (always ready) until
+            // RenameIssueEntry is extended with mask_phys field.
+            entry.mask_phys
+        } else {
+            VecPhysReg::ZERO
+        };
+        let mask_ready = if needs_mask {
+            if let Some(vprf) = vec_prf {
+                vprf.is_ready(mask_phys)
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+
+        let iq_entry = IssueQueueEntry {
+            entry, src1, src2, src3, vec_src1, vec_src2, vec_src3, mem_dep,
+            mask_phys, mask_ready, needs_mask,
+        };
 
         // Find first free slot
         for slot in &mut self.slots {
@@ -342,6 +387,10 @@ impl IssueQueue {
             iq.vec_src1.wakeup_check(p, vec_prf);
             iq.vec_src2.wakeup_check(p, vec_prf);
             iq.vec_src3.wakeup_check(p, vec_prf);
+            // Mask register v0 wakeup
+            if iq.needs_mask && !iq.mask_ready && iq.mask_phys == p {
+                iq.mask_ready = vec_prf.is_ready(p);
+            }
         }
     }
 
@@ -383,7 +432,8 @@ impl IssueQueue {
                         && iq.src3.readiness.is_ready()
                         && iq.vec_src1.ready
                         && iq.vec_src2.ready
-                        && iq.vec_src3.ready);
+                        && iq.vec_src3.ready
+                        && iq.mask_ready);
                 // PRF validation: if an operand was speculatively woken (IQ says
                 // ready) but the PRF still says not-ready, the speculative wakeup
                 // hasn't been confirmed yet — treat as not ready.
@@ -416,12 +466,18 @@ impl IssueQueue {
                     {
                         continue;
                     }
-                    // Vector instructions access memory directly via the bus,
-                    // bypassing the store buffer. They must not issue until all
-                    // committed stores have drained to memory.
-                    if iq.entry.ctrl.vec_op != VectorOp::None && store_buffer.has_committed_stores()
+                    // Vector memory ops: store ordering. SB entries are allocated
+                    // at execute time and commit-drained, so we only need to wait
+                    // for older unresolved stores + committed store drain.
                     {
-                        continue;
+                        use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+                        let vop = iq.entry.ctrl.vec_op;
+                        if (is_vec_load(vop) || is_vec_store(vop))
+                            && (store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
+                                || store_buffer.has_committed_stores())
+                        {
+                            continue;
+                        }
                     }
                     // FENCE: wait for older operations matching pred bits to complete.
                     if iq.entry.ctrl.system_op == SystemOp::Fence {
@@ -703,6 +759,7 @@ mod tests {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
+            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
         }
     }
 
@@ -739,6 +796,9 @@ mod tests {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
         });
         iq.count = 1;
 
@@ -767,6 +827,9 @@ mod tests {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
         });
         iq.count = 1;
 
@@ -800,6 +863,9 @@ mod tests {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
         });
         iq.count = 1;
 
@@ -827,6 +893,9 @@ mod tests {
                 vec_src2: VecOperandState::default(),
                 vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
+                mask_phys: VecPhysReg::ZERO,
+                mask_ready: true,
+                needs_mask: false,
             });
         }
         iq.count = 3;
@@ -858,6 +927,9 @@ mod tests {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
         });
         iq.slots[5] = Some(IssueQueueEntry {
             entry: make_entry(2),
@@ -868,6 +940,9 @@ mod tests {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
         });
         iq.count = 2;
 
@@ -889,6 +964,9 @@ mod tests {
                 vec_src2: VecOperandState::default(),
                 vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
+                mask_phys: VecPhysReg::ZERO,
+                mask_ready: true,
+                needs_mask: false,
             });
         }
         iq.count = 4;
@@ -917,6 +995,9 @@ mod tests {
                 vec_src2: VecOperandState::default(),
                 vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
+                mask_phys: VecPhysReg::ZERO,
+                mask_ready: true,
+                needs_mask: false,
             });
         }
         iq.count = 3;
@@ -952,6 +1033,9 @@ mod tests {
                 vec_src2: VecOperandState::default(),
                 vec_src3: VecOperandState::default(),
                 mem_dep: MemDepState::None,
+                mask_phys: VecPhysReg::ZERO,
+                mask_ready: true,
+                needs_mask: false,
             });
         }
         iq.count = 5;
