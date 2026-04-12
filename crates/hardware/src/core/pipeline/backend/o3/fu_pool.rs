@@ -76,6 +76,21 @@ impl FuType {
         }
     }
 
+    /// Returns true if this FU type is a vector execution unit.
+    pub const fn is_vector(self) -> bool {
+        matches!(
+            self,
+            Self::VecIntAlu
+                | Self::VecIntMul
+                | Self::VecIntDiv
+                | Self::VecFpAlu
+                | Self::VecFpFma
+                | Self::VecFpDivSqrt
+                | Self::VecMem
+                | Self::VecPermute
+        )
+    }
+
     /// Classify an instruction's FU type from its control signals.
     pub fn classify(ctrl: &ControlSignals) -> Self {
         // Check vector operations first
@@ -548,6 +563,13 @@ impl FuPool {
     /// Returns whether the first unit of `fu_type` is pipelined.
     pub fn is_pipelined(&self, fu_type: FuType) -> bool {
         self.units.iter().find(|u| u.fu_type == fu_type).is_none_or(|u| u.is_pipelined)
+    }
+
+    /// Returns the startup latency (pipeline depth) for the given FU type.
+    /// This is the per-unit latency configured at pool creation time.
+    #[must_use]
+    pub fn startup_latency(&self, fu_type: FuType) -> u64 {
+        self.units.iter().find(|u| u.fu_type == fu_type).map_or(1, |u| u.latency)
     }
 }
 

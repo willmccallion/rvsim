@@ -68,6 +68,7 @@ pub fn memory2_stage(
                 pte_update: mem.pte_update,
                 sfence_vma: mem.sfence_vma,
                 lr_sc: None,
+                vec_mem: mem.vec_mem,
             });
             // Trap: remaining entries stay in the input latch for next cycle.
             // They will be flushed by the commit-stage trap handler, but must
@@ -401,6 +402,7 @@ pub fn memory2_stage(
             pte_update: mem.pte_update,
             sfence_vma: mem.sfence_vma,
             lr_sc,
+            vec_mem: mem.vec_mem,
         });
 
         if trap.is_some() {
@@ -449,6 +451,7 @@ mod tests {
             complete_cycle: 10,
             pte_update: None,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -487,6 +490,7 @@ mod tests {
             complete_cycle: 10,
             pte_update: None,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -533,6 +537,7 @@ mod tests {
             complete_cycle: 10,
             pte_update: None,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -567,6 +572,7 @@ mod tests {
             complete_cycle: 10,
             pte_update: None,
             sfence_vma: None,
+            vec_mem: None,
         }];
 
         memory2_stage(&mut cpu, &mut input_sc, &mut output, &mut store_buffer, &mut rob, None);
@@ -617,6 +623,7 @@ mod tests {
             complete_cycle: 10,
             pte_update: None,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 

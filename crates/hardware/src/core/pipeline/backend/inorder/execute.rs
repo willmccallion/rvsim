@@ -75,6 +75,7 @@ pub fn execute_inorder(
                 rd_phys: PhysReg::default(),
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             });
             flush_remaining = true;
             continue;
@@ -134,6 +135,7 @@ pub fn execute_inorder(
                 rd_phys: PhysReg::default(),
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             });
             continue;
         }
@@ -163,6 +165,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -181,6 +184,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -209,6 +213,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -234,6 +239,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -253,6 +259,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -286,6 +293,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -315,6 +323,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -351,6 +360,7 @@ pub fn execute_inorder(
                         rs1_val: fwd_a,
                         rs2_val: fwd_b,
                     }),
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -383,6 +393,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -414,6 +425,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -462,6 +474,7 @@ pub fn execute_inorder(
                                 rd_phys: PhysReg::default(),
                                 fp_flags: 0,
                                 sfence_vma: None,
+                                vec_mem: None,
                             });
                             continue;
                         }
@@ -490,6 +503,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -517,6 +531,7 @@ pub fn execute_inorder(
                         rd_phys: PhysReg::default(),
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     });
                     continue;
                 }
@@ -553,6 +568,7 @@ pub fn execute_inorder(
                             rd_phys: PhysReg::default(),
                             fp_flags: 0,
                             sfence_vma: None,
+                            vec_mem: None,
                         });
                         continue;
                     }
@@ -623,6 +639,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -652,6 +669,7 @@ pub fn execute_inorder(
                     rd_phys: PhysReg::default(),
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 });
                 continue;
             }
@@ -685,6 +703,7 @@ pub fn execute_inorder(
                 rd_phys: PhysReg::default(),
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             });
             continue;
         }
@@ -824,6 +843,7 @@ pub fn execute_inorder(
             rd_phys: PhysReg::default(),
             fp_flags,
             sfence_vma: None,
+            vec_mem: None,
         });
     }
 

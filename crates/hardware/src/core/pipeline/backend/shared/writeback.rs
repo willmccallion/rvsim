@@ -116,6 +116,7 @@ mod tests {
             pte_update: None,
             sfence_vma: None,
             lr_sc: None,
+            vec_mem: None,
         }];
 
         writeback_stage(&mut cpu, &mut input, &mut rob);
@@ -162,6 +163,7 @@ mod tests {
             pte_update: None,
             sfence_vma: None,
             lr_sc: None,
+            vec_mem: None,
         }];
 
         writeback_stage(&mut cpu, &mut input, &mut rob);

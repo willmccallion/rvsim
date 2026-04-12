@@ -61,6 +61,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             rd_phys: id.rd_phys,
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
         return (result, true);
     }
@@ -128,6 +129,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             rd_phys: id.rd_phys,
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
         return (result, true);
     }
@@ -160,6 +162,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
             rd_phys: id.rd_phys,
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
         return (result, true);
     }
@@ -189,6 +192,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
                 rd_phys: id.rd_phys,
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             };
             return (result, true);
         }
@@ -358,6 +362,7 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
         rd_phys: id.rd_phys,
         fp_flags,
         sfence_vma: None,
+        vec_mem: None,
     };
 
     (result, needs_flush)
@@ -386,6 +391,7 @@ fn execute_system(
             rd_phys: id.rd_phys,
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
 
     // MRET: requires M-mode privilege (spec §3.3.2)
@@ -486,6 +492,7 @@ fn execute_system(
                     rd_phys: id.rd_phys,
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 },
                 true,
             );
@@ -511,6 +518,7 @@ fn execute_system(
                     rs1_val: fwd_a,
                     rs2_val: store_data,
                 }),
+                vec_mem: None,
             },
             false,
         );
@@ -577,6 +585,7 @@ fn execute_csr(
                 rd_phys: id.rd_phys,
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             },
             true,
         );
@@ -621,6 +630,7 @@ fn execute_csr(
                         rd_phys: id.rd_phys,
                         fp_flags: 0,
                         sfence_vma: None,
+                        vec_mem: None,
                     },
                     true,
                 );
@@ -646,6 +656,7 @@ fn execute_csr(
                 rd_phys: id.rd_phys,
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             },
             true,
         );
@@ -670,6 +681,7 @@ fn execute_csr(
                 rd_phys: id.rd_phys,
                 fp_flags: 0,
                 sfence_vma: None,
+                vec_mem: None,
             },
             true,
         );
@@ -701,6 +713,7 @@ fn execute_csr(
                     rd_phys: id.rd_phys,
                     fp_flags: 0,
                     sfence_vma: None,
+                    vec_mem: None,
                 },
                 true,
             );
@@ -790,6 +803,7 @@ fn execute_csr(
             rd_phys: id.rd_phys,
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         },
         needs_flush,
     )

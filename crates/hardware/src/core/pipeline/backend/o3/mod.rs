@@ -15,7 +15,9 @@ use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
-use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::core::pipeline::latches::{
+    ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, VecMemElement, VecMemInflightIdx,
+};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
@@ -27,7 +29,7 @@ use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
-use crate::core::units::vpu::types::{VRegIdx, VecPhysReg, Vlen};
+use crate::core::units::vpu::types::{NumLanes, VRegIdx, VecPhysReg, Vlen};
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
@@ -105,6 +107,45 @@ pub struct O3Engine {
     pub vec_free_list: FreeList<VecPhysReg>,
     /// Pending vector results tracking chaining wakeup and completion.
     pub vec_pending: Vec<VecPendingResult>,
+    /// Number of vector execution lanes (derived from VLEN / 64, min 1).
+    pub num_vec_lanes: NumLanes,
+    /// Pending vector memory micro-ops waiting to enter the memory pipeline.
+    pub vec_mem_pending: std::collections::VecDeque<VecMemMicroOp>,
+    /// Tracks in-flight vector memory instructions and their remaining element count.
+    pub vec_mem_inflight: Vec<VecMemInflight>,
+}
+
+/// A single vector memory micro-op representing one element (or cache-line chunk)
+/// flowing through the Memory1 → Memory2 → Writeback pipeline.
+#[derive(Debug, Clone)]
+pub struct VecMemMicroOp {
+    /// The ExMem1Entry carrying the element's virtual address and metadata.
+    pub entry: ExMem1Entry,
+    /// Index into vec_mem_inflight for the parent instruction.
+    pub parent_idx: VecMemInflightIdx,
+    /// Element index within the vector register (for writeback targeting).
+    pub elem_idx: crate::core::units::vpu::types::ElemIdx,
+    /// Effective element width for this access.
+    pub eew: crate::core::units::vpu::types::Sew,
+    /// Destination physical vector register for this element's data.
+    pub vd_phys: VecPhysReg,
+    /// Whether this is a store (vs load).
+    pub is_store: bool,
+}
+
+/// Tracks an in-flight vector memory instruction's completion state.
+#[derive(Debug, Clone)]
+pub struct VecMemInflight {
+    /// ROB tag of the parent vector memory instruction.
+    pub rob_tag: crate::core::pipeline::rob::RobTag,
+    /// Number of micro-ops still outstanding (not yet written back).
+    pub remaining: usize,
+    /// Physical destination registers for the LMUL group (for chaining wakeup).
+    pub vd_phys: [VecPhysReg; 8],
+    /// Number of destination registers in the LMUL group.
+    pub vd_count: u8,
+    /// Whether chaining wakeup has fired (first cache-line returned).
+    pub wakeup_fired: bool,
 }
 
 impl O3Engine {
@@ -157,6 +198,14 @@ impl O3Engine {
             },
             vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, 32),
             vec_pending: Vec::new(),
+            num_vec_lanes: NumLanes::new(
+                config
+                    .pipeline
+                    .num_vec_lanes
+                    .unwrap_or_else(|| (config.pipeline.vlen / 64).max(1)),
+            ),
+            vec_mem_pending: std::collections::VecDeque::new(),
+            vec_mem_inflight: Vec::new(),
         }
     }
 
@@ -296,7 +345,60 @@ impl ExecutionEngine for O3Engine {
             return;
         }
 
-        // ── 2. Writeback + Wakeup ──────────────────────────────────────
+        // ── 2. Writeback + Wakeup ──────────────────────────���───────────
+        // Handle vector memory element micro-ops: intercept them before
+        // the normal writeback stage. For loads, write element data into
+        // vec_prf. For both loads and stores, decrement the parent's
+        // remaining counter. When all elements complete, mark ROB done
+        // and fire chaining wakeup.
+        {
+            let mut scalar_wb = Vec::with_capacity(self.mem2_wb.len());
+            let vec_entries = std::mem::take(&mut self.mem2_wb);
+            for wb in vec_entries {
+                if let Some(ref vme) = wb.vec_mem {
+                    // Vector memory element writeback
+                    if wb.trap.is_none() && !vme.is_store {
+                        // Load element: write data into vec_prf
+                        self.vec_prf.write_element(
+                            vme.vd_phys,
+                            vme.elem_idx,
+                            vme.eew,
+                            wb.load_data,
+                        );
+                    }
+                    // Decrement parent's outstanding count
+                    let pidx = vme.parent_idx.0;
+                    if pidx < self.vec_mem_inflight.len() {
+                        let parent = &mut self.vec_mem_inflight[pidx];
+                        parent.remaining = parent.remaining.saturating_sub(1);
+
+                        // First element returned: fire chaining wakeup
+                        if !parent.wakeup_fired {
+                            for j in 0..parent.vd_count as usize {
+                                self.vec_prf.mark_ready(parent.vd_phys[j]);
+                            }
+                            for j in 0..parent.vd_count as usize {
+                                self.issue_queue.wakeup_vec_phys(
+                                    parent.vd_phys[j],
+                                    &self.vec_prf,
+                                );
+                            }
+                            parent.wakeup_fired = true;
+                        }
+
+                        // All elements done: mark ROB complete
+                        if parent.remaining == 0 {
+                            self.rob.complete(parent.rob_tag, 0);
+                        }
+                    }
+                    // Do NOT pass to normal writeback — we handled it
+                } else {
+                    scalar_wb.push(wb);
+                }
+            }
+            self.mem2_wb = scalar_wb;
+        }
+
         // Peek at mem2_wb to know which entries will complete, so we can
         // wakeup dependents in the issue queue via PRF.
         let wb_wakeups: Vec<_> = self
@@ -422,6 +524,8 @@ impl ExecutionEngine for O3Engine {
                 self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
                 self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
                 self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
+                self.vec_mem_pending.retain(|m| m.entry.rob_tag.is_older_or_eq(keep_tag));
+                self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
 
                 // Memory violations never have checkpoints (the violating load
@@ -452,6 +556,8 @@ impl ExecutionEngine for O3Engine {
                 self.mem2_wb.clear();
                 self.pending_results.clear();
                 self.vec_pending.clear();
+                self.vec_mem_pending.clear();
+                self.vec_mem_inflight.clear();
                 self.execute_mem1.clear();
 
                 // Full flush: 0 surviving, no rename rebuild needed.
@@ -568,6 +674,30 @@ impl ExecutionEngine for O3Engine {
             }
         }
 
+        // ── 6a'. Drain vector memory micro-ops into memory pipeline ──
+        // Each cycle, push up to load_ports (loads) or store_ports (stores)
+        // vector memory micro-ops from vec_mem_pending into execute_mem1,
+        // competing with scalar memory ops for memory pipeline bandwidth.
+        {
+            let mut loads_issued = 0usize;
+            let mut stores_issued = 0usize;
+            while let Some(front) = self.vec_mem_pending.front() {
+                if front.is_store {
+                    if stores_issued >= self.store_ports {
+                        break;
+                    }
+                    stores_issued += 1;
+                } else {
+                    if loads_issued >= self.load_ports {
+                        break;
+                    }
+                    loads_issued += 1;
+                }
+                let mop = self.vec_mem_pending.pop_front().unwrap();
+                self.execute_mem1.push(mop.entry);
+            }
+        }
+
         // ── 6b. Process vector pending results (chaining model) ──────
         {
             let mut i = 0;
@@ -658,12 +788,12 @@ impl ExecutionEngine for O3Engine {
                     self.mdp.issued(rob_tag);
                 }
 
-                let complete_cycle = self.fu_pool.acquire(fu_type, now);
-                let is_pipelined = self.fu_pool.is_pipelined(fu_type);
+                // ── Determine if this is a vector non-memory op ────────────
+                let is_vec_non_mem = fu_type.is_vector()
+                    && fu_type != FuType::VecMem;
+                let is_vec_mem_op = fu_type == FuType::VecMem;
 
                 // Save vector destination info before execute_one consumes the entry.
-                // After execute, we sync vec_prf from the arch VPR so the commit
-                // path (vec_prf → arch VPR) has the correct data.
                 let vec_grp = entry.ctrl.vec_op.operand_groups(
                     entry.ctrl.vec_lmul_regs,
                     entry.ctrl.vec_src_encoding,
@@ -675,23 +805,230 @@ impl ExecutionEngine for O3Engine {
                     None
                 };
 
+                // For vector non-memory ops, compute realistic lane-model latency
+                // instead of using the fixed FU latency.
+                let (complete_cycle, is_pipelined) = if is_vec_non_mem {
+                    use crate::core::units::vpu::lane_model;
+                    use crate::core::units::vpu::reduction;
+                    use crate::core::pipeline::signals::VectorOp;
+
+                    let vl = cpu.csrs.vl as usize;
+                    let startup = self.fu_pool.startup_latency(fu_type);
+                    let pipelined = self.fu_pool.is_pipelined(fu_type);
+                    let vec_op = entry.ctrl.vec_op;
+
+                    let lanes = self.num_vec_lanes.as_usize();
+
+                    let latency = if reduction::is_reduction(vec_op) {
+                        // Ordered FP reductions (VFRedOSum, VFWRedOSum) are
+                        // fully sequential; all others use the tree model.
+                        let is_ordered = matches!(
+                            vec_op,
+                            VectorOp::VFRedOSum | VectorOp::VFWRedOSum
+                        );
+                        lane_model::compute_reduction_latency(
+                            vl,
+                            lanes,
+                            startup,
+                            is_ordered,
+                        )
+                    } else if fu_type == FuType::VecPermute {
+                        // Permutation-specific latency multipliers
+                        let groups = (vl.div_ceil(lanes)) as u64;
+                        let base_latency = match vec_op {
+                            // vrgather.vv: crossbar, 2× cost per group
+                            VectorOp::VRgather | VectorOp::VRgatherEi16
+                                if entry.ctrl.vec_src_encoding
+                                    == crate::core::pipeline::signals::VecSrcEncoding::VV =>
+                            {
+                                startup + groups.saturating_mul(2).saturating_sub(1)
+                            }
+                            // vrgather.vx/vi: broadcast, 1× cost per group
+                            VectorOp::VRgather | VectorOp::VRgatherEi16 => {
+                                startup + groups.saturating_sub(1)
+                            }
+                            // vcompress: scan + compact, 2× cost per group
+                            VectorOp::VCompress => {
+                                startup + groups.saturating_mul(2).saturating_sub(1)
+                            }
+                            // vslide*: shift, 1× cost per group
+                            _ => {
+                                lane_model::compute_vec_latency(
+                                    vl,
+                                    lanes,
+                                    startup,
+                                    pipelined,
+                                )
+                            }
+                        };
+                        base_latency.max(1)
+                    } else {
+                        lane_model::compute_vec_latency(
+                            vl,
+                            lanes,
+                            startup,
+                            pipelined,
+                        )
+                    };
+                    let cc = self.fu_pool.acquire_with_latency(fu_type, now, latency);
+                    (cc, pipelined)
+                } else if is_vec_mem_op {
+                    // Vector memory: acquire the VecMem FU for 1 cycle (address gen).
+                    // Actual latency comes from micro-ops flowing through Memory1/2.
+                    let cc = self.fu_pool.acquire(fu_type, now);
+                    (cc, true)
+                } else {
+                    // Scalar path: unchanged
+                    let cc = self.fu_pool.acquire(fu_type, now);
+                    let p = self.fu_pool.is_pipelined(fu_type);
+                    (cc, p)
+                };
+
                 let (ex_result, flush) = execute::execute_one(cpu, entry, &mut self.rob);
                 issued_count += 1;
 
                 // Sync vec_prf from arch VPR after vector execute.
-                // execute_vec_op writes directly to the architectural VPR (serializing);
-                // copy the results into the allocated physical registers so the commit
-                // path has the correct data for vec_prf → arch VPR writeback.
+                // execute_vec_op writes directly to the architectural VPR;
+                // copy results into allocated physical registers for commit.
                 if let Some((vd_phys, count, vd)) = vec_dst_info {
                     use crate::core::units::vpu::types::VRegIdx;
                     for (i, &phys) in vd_phys.iter().enumerate().take(count as usize) {
                         let vreg = VRegIdx::new(vd.as_u8() + i as u8);
                         let bytes = cpu.regs.vpr().read_bytes(vreg);
                         self.vec_prf.write_bytes(phys, bytes);
-                        self.vec_prf.mark_ready(phys);
+                        // For vector non-memory ops: do NOT mark ready here.
+                        // Readiness is deferred to vec_pending chaining wakeup.
+                        // For vector memory ops: also deferred (to writeback).
+                        if !is_vec_non_mem && !is_vec_mem_op {
+                            self.vec_prf.mark_ready(phys);
+                        }
                     }
                 }
 
+                // ── Vector non-memory path: push to vec_pending ────────────
+                if is_vec_non_mem && ex_result.trap.is_none() {
+                    let startup = self.fu_pool.startup_latency(fu_type);
+                    let first_ready = crate::core::units::vpu::lane_model::first_group_ready(now, startup);
+
+                    // For vector ops that produce scalar results (vmv.x.s, vcpop.m,
+                    // vfirst.m) — they don't write vector regs, so use scalar path
+                    // with vector latency for the FU occupancy.
+                    if !ex_result.ctrl.vec_reg_write {
+                        // Scalar-producing vector op: write scalar PRF at full_complete.
+                        self.pending_results.push(PendingResult {
+                            entry: ex_result.clone(),
+                            complete_cycle,
+                            fu_type,
+                            speculative_written: false,
+                        });
+                    } else {
+                        // Vector-register-writing op: push to vec_pending for
+                        // chaining wakeup at first_group_ready, ROB complete at
+                        // full_complete.
+                        let vd_count = vec_dst_info.map_or(0u8, |(_, c, _)| c);
+                        let vd_phys_arr = vec_dst_info.map_or([VecPhysReg::ZERO; 8], |(p, _, _)| p);
+                        self.vec_pending.push(VecPendingResult {
+                            rob_tag: ex_result.rob_tag,
+                            vd_phys: vd_phys_arr,
+                            vd_count,
+                            first_group_ready: first_ready,
+                            full_complete: complete_cycle,
+                            wakeup_fired: false,
+                        });
+                    }
+
+                    let keep_tag = ex_result.rob_tag;
+                    if flush {
+                        flush_keep_tag = Some(keep_tag);
+                        break;
+                    }
+                    continue;
+                }
+
+                // ── Vector memory path: generate micro-ops ─────────────────
+                if is_vec_mem_op && ex_result.trap.is_none() {
+                    // Vector memory ops: generate per-element micro-ops that will
+                    // flow through Memory1 → Memory2 → Writeback. The functional
+                    // execution already happened (arch VPR updated for loads via
+                    // execute_vec_op). We generate shadow probes for timing.
+                    let vec_op = ex_result.ctrl.vec_op;
+                    let is_store = crate::core::units::vpu::mem::is_vec_store(vec_op);
+                    let micro_ops = crate::core::units::vpu::mem::generate_element_addrs(
+                        cpu, &ex_result, vec_op,
+                    );
+
+                    if micro_ops.is_empty() {
+                        // VL=0 or vill: complete immediately
+                        self.rob.complete(ex_result.rob_tag, 0);
+                    } else {
+                        let vd_count = vec_dst_info.map_or(0u8, |(_, c, _)| c);
+                        let vd_phys_arr = vec_dst_info.map_or([VecPhysReg::ZERO; 8], |(p, _, _)| p);
+                        let parent_idx = VecMemInflightIdx(self.vec_mem_inflight.len());
+                        self.vec_mem_inflight.push(VecMemInflight {
+                            rob_tag: ex_result.rob_tag,
+                            remaining: micro_ops.len(),
+                            vd_phys: vd_phys_arr,
+                            vd_count,
+                            wakeup_fired: false,
+                        });
+                        for mop in micro_ops {
+                            let eew_width = match mop.eew.bytes() {
+                                1 => crate::core::pipeline::signals::MemWidth::Byte,
+                                2 => crate::core::pipeline::signals::MemWidth::Half,
+                                4 => crate::core::pipeline::signals::MemWidth::Word,
+                                8 => crate::core::pipeline::signals::MemWidth::Double,
+                                _ => crate::core::pipeline::signals::MemWidth::Word,
+                            };
+                            let mut ctrl = ex_result.ctrl.clone();
+                            ctrl.mem_read = !is_store;
+                            ctrl.mem_write = is_store;
+                            ctrl.width = eew_width;
+                            // Clear vec_op so Memory1/Memory2 treat this
+                            // as a normal scalar memory access.
+                            ctrl.vec_op = crate::core::pipeline::signals::VectorOp::None;
+
+                            let vec_elem = VecMemElement {
+                                parent_idx,
+                                elem_idx: mop.elem_idx,
+                                eew: mop.eew,
+                                vd_phys: mop.vd_phys,
+                                is_store,
+                            };
+                            self.vec_mem_pending.push_back(VecMemMicroOp {
+                                entry: ExMem1Entry {
+                                    rob_tag: ex_result.rob_tag,
+                                    pc: ex_result.pc,
+                                    inst: ex_result.inst,
+                                    inst_size: ex_result.inst_size,
+                                    rd: ex_result.rd,
+                                    rd_phys: ex_result.rd_phys,
+                                    alu: mop.vaddr.val(),
+                                    store_data: mop.store_data,
+                                    ctrl,
+                                    trap: None,
+                                    exception_stage: None,
+                                    fp_flags: 0,
+                                    sfence_vma: None,
+                                    vec_mem: Some(vec_elem),
+                                },
+                                parent_idx,
+                                elem_idx: mop.elem_idx,
+                                eew: mop.eew,
+                                vd_phys: mop.vd_phys,
+                                is_store,
+                            });
+                        }
+                    }
+
+                    let keep_tag = ex_result.rob_tag;
+                    if flush {
+                        flush_keep_tag = Some(keep_tag);
+                        break;
+                    }
+                    continue;
+                }
+
+                // ── Scalar path (unchanged) ────────────────────────────────
                 let is_mem = ex_result.ctrl.mem_read
                     || ex_result.ctrl.mem_write
                     || ex_result.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
@@ -704,10 +1041,6 @@ impl ExecutionEngine for O3Engine {
                     } else {
                         ex_result.alu
                     };
-                    // Store fp_flags in the ROB now so that a younger serializing
-                    // CSR instruction (e.g. fsflags) sees them when it drains
-                    // older entries at execute time.  Commit will apply them to
-                    // the architectural fflags register in program order.
                     if ex_result.fp_flags != 0 {
                         self.rob.set_fp_flags(ex_result.rob_tag, ex_result.fp_flags);
                     }
@@ -724,9 +1057,6 @@ impl ExecutionEngine for O3Engine {
 
                 // Speculative load wakeup: when a load issues and MSHRs are
                 // available, optimistically wake dependents assuming L1D hit.
-                // PRF is NOT written — select() validates against PRF.
-                // If the load hits L1D, writeback confirms with the real value.
-                // If it misses, memory1 calls cancel_wakeup_phys().
                 let is_load = ex_result.ctrl.mem_read && !ex_result.ctrl.mem_write;
                 if is_load && ex_result.trap.is_none() && cpu.l1d_mshrs.capacity() > 0 {
                     self.issue_queue.speculative_wakeup_phys(ex_result.rd_phys);
@@ -822,6 +1152,8 @@ impl ExecutionEngine for O3Engine {
             self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
             self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
+            self.vec_mem_pending.retain(|m| m.entry.rob_tag.is_older_or_eq(keep_tag));
+            self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
             self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             // Restore speculative rename map: try checkpoint (O(1)), fallback to rebuild (O(n)).
             // With a checkpoint, the rename map is restored in O(1) from the snapshot
@@ -925,6 +1257,8 @@ impl ExecutionEngine for O3Engine {
         // need a hard reset should clear it explicitly.
         self.pending_results.clear();
         self.vec_pending.clear();
+        self.vec_mem_pending.clear();
+        self.vec_mem_inflight.clear();
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();

@@ -76,6 +76,7 @@ pub fn memory1_stage(
                 complete_cycle: current_cycle,
                 pte_update: None,
                 sfence_vma: ex.sfence_vma,
+                vec_mem: ex.vec_mem,
             });
             // Remaining entries go back to input — they'll be flushed when
             // the trap reaches commit, but must not be silently dropped.
@@ -131,6 +132,7 @@ pub fn memory1_stage(
                         complete_cycle: current_cycle,
                         pte_update: None,
                         sfence_vma: ex.sfence_vma,
+                        vec_mem: ex.vec_mem,
                     });
                     input.extend(iter);
                     return cancelled_wakeups;
@@ -174,6 +176,7 @@ pub fn memory1_stage(
                     complete_cycle: current_cycle + per_entry_latency,
                     pte_update: None,
                     sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
                 });
                 // Remaining entries go back to input.
                 input.extend(iter);
@@ -221,6 +224,7 @@ pub fn memory1_stage(
                     complete_cycle: current_cycle + per_entry_latency,
                     pte_update: None,
                     sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
                 });
                 input.extend(iter);
                 return cancelled_wakeups;
@@ -286,6 +290,7 @@ pub fn memory1_stage(
                         complete_cycle: current_cycle + per_entry_latency,
                         pte_update,
                         sfence_vma: ex.sfence_vma,
+                        vec_mem: ex.vec_mem,
                     });
                 } else {
                     // L1D miss — compute miss latency from L2/L3/DRAM
@@ -348,6 +353,7 @@ pub fn memory1_stage(
                             complete_cycle: current_cycle + per_entry_latency,
                             pte_update,
                             sfence_vma: ex.sfence_vma,
+                            vec_mem: ex.vec_mem,
                         });
                     } else {
                         // Loads and atomics: park in MSHR
@@ -369,6 +375,7 @@ pub fn memory1_stage(
                             complete_cycle: 0, // set by MSHR completion
                             pte_update,
                             sfence_vma: ex.sfence_vma,
+                            vec_mem: ex.vec_mem.clone(),
                         };
                         let waiter = MshrWaiter { rob_tag: ex.rob_tag, parked_entry: Some(parked) };
                         let resp = cpu.l1d_mshrs.request(
@@ -453,6 +460,7 @@ pub fn memory1_stage(
                     complete_cycle: current_cycle + per_entry_latency,
                     pte_update,
                     sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
                 });
             } else {
                 // MMIO: bypass caches entirely
@@ -474,6 +482,7 @@ pub fn memory1_stage(
                     complete_cycle: current_cycle + per_entry_latency,
                     pte_update,
                     sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
                 });
             }
         } else {
@@ -503,6 +512,7 @@ pub fn memory1_stage(
                 complete_cycle: current_cycle,
                 pte_update: None,
                 sfence_vma: ex.sfence_vma,
+                vec_mem: ex.vec_mem,
             });
         }
     }
@@ -538,6 +548,7 @@ mod tests {
             rd_phys: PhysReg(0),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -570,6 +581,7 @@ mod tests {
             rd_phys: PhysReg(0),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -605,6 +617,7 @@ mod tests {
             rd_phys: PhysReg(0),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -641,6 +654,7 @@ mod tests {
             rd_phys: PhysReg(1),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let mut output = Vec::new();
 
@@ -665,6 +679,7 @@ mod tests {
             rd_phys: PhysReg(2),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         }];
         let cancelled2 = memory1_stage(&mut cpu, &mut input2, &mut output, 10, None);
         assert_eq!(cancelled2.len(), 0); // Hit, no cancel
@@ -696,6 +711,7 @@ mod tests {
             rd_phys: PhysReg(1),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
         let entry2 = ExMem1Entry {
             rob_tag: crate::core::pipeline::rob::RobTag(2),
@@ -711,6 +727,7 @@ mod tests {
             rd_phys: PhysReg(2),
             fp_flags: 0,
             sfence_vma: None,
+            vec_mem: None,
         };
 
         let mut input = vec![entry1, entry2];
