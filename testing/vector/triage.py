@@ -84,21 +84,28 @@ def main():
     # ── spike ────────────────────────────────────────────────────────────────
     sig_path = "/tmp/triage.spike.sig"
     log_path = "/tmp/triage.spike.log"
-    subprocess.run(
+    if os.path.exists(sig_path):
+        os.remove(sig_path)
+    res = subprocess.run(
         [
             SPIKE,
             f"--isa={isa}",
-            f"+signature={sig_path}",
-            "+signature-granularity=4",
-            "-l",
             f"--log={log_path}",
             "--log-commits",
+            f"+signature={sig_path}",
+            "+signature-granularity=4",
             args.elf,
         ],
         capture_output=True,
         text=True,
         timeout=300,
     )
+    if not os.path.isfile(sig_path):
+        sys.exit(
+            f"spike did not produce a signature (rc={res.returncode})\n"
+            f"stderr: {res.stderr.strip()[:400]}\n"
+            f"isa was: {isa}"
+        )
     spike_bytes = bytearray()
     with open(sig_path) as f:
         for line in f:
