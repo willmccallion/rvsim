@@ -643,7 +643,16 @@ impl crate::core::pipeline::free_list::PhysRegister for VecPhysReg {
 // ============================================================================
 
 /// Parse the raw vtype CSR bits into strongly-typed fields.
+/// Parse vtype bits assuming ELEN=64 (standard RV64V configuration).
 pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
+    parse_vtype_with_elen(vtype_bits, 64)
+}
+
+/// Parse vtype bits with an explicit ELEN parameter.
+///
+/// Use this variant when the core may have ELEN=32 (Zve32x/Zve32f profiles).
+/// If `SEW > ELEN` or `SEW * LMUL_den > ELEN * LMUL_num`, vill is set.
+pub const fn parse_vtype_with_elen(vtype_bits: u64, elen: usize) -> VtypeFields {
     // vill is the highest bit (bit 63 for RV64)
     let vill = (vtype_bits >> 63) & 1 != 0;
     if vill {
@@ -684,13 +693,23 @@ pub const fn parse_vtype(vtype_bits: u64) -> VtypeFields {
         };
     };
 
+    // Check SEW <= ELEN constraint
+    if vsew.bits() > elen {
+        return VtypeFields {
+            vsew: Sew::E8,
+            vlmul: Vlmul::M1,
+            vta: TailPolicy::Undisturbed,
+            vma: MaskPolicy::Undisturbed,
+            vill: true,
+        };
+    }
+
     // Check SEW <= LMUL * ELEN constraint
     // For fractional LMUL, SEW must be small enough:
     // SEW <= ELEN * LMUL → SEW * LMUL_den <= ELEN * LMUL_num
     let (lmul_num, lmul_den) = vlmul.as_fraction();
     let sew_bits = vsew.bits();
-    // ELEN is 64 for RV64
-    if sew_bits * lmul_den > 64 * lmul_num {
+    if sew_bits * lmul_den > elen * lmul_num {
         return VtypeFields {
             vsew: Sew::E8,
             vlmul: Vlmul::M1,

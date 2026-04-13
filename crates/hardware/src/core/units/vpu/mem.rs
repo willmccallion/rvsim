@@ -635,7 +635,10 @@ fn exec_unit_stride_load(
         }
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
-            let val = mem_read_element(cpu, addr, eew)?;
+            let val = mem_read_element(cpu, addr, eew).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
@@ -675,6 +678,7 @@ fn exec_fault_first_load(
             Err(trap) => {
                 if i == 0 {
                     // Element 0 faults propagate normally
+                    cpu.csrs.vstart = 0;
                     return Err(trap);
                 }
                 // Elements > 0: silently trim vl
@@ -714,7 +718,10 @@ fn exec_strided_load(
         let elem_base = base.wrapping_add((i as i64).wrapping_mul(stride) as u64);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
-            let val = mem_read_element(cpu, addr, eew)?;
+            let val = mem_read_element(cpu, addr, eew).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
@@ -759,7 +766,10 @@ fn exec_indexed_load(
         let elem_base = base.wrapping_add(offset);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
-            let val = mem_read_element(cpu, addr, data_sew)?;
+            let val = mem_read_element(cpu, addr, data_sew).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
             cpu.regs.vpr_mut().write_element(dest, ElemIdx::new(i), data_sew, val);
         }
@@ -786,7 +796,10 @@ fn exec_mask_load(
 
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
-        let val = mem_read_element(cpu, addr, Sew::E8)?;
+        let val = mem_read_element(cpu, addr, Sew::E8).map_err(|t| {
+            cpu.csrs.vstart = i as u64;
+            t
+        })?;
         cpu.regs.vpr_mut().write_element(vd, ElemIdx::new(i), Sew::E8, val);
     }
 
@@ -813,7 +826,10 @@ fn exec_whole_reg_load(
 
     for i in 0..total_bytes {
         let addr = base.wrapping_add(i as u64);
-        let val = mem_read_element(cpu, addr, Sew::E8)?;
+        let val = mem_read_element(cpu, addr, Sew::E8).map_err(|t| {
+            cpu.csrs.vstart = i as u64;
+            t
+        })?;
         let reg_offset = i / vlen_bytes;
         let byte_offset = i % vlen_bytes;
         let dest = VRegIdx::new(vd.as_u8() + reg_offset as u8);
@@ -850,7 +866,10 @@ fn exec_unit_stride_store(
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), eew);
-            mem_write_element(cpu, addr, eew, val)?;
+            mem_write_element(cpu, addr, eew, val).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
         }
     }
 
@@ -886,7 +905,10 @@ fn exec_strided_store(
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), eew);
-            mem_write_element(cpu, addr, eew, val)?;
+            mem_write_element(cpu, addr, eew, val).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
         }
     }
 
@@ -927,7 +949,10 @@ fn exec_indexed_store(
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * data_emul.regs());
             let val = cpu.regs.vpr().read_element(src, ElemIdx::new(i), data_sew);
-            mem_write_element(cpu, addr, data_sew, val)?;
+            mem_write_element(cpu, addr, data_sew, val).map_err(|t| {
+                cpu.csrs.vstart = i as u64;
+                t
+            })?;
         }
     }
 
@@ -950,7 +975,10 @@ fn exec_mask_store(
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
         let val = cpu.regs.vpr().read_element(vs3, ElemIdx::new(i), Sew::E8);
-        mem_write_element(cpu, addr, Sew::E8, val)?;
+        mem_write_element(cpu, addr, Sew::E8, val).map_err(|t| {
+            cpu.csrs.vstart = i as u64;
+            t
+        })?;
     }
 
     Ok(0)
@@ -979,7 +1007,10 @@ fn exec_whole_reg_store(
         let byte_offset = i % vlen_bytes;
         let src = VRegIdx::new(vs3.as_u8() + reg_offset as u8);
         let val = cpu.regs.vpr().read_element(src, ElemIdx::new(byte_offset), Sew::E8);
-        mem_write_element(cpu, addr, Sew::E8, val)?;
+        mem_write_element(cpu, addr, Sew::E8, val).map_err(|t| {
+            cpu.csrs.vstart = i as u64;
+            t
+        })?;
     }
 
     Ok(0)

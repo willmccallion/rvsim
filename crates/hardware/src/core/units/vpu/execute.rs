@@ -9,6 +9,7 @@
 //! - **O3 / deferred:** `execute_vec_op_on()` — writes results to `&mut impl VectorRegFile`
 //!   (typically a `VecPrfView`) and returns side effects for commit-time application.
 
+use crate::common::Trap;
 use crate::core::Cpu;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
@@ -21,12 +22,18 @@ use crate::isa::rvv::encoding as v_enc;
 
 /// Execute a vector operation. Returns the scalar result (for vsetvl family)
 /// or 0 for arithmetic/memory ops.
-pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+///
+/// # Errors
+///
+/// Returns `Trap::IllegalInstruction` if vtype.vill is set and a vector
+/// operation that depends on vtype is attempted. Returns memory traps from
+/// vector load/store operations.
+pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
     match id.ctrl.vec_op {
-        VectorOp::Vsetvli => execute_vsetvl_op(cpu, id),
-        VectorOp::Vsetivli => execute_vsetivli_op(cpu, id),
-        VectorOp::Vsetvl => execute_vsetvl_rs2_op(cpu, id),
-        VectorOp::None => 0,
+        VectorOp::Vsetvli => Ok(execute_vsetvl_op(cpu, id)),
+        VectorOp::Vsetivli => Ok(execute_vsetivli_op(cpu, id)),
+        VectorOp::Vsetvl => Ok(execute_vsetvl_rs2_op(cpu, id)),
+        VectorOp::None => Ok(0),
         op if mem::is_vec_load(op) => execute_vec_load(cpu, id),
         op if mem::is_vec_store(op) => execute_vec_store(cpu, id),
         op if fpu::is_vec_fp(op) => execute_vec_fp(cpu, id),
@@ -50,6 +57,7 @@ fn execute_vsetvl_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
     new_vl
 }
@@ -67,6 +75,7 @@ fn execute_vsetivli_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, false, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
     new_vl
 }
@@ -84,6 +93,7 @@ fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
         execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
     cpu.csrs.vl = new_vl;
     cpu.csrs.vtype = new_vtype;
+    cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
     new_vl
 }
@@ -143,13 +153,25 @@ const fn mark_vs_dirty(cpu: &mut Cpu) {
         | crate::core::arch::csr::MSTATUS_VS_DIRTY;
 }
 
-/// Execute a vector integer arithmetic operation on the VPR.
-fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    let vtype = parse_vtype(cpu.csrs.vtype);
+/// Check vill and return `IllegalInstruction` trap if set.
+///
+/// RVV 1.0 §3.3: "If the vill bit is set, then any attempt to execute a
+/// vector instruction that depends on vtype will raise an illegal-instruction
+/// exception."
+#[inline]
+fn check_vill(inst: u32, vtype_bits: u64) -> Result<(), Trap> {
+    let vtype = parse_vtype(vtype_bits);
     if vtype.vill {
-        return 0;
+        return Err(Trap::IllegalInstruction(inst));
     }
+    Ok(())
+}
 
+/// Execute a vector integer arithmetic operation on the VPR.
+fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    check_vill(id.inst, cpu.csrs.vtype)?;
+
+    let vtype = parse_vtype(cpu.csrs.vtype);
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
     let operand1 = build_operand1(id);
@@ -175,15 +197,12 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     }
     cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
-    result.scalar_result.unwrap_or(0)
+    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Execute a vector floating-point operation.
-fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    let vtype = parse_vtype(cpu.csrs.vtype);
-    if vtype.vill {
-        return 0;
-    }
+fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    check_vill(id.inst, cpu.csrs.vtype)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -202,15 +221,12 @@ fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     cpu.csrs.fflags |= result.fp_flags.bits() as u64;
     cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
-    result.scalar_result.unwrap_or(0)
+    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Execute a vector reduction operation.
-fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    let vtype = parse_vtype(cpu.csrs.vtype);
-    if vtype.vill {
-        return 0;
-    }
+fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    check_vill(id.inst, cpu.csrs.vtype)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -228,15 +244,12 @@ fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
     cpu.csrs.fflags |= result.fp_flags.bits() as u64;
     cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
-    result.scalar_result.unwrap_or(0)
+    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Execute a vector mask operation.
-fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    let vtype = parse_vtype(cpu.csrs.vtype);
-    if vtype.vill {
-        return 0;
-    }
+fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    check_vill(id.inst, cpu.csrs.vtype)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -253,15 +266,12 @@ fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 
     cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
-    result.scalar_result.unwrap_or(0)
+    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Execute a vector permutation operation.
-fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    let vtype = parse_vtype(cpu.csrs.vtype);
-    if vtype.vill {
-        return 0;
-    }
+fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    check_vill(id.inst, cpu.csrs.vtype)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -278,37 +288,23 @@ fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 
     cpu.csrs.vstart = 0;
     mark_vs_dirty(cpu);
-    result.scalar_result.unwrap_or(0)
+    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Execute a vector load operation through the memory subsystem.
-fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    match mem::execute_vec_load(cpu, id) {
-        Ok(result) => {
-            cpu.csrs.vstart = 0;
-            mark_vs_dirty(cpu);
-            result
-        }
-        Err(_trap) => {
-            // TODO: propagate trap through pipeline
-            0
-        }
-    }
+fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    let result = mem::execute_vec_load(cpu, id)?;
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    Ok(result)
 }
 
 /// Execute a vector store operation through the memory subsystem.
-fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
-    match mem::execute_vec_store(cpu, id) {
-        Ok(result) => {
-            cpu.csrs.vstart = 0;
-            mark_vs_dirty(cpu);
-            result
-        }
-        Err(_trap) => {
-            // TODO: propagate trap through pipeline
-            0
-        }
-    }
+fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    let result = mem::execute_vec_store(cpu, id)?;
+    cpu.csrs.vstart = 0;
+    mark_vs_dirty(cpu);
+    Ok(result)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -321,7 +317,7 @@ fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 /// the ROB and applies them at commit time.
 #[derive(Clone, Debug, Default)]
 pub struct VecOpResult {
-    /// Scalar result value (vsetvl → new vl; vmv.x.s/vcpop.m/vfirst.m → scalar).
+    /// Scalar result value (vsetvl -> new vl; vmv.x.s/vcpop.m/vfirst.m -> scalar).
     pub scalar_result: u64,
     /// FP exception flags (IEEE 754 NV/DZ/OF/UF/NX bits).
     pub fp_flags: u8,
@@ -350,6 +346,10 @@ fn build_ctx_from_csrs(vtype_bits: u64, vl: u64, vstart: u64, vxrm: u64) -> VecE
 /// computation on the provided register file (typically a `VecPrfView`) and
 /// returns the side effects (fp_flags, vxsat) without modifying any CSRs.
 ///
+/// # Errors
+///
+/// Returns `Trap::IllegalInstruction` if vtype.vill is set.
+///
 /// # Panics
 ///
 /// Panics if called with vsetvl or memory vector ops (those have separate paths).
@@ -360,7 +360,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     vstart: u64,
     vxrm: u64,
     id: &RenameIssueEntry,
-) -> VecOpResult {
+) -> Result<VecOpResult, Trap> {
     debug_assert!(
         !matches!(
             id.ctrl.vec_op,
@@ -373,11 +373,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         "execute_vec_op_on called with memory op — use generate_element_addrs_vrf instead"
     );
 
-    let vtype = parse_vtype(vtype_bits);
-    if vtype.vill {
-        return VecOpResult::default();
-    }
+    check_vill(id.inst, vtype_bits)?;
 
+    let vtype = parse_vtype(vtype_bits);
     let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm);
     ctx.vm = id.ctrl.vm;
     let operand1 = build_operand1(id);
@@ -385,39 +383,39 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
 
     if fpu::is_vec_fp(vec_op) {
         let result = fpu::vec_fp_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, operand1, &ctx);
-        return VecOpResult {
+        return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: result.fp_flags.bits() as u8,
             vxsat: false,
-        };
+        });
     }
 
     if reduction::is_reduction(vec_op) {
         let operand1_ref = VecOperand::Vector(id.ctrl.vs1);
         let result = reduction::vec_reduce(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1_ref, &ctx);
-        return VecOpResult {
+        return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: result.fp_flags.bits() as u8,
             vxsat: false,
-        };
+        });
     }
 
     if mask::is_mask_op(vec_op) {
         let result = mask::vec_mask_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
-        return VecOpResult {
+        return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: 0,
             vxsat: false,
-        };
+        });
     }
 
     if permute::is_permute(vec_op) {
         let result = permute::vec_permute_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
-        return VecOpResult {
+        return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: 0,
             vxsat: false,
-        };
+        });
     }
 
     // Integer arithmetic (default)
@@ -437,9 +435,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         ctx.vxrm,
     );
 
-    VecOpResult {
+    Ok(VecOpResult {
         scalar_result: result.scalar_result.unwrap_or(0),
         fp_flags: 0,
         vxsat: result.vxsat,
-    }
+    })
 }

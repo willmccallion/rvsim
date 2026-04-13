@@ -1075,6 +1075,15 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_vlen")]
     pub vlen: usize,
 
+    /// Maximum element width in bits (ELEN). Must be 32 or 64.
+    /// ELEN=32 corresponds to Zve32x/Zve32f profiles. Default: 64.
+    #[serde(default = "PipelineConfig::default_elen")]
+    pub elen: usize,
+
+    /// Enable Zvfh (half-precision vector FP) extension. Default: false.
+    #[serde(default)]
+    pub zvfh: bool,
+
     /// Number of vector execution lanes. Defaults to vlen/64 (min 1).
     #[serde(default)]
     pub num_vec_lanes: Option<usize>,
@@ -1159,6 +1168,11 @@ impl PipelineConfig {
         128
     }
 
+    /// Returns the default ELEN (64 for standard RV64V).
+    const fn default_elen() -> usize {
+        64
+    }
+
     /// Returns the default vector PRF size.
     const fn default_prf_vpr_size() -> usize {
         64
@@ -1202,6 +1216,8 @@ impl Default for PipelineConfig {
             mem_dep_predictor: MemDepPredictor::default(),
             store_set: StoreSetConfig::default(),
             vlen: 128,
+            elen: 64,
+            zvfh: false,
             num_vec_lanes: None,
             prf_vpr_size: 64,
             vec_chaining: true,

@@ -110,26 +110,52 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
 
         // vsetvl family: still serializing — modifies CSR state that affects decode.
         if matches!(id.ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl) {
-            let scalar_result = crate::core::units::vpu::execute::execute_vec_op(cpu, &id);
-            cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-            cpu.redirect_pending = true;
-            let result = ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: scalar_result,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            };
-            return (result, true);
+            match crate::core::units::vpu::execute::execute_vec_op(cpu, &id) {
+                Ok(scalar_result) => {
+                    cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                    cpu.redirect_pending = true;
+                    let result = ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: scalar_result,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: id.rd_phys,
+                        fp_flags: 0,
+                        sfence_vma: None,
+                        vec_mem: None,
+                    };
+                    return (result, true);
+                }
+                Err(trap) => {
+                    // vsetvl itself doesn't trap, but handle for completeness.
+                    rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
+                    cpu.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                    cpu.redirect_pending = true;
+                    let result = ExMem1Entry {
+                        rob_tag: id.rob_tag,
+                        pc: id.pc,
+                        inst: id.inst,
+                        inst_size: id.inst_size,
+                        rd: id.rd,
+                        alu: 0,
+                        store_data: 0,
+                        ctrl: id.ctrl,
+                        trap: None,
+                        exception_stage: None,
+                        rd_phys: id.rd_phys,
+                        fp_flags: 0,
+                        sfence_vma: None,
+                        vec_mem: None,
+                    };
+                    return (result, true);
+                }
+            }
         }
 
         // Non-vsetvl vector ops: do NOT execute here. Functional execution is

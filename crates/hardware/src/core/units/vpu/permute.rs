@@ -60,7 +60,7 @@ pub fn vec_permute_execute(
         VectorOp::VSlide1Down => exec_slide1down(vpr, vd, vs2, operand1, ctx),
         VectorOp::VRgather => exec_rgather(vpr, vd, vs2, operand1, ctx),
         VectorOp::VRgatherEi16 => exec_rgather_ei16(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VCompress => exec_compress(vpr, vd, vs2, ctx),
+        VectorOp::VCompress => exec_compress(vpr, vd, vs2, operand1, ctx),
         VectorOp::VMv1r => exec_whole_reg_move(vpr, vd, vs2, 1),
         VectorOp::VMv2r => exec_whole_reg_move(vpr, vd, vs2, 2),
         VectorOp::VMv4r => exec_whole_reg_move(vpr, vd, vs2, 4),
@@ -438,23 +438,30 @@ fn exec_rgather_ei16(
 
 /// `vcompress` — compress active elements from vs2 into vd.
 ///
-/// Scans vs2 using the v0 mask: elements where the corresponding v0 bit is set
-/// are packed contiguously into vd starting from element 0.  The operation is
-/// always unmasked (vm=1); the mask register v0 selects which source elements
-/// to include, not which destination elements to write.
+/// Scans vs2 using the vs1 mask: elements where the corresponding vs1 bit is
+/// set are packed contiguously into vd starting from element 0.  The operation
+/// is always unmasked (vm=1); the mask register vs1 selects which source
+/// elements to include, not which destination elements to write.
 ///
 /// Tail elements (after the last compressed element) follow the tail policy.
 fn exec_compress(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
+    operand1: &VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
+    // vs1 provides the mask for vcompress (NOT v0).
+    let vs1 = match operand1 {
+        VecOperand::Vector(v) => *v,
+        _ => unreachable!("vcompress requires vector operand for mask (vs1)"),
+    };
+
     let mut dst = 0usize;
 
-    // Phase 1: pack active elements.
+    // Phase 1: pack active elements selected by vs1 mask.
     for i in ctx.vstart..ctx.vl {
-        if mask_active(vpr, i) {
+        if vpr.read_mask_bit(vs1, ElemIdx::new(i)) {
             let val = vpr.read_element(vs2, ElemIdx::new(i), ctx.sew);
             vpr.write_element(vd, ElemIdx::new(dst), ctx.sew, val);
             dst += 1;

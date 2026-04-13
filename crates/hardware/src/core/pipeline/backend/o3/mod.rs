@@ -916,7 +916,7 @@ impl ExecutionEngine for O3Engine {
                     }
 
                     // Execute via VecPrfView — reads/writes go to vec_prf, NOT arch VPR
-                    let vec_result = {
+                    let vec_result_or_trap = {
                         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
                         execute_vec_op_on(
                             &mut view,
@@ -926,6 +926,20 @@ impl ExecutionEngine for O3Engine {
                             cpu.csrs.vxrm,
                             saved,
                         )
+                    };
+
+                    let vec_result = match vec_result_or_trap {
+                        Ok(r) => r,
+                        Err(trap) => {
+                            // vill=1 → illegal instruction. Mark ROB faulted and skip
+                            // the rest of vector result handling.
+                            self.rob.fault(
+                                ex_result.rob_tag,
+                                trap,
+                                crate::common::error::ExceptionStage::Execute,
+                            );
+                            continue;
+                        }
                     };
 
                     // Store deferred side effects in ROB for commit-time application
