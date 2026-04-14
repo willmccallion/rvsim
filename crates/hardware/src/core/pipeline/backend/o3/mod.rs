@@ -23,7 +23,7 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::signals::{ControlFlow, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
@@ -796,8 +796,14 @@ impl ExecutionEngine for O3Engine {
                 }
 
                 // ── Determine if this is a vector non-memory op ────────────
+                // vsetvl* are handled synchronously in execute_one (serializing
+                // CSR-updating ops); exclude them from the deferred VecPrfView path.
                 let is_vec_non_mem = fu_type.is_vector()
-                    && fu_type != FuType::VecMem;
+                    && fu_type != FuType::VecMem
+                    && !matches!(
+                        entry.ctrl.vec_op,
+                        VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl
+                    );
                 let is_vec_mem_op = fu_type == FuType::VecMem;
 
                 // Save vector destination info before execute_one consumes the entry.
@@ -909,10 +915,62 @@ impl ExecutionEngine for O3Engine {
 
                     let saved = saved_entry.as_ref().unwrap();
 
-                    // Build arch→phys mapping from speculative rename map
+                    // Build arch→phys mapping using RENAME-TIME physical registers.
+                    //
+                    // Using the current speculative rename map would be wrong when a
+                    // later instruction has already renamed the same architectural vector
+                    // register: this instruction's write would land in the wrong physical
+                    // register, corrupting the register-renaming chain.
+                    //
+                    // Strategy:
+                    //  1. Start from the current rename map (baseline for untouched regs).
+                    //  2. Override the specific registers this instruction touches with the
+                    //     physical registers captured at rename time.
+                    //  3. For the destination group (vd): pre-copy old-vd data into the new
+                    //     physical registers so that tail/mask-undisturbed reads see the
+                    //     correct old content; then point the mapping to the new physregs.
                     let mut mapping = [VecPhysReg::ZERO; 32];
                     for i in 0..32u8 {
                         mapping[i as usize] = self.rename_map.get_vec(VRegIdx::new(i));
+                    }
+
+                    // Override vs2 group with rename-time physregs
+                    {
+                        let base = saved.ctrl.vs2.as_u8() as usize;
+                        for i in 0..saved.vec_src2_count as usize {
+                            if base + i < 32 {
+                                mapping[base + i] = saved.vs2_phys[i];
+                            }
+                        }
+                    }
+                    // Override vs1 group with rename-time physregs (VV-encoded only)
+                    {
+                        let base = saved.ctrl.vs1.as_u8() as usize;
+                        for i in 0..saved.vec_src1_count as usize {
+                            if base + i < 32 {
+                                mapping[base + i] = saved.vs1_phys[i];
+                            }
+                        }
+                    }
+                    // Override vd group: pre-copy old vd data for undisturbed policy,
+                    // then point the mapping to the newly-allocated physregs.
+                    if let Some((vd_phys_arr, vd_cnt, vd_reg)) = vec_dst_info {
+                        let base = vd_reg.as_u8() as usize;
+                        for i in 0..vd_cnt as usize {
+                            if base + i < 32 {
+                                // Pre-copy old vd content → new physreg so that
+                                // tail/mask-undisturbed reads (and any LMUL scatter) get
+                                // the correct baseline before active elements are written.
+                                if i < saved.vec_src3_count as usize {
+                                    self.vec_prf.copy_reg(vd_phys_arr[i], saved.vs3_phys[i]);
+                                }
+                                mapping[base + i] = vd_phys_arr[i];
+                            }
+                        }
+                    }
+                    // Override v0 mask register with rename-time physreg
+                    if !saved.mask_phys.is_zero() {
+                        mapping[0] = saved.mask_phys;
                     }
 
                     // Execute via VecPrfView — reads/writes go to vec_prf, NOT arch VPR.
