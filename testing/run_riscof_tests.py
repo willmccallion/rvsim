@@ -74,12 +74,27 @@ def run_one(args):
     safe_name = rel.replace("/", "_")
     sig_out = os.path.join(scratch, f"{safe_name}.{hash(pipeline_label) & 0xFFFF:04x}.sig")
     t0 = time.time()
+    # Force misaligned-access trapping for riscof runs.
+    #
+    # This simulator's default (misaligned_access_trap=False) models
+    # high-performance hardware that handles misaligned accesses transparently
+    # (like the cortex-a72, P550, M1 reference configs).  The riscv-tests
+    # ld/lh/lw-misaligned suite verifies that hardware handling is correct.
+    #
+    # The riscof rv64i_m/privilege/misalign-* tests are designed for machines
+    # that DON'T support hardware misaligned access and expect a trap instead.
+    # They are not applicable to this machine's default configuration, but we
+    # run them here with trapping forced on to verify that the trap-on-misalign
+    # code path (still needed for atomics and explicit trap configs) stays
+    # correct.  This is regression coverage, not a claim of compliance.
+    riscof_env = {**os.environ, "RVSIM_MISALIGNED_TRAP": "1"}
     try:
         res = subprocess.run(
             [PYTHON, WORKER, dut_elf, pipeline_label, sig_out],
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SEC,
+            env=riscof_env,
         )
     except subprocess.TimeoutExpired:
         return dict(test=rel, pipeline=pipeline_label, status="timeout")

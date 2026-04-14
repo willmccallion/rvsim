@@ -63,6 +63,13 @@ def main():
         print(f"unknown pipeline label: {label}", file=sys.stderr)
         sys.exit(2)
 
+    # Allow the riscof runner (and other callers) to force misaligned-access
+    # trapping regardless of the config default.  The riscv-tests ld-misaligned
+    # suite needs hardware handling (trap=False), but riscof privilege tests
+    # require trapping (trap=True); this env var bridges the gap.
+    if os.environ.get("RVSIM_MISALIGNED_TRAP") == "1":
+        cfg.misaligned_access_trap = True
+
     with open(elf_path, "rb") as f:
         elf_data = f.read()
     cpu = Cpu(_config_to_dict(cfg), elf_data=elf_data)
