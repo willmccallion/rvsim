@@ -234,6 +234,29 @@ pub const MIP_MEIP: u64 = 1 << 11;
 /// Simulation panic CSR address (custom, for debugging).
 pub const CSR_SIM_PANIC: CsrAddr = CsrAddr::from_u32(0x8FF);
 
+// ── Sdtrig (debug trigger) CSRs ──────────────────────────────────────────────
+// These are implemented as read-zero / write-ignored stubs so that software
+// that probes for trigger support doesn't take an illegal-instruction trap.
+// Actual hardware trigger functionality is not implemented.
+
+/// Trigger select register (Sdtrig).
+pub const TSELECT: CsrAddr = CsrAddr::from_u32(0x7A0);
+
+/// Trigger data 1 register (Sdtrig).
+pub const TDATA1: CsrAddr = CsrAddr::from_u32(0x7A1);
+
+/// Trigger data 2 register (Sdtrig).
+pub const TDATA2: CsrAddr = CsrAddr::from_u32(0x7A2);
+
+/// Trigger data 3 register (Sdtrig).
+pub const TDATA3: CsrAddr = CsrAddr::from_u32(0x7A3);
+
+/// Trigger info register (Sdtrig).
+pub const TINFO: CsrAddr = CsrAddr::from_u32(0x7A4);
+
+/// Trigger control register (Sdtrig).
+pub const TCONTROL: CsrAddr = CsrAddr::from_u32(0x7A5);
+
 /// Supervisor previous interrupt enable bit in `mstatus` register.
 pub const MSTATUS_SPIE: u64 = 1 << 5;
 
@@ -492,6 +515,14 @@ pub struct Csrs {
     pub vtype: u64,
     /// Vector register byte length (VLEN/8, constant).
     pub vlenb: u64,
+    /// Currently selected trigger index (tselect).
+    pub tselect: u64,
+    /// Trigger data1 per slot (mcontrol config).
+    pub tdata1: [u64; 2],
+    /// Trigger data2 per slot (address match value).
+    pub tdata2: [u64; 2],
+    /// Trigger control register (mte=bit3, mpte=bit7).
+    pub tcontrol: u64,
 }
 
 impl Csrs {

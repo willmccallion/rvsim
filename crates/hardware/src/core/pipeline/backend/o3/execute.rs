@@ -66,6 +66,27 @@ pub fn execute_one(cpu: &mut Cpu, id: RenameIssueEntry, rob: &mut Rob) -> (ExMem
         return (result, true);
     }
 
+    // ── Execute trigger check ────────────────────────────────────────────────
+    if cpu.check_execute_trigger(id.pc) {
+        let result = ExMem1Entry {
+            rob_tag: id.rob_tag,
+            pc: id.pc,
+            inst: id.inst,
+            inst_size: id.inst_size,
+            rd: id.rd,
+            alu: 0,
+            store_data: 0,
+            ctrl: id.ctrl,
+            trap: Some(crate::common::Trap::Breakpoint(id.pc)),
+            exception_stage: Some(crate::common::error::ExceptionStage::Execute),
+            rd_phys: id.rd_phys,
+            fp_flags: 0,
+            sfence_vma: None,
+            vec_mem: None,
+        };
+        return (result, false);
+    }
+
     trace_execute!(cpu.trace;
         rob_tag  = id.rob_tag.0,
         pc       = %crate::trace::Hex(id.pc),

@@ -61,6 +61,13 @@ impl Cpu {
                 || x == csr::VTYPE.as_u32()
                 || x == csr::VLENB.as_u32()
                 || x == csr::CSR_SIM_PANIC.as_u32()
+                // Sdtrig (debug trigger) stubs — read-zero / write-ignored
+                || x == csr::TSELECT.as_u32()
+                || x == csr::TDATA1.as_u32()
+                || x == csr::TDATA2.as_u32()
+                || x == csr::TDATA3.as_u32()
+                || x == csr::TINFO.as_u32()
+                || x == csr::TCONTROL.as_u32()
         ) || matches!(raw,
             x if x == csr::PMPCFG0.as_u32()
                 || x == csr::PMPCFG2.as_u32()
@@ -168,6 +175,19 @@ impl Cpu {
             x if x == csr::VL.as_u32() => self.csrs.vl,
             x if x == csr::VTYPE.as_u32() => self.csrs.vtype,
             x if x == csr::VLENB.as_u32() => self.csrs.vlenb,
+            // Sdtrig — trigger CSR reads
+            x if x == csr::TSELECT.as_u32() => self.csrs.tselect,
+            x if x == csr::TDATA1.as_u32() => {
+                let i = self.csrs.tselect as usize;
+                self.csrs.tdata1[i]
+            }
+            x if x == csr::TDATA2.as_u32() => {
+                let i = self.csrs.tselect as usize;
+                self.csrs.tdata2[i]
+            }
+            x if x == csr::TDATA3.as_u32() => 0, // not implemented
+            x if x == csr::TINFO.as_u32() => 1 << 2, // mcontrol supported
+            x if x == csr::TCONTROL.as_u32() => self.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
             _ => 0,
         }
     }
@@ -360,8 +380,102 @@ impl Cpu {
                 self.csrs.vxrm = (val >> 1) & 0x3;
             }
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
+            // Sdtrig — trigger CSR writes
+            x if x == csr::TSELECT.as_u32() => {
+                // WARL: clamp to valid trigger index
+                self.csrs.tselect = val.min(1); // MAX_TRIGGERS-1 = 1
+            }
+            x if x == csr::TDATA1.as_u32() => {
+                let i = self.csrs.tselect as usize;
+                let ttype = (val >> 60) & 0xF;
+                if ttype == 2 {
+                    // mcontrol: accept supported fields, force action=0, dmode=0
+                    const MCONTROL_MASK: u64 = (0xFu64 << 60) // type
+                        | (1 << 13) | (1 << 11) | (1 << 10)   // m, s, u
+                        | (1 << 9) | (1 << 8) | (1 << 7);     // execute, store, load
+                    self.csrs.tdata1[i] = val & MCONTROL_MASK;
+                } else {
+                    // type=0 or unsupported: disable trigger
+                    self.csrs.tdata1[i] = 0;
+                }
+            }
+            x if x == csr::TDATA2.as_u32() => {
+                let i = self.csrs.tselect as usize;
+                self.csrs.tdata2[i] = val;
+            }
+            x if x == csr::TDATA3.as_u32() => {} // not implemented
+            x if x == csr::TINFO.as_u32() => {}  // read-only
+            x if x == csr::TCONTROL.as_u32() => {
+                self.csrs.tcontrol = val & 0x88; // only mte (bit3) and mpte (bit7)
+            }
             _ => {}
         }
+    }
+
+    /// Returns true if an execute trigger fires for the given PC and current privilege.
+    pub fn check_execute_trigger(&self, pc: u64) -> bool {
+        use crate::core::arch::mode::PrivilegeMode;
+        let mte = (self.csrs.tcontrol >> 3) & 1 != 0;
+        for i in 0..2usize {
+            let tdata1 = self.csrs.tdata1[i];
+            if (tdata1 >> 60) & 0xF != 2 { continue; } // not mcontrol
+            if (tdata1 >> 9) & 1 == 0 { continue; }    // not execute trigger
+            let action = (tdata1 >> 19) & 0x3;
+            if action != 0 { continue; }               // only breakpoint exception
+            let mode_ok = match self.privilege {
+                PrivilegeMode::Machine => (tdata1 >> 13) & 1 != 0 && mte,
+                PrivilegeMode::Supervisor => (tdata1 >> 11) & 1 != 0,
+                PrivilegeMode::User => (tdata1 >> 10) & 1 != 0,
+            };
+            if mode_ok && self.csrs.tdata2[i] == pc {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns true if a load trigger fires for the given address and current privilege.
+    pub fn check_load_trigger(&self, addr: u64) -> bool {
+        use crate::core::arch::mode::PrivilegeMode;
+        let mte = (self.csrs.tcontrol >> 3) & 1 != 0;
+        for i in 0..2usize {
+            let tdata1 = self.csrs.tdata1[i];
+            if (tdata1 >> 60) & 0xF != 2 { continue; }
+            if (tdata1 >> 7) & 1 == 0 { continue; }    // not load trigger
+            let action = (tdata1 >> 19) & 0x3;
+            if action != 0 { continue; }
+            let mode_ok = match self.privilege {
+                PrivilegeMode::Machine => (tdata1 >> 13) & 1 != 0 && mte,
+                PrivilegeMode::Supervisor => (tdata1 >> 11) & 1 != 0,
+                PrivilegeMode::User => (tdata1 >> 10) & 1 != 0,
+            };
+            if mode_ok && self.csrs.tdata2[i] == addr {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns true if a store trigger fires for the given address and current privilege.
+    pub fn check_store_trigger(&self, addr: u64) -> bool {
+        use crate::core::arch::mode::PrivilegeMode;
+        let mte = (self.csrs.tcontrol >> 3) & 1 != 0;
+        for i in 0..2usize {
+            let tdata1 = self.csrs.tdata1[i];
+            if (tdata1 >> 60) & 0xF != 2 { continue; }
+            if (tdata1 >> 8) & 1 == 0 { continue; }    // not store trigger
+            let action = (tdata1 >> 19) & 0x3;
+            if action != 0 { continue; }
+            let mode_ok = match self.privilege {
+                PrivilegeMode::Machine => (tdata1 >> 13) & 1 != 0 && mte,
+                PrivilegeMode::Supervisor => (tdata1 >> 11) & 1 != 0,
+                PrivilegeMode::User => (tdata1 >> 10) & 1 != 0,
+            };
+            if mode_ok && self.csrs.tdata2[i] == addr {
+                return true;
+            }
+        }
+        false
     }
 }
 

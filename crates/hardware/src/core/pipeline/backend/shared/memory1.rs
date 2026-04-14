@@ -141,6 +141,56 @@ pub fn memory1_stage(
                 per_entry_latency += latency_penalty;
             }
 
+            // ── Memory trigger check ──────────────────────────────────────────────────
+            if ex.ctrl.mem_read && !is_atomic && cpu.check_load_trigger(ex.alu) {
+                output.push(Mem1Mem2Entry {
+                    rob_tag: ex.rob_tag,
+                    pc: ex.pc,
+                    inst: ex.inst,
+                    inst_size: ex.inst_size,
+                    rd: ex.rd,
+                    rd_phys: ex.rd_phys,
+                    alu: ex.alu,
+                    vaddr: VirtAddr::new(ex.alu),
+                    paddr: PhysAddr::new(0),
+                    store_data: ex.store_data,
+                    ctrl: ex.ctrl,
+                    trap: Some(crate::common::Trap::Breakpoint(ex.pc)),
+                    exception_stage: Some(ExceptionStage::Memory),
+                    fp_flags: ex.fp_flags,
+                    complete_cycle: current_cycle,
+                    pte_update: None,
+                    sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
+                });
+                input.extend(iter);
+                return cancelled_wakeups;
+            }
+            if ex.ctrl.mem_write && !is_atomic && cpu.check_store_trigger(ex.alu) {
+                output.push(Mem1Mem2Entry {
+                    rob_tag: ex.rob_tag,
+                    pc: ex.pc,
+                    inst: ex.inst,
+                    inst_size: ex.inst_size,
+                    rd: ex.rd,
+                    rd_phys: ex.rd_phys,
+                    alu: ex.alu,
+                    vaddr: VirtAddr::new(ex.alu),
+                    paddr: PhysAddr::new(0),
+                    store_data: ex.store_data,
+                    ctrl: ex.ctrl,
+                    trap: Some(crate::common::Trap::Breakpoint(ex.pc)),
+                    exception_stage: Some(ExceptionStage::Memory),
+                    fp_flags: ex.fp_flags,
+                    complete_cycle: current_cycle,
+                    pte_update: None,
+                    sfence_vma: ex.sfence_vma,
+                    vec_mem: ex.vec_mem,
+                });
+                input.extend(iter);
+                return cancelled_wakeups;
+            }
+
             let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
 
             let TranslationResult { paddr, cycles, trap: fault, pte_update } =

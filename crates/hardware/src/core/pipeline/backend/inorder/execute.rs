@@ -100,6 +100,30 @@ pub fn execute_inorder(
         let fwd_c = id.rv3;
         let store_data = fwd_b;
 
+        // ── Execute trigger check ────────────────────────────────────────────────
+        if cpu.check_execute_trigger(id.pc) {
+            rob.fault(id.rob_tag, crate::common::Trap::Breakpoint(id.pc),
+                      crate::common::error::ExceptionStage::Execute);
+            results.push(ExMem1Entry {
+                rob_tag: id.rob_tag,
+                pc: id.pc,
+                inst: id.inst,
+                inst_size: id.inst_size,
+                rd: id.rd,
+                alu: 0,
+                store_data: 0,
+                ctrl: id.ctrl,
+                trap: None,
+                exception_stage: None,
+                rd_phys: PhysReg::default(),
+                fp_flags: 0,
+                sfence_vma: None,
+                vec_mem: None,
+            });
+            flush_remaining = true;
+            continue;
+        }
+
         let op_a = match id.ctrl.a_src {
             OpASrc::Reg1 => fwd_a,
             OpASrc::Pc => id.pc,

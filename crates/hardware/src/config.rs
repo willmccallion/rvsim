@@ -817,12 +817,10 @@ impl MemoryConfig {
     /// Returns the default value for misaligned access trap behavior.
     ///
     /// Default `true` matches spike and avoids the cross-page corruption bug:
-    /// Memory1 only translates the base virtual address, so misaligned
-    /// accesses that span two pages would read/write wrong physical memory
-    /// when handled in hardware.  Until a proper page-splitting LSU is
-    /// implemented, keep this `true`.
+    /// Misaligned accesses are handled in hardware by the unaligned access unit.
+    /// Keep this `false` to allow hardware misaligned handling by default.
     const fn default_misaligned_access_trap() -> bool {
-        true
+        false
     }
 }
 
@@ -849,7 +847,7 @@ impl Default for MemoryConfig {
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
             software_ad_bits: true,
-            misaligned_access_trap: true,
+            misaligned_access_trap: false,
         }
     }
 }
