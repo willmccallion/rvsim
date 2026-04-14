@@ -28,6 +28,8 @@ pub struct Checkpoint {
     pub frm: u64,
     /// `vxrm` CSR (vector fixed-point rounding mode) at branch dispatch time.
     pub vxrm: u64,
+    /// `vstart` CSR at branch dispatch time (for rollback on misprediction).
+    pub vstart: u64,
 }
 
 /// Fixed-size table of checkpoint slots.
@@ -63,8 +65,8 @@ impl CheckpointTable {
         self.slots.len() - self.count
     }
 
-    /// Allocates a checkpoint slot, saving `rename_map`, `vtype`, `vl`, `frm`, and `vxrm`
-    /// for `branch_tag`. Returns `None` if the table is full.
+    /// Allocates a checkpoint slot, saving `rename_map`, `vtype`, `vl`, `frm`, `vxrm`,
+    /// and `vstart` for `branch_tag`. Returns `None` if the table is full.
     pub fn allocate(
         &mut self,
         branch_tag: RobTag,
@@ -73,6 +75,7 @@ impl CheckpointTable {
         vl: u64,
         frm: u64,
         vxrm: u64,
+        vstart: u64,
     ) -> Option<CheckpointId> {
         for (i, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_none() {
@@ -83,6 +86,7 @@ impl CheckpointTable {
                     vl,
                     frm,
                     vxrm,
+                    vstart,
                 });
                 self.count += 1;
                 return Some(CheckpointId(i as u8));
@@ -147,7 +151,7 @@ mod tests {
 
         let rm = make_rename_map(100);
         let tag = RobTag(10);
-        let id = table.allocate(tag, &rm, 0, 0, 0, 0).unwrap();
+        let id = table.allocate(tag, &rm, 0, 0, 0, 0, 0).unwrap();
         assert_eq!(table.available(), 3);
 
         let ckpt = table.find_by_tag(tag).unwrap();
@@ -163,20 +167,20 @@ mod tests {
     fn test_full_table() {
         let mut table = CheckpointTable::new(2);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm, 0, 0, 0, 0).unwrap();
-        table.allocate(RobTag(2), &rm, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(1), &rm, 0, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(2), &rm, 0, 0, 0, 0, 0).unwrap();
         assert!(table.is_full());
-        assert!(table.allocate(RobTag(3), &rm, 0, 0, 0, 0).is_none());
+        assert!(table.allocate(RobTag(3), &rm, 0, 0, 0, 0, 0).is_none());
     }
 
     #[test]
     fn test_flush_after() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm, 0, 0, 0, 0).unwrap();
-        table.allocate(RobTag(2), &rm, 0, 0, 0, 0).unwrap();
-        table.allocate(RobTag(3), &rm, 0, 0, 0, 0).unwrap();
-        table.allocate(RobTag(4), &rm, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(1), &rm, 0, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(2), &rm, 0, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(3), &rm, 0, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(4), &rm, 0, 0, 0, 0, 0).unwrap();
         assert!(table.is_full());
 
         // Keep tag 2, flush tags 3 and 4
@@ -192,8 +196,8 @@ mod tests {
     fn test_flush_all() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm, 0, 0, 0, 0).unwrap();
-        table.allocate(RobTag(2), &rm, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(1), &rm, 0, 0, 0, 0, 0).unwrap();
+        table.allocate(RobTag(2), &rm, 0, 0, 0, 0, 0).unwrap();
         table.flush_all();
         assert_eq!(table.available(), 4);
         assert!(table.find_by_tag(RobTag(1)).is_none());
@@ -205,7 +209,7 @@ mod tests {
         assert!(table.is_full());
         assert_eq!(table.available(), 0);
         let rm = make_rename_map(1);
-        assert!(table.allocate(RobTag(1), &rm, 0, 0, 0, 0).is_none());
+        assert!(table.allocate(RobTag(1), &rm, 0, 0, 0, 0, 0).is_none());
         // flush_after and flush_all should be no-ops
         table.flush_after(RobTag(1));
         table.flush_all();

@@ -760,6 +760,11 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
+            vec_vtype: 0,
+            vec_vl: 0,
+            vec_vstart: 0,
+            vec_vxrm: 0,
+            vec_frm: 0,
         }
     }
 

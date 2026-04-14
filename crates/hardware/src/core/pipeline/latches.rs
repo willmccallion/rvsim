@@ -257,6 +257,16 @@ pub struct RenameIssueEntry {
     pub vec_src3_count: u8,
     /// Physical register for v0 mask (populated by rename for masked vector ops).
     pub mask_phys: VecPhysReg,
+    /// `vtype` CSR captured at dispatch time (O3: prevents stale reads when vsetvl is in-flight).
+    pub vec_vtype: u64,
+    /// `vl` CSR captured at dispatch time.
+    pub vec_vl: u64,
+    /// `vstart` CSR captured at dispatch time.
+    pub vec_vstart: u64,
+    /// `vxrm` CSR captured at dispatch time.
+    pub vec_vxrm: u64,
+    /// `frm` (FP rounding mode) CSR captured at dispatch time.
+    pub vec_frm: u64,
 }
 
 /// Entry from Execute -> Memory1 latch.

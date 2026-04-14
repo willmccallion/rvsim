@@ -827,7 +827,7 @@ impl ExecutionEngine for O3Engine {
                     use crate::core::units::vpu::reduction;
                     use crate::core::pipeline::signals::VectorOp;
 
-                    let vl = cpu.csrs.vl as usize;
+                    let vl = entry.vec_vl as usize;
                     let startup = self.fu_pool.startup_latency(fu_type);
                     let pipelined = self.fu_pool.is_pipelined(fu_type);
                     let vec_op = entry.ctrl.vec_op;
@@ -915,16 +915,18 @@ impl ExecutionEngine for O3Engine {
                         mapping[i as usize] = self.rename_map.get_vec(VRegIdx::new(i));
                     }
 
-                    // Execute via VecPrfView — reads/writes go to vec_prf, NOT arch VPR
+                    // Execute via VecPrfView — reads/writes go to vec_prf, NOT arch VPR.
+                    // Use dispatch-time CSR snapshot so that in-flight vsetvl instructions
+                    // don't corrupt the vtype/vl seen by this vector op.
                     let vec_result_or_trap = {
                         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
                         execute_vec_op_on(
                             &mut view,
-                            cpu.csrs.vtype,
-                            cpu.csrs.vl,
-                            cpu.csrs.vstart,
-                            cpu.csrs.vxrm,
-                            cpu.csrs.frm,
+                            saved.vec_vtype,
+                            saved.vec_vl,
+                            saved.vec_vstart,
+                            saved.vec_vxrm,
+                            saved.vec_frm,
                             cpu.elen,
                             cpu.zvfh,
                             saved,
@@ -1012,9 +1014,9 @@ impl ExecutionEngine for O3Engine {
                             ex_result.alu,                // base address (rs1)
                             ex_result.store_data as i64,  // stride (rs2)
                             &saved.ctrl,
-                            cpu.csrs.vtype,
-                            cpu.csrs.vl as usize,
-                            cpu.csrs.vstart as usize,
+                            saved.vec_vtype,
+                            saved.vec_vl as usize,
+                            saved.vec_vstart as usize,
                             vec_op,
                             &vd_phys_arr,
                             vd_count,
@@ -1273,6 +1275,7 @@ impl ExecutionEngine for O3Engine {
                     cpu.csrs.vl = ckpt.vl;
                     cpu.csrs.frm = ckpt.frm;
                     cpu.csrs.vxrm = ckpt.vxrm;
+                    cpu.csrs.vstart = ckpt.vstart;
                     // Checkpoint found: O(1) rename restore, no rebuild penalty.
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
                 } else {

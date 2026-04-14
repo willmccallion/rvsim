@@ -820,6 +820,7 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VOR => VectorOp::VOr,
         v_f6::VXOR => VectorOp::VXor,
         v_f6::VADD => VectorOp::VAdd,
+        v_f6::VRGATHER => VectorOp::VRgather,
         v_f6::VSLIDEUP => VectorOp::VSlideUp,
         v_f6::VSLIDEDOWN => VectorOp::VSlideDown,
         v_f6::VADC => VectorOp::VAdc,

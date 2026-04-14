@@ -225,6 +225,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                     cpu.csrs.vl,
                     cpu.csrs.frm,
                     cpu.csrs.vxrm,
+                    cpu.csrs.vstart,
                 ) else {
                     unreachable!("checkpoint table full after stall check");
                 };
@@ -273,6 +274,13 @@ pub fn rename_stage<E: ExecutionEngine>(
                 } else {
                     VecPhysReg::ZERO
                 },
+                // Snapshot current vector CSRs at dispatch time so execute uses
+                // the correct context even when later vsetvl updates the live CSR.
+                vec_vtype: cpu.csrs.vtype,
+                vec_vl: cpu.csrs.vl,
+                vec_vstart: cpu.csrs.vstart,
+                vec_vxrm: cpu.csrs.vxrm,
+                vec_frm: cpu.csrs.frm,
             };
 
             trace_rename!(cpu.trace;
@@ -365,6 +373,11 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src2_count: 0,
                 vec_src3_count: 0,
                 mask_phys: VecPhysReg::ZERO,
+                vec_vtype: cpu.csrs.vtype,
+                vec_vl: cpu.csrs.vl,
+                vec_vstart: cpu.csrs.vstart,
+                vec_vxrm: cpu.csrs.vxrm,
+                vec_frm: cpu.csrs.frm,
             };
 
             trace_rename!(cpu.trace;
