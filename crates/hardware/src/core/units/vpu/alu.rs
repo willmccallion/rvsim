@@ -149,8 +149,11 @@ const fn rounding_incr(v: u64, d: u32, vxrm: Vxrm) -> u64 {
         }
         Vxrm::RoundDown => 0,
         Vxrm::RoundToOdd => {
+            // Set the result LSB to 1 iff any dropped bit is nonzero AND the
+            // truncated result is already even (i.e. r = dropped_nonzero & !result_lsb).
             let dropped = v & ((1u64 << d) - 1);
-            if dropped != 0 { 1 } else { 0 }
+            let result_lsb = (v >> d) & 1;
+            if dropped != 0 && result_lsb == 0 { 1 } else { 0 }
         }
     }
 }
