@@ -223,6 +223,8 @@ pub fn rename_stage<E: ExecutionEngine>(
                     &map_snapshot,
                     cpu.csrs.vtype,
                     cpu.csrs.vl,
+                    cpu.csrs.frm,
+                    cpu.csrs.vxrm,
                 ) else {
                     unreachable!("checkpoint table full after stall check");
                 };

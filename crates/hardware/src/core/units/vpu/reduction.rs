@@ -22,7 +22,9 @@ use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
-use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
+use crate::core::units::fpu::{
+    clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
+};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
@@ -348,6 +350,7 @@ fn exec_fp_reduction(
 ) -> VecExecResult {
     let sew = ctx.sew;
 
+    let saved_rm = set_host_round_mode(ctx.frm);
     let flags = match sew {
         Sew::E32 => {
             let (result_bits, flags) = fp_reduce_f32(op, vpr, vs2, operand1, ctx);
@@ -361,6 +364,7 @@ fn exec_fp_reduction(
         }
         _ => unreachable!("FP reduction with SEW={:?} is not supported", sew),
     };
+    restore_host_round_mode(saved_rm);
 
     // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
     if ctx.vta.is_agnostic() {
@@ -489,6 +493,7 @@ fn exec_fp_widen_reduction(
     let Some(dst_sew) = widen_sew(src_sew) else {
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     };
+    let saved_rm = set_host_round_mode(ctx.frm);
     // Initial accumulator at 2*SEW (f64).
     let init_bits = read_initial_accum(vpr, operand1, dst_sew);
     let mut acc = f64::from_bits(init_bits);
@@ -519,6 +524,8 @@ fn exec_fp_widen_reduction(
 
     // Write result at 2*SEW.
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, canonicalize_f64_bits(acc));
+
+    restore_host_round_mode(saved_rm);
 
     // Tail policy: elements 1..vlmax of vd follow the tail-agnostic rule.
     if ctx.vta.is_agnostic() {

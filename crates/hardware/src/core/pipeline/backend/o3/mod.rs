@@ -1271,6 +1271,8 @@ impl ExecutionEngine for O3Engine {
                     self.rename_map = ckpt.rename_map.clone();
                     cpu.csrs.vtype = ckpt.vtype;
                     cpu.csrs.vl = ckpt.vl;
+                    cpu.csrs.frm = ckpt.frm;
+                    cpu.csrs.vxrm = ckpt.vxrm;
                     // Checkpoint found: O(1) rename restore, no rebuild penalty.
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
                 } else {
