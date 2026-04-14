@@ -384,6 +384,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
+    use crate::core::units::fpu::rounding_modes::RoundingMode;
     use crate::core::units::vpu::types::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a 128-bit VPR for testing.
@@ -402,6 +403,8 @@ mod tests {
             vlmul: Vlmul::M1,
             vm: true,
             vxrm: Vxrm::RoundToNearestUp,
+            frm: RoundingMode::Rne,
+            zvfh: false,
         }
     }
 

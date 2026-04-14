@@ -80,6 +80,10 @@ pub struct Cpu {
     pub branch_predictor: BranchPredictorWrapper,
     /// Pipeline width (superscalar degree).
     pub pipeline_width: usize,
+    /// Maximum element width in bits (ELEN). 32 = Zve32x/Zve32f, 64 = standard.
+    pub elen: usize,
+    /// Whether the Zvfh (half-precision vector FP) extension is enabled.
+    pub zvfh: bool,
     /// True when using an O3 backend with register renaming.
     /// Decode skips intra-bundle RAW hazard checks (rename handles them).
     pub has_register_renaming: bool,
@@ -332,6 +336,8 @@ impl Cpu {
             pmp: Pmp::new(),
             load_reservation: None,
             pipeline_width: config.pipeline.width,
+            elen: config.pipeline.elen,
+            zvfh: config.pipeline.zvfh,
             has_register_renaming: config.pipeline.backend
                 == crate::core::pipeline::engine::BackendType::OutOfOrder,
             i_cache_line_bytes: config.cache.l1_i.line_bytes.max(1),

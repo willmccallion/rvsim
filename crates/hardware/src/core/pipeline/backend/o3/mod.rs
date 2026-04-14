@@ -924,6 +924,9 @@ impl ExecutionEngine for O3Engine {
                             cpu.csrs.vl,
                             cpu.csrs.vstart,
                             cpu.csrs.vxrm,
+                            cpu.csrs.frm,
+                            cpu.elen,
+                            cpu.zvfh,
                             saved,
                         )
                     };
@@ -1266,6 +1269,8 @@ impl ExecutionEngine for O3Engine {
             if self.checkpoints.capacity() > 0 {
                 if let Some(ckpt) = self.checkpoints.find_by_tag(keep_tag) {
                     self.rename_map = ckpt.rename_map.clone();
+                    cpu.csrs.vtype = ckpt.vtype;
+                    cpu.csrs.vl = ckpt.vl;
                     // Checkpoint found: O(1) rename restore, no rebuild penalty.
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
                 } else {

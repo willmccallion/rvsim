@@ -20,10 +20,16 @@
 
 use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
+use crate::core::units::fpu::half::{
+    CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16,
+};
 use crate::core::units::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
-use crate::core::units::fpu::{clear_host_fp_flags, read_host_fp_flags};
+use crate::core::units::fpu::rounding_modes::RoundingMode;
+use crate::core::units::fpu::{
+    clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
+};
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax};
@@ -120,8 +126,23 @@ pub const fn is_vec_fp(op: VectorOp) -> bool {
 /// * `vs2_idx`  - Second source vector register index.
 /// * `operand1` - First operand (vector, scalar, or immediate).
 /// * `ctx`      - Execution context (SEW, vl, masking policies, etc.).
-#[allow(clippy::too_many_lines)]
 pub fn vec_fp_execute(
+    op: VectorOp,
+    vpr: &mut impl VectorRegFile,
+    vd_idx: VRegIdx,
+    vs2_idx: VRegIdx,
+    operand1: VecOperand,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
+    // Set host FPU rounding mode from fcsr.frm for this instruction.
+    let saved_rm = set_host_round_mode(ctx.frm);
+    let result = vec_fp_dispatch(op, vpr, vd_idx, vs2_idx, operand1, ctx);
+    restore_host_round_mode(saved_rm);
+    result
+}
+
+#[allow(clippy::too_many_lines)]
+fn vec_fp_dispatch(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
@@ -853,6 +874,172 @@ fn compute_f64(op: VectorOp, vs2_bits: u64, op1_bits: u64) -> (u64, FpFlags) {
 }
 
 // ============================================================================
+// Per-element FP computation (SEW=16, Zvfh)
+// ============================================================================
+
+/// Compute one standard FP element at SEW=16 (Zvfh).
+///
+/// Vector f16 values are stored as raw u16 bit patterns in the low 16 bits of
+/// each element slot — they are NOT NaN-boxed (that is only for scalar registers).
+/// Arithmetic is performed by upcasting to f64 (lossless for f16 inputs) and
+/// software-rounding back to f16 via `f64_to_f16`.
+#[allow(clippy::too_many_lines)]
+fn compute_f16(op: VectorOp, vs2_bits: u64, op1_bits: u64, rm: RoundingMode) -> (u64, FpFlags) {
+    let ha = vs2_bits as u16;
+    let hb = op1_bits as u16;
+    let fa = f16_to_f32(ha) as f64;
+    let fb = f16_to_f32(hb) as f64;
+
+    // Helper: round f64 result → f16 bit pattern, merging extra flags.
+    let round = |val: f64, extra: FpFlags| -> (u64, FpFlags) {
+        let (bits, flags) = f64_to_f16(val, rm);
+        (bits as u64, flags | extra)
+    };
+
+    match op {
+        VectorOp::VFAdd => {
+            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            round(fa + fb, nv)
+        }
+        VectorOp::VFSub => {
+            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            round(fa - fb, nv)
+        }
+        VectorOp::VFRSub => {
+            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            round(fb - fa, nv)
+        }
+        VectorOp::VFMul => {
+            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            round(fa * fb, nv)
+        }
+        VectorOp::VFDiv => {
+            let mut extra = FpFlags::NONE;
+            if is_snan_f16(ha) || is_snan_f16(hb) {
+                extra = extra | FpFlags::NV;
+            } else if fb == 0.0 && fa != 0.0 && fa.is_finite() {
+                extra = extra | FpFlags::DZ;
+            } else if fb == 0.0 && fa == 0.0 {
+                extra = extra | FpFlags::NV;
+            } else if fa.is_infinite() && fb.is_infinite() {
+                extra = extra | FpFlags::NV;
+            }
+            round(fa / fb, extra)
+        }
+        VectorOp::VFRDiv => {
+            let mut extra = FpFlags::NONE;
+            if is_snan_f16(ha) || is_snan_f16(hb) {
+                extra = extra | FpFlags::NV;
+            } else if fa == 0.0 && fb != 0.0 && fb.is_finite() {
+                extra = extra | FpFlags::DZ;
+            } else if fa == 0.0 && fb == 0.0 {
+                extra = extra | FpFlags::NV;
+            } else if fb.is_infinite() && fa.is_infinite() {
+                extra = extra | FpFlags::NV;
+            }
+            round(fb / fa, extra)
+        }
+        VectorOp::VFSqrt => {
+            let mut extra = FpFlags::NONE;
+            if is_snan_f16(ha) || fa < 0.0 {
+                extra = extra | FpFlags::NV;
+            }
+            round(fa.sqrt(), extra)
+        }
+        VectorOp::VFMin => {
+            let f = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            let fa32 = f16_to_f32(ha);
+            let fb32 = f16_to_f32(hb);
+            let r = fmin_f32(fa32, fb32);
+            if r.is_nan() {
+                return (CANONICAL_NAN_F16 as u64, f);
+            }
+            let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
+            (bits as u64, f)
+        }
+        VectorOp::VFMax => {
+            let f = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
+            let fa32 = f16_to_f32(ha);
+            let fb32 = f16_to_f32(hb);
+            let r = fmax_f32(fa32, fb32);
+            if r.is_nan() {
+                return (CANONICAL_NAN_F16 as u64, f);
+            }
+            let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
+            (bits as u64, f)
+        }
+        VectorOp::VFSgnj => ((ha & 0x7FFF) as u64 | (hb & 0x8000) as u64, FpFlags::NONE),
+        VectorOp::VFSgnjn => ((ha & 0x7FFF) as u64 | (!hb & 0x8000) as u64, FpFlags::NONE),
+        VectorOp::VFSgnjx => ((ha ^ (hb & 0x8000)) as u64, FpFlags::NONE),
+        VectorOp::VFClass => (classify_f16(ha), FpFlags::NONE),
+        VectorOp::VFCvtXuF => {
+            clear_host_fp_flags();
+            let r = if fa.is_nan() { u16::MAX as u64 } else { fa as u16 as u64 };
+            let f = read_host_fp_flags() | if fa.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
+        }
+        VectorOp::VFCvtXF => {
+            clear_host_fp_flags();
+            let r = if fa.is_nan() { i16::MAX as u64 } else { (fa as i16 as u16) as u64 };
+            let f = read_host_fp_flags() | if fa.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
+        }
+        VectorOp::VFCvtRtzXuF => {
+            clear_host_fp_flags();
+            let r = if fa.is_nan() { u16::MAX as u64 } else { fa as u16 as u64 };
+            let f = read_host_fp_flags() | if fa.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
+        }
+        VectorOp::VFCvtRtzXF => {
+            clear_host_fp_flags();
+            let r = if fa.is_nan() { i16::MAX as u64 } else { (fa as i16 as u16) as u64 };
+            let f = read_host_fp_flags() | if fa.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+            (r, f)
+        }
+        VectorOp::VFCvtFXu => round(vs2_bits as u16 as f64, FpFlags::NONE),
+        VectorOp::VFCvtFX => round(sign_extend(vs2_bits, Sew::E16) as i16 as f64, FpFlags::NONE),
+        _ => (0, FpFlags::NONE),
+    }
+}
+
+/// Compute FMA for f16 element (Zvfh).
+fn compute_fma_f16(
+    op: VectorOp,
+    vs2_bits: u64,
+    op1_bits: u64,
+    vd_bits: u64,
+    rm: RoundingMode,
+) -> (u64, FpFlags) {
+    let ha = vs2_bits as u16;
+    let hb = op1_bits as u16;
+    let hc = vd_bits as u16;
+    let vs2 = f16_to_f32(ha) as f64;
+    let op1 = f16_to_f32(hb) as f64;
+    let vd = f16_to_f32(hc) as f64;
+
+    let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
+        FpFlags::NV
+    } else {
+        FpFlags::NONE
+    };
+
+    let r = match op {
+        VectorOp::VFMacc => op1.mul_add(vs2, vd),
+        VectorOp::VFNMacc => (-op1).mul_add(vs2, -vd),
+        VectorOp::VFMSac => op1.mul_add(vs2, -vd),
+        VectorOp::VFNMSac => (-op1).mul_add(vs2, vd),
+        VectorOp::VFMAdd => op1.mul_add(vd, vs2),
+        VectorOp::VFNMAdd => (-op1).mul_add(vd, -vs2),
+        VectorOp::VFMSub => op1.mul_add(vd, -vs2),
+        VectorOp::VFNMSub => (-op1).mul_add(vd, vs2),
+        _ => 0.0,
+    };
+
+    let (bits, flags) = f64_to_f16(r, rm);
+    (bits as u64, flags | nv)
+}
+
+// ============================================================================
 // Standard element-wise loop
 // ============================================================================
 
@@ -891,7 +1078,8 @@ fn exec_fp_standard(
         let (result, f) = match ctx.sew {
             Sew::E32 => compute_f32(op, vs2_val, op1_val),
             Sew::E64 => compute_f64(op, vs2_val, op1_val),
-            _ => (0, FpFlags::NONE), // FP not supported at E8/E16
+            Sew::E16 if ctx.zvfh => compute_f16(op, vs2_val, op1_val, ctx.frm),
+            _ => (0, FpFlags::NONE),
         };
         flags = flags | f;
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
@@ -940,6 +1128,7 @@ fn exec_fp_fma(
         let (result, f) = match ctx.sew {
             Sew::E32 => compute_fma_f32(op, vs2_val, op1_val, vd_val),
             Sew::E64 => compute_fma_f64(op, vs2_val, op1_val, vd_val),
+            Sew::E16 if ctx.zvfh => compute_fma_f16(op, vs2_val, op1_val, vd_val, ctx.frm),
             _ => (0, FpFlags::NONE),
         };
         flags = flags | f;
@@ -1087,6 +1276,27 @@ fn exec_fp_comparison(
                 let b = elem_to_f64(op1_val);
                 let nv = match op {
                     VectorOp::VMFEq | VectorOp::VMFNe => is_snan_f64(a) || is_snan_f64(b),
+                    _ => a.is_nan() || b.is_nan(),
+                };
+                let f = if nv { FpFlags::NV } else { FpFlags::NONE };
+                let cmp = match op {
+                    VectorOp::VMFEq => a == b,
+                    VectorOp::VMFNe => a != b,
+                    VectorOp::VMFLt => a < b,
+                    VectorOp::VMFLe => a <= b,
+                    VectorOp::VMFGt => a > b,
+                    VectorOp::VMFGe => a >= b,
+                    _ => false,
+                };
+                (cmp, f)
+            }
+            Sew::E16 if ctx.zvfh => {
+                let a16 = vs2_val as u16;
+                let b16 = op1_val as u16;
+                let a = f16_to_f32(a16);
+                let b = f16_to_f32(b16);
+                let nv = match op {
+                    VectorOp::VMFEq | VectorOp::VMFNe => is_snan_f16(a16) || is_snan_f16(b16),
                     _ => a.is_nan() || b.is_nan(),
                 };
                 let f = if nv { FpFlags::NV } else { FpFlags::NONE };
@@ -1356,8 +1566,77 @@ fn exec_fp_widening(
             let f = read_host_fp_flags();
             flags = flags | f;
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
+        } else if ctx.sew == Sew::E16 && ctx.zvfh {
+            // Zvfh widening: SEW=16 (f16) -> wsew=E32 (f32)
+            // Handle integer-producing conversions
+            if matches!(
+                op,
+                VectorOp::VFWCvtXuF
+                    | VectorOp::VFWCvtXF
+                    | VectorOp::VFWCvtRtzXuF
+                    | VectorOp::VFWCvtRtzXF
+                    | VectorOp::VFWCvtFXu
+                    | VectorOp::VFWCvtFX
+            ) {
+                clear_host_fp_flags();
+                let a16 = vs2_raw as u16;
+                let a_f = f16_to_f32(a16);
+                let bits = match op {
+                    VectorOp::VFWCvtXuF | VectorOp::VFWCvtRtzXuF => {
+                        if a_f.is_nan() { u32::MAX as u64 } else { a_f as u32 as u64 }
+                    }
+                    VectorOp::VFWCvtXF | VectorOp::VFWCvtRtzXF => {
+                        if a_f.is_nan() { i32::MAX as u64 } else { a_f as i32 as u32 as u64 }
+                    }
+                    VectorOp::VFWCvtFXu => (vs2_raw as u16 as f32).to_bits() as u64,
+                    VectorOp::VFWCvtFX => {
+                        (sign_extend(vs2_raw, Sew::E16) as i16 as f32).to_bits() as u64
+                    }
+                    _ => 0,
+                };
+                let nan_input = matches!(
+                    op,
+                    VectorOp::VFWCvtXuF
+                        | VectorOp::VFWCvtXF
+                        | VectorOp::VFWCvtRtzXuF
+                        | VectorOp::VFWCvtRtzXF
+                ) && a_f.is_nan();
+                let f =
+                    read_host_fp_flags() | if nan_input { FpFlags::NV } else { FpFlags::NONE };
+                flags = flags | f;
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
+                continue;
+            }
+
+            // FP arithmetic widening: f16 inputs → f32 output (via f64 for lossless computation)
+            let vs2_f = if vs2_wide {
+                elem_to_f32(vs2_raw) as f64
+            } else {
+                f16_to_f32(vs2_raw as u16) as f64
+            };
+            let op1_f = f16_to_f32(op1_raw as u16) as f64;
+
+            clear_host_fp_flags();
+            let r_f64 = std::hint::black_box(match op {
+                VectorOp::VFWAdd | VectorOp::VFWAddW => {
+                    std::hint::black_box(vs2_f) + std::hint::black_box(op1_f)
+                }
+                VectorOp::VFWSub | VectorOp::VFWSubW => {
+                    std::hint::black_box(vs2_f) - std::hint::black_box(op1_f)
+                }
+                VectorOp::VFWMul => std::hint::black_box(vs2_f) * std::hint::black_box(op1_f),
+                VectorOp::VFWCvtFF => vs2_f, // f16→f32 conversion (just widen, exact)
+                _ => vs2_f,
+            });
+            let f = read_host_fp_flags();
+            flags = flags | f;
+            vpr.write_element(
+                vd_idx,
+                ElemIdx::new(i),
+                wsew,
+                box_f32_canon(r_f64 as f32),
+            );
         }
-        // SEW=16 or others: not typically used for FP widening, skip
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
@@ -1419,6 +1698,27 @@ fn exec_fp_widening_fma(
             let f = read_host_fp_flags();
             flags = flags | f;
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
+        } else if ctx.sew == Sew::E16 && ctx.zvfh {
+            // Zvfh widening FMA: f16 inputs → f32 accumulator
+            let vs2_f = f16_to_f32(vs2_raw as u16) as f64;
+            let op1_f = f16_to_f32(op1_raw as u16) as f64;
+            let vd_f = elem_to_f32(vd_raw) as f64;
+
+            clear_host_fp_flags();
+            let r = std::hint::black_box(match op {
+                VectorOp::VFWMacc => std::hint::black_box(op1_f)
+                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
+                VectorOp::VFWNMacc => (-std::hint::black_box(op1_f))
+                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
+                VectorOp::VFWMSac => std::hint::black_box(op1_f)
+                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
+                VectorOp::VFWNMSac => (-std::hint::black_box(op1_f))
+                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
+                _ => vd_f,
+            });
+            let f = read_host_fp_flags();
+            flags = flags | f;
+            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, box_f32_canon(r as f32));
         }
     }
 
@@ -1547,6 +1847,88 @@ fn exec_fp_narrowing(
                 }
                 _ => (0, FpFlags::NONE),
             }
+        } else if ctx.sew == Sew::E16 && ctx.zvfh {
+            // Zvfh narrowing: src_sew=E32 (f32) -> dst_sew=E16 (f16)
+            let a32 = elem_to_f32(vs2_raw);
+            match op {
+                VectorOp::VFNCvtFF => {
+                    // f32 -> f16 with rounding mode
+                    let (bits, f) = f64_to_f16(a32 as f64, ctx.frm);
+                    (bits as u64, f)
+                }
+                VectorOp::VFNCvtRodFF => {
+                    // Round-to-odd: suppress double-rounding for chained narrowing
+                    let r32 = a32;
+                    if !r32.is_nan() && !r32.is_infinite() {
+                        let (bits, f) = f64_to_f16(r32 as f64, ctx.frm);
+                        let flags_no_nx = FpFlags::from_bits(f.bits() & !FpFlags::NX.bits());
+                        // Jam LSB if inexact
+                        let jammed = if (r32 as f64) != (r32 as f64)
+                            && (r32 as f64).is_finite()
+                        {
+                            bits | 1
+                        } else {
+                            bits
+                        };
+                        (jammed as u64, flags_no_nx)
+                    } else {
+                        let (bits, f) = f64_to_f16(r32 as f64, ctx.frm);
+                        (bits as u64, f)
+                    }
+                }
+                VectorOp::VFNCvtXuF => {
+                    clear_host_fp_flags();
+                    let r = if a32.is_nan() { u16::MAX as u64 } else { a32 as u16 as u64 };
+                    let f = read_host_fp_flags()
+                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
+                }
+                VectorOp::VFNCvtXF => {
+                    clear_host_fp_flags();
+                    let r = if a32.is_nan() {
+                        i16::MAX as u64
+                    } else {
+                        a32 as i16 as u16 as u64
+                    };
+                    let f = read_host_fp_flags()
+                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
+                }
+                VectorOp::VFNCvtRtzXuF => {
+                    clear_host_fp_flags();
+                    let r = if a32.is_nan() {
+                        u16::MAX as u64
+                    } else {
+                        std::hint::black_box(a32) as u16 as u64
+                    };
+                    let f = read_host_fp_flags()
+                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
+                }
+                VectorOp::VFNCvtRtzXF => {
+                    clear_host_fp_flags();
+                    let r = if a32.is_nan() {
+                        i16::MAX as u64
+                    } else {
+                        std::hint::black_box(a32) as i16 as u16 as u64
+                    };
+                    let f = read_host_fp_flags()
+                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
+                    (r, f)
+                }
+                VectorOp::VFNCvtFXu => {
+                    // 2*SEW unsigned int (u32) → f16
+                    let (bits, f) = f64_to_f16(vs2_raw as u32 as f64, ctx.frm);
+                    (bits as u64, f)
+                }
+                VectorOp::VFNCvtFX => {
+                    // 2*SEW signed int (i32) → f16
+                    let (bits, f) =
+                        f64_to_f16(sign_extend(vs2_raw, src_sew) as i32 as f64, ctx.frm);
+                    (bits as u64, f)
+                }
+                _ => (0, FpFlags::NONE),
+            }
         } else {
             (0u64, FpFlags::NONE)
         };
@@ -1579,6 +1961,8 @@ mod tests {
             vlmul: Vlmul::M1,
             vm: true,
             vxrm: Vxrm::RoundToNearestUp,
+            frm: RoundingMode::Rne,
+            zvfh: false,
         }
     }
 

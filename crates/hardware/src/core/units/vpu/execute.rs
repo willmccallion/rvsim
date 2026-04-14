@@ -15,7 +15,8 @@ use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{Vxrm, parse_vtype};
+use crate::core::units::fpu::rounding_modes::RoundingMode;
+use crate::core::units::vpu::types::{Vxrm, parse_vtype_with_elen};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::core::units::vpu::{fpu, mask, mem, permute, reduction};
 use crate::isa::rvv::encoding as v_enc;
@@ -99,8 +100,8 @@ fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Build the common execution context from CPU state.
-const fn build_ctx(cpu: &Cpu) -> VecExecCtx {
-    let vtype = parse_vtype(cpu.csrs.vtype);
+fn build_ctx(cpu: &Cpu) -> VecExecCtx {
+    let vtype = parse_vtype_with_elen(cpu.csrs.vtype, cpu.elen);
     VecExecCtx {
         sew: vtype.vsew,
         vl: cpu.csrs.vl as usize,
@@ -110,6 +111,11 @@ const fn build_ctx(cpu: &Cpu) -> VecExecCtx {
         vlmul: vtype.vlmul,
         vm: true, // overridden per-instruction
         vxrm: Vxrm::from_bits(cpu.csrs.vxrm as u8),
+        frm: match RoundingMode::from_bits(cpu.csrs.frm as u8) {
+            Some(rm) => rm,
+            None => RoundingMode::Rne,
+        },
+        zvfh: cpu.zvfh,
     }
 }
 
@@ -159,8 +165,8 @@ const fn mark_vs_dirty(cpu: &mut Cpu) {
 /// vector instruction that depends on vtype will raise an illegal-instruction
 /// exception."
 #[inline]
-fn check_vill(inst: u32, vtype_bits: u64) -> Result<(), Trap> {
-    let vtype = parse_vtype(vtype_bits);
+fn check_vill(inst: u32, vtype_bits: u64, elen: usize) -> Result<(), Trap> {
+    let vtype = parse_vtype_with_elen(vtype_bits, elen);
     if vtype.vill {
         return Err(Trap::IllegalInstruction(inst));
     }
@@ -169,9 +175,9 @@ fn check_vill(inst: u32, vtype_bits: u64) -> Result<(), Trap> {
 
 /// Execute a vector integer arithmetic operation on the VPR.
 fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, cpu.csrs.vtype)?;
+    check_vill(id.inst, cpu.csrs.vtype, cpu.elen)?;
 
-    let vtype = parse_vtype(cpu.csrs.vtype);
+    let vtype = parse_vtype_with_elen(cpu.csrs.vtype, cpu.elen);
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
     let operand1 = build_operand1(id);
@@ -202,7 +208,7 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> 
 
 /// Execute a vector floating-point operation.
 fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, cpu.csrs.vtype)?;
+    check_vill(id.inst, cpu.csrs.vtype, cpu.elen)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -226,7 +232,7 @@ fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
 
 /// Execute a vector reduction operation.
 fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, cpu.csrs.vtype)?;
+    check_vill(id.inst, cpu.csrs.vtype, cpu.elen)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -249,7 +255,7 @@ fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Tr
 
 /// Execute a vector mask operation.
 fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, cpu.csrs.vtype)?;
+    check_vill(id.inst, cpu.csrs.vtype, cpu.elen)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -271,7 +277,7 @@ fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
 
 /// Execute a vector permutation operation.
 fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, cpu.csrs.vtype)?;
+    check_vill(id.inst, cpu.csrs.vtype, cpu.elen)?;
 
     let mut ctx = build_ctx(cpu);
     ctx.vm = id.ctrl.vm;
@@ -326,8 +332,16 @@ pub struct VecOpResult {
 }
 
 /// Build execution context from raw CSR values (no Cpu reference needed).
-fn build_ctx_from_csrs(vtype_bits: u64, vl: u64, vstart: u64, vxrm: u64) -> VecExecCtx {
-    let vtype = parse_vtype(vtype_bits);
+fn build_ctx_from_csrs(
+    vtype_bits: u64,
+    vl: u64,
+    vstart: u64,
+    vxrm: u64,
+    frm: u64,
+    elen: usize,
+    zvfh: bool,
+) -> VecExecCtx {
+    let vtype = parse_vtype_with_elen(vtype_bits, elen);
     VecExecCtx {
         sew: vtype.vsew,
         vl: vl as usize,
@@ -337,6 +351,11 @@ fn build_ctx_from_csrs(vtype_bits: u64, vl: u64, vstart: u64, vxrm: u64) -> VecE
         vlmul: vtype.vlmul,
         vm: true, // overridden per-instruction
         vxrm: Vxrm::from_bits(vxrm as u8),
+        frm: match RoundingMode::from_bits(frm as u8) {
+            Some(rm) => rm,
+            None => RoundingMode::Rne,
+        },
+        zvfh,
     }
 }
 
@@ -359,6 +378,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     vl: u64,
     vstart: u64,
     vxrm: u64,
+    frm: u64,
+    elen: usize,
+    zvfh: bool,
     id: &RenameIssueEntry,
 ) -> Result<VecOpResult, Trap> {
     debug_assert!(
@@ -373,10 +395,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         "execute_vec_op_on called with memory op — use generate_element_addrs_vrf instead"
     );
 
-    check_vill(id.inst, vtype_bits)?;
+    check_vill(id.inst, vtype_bits, elen)?;
 
-    let vtype = parse_vtype(vtype_bits);
-    let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm);
+    let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm, frm, elen, zvfh);
     ctx.vm = id.ctrl.vm;
     let operand1 = build_operand1(id);
     let vec_op = id.ctrl.vec_op;
@@ -425,12 +446,12 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         id.ctrl.vd,
         id.ctrl.vs2,
         operand1,
-        vtype.vsew,
+        ctx.sew,
         ctx.vl,
         ctx.vstart,
-        vtype.vma,
-        vtype.vta,
-        vtype.vlmul,
+        ctx.vma,
+        ctx.vta,
+        ctx.vlmul,
         id.ctrl.vm,
         ctx.vxrm,
     );

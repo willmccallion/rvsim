@@ -540,6 +540,7 @@ fn exec_fp_widen_reduction(
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
+    use crate::core::units::fpu::rounding_modes::RoundingMode;
     use crate::core::units::vpu::types::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a standard execution context with the given SEW and vl.
@@ -553,6 +554,8 @@ mod tests {
             vlmul: Vlmul::M1,
             vm: true,
             vxrm: Vxrm::RoundToNearestUp,
+            frm: RoundingMode::Rne,
+            zvfh: false,
         }
     }
 

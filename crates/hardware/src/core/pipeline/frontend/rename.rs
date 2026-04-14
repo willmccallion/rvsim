@@ -218,8 +218,12 @@ pub fn rename_stage<E: ExecutionEngine>(
             if is_branch_or_jump && engine.checkpoint_count() > 0 {
                 let map_snapshot = engine.rename_map().clone();
 
-                let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(rob_tag, &map_snapshot)
-                else {
+                let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(
+                    rob_tag,
+                    &map_snapshot,
+                    cpu.csrs.vtype,
+                    cpu.csrs.vl,
+                ) else {
                     unreachable!("checkpoint table full after stall check");
                 };
 

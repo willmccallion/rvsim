@@ -17,6 +17,7 @@
 //! - Extension: zero/sign-extend at various ratios
 
 use crate::core::pipeline::signals::VectorOp;
+use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{
     ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm,
@@ -70,6 +71,10 @@ pub struct VecExecCtx {
     pub vm: bool,
     /// Fixed-point rounding mode.
     pub vxrm: Vxrm,
+    /// FP rounding mode from `fcsr.frm` (used by vector FP operations).
+    pub frm: RoundingMode,
+    /// Whether the Zvfh (half-precision vector FP) extension is enabled.
+    pub zvfh: bool,
 }
 
 // ============================================================================
@@ -642,7 +647,7 @@ pub fn vec_execute(
     vm: bool,
     vxrm: Vxrm,
 ) -> VecExecResult {
-    let ctx = VecExecCtx { sew, vl, vstart, vma, vta, vlmul, vm, vxrm };
+    let ctx = VecExecCtx { sew, vl, vstart, vma, vta, vlmul, vm, vxrm, frm: RoundingMode::Rne, zvfh: false };
 
     // ── Dispatch by category ────────────────────────────────────────────
     if is_comparison(op) {
