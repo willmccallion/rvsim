@@ -189,12 +189,24 @@ impl<'a> VecPrfView<'a> {
 impl VectorRegFile for VecPrfView<'_> {
     #[inline]
     fn read_element(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> u64 {
-        self.prf.read_element(self.translate(vreg), index, sew)
+        // For LMUL > 1 the VPU passes element indices that span multiple
+        // physical registers (each physical register holds vlen/sew elements).
+        // Redirect element `i` to the correct register in the group.
+        let elems_per_phys = (self.prf.vlen().bytes() / sew.bytes()).max(1);
+        let phys_offset = index.as_usize() / elems_per_phys;
+        let local_idx = ElemIdx::new(index.as_usize() % elems_per_phys);
+        let actual_vreg = VRegIdx::new(vreg.as_u8() + phys_offset as u8);
+        self.prf.read_element(self.translate(actual_vreg), local_idx, sew)
     }
 
     #[inline]
     fn write_element(&mut self, vreg: VRegIdx, index: ElemIdx, sew: Sew, val: u64) {
-        self.prf.write_element(self.translate(vreg), index, sew, val);
+        // Same LMUL group scatter logic as read_element.
+        let elems_per_phys = (self.prf.vlen().bytes() / sew.bytes()).max(1);
+        let phys_offset = index.as_usize() / elems_per_phys;
+        let local_idx = ElemIdx::new(index.as_usize() % elems_per_phys);
+        let actual_vreg = VRegIdx::new(vreg.as_u8() + phys_offset as u8);
+        self.prf.write_element(self.translate(actual_vreg), local_idx, sew, val);
     }
 
     #[inline]
