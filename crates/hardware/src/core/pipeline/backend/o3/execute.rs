@@ -988,7 +988,6 @@ mod tests {
     use crate::config::Config;
     use crate::core::pipeline::signals::ControlSignals;
     use crate::core::units::bru::Ghr;
-    use crate::soc::builder::Soc;
 
     #[test]
     fn test_execute_one_normal() {

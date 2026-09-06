@@ -17,18 +17,28 @@ pub mod memory;
 pub mod trap;
 
 use crate::common::{CoreId, HartId, PhysAddr, RegisterFile};
-use crate::config::Config;
+use crate::config::{Config, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::hart::HartInit;
+use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::Pmp;
 use crate::core::{Core, Hart};
+use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
+use crate::sim::packet::CacheLevel;
 use crate::sim::per_hart_debug::HartDebug;
 use crate::sim::stats::Stats;
-use crate::soc::Soc;
+use crate::soc::L3_CACHE_ID;
+use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
+use crate::soc::interconnect::Bus;
+use crate::soc::memory::buffer::DramBuffer;
+use crate::soc::memory::controller::{
+    DramConfig, DramController, MemoryController, SimpleController,
+};
 use crate::stats::SimStats;
+use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -44,8 +54,14 @@ pub struct Cpu {
     /// branch predictor, prefetch filter, write-combining buffer).
     pub core: Core,
 
-    /// System-on-Chip: bus, memory controller, shared L3, master clock.
-    pub soc: Soc,
+    /// Master clock; every subsystem reads from this.
+    pub cycle: u64,
+    /// IO interconnect; routes accesses to RAM and MMIO devices.
+    pub bus: Bus,
+    /// Main memory controller.
+    pub mem_controller: MemoryController,
+    /// Shared L3 cache (last-level cache; future shared LLC for multi-core).
+    pub l3_cache: Cache,
 
     /// Simulator parameters (cache sizes, ISA capability flags, pipeline
     /// knobs, system layout). Owned by `Cpu` transitionally; the bench
@@ -105,10 +121,11 @@ impl Cpu {
         self.hart.clear_reservation();
     }
 
-    /// Creates a new CPU instance with the specified `SoC` and configuration.
-    /// The `Soc` must have been built with the same `exit_signal` Arc so
-    /// HTIF / `SysCon` writes propagate to the harness.
-    pub fn new(soc: Soc, config: &Config, exit_signal: Arc<AtomicU64>) -> Self {
+    /// Constructs a new CPU with the full system-on-chip (bus, memory
+    /// controller, LLC, devices) inlined. `exit_signal` is cloned into
+    /// bus-resident devices (`SysCon`, HTIF) so they can write the harness
+    /// termination value when triggered.
+    pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
         use crate::core::arch::csr::{
             MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
             MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_XLEN_64, MSTATUS_DEFAULT_RV64, MSTATUS_FS,
@@ -117,6 +134,77 @@ impl Cpu {
         };
         use crate::isa::abi;
 
+        // --- Bus + devices ---------------------------------------------
+        let mut bus = Bus::new(config.system.bus_width, config.system.bus_latency);
+
+        let ram_base = config.system.ram_base;
+        let ram_size = config.memory.ram_size;
+        let ram_buffer = Arc::new(DramBuffer::new(ram_size));
+
+        let uart = Uart::new(
+            config.system.uart_base,
+            config.system.uart_to_stderr,
+            config.system.uart_quiet,
+        );
+        let clint = Clint::new(config.system.clint_base, config.system.clint_divider);
+        let plic = Plic::new(0x0c00_0000);
+
+        let mut disk = VirtioBlock::new(config.system.disk_base, ram_base, ram_buffer.clone());
+        if !disk_path.is_empty()
+            && let Ok(disk_data) = fs::read(disk_path)
+            && !disk_data.is_empty()
+        {
+            disk.load(disk_data);
+        }
+
+        let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
+        let rtc = GoldfishRtc::new(0x101000);
+
+        bus.add_device(Box::new(uart));
+        bus.add_device(Box::new(disk));
+        bus.add_device(Box::new(clint));
+        bus.add_device(Box::new(plic));
+        bus.add_device(Box::new(syscon));
+        bus.add_device(Box::new(rtc));
+
+        if config.system.tohost_addr != 0 {
+            let htif = Htif::new(config.system.tohost_addr, exit_signal.clone());
+            bus.add_device(Box::new(htif));
+        }
+
+        let mem_controller = match config.memory.controller {
+            MemControllerType::Dram => MemoryController::Dram(DramController::new(
+                ram_buffer.clone(),
+                PhysAddr::new(ram_base),
+                DramConfig {
+                    t_cas: config.memory.t_cas,
+                    t_ras: config.memory.t_ras,
+                    t_pre: config.memory.t_pre,
+                    t_rrd: config.memory.t_rrd,
+                    num_banks: config.memory.num_banks,
+                    row_size_bytes: config.memory.row_size_bytes,
+                    t_refi: config.memory.t_refi,
+                    t_rfc: config.memory.t_rfc,
+                },
+            )),
+            MemControllerType::Simple => MemoryController::Simple(SimpleController::new(
+                ram_buffer.clone(),
+                PhysAddr::new(ram_base),
+                config.memory.row_miss_latency,
+            )),
+        };
+
+        let mut l3_cache = Cache::new(L3_CACHE_ID, CacheLevel::L3, &config.cache.l3);
+        l3_cache.set_downstream(ComponentId::Bus);
+
+        let ram_region = crate::soc::memory::RamRegion::new(
+            ram_buffer.as_mut_ptr(),
+            ram_base,
+            ram_size as u64,
+        );
+        bus.attach_ram(MemCtrlId::new(0), ram_region);
+
+        // --- Hart architectural state ----------------------------------
         let configured_misa = config.pipeline.misa_override.as_ref().map_or_else(
             || {
                 MISA_XLEN_64
@@ -205,14 +293,16 @@ impl Cpu {
         });
         hart.committed_next_pc = config.general.start_pc;
 
-        let l3_id = soc.l3_cache_id();
-        let core = Core::new(CoreId::new(0), config, 0, l3_id);
-        let mut soc = soc;
-        soc.attach_l2_upstream(core.l2_cache.id);
+        let core = Core::new(CoreId::new(0), config, 0, L3_CACHE_ID);
+        l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
+
         Self {
             hart,
             core,
-            soc,
+            cycle: 0,
+            bus,
+            mem_controller,
+            l3_cache,
             config: config.clone(),
             per_hart_debug: vec![HartDebug::default()],
             stats: SimStats::default(),
@@ -245,13 +335,36 @@ impl Cpu {
         self.exit_signal.store(code, Ordering::Relaxed);
     }
 
-    /// Convenience constructor: builds the exit-signal `Arc`, the `Soc`, and
-    /// the `Cpu` together. Use this when you don't need to register additional
-    /// bus devices between `Soc::new` and `Cpu::new`.
+    /// Convenience constructor: allocates a fresh `exit_signal` slot and
+    /// builds the CPU. Use this when the caller doesn't need to share the
+    /// signal `Arc` with other components before construction.
     pub fn build(config: &Config, disk_path: &str) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let soc = Soc::new(config, disk_path, &exit_signal);
-        Self::new(soc, config, exit_signal)
+        Self::new(config, disk_path, exit_signal)
+    }
+
+    /// Registers an HTIF device at the given tohost address. `exit_signal`
+    /// is cloned into the device so HTIF tohost writes propagate up to the
+    /// harness.
+    pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &Arc<AtomicU64>) {
+        let htif = Htif::new(tohost_addr, exit_signal.clone());
+        self.bus.add_device(Box::new(htif));
+    }
+
+    /// Loads a binary into memory at the given physical address.
+    pub fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
+        self.bus.load_binary_at(data, addr);
+    }
+
+    /// Advances all bus-resident devices by one tick and returns this
+    /// cycle's interrupt snapshot.
+    pub fn bus_tick(&mut self) -> crate::soc::interconnect::BusIrqs {
+        self.bus.tick()
+    }
+
+    /// Returns the `CacheId` of the shared LLC.
+    pub const fn l3_cache_id(&self) -> CacheId {
+        self.l3_cache.id
     }
 
     /// Opens a commit log file for writing retired instruction traces.

@@ -26,7 +26,6 @@ use crate::sim::components::{CacheId, ComponentId, MemCtrlId, PipelineId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::Packet;
-use crate::soc::Soc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -40,7 +39,7 @@ const PIPELINE_ID: PipelineId = PipelineId::new(0);
 /// Top-level simulator: CPU architectural state + pipeline + scheduler.
 #[derive(Debug)]
 pub struct Simulator {
-    /// CPU architectural state (registers, caches, MMU, `SoC`, stats).
+    /// CPU architectural state (registers, caches, MMU, bus, stats).
     pub cpu: Cpu,
     /// Pipeline implementation (frontend + backend engine).
     pub pipeline: PipelineDispatch,
@@ -50,12 +49,12 @@ unsafe impl Send for Simulator {}
 unsafe impl Sync for Simulator {}
 
 impl Simulator {
-    /// Creates a new simulator with the given `SoC` and configuration.
-    /// `exit_signal` must be the same `Arc` cloned into bus-resident
-    /// devices when `Soc` was constructed; HTIF / `SysCon` writes propagate
-    /// via this slot.
-    pub fn new(soc: Soc, config: &Config, exit_signal: Arc<AtomicU64>) -> Self {
-        let cpu = Cpu::new(soc, config, exit_signal);
+    /// Wraps an existing `Cpu` with a pipeline built from its `config`.
+    /// Use this when the caller needs to interleave setup between CPU
+    /// construction and pipeline dispatch (e.g. loading an ELF image and
+    /// registering HTIF before the pipeline reads the reset PC).
+    pub fn new(cpu: Cpu) -> Self {
+        let config = &cpu.config;
         let pipeline = match config.pipeline.backend {
             BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
                 frontend: Frontend::new(config.pipeline.width),
@@ -71,6 +70,14 @@ impl Simulator {
             })),
         };
         Self { cpu, pipeline }
+    }
+
+    /// Convenience constructor: builds the exit-signal `Arc`, the `Cpu`, and
+    /// the `Simulator` together. Use this when the caller doesn't need to
+    /// touch the CPU between construction and pipeline start.
+    pub fn build(config: &Config, disk_path: &str) -> Self {
+        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+        Self::new(Cpu::new(config, disk_path, exit_signal))
     }
 
     /// Synchronize the architectural register file into the O3 PRF.
@@ -109,9 +116,9 @@ impl Simulator {
         Ok(())
     }
 
-    /// Dispatches every event with `fire_at <= self.cpu.soc.cycle`.
+    /// Dispatches every event with `fire_at <= self.cpu.cycle`.
     fn drain_events(&mut self) {
-        let cycle = self.cpu.soc.cycle;
+        let cycle = self.cpu.cycle;
         while let Some(event) = self.cpu.event_queue.pop_ready(cycle) {
             self.dispatch(event);
         }
@@ -128,7 +135,7 @@ impl Simulator {
                 dispatch_to_cache(&mut self.cpu, id, packet, source);
             }
             ComponentId::Bus => {
-                let cycle = self.cpu.soc.cycle;
+                let cycle = self.cpu.cycle;
                 let mut ctx = HandleCtx {
                     scheduler: &mut self.cpu.event_queue,
                     stats: &mut self.cpu.stats_hier,
@@ -136,10 +143,10 @@ impl Simulator {
                     cycle,
                     self_id: ComponentId::Bus,
                 };
-                self.cpu.soc.bus.handle(packet, source, &mut ctx);
+                self.cpu.bus.handle(packet, source, &mut ctx);
             }
             ComponentId::MemCtrl(id) => {
-                let cycle = self.cpu.soc.cycle;
+                let cycle = self.cpu.cycle;
                 let mut ctx = HandleCtx {
                     scheduler: &mut self.cpu.event_queue,
                     stats: &mut self.cpu.stats_hier,
@@ -147,7 +154,7 @@ impl Simulator {
                     cycle,
                     self_id: ComponentId::MemCtrl(id),
                 };
-                self.cpu.soc.mem_controller.handle(packet, source, &mut ctx);
+                self.cpu.mem_controller.handle(packet, source, &mut ctx);
             }
             ComponentId::Device(_) | ComponentId::Hart(_) | ComponentId::Core(_) => {
                 // Devices are routed via Bus; Hart / Core targeting is
@@ -176,7 +183,6 @@ impl Simulator {
         let raw = paddr.val();
         if let Some(r) = self
             .cpu
-            .soc
             .bus
             .ram_region()
             .filter(|r| r.contains(raw, u64::from(width)))
@@ -207,7 +213,6 @@ impl Simulator {
         let raw = paddr.val();
         if let Some(r) = self
             .cpu
-            .soc
             .bus
             .ram_region()
             .filter(|r| r.contains(raw, u64::from(width)))
@@ -240,8 +245,8 @@ impl Simulator {
     ) -> u64 {
         use crate::sim::components::{ComponentId, PipelineId, ReqId};
         use crate::sim::events::EventQueue;
-        use crate::sim::handle::HandleCtx;
         use crate::sim::handle::Handle;
+        use crate::sim::handle::HandleCtx;
         use crate::sim::packet::{AccessSize, MemRespData, Packet};
         use crate::sim::stats::Stats;
 
@@ -254,7 +259,7 @@ impl Simulator {
         let req_id = ReqId::new(u64::MAX);
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
-        let cycle = self.cpu.soc.cycle;
+        let cycle = self.cpu.cycle;
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
@@ -262,7 +267,7 @@ impl Simulator {
             cycle,
             self_id: ComponentId::Bus,
         };
-        self.cpu.soc.bus.handle(
+        self.cpu.bus.handle(
             Packet::MemReq {
                 req_id,
                 paddr,
@@ -290,7 +295,7 @@ impl Simulator {
 /// Dispatches a packet to the cache identified by `id`.
 fn dispatch_to_cache(cpu: &mut Cpu, id: CacheId, packet: Packet, source: ComponentId) {
     let self_id = ComponentId::Cache(id);
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     // Split-borrow Cpu fields explicitly so the HandleCtx (borrowing
     // event_queue / stats_hier / config) coexists with the cache field
     // borrow.
@@ -302,7 +307,7 @@ fn dispatch_to_cache(cpu: &mut Cpu, id: CacheId, packet: Packet, source: Compone
         id if id == CacheId::new(0) => cpu.core.l1_i_cache.handle(packet, source, &mut ctx),
         id if id == CacheId::new(1) => cpu.core.l1_d_cache.handle(packet, source, &mut ctx),
         id if id == CacheId::new(2) => cpu.core.l2_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(3) => cpu.soc.l3_cache.handle(packet, source, &mut ctx),
+        id if id == CacheId::new(3) => cpu.l3_cache.handle(packet, source, &mut ctx),
         _ => {}
     }
 }

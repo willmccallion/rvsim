@@ -26,10 +26,10 @@ impl Cpu {
         }
 
         let hart_idx = self.hart.hart_id.as_index();
-        if self.soc.check_kernel_panic() {
+        if self.bus.check_kernel_panic() {
             let detected_at =
-                *self.per_hart_debug[hart_idx].panic_detected_at_cycle.get_or_insert(self.soc.cycle);
-            if self.soc.cycle.saturating_sub(detected_at) >= 10_000 {
+                *self.per_hart_debug[hart_idx].panic_detected_at_cycle.get_or_insert(self.cycle);
+            if self.cycle.saturating_sub(detected_at) >= 10_000 {
                 return Err(SimError::KernelPanic { cycle: detected_at });
             }
         }
@@ -52,7 +52,6 @@ impl Cpu {
                     self.hart.pc
                 };
                 let inst = self
-                    .soc
                     .bus
                     .ram_region()
                     .filter(|r| r.contains(paddr_raw, 4))
@@ -81,7 +80,7 @@ impl Cpu {
             debug.same_pc_count = 0;
         }
 
-        let irqs = self.soc.tick();
+        let irqs = self.bus_tick();
 
         let mut mip = self.hart.csrs.mip;
 
@@ -117,7 +116,7 @@ impl Cpu {
         // OpenSBI injects STIP via `csrw mip`), leave STIP entirely under
         // software control so that M-mode timer handlers work correctly.
         if (self.hart.csrs.menvcfg & csr::MENVCFG_STCE) != 0 {
-            let mtime = self.soc.cycle / self.config.system.clint_divider;
+            let mtime = self.cycle / self.config.system.clint_divider;
             if mtime >= self.hart.csrs.stimecmp {
                 mip |= csr::MIP_STIP;
             } else {
@@ -127,7 +126,7 @@ impl Cpu {
 
         self.hart.csrs.mip = mip;
 
-        self.soc.cycle += 1;
+        self.cycle += 1;
         self.track_mode_cycles();
 
         Ok(false)
@@ -148,10 +147,10 @@ impl Cpu {
                 );
             }
 
-            if self.soc.cycle.is_multiple_of(STATUS_UPDATE_INTERVAL) {
+            if self.cycle.is_multiple_of(STATUS_UPDATE_INTERVAL) {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
-                    cycles = self.soc.cycle,
+                    cycles = self.cycle,
                     pc     = %crate::trace::Hex(self.hart.pc),
                     mode   = self.hart.privilege.name(),
                     "CPU status"

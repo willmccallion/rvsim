@@ -117,7 +117,7 @@ fn test_setup_kernel_load_with_dtb_file() {
     // RAM reads to the memory controller, which is out of reach inside the
     // probe's local event queue. Loader-side data lives in DRAM unconditionally.
     let loaded_byte = unsafe {
-        cpu.soc.bus.ram_region().expect("ram region").ptr(dtb_addr).read()
+        cpu.bus.ram_region().expect("ram region").ptr(dtb_addr).read()
     };
     assert_eq!(loaded_byte, 0xd0);
 }
@@ -157,7 +157,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
     let instruction = unsafe {
-        cpu.soc.bus.ram_region().expect("ram region").ptr(ram_base).cast::<u32>().read_unaligned()
+        cpu.bus.ram_region().expect("ram region").ptr(ram_base).cast::<u32>().read_unaligned()
     };
 
     // MRET opcode is 0x30200073

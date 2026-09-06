@@ -44,10 +44,10 @@ pub fn setup_kernel_load(
 
     if let Some(path) = dtb_path {
         let dtb_data = load_binary(&path)?;
-        cpu.soc.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        cpu.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     } else {
         let dtb_data = crate::sim::dtb::generate_dtb(config);
-        cpu.soc.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        cpu.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     }
 
     // Prefer fw_jump.bin (matches spike's fw_jump.elf for log comparison)
@@ -59,14 +59,14 @@ pub fn setup_kernel_load(
 
     if fs::metadata(sbi_path).is_ok() {
         let sbi_data = load_binary(sbi_path)?;
-        cpu.soc.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
+        cpu.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
         let default_kernel_path = "software/linux/output/Image";
         let kernel_path = kernel_path_override.as_deref().unwrap_or(default_kernel_path);
 
         if fs::metadata(kernel_path).is_ok() {
             let kernel_data = load_binary(kernel_path)?;
-            cpu.soc.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
+            cpu.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
         } else {
             println!("[Loader] WARNING: Linux Image not found at {kernel_path}");
         }
@@ -96,7 +96,7 @@ pub fn setup_kernel_load(
             for field in &fields {
                 info_bytes.extend_from_slice(&field.to_le_bytes());
             }
-            cpu.soc.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
+            cpu.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
             cpu.hart.regs.write(abi::REG_A2, info_addr);
         } else {
             cpu.hart.regs.write(abi::REG_A2, 0);
@@ -104,7 +104,7 @@ pub fn setup_kernel_load(
     } else {
         let load_addr = ram_base + config.system.kernel_offset;
 
-        cpu.soc.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
+        cpu.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
         cpu.hart.pc = ram_base;
         cpu.hart.privilege = PrivilegeMode::Machine;
         cpu.csr_write(csr::MEPC, load_addr);

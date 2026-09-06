@@ -108,7 +108,7 @@ fn complete_load<E: ExecutionEngine>(
     let entry = load.entry;
     let paddr = load.paddr;
     let load_raw = read_load_bytes(cpu, paddr.val(), entry.ctrl.width, resp_data);
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         rob_tag: entry.rob_tag,
@@ -142,7 +142,7 @@ fn complete_walk<E: ExecutionEngine>(
     walk: OutstandingWalk,
 ) {
     let raw_pte = read_pte_bytes(cpu, walk.pte_addr);
-    let bus_transit = cpu.soc.bus.calculate_transit_time(8);
+    let bus_transit = cpu.bus.calculate_transit_time(8);
     let outcome = cpu.translate_continue(walk.state, raw_pte, bus_transit);
     match outcome {
         TranslateResult::Ready(result) => {
@@ -206,7 +206,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 /// tables in MMIO, so the read is always backed by DRAM.
 fn read_pte_bytes(cpu: &Cpu, pte_addr: PhysAddr) -> u64 {
     let raw = pte_addr.val();
-    cpu.soc.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
+    cpu.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
         // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks the access.
         unsafe { r.ptr(raw).cast::<u64>().read_unaligned() }
     })
@@ -223,7 +223,7 @@ fn read_load_bytes(cpu: &Cpu, paddr: u64, width: MemWidth, resp_data: &MemRespDa
         MemWidth::Nop => 0,
     };
     if size > 0
-        && let Some(r) = cpu.soc.bus.ram_region_for(paddr, size)
+        && let Some(r) = cpu.bus.ram_region_for(paddr, size)
     {
         // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds.
         return unsafe {
@@ -251,7 +251,7 @@ fn emit_pte_req<E: ExecutionEngine>(
     pte_addr: PhysAddr,
 ) {
     let common = pipeline.engine.common();
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
@@ -275,7 +275,7 @@ fn emit_fetch_req<E: ExecutionEngine>(
     vaddr: VirtAddr,
 ) {
     let common = pipeline.engine.common();
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_i_id),

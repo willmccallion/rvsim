@@ -45,7 +45,7 @@ use crate::trace_fetch;
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
 fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
-    cpu.soc.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
+    cpu.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
     })
@@ -73,7 +73,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
     );
     common.fetch_walk_pending = true;
 
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
@@ -102,7 +102,7 @@ fn issue_fetch<E: ExecutionEngine>(
     let pc = fetch.pc;
     let _ = common.outstanding_fetches.insert(req_id, fetch);
 
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_i_id),

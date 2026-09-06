@@ -1,11 +1,8 @@
 //! System-on-Chip (SoC) Components.
 //!
-//! This module organizes the components that make up the simulated system,
-//! including the system bus, memory controllers, devices, and the builder
-//! for assembling the system.
-
-/// System builder for assembling SoC components.
-pub mod builder;
+//! Component types (bus, memory controller, MMIO devices) live here; the
+//! CPU (`crate::core::Cpu`) owns instances of them directly. There is no
+//! aggregate `Soc` struct — the fields are flat on `Cpu`.
 
 /// Memory-mapped I/O device implementations.
 pub mod devices;
@@ -19,4 +16,11 @@ pub mod memory;
 /// Device trait definitions for MMIO access.
 pub mod traits;
 
-pub use builder::Soc;
+use crate::sim::components::CacheId;
+
+/// `CacheId` of the shared LLC in single-core configurations.
+///
+/// Convention: a core occupies `CacheId`s `[core_base, core_base+3)`
+/// (L1I, L1D, L2). The shared LLC sits immediately after the last core's
+/// caches. For a single core that places it at `CacheId(3)`.
+pub const L3_CACHE_ID: CacheId = CacheId::new(3);

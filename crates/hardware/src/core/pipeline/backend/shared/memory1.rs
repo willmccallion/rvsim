@@ -152,7 +152,7 @@ fn process_entry<E: ExecutionEngine>(
     };
 
     // 5. S/U-mode access fault on unmapped paddr; M-mode firmware can probe.
-    if cpu.hart.privilege != PrivilegeMode::Machine && !cpu.soc.bus.is_valid_address(paddr) {
+    if cpu.hart.privilege != PrivilegeMode::Machine && !cpu.bus.is_valid_address(paddr) {
         let trap = if ex.ctrl.mem_write {
             Trap::StoreAccessFault(ex.alu)
         } else {
@@ -434,7 +434,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
 
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         target,
@@ -469,7 +469,7 @@ fn park_walk<E: ExecutionEngine>(
         },
     );
 
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
@@ -502,7 +502,7 @@ fn mmio_or_l1d<E: ExecutionEngine>(
         AccessSize::B8 => 8,
         AccessSize::Line => 64,
     };
-    if cpu.soc.bus.ram_region_for(paddr.val(), size_bytes).is_some() {
+    if cpu.bus.ram_region_for(paddr.val(), size_bytes).is_some() {
         ComponentId::Cache(engine.common().l1_d_id)
     } else {
         ComponentId::Bus

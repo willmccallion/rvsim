@@ -9,9 +9,7 @@ use rvsim_core::core::arch::mode::PrivilegeMode;
 
 fn create_test_sim() -> Simulator {
     let config = Config::default();
-    let exit_signal = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-    let soc = rvsim_core::soc::Soc::new(&config, "", &exit_signal);
-    Simulator::new(soc, &config, exit_signal)
+    Simulator::build(&config, "")
 }
 
 #[test]
@@ -24,12 +22,12 @@ fn test_tick_returns_ok() {
 #[test]
 fn test_tick_increments_cycles() {
     let mut sim = create_test_sim();
-    let initial_cycles = sim.cpu.soc.cycle;
+    let initial_cycles = sim.cpu.cycle;
 
     sim.tick().unwrap();
 
     // Cycles should increase
-    assert!(sim.cpu.soc.cycle >= initial_cycles);
+    assert!(sim.cpu.cycle >= initial_cycles);
 }
 
 #[test]

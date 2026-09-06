@@ -771,7 +771,7 @@ fn mem_read_element(cpu: &mut Cpu, vaddr: u64, eew: Sew) -> Result<u64, Trap> {
     let size = eew.bytes() as u64;
     let paddr = translate_vector_element(cpu, vaddr, AccessType::Read, size)?;
     let raw = paddr.val();
-    let region = cpu.soc.bus.ram_region().filter(|r| r.contains(raw, size));
+    let region = cpu.bus.ram_region().filter(|r| r.contains(raw, size));
     let val = if let Some(r) = region {
         // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
         unsafe {
@@ -797,7 +797,7 @@ fn mem_write_element(cpu: &mut Cpu, vaddr: u64, eew: Sew, val: u64) -> Result<()
     let size = eew.bytes() as u64;
     let paddr = translate_vector_element(cpu, vaddr, AccessType::Write, size)?;
     let raw = paddr.val();
-    if let Some(r) = cpu.soc.bus.ram_region().filter(|r| r.contains(raw, size)) {
+    if let Some(r) = cpu.bus.ram_region().filter(|r| r.contains(raw, size)) {
         // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
         unsafe {
             match eew {

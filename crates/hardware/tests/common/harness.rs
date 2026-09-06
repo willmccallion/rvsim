@@ -28,8 +28,8 @@ impl TestContext {
         let _ = env_logger::builder().is_test(true).try_init();
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let soc = rvsim_core::soc::Soc::new(config, "", &exit_signal);
-        let mut sim = Simulator::new(soc, config, exit_signal);
+        let cpu = rvsim_core::core::Cpu::new(config, "", exit_signal);
+        let mut sim = Simulator::new(cpu);
 
         // Bypass cache simulation in tests: default cache_base == ram_base routes
         // every access through multi-cycle DRAM, starving the pipeline.
@@ -50,7 +50,7 @@ impl TestContext {
 
     pub fn with_memory(mut self, size: usize, base: u64) -> Self {
         let mem = MockMemory::new(size, base);
-        self.sim.cpu.soc.bus.add_device(Box::new(mem));
+        self.sim.cpu.bus.add_device(Box::new(mem));
         self
     }
 

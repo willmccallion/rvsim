@@ -81,15 +81,15 @@ impl PyCpu {
 
     /// Runs for up to `limit` cycles, checking Python signals every 10000 cycles.
     fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
-        let start = self.inner.cpu.soc.cycle;
+        let start = self.inner.cpu.cycle;
         loop {
             if let Some(max) = limit
-                && self.inner.cpu.soc.cycle.saturating_sub(start) >= max
+                && self.inner.cpu.cycle.saturating_sub(start) >= max
             {
                 let _ = std::io::stdout().flush();
                 return Ok(None);
             }
-            if self.inner.cpu.soc.cycle.is_multiple_of(10_000) {
+            if self.inner.cpu.cycle.is_multiple_of(10_000) {
                 py.check_signals()?;
                 let _ = std::io::stdout().flush();
             }
@@ -143,7 +143,7 @@ impl PyCpu {
             let s = &self.inner.cpu.stats;
             eprint!(
                 "\r\x1b[36m[rvsim]\x1b[0m  {:>14} cycles  {:>14} insns",
-                fmt_commas(self.inner.cpu.soc.cycle),
+                fmt_commas(self.inner.cpu.cycle),
                 fmt_commas(s.instructions_retired),
             );
             let _ = std::io::stderr().flush();
@@ -178,15 +178,15 @@ impl PyCpu {
         let disk = disk_path.unwrap_or_default();
         let exit_signal =
             std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-        let mut soc = rvsim_core::soc::Soc::new(&config, &disk, &exit_signal);
+        let mut cpu = rvsim_core::core::Cpu::new(&config, &disk, exit_signal.clone());
 
         let mut elf_entry: Option<u64> = None;
         let mut tohost_addr: Option<u64> = None;
         if let Some(data) = elf_data {
-            if let Some(result) = loader::try_load_elf(&data, &mut soc.bus) {
+            if let Some(result) = loader::try_load_elf(&data, &mut cpu.bus) {
                 elf_entry = Some(result.entry);
                 if let Some(tohost) = result.tohost_addr {
-                    soc.add_htif(tohost, &exit_signal);
+                    cpu.add_htif(tohost, &exit_signal);
                     tohost_addr = Some(tohost);
                 }
             } else {
@@ -196,7 +196,7 @@ impl PyCpu {
             }
         }
 
-        let mut sim = Simulator::new(soc, &config, exit_signal);
+        let mut sim = Simulator::new(cpu);
 
         if let Some(entry) = elf_entry {
             sim.cpu.hart.pc = entry;
@@ -250,7 +250,7 @@ impl PyCpu {
     /// Performance statistics as a dict (read-only).
     #[getter]
     fn stats(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.soc.cycle));
+        let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
         Ok(s.to_dict(py)?.into_bound(py).into_any().unbind())
     }
 
@@ -344,7 +344,7 @@ impl PyCpu {
                     pc,
                     raw: inst,
                     asm,
-                    cycles: self.inner.cpu.soc.cycle,
+                    cycles: self.inner.cpu.cycle,
                 }));
             }
         }
@@ -375,7 +375,7 @@ impl PyCpu {
         };
 
         if let Some(sections) = stats_sections {
-            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.soc.cycle));
+            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
             if sections.is_empty() {
                 s.print();
             } else {
@@ -419,7 +419,7 @@ impl PyCpu {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
-            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.soc.cycle));
+            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
             snapshots.push(s.to_dict(py)?.into_bound(py).into_any().unbind());
 
             if exit.is_some() {
@@ -555,7 +555,6 @@ impl PyCpu {
         if let Some(r) = self
             .inner
             .cpu
-            .soc
             .bus
             .ram_region()
             .filter(|r| r.contains(paddr, length as u64))
@@ -606,7 +605,7 @@ impl PyCpu {
         let _ = header.insert("trace".into(), serde_json::Value::from(cpu.config.general.trace_instructions));
         let _ = header.insert("wfi_waiting".into(), serde_json::Value::from(cpu.hart.wfi_waiting));
         let _ = header.insert("wfi_pc".into(), serde_json::Value::from(cpu.hart.wfi_pc));
-        let region = cpu.soc.bus.ram_region();
+        let region = cpu.bus.ram_region();
         let ram_start = region.map_or(0, |r| r.base());
         let ram_end = region.map_or(0, |r| r.base() + r.size());
         let _ = header.insert("ram_start".into(), serde_json::Value::from(ram_start));
@@ -769,7 +768,7 @@ impl PyCpu {
         let ckpt_ram_start = header["ram_start"].as_u64().unwrap_or(0);
         let ckpt_ram_end = header["ram_end"].as_u64().unwrap_or(0);
         let ckpt_ram_size = (ckpt_ram_end - ckpt_ram_start) as usize;
-        let region = cpu.soc.bus.ram_region();
+        let region = cpu.bus.ram_region();
         let cpu_ram_size = region.map_or(0, |reg| reg.size() as usize);
 
         if ckpt_ram_size != cpu_ram_size {
@@ -792,7 +791,7 @@ impl PyCpu {
         let _ = cpu.core.l1_i_cache.flush();
         let _ = cpu.core.l1_d_cache.flush();
         let _ = cpu.core.l2_cache.flush();
-        let _ = cpu.soc.l3_cache.flush();
+        let _ = cpu.l3_cache.flush();
         cpu.hart.mmu.dtlb.flush();
         cpu.hart.mmu.itlb.flush();
         cpu.hart.mmu.l2_tlb.flush();

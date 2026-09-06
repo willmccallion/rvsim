@@ -58,7 +58,7 @@ impl Cpu {
                 ));
             }
 
-            if !self.soc.bus.is_valid_address(paddr) {
+            if !self.bus.is_valid_address(paddr) {
                 return TranslateResult::Ready(TranslationResult::fault(
                     fault_for(access, vaddr.val()),
                     0,
@@ -138,7 +138,7 @@ impl Cpu {
                             fault_for(access, vaddr.val()),
                             result.cycles,
                         );
-                    } else if !self.soc.bus.is_valid_address(result.paddr) {
+                    } else if !self.bus.is_valid_address(result.paddr) {
                         result = TranslationResult::fault(
                             fault_for(access, vaddr.val()),
                             result.cycles,

@@ -28,7 +28,7 @@ use crate::{trace_fetch, trace_trap};
 /// Returns 0 for addresses outside DRAM (an illegal-instruction trap will
 /// surface during decode).
 fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
-    cpu.soc.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
+    cpu.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
     })

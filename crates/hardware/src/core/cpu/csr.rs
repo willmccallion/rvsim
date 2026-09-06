@@ -67,8 +67,8 @@ impl Cpu {
             x if x == csr::SCOUNTEREN.as_u32() => self.hart.csrs.scounteren,
             x if x == csr::MENVCFG.as_u32() => self.hart.csrs.menvcfg,
             x if x == csr::SENVCFG.as_u32() => self.hart.csrs.senvcfg,
-            x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.soc.cycle,
-            x if x == csr::TIME.as_u32() => self.soc.cycle / self.config.system.clint_divider,
+            x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.cycle,
+            x if x == csr::TIME.as_u32() => self.cycle / self.config.system.clint_divider,
             x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
                 self.stats.instructions_retired
             }
@@ -259,7 +259,7 @@ impl Cpu {
             x if x == csr::SENVCFG.as_u32() => {
                 self.hart.csrs.senvcfg = val;
             }
-            x if x == csr::MCYCLE.as_u32() => self.soc.cycle = val,
+            x if x == csr::MCYCLE.as_u32() => self.cycle = val,
             x if x == csr::MINSTRET.as_u32() => self.stats.instructions_retired = val,
             x if x == csr::PMPCFG0.as_u32() => {
                 for i in 0..8 {

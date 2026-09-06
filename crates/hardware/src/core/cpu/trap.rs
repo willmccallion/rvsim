@@ -206,7 +206,6 @@ impl Cpu {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::soc::builder::Soc;
 
     #[test]
     fn test_trap_direct_mode_ecall() {

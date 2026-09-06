@@ -565,7 +565,7 @@ fn try_drain_one_store(
     // other MMIO overlays must bypass it so the per-store MemReq carries the
     // original data to the device (WCB drain packets carry zero data).
     let width_bytes = width_to_bytes(store.width);
-    let is_pure_ram = cpu.soc.bus.ram_region_for(paddr.val(), width_bytes as u64).is_some();
+    let is_pure_ram = cpu.bus.ram_region_for(paddr.val(), width_bytes as u64).is_some();
 
     if !cpu.core.wcb.is_disabled() && is_pure_ram {
         // Update RAM directly so subsequent loads via the fast path see the
@@ -636,7 +636,7 @@ fn emit_line_writeback(cpu: &mut Cpu, common: &mut BackendCommon, paddr: PhysAdd
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
     );
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
@@ -784,7 +784,7 @@ fn write_store_to_memory(
 
     write_store_data_to_ram(cpu, paddr, data, width);
 
-    let is_ram = cpu.soc.bus.ram_region_for(paddr.val(), width_bytes).is_some();
+    let is_ram = cpu.bus.ram_region_for(paddr.val(), width_bytes).is_some();
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
     let target = if is_ram {
@@ -796,7 +796,7 @@ fn write_store_to_memory(
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
     );
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         target,
@@ -822,7 +822,7 @@ fn write_store_data_to_ram(cpu: &mut Cpu, paddr: PhysAddr, data: u64, width: Mem
         MemWidth::Double => 8,
         MemWidth::Nop => return,
     };
-    let Some(r) = cpu.soc.bus.ram_region_for(paddr.val(), width_bytes) else { return };
+    let Some(r) = cpu.bus.ram_region_for(paddr.val(), width_bytes) else { return };
     // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
     unsafe {
         let ptr = r.ptr(paddr.val());
@@ -1217,7 +1217,6 @@ mod tests {
     use crate::common::InstSize;
     use crate::config::Config;
     use crate::core::Cpu;
-    use crate::soc::builder::Soc;
 
     #[test]
     fn test_check_interrupts_none() {

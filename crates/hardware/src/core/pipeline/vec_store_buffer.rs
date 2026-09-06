@@ -570,7 +570,7 @@ fn issue_drained_write(
         MemWidth::Double => 8,
         MemWidth::Nop => return,
     };
-    if let Some(r) = cpu.soc.bus.ram_region_for(paddr.val(), width_bytes) {
+    if let Some(r) = cpu.bus.ram_region_for(paddr.val(), width_bytes) {
         // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
         unsafe {
             let ptr = r.ptr(paddr.val());
@@ -591,7 +591,7 @@ fn issue_drained_write(
         req_id,
         OutstandingStore { rob_tag: RobTag::default(), paddr },
     );
-    let cycle = cpu.soc.cycle;
+    let cycle = cpu.cycle;
     cpu.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),

@@ -1436,7 +1436,6 @@ mod tests {
     use super::*;
     use crate::common::RegIdx;
     use crate::config::Config;
-    use crate::soc::builder::Soc;
 
     #[test]
     fn test_o3_engine_new_and_flush() {
