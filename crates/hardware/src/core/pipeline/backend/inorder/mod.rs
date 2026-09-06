@@ -13,7 +13,7 @@ pub mod execute;
 pub mod issue;
 
 use crate::config::Config;
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::free_list::FreeList;
@@ -90,7 +90,7 @@ impl InOrderEngine {
 impl ExecutionEngine for InOrderEngine {
     fn tick(
         &mut self,
-        cpu: &mut Cpu,
+        cpu: &mut SimState,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     ) {
@@ -204,7 +204,7 @@ impl ExecutionEngine for InOrderEngine {
         rob_free.min(sb_free).min(issue_free).min(self.width)
     }
 
-    fn flush(&mut self, cpu: &mut Cpu) {
+    fn flush(&mut self, cpu: &mut SimState) {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.scoreboard.flush();
@@ -215,7 +215,7 @@ impl ExecutionEngine for InOrderEngine {
         cpu.core.branch_predictor.repair_to_committed();
     }
 
-    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64 {
+    fn read_csr_speculative(&self, cpu: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64 {
         // In-order serialization commits older CSR writes before any CSR read issues.
         cpu.csr_read(addr)
     }
@@ -279,7 +279,7 @@ mod tests {
         let config = Config::default();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         engine.flush(&mut cpu);
 
@@ -301,7 +301,7 @@ mod tests {
         let config = Config::default();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
         assert_eq!(engine.read_csr_speculative(&cpu, crate::core::arch::csr::MSCRATCH), 0x1234);

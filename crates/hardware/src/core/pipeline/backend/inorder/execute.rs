@@ -4,7 +4,7 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
@@ -34,7 +34,7 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 /// the engine must flush the issue queue and frontend (branch misprediction,
 /// CSR, MRET/SRET, FENCE.I, etc.).
 pub fn execute_inorder(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
     inflight_fp_flags: u8,

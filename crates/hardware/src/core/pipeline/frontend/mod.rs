@@ -55,7 +55,7 @@ impl<E: ExecutionEngine> Frontend<E> {
     /// Executes one cycle of all frontend stages (reverse order).
     pub fn tick(
         &mut self,
-        cpu: &mut crate::core::Cpu,
+        cpu: &mut crate::sim::SimState,
         engine: &mut E,
         rename_output: &mut Vec<RenameIssueEntry>,
     ) {

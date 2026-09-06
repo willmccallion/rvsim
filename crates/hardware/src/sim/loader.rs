@@ -2,7 +2,7 @@
 
 use crate::common::{PhysAddr, SimError};
 use crate::config::Config;
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
@@ -30,7 +30,7 @@ pub fn load_binary(path: &str) -> Result<Vec<u8>, SimError> {
 /// Returns [`SimError::FileRead`] if any required binary file cannot be read from disk.
 #[allow(clippy::needless_pass_by_value)]
 pub fn setup_kernel_load(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     config: &Config,
     _disk_path: &str,
     dtb_path: Option<String>,
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn test_setup_kernel_load_fallback() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
 

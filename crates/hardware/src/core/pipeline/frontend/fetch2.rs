@@ -17,8 +17,8 @@
 
 use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
 use crate::common::{AccessType, ExceptionStage, InstSize, Trap, VirtAddr};
-use crate::core::Cpu;
-use crate::core::cpu::memory::TranslateResult;
+use crate::sim::SimState;
+use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::isa::rvc::expand::expand;
 use crate::{trace_fetch, trace_trap};
@@ -27,7 +27,7 @@ use crate::{trace_fetch, trace_trap};
 ///
 /// Returns 0 for addresses outside DRAM (an illegal-instruction trap will
 /// surface during decode).
-fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
+fn read_inst_half(cpu: &SimState, paddr: u64) -> u16 {
     cpu.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
@@ -36,7 +36,7 @@ fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
 
 /// Executes the Fetch2 stage: decode each F1→F2 entry into an `IfIdEntry`.
 pub fn fetch2_stage(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     input: &mut Vec<Fetch1Fetch2Entry>,
     output: &mut Vec<IfIdEntry>,
 ) {

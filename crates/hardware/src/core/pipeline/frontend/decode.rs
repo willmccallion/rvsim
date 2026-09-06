@@ -9,7 +9,7 @@
 
 use crate::common::RegIdx;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
@@ -1371,7 +1371,7 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
 /// Consumes Fetch2->Decode entries (`IfIdEntry`) and produces
 /// Decode->Rename entries (`IdExEntry`).
 pub fn decode_stage(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     input: &mut Vec<IfIdEntry>,
     output: &mut Vec<IdExEntry>,
     has_register_renaming: bool,

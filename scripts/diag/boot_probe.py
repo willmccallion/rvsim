@@ -15,17 +15,16 @@ image = os.path.join(repo, "software/linux/output/Image")
 disk = os.path.join(repo, "software/linux/output/disk.img")
 
 print(f"[probe] limit={LIMIT:,}  progress={PROGRESS:,}", flush=True)
-sim = Simulator().config(linux_config()).kernel(image).disk(disk)
-cpu = sim.build()
+sim = Simulator(linux_config(), kernel=image, disk=disk)
 
-exit_code = cpu.run(limit=LIMIT, progress=PROGRESS, stats_sections=None)
+exit_code = sim.run(limit=LIMIT, progress=PROGRESS, stats_sections=None)
 
 print()
 print(f"[probe] exit_code={exit_code}")
-print(f"[probe] pc=0x{cpu.pc:x}")
-print(f"[probe] privilege={cpu.privilege}")
-if hasattr(cpu, "stats"):
-    s = dict(cpu.stats)
+print(f"[probe] pc=0x{sim.pc:x}")
+print(f"[probe] privilege={sim.privilege}")
+if hasattr(sim, "stats"):
+    s = dict(sim.stats)
     keys = sorted(k for k in s if "instructions" in k.lower() or "cycle" in k.lower() or "stall" in k.lower())
     for k in keys[:25]:
         print(f"  {k} = {s[k]}")

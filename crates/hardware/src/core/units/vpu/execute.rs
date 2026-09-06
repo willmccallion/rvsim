@@ -10,7 +10,7 @@
 //!   (typically a `VecPrfView`) and returns side effects for commit-time application.
 
 use crate::common::Trap;
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::fpu::rounding_modes::RoundingMode;
@@ -29,7 +29,7 @@ use crate::isa::rvv::encoding as v_enc;
 /// Returns `Trap::IllegalInstruction` if vtype.vill is set and a vector
 /// operation that depends on vtype is attempted. Returns memory traps from
 /// vector load/store operations.
-pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+pub fn execute_vec_op(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     match id.ctrl.vec_op {
         VectorOp::Vsetvli => Ok(execute_vsetvl_op(cpu, id)),
         VectorOp::Vsetivli => Ok(execute_vsetivli_op(cpu, id)),
@@ -47,7 +47,7 @@ pub fn execute_vec_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap>
 }
 
 /// Execute a vector crypto instruction (Zvkn*/Zvks*/Zvkg).
-fn execute_vec_crypto(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_crypto(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
     let vstart = cpu.hart.csrs.vstart as usize;
     let vl = cpu.hart.csrs.vl as usize;
@@ -68,7 +68,7 @@ fn execute_vec_crypto(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap>
 }
 
 /// Execute `vsetvli`: AVL from rs1, vtype from immediate.
-fn execute_vsetvl_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetvl_op(cpu: &mut SimState, id: &RenameIssueEntry) -> u64 {
     let avl = id.rv1;
     let requested_vtype = v_enc::zimm_vsetvli(id.inst);
     let rd_is_zero = id.rd.is_zero();
@@ -86,7 +86,7 @@ fn execute_vsetvl_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Execute `vsetivli`: AVL from uimm, vtype from immediate.
-fn execute_vsetivli_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetivli_op(cpu: &mut SimState, id: &RenameIssueEntry) -> u64 {
     let avl = v_enc::uimm_vsetivli(id.inst);
     let requested_vtype = v_enc::zimm_vsetivli(id.inst);
     let rd_is_zero = id.rd.is_zero();
@@ -104,7 +104,7 @@ fn execute_vsetivli_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Execute `vsetvl`: AVL from rs1, vtype from rs2.
-fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetvl_rs2_op(cpu: &mut SimState, id: &RenameIssueEntry) -> u64 {
     let avl = id.rv1;
     let requested_vtype = id.rv2;
     let rd_is_zero = id.rd.is_zero();
@@ -122,7 +122,7 @@ fn execute_vsetvl_rs2_op(cpu: &mut Cpu, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Build the common execution context from CPU state.
-const fn build_ctx(cpu: &Cpu) -> VecExecCtx {
+const fn build_ctx(cpu: &SimState) -> VecExecCtx {
     let vtype = parse_vtype_with_elen(cpu.hart.csrs.vtype, cpu.config.isa.vector.elen);
     VecExecCtx {
         sew: vtype.vsew,
@@ -190,7 +190,7 @@ const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
 }
 
 /// Mark `mstatus.VS` and `sstatus.VS` as dirty.
-const fn mark_vs_dirty(cpu: &mut Cpu) {
+const fn mark_vs_dirty(cpu: &mut SimState) {
     cpu.hart.csrs.mstatus = (cpu.hart.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
         | crate::core::arch::csr::MSTATUS_VS_DIRTY;
     cpu.hart.csrs.sstatus = (cpu.hart.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
@@ -253,7 +253,7 @@ const fn check_widening_lmul(inst: u32, op: VectorOp, vlmul: Vlmul) -> Result<()
 }
 
 /// Execute a vector integer arithmetic operation on the VPR.
-fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_arith(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
     let vtype = parse_vtype_with_elen(cpu.hart.csrs.vtype, cpu.config.isa.vector.elen);
     check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
@@ -286,7 +286,7 @@ fn execute_vec_arith(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> 
 }
 
 /// Execute a vector floating-point operation.
-fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_fp(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
     let vtype = parse_vtype_with_elen(cpu.hart.csrs.vtype, cpu.config.isa.vector.elen);
     check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
@@ -311,7 +311,7 @@ fn execute_vec_fp(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
 }
 
 /// Execute a vector reduction operation.
-fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_reduction(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(cpu);
@@ -334,7 +334,7 @@ fn execute_vec_reduction(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Tr
 }
 
 /// Execute a vector mask operation.
-fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_mask(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(cpu);
@@ -356,7 +356,7 @@ fn execute_vec_mask(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
 }
 
 /// Execute a vector permutation operation.
-fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_permute(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, cpu.hart.csrs.vtype, cpu.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(cpu);
@@ -378,7 +378,7 @@ fn execute_vec_permute(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap
 }
 
 /// Execute a vector load operation through the memory subsystem.
-fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_load(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let result = mem::execute_vec_load(cpu, id)?;
     cpu.hart.csrs.vstart = 0;
     mark_vs_dirty(cpu);
@@ -386,7 +386,7 @@ fn execute_vec_load(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
 }
 
 /// Execute a vector store operation through the memory subsystem.
-fn execute_vec_store(cpu: &mut Cpu, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_store(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let result = mem::execute_vec_store(cpu, id)?;
     cpu.hart.csrs.vstart = 0;
     mark_vs_dirty(cpu);
@@ -407,7 +407,7 @@ pub struct VecOpResult {
     pub vxsat: bool,
 }
 
-/// Build execution context from raw CSR values (no Cpu reference needed).
+/// Build execution context from raw CSR values (no SimState reference needed).
 const fn build_ctx_from_csrs(
     vtype_bits: u64,
     vl: u64,

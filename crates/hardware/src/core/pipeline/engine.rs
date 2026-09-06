@@ -49,7 +49,7 @@ pub trait ExecutionEngine {
     /// flushes the frontend (branch misprediction, trap, FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
-        cpu: &mut crate::core::Cpu,
+        cpu: &mut crate::sim::SimState,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     );
@@ -58,10 +58,10 @@ pub trait ExecutionEngine {
     fn can_accept(&self) -> usize;
 
     /// Flush all speculative state. Committed stores in the store buffer remain.
-    fn flush(&mut self, cpu: &mut crate::core::Cpu);
+    fn flush(&mut self, cpu: &mut crate::sim::SimState);
 
     /// Read a CSR, checking in-flight `CsrUpdate` entries in the ROB.
-    fn read_csr_speculative(&self, cpu: &crate::core::Cpu, addr: crate::common::CsrAddr) -> u64;
+    fn read_csr_speculative(&self, cpu: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64;
 
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
@@ -269,7 +269,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     ///    re-inject into Execute→Memory1; completed fetches land in F1→F2.
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
-    pub fn tick(&mut self, cpu: &mut crate::core::Cpu) {
+    pub fn tick(&mut self, cpu: &mut crate::sim::SimState) {
         let pc_before = cpu.hart.pc;
 
         crate::core::pipeline::mailbox::drain(self, cpu);
@@ -310,7 +310,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     }
 
     /// Flush the entire pipeline.
-    pub fn flush(&mut self, cpu: &mut crate::core::Cpu) {
+    pub fn flush(&mut self, cpu: &mut crate::sim::SimState) {
         self.frontend.flush();
         self.rename_output.clear();
         let common = self.engine.common_mut();
@@ -323,7 +323,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     }
 }
 
-/// Type-erased pipeline for storage in the non-generic Cpu struct.
+/// Type-erased pipeline for storage in the non-generic SimState struct.
 #[derive(Debug)]
 pub enum PipelineDispatch {
     /// In-order pipeline.
@@ -334,7 +334,7 @@ pub enum PipelineDispatch {
 
 impl PipelineDispatch {
     /// Run one cycle.
-    pub fn tick(&mut self, cpu: &mut crate::core::Cpu) {
+    pub fn tick(&mut self, cpu: &mut crate::sim::SimState) {
         match self {
             Self::InOrder(p) => p.tick(cpu),
             Self::OutOfOrder(p) => p.tick(cpu),
@@ -350,7 +350,7 @@ impl PipelineDispatch {
     }
 
     /// Flush.
-    pub fn flush(&mut self, cpu: &mut crate::core::Cpu) {
+    pub fn flush(&mut self, cpu: &mut crate::sim::SimState) {
         match self {
             Self::InOrder(p) => p.flush(cpu),
             Self::OutOfOrder(p) => p.flush(cpu),
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
         let config = crate::config::Config::default();
-        let mut cpu = crate::core::Cpu::build(&config, "");
+        let mut cpu = crate::sim::SimState::build(&config, "");
 
         let frontend = Frontend::new(config.pipeline.width);
         let engine = InOrderEngine::new(

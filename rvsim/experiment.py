@@ -17,7 +17,7 @@ __all__ = ["Environment", "Result"]
 from .config import Config, _config_to_dict
 from .stats import Stats, _compare_flat, _compare_matrix
 
-from ._core import Cpu
+from ._core import Simulator
 
 
 @dataclass
@@ -63,7 +63,7 @@ class Environment:
         try:
             with open(self.binary, "rb") as f:
                 elf_data = f.read()
-            cpu = Cpu(config, elf_data=elf_data, disk_path=self.disk)
+            cpu = Simulator(config, elf_data=elf_data, disk=self.disk)
             exit_code = cpu.run(limit=limit, progress=progress)
             if exit_code is None and limit is None:
                 raise RuntimeError(

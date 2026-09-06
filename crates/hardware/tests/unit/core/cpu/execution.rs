@@ -22,12 +22,12 @@ fn test_tick_returns_ok() {
 #[test]
 fn test_tick_increments_cycles() {
     let mut sim = create_test_sim();
-    let initial_cycles = sim.cpu.cycle;
+    let initial_cycles = sim.state.cycle;
 
     sim.tick().unwrap();
 
     // Cycles should increase
-    assert!(sim.cpu.cycle >= initial_cycles);
+    assert!(sim.state.cycle >= initial_cycles);
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn test_multiple_ticks() {
 #[test]
 fn test_exit_code_none_initially() {
     let sim = create_test_sim();
-    assert_eq!(sim.cpu.check_exit(), None);
+    assert_eq!(sim.state.check_exit(), None);
 }
 
 #[test]
@@ -53,19 +53,19 @@ fn test_last_pc_updates() {
     sim.tick().unwrap();
 
     // PC is always set to a valid address
-    let _ = sim.cpu.hart.pc;
+    let _ = sim.state.hart.pc;
 }
 
 #[test]
 fn test_same_pc_counter() {
     let mut sim = create_test_sim();
-    let idx = sim.cpu.hart.hart_id.as_index();
-    let initial_count = sim.cpu.per_hart_debug[idx].same_pc_count;
-    sim.cpu.per_hart_debug[idx].same_pc_count = 0;
+    let idx = sim.state.hart.hart_id.as_index();
+    let initial_count = sim.state.per_hart_debug[idx].same_pc_count;
+    sim.state.per_hart_debug[idx].same_pc_count = 0;
 
     sim.tick().unwrap();
 
-    let count = sim.cpu.per_hart_debug[idx].same_pc_count;
+    let count = sim.state.per_hart_debug[idx].same_pc_count;
     assert!(count != initial_count || count == 0);
 }
 
@@ -77,9 +77,9 @@ fn test_privilege_preserved_across_tick() {
 
     // Privilege should be set to something valid
     assert!(
-        sim.cpu.hart.privilege == PrivilegeMode::User
-            || sim.cpu.hart.privilege == PrivilegeMode::Supervisor
-            || sim.cpu.hart.privilege == PrivilegeMode::Machine
+        sim.state.hart.privilege == PrivilegeMode::User
+            || sim.state.hart.privilege == PrivilegeMode::Supervisor
+            || sim.state.hart.privilege == PrivilegeMode::Machine
     );
 }
 
@@ -95,22 +95,22 @@ fn test_bus_interaction_tick() {
 #[test]
 fn test_stats_updated() {
     let mut sim = create_test_sim();
-    let initial_instructions = sim.cpu.stats.instructions_retired;
+    let initial_instructions = sim.state.stats.instructions_retired;
 
     sim.tick().unwrap();
 
     // Stats should be updated or remain the same (can't execute if no valid instruction)
-    assert!(sim.cpu.stats.instructions_retired >= initial_instructions);
+    assert!(sim.state.stats.instructions_retired >= initial_instructions);
 }
 
 #[test]
 fn test_tick_does_not_corrupt_state() {
     let mut sim = create_test_sim();
-    sim.cpu.hart.regs.write(RegIdx::new(5), 0x1234_5678);
+    sim.state.hart.regs.write(RegIdx::new(5), 0x1234_5678);
 
     sim.tick().unwrap();
 
-    let _ = sim.cpu.hart.regs.read(RegIdx::new(5));
+    let _ = sim.state.hart.regs.read(RegIdx::new(5));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn test_rapid_ticks() {
 fn test_tick_with_different_privileges() {
     for priv_level in [PrivilegeMode::Machine, PrivilegeMode::Supervisor, PrivilegeMode::User] {
         let mut sim = create_test_sim();
-        sim.cpu.hart.privilege = priv_level;
+        sim.state.hart.privilege = priv_level;
 
         let result = sim.tick();
         assert!(result.is_ok());

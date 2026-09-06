@@ -23,7 +23,7 @@ import sys
 import tempfile
 
 from rvsim import Config  # noqa: F401  (kept for backward compatibility)
-from rvsim._core import Cpu
+from rvsim._core import Simulator
 from rvsim.config import _config_to_dict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -173,7 +173,7 @@ def run_rvsim_trace(elf_path, cfg):
     with open(elf_path, "rb") as f:
         elf_data = f.read()
 
-    cpu = Cpu(config_dict, elf_data=elf_data)
+    cpu = Simulator(config_dict, elf_data=elf_data)
 
     # Use a temp file for the commit log
     fd, log_path = tempfile.mkstemp(suffix=".log", prefix="rvsim_")

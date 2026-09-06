@@ -5,7 +5,7 @@
 
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::Cpu;
+use rvsim_core::SimState;
 use rvsim_core::core::arch::csr;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::isa::abi;
@@ -14,9 +14,9 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 /// Helper function to create a test CPU instance.
-fn create_test_cpu() -> Cpu {
+fn create_test_cpu() -> SimState {
     let config = Config::default();
-    Cpu::build(&config, "")
+    SimState::build(&config, "")
 }
 
 /// Helper function to create a temporary binary file for testing.
@@ -190,10 +190,10 @@ fn test_setup_kernel_load_different_ram_bases() {
     let mut config2 = Config::default();
     config2.system.ram_base = 0x90000000;
 
-    let mut cpu1 = Cpu::build(&config1, "");
+    let mut cpu1 = SimState::build(&config1, "");
     loader::setup_kernel_load(&mut cpu1, &config1, "", None, None).unwrap();
 
-    let mut cpu2 = Cpu::build(&config2, "");
+    let mut cpu2 = SimState::build(&config2, "");
     loader::setup_kernel_load(&mut cpu2, &config2, "", None, None).unwrap();
 
     // PC should match the respective RAM bases

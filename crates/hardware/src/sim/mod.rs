@@ -12,4 +12,7 @@ pub mod loader;
 pub mod packet;
 pub mod per_hart_debug;
 pub mod simulator;
+pub mod state;
 pub mod stats;
+
+pub use self::state::SimState;

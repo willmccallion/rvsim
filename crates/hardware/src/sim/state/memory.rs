@@ -1,19 +1,19 @@
-//! Virtual-to-physical translation entry point on `Cpu`.
+//! Virtual-to-physical translation entry point on `SimState`.
 //!
 //! Wraps the MMU's event-driven [`Mmu::translate_async`](crate::core::units::mmu::Mmu::translate_async)
 //! and PMP checks. Pipeline stages call this; on a TLB hit / direct-mode
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
 
-use super::Cpu;
+use super::SimState;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::core::units::mmu::TranslateOutcome;
 use crate::core::units::mmu::pmp::PmpResult;
 use crate::core::units::mmu::ptw::WalkState;
 
-/// Outcome of [`Cpu::translate`] / [`Cpu::translate_continue`].
+/// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
 ///
-/// Mirrors [`TranslateOutcome`] but lifted onto `Cpu` so callers don't
+/// Mirrors [`TranslateOutcome`] but lifted onto `SimState` so callers don't
 /// import the MMU module directly.
 #[derive(Clone, Debug)]
 pub enum TranslateResult {
@@ -22,7 +22,7 @@ pub enum TranslateResult {
     /// applies before the access begins.
     Ready(TranslationResult),
     /// Caller must issue a `MemReq` for `pte_addr`, stash `state`, and
-    /// resume via [`Cpu::translate_continue`] when the response arrives.
+    /// resume via [`SimState::translate_continue`] when the response arrives.
     NeedPte {
         /// Address of the next PTE to read.
         pte_addr: PhysAddr,
@@ -31,7 +31,7 @@ pub enum TranslateResult {
     },
 }
 
-impl Cpu {
+impl SimState {
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(
         &mut self,
@@ -171,7 +171,7 @@ mod tests {
     fn test_translate_direct_mode() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
         match result {

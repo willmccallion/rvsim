@@ -7,9 +7,6 @@
 /// Architecture-specific components (CSRs, register files, privilege modes, traps).
 pub mod arch;
 
-/// CPU core implementation and execution orchestration.
-pub mod cpu;
-
 /// Per-thread RISC-V architectural state.
 pub mod hart;
 
@@ -19,7 +16,6 @@ pub mod pipeline;
 /// Execution units (ALU, FPU, LSU, MMU, branch predictor, cache, prefetcher).
 pub mod units;
 
-pub use self::cpu::Cpu;
 pub use self::hart::Hart;
 
 use crate::common::CoreId;

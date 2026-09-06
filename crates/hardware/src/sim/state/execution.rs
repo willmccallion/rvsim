@@ -1,6 +1,6 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
-use super::Cpu;
+use super::SimState;
 use crate::common::constants::{
     HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
     WFI_INSTRUCTION,
@@ -11,7 +11,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
 use crate::trace_trap;
 
-impl Cpu {
+impl SimState {
     /// Pre-tick: exit checks, interrupts, timers, cycle counting.
     ///
     /// Returns `Ok(true)` if the pipeline should be skipped this cycle
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_track_mode_cycles() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.privilege = PrivilegeMode::User;
         cpu.track_mode_cycles();
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_post_tick_zero_reg() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.regs.write(abi::REG_ZERO, 42);
         cpu.post_tick(PrivilegeMode::Machine);

@@ -27,7 +27,7 @@
 //! - **Non-memory ops:** pass through untouched.
 
 use crate::common::error::{ExceptionStage, LrScRecord, Trap};
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
@@ -43,7 +43,7 @@ use crate::trace_trap;
 /// Returns the oldest memory-ordering violation observed this cycle (older
 /// `RobTag`, lower index). The caller flushes the pipeline at that tag.
 pub fn memory2_stage(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     store_buffer: &mut StoreBuffer,

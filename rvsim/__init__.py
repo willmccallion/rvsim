@@ -3,7 +3,7 @@ rvsim simulator Python API.
 
 A Python-first interface to the cycle-accurate RISC-V simulator:
 1. **Configuration:** ``Config``, ``Cache``, ``BranchPredictor``, ``MemDepPredictor``, etc.
-2. **Execution:** ``Cpu``, ``Simulator``.
+2. **Execution:** ``Simulator``.
 3. **Experiments:** ``Environment``, ``Result``.
 4. **Statistics:** ``Stats``, ``Table``.
 5. **ISA:** ``reg``, ``csr``, ``Disassemble``.
@@ -19,7 +19,7 @@ from . import presets
 from .config import Config
 from .experiment import Environment, Result
 from .isa import Disassemble, csr, reg
-from .objects import Cpu, Instruction, Simulator
+from .objects import Instruction, Simulator
 from .pipeline import PipelineSnapshot
 from .stats import Stats, Table
 from .sweep import Sweep, SweepResults
@@ -86,7 +86,6 @@ __all__ = [
     "Backend",
     "Cache",
     "Fu",
-    "Cpu",
     "Simulator",
     "Instruction",
     "PipelineSnapshot",

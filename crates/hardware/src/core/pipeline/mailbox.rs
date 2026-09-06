@@ -6,7 +6,7 @@
 //! Each `MemResp` resolves to one of four cases:
 //!
 //! 1. **Walk response** — read the PTE bytes from RAM at `walk.pte_addr`,
-//!    hand them to [`Cpu::translate_continue`](crate::core::cpu::memory::Cpu::translate_continue),
+//!    hand them to [`SimState::translate_continue`](crate::sim::state::memory::SimState::translate_continue),
 //!    then either issue the next PTE request (multi-level walk) or trigger
 //!    the parked continuation (fetch / load / store).
 //! 2. **Fetch response** — push a fully-formed
@@ -19,8 +19,8 @@
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
 use crate::common::{ExceptionStage, PhysAddr, VirtAddr};
-use crate::core::Cpu;
-use crate::core::cpu::memory::TranslateResult;
+use crate::sim::SimState;
+use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{
@@ -31,7 +31,7 @@ use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet};
 
 /// Processes every packet currently in the engine's mailbox.
-pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, cpu: &mut Cpu) {
+pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, cpu: &mut SimState) {
     let mailbox = std::mem::take(&mut pipeline.engine.common_mut().mailbox);
     for (_source, packet) in mailbox {
         let Packet::MemResp { req_id, data, .. } = packet else {
@@ -101,7 +101,7 @@ fn complete_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, fetch: Outstan
 /// latch. Memory2 handles sign-extension, AMO RMW, and SB resolution.
 fn complete_load<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &Cpu,
+    cpu: &SimState,
     load: OutstandingLoad,
     resp_data: &MemRespData,
 ) {
@@ -138,7 +138,7 @@ fn complete_load<E: ExecutionEngine>(
 /// continuation) or issues the next PTE `MemReq`.
 fn complete_walk<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     walk: OutstandingWalk,
 ) {
     let raw_pte = read_pte_bytes(cpu, walk.pte_addr);
@@ -163,7 +163,7 @@ fn complete_walk<E: ExecutionEngine>(
 /// Runs the appropriate continuation once a walk reaches Ready.
 fn dispatch_walk_continuation<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     continuation: WalkContinuation,
     result: crate::common::TranslationResult,
 ) {
@@ -204,7 +204,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 
 /// Reads a 64-bit PTE from the RAM fast path. RISC-V doesn't permit page
 /// tables in MMIO, so the read is always backed by DRAM.
-fn read_pte_bytes(cpu: &Cpu, pte_addr: PhysAddr) -> u64 {
+fn read_pte_bytes(cpu: &SimState, pte_addr: PhysAddr) -> u64 {
     let raw = pte_addr.val();
     cpu.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
         // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks the access.
@@ -214,7 +214,7 @@ fn read_pte_bytes(cpu: &Cpu, pte_addr: PhysAddr) -> u64 {
 
 /// Reads the raw bytes of a load. RAM accesses use the fast-path pointer;
 /// MMIO loads take their data from the device's `MemResp` payload.
-fn read_load_bytes(cpu: &Cpu, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
+fn read_load_bytes(cpu: &SimState, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
     let size = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,
@@ -246,7 +246,7 @@ fn read_load_bytes(cpu: &Cpu, paddr: u64, width: MemWidth, resp_data: &MemRespDa
 /// Emits a PTE read request to the L1 data cache.
 fn emit_pte_req<E: ExecutionEngine>(
     pipeline: &Pipeline<E>,
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     req_id: ReqId,
     pte_addr: PhysAddr,
 ) {
@@ -269,7 +269,7 @@ fn emit_pte_req<E: ExecutionEngine>(
 /// Emits an instruction fetch request to the L1 instruction cache.
 fn emit_fetch_req<E: ExecutionEngine>(
     pipeline: &Pipeline<E>,
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     req_id: ReqId,
     paddr: PhysAddr,
     vaddr: VirtAddr,

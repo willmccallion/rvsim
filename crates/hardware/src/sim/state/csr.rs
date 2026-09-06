@@ -1,10 +1,10 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
-use super::Cpu;
+use super::SimState;
 use crate::common::{CsrAddr, Trap};
 use crate::core::arch::csr;
 
-impl Cpu {
+impl SimState {
     /// Returns `true` if the given CSR address corresponds to a CSR that is
     /// implemented by this hart.
     #[inline]
@@ -361,13 +361,13 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::core::Cpu;
+    use crate::sim::SimState;
     use crate::core::arch::csr;
 
     #[test]
     fn test_cpu_csr_read_write_mstatus() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
 
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_fcsr() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.csr_write(csr::FCSR, 0xFF);
         assert_eq!(cpu.csr_read(csr::FCSR), 0xFF);

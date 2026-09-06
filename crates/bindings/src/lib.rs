@@ -19,8 +19,8 @@ use pyo3::prelude::*;
 
 /// Python dict to Rust `Config` conversion.
 pub mod conversion;
-/// CPU binding (`PyCpu` exposed as `Cpu`).
-pub mod cpu;
+/// Simulator binding (`PySimulator` exposed as `Simulator`).
+pub mod simulator;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
 pub mod instruction;
 /// Pipeline snapshot binding (`PyPipelineSnapshot` exposed as `PipelineSnapshot`).
@@ -34,7 +34,7 @@ pub mod views;
 
 /// Registers all public classes and functions onto the Python module.
 pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<cpu::PyCpu>()?;
+    m.add_class::<simulator::PySimulator>()?;
 
     m.add_class::<instruction::PyInstruction>()?;
     m.add_class::<snapshot::PyPipelineSnapshot>()?;

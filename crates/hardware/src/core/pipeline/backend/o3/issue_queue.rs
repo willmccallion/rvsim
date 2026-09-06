@@ -9,7 +9,7 @@
 //!   selected for execution (up to `width`).
 
 use crate::common::RegIdx;
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
@@ -184,7 +184,7 @@ impl IssueQueue {
         &mut self,
         entry: RenameIssueEntry,
         rob: &Rob,
-        cpu: &Cpu,
+        cpu: &SimState,
         prf: Option<&PhysRegFile>,
         vec_prf: Option<&VecPhysRegFile>,
         mem_dep: MemDepState,
@@ -633,7 +633,7 @@ fn resolve_operand_prf(
     is_fp: bool,
     phys: PhysReg,
     prf: &PhysRegFile,
-    _cpu: &Cpu,
+    _cpu: &SimState,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);
@@ -655,7 +655,7 @@ fn resolve_operand_legacy(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    cpu: &Cpu,
+    cpu: &SimState,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);

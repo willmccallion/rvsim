@@ -35,7 +35,7 @@
 //! pipeline's FIFO memory path. This matches spike, ARM SVE, and AVX-512.
 
 use crate::common::PhysAddr;
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
@@ -408,7 +408,7 @@ impl VecStoreBuffer {
     /// to share commit-time bandwidth with the scalar SB.
     pub fn drain_one_committed(
         &mut self,
-        cpu: &mut Cpu,
+        cpu: &mut SimState,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) -> bool {
         let Some(idx) = self.oldest_drainable_entry_index() else { return false };
@@ -429,7 +429,7 @@ impl VecStoreBuffer {
     /// (commit-time barriers) and by the trap-driven full flush.
     pub fn drain_all_committed(
         &mut self,
-        cpu: &mut Cpu,
+        cpu: &mut SimState,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) {
         while self.drain_one_committed(cpu, common) {}
@@ -491,7 +491,7 @@ impl VecStoreBuffer {
 /// Each run is rounded to a single 1/2/4/8-byte aligned `MemReq` that
 /// covers it, matching the scalar SB drain path.
 fn write_line_to_memory(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     line: &VsbLine,
 ) {
@@ -545,7 +545,7 @@ fn write_line_to_memory(
 /// `read_load_bytes` see the new value. MMIO addresses fall through the
 /// packet path only (no RAM-backed write).
 fn issue_drained_write(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     paddr: PhysAddr,
     data: u64,

@@ -286,15 +286,15 @@ class Instruction:
     cycles: int
     def __init__(self, pc: int, raw: int, asm: str, cycles: int) -> None: ...
 
-class Cpu:
+class Simulator:
     def __init__(
         self,
-        config_dict: Dict[str, Any],
+        config: Union["Config", Dict[str, Any], None] = None,
         *,
-        elf_data: Optional[bytes] = None,
-        kernel_path: Optional[str] = None,
-        dtb_path: Optional[str] = None,
-        disk_path: Optional[str] = None,
+        binary: Optional[str] = None,
+        kernel: Optional[str] = None,
+        disk: Optional[str] = None,
+        dtb: Optional[str] = None,
     ) -> None: ...
     @property
     def pc(self) -> int: ...
@@ -349,22 +349,6 @@ class Csrs:
 
 class Memory:
     def __getitem__(self, addr: int) -> int: ...
-
-class Simulator:
-    def __init__(self) -> None: ...
-    def config(self, path_or_config: Config | str) -> Simulator: ...
-    def kernel(self, path: str) -> Simulator: ...
-    def disk(self, path: str) -> Simulator: ...
-    def dtb(self, path: str) -> Simulator: ...
-    def binary(self, path: str) -> Simulator: ...
-    def build(self) -> Cpu: ...
-    def run(
-        self,
-        limit: Optional[int] = None,
-        progress: int = 0,
-        stats_sections: Optional[list[str]] = None,
-        output_stats: Optional[str] = None,
-    ) -> int: ...
 
 # ── experiment.py ────────────────────────────────────────────────────────────
 

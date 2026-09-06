@@ -37,9 +37,8 @@ def main():
         bus_width=8, bus_latency=1, clint_divider=1,
     )
 
-    sim = Simulator().config(cfg).kernel(image).disk(disk)
-    if os.path.isfile(dtb):
-        sim.dtb(dtb)
+    dtb_arg = dtb if os.path.isfile(dtb) else None
+    sim = Simulator(cfg, kernel=image, disk=disk, dtb=dtb_arg)
 
     try:
         rc = sim.run(limit=100_000_000_000)

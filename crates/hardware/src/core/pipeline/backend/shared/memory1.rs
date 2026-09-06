@@ -30,9 +30,9 @@
 use crate::common::{
     AccessType, ExceptionStage, PhysAddr, PteUpdate, Trap, VirtAddr,
 };
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::arch::mode::PrivilegeMode;
-use crate::core::cpu::memory::TranslateResult;
+use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{OutstandingLoad, OutstandingWalk, WalkContinuation};
@@ -59,7 +59,7 @@ enum EntryOutcome {
 /// detection happens at Memory2 once stores have actually resolved their
 /// store-buffer slots.
 pub fn memory1_stage<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
 ) {
@@ -91,7 +91,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
 }
 
 fn process_entry<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     ex: ExMem1Entry,
 ) -> EntryOutcome {
@@ -395,7 +395,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
 
 /// Issues a `MemReq` for a load / LR / AMO and parks the entry.
 fn emit_load_req<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     ex: ExMem1Entry,
     paddr: PhysAddr,
@@ -450,7 +450,7 @@ fn emit_load_req<E: ExecutionEngine>(
 
 /// Records the parked walk and issues the PTE `MemReq`.
 fn park_walk<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
@@ -490,7 +490,7 @@ fn park_walk<E: ExecutionEngine>(
 /// side effect (e.g. an HTIF tohost write that L1D hit would never reach the
 /// device).
 fn mmio_or_l1d<E: ExecutionEngine>(
-    cpu: &Cpu,
+    cpu: &SimState,
     engine: &E,
     paddr: PhysAddr,
     size: AccessSize,

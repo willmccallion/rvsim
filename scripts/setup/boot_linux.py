@@ -191,7 +191,7 @@ def main():
 
     print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
-    sim = Simulator().config(config()).kernel(image_path).disk(disk_path)
+    sim = Simulator(config(), kernel=image_path, disk=disk_path)
 
     try:
         return sim.run(

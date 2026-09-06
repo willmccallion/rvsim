@@ -16,7 +16,7 @@ Usage from Python::
 
     from rvsim import presets, Simulator
     cfg = presets.fast()
-    Simulator().config(cfg).binary("mandelbrot.elf").build().run()
+    Simulator(cfg, binary="mandelbrot.elf").run()
 """
 
 from .config import Config

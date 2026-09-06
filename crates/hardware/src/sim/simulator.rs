@@ -1,4 +1,4 @@
-//! Simulator: owns the CPU, the pipeline, and the global event queue.
+//! Simulator: owns the state, the pipeline, and the global event queue.
 //!
 //! Each `tick()`:
 //! 1. Increments the cycle in `pre_tick`.
@@ -17,7 +17,6 @@
 
 use crate::common::SimError;
 use crate::config::Config;
-use crate::core::Cpu;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
 use crate::core::pipeline::backend::o3::O3Engine;
 use crate::core::pipeline::engine::{BackendType, Pipeline, PipelineDispatch};
@@ -26,6 +25,7 @@ use crate::sim::components::{CacheId, ComponentId, MemCtrlId, PipelineId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::Packet;
+use crate::sim::state::SimState;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -36,11 +36,11 @@ const L1D_CACHE_ID: CacheId = CacheId::new(1);
 /// Default `PipelineId` for the single-core pipeline.
 const PIPELINE_ID: PipelineId = PipelineId::new(0);
 
-/// Top-level simulator: CPU architectural state + pipeline + scheduler.
+/// Top-level simulator: `SimState` + pipeline + scheduler.
 #[derive(Debug)]
 pub struct Simulator {
-    /// CPU architectural state (registers, caches, MMU, bus, stats).
-    pub cpu: Cpu,
+    /// Simulator-side architectural state (hart, core, bus, caches, stats).
+    pub state: SimState,
     /// Pipeline implementation (frontend + backend engine).
     pub pipeline: PipelineDispatch,
 }
@@ -49,12 +49,12 @@ unsafe impl Send for Simulator {}
 unsafe impl Sync for Simulator {}
 
 impl Simulator {
-    /// Wraps an existing `Cpu` with a pipeline built from its `config`.
-    /// Use this when the caller needs to interleave setup between CPU
+    /// Wraps an existing `SimState` with a pipeline built from its `config`.
+    /// Use this when the caller needs to interleave setup between state
     /// construction and pipeline dispatch (e.g. loading an ELF image and
     /// registering HTIF before the pipeline reads the reset PC).
-    pub fn new(cpu: Cpu) -> Self {
-        let config = &cpu.config;
+    pub fn new(state: SimState) -> Self {
+        let config = &state.config;
         let pipeline = match config.pipeline.backend {
             BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
                 frontend: Frontend::new(config.pipeline.width),
@@ -69,15 +69,15 @@ impl Simulator {
                 redirect_pending: false,
             })),
         };
-        Self { cpu, pipeline }
+        Self { state, pipeline }
     }
 
-    /// Convenience constructor: builds the exit-signal `Arc`, the `Cpu`, and
-    /// the `Simulator` together. Use this when the caller doesn't need to
-    /// touch the CPU between construction and pipeline start.
+    /// Convenience constructor: builds the exit-signal `Arc`, the `SimState`,
+    /// and the `Simulator` together. Use this when the caller doesn't need
+    /// to touch the state between construction and pipeline start.
     pub fn build(config: &Config, disk_path: &str) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(Cpu::new(config, disk_path, exit_signal))
+        Self::new(SimState::new(config, disk_path, exit_signal))
     }
 
     /// Synchronize the architectural register file into the O3 PRF.
@@ -86,7 +86,7 @@ impl Simulator {
     /// but before the first pipeline tick. For the in-order backend this is a no-op.
     pub fn sync_arch_regs(&mut self) {
         if let PipelineDispatch::OutOfOrder(ref mut p) = self.pipeline {
-            p.engine.sync_arch_regs(&self.cpu);
+            p.engine.sync_arch_regs(&self.state);
         }
     }
 
@@ -99,27 +99,27 @@ impl Simulator {
     ///
     /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires.
     pub fn tick(&mut self) -> Result<(), SimError> {
-        let prev_priv = self.cpu.hart.privilege;
-        let skip = self.cpu.pre_tick()?;
+        let prev_priv = self.state.hart.privilege;
+        let skip = self.state.pre_tick()?;
         // First drain: deliver events scheduled for cycles <= now into
         // their targets (filling pipeline.mailbox with responses from
         // previous cycles' emissions).
         self.drain_events();
         if !skip {
-            self.pipeline.tick(&mut self.cpu);
+            self.pipeline.tick(&mut self.state);
         }
         // Second drain: events the pipeline just scheduled (MemReqs to L1)
         // reach their target component handlers this cycle so the next
         // cycle's start-of-tick drain delivers their responses.
         self.drain_events();
-        self.cpu.post_tick(prev_priv);
+        self.state.post_tick(prev_priv);
         Ok(())
     }
 
-    /// Dispatches every event with `fire_at <= self.cpu.cycle`.
+    /// Dispatches every event with `fire_at <= self.state.cycle`.
     fn drain_events(&mut self) {
-        let cycle = self.cpu.cycle;
-        while let Some(event) = self.cpu.event_queue.pop_ready(cycle) {
+        let cycle = self.state.cycle;
+        while let Some(event) = self.state.event_queue.pop_ready(cycle) {
             self.dispatch(event);
         }
     }
@@ -132,29 +132,29 @@ impl Simulator {
                 self.pipeline.deliver(source, packet);
             }
             ComponentId::Cache(id) => {
-                dispatch_to_cache(&mut self.cpu, id, packet, source);
+                dispatch_to_cache(&mut self.state, id, packet, source);
             }
             ComponentId::Bus => {
-                let cycle = self.cpu.cycle;
+                let cycle = self.state.cycle;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut self.cpu.event_queue,
-                    stats: &mut self.cpu.stats_hier,
-                    config: &self.cpu.config,
+                    scheduler: &mut self.state.event_queue,
+                    stats: &mut self.state.stats_hier,
+                    config: &self.state.config,
                     cycle,
                     self_id: ComponentId::Bus,
                 };
-                self.cpu.bus.handle(packet, source, &mut ctx);
+                self.state.bus.handle(packet, source, &mut ctx);
             }
             ComponentId::MemCtrl(id) => {
-                let cycle = self.cpu.cycle;
+                let cycle = self.state.cycle;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut self.cpu.event_queue,
-                    stats: &mut self.cpu.stats_hier,
-                    config: &self.cpu.config,
+                    scheduler: &mut self.state.event_queue,
+                    stats: &mut self.state.stats_hier,
+                    config: &self.state.config,
                     cycle,
                     self_id: ComponentId::MemCtrl(id),
                 };
-                self.cpu.mem_controller.handle(packet, source, &mut ctx);
+                self.state.mem_controller.handle(packet, source, &mut ctx);
             }
             ComponentId::Device(_) | ComponentId::Hart(_) | ComponentId::Core(_) => {
                 // Devices are routed via Bus; Hart / Core targeting is
@@ -165,7 +165,7 @@ impl Simulator {
 
     /// Retrieves the exit code if the simulation has finished.
     pub fn take_exit(&self) -> Option<u64> {
-        self.cpu.take_exit()
+        self.state.take_exit()
     }
 
     /// Synchronously reads `width` bytes from physical memory.
@@ -182,7 +182,7 @@ impl Simulator {
     pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: u8) -> u64 {
         let raw = paddr.val();
         if let Some(r) = self
-            .cpu
+            .state
             .bus
             .ram_region()
             .filter(|r| r.contains(raw, u64::from(width)))
@@ -212,7 +212,7 @@ impl Simulator {
     ) {
         let raw = paddr.val();
         if let Some(r) = self
-            .cpu
+            .state
             .bus
             .ram_region()
             .filter(|r| r.contains(raw, u64::from(width)))
@@ -259,15 +259,15 @@ impl Simulator {
         let req_id = ReqId::new(u64::MAX);
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
-        let cycle = self.cpu.cycle;
+        let cycle = self.state.cycle;
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
-            config: &self.cpu.config,
+            config: &self.state.config,
             cycle,
             self_id: ComponentId::Bus,
         };
-        self.cpu.bus.handle(
+        self.state.bus.handle(
             Packet::MemReq {
                 req_id,
                 paddr,
@@ -293,21 +293,21 @@ impl Simulator {
 }
 
 /// Dispatches a packet to the cache identified by `id`.
-fn dispatch_to_cache(cpu: &mut Cpu, id: CacheId, packet: Packet, source: ComponentId) {
+fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: ComponentId) {
     let self_id = ComponentId::Cache(id);
-    let cycle = cpu.cycle;
-    // Split-borrow Cpu fields explicitly so the HandleCtx (borrowing
+    let cycle = state.cycle;
+    // Split-borrow SimState fields explicitly so the HandleCtx (borrowing
     // event_queue / stats_hier / config) coexists with the cache field
     // borrow.
-    let scheduler = &mut cpu.event_queue;
-    let stats = &mut cpu.stats_hier;
-    let config = &cpu.config;
+    let scheduler = &mut state.event_queue;
+    let stats = &mut state.stats_hier;
+    let config = &state.config;
     let mut ctx = HandleCtx { scheduler, stats, config, cycle, self_id };
     match id {
-        id if id == CacheId::new(0) => cpu.core.l1_i_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(1) => cpu.core.l1_d_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(2) => cpu.core.l2_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(3) => cpu.l3_cache.handle(packet, source, &mut ctx),
+        id if id == CacheId::new(0) => state.core.l1_i_cache.handle(packet, source, &mut ctx),
+        id if id == CacheId::new(1) => state.core.l1_d_cache.handle(packet, source, &mut ctx),
+        id if id == CacheId::new(2) => state.core.l2_cache.handle(packet, source, &mut ctx),
+        id if id == CacheId::new(3) => state.l3_cache.handle(packet, source, &mut ctx),
         _ => {}
     }
 }

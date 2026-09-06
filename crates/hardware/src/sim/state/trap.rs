@@ -1,6 +1,6 @@
 //! Trap and exception dispatch, delegation, and MRET/SRET return handling.
 
-use super::Cpu;
+use super::SimState;
 use crate::common::Trap;
 use crate::common::constants::CAUSE_INTERRUPT_BIT;
 use crate::core::arch::csr;
@@ -10,7 +10,7 @@ use crate::isa::privileged::cause::{exception, interrupt};
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::trace_trap;
 
-impl Cpu {
+impl SimState {
     /// Handles a trap (exception or interrupt).
     pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.hart.load_reservation = None;
@@ -211,7 +211,7 @@ mod tests {
     fn test_trap_direct_mode_ecall() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.regs.write(abi::REG_A7, sys_ops::SYS_EXIT);
         cpu.hart.regs.write(abi::REG_A0, 42);
@@ -224,7 +224,7 @@ mod tests {
     fn test_trap_direct_mode_illegal_instruction() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.trap(&Trap::IllegalInstruction(0), 0x1000);
         assert_eq!(cpu.check_exit(), Some(0));
@@ -234,7 +234,7 @@ mod tests {
     fn test_trap_direct_mode_breakpoint_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.mtvec = 0x8000_1000;
         cpu.trap(&Trap::Breakpoint(0x400), 0x400);
@@ -250,7 +250,7 @@ mod tests {
     fn test_trap_direct_mode_breakpoint_no_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.trap(&Trap::Breakpoint(0x400), 0x400);
         assert_eq!(cpu.check_exit(), Some(1));
@@ -260,7 +260,7 @@ mod tests {
     fn test_trap_direct_mode_ecall_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.mtvec = 0x8000_2000;
         cpu.trap(&Trap::EnvironmentCallFromMMode, 0x500);
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn test_do_mret() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.mepc = 0x2000;
         cpu.hart.csrs.mstatus = (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn test_do_sret() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.sepc = 0x3000;
         cpu.hart.csrs.sstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;

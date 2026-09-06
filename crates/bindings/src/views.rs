@@ -1,13 +1,13 @@
 //! Register, CSR, and memory view Python bindings.
 //!
-//! Each view holds a `Py<PyCpu>` back-reference so reads and writes go through
+//! Each view holds a `Py<PySimulator>` back-reference so reads and writes go through
 //! the live CPU rather than a snapshot.
 
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
 use rvsim_core::common::RegIdx;
 
-use crate::cpu::PyCpu;
+use crate::simulator::PySimulator;
 
 const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
     match addr {
@@ -46,7 +46,7 @@ const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
 /// ``cpu.hart.regs[10]`` reads x10. ``cpu.hart.regs[10] = v`` writes x10.
 #[pyclass(name = "Registers")]
 pub struct Registers {
-    pub cpu: Py<PyCpu>,
+    pub cpu: Py<PySimulator>,
 }
 
 #[pymethods]
@@ -55,14 +55,14 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        Ok(self.cpu.borrow(py).inner.cpu.hart.regs.read(RegIdx::new(idx as u8)))
+        Ok(self.cpu.borrow(py).inner.state.hart.regs.read(RegIdx::new(idx as u8)))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.cpu.hart.regs.write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.state.hart.regs.write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
@@ -70,7 +70,7 @@ impl Registers {
         let cpu = self.cpu.borrow(py);
         let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.cpu.hart.regs.read(RegIdx::new(i));
+                let v = cpu.inner.state.hart.regs.read(RegIdx::new(i));
                 if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
@@ -83,7 +83,7 @@ impl Registers {
 /// ``cpu.hart.csrs["mstatus"]`` or ``cpu.hart.csrs[0x300]``.
 #[pyclass(name = "Csrs")]
 pub struct Csrs {
-    pub cpu: Py<PyCpu>,
+    pub cpu: Py<PySimulator>,
 }
 
 #[pymethods]
@@ -112,7 +112,7 @@ impl Csrs {
 /// These use **physical** addresses — no MMU translation.
 #[pyclass(name = "Memory")]
 pub struct Memory {
-    pub cpu: Py<PyCpu>,
+    pub cpu: Py<PySimulator>,
     pub width: u8,
 }
 
@@ -141,7 +141,7 @@ impl Memory {
 /// Returns 0 if translation fails (page fault).
 #[pyclass(name = "VirtualMemory")]
 pub struct VirtualMemory {
-    pub cpu: Py<PyCpu>,
+    pub cpu: Py<PySimulator>,
     pub width: u8,
 }
 
@@ -149,12 +149,12 @@ pub struct VirtualMemory {
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::core::cpu::memory::TranslateResult;
+        use rvsim_core::sim::state::memory::TranslateResult;
 
         let mut cpu = self.cpu.borrow_mut(py);
         // FFI-boundary translate: synchronously drive the walk inline,
         // because the Python caller can't park.
-        let mut outcome = cpu.inner.cpu.translate(VirtAddr::new(addr), AccessType::Read, 8);
+        let mut outcome = cpu.inner.state.translate(VirtAddr::new(addr), AccessType::Read, 8);
         let paddr = loop {
             match outcome {
                 TranslateResult::Ready(result) => {
@@ -167,7 +167,7 @@ impl VirtualMemory {
                 }
                 TranslateResult::NeedPte { pte_addr, state } => {
                     let raw_pte = cpu.inner.probe_mem_load(pte_addr, 8);
-                    outcome = cpu.inner.cpu.translate_continue(state, raw_pte, 0);
+                    outcome = cpu.inner.state.translate_continue(state, raw_pte, 0);
                 }
             }
         };

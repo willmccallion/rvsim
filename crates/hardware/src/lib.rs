@@ -29,7 +29,7 @@ pub use crate::common::RegIdx;
 pub use crate::common::SimError;
 /// Root configuration type; use `Config::default()` or deserialize from Python/JSON.
 pub use crate::config::Config;
-/// Main CPU type; holds caches, MMU, and stats.
-pub use crate::core::Cpu;
-/// Top-level simulator; owns the CPU and pipeline side-by-side.
+/// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
+pub use crate::sim::SimState;
+/// Top-level simulator; owns the `SimState` and pipeline side-by-side.
 pub use crate::sim::simulator::Simulator;

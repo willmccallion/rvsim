@@ -31,15 +31,15 @@ fn fmt_commas(n: u64) -> String {
     result
 }
 
-/// The simulation CPU. Created by `Simulator.build()`.
-#[pyclass(name = "Cpu")]
-pub struct PyCpu {
+/// The running simulator.
+#[pyclass(name = "Simulator", subclass)]
+pub struct PySimulator {
     pub inner: Simulator,
 }
 
-impl PyCpu {
+impl PySimulator {
     pub(crate) const fn privilege_str(&self) -> &'static str {
-        match self.inner.cpu.hart.privilege {
+        match self.inner.state.hart.privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
             PrivilegeMode::User => "U",
@@ -47,7 +47,7 @@ impl PyCpu {
     }
 
     pub(crate) fn read_csr_by_name(&self, name: &str) -> Option<u64> {
-        let c = &self.inner.cpu.hart.csrs;
+        let c = &self.inner.state.hart.csrs;
         match name {
             "mstatus" => Some(c.mstatus),
             "misa" => Some(c.misa),
@@ -81,15 +81,15 @@ impl PyCpu {
 
     /// Runs for up to `limit` cycles, checking Python signals every 10000 cycles.
     fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
-        let start = self.inner.cpu.cycle;
+        let start = self.inner.state.cycle;
         loop {
             if let Some(max) = limit
-                && self.inner.cpu.cycle.saturating_sub(start) >= max
+                && self.inner.state.cycle.saturating_sub(start) >= max
             {
                 let _ = std::io::stdout().flush();
                 return Ok(None);
             }
-            if self.inner.cpu.cycle.is_multiple_of(10_000) {
+            if self.inner.state.cycle.is_multiple_of(10_000) {
                 py.check_signals()?;
                 let _ = std::io::stdout().flush();
             }
@@ -140,10 +140,10 @@ impl PyCpu {
                 return Ok(Some(code));
             }
 
-            let s = &self.inner.cpu.stats;
+            let s = &self.inner.state.stats;
             eprint!(
                 "\r\x1b[36m[rvsim]\x1b[0m  {:>14} cycles  {:>14} insns",
-                fmt_commas(self.inner.cpu.cycle),
+                fmt_commas(self.inner.state.cycle),
                 fmt_commas(s.instructions_retired),
             );
             let _ = std::io::stderr().flush();
@@ -152,7 +152,7 @@ impl PyCpu {
 }
 
 #[pymethods]
-impl PyCpu {
+impl PySimulator {
     /// Build a fully-configured CPU from a config dict and optional binary/kernel.
     ///
     /// This is the sole entry point for creating a Cpu. All system setup (ELF loading,
@@ -178,7 +178,7 @@ impl PyCpu {
         let disk = disk_path.unwrap_or_default();
         let exit_signal =
             std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-        let mut cpu = rvsim_core::core::Cpu::new(&config, &disk, exit_signal.clone());
+        let mut cpu = rvsim_core::SimState::new(&config, &disk, exit_signal.clone());
 
         let mut elf_entry: Option<u64> = None;
         let mut tohost_addr: Option<u64> = None;
@@ -199,18 +199,18 @@ impl PyCpu {
         let mut sim = Simulator::new(cpu);
 
         if let Some(entry) = elf_entry {
-            sim.cpu.hart.pc = entry;
+            sim.state.hart.pc = entry;
         }
 
         if tohost_addr.is_some() {
-            sim.cpu.direct_mode = false;
-            sim.cpu.hart.privilege = PrivilegeMode::Machine;
+            sim.state.direct_mode = false;
+            sim.state.hart.privilege = PrivilegeMode::Machine;
         }
 
         if let Some(kpath) = kernel_path {
-            loader::setup_kernel_load(&mut sim.cpu, &config, "", dtb_path, Some(kpath))
+            loader::setup_kernel_load(&mut sim.state, &config, "", dtb_path, Some(kpath))
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-            sim.cpu.direct_mode = false;
+            sim.state.direct_mode = false;
         }
 
         // Sync arch regs into the O3 PRF — must happen after all reg init.
@@ -222,12 +222,12 @@ impl PyCpu {
     /// Program counter (read/write).
     #[getter]
     const fn pc(&self) -> u64 {
-        self.inner.cpu.hart.pc
+        self.inner.state.hart.pc
     }
 
     #[setter]
     const fn set_pc(&mut self, value: u64) {
-        self.inner.cpu.hart.pc = value;
+        self.inner.state.hart.pc = value;
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
@@ -239,18 +239,18 @@ impl PyCpu {
     /// Whether instruction tracing is enabled (read/write).
     #[getter]
     const fn trace(&self) -> bool {
-        self.inner.cpu.config.general.trace_instructions
+        self.inner.state.config.general.trace_instructions
     }
 
     #[setter]
     const fn set_trace(&mut self, value: bool) {
-        self.inner.cpu.config.general.trace_instructions = value;
+        self.inner.state.config.general.trace_instructions = value;
     }
 
     /// Performance statistics as a dict (read-only).
     #[getter]
     fn stats(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
+        let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle));
         Ok(s.to_dict(py)?.into_bound(py).into_any().unbind())
     }
 
@@ -299,14 +299,14 @@ impl PyCpu {
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
     #[getter]
     fn pc_trace(&self) -> Vec<(u64, u32)> {
-        self.inner.cpu.per_hart_debug[self.inner.cpu.hart.hart_id.as_index()].pc_trace.clone()
+        self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.clone()
     }
 
     /// Open a commit log file. Each retired instruction is written as
     /// ``core   0: 0x<pc> (0x<inst>)``. Requires the ``commit-log`` feature.
     #[cfg(feature = "commit-log")]
     fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
-        self.inner.cpu.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.state.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Execute until one instruction commits.
@@ -315,7 +315,7 @@ impl PyCpu {
     /// before an instruction could commit.
     #[pyo3(signature = (max_cycles=100_000))]
     fn step(&mut self, py: Python<'_>, max_cycles: u64) -> PyResult<Option<PyInstruction>> {
-        let before_last = self.inner.cpu.per_hart_debug[self.inner.cpu.hart.hart_id.as_index()].pc_trace.last().copied();
+        let before_last = self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.last().copied();
         let mut cycles_run: u64 = 0;
 
         loop {
@@ -335,7 +335,7 @@ impl PyCpu {
             }
             cycles_run += 1;
 
-            let new_last = self.inner.cpu.per_hart_debug[self.inner.cpu.hart.hart_id.as_index()].pc_trace.last().copied();
+            let new_last = self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.last().copied();
             if new_last != before_last
                 && let Some((pc, inst)) = new_last
             {
@@ -344,7 +344,7 @@ impl PyCpu {
                     pc,
                     raw: inst,
                     asm,
-                    cycles: self.inner.cpu.cycle,
+                    cycles: self.inner.state.cycle,
                 }));
             }
         }
@@ -375,7 +375,7 @@ impl PyCpu {
         };
 
         if let Some(sections) = stats_sections {
-            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
+            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle));
             if sections.is_empty() {
                 s.print();
             } else {
@@ -419,7 +419,7 @@ impl PyCpu {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
-            let s = PyStats::from((self.inner.cpu.stats.clone(), self.inner.cpu.cycle));
+            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle));
             snapshots.push(s.to_dict(py)?.into_bound(py).into_any().unbind());
 
             if exit.is_some() {
@@ -481,7 +481,7 @@ impl PyCpu {
 
             let stop = {
                 let cpu = slf_py.borrow(py);
-                pc.is_some_and(|p| cpu.inner.cpu.hart.pc == p)
+                pc.is_some_and(|p| cpu.inner.state.hart.pc == p)
                     || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str() == priv_str)
             };
             if stop {
@@ -513,12 +513,12 @@ impl PyCpu {
     ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
     fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::core::cpu::memory::TranslateResult;
+        use rvsim_core::sim::state::memory::TranslateResult;
         // The Python binding can't park on a TLB miss, so we walk the PTW
         // synchronously here — emit each PTE MemReq, drain it inline, and
         // continue. This is an FFI-boundary helper; pipeline stages never
         // take this path.
-        let mut outcome = self.inner.cpu.translate(VirtAddr::new(vaddr), AccessType::Read, 8);
+        let mut outcome = self.inner.state.translate(VirtAddr::new(vaddr), AccessType::Read, 8);
         loop {
             match outcome {
                 TranslateResult::Ready(result) => {
@@ -531,7 +531,7 @@ impl PyCpu {
                 }
                 TranslateResult::NeedPte { pte_addr, state } => {
                     let raw_pte = self.inner.probe_mem_load(pte_addr, 8);
-                    outcome = self.inner.cpu.translate_continue(state, raw_pte, 0);
+                    outcome = self.inner.state.translate_continue(state, raw_pte, 0);
                 }
             }
         }
@@ -554,7 +554,7 @@ impl PyCpu {
     ) -> Bound<'py, pyo3::types::PyBytes> {
         if let Some(r) = self
             .inner
-            .cpu
+            .state
             .bus
             .ram_region()
             .filter(|r| r.contains(paddr, length as u64))
@@ -583,7 +583,7 @@ impl PyCpu {
     /// This performs a shallow clone of the latch vectors — it has no effect on
     /// simulation correctness or timing.
     fn pipeline_snapshot(&self) -> PyPipelineSnapshot {
-        let width = self.inner.cpu.config.pipeline.width;
+        let width = self.inner.state.config.pipeline.width;
         PyPipelineSnapshot::new(self.inner.pipeline.snapshot(width))
     }
 
@@ -591,7 +591,7 @@ impl PyCpu {
     ///
     /// The checkpoint includes PC, registers, CSRs, privilege mode, and RAM.
     fn save(&self, path: &str) -> PyResult<()> {
-        let cpu = &self.inner.cpu;
+        let cpu = &self.inner.state;
         let file = std::fs::File::create(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot create checkpoint file: {e}")))?;
         let mut w = BufWriter::new(file);
@@ -703,7 +703,7 @@ impl PyCpu {
             return Err(PyRuntimeError::new_err("not a valid rvsim checkpoint file"));
         }
 
-        let cpu = &mut self.inner.cpu;
+        let cpu = &mut self.inner.state;
 
         cpu.hart.pc = header["pc"].as_u64().unwrap_or(0);
         cpu.hart.privilege = PrivilegeMode::from_u8(header["privilege"].as_u64().unwrap_or(3) as u8);

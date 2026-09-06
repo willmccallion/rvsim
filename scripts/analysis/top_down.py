@@ -120,11 +120,10 @@ def main():
     # Build & Run
     cfg_func = CONFIGS[args.config]
     config = cfg_func().replace(uart_quiet=True)
-    sim = Simulator().config(config).binary(binary)
-    cpu = sim.build()
-    cpu.run()
-    
-    stats = Stats(cpu.stats)
+    sim = Simulator(config, binary=binary)
+    sim.run()
+
+    stats = Stats(sim.stats)
     metrics = analyze_top_down(stats, config.width)
     
     # Display

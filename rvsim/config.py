@@ -252,6 +252,42 @@ def _config_to_dict(config) -> Dict[str, Any]:
     raise TypeError("config must be Config or dict")
 
 
+def load_config(path: str) -> "Config":
+    """Load a :class:`Config` from a Python file.
+
+    The module is imported and the first of these is used as the entry point:
+    a function named after the file, a ``config`` variable, or a ``get_config``
+    function.
+    """
+    import importlib.util
+    import os
+
+    if not os.path.exists(path) and os.path.exists(os.path.join(os.getcwd(), path)):
+        path = os.path.join(os.getcwd(), path)
+
+    spec = importlib.util.spec_from_file_location("custom_config", path)
+    if not (spec and spec.loader):
+        raise ImportError(f"could not load config file: {path}")
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    name = os.path.splitext(os.path.basename(path))[0]
+    if hasattr(mod, name):
+        entry = getattr(mod, name)
+        return entry() if callable(entry) else entry
+    if hasattr(mod, "config"):
+        entry = getattr(mod, "config")
+        return entry() if callable(entry) else entry
+    if hasattr(mod, "get_config"):
+        return getattr(mod, "get_config")()
+
+    raise AttributeError(
+        f"could not find config entry point in {path}. "
+        f"Expected function '{name}' or 'get_config' or variable 'config'."
+    )
+
+
 # ── Serialization helpers (private) ──────────────────────────────────────────
 
 

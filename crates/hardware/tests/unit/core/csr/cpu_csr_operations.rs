@@ -6,13 +6,13 @@
 
 use rvsim_core::common::CsrAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::Cpu;
+use rvsim_core::SimState;
 use rvsim_core::core::arch::csr;
 
 /// Helper function to create a test CPU instance.
-fn create_test_cpu() -> Cpu {
+fn create_test_cpu() -> SimState {
     let config = Config::default();
-    Cpu::build(&config, "")
+    SimState::build(&config, "")
 }
 
 #[test]
@@ -340,7 +340,7 @@ fn test_csr_satp_sv57_accepted_by_default() {
 fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
     let mut config = Config::default();
     config.memory.paging_mode_max = csr::PagingMode::Sv39;
-    let mut cpu = Cpu::build(&config, "");
+    let mut cpu = SimState::build(&config, "");
 
     // Sv48 is above the cap → coerce to Bare; PPN preserved.
     let above_cap = (csr::SATP_MODE_SV48 << 60) | 0x12345;

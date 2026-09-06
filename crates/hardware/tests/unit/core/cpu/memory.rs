@@ -1,18 +1,18 @@
 //! # Memory Access Tests
 //!
 //! Tests for address translation. Cache-walk-latency tests that exercised
-//! the deleted `Cpu::simulate_memory_access` synchronous helper were
+//! the deleted `SimState::simulate_memory_access` synchronous helper were
 //! superseded by integration tests that drive the packet-based cache
 //! hierarchy through a `Simulator`.
 
 use rvsim_core::common::{AccessType, VirtAddr};
 use rvsim_core::config::Config;
-use rvsim_core::core::Cpu;
-use rvsim_core::core::cpu::memory::TranslateResult;
+use rvsim_core::SimState;
+use rvsim_core::sim::state::memory::TranslateResult;
 
-fn create_test_cpu() -> Cpu {
+fn create_test_cpu() -> SimState {
     let config = Config::default();
-    let mut cpu = Cpu::build(&config, "");
+    let mut cpu = SimState::build(&config, "");
     cpu.direct_mode = true;
     cpu
 }

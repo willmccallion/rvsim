@@ -5,12 +5,12 @@
 
 use rvsim_core::common::{PhysAddr, RegIdx, Trap};
 use rvsim_core::config::Config;
-use rvsim_core::core::Cpu;
+use rvsim_core::SimState;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 
-fn create_test_cpu() -> Cpu {
+fn create_test_cpu() -> SimState {
     let config = Config::default();
-    let mut cpu = Cpu::build(&config, "");
+    let mut cpu = SimState::build(&config, "");
     cpu.direct_mode = false;
     cpu
 }

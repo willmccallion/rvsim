@@ -26,9 +26,9 @@ use crate::common::constants::{
     RS1_MASK, RS1_SHIFT,
 };
 use crate::common::{AccessType, ExceptionStage, PhysAddr, RegIdx, Trap, VirtAddr};
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::arch::csr;
-use crate::core::cpu::memory::TranslateResult;
+use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::{BranchPredictor, Ghr};
@@ -44,7 +44,7 @@ use crate::trace_fetch;
 /// Returns 0 for addresses outside DRAM. Architecturally, fetching from
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
-fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
+fn read_inst_half(cpu: &SimState, paddr: u64) -> u16 {
     cpu.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
@@ -53,7 +53,7 @@ fn read_inst_half(cpu: &Cpu, paddr: u64) -> u16 {
 
 /// Parks an in-progress page-table walk triggered by an instruction fetch.
 fn park_fetch_walk<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
@@ -90,7 +90,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
 
 /// Emits a fetch `MemReq` and parks the corresponding `OutstandingFetch`.
 fn issue_fetch<E: ExecutionEngine>(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     engine: &mut E,
     fetch: OutstandingFetch,
 ) {
@@ -120,7 +120,7 @@ fn issue_fetch<E: ExecutionEngine>(
 
 /// Executes the Fetch1 stage: emits up to `pipeline.width` fetch `MemReq`
 /// packets, advancing the architectural PC by the predicted next-PC.
-pub fn fetch1_stage<E: ExecutionEngine>(cpu: &mut Cpu, engine: &mut E) {
+pub fn fetch1_stage<E: ExecutionEngine>(cpu: &mut SimState, engine: &mut E) {
     // Stall fetch while a translation walk is outstanding for an earlier
     // fetch: emitting more MemReqs for the same PC every cycle just piles
     // up duplicate walks (gem5 MinorCPU's IFU stays in the ItlbWait state

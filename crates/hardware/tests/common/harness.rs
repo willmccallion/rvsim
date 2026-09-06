@@ -2,7 +2,7 @@ use crate::common::mocks::memory::MockMemory;
 use rvsim_core::Simulator;
 use rvsim_core::common::{PhysAddr, RegIdx};
 use rvsim_core::config::Config;
-use rvsim_core::core::Cpu;
+use rvsim_core::SimState;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -28,29 +28,29 @@ impl TestContext {
         let _ = env_logger::builder().is_test(true).try_init();
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let cpu = rvsim_core::core::Cpu::new(config, "", exit_signal);
+        let cpu = rvsim_core::SimState::new(config, "", exit_signal);
         let mut sim = Simulator::new(cpu);
 
         // Bypass cache simulation in tests: default cache_base == ram_base routes
         // every access through multi-cycle DRAM, starving the pipeline.
-        sim.cpu.config.system.ram_base = u64::MAX;
+        sim.state.config.system.ram_base = u64::MAX;
 
         Self { sim }
     }
 
     /// Convenience accessor for the CPU.
-    pub fn cpu(&self) -> &Cpu {
-        &self.sim.cpu
+    pub fn cpu(&self) -> &SimState {
+        &self.sim.state
     }
 
     /// Mutable convenience accessor for the CPU.
-    pub fn cpu_mut(&mut self) -> &mut Cpu {
-        &mut self.sim.cpu
+    pub fn cpu_mut(&mut self) -> &mut SimState {
+        &mut self.sim.state
     }
 
     pub fn with_memory(mut self, size: usize, base: u64) -> Self {
         let mem = MockMemory::new(size, base);
-        self.sim.cpu.bus.add_device(Box::new(mem));
+        self.sim.state.bus.add_device(Box::new(mem));
         self
     }
 
@@ -60,18 +60,18 @@ impl TestContext {
             let offset = addr + (i as u64) * 4;
             self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), 4);
         }
-        self.sim.cpu.hart.pc = addr;
+        self.sim.state.hart.pc = addr;
         self
     }
 
     /// Set a general-purpose register value.
     pub fn set_reg(&mut self, reg: usize, val: u64) {
-        self.sim.cpu.hart.regs.write(RegIdx::new(reg as u8), val);
+        self.sim.state.hart.regs.write(RegIdx::new(reg as u8), val);
     }
 
     /// Read a general-purpose register value.
     pub fn get_reg(&self, reg: usize) -> u64 {
-        self.sim.cpu.hart.regs.read(RegIdx::new(reg as u8))
+        self.sim.state.hart.regs.read(RegIdx::new(reg as u8))
     }
 
     /// Run the CPU for a specific number of cycles.
@@ -81,7 +81,7 @@ impl TestContext {
                 eprintln!("CPU tick error: {}", e);
                 break;
             }
-            if self.sim.cpu.check_exit().is_some() {
+            if self.sim.state.check_exit().is_some() {
                 break;
             }
         }

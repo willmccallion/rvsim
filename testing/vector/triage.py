@@ -20,7 +20,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
 from rvsim import Config, Backend  # noqa: E402
-from rvsim._core import Cpu  # noqa: E402
+from rvsim._core import Simulator  # noqa: E402
 from rvsim.config import _config_to_dict  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -118,7 +118,7 @@ def main():
     cfg = Config(width=1, backend=Backend.InOrder(), vlen=args.vlen)
     with open(args.elf, "rb") as f:
         elf_data = f.read()
-    cpu = Cpu(_config_to_dict(cfg), elf_data=elf_data)
+    cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
     rvsim_exit = cpu.run(limit=10_000_000, stats_sections=None)
     rvsim_sig = bytes(cpu.read_phys_bytes(begin, end - begin))
 

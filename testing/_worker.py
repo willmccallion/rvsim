@@ -25,7 +25,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from rvsim._core import Cpu  # noqa: E402
+from rvsim._core import Simulator  # noqa: E402
 from rvsim.config import _config_to_dict  # noqa: E402
 from testing.configs.pipelines import PIPELINES  # noqa: E402
 
@@ -82,7 +82,7 @@ def main():
 
     with open(elf_path, "rb") as f:
         elf_data = f.read()
-    cpu = Cpu(_config_to_dict(cfg), elf_data=elf_data)
+    cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
     exit_code = cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
 
     if sig_out:

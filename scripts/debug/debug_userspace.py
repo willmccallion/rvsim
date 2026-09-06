@@ -200,10 +200,8 @@ def main():
     print(f"[debug] Will trace from cycle {trace_at:,} "
           f"(expected crash ~{expected_crash:,})", file=sys.stderr)
 
-    sim = Simulator().config(cfg).kernel(image).disk(disk)
-    if os.path.isfile(dtb):
-        sim.dtb(dtb)
-    cpu = sim.build()
+    dtb_arg = dtb if os.path.isfile(dtb) else None
+    cpu = Simulator(cfg, kernel=image, disk=disk, dtb=dtb_arg)
 
     # Phase 1: Run silently to the trace point.
     print(f"[debug] Phase 1: running {trace_at:,} cycles silently...", file=sys.stderr)

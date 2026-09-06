@@ -12,7 +12,7 @@ use crate::common::constants::{
 };
 use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
 use crate::common::{Asid, LrScRecord, PhysAddr, RegIdx, SfenceVmaInfo, Trap, Vpn};
-use crate::core::Cpu;
+use crate::sim::SimState;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
@@ -46,7 +46,7 @@ use crate::trace_trap;
 /// engine's `BackendCommon`.
 #[allow(clippy::too_many_arguments)]
 pub fn commit_stage(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut BackendCommon,
     rob: &mut Rob,
     store_buffer: &mut StoreBuffer,
@@ -551,7 +551,7 @@ pub fn commit_stage(
 /// (op = Write). Returns true if a write was emitted (so the caller can
 /// decide whether to also drain the vec-store buffer in the same cycle).
 fn try_drain_one_store(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
 ) -> bool {
@@ -600,7 +600,7 @@ fn try_drain_one_store(
 /// Called before SATP writes (so the PTW sees up-to-date PTEs) and on FENCE
 /// commit (so younger memory ops see older committed writes).
 fn drain_all_committed(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
     vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
@@ -617,7 +617,7 @@ fn drain_all_committed(
 }
 
 /// Flushes all WCB entries by emitting write-back `MemReq` packets.
-fn flush_wcb(cpu: &mut Cpu, common: &mut BackendCommon) {
+fn flush_wcb(cpu: &mut SimState, common: &mut BackendCommon) {
     let drains = cpu.core.wcb.flush_all();
     for drain in drains {
         emit_line_writeback(cpu, common, PhysAddr::new(drain.line_addr));
@@ -628,7 +628,7 @@ fn flush_wcb(cpu: &mut Cpu, common: &mut BackendCommon) {
 /// Emits a cache-line write-back `MemReq` to the L1D for an evicted WCB
 /// line. The cache routes it through the hierarchy; memctrl applies the
 /// actual DRAM write.
-fn emit_line_writeback(cpu: &mut Cpu, common: &mut BackendCommon, paddr: PhysAddr) {
+fn emit_line_writeback(cpu: &mut SimState, common: &mut BackendCommon, paddr: PhysAddr) {
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
@@ -658,7 +658,7 @@ fn emit_line_writeback(cpu: &mut Cpu, common: &mut BackendCommon, paddr: PhysAdd
 /// visible to the page-table walk and observable by other agents before
 /// this op's side effect.
 fn commit_cbo(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut BackendCommon,
     op: SystemOp,
     rs1: u64,
@@ -698,8 +698,8 @@ fn commit_cbo(
     let aligned_va = rs1 & !(CBOZ_BLOCK_SIZE - 1);
     let translate_result = cpu.translate(VirtAddr::new(aligned_va), access, CBOZ_BLOCK_SIZE);
     let result = match translate_result {
-        crate::core::cpu::memory::TranslateResult::Ready(r) => r,
-        crate::core::cpu::memory::TranslateResult::NeedPte { .. } => {
+        crate::sim::state::memory::TranslateResult::Ready(r) => r,
+        crate::sim::state::memory::TranslateResult::NeedPte { .. } => {
             // Commit-time walks are not yet pipelined for CBO; surface as
             // a page fault so the trap commits and the next attempt warms
             // the TLB via a regular load.
@@ -733,7 +733,7 @@ fn commit_cbo(
 
 /// Writes `CBOZ_BLOCK_SIZE` bytes of zeros at `block_paddr` as a sequence of
 /// 8-byte stores. Caller must drain the store buffer first.
-fn cboz_write(cpu: &mut Cpu, common: &mut BackendCommon, block_paddr: u64) {
+fn cboz_write(cpu: &mut SimState, common: &mut BackendCommon, block_paddr: u64) {
     use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
     const CHUNK: u64 = 8;
     let mut offset = 0u64;
@@ -761,7 +761,7 @@ fn cboz_write(cpu: &mut Cpu, common: &mut BackendCommon, block_paddr: u64) {
 /// memory-controller accounting, and outstanding-store ack all see the
 /// store at the right time.
 fn write_store_to_memory(
-    cpu: &mut Cpu,
+    cpu: &mut SimState,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
@@ -814,7 +814,7 @@ fn write_store_to_memory(
 /// Writes a committed store's bytes into the `RamRegion` fast-path so subsequent
 /// loads (which read RAM directly via `read_load_bytes`) see the new value.
 /// No-op for addresses outside RAM (MMIO) — those reach their device via packet.
-fn write_store_data_to_ram(cpu: &mut Cpu, paddr: PhysAddr, data: u64, width: MemWidth) {
+fn write_store_data_to_ram(cpu: &mut SimState, paddr: PhysAddr, data: u64, width: MemWidth) {
     let width_bytes = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,
@@ -837,7 +837,7 @@ fn write_store_data_to_ram(cpu: &mut Cpu, paddr: PhysAddr, data: u64, width: Mem
 }
 
 /// Checks for pending interrupts. Returns the trap if one should be taken.
-fn check_interrupts(cpu: &Cpu) -> Option<Trap> {
+fn check_interrupts(cpu: &SimState) -> Option<Trap> {
     let mip = cpu.hart.csrs.mip;
     let mie = cpu.hart.csrs.mie;
     let mstatus = cpu.hart.csrs.mstatus;
@@ -879,7 +879,7 @@ fn check_interrupts(cpu: &Cpu) -> Option<Trap> {
 }
 
 /// Updates instruction statistics based on the committed entry.
-const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::rob::RobEntry) {
+const fn update_instruction_stats(cpu: &mut SimState, entry: &crate::core::pipeline::rob::RobEntry) {
     // Check vec ops first: vec loads/stores also set mem_read/mem_write.
     if !matches!(entry.ctrl.vec_op, VectorOp::None) {
         update_vec_instruction_stats(cpu, entry.ctrl.vec_op);
@@ -942,7 +942,7 @@ const fn update_instruction_stats(cpu: &mut Cpu, entry: &crate::core::pipeline::
 }
 
 /// Categorize a vector instruction into the appropriate stat counter.
-const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
+const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
     match op {
         VectorOp::None => {}
         VectorOp::VLoadUnit
@@ -1179,7 +1179,7 @@ const fn update_vec_instruction_stats(cpu: &mut Cpu, op: VectorOp) {
 /// rs1!=0,rs2==0: flush TLB entries matching vaddr in rs1;
 /// rs1==0,rs2!=0: flush non-global TLB entries matching ASID in rs2;
 /// rs1!=0,rs2!=0: flush TLB entry matching both vaddr and ASID.
-fn sfence_vma_commit(cpu: &mut Cpu, info: &SfenceVmaInfo) {
+fn sfence_vma_commit(cpu: &mut SimState, info: &SfenceVmaInfo) {
     match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
         (false, false) => {
             cpu.hart.mmu.dtlb.flush();
@@ -1216,12 +1216,12 @@ mod tests {
     use super::*;
     use crate::common::InstSize;
     use crate::config::Config;
-    use crate::core::Cpu;
+    use crate::sim::SimState;
 
     #[test]
     fn test_check_interrupts_none() {
         let config = Config::default();
-        let cpu = Cpu::build(&config, "");
+        let cpu = SimState::build(&config, "");
 
         assert!(check_interrupts(&cpu).is_none());
     }
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn test_check_interrupts_m_mode() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.mip = csr::MIP_MEIP;
         cpu.hart.csrs.mie = csr::MIE_MEIP;
@@ -1242,7 +1242,7 @@ mod tests {
     #[test]
     fn test_check_interrupts_s_mode_delegated() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.hart.csrs.mip = csr::MIP_SEIP;
         cpu.hart.csrs.mie = csr::MIE_SEIP;
@@ -1256,7 +1256,7 @@ mod tests {
     #[test]
     fn test_commit_stage_normal() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         let mut rob = Rob::new(4);
         let mut store_buffer = StoreBuffer::new(4);

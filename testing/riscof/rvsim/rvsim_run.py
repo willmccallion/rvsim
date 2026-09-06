@@ -21,7 +21,7 @@ REPO_ROOT = os.path.dirname(
 sys.path.insert(0, REPO_ROOT)
 
 from rvsim import Config, Backend
-from rvsim._core import Cpu
+from rvsim._core import Simulator
 from rvsim.config import _config_to_dict
 
 CYCLE_LIMIT = 2_000_000
@@ -92,7 +92,7 @@ def main():
     with open(elf_path, "rb") as f:
         elf_data = f.read()
 
-    cpu = Cpu(config_dict, elf_data=elf_data)
+    cpu = Simulator(config_dict, elf_data=elf_data)
     exit_code = cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
 
     if exit_code is None:

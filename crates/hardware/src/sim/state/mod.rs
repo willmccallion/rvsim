@@ -1,6 +1,6 @@
 //! CPU Core Definition and Initialization.
 //!
-//! Defines the central `Cpu` structure holding all architectural processor
+//! Defines the central `SimState` structure holding all architectural processor
 //! state. The pipeline lives separately in `Simulator`; this struct owns
 //! registers, MMU, caches, and the system bus.
 
@@ -44,10 +44,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// CPU architectural state: registers, caches, MMU, bus, and statistics.
 ///
-/// The pipeline is owned by `Simulator`, not by `Cpu`. This struct holds only
+/// The pipeline is owned by `Simulator`, not by `SimState`. This struct holds only
 /// the architectural state that the pipeline reads and writes.
 #[derive(Debug)]
-pub struct Cpu {
+pub struct SimState {
     /// Per-thread architectural state (registers, CSRs, PC, MMU, PMP, ...).
     pub hart: Hart,
     /// Pipeline-private state shared by harts on this core (caches, MSHRs,
@@ -64,13 +64,13 @@ pub struct Cpu {
     pub l3_cache: Cache,
 
     /// Simulator parameters (cache sizes, ISA capability flags, pipeline
-    /// knobs, system layout). Owned by `Cpu` transitionally; the bench
+    /// knobs, system layout). Owned by `SimState` transitionally; the bench
     /// view migrates this to `Simulator` later.
     pub config: Config,
 
     /// Sim-side per-hart debug bookkeeping (hang detection, panic timing,
     /// retire trace). Indexed by `HartId`; transitionally lives here until
-    /// the bench view replaces direct `Cpu` access.
+    /// the bench view replaces direct `SimState` access.
     pub per_hart_debug: Vec<HartDebug>,
 
     /// Sim-side perf observability counters.
@@ -99,10 +99,10 @@ pub struct Cpu {
     pub next_req_id: u64,
 }
 
-unsafe impl Send for Cpu {}
-unsafe impl Sync for Cpu {}
+unsafe impl Send for SimState {}
+unsafe impl Sync for SimState {}
 
-impl Cpu {
+impl SimState {
     /// Sets a load reservation at the given address (cache-line aligned).
     #[inline]
     pub(crate) const fn set_reservation(&mut self, addr: PhysAddr) {
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn test_cpu_reservation() {
         let config = Config::default();
-        let mut cpu = Cpu::build(&config, "");
+        let mut cpu = SimState::build(&config, "");
 
         cpu.set_reservation(PhysAddr::new(0x1000));
         assert!(cpu.check_reservation(PhysAddr::new(0x1000)));
@@ -416,14 +416,14 @@ mod tests {
     #[test]
     fn test_cpu_dump_state_no_panic() {
         let config = Config::default();
-        let cpu = Cpu::build(&config, "");
+        let cpu = SimState::build(&config, "");
         cpu.dump_state();
     }
 
     #[test]
     fn test_cpu_take_exit() {
         let config = Config::default();
-        let cpu = Cpu::build(&config, "");
+        let cpu = SimState::build(&config, "");
 
         assert_eq!(cpu.take_exit(), None);
         cpu.signal_exit(42);

@@ -303,7 +303,7 @@ def main() -> None:
         runpy.run_path(target, run_name="__main__")
         return
 
-    from .config import Config
+    from .config import Config, load_config
     from .objects import Simulator
 
     if args.config and args.preset:
@@ -314,8 +314,7 @@ def main() -> None:
 
         cfg = PRESETS[args.preset]()
     elif args.config:
-        sim_tmp = Simulator().config(args.config)
-        cfg = sim_tmp._config_obj if sim_tmp._config_obj is not None else Config()
+        cfg = load_config(args.config)
     else:
         cfg = Config()
     if args.quiet:
@@ -327,13 +326,6 @@ def main() -> None:
     elif mode == "kernel":
         cfg.uart_to_stderr = True
 
-    sim = Simulator().config(cfg)
-
-    if mode == "kernel":
-        sim = sim.kernel(target)
-    else:
-        sim = sim.binary(target)
-
     if args.watch:
         import io
         from ._watch import run_watch
@@ -342,26 +334,26 @@ def main() -> None:
         _real_stderr = sys.stderr
         sys.stderr = io.StringIO()
         try:
-            cpu = sim.build()
+            sim = Simulator(cfg, kernel=target) if mode == "kernel" else Simulator(cfg, binary=target)
         finally:
             sys.stderr = _real_stderr
         print_stats = not args.quiet and not args.no_stats
         exit_code = run_watch(
-            cpu,
+            sim,
             limit=args.limit,
             binary=os.path.basename(target),
             print_stats=print_stats,
         )
     else:
         stats_sections = None if (args.quiet or args.no_stats) else []
-        cpu = sim.build()
-        exit_code = cpu.run(limit=args.limit, stats_sections=stats_sections)
+        sim = Simulator(cfg, kernel=target) if mode == "kernel" else Simulator(cfg, binary=target)
+        exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 
     if args.json and exit_code is not None:
         import json
 
         with open(args.json, "w") as f:
-            json.dump(dict(cpu.stats), f, indent=2)
+            json.dump(dict(sim.stats), f, indent=2)
 
     sys.exit(exit_code if exit_code is not None else 1)
 

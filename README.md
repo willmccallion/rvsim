@@ -130,7 +130,7 @@ results.compare(metrics=["ipc", "dcache_misses"], baseline="L1=8KB")
 ```python
 from rvsim import Simulator, Config, reg, csr
 
-cpu = Simulator().config(Config(width=4)).binary("program.elf").build()
+cpu = Simulator(Config(width=4), binary="program.elf")
 
 for _ in range(1000):
     cpu.tick()

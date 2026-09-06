@@ -157,7 +157,7 @@ For fine-grained control, use `Simulator` to build a `Cpu` object and tick it ma
 ```python
 from rvsim import Simulator, Config, reg, csr
 
-cpu = Simulator().config(Config(width=4)).binary("software/bin/programs/qsort.elf").build()
+cpu = Simulator(Config(width=4), binary="software/bin/programs/qsort.elf")
 
 # Tick 1000 cycles
 for _ in range(1000):
