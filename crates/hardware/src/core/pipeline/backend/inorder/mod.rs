@@ -25,6 +25,7 @@ use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::bru::BranchPredictor;
 use crate::sim::components::{CacheId, PipelineId};
+use crate::sim::stats::paths;
 
 use self::issue::InOrderIssueUnit;
 
@@ -160,7 +161,7 @@ impl ExecutionEngine for InOrderEngine {
         } else {
             let issued = self.issuer.select(self.width, &self.rob, &self.store_buffer, state);
             if issued.is_empty() && !self.issuer.is_empty() {
-                state.stats.stalls_data += 1;
+                state.stats_hier.counter(paths::core::pipeline::STALLS_DATA).inc();
             }
             // Aggregate in-flight fp_flags so CSR reads of fflags see older FP results.
             let mut inflight_fp_flags: u8 = 0;
@@ -178,8 +179,8 @@ impl ExecutionEngine for InOrderEngine {
         self.execute_mem1.extend(results);
 
         if needs_flush {
-            state.stats.stalls_control += 1;
-            state.stats.pipeline_flushes += 1;
+            state.stats_hier.counter(paths::core::pipeline::STALLS_CONTROL).inc();
+            state.stats_hier.counter(paths::core::pipeline::FLUSHES_TOTAL).inc();
             self.issuer.flush();
             rename_output.clear();
             if let Some(last) = self.execute_mem1.last() {

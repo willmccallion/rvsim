@@ -9,6 +9,7 @@ use crate::common::{Asid, SimError, Vpn};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
+use crate::sim::stats::paths;
 use crate::trace_trap;
 
 impl SimState {
@@ -160,11 +161,11 @@ impl SimState {
     }
 
     /// Tracks cycles spent in each privilege mode for statistics.
-    const fn track_mode_cycles(&mut self) {
+    fn track_mode_cycles(&mut self) {
         match self.hart.privilege {
-            PrivilegeMode::User => self.stats.cycles_user += 1,
-            PrivilegeMode::Supervisor => self.stats.cycles_kernel += 1,
-            PrivilegeMode::Machine => self.stats.cycles_machine += 1,
+            PrivilegeMode::User => self.stats_hier.counter(paths::hart::CYCLES_USER).inc(),
+            PrivilegeMode::Supervisor => self.stats_hier.counter(paths::hart::CYCLES_KERNEL).inc(),
+            PrivilegeMode::Machine => self.stats_hier.counter(paths::hart::CYCLES_MACHINE).inc(),
         }
     }
 }
@@ -181,15 +182,15 @@ mod tests {
 
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
-        assert_eq!(state.stats.cycles_user, 1);
+        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_USER).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Supervisor;
         state.track_mode_cycles();
-        assert_eq!(state.stats.cycles_kernel, 1);
+        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_KERNEL).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
-        assert_eq!(state.stats.cycles_machine, 1);
+        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_MACHINE).unwrap_or(0.0) as u64, 1);
     }
 
     #[test]

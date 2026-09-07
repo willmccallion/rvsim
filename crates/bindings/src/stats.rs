@@ -5,20 +5,27 @@
 //! output; `to_dict` for JSON-serializable export (multisim, scripting).
 
 use pyo3::prelude::*;
+use rvsim_core::sim::stats::Stats;
 use rvsim_core::stats::SimStats;
 
 /// Internal statistics wrapper — not exposed to Python.
 #[derive(Clone)]
 pub struct PyStats {
     pub inner: SimStats,
+    pub stats_hier: Stats,
     pub cycles: u64,
     pub instructions_retired: u64,
 }
 
 impl PyStats {
     /// Construct from a stats snapshot, cycle count, and retired-instruction count.
-    pub const fn new(inner: SimStats, cycles: u64, instructions_retired: u64) -> Self {
-        Self { inner, cycles, instructions_retired }
+    pub const fn new(
+        inner: SimStats,
+        stats_hier: Stats,
+        cycles: u64,
+        instructions_retired: u64,
+    ) -> Self {
+        Self { inner, stats_hier, cycles, instructions_retired }
     }
 
     /// Print all stats (full dump).
@@ -31,60 +38,51 @@ impl PyStats {
         self.inner.print_sections(self.cycles, self.instructions_retired, &sections);
     }
 
+    fn hier(&self, path: &str) -> u64 {
+        self.stats_hier.get(path).unwrap_or(0.0) as u64
+    }
+
     /// Export all stats as a Python dict (JSON-serializable).
     pub fn to_dict(&self, py: Python<'_>) -> pyo3::PyResult<pyo3::Py<pyo3::types::PyDict>> {
         let d = pyo3::types::PyDict::new(py);
-        let s = &self.inner;
         d.set_item("cycles", self.cycles)?;
         d.set_item("instructions_retired", self.instructions_retired)?;
-        d.set_item("icache_hits", s.icache_hits)?;
-        d.set_item("icache_misses", s.icache_misses)?;
-        d.set_item("dcache_hits", s.dcache_hits)?;
-        d.set_item("dcache_misses", s.dcache_misses)?;
-        d.set_item("l2_hits", s.l2_hits)?;
-        d.set_item("l2_misses", s.l2_misses)?;
-        d.set_item("l3_hits", s.l3_hits)?;
-        d.set_item("l3_misses", s.l3_misses)?;
-        d.set_item("stalls_mem", s.stalls_mem)?;
-        d.set_item("stalls_control", s.stalls_control)?;
-        d.set_item("stalls_data", s.stalls_data)?;
-        d.set_item("stalls_fu_structural", s.stalls_fu_structural)?;
-        d.set_item("stalls_backpressure", s.stalls_backpressure)?;
-        d.set_item("misprediction_penalty", s.misprediction_penalty)?;
-        d.set_item("pipeline_flushes", s.pipeline_flushes)?;
-        d.set_item("flushes_branch", s.flushes_branch)?;
-        d.set_item("flushes_system", s.flushes_system)?;
-        d.set_item("mem_ordering_violations", s.mem_ordering_violations)?;
-        d.set_item("stalls_dispatch", s.stalls_dispatch)?;
-        d.set_item("stalls_checkpoint", s.stalls_checkpoint)?;
-        d.set_item("stalls_squash", s.stalls_squash)?;
-        d.set_item("stalls_rename_rebuild", s.stalls_rename_rebuild)?;
-        d.set_item("stalls_mshr_full", s.stalls_mshr_full)?;
+        d.set_item("stalls_control", self.hier("core0.pipeline.stalls.control"))?;
+        d.set_item("stalls_data", self.hier("core0.pipeline.stalls.data"))?;
+        d.set_item("stalls_fu_structural", self.hier("core0.pipeline.stalls.fu_structural"))?;
+        d.set_item("stalls_backpressure", self.hier("core0.pipeline.stalls.backpressure"))?;
+        d.set_item("misprediction_penalty", self.hier("core0.pipeline.flushes.squashed_insns"))?;
+        d.set_item("pipeline_flushes", self.hier("core0.pipeline.flushes.total"))?;
+        d.set_item("flushes_branch", self.hier("core0.pipeline.flushes.branch"))?;
+        d.set_item("flushes_system", self.hier("core0.pipeline.flushes.system"))?;
+        d.set_item("mem_ordering_violations", self.hier("core0.pipeline.flushes.mem_violations"))?;
+        d.set_item("stalls_dispatch", self.hier("core0.pipeline.stalls.dispatch"))?;
+        d.set_item("stalls_checkpoint", self.hier("core0.pipeline.stalls.checkpoint"))?;
+        d.set_item("stalls_squash", self.hier("core0.pipeline.stalls.squash"))?;
+        d.set_item("stalls_rename_rebuild", self.hier("core0.pipeline.stalls.rename_rebuild"))?;
 
-        d.set_item("cycles_user", s.cycles_user)?;
-        d.set_item("cycles_kernel", s.cycles_kernel)?;
-        d.set_item("cycles_machine", s.cycles_machine)?;
-        d.set_item("traps_taken", s.traps_taken)?;
+        d.set_item("cycles_user", self.hier("hart0.cycles.user"))?;
+        d.set_item("cycles_kernel", self.hier("hart0.cycles.kernel"))?;
+        d.set_item("cycles_machine", self.hier("hart0.cycles.machine"))?;
+        d.set_item("traps_taken", self.hier("hart0.traps"))?;
 
-        d.set_item("branch_predictions", s.committed_branch_predictions)?;
-        d.set_item("branch_mispredictions", s.committed_branch_mispredictions)?;
-        d.set_item("speculative_branch_predictions", s.speculative_branch_predictions)?;
-        d.set_item("speculative_branch_mispredictions", s.speculative_branch_mispredictions)?;
+        let committed_hits = self.hier("core0.bp.committed.hits");
+        let committed_mis = self.hier("core0.bp.committed.mispredicts");
+        let spec_hits = self.hier("core0.bp.spec.hits");
+        let spec_mis = self.hier("core0.bp.spec.mispredicts");
+        d.set_item("branch_predictions", committed_hits)?;
+        d.set_item("branch_mispredictions", committed_mis)?;
+        d.set_item("speculative_branch_predictions", spec_hits)?;
+        d.set_item("speculative_branch_mispredictions", spec_mis)?;
 
-        let total_bp = s.committed_branch_predictions + s.committed_branch_mispredictions;
-        let bp_acc = if total_bp > 0 {
-            100.0 * (s.committed_branch_predictions as f64 / total_bp as f64)
-        } else {
-            0.0
-        };
+        let total_bp = committed_hits + committed_mis;
+        let bp_acc =
+            if total_bp > 0 { 100.0 * (committed_hits as f64 / total_bp as f64) } else { 0.0 };
         d.set_item("branch_accuracy_pct", bp_acc)?;
 
-        let spec_total = s.speculative_branch_predictions + s.speculative_branch_mispredictions;
-        let spec_acc = if spec_total > 0 {
-            100.0 * (s.speculative_branch_predictions as f64 / spec_total as f64)
-        } else {
-            0.0
-        };
+        let spec_total = spec_hits + spec_mis;
+        let spec_acc =
+            if spec_total > 0 { 100.0 * (spec_hits as f64 / spec_total as f64) } else { 0.0 };
         d.set_item("speculative_branch_accuracy_pct", spec_acc)?;
         let ipc = if self.cycles > 0 {
             self.instructions_retired as f64 / self.cycles as f64
@@ -93,41 +91,36 @@ impl PyStats {
         };
         d.set_item("ipc", ipc)?;
 
-        d.set_item("inst_load", s.inst_load)?;
-        d.set_item("inst_store", s.inst_store)?;
-        d.set_item("inst_branch", s.inst_branch)?;
-        d.set_item("inst_alu", s.inst_alu)?;
-        d.set_item("inst_system", s.inst_system)?;
-        d.set_item("inst_fp_load", s.inst_fp_load)?;
-        d.set_item("inst_fp_store", s.inst_fp_store)?;
-        d.set_item("inst_fp_arith", s.inst_fp_arith)?;
-        d.set_item("inst_fp_fma", s.inst_fp_fma)?;
-        d.set_item("inst_fp_div_sqrt", s.inst_fp_div_sqrt)?;
+        d.set_item("inst_load", self.hier("core0.commit.op.load"))?;
+        d.set_item("inst_store", self.hier("core0.commit.op.store"))?;
+        d.set_item("inst_branch", self.hier("core0.commit.op.branch"))?;
+        d.set_item("inst_alu", self.hier("core0.commit.op.alu"))?;
+        d.set_item("inst_system", self.hier("core0.commit.op.system"))?;
+        d.set_item("inst_fp_load", self.hier("core0.commit.fp.load"))?;
+        d.set_item("inst_fp_store", self.hier("core0.commit.fp.store"))?;
+        d.set_item("inst_fp_arith", self.hier("core0.commit.fp.arith"))?;
+        d.set_item("inst_fp_fma", self.hier("core0.commit.fp.fma"))?;
+        d.set_item("inst_fp_div_sqrt", self.hier("core0.commit.fp.div_sqrt"))?;
 
-        d.set_item("inst_vec_int", s.inst_vec_int)?;
-        d.set_item("inst_vec_fp", s.inst_vec_fp)?;
-        d.set_item("inst_vec_load", s.inst_vec_load)?;
-        d.set_item("inst_vec_store", s.inst_vec_store)?;
-        d.set_item("inst_vec_misc", s.inst_vec_misc)?;
+        d.set_item("inst_vec_int", self.hier("core0.commit.vec.int"))?;
+        d.set_item("inst_vec_fp", self.hier("core0.commit.vec.fp"))?;
+        d.set_item("inst_vec_load", self.hier("core0.commit.vec.load"))?;
+        d.set_item("inst_vec_store", self.hier("core0.commit.vec.store"))?;
+        d.set_item("inst_vec_misc", self.hier("core0.commit.vec.misc"))?;
 
-        d.set_item("pf_dedup_l1", s.pf_dedup_l1)?;
-        d.set_item("pf_dedup_l2", s.pf_dedup_l2)?;
-        d.set_item("pf_dedup_l3", s.pf_dedup_l3)?;
-        d.set_item("mshr_allocations", s.mshr_allocations)?;
-        d.set_item("mshr_coalesces", s.mshr_coalesces)?;
-        d.set_item("load_replays", s.load_replays)?;
-
-        d.set_item("mdp_predictions_bypass", s.mdp_predictions_bypass)?;
-        d.set_item("mdp_predictions_wait_all", s.mdp_predictions_wait_all)?;
-        d.set_item("mdp_predictions_wait_for", s.mdp_predictions_wait_for)?;
-        d.set_item("mdp_violations", s.mdp_violations)?;
+        d.set_item("mdp_predictions_bypass", self.hier("core0.mdp.predictions.bypass"))?;
+        d.set_item("mdp_predictions_wait_all", self.hier("core0.mdp.predictions.wait_all"))?;
+        d.set_item("mdp_predictions_wait_for", self.hier("core0.mdp.predictions.wait_for"))?;
+        d.set_item("mdp_violations", self.hier("core0.mdp.violations"))?;
 
         Ok(d.into())
     }
 }
 
-impl From<(SimStats, u64, u64)> for PyStats {
-    fn from((inner, cycles, instructions_retired): (SimStats, u64, u64)) -> Self {
-        Self { inner, cycles, instructions_retired }
+impl From<(SimStats, Stats, u64, u64)> for PyStats {
+    fn from(
+        (inner, stats_hier, cycles, instructions_retired): (SimStats, Stats, u64, u64),
+    ) -> Self {
+        Self { inner, stats_hier, cycles, instructions_retired }
     }
 }

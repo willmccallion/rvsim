@@ -8,6 +8,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
 use crate::isa::privileged::cause::{exception, interrupt};
 use crate::isa::privileged::opcodes as sys_ops;
+use crate::sim::stats::paths;
 use crate::trace_trap;
 
 impl SimState {
@@ -186,7 +187,7 @@ impl SimState {
             self.hart.pc = target_pc;
         }
 
-        self.stats.traps_taken += 1;
+        self.stats_hier.counter(paths::hart::TRAPS).inc();
     }
 
     /// Executes the `MRET` instruction (Return from Machine Mode).

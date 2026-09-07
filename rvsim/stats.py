@@ -21,9 +21,8 @@ class Stats(dict):
     Dict-like simulation statistics with querying and comparison.
 
     All stats from the backend are accessible as keys. Typical keys include:
-    cycles, instructions_retired, ipc, icache_hits, icache_misses, dcache_hits,
-    dcache_misses, l2_hits, l2_misses, l3_hits, l3_misses, stalls_mem, stalls_control,
-    stalls_data, branch_predictions, branch_mispredictions, branch_accuracy_pct, etc.
+    cycles, instructions_retired, ipc, stalls_control, stalls_data,
+    branch_predictions, branch_mispredictions, branch_accuracy_pct, etc.
 
     Example::
 
@@ -171,7 +170,6 @@ _RATE_METRICS = {"ipc", "branch_accuracy_pct", "speculative_branch_accuracy_pct"
 _COUNT_METRICS = {
     "cycles",
     "instructions_retired",
-    "stalls_mem",
     "stalls_control",
     "stalls_data",
     "stalls_fu_structural",
@@ -179,14 +177,6 @@ _COUNT_METRICS = {
     "misprediction_penalty",
     "pipeline_flushes",
     "mem_ordering_violations",
-    "icache_hits",
-    "icache_misses",
-    "dcache_hits",
-    "dcache_misses",
-    "l2_hits",
-    "l2_misses",
-    "l3_hits",
-    "l3_misses",
     "branch_predictions",
     "branch_mispredictions",
     "committed_branch_predictions",
@@ -383,13 +373,8 @@ def _compare_flat(
 
     _FLAT_LOWER_IS_BETTER = {
         "cycles",
-        "stalls_mem",
         "stalls_control",
         "stalls_data",
-        "icache_misses",
-        "dcache_misses",
-        "l2_misses",
-        "l3_misses",
         "branch_mispredictions",
         "committed_branch_mispredictions",
         "speculative_branch_mispredictions",
@@ -523,13 +508,8 @@ def _compare_matrix(
         # Baseline speedup rows — only for metrics with clear directionality
         _LOWER_IS_BETTER = {
             "cycles",
-            "stalls_mem",
             "stalls_control",
             "stalls_data",
-            "icache_misses",
-            "dcache_misses",
-            "l2_misses",
-            "l3_misses",
             "branch_mispredictions",
             "committed_branch_mispredictions",
             "speculative_branch_mispredictions",

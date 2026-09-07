@@ -33,6 +33,7 @@ use crate::core::units::bru::BranchPredictor;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
+use crate::sim::stats::paths;
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -97,15 +98,15 @@ pub fn commit_stage(
                 state.hart.pc = state.hart.wfi_pc;
                 *redirect_pending = true;
             } else {
-                state.stats.cycles_wfi += 1;
+                state.stats_hier.counter(paths::core::pipeline::CYCLES_WFI).inc();
             }
-            state.stats.retire_histogram[0] += 1;
+            state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
             return trap_event;
         }
     }
 
     if trap_event.is_some() {
-        state.stats.retire_histogram[0] += 1;
+        state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
         return trap_event;
     }
 
@@ -237,6 +238,7 @@ pub fn commit_stage(
 
         if entry.inst != 0 && entry.inst != 0x13 {
             state.instructions_retired += 1;
+            state.stats_hier.counter(paths::hart::RETIRED_INSTS).inc();
             update_instruction_stats(state, &entry);
         }
 
@@ -257,9 +259,9 @@ pub fn commit_stage(
                 "CM: branch predictor updated at commit"
             );
             if entry.bp_outcome.mispredicted {
-                state.stats.committed_branch_mispredictions += 1;
+                state.stats_hier.counter(paths::core::bp::COMMITTED_MISPREDICTS).inc();
             } else {
-                state.stats.committed_branch_predictions += 1;
+                state.stats_hier.counter(paths::core::bp::COMMITTED_HITS).inc();
             }
         }
 
@@ -534,9 +536,14 @@ pub fn commit_stage(
     }
 
     if retired_count == 0 && rob_empty_at_start {
-        state.stats.cycles_rob_empty += 1;
+        state.stats_hier.counter(paths::core::pipeline::CYCLES_ROB_EMPTY).inc();
     }
-    state.stats.retire_histogram[retired_count.min(3)] += 1;
+    match retired_count.min(3) {
+        0 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc(),
+        1 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ONE).inc(),
+        2 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_TWO).inc(),
+        _ => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_THREE_PLUS).inc(),
+    }
 
     // One drain per cycle: fall through to VSB if scalar SB has nothing committed.
     if !try_drain_one_store(state, common, store_buffer)
@@ -574,11 +581,11 @@ fn try_drain_one_store(
         write_store_data_to_ram(state, paddr, data, store.width);
         let evicted = state.core.wcb.merge_store(paddr, data, width_bytes);
         if evicted.is_none() {
-            state.stats.wcb_coalesces += 1;
+            state.stats_hier.counter(paths::core::wcb::COALESCES).inc();
         }
         if let Some(drain) = evicted {
             emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-            state.stats.wcb_drains += 1;
+            state.stats_hier.counter(paths::core::wcb::DRAINS).inc();
         }
     } else {
         write_store_to_memory(state, common, paddr, data, store.width);
@@ -621,7 +628,7 @@ fn flush_wcb(state: &mut SimState, common: &mut BackendCommon) {
     let drains = state.core.wcb.flush_all();
     for drain in drains {
         emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-        state.stats.wcb_drains += 1;
+        state.stats_hier.counter(paths::core::wcb::DRAINS).inc();
     }
 }
 
@@ -879,7 +886,7 @@ fn check_interrupts(state: &SimState) -> Option<Trap> {
 }
 
 /// Updates instruction statistics based on the committed entry.
-const fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pipeline::rob::RobEntry) {
+fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pipeline::rob::RobEntry) {
     // Check vec ops first: vec loads/stores also set mem_read/mem_write.
     if !matches!(entry.ctrl.vec_op, VectorOp::None) {
         update_vec_instruction_stats(state, entry.ctrl.vec_op);
@@ -888,20 +895,20 @@ const fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pip
 
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
-            state.stats.inst_fp_load += 1;
+            state.stats_hier.counter(paths::core::commit::FP_LOAD).inc();
         } else {
-            state.stats.inst_load += 1;
+            state.stats_hier.counter(paths::core::commit::OP_LOAD).inc();
         }
     } else if entry.ctrl.mem_write {
         if entry.ctrl.rs2_fp {
-            state.stats.inst_fp_store += 1;
+            state.stats_hier.counter(paths::core::commit::FP_STORE).inc();
         } else {
-            state.stats.inst_store += 1;
+            state.stats_hier.counter(paths::core::commit::OP_STORE).inc();
         }
     } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-        state.stats.inst_branch += 1;
+        state.stats_hier.counter(paths::core::commit::OP_BRANCH).inc();
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
-        state.stats.inst_system += 1;
+        state.stats_hier.counter(paths::core::commit::OP_SYSTEM).inc();
     } else {
         match entry.ctrl.alu {
             AluOp::FAdd
@@ -931,18 +938,20 @@ const fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pip
             | AluOp::FCvtDH
             | AluOp::FCvtHD
             | AluOp::FMvToX
-            | AluOp::FMvToF => state.stats.inst_fp_arith += 1,
-            AluOp::FDiv | AluOp::FSqrt => state.stats.inst_fp_div_sqrt += 1,
-            AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
-                state.stats.inst_fp_fma += 1;
+            | AluOp::FMvToF => state.stats_hier.counter(paths::core::commit::FP_ARITH).inc(),
+            AluOp::FDiv | AluOp::FSqrt => {
+                state.stats_hier.counter(paths::core::commit::FP_DIV_SQRT).inc();
             }
-            _ => state.stats.inst_alu += 1,
+            AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
+                state.stats_hier.counter(paths::core::commit::FP_FMA).inc();
+            }
+            _ => state.stats_hier.counter(paths::core::commit::OP_ALU).inc(),
         }
     }
 }
 
 /// Categorize a vector instruction into the appropriate stat counter.
-const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
+fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
     match op {
         VectorOp::None => {}
         VectorOp::VLoadUnit
@@ -951,13 +960,17 @@ const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VLoadWholeReg
         | VectorOp::VLoadStride
         | VectorOp::VLoadIndexOrd
-        | VectorOp::VLoadIndexUnord => state.stats.inst_vec_load += 1,
+        | VectorOp::VLoadIndexUnord => {
+            state.stats_hier.counter(paths::core::commit::VEC_LOAD).inc();
+        }
         VectorOp::VStoreUnit
         | VectorOp::VStoreMask
         | VectorOp::VStoreWholeReg
         | VectorOp::VStoreStride
         | VectorOp::VStoreIndexOrd
-        | VectorOp::VStoreIndexUnord => state.stats.inst_vec_store += 1,
+        | VectorOp::VStoreIndexUnord => {
+            state.stats_hier.counter(paths::core::commit::VEC_STORE).inc();
+        }
         VectorOp::VAdd
         | VectorOp::VSub
         | VectorOp::VRsub
@@ -1041,7 +1054,7 @@ const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VRedMaxU
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
-        | VectorOp::VWRedSum => state.stats.inst_vec_int += 1,
+        | VectorOp::VWRedSum => state.stats_hier.counter(paths::core::commit::VEC_INT).inc(),
         VectorOp::VFAdd
         | VectorOp::VFSub
         | VectorOp::VFRSub
@@ -1111,7 +1124,7 @@ const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VFRedMax
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
-        | VectorOp::VFWRedUSum => state.stats.inst_vec_fp += 1,
+        | VectorOp::VFWRedUSum => state.stats_hier.counter(paths::core::commit::VEC_FP).inc(),
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
         | VectorOp::Vsetvl
@@ -1170,7 +1183,7 @@ const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VSm4R
         | VectorOp::VSm4K
         | VectorOp::VGhsh
-        | VectorOp::VGmul => state.stats.inst_vec_misc += 1,
+        | VectorOp::VGmul => state.stats_hier.counter(paths::core::commit::VEC_MISC).inc(),
     }
 }
 

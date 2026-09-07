@@ -54,34 +54,33 @@ def analyze_top_down(stats, width):
     2. Bad Speculation: Slots wasted due to branch misprediction recovery.
        - Approximated as 'stalls_control' cycles * width.
     3. Backend Bound: Slots wasted due to backend resource/data stalls.
-       - Approximated as 'stalls_mem' + 'stalls_data' cycles * width.
+       - Approximated as 'stalls_data' cycles * width.
     4. Frontend Bound: The remaining empty slots.
        - Represents fetch bubbles, I-cache misses, or just vertical waste
          (retiring 1 instr/cycle on a 3-wide machine due to dependencies).
     """
     cycles = stats.get("cycles", 1)
     retired = stats.get("instructions_retired", 0)
-    
+
     # Stall cycles (assumed to be full-pipeline stalls where 0 insts retire)
-    s_mem = stats.get("stalls_mem", 0)
     s_data = stats.get("stalls_data", 0)
     s_ctrl = stats.get("stalls_control", 0)
-    
+
     total_slots = cycles * width
     if total_slots == 0: return {}
 
     # 1. Retiring
     # Exact count of useful slots filled
     slots_retiring = retired
-    
+
     # 2. Bad Speculation
-    # 'stalls_control' are cycles lost to flushing/recovery. 
+    # 'stalls_control' are cycles lost to flushing/recovery.
     # All slots in these cycles are wasted.
     slots_bad_spec = s_ctrl * width
-    
+
     # 3. Backend Bound
     # Cycles where backend structures (ROB, LSQ, RS) were full or waiting.
-    slots_backend = (s_mem + s_data) * width
+    slots_backend = s_data * width
     
     # 4. Frontend Bound (and vertical waste)
     # The remainder. This catches:
