@@ -43,7 +43,7 @@ use crate::trace_trap;
 /// Returns the oldest memory-ordering violation observed this cycle (older
 /// `RobTag`, lower index). The caller flushes the pipeline at that tag.
 pub fn memory2_stage(
-    cpu: &mut SimState,
+    state: &mut SimState,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     store_buffer: &mut StoreBuffer,
@@ -62,7 +62,7 @@ pub fn memory2_stage(
 
     for mem in entries {
         if let Some(ref trap) = mem.trap {
-            trace_trap!(cpu.config.general.trace_instructions;
+            trace_trap!(state.config.general.trace_instructions;
                 event   = "propagate",
                 stage   = "M2",
                 pc      = %crate::trace::Hex(mem.pc),
@@ -149,7 +149,7 @@ pub fn memory2_stage(
                 }
             }
             if mem.sb_forwarded {
-                trace_fwd!(cpu.config.general.trace_instructions;
+                trace_fwd!(state.config.general.trace_instructions;
                     event         = "forward",
                     load_pc       = %crate::trace::Hex(mem.pc),
                     load_tag      = mem.rob_tag.0,
@@ -160,7 +160,7 @@ pub fn memory2_stage(
                     "M2: load satisfied from store buffer (memory1 hit)"
                 );
             } else {
-                trace_mem!(cpu.config.general.trace_instructions;
+                trace_mem!(state.config.general.trace_instructions;
                     stage     = "M2",
                     rob_tag   = mem.rob_tag.0,
                     pc        = %crate::trace::Hex(mem.pc),
@@ -189,7 +189,7 @@ pub fn memory2_stage(
                 && let Some(violating_tag) =
                     lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
             {
-                trace_fwd!(cpu.config.general.trace_instructions;
+                trace_fwd!(state.config.general.trace_instructions;
                     event           = "violation",
                     store_pc        = %crate::trace::Hex(mem.pc),
                     store_tag       = mem.rob_tag.0,
@@ -200,7 +200,7 @@ pub fn memory2_stage(
                 );
                 merge_violation(&mut violation, (violating_tag, mem.pc));
             }
-            trace_mem!(cpu.config.general.trace_instructions;
+            trace_mem!(state.config.general.trace_instructions;
                 stage      = "M2",
                 rob_tag    = mem.rob_tag.0,
                 pc         = %crate::trace::Hex(mem.pc),
@@ -212,7 +212,7 @@ pub fn memory2_stage(
                 "M2: store resolved into store buffer (write deferred to commit)"
             );
         } else {
-            trace_mem!(cpu.config.general.trace_instructions;
+            trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",
                 rob_tag = mem.rob_tag.0,
                 pc      = %crate::trace::Hex(mem.pc),

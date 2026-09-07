@@ -66,42 +66,42 @@ fn test_load_binary_missing_file() {
 
 #[test]
 fn test_setup_kernel_load_without_opensbi() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
     // Setup without OpenSBI (default case when fw_jump.bin doesn't exist)
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // Verify PC is set to RAM base
-    assert_eq!(cpu.hart.pc, config.system.ram_base);
+    assert_eq!(state.hart.pc, config.system.ram_base);
 
     // Verify privilege mode is Machine
-    assert_eq!(cpu.hart.privilege, PrivilegeMode::Machine);
+    assert_eq!(state.hart.privilege, PrivilegeMode::Machine);
 
     // Verify MEPC is set to kernel load address
     let expected_mepc = config.system.ram_base + config.system.kernel_offset;
-    assert_eq!(cpu.csr_read(csr::MEPC), expected_mepc);
+    assert_eq!(state.csr_read(csr::MEPC), expected_mepc);
 
     // Verify registers are set up
-    assert_eq!(cpu.hart.regs.read(abi::REG_A0), 0);
-    assert_eq!(cpu.hart.regs.read(abi::REG_A1), config.system.ram_base + 0x2200000);
+    assert_eq!(state.hart.regs.read(abi::REG_A0), 0);
+    assert_eq!(state.hart.regs.read(abi::REG_A1), config.system.ram_base + 0x2200000);
 }
 
 #[test]
 fn test_setup_kernel_load_dtb_address() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // DTB should be loaded at RAM base + 0x2200000
     let expected_dtb_addr = config.system.ram_base + 0x2200000;
-    assert_eq!(cpu.hart.regs.read(abi::REG_A1), expected_dtb_addr);
+    assert_eq!(state.hart.regs.read(abi::REG_A1), expected_dtb_addr);
 }
 
 #[test]
 fn test_setup_kernel_load_with_dtb_file() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
     // Create a temporary DTB file
@@ -109,7 +109,7 @@ fn test_setup_kernel_load_with_dtb_file() {
     let temp_dtb = create_temp_binary(&dtb_data);
     let dtb_path = temp_dtb.path().to_str().unwrap();
 
-    loader::setup_kernel_load(&mut cpu, &config, "", Some(dtb_path.to_string()), None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, "", Some(dtb_path.to_string()), None).unwrap();
 
     // Verify DTB was loaded into memory at expected address
     let dtb_addr = config.system.ram_base + 0x2200000;
@@ -117,20 +117,20 @@ fn test_setup_kernel_load_with_dtb_file() {
     // RAM reads to the memory controller, which is out of reach inside the
     // probe's local event queue. Loader-side data lives in DRAM unconditionally.
     let loaded_byte = unsafe {
-        cpu.bus.ram_region().expect("ram region").ptr(dtb_addr).read()
+        state.bus.ram_region().expect("ram region").ptr(dtb_addr).read()
     };
     assert_eq!(loaded_byte, 0xd0);
 }
 
 #[test]
 fn test_setup_kernel_load_register_a2_is_zero() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // a2 register should be 0
-    assert_eq!(cpu.hart.regs.read(abi::REG_A2), 0);
+    assert_eq!(state.hart.regs.read(abi::REG_A2), 0);
 }
 
 #[test]
@@ -139,8 +139,8 @@ fn test_setup_kernel_load_preserves_config() {
     let ram_base_before = config.system.ram_base;
     let kernel_offset_before = config.system.kernel_offset;
 
-    let mut cpu = create_test_cpu();
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+    let mut state = create_test_cpu();
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // Config should not be modified
     assert_eq!(config.system.ram_base, ram_base_before);
@@ -149,15 +149,15 @@ fn test_setup_kernel_load_preserves_config() {
 
 #[test]
 fn test_setup_kernel_load_mret_instruction_at_ram_base() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
     let instruction = unsafe {
-        cpu.bus.ram_region().expect("ram region").ptr(ram_base).cast::<u32>().read_unaligned()
+        state.bus.ram_region().expect("ram region").ptr(ram_base).cast::<u32>().read_unaligned()
     };
 
     // MRET opcode is 0x30200073
@@ -166,16 +166,16 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 
 #[test]
 fn test_setup_kernel_load_multiple_calls() {
-    let mut cpu = create_test_cpu();
+    let mut state = create_test_cpu();
     let config = Config::default();
 
     // First setup
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
-    let pc_first = cpu.hart.pc;
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    let pc_first = state.hart.pc;
 
     // Second setup (should overwrite)
-    loader::setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
-    let pc_second = cpu.hart.pc;
+    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    let pc_second = state.hart.pc;
 
     // Both should set the same PC
     assert_eq!(pc_first, pc_second);

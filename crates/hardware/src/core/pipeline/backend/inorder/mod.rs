@@ -92,16 +92,16 @@ impl InOrderEngine {
 impl ExecutionEngine for InOrderEngine {
     fn tick(
         &mut self,
-        cpu: &mut SimState,
+        state: &mut SimState,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     ) {
         self.cycle += 1;
 
-        let pc_before_commit = cpu.hart.pc;
+        let pc_before_commit = state.hart.pc;
 
         let trap_event = commit::commit_stage(
-            cpu,
+            state,
             &mut self.common,
             &mut self.rob,
             &mut self.store_buffer,
@@ -119,24 +119,24 @@ impl ExecutionEngine for InOrderEngine {
         );
 
         if let Some((trap, pc)) = trap_event {
-            self.flush(cpu);
+            self.flush(state);
             *redirect_pending = true;
-            cpu.trap(&trap, pc);
-            cpu.hart.committed_next_pc = cpu.hart.pc;
+            state.trap(&trap, pc);
+            state.hart.committed_next_pc = state.hart.pc;
             return;
         }
 
         // MRET/SRET changed the PC; flush so post-redirect stale fetches don't proceed.
-        if cpu.hart.pc != pc_before_commit {
-            self.flush(cpu);
+        if state.hart.pc != pc_before_commit {
+            self.flush(state);
             rename_output.clear();
             return;
         }
 
-        writeback::writeback_stage(cpu, &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(state, &mut self.mem2_wb, &mut self.rob);
 
         let _ = memory2::memory2_stage(
-            cpu,
+            state,
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
@@ -148,7 +148,7 @@ impl ExecutionEngine for InOrderEngine {
         // and parks parked loads into self.common.outstanding_loads. SB
         // forwards and stores resolve straight into mem1_mem2.
         let mut input = std::mem::take(&mut self.execute_mem1);
-        memory1::memory1_stage(cpu, self, &mut input);
+        memory1::memory1_stage(state, self, &mut input);
         // Whatever didn't drain (SB stall, atomic-vs-SB stall) goes back.
         self.execute_mem1.extend(input);
 
@@ -158,9 +158,9 @@ impl ExecutionEngine for InOrderEngine {
         let (results, needs_flush) = if backpressured {
             (Vec::new(), false)
         } else {
-            let issued = self.issuer.select(self.width, &self.rob, &self.store_buffer, cpu);
+            let issued = self.issuer.select(self.width, &self.rob, &self.store_buffer, state);
             if issued.is_empty() && !self.issuer.is_empty() {
-                cpu.stats.stalls_data += 1;
+                state.stats.stalls_data += 1;
             }
             // Aggregate in-flight fp_flags so CSR reads of fflags see older FP results.
             let mut inflight_fp_flags: u8 = 0;
@@ -173,13 +173,13 @@ impl ExecutionEngine for InOrderEngine {
             for e in &self.mem2_wb {
                 inflight_fp_flags |= e.fp_flags;
             }
-            execute::execute_inorder(cpu, issued, &mut self.rob, inflight_fp_flags, redirect_pending)
+            execute::execute_inorder(state, issued, &mut self.rob, inflight_fp_flags, redirect_pending)
         };
         self.execute_mem1.extend(results);
 
         if needs_flush {
-            cpu.stats.stalls_control += 1;
-            cpu.stats.pipeline_flushes += 1;
+            state.stats.stalls_control += 1;
+            state.stats.pipeline_flushes += 1;
             self.issuer.flush();
             rename_output.clear();
             if let Some(last) = self.execute_mem1.last() {
@@ -206,7 +206,7 @@ impl ExecutionEngine for InOrderEngine {
         rob_free.min(sb_free).min(issue_free).min(self.width)
     }
 
-    fn flush(&mut self, cpu: &mut SimState) {
+    fn flush(&mut self, state: &mut SimState) {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.scoreboard.flush();
@@ -214,12 +214,12 @@ impl ExecutionEngine for InOrderEngine {
         self.execute_mem1.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
-        cpu.core.branch_predictor.repair_to_committed();
+        state.core.branch_predictor.repair_to_committed();
     }
 
-    fn read_csr_speculative(&self, cpu: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64 {
+    fn read_csr_speculative(&self, state: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64 {
         // In-order serialization commits older CSR writes before any CSR read issues.
-        cpu.csr_read(addr)
+        state.csr_read(addr)
     }
 
     fn rob(&self) -> &Rob {
@@ -281,9 +281,9 @@ mod tests {
         let config = Config::default();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        engine.flush(&mut cpu);
+        engine.flush(&mut state);
 
         assert_eq!(engine.execute_mem1.len(), 0);
         assert_eq!(engine.mem1_mem2.len(), 0);
@@ -303,9 +303,9 @@ mod tests {
         let config = Config::default();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
-        assert_eq!(engine.read_csr_speculative(&cpu, crate::core::arch::csr::MSCRATCH), 0x1234);
+        state.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
+        assert_eq!(engine.read_csr_speculative(&state, crate::core::arch::csr::MSCRATCH), 0x1234);
     }
 }

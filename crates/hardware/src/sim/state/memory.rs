@@ -168,9 +168,9 @@ mod tests {
     fn test_translate_direct_mode() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        let result = cpu.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
+        let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
         match result {
             TranslateResult::Ready(r) => {
                 assert_eq!(r.paddr.val(), 0x8000_0000);
@@ -179,7 +179,7 @@ mod tests {
             TranslateResult::NeedPte { .. } => panic!("direct mode should be Ready"),
         }
 
-        let result = cpu.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
+        let result = state.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
         match result {
             TranslateResult::Ready(r) => assert!(r.trap.is_some()),
             TranslateResult::NeedPte { .. } => panic!("direct mode should be Ready"),

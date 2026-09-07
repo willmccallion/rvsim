@@ -64,7 +64,7 @@ impl InOrderIssueUnit {
         width: usize,
         rob: &Rob,
         store_buffer: &StoreBuffer,
-        cpu: &SimState,
+        state: &SimState,
     ) -> Vec<RenameIssueEntry> {
         let mut selected = Vec::with_capacity(width);
 
@@ -110,10 +110,10 @@ impl InOrderIssueUnit {
                 break;
             }
 
-            let rv1 = read_operand_by_tag(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, cpu);
-            let rv2 = read_operand_by_tag(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, cpu);
+            let rv1 = read_operand_by_tag(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
+            let rv2 = read_operand_by_tag(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
             let rv3 = if entry.ctrl.rs3_fp {
-                read_operand_by_tag(entry.rs3, true, entry.rs3_tag, rob, cpu)
+                read_operand_by_tag(entry.rs3, true, entry.rs3_tag, rob, state)
             } else {
                 Some(0)
             };
@@ -125,7 +125,7 @@ impl InOrderIssueUnit {
                 issued.rv3 = v3;
                 selected.push(issued);
             } else {
-                trace_issue!(cpu.config.general.trace_instructions;
+                trace_issue!(state.config.general.trace_instructions;
                     pc       = %crate::trace::Hex(entry.pc),
                     rs1      = entry.rs1.as_usize(),
                     rs1_tag  = ?entry.rs1_tag,
@@ -176,7 +176,7 @@ fn read_operand_by_tag(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    cpu: &SimState,
+    state: &SimState,
 ) -> Option<u64> {
     if !is_fp && reg.is_zero() {
         return Some(0);
@@ -184,7 +184,7 @@ fn read_operand_by_tag(
 
     tag.map_or_else(
         || {
-            let val = if is_fp { cpu.hart.regs.read_f(reg) } else { cpu.hart.regs.read(reg) };
+            let val = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
             Some(val)
         },
         |t| match rob.find_entry(t) {
@@ -192,7 +192,7 @@ fn read_operand_by_tag(
             Some(_) => None,
             None => {
                 // ROB entry already committed — value is in the register file.
-                Some(if is_fp { cpu.hart.regs.read_f(reg) } else { cpu.hart.regs.read(reg) })
+                Some(if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) })
             }
         },
     )

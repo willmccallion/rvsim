@@ -55,16 +55,16 @@ impl<E: ExecutionEngine> Frontend<E> {
     /// Executes one cycle of all frontend stages (reverse order).
     pub fn tick(
         &mut self,
-        cpu: &mut crate::sim::SimState,
+        state: &mut crate::sim::SimState,
         engine: &mut E,
         rename_output: &mut Vec<RenameIssueEntry>,
     ) {
-        rename::rename_stage(cpu, &mut self.decode_rename, engine, rename_output);
+        rename::rename_stage(state, &mut self.decode_rename, engine, rename_output);
 
         // Gate decode on rename draining to avoid O(n²) regrowth of decode_rename.
         if self.decode_rename.is_empty() {
             decode::decode_stage(
-                cpu,
+                state,
                 &mut self.fetch2_decode,
                 &mut self.decode_rename,
                 engine.has_register_renaming(),
@@ -72,14 +72,14 @@ impl<E: ExecutionEngine> Frontend<E> {
         }
 
         if self.fetch2_decode.is_empty() {
-            fetch2::fetch2_stage(cpu, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
+            fetch2::fetch2_stage(state, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
         }
 
         // Fetch1 always emits — it parks every fetch in the engine's
         // outstanding_fetches table. The mailbox-drain stage at the top
         // of the next pipeline tick (after responses arrive) pushes the
         // matching Fetch1Fetch2Entry into `fetch1_fetch2`.
-        fetch1::fetch1_stage(cpu, engine);
+        fetch1::fetch1_stage(state, engine);
     }
 
     /// Flushes all frontend latches.

@@ -49,7 +49,7 @@ pub trait ExecutionEngine {
     /// flushes the frontend (branch misprediction, trap, FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
-        cpu: &mut crate::sim::SimState,
+        state: &mut crate::sim::SimState,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     );
@@ -58,10 +58,10 @@ pub trait ExecutionEngine {
     fn can_accept(&self) -> usize;
 
     /// Flush all speculative state. Committed stores in the store buffer remain.
-    fn flush(&mut self, cpu: &mut crate::sim::SimState);
+    fn flush(&mut self, state: &mut crate::sim::SimState);
 
     /// Read a CSR, checking in-flight `CsrUpdate` entries in the ROB.
-    fn read_csr_speculative(&self, cpu: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64;
+    fn read_csr_speculative(&self, state: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64;
 
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
@@ -271,15 +271,15 @@ impl<E: ExecutionEngine> Pipeline<E> {
     ///    re-inject into Execute→Memory1; completed fetches land in F1→F2.
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
-    pub fn tick(&mut self, cpu: &mut crate::sim::SimState) {
-        let pc_before = cpu.hart.pc;
+    pub fn tick(&mut self, state: &mut crate::sim::SimState) {
+        let pc_before = state.hart.pc;
 
-        crate::core::pipeline::mailbox::drain(self, cpu);
+        crate::core::pipeline::mailbox::drain(self, state);
 
-        self.engine.tick(cpu, &mut self.rename_output, &mut self.redirect_pending);
+        self.engine.tick(state, &mut self.rename_output, &mut self.redirect_pending);
 
         // PC compare catches commit-stage redirects (MRET/SRET) that bypass execute's flush path.
-        let needs_frontend_flush = self.redirect_pending || cpu.hart.pc != pc_before;
+        let needs_frontend_flush = self.redirect_pending || state.hart.pc != pc_before;
         self.redirect_pending = false;
         if needs_frontend_flush {
             self.frontend.flush();
@@ -306,13 +306,13 @@ impl<E: ExecutionEngine> Pipeline<E> {
             common.next_emit_fetch_seq = common.next_fetch_seq;
         }
 
-        if cpu.check_exit().is_none() && !cpu.hart.wfi_waiting {
-            self.frontend.tick(cpu, &mut self.engine, &mut self.rename_output);
+        if state.check_exit().is_none() && !state.hart.wfi_waiting {
+            self.frontend.tick(state, &mut self.engine, &mut self.rename_output);
         }
     }
 
     /// Flush the entire pipeline.
-    pub fn flush(&mut self, cpu: &mut crate::sim::SimState) {
+    pub fn flush(&mut self, state: &mut crate::sim::SimState) {
         self.frontend.flush();
         self.rename_output.clear();
         let common = self.engine.common_mut();
@@ -321,7 +321,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.outstanding_loads.clear();
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
-        self.engine.flush(cpu);
+        self.engine.flush(state);
     }
 }
 
@@ -336,10 +336,10 @@ pub enum PipelineDispatch {
 
 impl PipelineDispatch {
     /// Run one cycle.
-    pub fn tick(&mut self, cpu: &mut crate::sim::SimState) {
+    pub fn tick(&mut self, state: &mut crate::sim::SimState) {
         match self {
-            Self::InOrder(p) => p.tick(cpu),
-            Self::OutOfOrder(p) => p.tick(cpu),
+            Self::InOrder(p) => p.tick(state),
+            Self::OutOfOrder(p) => p.tick(state),
         }
     }
 
@@ -352,10 +352,10 @@ impl PipelineDispatch {
     }
 
     /// Flush.
-    pub fn flush(&mut self, cpu: &mut crate::sim::SimState) {
+    pub fn flush(&mut self, state: &mut crate::sim::SimState) {
         match self {
-            Self::InOrder(p) => p.flush(cpu),
-            Self::OutOfOrder(p) => p.flush(cpu),
+            Self::InOrder(p) => p.flush(state),
+            Self::OutOfOrder(p) => p.flush(state),
         }
     }
 
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
         let config = crate::config::Config::default();
-        let mut cpu = crate::sim::SimState::build(&config, "");
+        let mut state = crate::sim::SimState::build(&config, "");
 
         let frontend = Frontend::new(config.pipeline.width);
         let engine = InOrderEngine::new(
@@ -425,8 +425,8 @@ mod tests {
         };
         let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
 
-        dispatch.tick(&mut cpu);
-        dispatch.flush(&mut cpu);
+        dispatch.tick(&mut state);
+        dispatch.flush(&mut state);
         let snapshot = dispatch.snapshot(1);
         assert_eq!(snapshot.width, 1);
     }

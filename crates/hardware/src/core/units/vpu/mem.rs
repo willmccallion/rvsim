@@ -168,25 +168,25 @@ pub struct VecMemAddrOp {
 /// Returns a `Trap` if any element access causes an address translation
 /// fault or access fault (except for fault-only-first loads where only
 /// element 0 faults propagate).
-pub fn execute_vec_load(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+pub fn execute_vec_load(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     check_vec_mem_emul(id.inst, id.ctrl.vec_op, &id.ctrl, &vtype)?;
     let eew = id.ctrl.vec_eew;
     let vd = id.ctrl.vd;
     let base_addr = id.rv1; // rs1 holds the base address
 
     match id.ctrl.vec_op {
-        VectorOp::VLoadUnit => exec_unit_stride_load(cpu, base_addr, vd, eew, id),
-        VectorOp::VLoadFF => exec_fault_first_load(cpu, base_addr, vd, eew, id),
+        VectorOp::VLoadUnit => exec_unit_stride_load(state, base_addr, vd, eew, id),
+        VectorOp::VLoadFF => exec_fault_first_load(state, base_addr, vd, eew, id),
         VectorOp::VLoadStride => {
             let stride = id.rv2 as i64;
-            exec_strided_load(cpu, base_addr, stride, vd, eew, id)
+            exec_strided_load(state, base_addr, stride, vd, eew, id)
         }
         VectorOp::VLoadIndexOrd | VectorOp::VLoadIndexUnord => {
-            exec_indexed_load(cpu, base_addr, vd, eew, id)
+            exec_indexed_load(state, base_addr, vd, eew, id)
         }
-        VectorOp::VLoadMask => exec_mask_load(cpu, base_addr, vd, id),
-        VectorOp::VLoadWholeReg => exec_whole_reg_load(cpu, base_addr, vd, eew, id),
+        VectorOp::VLoadMask => exec_mask_load(state, base_addr, vd, id),
+        VectorOp::VLoadWholeReg => exec_whole_reg_load(state, base_addr, vd, eew, id),
         _ => Ok(0),
     }
 }
@@ -200,24 +200,24 @@ pub fn execute_vec_load(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64
 ///
 /// Returns a `Trap` if any element access causes an address translation
 /// fault or access fault.
-pub fn execute_vec_store(cpu: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+pub fn execute_vec_store(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     check_vec_mem_emul(id.inst, id.ctrl.vec_op, &id.ctrl, &vtype)?;
     let eew = id.ctrl.vec_eew;
     let vs3 = id.ctrl.vd; // vd field encodes vs3 (store data source) for stores
     let base_addr = id.rv1;
 
     match id.ctrl.vec_op {
-        VectorOp::VStoreUnit => exec_unit_stride_store(cpu, base_addr, vs3, eew, id),
+        VectorOp::VStoreUnit => exec_unit_stride_store(state, base_addr, vs3, eew, id),
         VectorOp::VStoreStride => {
             let stride = id.rv2 as i64;
-            exec_strided_store(cpu, base_addr, stride, vs3, eew, id)
+            exec_strided_store(state, base_addr, stride, vs3, eew, id)
         }
         VectorOp::VStoreIndexOrd | VectorOp::VStoreIndexUnord => {
-            exec_indexed_store(cpu, base_addr, vs3, eew, id)
+            exec_indexed_store(state, base_addr, vs3, eew, id)
         }
-        VectorOp::VStoreMask => exec_mask_store(cpu, base_addr, vs3, id),
-        VectorOp::VStoreWholeReg => exec_whole_reg_store(cpu, base_addr, vs3, eew, id),
+        VectorOp::VStoreMask => exec_mask_store(state, base_addr, vs3, id),
+        VectorOp::VStoreWholeReg => exec_whole_reg_store(state, base_addr, vs3, eew, id),
         _ => Ok(0),
     }
 }
@@ -267,7 +267,7 @@ pub const fn is_vec_mem(op: VectorOp) -> bool {
 /// correct values to the arch VPR; the micro-ops exist only for timing.
 #[must_use]
 pub fn generate_element_addrs(
-    cpu: &SimState,
+    state: &SimState,
     ex_result: &ExMem1Entry,
     vec_op: VectorOp,
 ) -> Vec<VecMemAddrOp> {
@@ -277,25 +277,25 @@ pub fn generate_element_addrs(
 
     match vec_op {
         VectorOp::VLoadUnit | VectorOp::VStoreUnit | VectorOp::VLoadFF => {
-            gen_unit_stride_addrs(cpu, base_addr, eew, &ex_result.ctrl, is_store)
+            gen_unit_stride_addrs(state, base_addr, eew, &ex_result.ctrl, is_store)
         }
         VectorOp::VLoadStride | VectorOp::VStoreStride => {
             let stride = ex_result.store_data as i64; // rs2 holds stride for strided ops
             // For stores, ex_result.store_data was overwritten with rs2 (stride).
             // The actual store data comes from the VPR (already executed functionally).
-            gen_strided_addrs(cpu, base_addr, stride, eew, &ex_result.ctrl, is_store)
+            gen_strided_addrs(state, base_addr, stride, eew, &ex_result.ctrl, is_store)
         }
         VectorOp::VLoadIndexOrd
         | VectorOp::VLoadIndexUnord
         | VectorOp::VStoreIndexOrd
         | VectorOp::VStoreIndexUnord => {
-            gen_indexed_addrs(cpu, base_addr, eew, &ex_result.ctrl, is_store)
+            gen_indexed_addrs(state, base_addr, eew, &ex_result.ctrl, is_store)
         }
         VectorOp::VLoadMask | VectorOp::VStoreMask => {
-            gen_mask_addrs(cpu, base_addr, &ex_result.ctrl, is_store)
+            gen_mask_addrs(state, base_addr, &ex_result.ctrl, is_store)
         }
         VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg => {
-            gen_whole_reg_addrs(cpu, base_addr, &ex_result.ctrl, is_store)
+            gen_whole_reg_addrs(state, base_addr, &ex_result.ctrl, is_store)
         }
         _ => Vec::new(),
     }
@@ -308,25 +308,25 @@ const fn parse_eew_from_ctrl(ctrl: &crate::core::pipeline::signals::ControlSigna
 
 /// Generate unit-stride element addresses.
 fn gen_unit_stride_addrs(
-    cpu: &SimState,
+    state: &SimState,
     base: u64,
     eew: Sew,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
 ) -> Vec<VecMemAddrOp> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Vec::new();
     };
     let eew_bytes = eew.bytes() as u64;
     let nf = Nf::from_encoding(ctrl.vec_nf);
     let vm = ctrl.vm;
     let vd = ctrl.vd;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
     let mut ops = Vec::with_capacity(vl * nf.fields_usize());
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         for seg in 0..nf.fields_usize() {
@@ -334,7 +334,7 @@ fn gen_unit_stride_addrs(
                 base.wrapping_add(((i * nf.fields_usize() + seg) as u64).wrapping_mul(eew_bytes));
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             let store_data =
-                if is_store { cpu.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
+                if is_store { state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
             ops.push(VecMemAddrOp {
                 vaddr: VirtAddr::new(addr),
                 store_data,
@@ -349,26 +349,26 @@ fn gen_unit_stride_addrs(
 
 /// Generate strided element addresses.
 fn gen_strided_addrs(
-    cpu: &SimState,
+    state: &SimState,
     base: u64,
     stride: i64,
     eew: Sew,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
 ) -> Vec<VecMemAddrOp> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Vec::new();
     };
     let nf = Nf::from_encoding(ctrl.vec_nf);
     let vm = ctrl.vm;
     let vd = ctrl.vd;
     let eew_bytes = eew.bytes() as u64;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
     let mut ops = Vec::with_capacity(vl * nf.fields_usize());
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         let elem_base = base.wrapping_add((i as i64).wrapping_mul(stride) as u64);
@@ -376,7 +376,7 @@ fn gen_strided_addrs(
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
             let store_data =
-                if is_store { cpu.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
+                if is_store { state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
             ops.push(VecMemAddrOp {
                 vaddr: VirtAddr::new(addr),
                 store_data,
@@ -391,18 +391,18 @@ fn gen_strided_addrs(
 
 /// Generate indexed element addresses.
 fn gen_indexed_addrs(
-    cpu: &SimState,
+    state: &SimState,
     base: u64,
     eew: Sew,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
 ) -> Vec<VecMemAddrOp> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     if vtype.vill {
         return Vec::new();
     }
-    let vl = cpu.hart.csrs.vl as usize;
-    let vstart = cpu.hart.csrs.vstart as usize;
+    let vl = state.hart.csrs.vl as usize;
+    let vstart = state.hart.csrs.vstart as usize;
     let vm = ctrl.vm;
     let vs2 = ctrl.vs2;
     let vd = ctrl.vd;
@@ -414,16 +414,16 @@ fn gen_indexed_addrs(
     let mut ops = Vec::with_capacity(vl * nf.fields_usize());
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
-        let offset = cpu.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
+        let offset = state.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
         let elem_base = base.wrapping_add(offset);
         for seg in 0..nf.fields_usize() {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
             let store_data = if is_store {
-                cpu.hart.regs.vpr().read_element(dest, ElemIdx::new(i), data_sew)
+                state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), data_sew)
             } else {
                 0
             };
@@ -441,12 +441,12 @@ fn gen_indexed_addrs(
 
 /// Generate mask load/store element addresses.
 fn gen_mask_addrs(
-    cpu: &SimState,
+    state: &SimState,
     base: u64,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
 ) -> Vec<VecMemAddrOp> {
-    let vl = cpu.hart.csrs.vl as usize;
+    let vl = state.hart.csrs.vl as usize;
     let num_bytes = vl.div_ceil(8);
     let vd = ctrl.vd;
     let mut ops = Vec::with_capacity(num_bytes);
@@ -454,7 +454,7 @@ fn gen_mask_addrs(
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
         let store_data =
-            if is_store { cpu.hart.regs.vpr().read_element(vd, ElemIdx::new(i), Sew::E8) } else { 0 };
+            if is_store { state.hart.regs.vpr().read_element(vd, ElemIdx::new(i), Sew::E8) } else { 0 };
         ops.push(VecMemAddrOp {
             vaddr: VirtAddr::new(addr),
             store_data,
@@ -468,13 +468,13 @@ fn gen_mask_addrs(
 
 /// Generate whole-register load/store element addresses.
 fn gen_whole_reg_addrs(
-    cpu: &SimState,
+    state: &SimState,
     base: u64,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
 ) -> Vec<VecMemAddrOp> {
     let nreg = (ctrl.vec_nf as usize) + 1;
-    let vlen_bytes = cpu.hart.regs.vpr().vlen().bytes();
+    let vlen_bytes = state.hart.regs.vpr().vlen().bytes();
     let total_bytes = nreg * vlen_bytes;
     let vd = ctrl.vd;
     let mut ops = Vec::with_capacity(total_bytes);
@@ -485,7 +485,7 @@ fn gen_whole_reg_addrs(
         let byte_offset = i % vlen_bytes;
         let src = VRegIdx::new(vd.as_u8() + reg_offset as u8);
         let store_data = if is_store {
-            cpu.hart.regs.vpr().read_element(src, ElemIdx::new(byte_offset), Sew::E8)
+            state.hart.regs.vpr().read_element(src, ElemIdx::new(byte_offset), Sew::E8)
         } else {
             0
         };
@@ -714,21 +714,21 @@ fn is_element_active_vrf<V: VectorRegFile>(vrf: &V, i: usize, vm: bool) -> bool 
 /// Get `(vl, vstart)` for the current vector configuration.
 ///
 /// Returns `None` if vtype is illegal (vill=1).
-const fn get_vec_cfg(cpu: &SimState) -> Option<(usize, usize)> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+const fn get_vec_cfg(state: &SimState) -> Option<(usize, usize)> {
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     if vtype.vill {
         return None;
     }
-    Some((cpu.hart.csrs.vl as usize, cpu.hart.csrs.vstart as usize))
+    Some((state.hart.csrs.vl as usize, state.hart.csrs.vstart as usize))
 }
 
 /// Check if element `i` is active under the current mask.
-fn is_element_active(cpu: &SimState, i: usize, vm: bool) -> bool {
+fn is_element_active(state: &SimState, i: usize, vm: bool) -> bool {
     if vm {
         // vm=1 means unmasked — all elements active
         return true;
     }
-    cpu.hart.regs.vpr().read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
+    state.hart.regs.vpr().read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Translates a vector-element address synchronously.
@@ -739,13 +739,13 @@ fn is_element_active(cpu: &SimState, i: usize, vm: bool) -> bool {
 /// it as the appropriate page fault — the trap commits, the OS handler
 /// installs the PTE, and the re-issue path warms the TLB before retrying.
 fn translate_vector_element(
-    cpu: &mut SimState,
+    state: &mut SimState,
     vaddr: u64,
     access: AccessType,
     size: u64,
 ) -> Result<crate::common::PhysAddr, Trap> {
     use crate::sim::state::memory::TranslateResult;
-    match cpu.translate(VirtAddr::new(vaddr), access, size) {
+    match state.translate(VirtAddr::new(vaddr), access, size) {
         TranslateResult::Ready(r) => {
             if let Some(trap) = r.trap {
                 Err(trap)
@@ -767,11 +767,11 @@ fn translate_vector_element(
 /// architecturally not defined for MMIO regions; a non-RAM address
 /// surfaces zero, which the encoded operation either consumes or
 /// faults on at the protection check above).
-fn mem_read_element(cpu: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Trap> {
+fn mem_read_element(state: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Trap> {
     let size = eew.bytes() as u64;
-    let paddr = translate_vector_element(cpu, vaddr, AccessType::Read, size)?;
+    let paddr = translate_vector_element(state, vaddr, AccessType::Read, size)?;
     let raw = paddr.val();
-    let region = cpu.bus.ram_region().filter(|r| r.contains(raw, size));
+    let region = state.bus.ram_region().filter(|r| r.contains(raw, size));
     // Architecturally invalid vector ops against MMIO return zero (None branch).
     let val = region.map_or(0, |r| {
         // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
@@ -791,11 +791,11 @@ fn mem_read_element(cpu: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Tra
 ///
 /// Writes via the RAM fast-path pointer. Non-RAM addresses are silently
 /// dropped — vector stores to MMIO are not architecturally defined.
-fn mem_write_element(cpu: &mut SimState, vaddr: u64, eew: Sew, val: u64) -> Result<(), Trap> {
+fn mem_write_element(state: &mut SimState, vaddr: u64, eew: Sew, val: u64) -> Result<(), Trap> {
     let size = eew.bytes() as u64;
-    let paddr = translate_vector_element(cpu, vaddr, AccessType::Write, size)?;
+    let paddr = translate_vector_element(state, vaddr, AccessType::Write, size)?;
     let raw = paddr.val();
-    if let Some(r) = cpu.bus.ram_region().filter(|r| r.contains(raw, size)) {
+    if let Some(r) = state.bus.ram_region().filter(|r| r.contains(raw, size)) {
         // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
         unsafe {
             match eew {
@@ -811,31 +811,31 @@ fn mem_write_element(cpu: &mut SimState, vaddr: u64, eew: Sew, val: u64) -> Resu
 
 /// Execute a unit-stride vector load: `addr[i] = base + i * eew_bytes`.
 fn exec_unit_stride_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Ok(0);
     };
     let eew_bytes = eew.bytes() as u64;
     let nf = (id.ctrl.vec_nf as usize) + 1; // nf encoding is nf-1
     let vm = id.ctrl.vm;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
-            let val = mem_read_element(cpu, addr, eew).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = mem_read_element(state, addr, eew).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-            cpu.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
+            state.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
     }
 
@@ -847,39 +847,39 @@ fn exec_unit_stride_load(
 /// Element 0 traps normally. For elements > 0, a trap sets `vl = i` and stops
 /// without raising the exception.
 fn exec_fault_first_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Ok(0);
     };
     let eew_bytes = eew.bytes() as u64;
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     'elements: for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
-            match mem_read_element(cpu, addr, eew) {
+            match mem_read_element(state, addr, eew) {
                 Ok(val) => {
                     let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-                    cpu.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
+                    state.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
                 }
                 Err(trap) => {
                     if i == 0 && seg == 0 {
-                        cpu.hart.csrs.vstart = 0;
+                        state.hart.csrs.vstart = 0;
                         return Err(trap);
                     }
                     // Trim vl to the faulting element index; drop its segment.
-                    cpu.hart.csrs.vl = i as u64;
+                    state.hart.csrs.vl = i as u64;
                     break 'elements;
                 }
             }
@@ -891,34 +891,34 @@ fn exec_fault_first_load(
 
 /// Execute a strided vector load: `addr[i] = base + i * stride`.
 fn exec_strided_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     stride: i64,
     vd: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Ok(0);
     };
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
     let eew_bytes = eew.bytes() as u64;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         let elem_base = base.wrapping_add((i as i64).wrapping_mul(stride) as u64);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
-            let val = mem_read_element(cpu, addr, eew).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = mem_read_element(state, addr, eew).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-            cpu.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
+            state.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), eew, val);
         }
     }
 
@@ -930,18 +930,18 @@ fn exec_strided_load(
 /// The index vector `vs2` has element width = EEW (from the instruction encoding).
 /// The data loaded has element width = SEW (from current vtype).
 fn exec_indexed_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     if vtype.vill {
         return Ok(0);
     }
-    let vl = cpu.hart.csrs.vl as usize;
-    let vstart = cpu.hart.csrs.vstart as usize;
+    let vl = state.hart.csrs.vl as usize;
+    let vstart = state.hart.csrs.vstart as usize;
     let vm = id.ctrl.vm;
     let vs2 = id.ctrl.vs2;
     let data_sew = vtype.vsew; // data element width = SEW
@@ -952,18 +952,18 @@ fn exec_indexed_load(
     let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
-        let offset = cpu.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
+        let offset = state.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
         let elem_base = base.wrapping_add(offset);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
-            let val = mem_read_element(cpu, addr, data_sew).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = mem_read_element(state, addr, data_sew).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
-            cpu.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), data_sew, val);
+            state.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(i), data_sew, val);
         }
     }
 
@@ -975,21 +975,21 @@ fn exec_indexed_load(
 /// Mask loads always use EEW=8 and ignore vtype SEW. The mask is stored
 /// as a bitfield in the destination register.
 fn exec_mask_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vd: VRegIdx,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
     let _ = id; // mask load ignores most fields
-    let vl = cpu.hart.csrs.vl as usize;
+    let vl = state.hart.csrs.vl as usize;
     let num_bytes = vl.div_ceil(8);
 
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
-        let val = mem_read_element(cpu, addr, Sew::E8).inspect_err(|_t| {
-            cpu.hart.csrs.vstart = i as u64;
+        let val = mem_read_element(state, addr, Sew::E8).inspect_err(|_t| {
+            state.hart.csrs.vstart = i as u64;
         })?;
-        cpu.hart.regs.vpr_mut().write_element(vd, ElemIdx::new(i), Sew::E8, val);
+        state.hart.regs.vpr_mut().write_element(vd, ElemIdx::new(i), Sew::E8, val);
     }
 
     Ok(0)
@@ -1000,26 +1000,26 @@ fn exec_mask_load(
 /// Loads `nf` complete registers (ignores vl, vtype, mask). `nf` is encoded
 /// in bits 31:29 as `nf - 1`. Loads `nf * VLEN/8` bytes sequentially.
 fn exec_whole_reg_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
     let nreg = (id.ctrl.vec_nf as usize) + 1; // number of registers to load
-    let vlen_bytes = cpu.hart.regs.vpr().vlen().bytes();
+    let vlen_bytes = state.hart.regs.vpr().vlen().bytes();
     let total_bytes = nreg * vlen_bytes;
     let _ = eew; // EEW is used for hint purposes; data is byte-level
 
     for i in 0..total_bytes {
         let addr = base.wrapping_add(i as u64);
-        let val = mem_read_element(cpu, addr, Sew::E8).inspect_err(|_t| {
-            cpu.hart.csrs.vstart = i as u64;
+        let val = mem_read_element(state, addr, Sew::E8).inspect_err(|_t| {
+            state.hart.csrs.vstart = i as u64;
         })?;
         let reg_offset = i / vlen_bytes;
         let byte_offset = i % vlen_bytes;
         let dest = VRegIdx::new(vd.as_u8() + reg_offset as u8);
-        cpu.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(byte_offset), Sew::E8, val);
+        state.hart.regs.vpr_mut().write_element(dest, ElemIdx::new(byte_offset), Sew::E8, val);
     }
 
     Ok(0)
@@ -1027,31 +1027,31 @@ fn exec_whole_reg_load(
 
 /// Execute a unit-stride vector store: `addr[i] = base + i * eew_bytes`.
 fn exec_unit_stride_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Ok(0);
     };
     let eew_bytes = eew.bytes() as u64;
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         for seg in 0..nf {
             let addr = base.wrapping_add(((i * nf + seg) as u64).wrapping_mul(eew_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
-            let val = cpu.hart.regs.vpr().read_element(src, ElemIdx::new(i), eew);
-            mem_write_element(cpu, addr, eew, val).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = state.hart.regs.vpr().read_element(src, ElemIdx::new(i), eew);
+            mem_write_element(state, addr, eew, val).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
         }
     }
@@ -1061,33 +1061,33 @@ fn exec_unit_stride_store(
 
 /// Execute a strided vector store: `addr[i] = base + i * stride`.
 fn exec_strided_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     stride: i64,
     vs3: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let Some((vl, vstart)) = get_vec_cfg(cpu) else {
+    let Some((vl, vstart)) = get_vec_cfg(state) else {
         return Ok(0);
     };
     let nf = (id.ctrl.vec_nf as usize) + 1;
     let vm = id.ctrl.vm;
     let eew_bytes = eew.bytes() as u64;
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
         let elem_base = base.wrapping_add((i as i64).wrapping_mul(stride) as u64);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * emul.regs());
-            let val = cpu.hart.regs.vpr().read_element(src, ElemIdx::new(i), eew);
-            mem_write_element(cpu, addr, eew, val).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = state.hart.regs.vpr().read_element(src, ElemIdx::new(i), eew);
+            mem_write_element(state, addr, eew, val).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
         }
     }
@@ -1097,18 +1097,18 @@ fn exec_strided_store(
 
 /// Execute an indexed vector store: `addr[i] = base + vs2[i]`.
 fn exec_indexed_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
-    let vtype = parse_vtype(cpu.hart.csrs.vtype);
+    let vtype = parse_vtype(state.hart.csrs.vtype);
     if vtype.vill {
         return Ok(0);
     }
-    let vl = cpu.hart.csrs.vl as usize;
-    let vstart = cpu.hart.csrs.vstart as usize;
+    let vl = state.hart.csrs.vl as usize;
+    let vstart = state.hart.csrs.vstart as usize;
     let vm = id.ctrl.vm;
     let vs2 = id.ctrl.vs2;
     let data_sew = vtype.vsew;
@@ -1118,17 +1118,17 @@ fn exec_indexed_store(
     let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
 
     for i in vstart..vl {
-        if !is_element_active(cpu, i, vm) {
+        if !is_element_active(state, i, vm) {
             continue;
         }
-        let offset = cpu.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
+        let offset = state.hart.regs.vpr().read_element(vs2, ElemIdx::new(i), idx_eew);
         let elem_base = base.wrapping_add(offset);
         for seg in 0..nf {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
             let src = VRegIdx::new(vs3.as_u8() + (seg as u8) * data_emul.regs());
-            let val = cpu.hart.regs.vpr().read_element(src, ElemIdx::new(i), data_sew);
-            mem_write_element(cpu, addr, data_sew, val).inspect_err(|_t| {
-                cpu.hart.csrs.vstart = i as u64;
+            let val = state.hart.regs.vpr().read_element(src, ElemIdx::new(i), data_sew);
+            mem_write_element(state, addr, data_sew, val).inspect_err(|_t| {
+                state.hart.csrs.vstart = i as u64;
             })?;
         }
     }
@@ -1138,20 +1138,20 @@ fn exec_indexed_store(
 
 /// Execute a mask store (`vsm.v`): stores `ceil(vl/8)` bytes from `vs3`.
 fn exec_mask_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vs3: VRegIdx,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
     let _ = id;
-    let vl = cpu.hart.csrs.vl as usize;
+    let vl = state.hart.csrs.vl as usize;
     let num_bytes = vl.div_ceil(8);
 
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
-        let val = cpu.hart.regs.vpr().read_element(vs3, ElemIdx::new(i), Sew::E8);
-        mem_write_element(cpu, addr, Sew::E8, val).inspect_err(|_t| {
-            cpu.hart.csrs.vstart = i as u64;
+        let val = state.hart.regs.vpr().read_element(vs3, ElemIdx::new(i), Sew::E8);
+        mem_write_element(state, addr, Sew::E8, val).inspect_err(|_t| {
+            state.hart.csrs.vstart = i as u64;
         })?;
     }
 
@@ -1162,14 +1162,14 @@ fn exec_mask_store(
 ///
 /// Stores `nf` complete registers (ignores vl, vtype, mask).
 fn exec_whole_reg_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,
     id: &RenameIssueEntry,
 ) -> Result<u64, Trap> {
     let nreg = (id.ctrl.vec_nf as usize) + 1;
-    let vlen_bytes = cpu.hart.regs.vpr().vlen().bytes();
+    let vlen_bytes = state.hart.regs.vpr().vlen().bytes();
     let total_bytes = nreg * vlen_bytes;
     let _ = eew;
 
@@ -1178,9 +1178,9 @@ fn exec_whole_reg_store(
         let reg_offset = i / vlen_bytes;
         let byte_offset = i % vlen_bytes;
         let src = VRegIdx::new(vs3.as_u8() + reg_offset as u8);
-        let val = cpu.hart.regs.vpr().read_element(src, ElemIdx::new(byte_offset), Sew::E8);
-        mem_write_element(cpu, addr, Sew::E8, val).inspect_err(|_t| {
-            cpu.hart.csrs.vstart = i as u64;
+        let val = state.hart.regs.vpr().read_element(src, ElemIdx::new(byte_offset), Sew::E8);
+        mem_write_element(state, addr, Sew::E8, val).inspect_err(|_t| {
+            state.hart.csrs.vstart = i as u64;
         })?;
     }
 

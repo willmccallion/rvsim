@@ -1371,13 +1371,13 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
 /// Consumes Fetch2->Decode entries (`IfIdEntry`) and produces
 /// Decode->Rename entries (`IdExEntry`).
 pub fn decode_stage(
-    cpu: &mut SimState,
+    state: &mut SimState,
     input: &mut Vec<IfIdEntry>,
     output: &mut Vec<IdExEntry>,
     has_register_renaming: bool,
 ) {
     let mut consumed_count = 0;
-    let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(cpu.config.pipeline.width);
+    let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(state.config.pipeline.width);
 
     for if_entry in input.iter() {
         if let Some(trap) = &if_entry.trap {
@@ -1411,7 +1411,7 @@ pub fn decode_stage(
         if ctrl.vec_op != VectorOp::None
             && !matches!(ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl)
         {
-            let vtype = crate::core::units::vpu::types::parse_vtype(cpu.hart.csrs.vtype);
+            let vtype = crate::core::units::vpu::types::parse_vtype(state.hart.csrs.vtype);
             if !vtype.vill {
                 let lmul = vtype.vlmul.group_regs().regs();
                 ctrl.vec_lmul_regs = lmul;
@@ -1494,9 +1494,9 @@ pub fn decode_stage(
             bundle_writes.push((d.rd, true));
         }
 
-        let rv1 = if ctrl.rs1_fp { cpu.hart.regs.read_f(d.rs1) } else { cpu.hart.regs.read(d.rs1) };
-        let rv2 = if ctrl.rs2_fp { cpu.hart.regs.read_f(d.rs2) } else { cpu.hart.regs.read(d.rs2) };
-        let rv3 = if ctrl.rs3_fp { cpu.hart.regs.read_f(rs3_idx) } else { 0 };
+        let rv1 = if ctrl.rs1_fp { state.hart.regs.read_f(d.rs1) } else { state.hart.regs.read(d.rs1) };
+        let rv2 = if ctrl.rs2_fp { state.hart.regs.read_f(d.rs2) } else { state.hart.regs.read(d.rs2) };
+        let rv3 = if ctrl.rs3_fp { state.hart.regs.read_f(rs3_idx) } else { 0 };
 
         let has_trap = trap.is_some();
 

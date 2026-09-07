@@ -31,7 +31,7 @@ use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet};
 
 /// Processes every packet currently in the engine's mailbox.
-pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, cpu: &mut SimState) {
+pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut SimState) {
     let mailbox = std::mem::take(&mut pipeline.engine.common_mut().mailbox);
     for (_source, packet) in mailbox {
         let Packet::MemResp { req_id, data, .. } = packet else {
@@ -39,12 +39,12 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, cpu: &mut SimState)
         };
 
         if let Some(walk) = pipeline.engine.common_mut().outstanding_walks.remove(&req_id) {
-            complete_walk(pipeline, cpu, walk);
+            complete_walk(pipeline, state, walk);
         } else if let Some(fetch) = pipeline.engine.common_mut().outstanding_fetches.remove(&req_id)
         {
             buffer_fetch(pipeline, fetch);
         } else if let Some(load) = pipeline.engine.common_mut().outstanding_loads.remove(&req_id) {
-            complete_load(pipeline, cpu, load, &data);
+            complete_load(pipeline, state, load, &data);
         } else {
             // outstanding_stores ack or stale post-flush response — drop.
             let _ = pipeline.engine.common_mut().outstanding_stores.remove(&req_id);
@@ -101,14 +101,14 @@ fn complete_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, fetch: Outstan
 /// latch. Memory2 handles sign-extension, AMO RMW, and SB resolution.
 fn complete_load<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &SimState,
+    state: &SimState,
     load: OutstandingLoad,
     resp_data: &MemRespData,
 ) {
     let entry = load.entry;
     let paddr = load.paddr;
-    let load_raw = read_load_bytes(cpu, paddr.val(), entry.ctrl.width, resp_data);
-    let cycle = cpu.cycle;
+    let load_raw = read_load_bytes(state, paddr.val(), entry.ctrl.width, resp_data);
+    let cycle = state.cycle;
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         rob_tag: entry.rob_tag,
@@ -138,24 +138,24 @@ fn complete_load<E: ExecutionEngine>(
 /// continuation) or issues the next PTE `MemReq`.
 fn complete_walk<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &mut SimState,
+    state: &mut SimState,
     walk: OutstandingWalk,
 ) {
-    let raw_pte = read_pte_bytes(cpu, walk.pte_addr);
-    let bus_transit = cpu.bus.calculate_transit_time(8);
-    let outcome = cpu.translate_continue(walk.state, raw_pte, bus_transit);
+    let raw_pte = read_pte_bytes(state, walk.pte_addr);
+    let bus_transit = state.bus.calculate_transit_time(8);
+    let outcome = state.translate_continue(walk.state, raw_pte, bus_transit);
     match outcome {
         TranslateResult::Ready(result) => {
-            dispatch_walk_continuation(pipeline, cpu, walk.continuation, result);
+            dispatch_walk_continuation(pipeline, state, walk.continuation, result);
         }
-        TranslateResult::NeedPte { pte_addr, state } => {
+        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
             let common = pipeline.engine.common_mut();
             let req_id = common.alloc_req_id();
             let _ = common.outstanding_walks.insert(
                 req_id,
-                OutstandingWalk { state, pte_addr, continuation: walk.continuation },
+                OutstandingWalk { state: walk_state, pte_addr, continuation: walk.continuation },
             );
-            emit_pte_req(pipeline, cpu, req_id, pte_addr);
+            emit_pte_req(pipeline, state, req_id, pte_addr);
         }
     }
 }
@@ -163,7 +163,7 @@ fn complete_walk<E: ExecutionEngine>(
 /// Runs the appropriate continuation once a walk reaches Ready.
 fn dispatch_walk_continuation<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    cpu: &mut SimState,
+    state: &mut SimState,
     continuation: WalkContinuation,
     result: crate::common::TranslationResult,
 ) {
@@ -182,7 +182,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 let paddr = fetch.paddr;
                 let pc = fetch.pc;
                 let _ = common.outstanding_fetches.insert(req_id, fetch);
-                emit_fetch_req(pipeline, cpu, req_id, paddr, VirtAddr::new(pc));
+                emit_fetch_req(pipeline, state, req_id, paddr, VirtAddr::new(pc));
             }
         }
         WalkContinuation::LoadStore(mut entry) => {
@@ -204,9 +204,9 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 
 /// Reads a 64-bit PTE from the RAM fast path. RISC-V doesn't permit page
 /// tables in MMIO, so the read is always backed by DRAM.
-fn read_pte_bytes(cpu: &SimState, pte_addr: PhysAddr) -> u64 {
+fn read_pte_bytes(state: &SimState, pte_addr: PhysAddr) -> u64 {
     let raw = pte_addr.val();
-    cpu.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
+    state.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
         // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks the access.
         unsafe { r.ptr(raw).cast::<u64>().read_unaligned() }
     })
@@ -214,7 +214,7 @@ fn read_pte_bytes(cpu: &SimState, pte_addr: PhysAddr) -> u64 {
 
 /// Reads the raw bytes of a load. RAM accesses use the fast-path pointer;
 /// MMIO loads take their data from the device's `MemResp` payload.
-fn read_load_bytes(cpu: &SimState, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
+fn read_load_bytes(state: &SimState, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
     let size = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,
@@ -223,7 +223,7 @@ fn read_load_bytes(cpu: &SimState, paddr: u64, width: MemWidth, resp_data: &MemR
         MemWidth::Nop => 0,
     };
     if size > 0
-        && let Some(r) = cpu.bus.ram_region_for(paddr, size)
+        && let Some(r) = state.bus.ram_region_for(paddr, size)
     {
         // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds.
         return unsafe {
@@ -246,13 +246,13 @@ fn read_load_bytes(cpu: &SimState, paddr: u64, width: MemWidth, resp_data: &MemR
 /// Emits a PTE read request to the L1 data cache.
 fn emit_pte_req<E: ExecutionEngine>(
     pipeline: &Pipeline<E>,
-    cpu: &mut SimState,
+    state: &mut SimState,
     req_id: ReqId,
     pte_addr: PhysAddr,
 ) {
     let common = pipeline.engine.common();
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -269,14 +269,14 @@ fn emit_pte_req<E: ExecutionEngine>(
 /// Emits an instruction fetch request to the L1 instruction cache.
 fn emit_fetch_req<E: ExecutionEngine>(
     pipeline: &Pipeline<E>,
-    cpu: &mut SimState,
+    state: &mut SimState,
     req_id: ReqId,
     paddr: PhysAddr,
     vaddr: VirtAddr,
 ) {
     let common = pipeline.engine.common();
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_i_id),
         ComponentId::Pipeline(common.pipeline_id),

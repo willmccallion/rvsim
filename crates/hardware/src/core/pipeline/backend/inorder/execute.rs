@@ -34,7 +34,7 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 /// the engine must flush the issue queue and frontend (branch misprediction,
 /// CSR, MRET/SRET, FENCE.I, etc.).
 pub fn execute_inorder(
-    cpu: &mut SimState,
+    state: &mut SimState,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
     inflight_fp_flags: u8,
@@ -51,7 +51,7 @@ pub fn execute_inorder(
         }
 
         if let Some(trap) = id.trap.clone() {
-            trace_trap!(cpu.config.general.trace_instructions;
+            trace_trap!(state.config.general.trace_instructions;
                 event   = "propagate",
                 stage   = "EX",
                 pc      = %crate::trace::Hex(id.pc),
@@ -80,7 +80,7 @@ pub fn execute_inorder(
             continue;
         }
 
-        trace_execute!(cpu.config.general.trace_instructions;
+        trace_execute!(state.config.general.trace_instructions;
             rob_tag  = id.rob_tag.0,
             pc       = %crate::trace::Hex(id.pc),
             inst     = %crate::trace::Hex32(id.inst),
@@ -99,7 +99,7 @@ pub fn execute_inorder(
         let fwd_c = id.rv3;
         let store_data = fwd_b;
 
-        if cpu.check_execute_trigger(id.pc) {
+        if state.check_execute_trigger(id.pc) {
             rob.fault(
                 id.rob_tag,
                 crate::common::Trap::Breakpoint(id.pc),
@@ -139,7 +139,7 @@ pub fn execute_inorder(
 
         // I-cache flush deferred to commit so prior stores are visible before refill.
         if id.ctrl.system_op == SystemOp::FenceI {
-            cpu.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+            state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
             *redirect_pending = true;
             flush_remaining = true;
 
@@ -165,7 +165,7 @@ pub fn execute_inorder(
         // FENCE is a NOP at execute — handled at commit only.
         if !matches!(id.ctrl.system_op, SystemOp::None | SystemOp::Fence) {
             if id.ctrl.system_op == SystemOp::Mret {
-                if cpu.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
+                if state.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -211,7 +211,7 @@ pub fn execute_inorder(
             }
 
             if id.ctrl.system_op == SystemOp::Sret {
-                if cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -236,8 +236,8 @@ pub fn execute_inorder(
                     });
                     continue;
                 }
-                let tsr = (cpu.hart.csrs.mstatus >> 22) & 1;
-                if cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
+                let tsr = (state.hart.csrs.mstatus >> 22) & 1;
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -285,9 +285,9 @@ pub fn execute_inorder(
 
             // WFI is illegal in U-mode, or in S-mode when mstatus.TW=1.
             if id.ctrl.system_op == SystemOp::Wfi {
-                let tw = (cpu.hart.csrs.mstatus >> 21) & 1;
-                if cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
-                    || (cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                let tw = (state.hart.csrs.mstatus >> 21) & 1;
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
+                    || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
                         && tw != 0)
                 {
                     rob.fault(
@@ -317,8 +317,8 @@ pub fn execute_inorder(
             }
 
             if id.ctrl.system_op == SystemOp::SfenceVma {
-                let tvm = (cpu.hart.csrs.mstatus >> 20) & 1;
-                if cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
+                let tvm = (state.hart.csrs.mstatus >> 20) & 1;
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -345,7 +345,7 @@ pub fn execute_inorder(
                 }
 
                 // Defer TLB flush to commit (after store buffer drains); just flush the frontend.
-                cpu.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
                 *redirect_pending = true;
                 flush_remaining = true;
 
@@ -400,7 +400,7 @@ pub fn execute_inorder(
 
             if id.inst == sys_ops::ECALL {
                 use crate::core::arch::mode::PrivilegeMode;
-                let trap = match cpu.hart.privilege {
+                let trap = match state.hart.privilege {
                     PrivilegeMode::User => Trap::EnvironmentCallFromUMode,
                     PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
                     PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
@@ -430,8 +430,8 @@ pub fn execute_inorder(
 
             if id.ctrl.csr_op != CsrOp::None {
                 if id.ctrl.csr_addr == crate::core::arch::csr::SATP
-                    && cpu.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
-                    && ((cpu.hart.csrs.mstatus >> 20) & 1) != 0
+                    && state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                    && ((state.hart.csrs.mstatus >> 20) & 1) != 0
                 {
                     rob.fault(
                         id.rob_tag,
@@ -472,11 +472,11 @@ pub fn execute_inorder(
                     };
                     if let Some(bit) = counter_bit {
                         let mask = 1u64 << bit;
-                        let denied = match cpu.hart.privilege {
-                            PrivilegeMode::Supervisor => (cpu.hart.csrs.mcounteren & mask) == 0,
+                        let denied = match state.hart.privilege {
+                            PrivilegeMode::Supervisor => (state.hart.csrs.mcounteren & mask) == 0,
                             PrivilegeMode::User => {
-                                (cpu.hart.csrs.mcounteren & mask) == 0
-                                    || (cpu.hart.csrs.scounteren & mask) == 0
+                                (state.hart.csrs.mcounteren & mask) == 0
+                                    || (state.hart.csrs.scounteren & mask) == 0
                             }
                             PrivilegeMode::Machine => false,
                         };
@@ -508,7 +508,7 @@ pub fn execute_inorder(
                     }
                 }
 
-                if !cpu.is_valid_csr(id.ctrl.csr_addr) {
+                if !state.is_valid_csr(id.ctrl.csr_addr) {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -535,7 +535,7 @@ pub fn execute_inorder(
                 }
 
                 let csr_priv = id.ctrl.csr_addr.privilege_level() as u32;
-                if (cpu.hart.privilege.to_u8() as u32) < csr_priv {
+                if (state.hart.privilege.to_u8() as u32) < csr_priv {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -604,10 +604,10 @@ pub fn execute_inorder(
                         || id.ctrl.csr_addr == csr_addrs::FRM
                     {
                         let acc = rob.drain_fp_flags_before(id.rob_tag);
-                        cpu.hart.csrs.fflags |= (acc | inflight_fp_flags | batch_fp_flags) as u64;
+                        state.hart.csrs.fflags |= (acc | inflight_fp_flags | batch_fp_flags) as u64;
                     }
                 }
-                let old = cpu.csr_read(id.ctrl.csr_addr);
+                let old = state.csr_read(id.ctrl.csr_addr);
                 let src = match id.ctrl.csr_op {
                     CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => id.rs1.as_usize() as u64 & 0x1f,
                     _ => fwd_a,
@@ -638,7 +638,7 @@ pub fn execute_inorder(
                     );
                 }
 
-                cpu.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
                 *redirect_pending = true;
                 flush_remaining = true;
 
@@ -664,7 +664,7 @@ pub fn execute_inorder(
 
         // mstatus.FS check is here, not decode, because mstatus writes are deferred to commit.
         {
-            let fs = (cpu.hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
+            let fs = (state.hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
             let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
             if fs == 0 && is_fp {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
@@ -691,9 +691,9 @@ pub fn execute_inorder(
 
         // Vector ops serialize; execute against the VPR directly and flush after.
         if id.ctrl.vec_op != VectorOp::None {
-            match crate::core::units::vpu::execute::execute_vec_op(cpu, &id) {
+            match crate::core::units::vpu::execute::execute_vec_op(state, &id) {
                 Ok(alu_out) => {
-                    cpu.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
                     *redirect_pending = true;
                     flush_remaining = true;
 
@@ -716,7 +716,7 @@ pub fn execute_inorder(
                     });
                 }
                 Err(trap) => {
-                    cpu.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
+                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
                     *redirect_pending = true;
                     flush_remaining = true;
 
@@ -742,7 +742,7 @@ pub fn execute_inorder(
             continue;
         }
 
-        let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(cpu.hart.csrs.frm as u8));
+        let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart.csrs.frm as u8));
         let (alu_out, fp_flags) =
             compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_f16, id.ctrl.is_rv32, fp_rm);
 
@@ -776,15 +776,15 @@ pub fn execute_inorder(
 
             if mispredicted {
                 // Restore GHR to pre-speculation state, then push the actual outcome.
-                cpu.core.branch_predictor.repair_history(&id.ghr_snapshot);
-                cpu.core.branch_predictor.speculate(id.pc, taken);
-                cpu.core.branch_predictor.restore_ras(id.ras_snapshot);
-                cpu.stats.speculative_branch_mispredictions += 1;
-                cpu.hart.pc = actual_next_pc;
+                state.core.branch_predictor.repair_history(&id.ghr_snapshot);
+                state.core.branch_predictor.speculate(id.pc, taken);
+                state.core.branch_predictor.restore_ras(id.ras_snapshot);
+                state.stats.speculative_branch_mispredictions += 1;
+                state.hart.pc = actual_next_pc;
                 *redirect_pending = true;
                 flush_remaining = true;
             } else {
-                cpu.stats.speculative_branch_predictions += 1;
+                state.stats.speculative_branch_predictions += 1;
             }
         }
 
@@ -813,29 +813,29 @@ pub fn execute_inorder(
 
             // Skip for calls — on_call already updates the BTB.
             if !rd_link {
-                cpu.core.branch_predictor.update_btb(id.pc, actual_target);
+                state.core.branch_predictor.update_btb(id.pc, actual_target);
             }
 
             if mispredicted {
-                cpu.core.branch_predictor.repair_history(&id.ghr_snapshot);
-                cpu.core.branch_predictor.restore_ras(id.ras_snapshot);
-                cpu.stats.speculative_branch_mispredictions += 1;
-                cpu.hart.pc = actual_target;
+                state.core.branch_predictor.repair_history(&id.ghr_snapshot);
+                state.core.branch_predictor.restore_ras(id.ras_snapshot);
+                state.stats.speculative_branch_mispredictions += 1;
+                state.hart.pc = actual_target;
                 *redirect_pending = true;
                 flush_remaining = true;
             } else {
-                cpu.stats.speculative_branch_predictions += 1;
+                state.stats.speculative_branch_predictions += 1;
             }
 
             // RAS management per RISC-V Table 2.1: x1 (ra) and x5 (t0) are link registers.
             let ret_addr = id.pc.wrapping_add(id.inst_size.as_u64());
             if rd_link && rs1_link && id.rd != id.rs1 {
-                cpu.core.branch_predictor.on_return();
-                cpu.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
+                state.core.branch_predictor.on_return();
+                state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
             } else if rd_link {
-                cpu.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
+                state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
             } else if rs1_link {
-                cpu.core.branch_predictor.on_return();
+                state.core.branch_predictor.on_return();
             }
         }
 

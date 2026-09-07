@@ -59,7 +59,7 @@ enum EntryOutcome {
 /// detection happens at Memory2 once stores have actually resolved their
 /// store-buffer slots.
 pub fn memory1_stage<E: ExecutionEngine>(
-    cpu: &mut SimState,
+    state: &mut SimState,
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
 ) {
@@ -75,7 +75,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
     let mut iter = entries.into_iter();
 
     while let Some(ex) = iter.next() {
-        match process_entry(cpu, engine, ex) {
+        match process_entry(state, engine, ex) {
             EntryOutcome::Done => {}
             EntryOutcome::Stall(ex) => {
                 input.push(ex);
@@ -91,7 +91,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
 }
 
 fn process_entry<E: ExecutionEngine>(
-    cpu: &mut SimState,
+    state: &mut SimState,
     engine: &mut E,
     ex: ExMem1Entry,
 ) -> EntryOutcome {
@@ -111,7 +111,7 @@ fn process_entry<E: ExecutionEngine>(
     let size = unaligned::width_to_bytes(ex.ctrl.width);
     let is_atomic = ex.ctrl.atomic_op != AtomicOp::None;
     if !unaligned::is_aligned(ex.alu, size)
-        && (cpu.config.memory.misaligned_access_trap || is_atomic)
+        && (state.config.memory.misaligned_access_trap || is_atomic)
     {
         let trap = if ex.ctrl.mem_write {
             unaligned::store_misaligned_trap(ex.alu)
@@ -123,12 +123,12 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     // 3. Sdtrig load/store triggers.
-    if ex.ctrl.mem_read && !is_atomic && cpu.check_load_trigger(ex.alu) {
+    if ex.ctrl.mem_read && !is_atomic && state.check_load_trigger(ex.alu) {
         let trap = Trap::Breakpoint(ex.pc);
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
-    if ex.ctrl.mem_write && !is_atomic && cpu.check_store_trigger(ex.alu) {
+    if ex.ctrl.mem_write && !is_atomic && state.check_store_trigger(ex.alu) {
         let trap = Trap::Breakpoint(ex.pc);
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
@@ -136,7 +136,7 @@ fn process_entry<E: ExecutionEngine>(
 
     // 4. Translation.
     let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
-    let outcome = cpu.translate(VirtAddr::new(ex.alu), access_type, size);
+    let outcome = state.translate(VirtAddr::new(ex.alu), access_type, size);
     let (paddr, pte_update) = match outcome {
         TranslateResult::Ready(r) => {
             if let Some(trap) = r.trap {
@@ -145,14 +145,14 @@ fn process_entry<E: ExecutionEngine>(
             }
             (r.paddr, r.pte_update)
         }
-        TranslateResult::NeedPte { pte_addr, state } => {
-            park_walk(cpu, engine, state, pte_addr, ex);
+        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+            park_walk(state, engine, walk_state, pte_addr, ex);
             return EntryOutcome::ParkedWalk;
         }
     };
 
     // 5. S/U-mode access fault on unmapped paddr; M-mode firmware can probe.
-    if cpu.hart.privilege != PrivilegeMode::Machine && !cpu.bus.is_valid_address(paddr) {
+    if state.hart.privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr) {
         let trap = if ex.ctrl.mem_write {
             Trap::StoreAccessFault(ex.alu)
         } else {
@@ -190,7 +190,7 @@ fn process_entry<E: ExecutionEngine>(
         {
             return EntryOutcome::Stall(ex);
         }
-        emit_load_req(cpu, engine, ex, paddr, vaddr, pte_update, true);
+        emit_load_req(state, engine, ex, paddr, vaddr, pte_update, true);
         return EntryOutcome::Done;
     }
 
@@ -205,7 +205,7 @@ fn process_entry<E: ExecutionEngine>(
         }
         ForwardResult::Stall => EntryOutcome::Stall(ex),
         ForwardResult::Miss => {
-            emit_load_req(cpu, engine, ex, paddr, vaddr, pte_update, false);
+            emit_load_req(state, engine, ex, paddr, vaddr, pte_update, false);
             EntryOutcome::Done
         }
     }
@@ -395,7 +395,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
 
 /// Issues a `MemReq` for a load / LR / AMO and parks the entry.
 fn emit_load_req<E: ExecutionEngine>(
-    cpu: &mut SimState,
+    state: &mut SimState,
     engine: &mut E,
     ex: ExMem1Entry,
     paddr: PhysAddr,
@@ -429,13 +429,13 @@ fn emit_load_req<E: ExecutionEngine>(
         MemOp::Read
     };
 
-    let target = mmio_or_l1d(cpu, engine, paddr, access_size);
+    let target = mmio_or_l1d(state, engine, paddr, access_size);
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
 
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
@@ -450,9 +450,9 @@ fn emit_load_req<E: ExecutionEngine>(
 
 /// Records the parked walk and issues the PTE `MemReq`.
 fn park_walk<E: ExecutionEngine>(
-    cpu: &mut SimState,
+    state: &mut SimState,
     engine: &mut E,
-    state: crate::core::units::mmu::ptw::WalkState,
+    walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
     ex: ExMem1Entry,
 ) {
@@ -463,14 +463,14 @@ fn park_walk<E: ExecutionEngine>(
     let _ = common.outstanding_walks.insert(
         req_id,
         OutstandingWalk {
-            state,
+            state: walk_state,
             pte_addr,
             continuation: WalkContinuation::LoadStore(ex),
         },
     );
 
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),
@@ -490,7 +490,7 @@ fn park_walk<E: ExecutionEngine>(
 /// side effect (e.g. an HTIF tohost write that L1D hit would never reach the
 /// device).
 fn mmio_or_l1d<E: ExecutionEngine>(
-    cpu: &SimState,
+    state: &SimState,
     engine: &E,
     paddr: PhysAddr,
     size: AccessSize,
@@ -502,7 +502,7 @@ fn mmio_or_l1d<E: ExecutionEngine>(
         AccessSize::B8 => 8,
         AccessSize::Line => 64,
     };
-    if cpu.bus.ram_region_for(paddr.val(), size_bytes).is_some() {
+    if state.bus.ram_region_for(paddr.val(), size_bytes).is_some() {
         ComponentId::Cache(engine.common().l1_d_id)
     } else {
         ComponentId::Bus

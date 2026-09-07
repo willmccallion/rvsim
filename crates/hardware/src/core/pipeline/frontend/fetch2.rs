@@ -27,8 +27,8 @@ use crate::{trace_fetch, trace_trap};
 ///
 /// Returns 0 for addresses outside DRAM (an illegal-instruction trap will
 /// surface during decode).
-fn read_inst_half(cpu: &SimState, paddr: u64) -> u16 {
-    cpu.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
+fn read_inst_half(state: &SimState, paddr: u64) -> u16 {
+    state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
     })
@@ -36,7 +36,7 @@ fn read_inst_half(cpu: &SimState, paddr: u64) -> u16 {
 
 /// Executes the Fetch2 stage: decode each F1→F2 entry into an `IfIdEntry`.
 pub fn fetch2_stage(
-    cpu: &mut SimState,
+    state: &mut SimState,
     input: &mut Vec<Fetch1Fetch2Entry>,
     output: &mut Vec<IfIdEntry>,
 ) {
@@ -48,7 +48,7 @@ pub fn fetch2_stage(
 
     for f1 in entries {
         if let Some(ref trap) = f1.trap {
-            trace_trap!(cpu.config.general.trace_instructions;
+            trace_trap!(state.config.general.trace_instructions;
                 event = "propagate",
                 stage = "F2",
                 pc    = %crate::trace::Hex(f1.pc),
@@ -70,7 +70,7 @@ pub fn fetch2_stage(
         }
 
         let phys_addr = f1.paddr.val();
-        let half_word = read_inst_half(cpu, phys_addr);
+        let half_word = read_inst_half(state, phys_addr);
         let is_compressed =
             (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
 
@@ -89,7 +89,7 @@ pub fn fetch2_stage(
             // walk is needed, surface a `Trap::InstructionPageFault` so the
             // op flushes through commit and the next fetch1 retries with the
             // hot TLB.
-            let upper = match cpu.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
+            let upper = match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
                 TranslateResult::Ready(r) => r,
                 TranslateResult::NeedPte { .. } => {
                     // Walks during F2 are not modelled async (rare path);
@@ -113,14 +113,14 @@ pub fn fetch2_stage(
             if let Some(t) = upper.trap {
                 (0, InstSize::Standard, Some(t))
             } else {
-                let upper_half = read_inst_half(cpu, upper.paddr.val());
+                let upper_half = read_inst_half(state, upper.paddr.val());
                 let full_inst = (upper_half as u32) << 16 | (half_word as u32);
                 (full_inst, InstSize::Standard, None)
             }
         };
 
         if let Some(t) = inst_trap {
-            trace_trap!(cpu.config.general.trace_instructions;
+            trace_trap!(state.config.general.trace_instructions;
                 event = "decode-trap",
                 stage = "F2",
                 pc    = %crate::trace::Hex(f1.pc),
@@ -141,7 +141,7 @@ pub fn fetch2_stage(
             break;
         }
 
-        trace_fetch!(cpu.config.general.trace_instructions;
+        trace_fetch!(state.config.general.trace_instructions;
             pc         = %crate::trace::Hex(f1.pc),
             inst       = inst,
             inst_size  = step.as_u64(),

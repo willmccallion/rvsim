@@ -25,7 +25,7 @@ use crate::trace_rename;
 ///
 /// Panics if checkpoint allocation fails after the stall check indicated a slot was available.
 pub fn rename_stage<E: ExecutionEngine>(
-    cpu: &mut SimState,
+    state: &mut SimState,
     input: &mut Vec<IdExEntry>,
     engine: &mut E,
     rename_output: &mut Vec<RenameIssueEntry>,
@@ -38,7 +38,7 @@ pub fn rename_stage<E: ExecutionEngine>(
     for id in entries {
         if budget == 0 {
             if input.is_empty() {
-                cpu.stats.stalls_dispatch += 1;
+                state.stats.stalls_dispatch += 1;
             }
             input.push(id);
             continue;
@@ -51,7 +51,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 && engine.checkpoint_count() > 0
                 && engine.checkpoint_table().is_full()
             {
-                cpu.stats.stalls_checkpoint += 1;
+                state.stats.stalls_checkpoint += 1;
                 // Set budget=0 so remaining iterations also push back to input.
                 budget = 0;
                 input.push(id);
@@ -76,7 +76,7 @@ pub fn rename_stage<E: ExecutionEngine>(
             // operand_groups doesn't have EEW/SEW for vec mem; override grp.vd / grp.vs2 here.
             let is_mem = is_vec_load(id.ctrl.vec_op) || is_vec_store(id.ctrl.vec_op);
             if is_mem {
-                let vtype = parse_vtype(cpu.hart.csrs.vtype);
+                let vtype = parse_vtype(state.hart.csrs.vtype);
                 if !vtype.vill {
                     grp.vd = vec_mem_dst_count(
                         id.ctrl.vec_op,
@@ -217,11 +217,11 @@ pub fn rename_stage<E: ExecutionEngine>(
                 let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(
                     rob_tag,
                     &map_snapshot,
-                    cpu.hart.csrs.vtype,
-                    cpu.hart.csrs.vl,
-                    cpu.hart.csrs.frm,
-                    cpu.hart.csrs.vxrm,
-                    cpu.hart.csrs.vstart,
+                    state.hart.csrs.vtype,
+                    state.hart.csrs.vl,
+                    state.hart.csrs.frm,
+                    state.hart.csrs.vxrm,
+                    state.hart.csrs.vstart,
                 ) else {
                     unreachable!("checkpoint table full after stall check");
                 };
@@ -269,14 +269,14 @@ pub fn rename_stage<E: ExecutionEngine>(
                     VecPhysReg::ZERO
                 },
                 // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
-                vec_vtype: cpu.hart.csrs.vtype,
-                vec_vl: cpu.hart.csrs.vl,
-                vec_vstart: cpu.hart.csrs.vstart,
-                vec_vxrm: cpu.hart.csrs.vxrm,
-                vec_frm: cpu.hart.csrs.frm,
+                vec_vtype: state.hart.csrs.vtype,
+                vec_vl: state.hart.csrs.vl,
+                vec_vstart: state.hart.csrs.vstart,
+                vec_vxrm: state.hart.csrs.vxrm,
+                vec_frm: state.hart.csrs.frm,
             };
 
-            trace_rename!(cpu.config.general.trace_instructions;
+            trace_rename!(state.config.general.trace_instructions;
                 pc         = %crate::trace::Hex(entry.pc),
                 rob_tag    = entry.rob_tag.0,
                 rd         = entry.rd.as_usize(),
@@ -361,14 +361,14 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src2_count: 0,
                 vec_src3_count: 0,
                 mask_phys: VecPhysReg::ZERO,
-                vec_vtype: cpu.hart.csrs.vtype,
-                vec_vl: cpu.hart.csrs.vl,
-                vec_vstart: cpu.hart.csrs.vstart,
-                vec_vxrm: cpu.hart.csrs.vxrm,
-                vec_frm: cpu.hart.csrs.frm,
+                vec_vtype: state.hart.csrs.vtype,
+                vec_vl: state.hart.csrs.vl,
+                vec_vstart: state.hart.csrs.vstart,
+                vec_vxrm: state.hart.csrs.vxrm,
+                vec_frm: state.hart.csrs.frm,
             };
 
-            trace_rename!(cpu.config.general.trace_instructions;
+            trace_rename!(state.config.general.trace_instructions;
                 pc         = %crate::trace::Hex(entry.pc),
                 rob_tag    = entry.rob_tag.0,
                 rd         = entry.rd.as_usize(),

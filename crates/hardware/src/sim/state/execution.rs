@@ -177,28 +177,28 @@ mod tests {
     #[test]
     fn test_track_mode_cycles() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.privilege = PrivilegeMode::User;
-        cpu.track_mode_cycles();
-        assert_eq!(cpu.stats.cycles_user, 1);
+        state.hart.privilege = PrivilegeMode::User;
+        state.track_mode_cycles();
+        assert_eq!(state.stats.cycles_user, 1);
 
-        cpu.hart.privilege = PrivilegeMode::Supervisor;
-        cpu.track_mode_cycles();
-        assert_eq!(cpu.stats.cycles_kernel, 1);
+        state.hart.privilege = PrivilegeMode::Supervisor;
+        state.track_mode_cycles();
+        assert_eq!(state.stats.cycles_kernel, 1);
 
-        cpu.hart.privilege = PrivilegeMode::Machine;
-        cpu.track_mode_cycles();
-        assert_eq!(cpu.stats.cycles_machine, 1);
+        state.hart.privilege = PrivilegeMode::Machine;
+        state.track_mode_cycles();
+        assert_eq!(state.stats.cycles_machine, 1);
     }
 
     #[test]
     fn test_post_tick_zero_reg() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.regs.write(abi::REG_ZERO, 42);
-        cpu.post_tick(PrivilegeMode::Machine);
-        assert_eq!(cpu.hart.regs.read(abi::REG_ZERO), 0);
+        state.hart.regs.write(abi::REG_ZERO, 42);
+        state.post_tick(PrivilegeMode::Machine);
+        assert_eq!(state.hart.regs.read(abi::REG_ZERO), 0);
     }
 }

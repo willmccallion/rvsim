@@ -211,93 +211,93 @@ mod tests {
     fn test_trap_direct_mode_ecall() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.regs.write(abi::REG_A7, sys_ops::SYS_EXIT);
-        cpu.hart.regs.write(abi::REG_A0, 42);
+        state.hart.regs.write(abi::REG_A7, sys_ops::SYS_EXIT);
+        state.hart.regs.write(abi::REG_A0, 42);
 
-        cpu.trap(&Trap::EnvironmentCallFromMMode, 0x1000);
-        assert_eq!(cpu.check_exit(), Some(42));
+        state.trap(&Trap::EnvironmentCallFromMMode, 0x1000);
+        assert_eq!(state.check_exit(), Some(42));
     }
 
     #[test]
     fn test_trap_direct_mode_illegal_instruction() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.trap(&Trap::IllegalInstruction(0), 0x1000);
-        assert_eq!(cpu.check_exit(), Some(0));
+        state.trap(&Trap::IllegalInstruction(0), 0x1000);
+        assert_eq!(state.check_exit(), Some(0));
     }
 
     #[test]
     fn test_trap_direct_mode_breakpoint_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.mtvec = 0x8000_1000;
-        cpu.trap(&Trap::Breakpoint(0x400), 0x400);
+        state.hart.csrs.mtvec = 0x8000_1000;
+        state.trap(&Trap::Breakpoint(0x400), 0x400);
 
-        assert!(cpu.check_exit().is_none(), "should not be fatal when mtvec is set");
-        assert_eq!(cpu.hart.csrs.mepc, 0x400);
-        assert_eq!(cpu.hart.csrs.mcause, 3);
-        assert_eq!(cpu.hart.csrs.mtval, 0x400);
-        assert_eq!(cpu.hart.pc, 0x8000_1000);
+        assert!(state.check_exit().is_none(), "should not be fatal when mtvec is set");
+        assert_eq!(state.hart.csrs.mepc, 0x400);
+        assert_eq!(state.hart.csrs.mcause, 3);
+        assert_eq!(state.hart.csrs.mtval, 0x400);
+        assert_eq!(state.hart.pc, 0x8000_1000);
     }
 
     #[test]
     fn test_trap_direct_mode_breakpoint_no_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.trap(&Trap::Breakpoint(0x400), 0x400);
-        assert_eq!(cpu.check_exit(), Some(1));
+        state.trap(&Trap::Breakpoint(0x400), 0x400);
+        assert_eq!(state.check_exit(), Some(1));
     }
 
     #[test]
     fn test_trap_direct_mode_ecall_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.mtvec = 0x8000_2000;
-        cpu.trap(&Trap::EnvironmentCallFromMMode, 0x500);
+        state.hart.csrs.mtvec = 0x8000_2000;
+        state.trap(&Trap::EnvironmentCallFromMMode, 0x500);
 
-        assert!(cpu.check_exit().is_none());
-        assert_eq!(cpu.hart.csrs.mepc, 0x500);
-        assert_eq!(cpu.hart.pc, 0x8000_2000);
+        assert!(state.check_exit().is_none());
+        assert_eq!(state.hart.csrs.mepc, 0x500);
+        assert_eq!(state.hart.pc, 0x8000_2000);
     }
 
     #[test]
     fn test_do_mret() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.mepc = 0x2000;
-        cpu.hart.csrs.mstatus = (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
-        cpu.hart.csrs.mstatus |= csr::MSTATUS_MPIE;
+        state.hart.csrs.mepc = 0x2000;
+        state.hart.csrs.mstatus = (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
+        state.hart.csrs.mstatus |= csr::MSTATUS_MPIE;
 
-        cpu.do_mret();
+        state.do_mret();
 
-        assert_eq!(cpu.hart.pc, 0x2000);
-        assert_eq!(cpu.hart.privilege, PrivilegeMode::Supervisor);
-        assert_eq!(cpu.hart.csrs.mstatus & csr::MSTATUS_MIE, csr::MSTATUS_MIE);
+        assert_eq!(state.hart.pc, 0x2000);
+        assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
+        assert_eq!(state.hart.csrs.mstatus & csr::MSTATUS_MIE, csr::MSTATUS_MIE);
     }
 
     #[test]
     fn test_do_sret() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.sepc = 0x3000;
-        cpu.hart.csrs.sstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;
+        state.hart.csrs.sepc = 0x3000;
+        state.hart.csrs.sstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;
 
-        cpu.do_sret();
+        state.do_sret();
 
-        assert_eq!(cpu.hart.pc, 0x3000);
-        assert_eq!(cpu.hart.privilege, PrivilegeMode::Supervisor);
-        assert_eq!(cpu.hart.csrs.sstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
+        assert_eq!(state.hart.pc, 0x3000);
+        assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
+        assert_eq!(state.hart.csrs.sstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
     }
 }

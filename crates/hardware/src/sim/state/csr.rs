@@ -367,14 +367,14 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_mstatus() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
+        state.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
 
-        let mstatus = cpu.csr_read(csr::MSTATUS);
+        let mstatus = state.csr_read(csr::MSTATUS);
         assert_ne!(mstatus, 0xFFFF_FFFF_FFFF_FFFF);
 
-        let sstatus = cpu.csr_read(csr::SSTATUS);
+        let sstatus = state.csr_read(csr::SSTATUS);
         assert_eq!(
             sstatus,
             mstatus
@@ -392,11 +392,11 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_fcsr() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.csr_write(csr::FCSR, 0xFF);
-        assert_eq!(cpu.csr_read(csr::FCSR), 0xFF);
-        assert_eq!(cpu.csr_read(csr::FFLAGS), 0x1F);
-        assert_eq!(cpu.csr_read(csr::FRM), 0x7);
+        state.csr_write(csr::FCSR, 0xFF);
+        assert_eq!(state.csr_read(csr::FCSR), 0xFF);
+        assert_eq!(state.csr_read(csr::FFLAGS), 0x1F);
+        assert_eq!(state.csr_read(csr::FRM), 0x7);
     }
 }

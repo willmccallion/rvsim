@@ -184,7 +184,7 @@ impl IssueQueue {
         &mut self,
         entry: RenameIssueEntry,
         rob: &Rob,
-        cpu: &SimState,
+        state: &SimState,
         prf: Option<&PhysRegFile>,
         vec_prf: Option<&VecPhysRegFile>,
         mem_dep: MemDepState,
@@ -194,19 +194,19 @@ impl IssueQueue {
         }
 
         let (src1, src2, src3) = if let Some(prf) = prf {
-            let s1 = resolve_operand_prf(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_phys, prf, cpu);
-            let s2 = resolve_operand_prf(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_phys, prf, cpu);
+            let s1 = resolve_operand_prf(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_phys, prf, state);
+            let s2 = resolve_operand_prf(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_phys, prf, state);
             let s3 = if entry.ctrl.rs3_fp {
-                resolve_operand_prf(entry.rs3, true, entry.rs3_phys, prf, cpu)
+                resolve_operand_prf(entry.rs3, true, entry.rs3_phys, prf, state)
             } else {
                 OperandState::ready(PhysReg(0), None, 0)
             };
             (s1, s2, s3)
         } else {
-            let s1 = resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, cpu);
-            let s2 = resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, cpu);
+            let s1 = resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
+            let s2 = resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
             let s3 = if entry.ctrl.rs3_fp {
-                resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, cpu)
+                resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, state)
             } else {
                 OperandState::ready(PhysReg(0), None, 0)
             };
@@ -633,7 +633,7 @@ fn resolve_operand_prf(
     is_fp: bool,
     phys: PhysReg,
     prf: &PhysRegFile,
-    _cpu: &SimState,
+    _state: &SimState,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);
@@ -655,7 +655,7 @@ fn resolve_operand_legacy(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    cpu: &SimState,
+    state: &SimState,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);
@@ -663,7 +663,7 @@ fn resolve_operand_legacy(
 
     tag.map_or_else(
         || {
-            let value = if is_fp { cpu.hart.regs.read_f(reg) } else { cpu.hart.regs.read(reg) };
+            let value = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
             OperandState::ready(PhysReg(0), None, value)
         },
         |t| match rob.find_entry(t) {
@@ -673,7 +673,7 @@ fn resolve_operand_legacy(
             Some(_) => OperandState::not_ready(PhysReg(0), Some(t)),
             None => {
                 // ROB entry already committed — read from register file.
-                let value = if is_fp { cpu.hart.regs.read_f(reg) } else { cpu.hart.regs.read(reg) };
+                let value = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
                 OperandState::ready(PhysReg(0), None, value)
             }
         },

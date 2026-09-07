@@ -46,7 +46,7 @@ use crate::trace_trap;
 /// engine's `BackendCommon`.
 #[allow(clippy::too_many_arguments)]
 pub fn commit_stage(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut BackendCommon,
     rob: &mut Rob,
     store_buffer: &mut StoreBuffer,
@@ -66,46 +66,46 @@ pub fn commit_stage(
 
     // Always check, even with empty ROB (timer firing during a stall).
     {
-        let epc = if cpu.hart.wfi_waiting {
-            cpu.hart.wfi_pc
+        let epc = if state.hart.wfi_waiting {
+            state.hart.wfi_pc
         } else if let Some(head) = rob.peek_head() {
             head.pc
         } else {
-            cpu.hart.committed_next_pc
+            state.hart.committed_next_pc
         };
 
-        let interrupt = check_interrupts(cpu);
+        let interrupt = check_interrupts(state);
         if let Some(interrupt_trap) = interrupt {
-            cpu.hart.wfi_waiting = false;
-            trace_trap!(cpu.config.general.trace_instructions;
+            state.hart.wfi_waiting = false;
+            trace_trap!(state.config.general.trace_instructions;
                 event      = "interrupt",
                 epc        = %crate::trace::Hex(epc),
                 cause      = ?interrupt_trap,
-                mip        = %crate::trace::Hex(cpu.hart.csrs.mip),
-                mie        = %crate::trace::Hex(cpu.hart.csrs.mie),
-                mstatus    = %crate::trace::Hex(cpu.hart.csrs.mstatus),
-                priv_mode  = ?cpu.hart.privilege,
+                mip        = %crate::trace::Hex(state.hart.csrs.mip),
+                mie        = %crate::trace::Hex(state.hart.csrs.mie),
+                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                priv_mode  = ?state.hart.privilege,
                 "CM: interrupt detected — flushing pipeline"
             );
             trap_event = Some((interrupt_trap, epc));
-        } else if cpu.hart.wfi_waiting {
+        } else if state.hart.wfi_waiting {
             // Block commit while WFI is active so wrong-path post-WFI ops can't retire.
-            let pending = cpu.hart.csrs.mip;
-            let enabled = cpu.hart.csrs.mie;
+            let pending = state.hart.csrs.mip;
+            let enabled = state.hart.csrs.mie;
             if (pending & enabled) != 0 {
-                cpu.hart.wfi_waiting = false;
-                cpu.hart.pc = cpu.hart.wfi_pc;
+                state.hart.wfi_waiting = false;
+                state.hart.pc = state.hart.wfi_pc;
                 *redirect_pending = true;
             } else {
-                cpu.stats.cycles_wfi += 1;
+                state.stats.cycles_wfi += 1;
             }
-            cpu.stats.retire_histogram[0] += 1;
+            state.stats.retire_histogram[0] += 1;
             return trap_event;
         }
     }
 
     if trap_event.is_some() {
-        cpu.stats.retire_histogram[0] += 1;
+        state.stats.retire_histogram[0] += 1;
         return trap_event;
     }
 
@@ -132,7 +132,7 @@ pub fn commit_stage(
                 && let Some(ref the_trap) = entry.trap
             {
                 #[cfg(feature = "commit-log")]
-                if let Some(ref mut log) = cpu.commit_log {
+                if let Some(ref mut log) = state.commit_log {
                     use crate::common::Trap;
                     use std::io::Write;
                     // Spike skips fetch-stage page/access faults (no valid bits).
@@ -147,13 +147,13 @@ pub fn commit_stage(
                             writeln!(log, "core   0: 0x{:016x} (0x{:08x})", entry.pc, entry.inst);
                     }
                 }
-                trace_trap!(cpu.config.general.trace_instructions;
+                trace_trap!(state.config.general.trace_instructions;
                     event     = "sync-exception",
                     pc        = %crate::trace::Hex(entry.pc),
                     rob_tag   = entry.tag.0,
                     cause     = ?the_trap,
-                    priv_mode = ?cpu.hart.privilege,
-                    mstatus   = %crate::trace::Hex(cpu.hart.csrs.mstatus),
+                    priv_mode = ?state.hart.privilege,
+                    mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
                     "CM: synchronous exception at commit"
                 );
                 // Faulting entry was popped before the post-trap flush, so reclaim its phys_dst here.
@@ -191,7 +191,7 @@ pub fn commit_stage(
         retired_count += 1;
 
         // For taken branches/jumps, committed_next_pc must be the target so interrupt EPC is correct.
-        cpu.hart.committed_next_pc = match entry.ctrl.control_flow {
+        state.hart.committed_next_pc = match entry.ctrl.control_flow {
             ControlFlow::Jump => {
                 entry.bp_target.unwrap_or_else(|| entry.pc.wrapping_add(entry.inst_size.as_u64()))
             }
@@ -201,7 +201,7 @@ pub fn commit_stage(
             _ => entry.pc.wrapping_add(entry.inst_size.as_u64()),
         };
 
-        trace_commit!(cpu.config.general.trace_instructions;
+        trace_commit!(state.config.general.trace_instructions;
             rob_tag    = entry.tag.0,
             pc         = %crate::trace::Hex(entry.pc),
             rd         = entry.rd.as_usize(),
@@ -219,7 +219,7 @@ pub fn commit_stage(
         // Defer commit log write until after the register write so rd value is available.
         #[cfg(feature = "commit-log")]
         let commit_log_entry: Option<(u64, u32, bool, usize, u64)> = {
-            if cpu.commit_log.is_some() {
+            if state.commit_log.is_some() {
                 let has_rd =
                     (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
                 Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result.unwrap_or(0)))
@@ -228,26 +228,26 @@ pub fn commit_stage(
             }
         };
 
-        let hart_idx = cpu.hart.hart_id.as_index();
-        let pc_trace = &mut cpu.per_hart_debug[hart_idx].pc_trace;
+        let hart_idx = state.hart.hart_id.as_index();
+        let pc_trace = &mut state.per_hart_debug[hart_idx].pc_trace;
         pc_trace.push((entry.pc, entry.inst));
         if pc_trace.len() > PC_TRACE_MAX {
             let _ = pc_trace.remove(0);
         }
 
         if entry.inst != 0 && entry.inst != 0x13 {
-            cpu.instructions_retired += 1;
-            update_instruction_stats(cpu, &entry);
+            state.instructions_retired += 1;
+            update_instruction_stats(state, &entry);
         }
 
         if entry.bp_update {
-            cpu.core.branch_predictor.update_branch(
+            state.core.branch_predictor.update_branch(
                 entry.bp_pc,
                 entry.bp_outcome.taken,
                 entry.bp_target,
                 &entry.bp_ghr_snapshot,
             );
-            trace_branch!(cpu.config.general.trace_instructions;
+            trace_branch!(state.config.general.trace_instructions;
                 event         = "update",
                 pc            = %crate::trace::Hex(entry.bp_pc),
                 rob_tag       = entry.tag.0,
@@ -257,9 +257,9 @@ pub fn commit_stage(
                 "CM: branch predictor updated at commit"
             );
             if entry.bp_outcome.mispredicted {
-                cpu.stats.committed_branch_mispredictions += 1;
+                state.stats.committed_branch_mispredictions += 1;
             } else {
-                cpu.stats.committed_branch_predictions += 1;
+                state.stats.committed_branch_predictions += 1;
             }
         }
 
@@ -271,15 +271,15 @@ pub fn commit_stage(
         );
         let val = entry.result.unwrap_or(0);
         if entry.ctrl.fp_reg_write {
-            cpu.hart.regs.write_f(entry.rd, val);
+            state.hart.regs.write_f(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, true, entry.tag);
             if entry.old_phys_dst.0 != entry.phys_dst.0 {
                 free_list.reclaim(entry.old_phys_dst);
             }
             committed_rename_map.set(entry.rd, true, entry.phys_dst);
-            cpu.hart.csrs.mstatus = (cpu.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            cpu.hart.csrs.sstatus = (cpu.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            trace_commit!(cpu.config.general.trace_instructions;
+            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
                 reg      = entry.rd.as_usize(),
@@ -290,13 +290,13 @@ pub fn commit_stage(
                 "CM: FP register write"
             );
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
-            cpu.hart.regs.write(entry.rd, val);
+            state.hart.regs.write(entry.rd, val);
             scoreboard.clear_if_match(entry.rd, false, entry.tag);
             if entry.old_phys_dst.0 != entry.phys_dst.0 {
                 free_list.reclaim(entry.old_phys_dst);
             }
             committed_rename_map.set(entry.rd, false, entry.phys_dst);
-            trace_commit!(cpu.config.general.trace_instructions;
+            trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
                 reg      = entry.rd.as_usize(),
@@ -314,7 +314,7 @@ pub fn commit_stage(
                 let vreg = VRegIdx::new(vd_base + i as u8);
                 if let Some(ref mut vprf) = vec_prf {
                     let bytes = vprf.read_bytes(entry.vec_phys_dst[i]);
-                    cpu.hart.regs.vpr_mut().write_bytes(vreg, bytes);
+                    state.hart.regs.vpr_mut().write_bytes(vreg, bytes);
                 }
                 if let Some(ref mut vfl) = vec_free_list
                     && entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i]
@@ -324,14 +324,14 @@ pub fn commit_stage(
                 committed_rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
                 scoreboard.clear_vec_if_match(vreg, entry.tag);
             }
-            cpu.hart.csrs.mstatus = (cpu.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            cpu.hart.csrs.sstatus = (cpu.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            cpu.hart.csrs.vstart = 0;
+            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.vstart = 0;
         }
 
         #[cfg(feature = "commit-log")]
         if let Some((pc, inst, has_rd, rd, val)) = commit_log_entry
-            && let Some(ref mut log) = cpu.commit_log
+            && let Some(ref mut log) = state.commit_log
         {
             use std::io::Write;
             if has_rd {
@@ -342,30 +342,30 @@ pub fn commit_stage(
         }
 
         if let Some(pte_upd) = entry.pte_update {
-            write_store_to_memory(cpu, common, pte_upd.pte_addr, pte_upd.pte_value, MemWidth::Double);
+            write_store_to_memory(state, common, pte_upd.pte_addr, pte_upd.pte_value, MemWidth::Double);
         }
 
         // Apply fp_flags before CSR writes to keep execute-time CSR reads of fflags consistent.
         if entry.fp_flags != 0 {
-            cpu.hart.csrs.fflags |= entry.fp_flags as u64;
-            cpu.hart.csrs.mstatus = (cpu.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            cpu.hart.csrs.sstatus = (cpu.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.fflags |= entry.fp_flags as u64;
+            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
         }
 
         if entry.vxsat {
-            cpu.hart.csrs.vxsat = 1;
+            state.hart.csrs.vxsat = 1;
         }
 
         if let Some(csr_update) = entry.csr_update {
             // SATP write: drain SB so PTW reads up-to-date PTEs after translation mode change.
             if csr_update.addr == csr::SATP {
-                drain_all_committed(cpu, common, store_buffer, vec_store_buffer.as_deref_mut());
+                drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
             }
             // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
             if !csr_update.applied {
-                cpu.csr_write(csr_update.addr, csr_update.new_val);
+                state.csr_write(csr_update.addr, csr_update.new_val);
             }
-            trace_csr!(cpu.config.general.trace_instructions;
+            trace_csr!(state.config.general.trace_instructions;
                 op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -375,55 +375,55 @@ pub fn commit_stage(
                 deferred = !csr_update.applied,
                 "CM: CSR write applied at commit"
             );
-            // SATP redirect: post-execute fetches used old tables; reset cpu.hart.pc to next inst.
+            // SATP redirect: post-execute fetches used old tables; reset state.hart.pc to next inst.
             if csr_update.addr == csr::SATP {
-                cpu.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+                state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
                 *redirect_pending = true;
             }
             break;
         }
 
         if entry.ctrl.system_op == SystemOp::Mret {
-            cpu.do_mret();
-            cpu.hart.committed_next_pc = cpu.hart.pc;
-            trace_trap!(cpu.config.general.trace_instructions;
+            state.do_mret();
+            state.hart.committed_next_pc = state.hart.pc;
+            trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "MRET",
                 pc         = %crate::trace::Hex(entry.pc),
                 rob_tag    = entry.tag.0,
-                return_pc  = %crate::trace::Hex(cpu.hart.pc),
-                mstatus    = %crate::trace::Hex(cpu.hart.csrs.mstatus),
-                priv_mode  = ?cpu.hart.privilege,
+                return_pc  = %crate::trace::Hex(state.hart.pc),
+                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                priv_mode  = ?state.hart.privilege,
                 "CM: MRET committed — privilege restored"
             );
             break;
         }
         if entry.ctrl.system_op == SystemOp::Sret {
-            cpu.do_sret();
-            cpu.hart.committed_next_pc = cpu.hart.pc;
-            trace_trap!(cpu.config.general.trace_instructions;
+            state.do_sret();
+            state.hart.committed_next_pc = state.hart.pc;
+            trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "SRET",
                 pc         = %crate::trace::Hex(entry.pc),
                 rob_tag    = entry.tag.0,
-                return_pc  = %crate::trace::Hex(cpu.hart.pc),
-                mstatus    = %crate::trace::Hex(cpu.hart.csrs.mstatus),
-                priv_mode  = ?cpu.hart.privilege,
+                return_pc  = %crate::trace::Hex(state.hart.pc),
+                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                priv_mode  = ?state.hart.privilege,
                 "CM: SRET committed — privilege restored"
             );
             break;
         }
 
         if entry.ctrl.system_op == SystemOp::Wfi {
-            if cpu.hart.csrs.mie != 0 || cpu.hart.csrs.mip != 0 {
-                cpu.hart.wfi_waiting = true;
-                cpu.hart.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            if state.hart.csrs.mie != 0 || state.hart.csrs.mip != 0 {
+                state.hart.wfi_waiting = true;
+                state.hart.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             } else {
                 // Nothing enabled or pending — treat as NOP to avoid OpenSBI early-boot deadlock.
-                cpu.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+                state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
                 *redirect_pending = true;
             }
-            cpu.hart.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            state.hart.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             break;
         }
 
@@ -431,22 +431,22 @@ pub fn commit_stage(
         if let Some(lr_sc_rec) = entry.lr_sc {
             match lr_sc_rec {
                 LrScRecord::Lr { paddr } => {
-                    cpu.set_reservation(paddr);
+                    state.set_reservation(paddr);
                 }
                 LrScRecord::Sc { paddr } => {
-                    if cpu.check_reservation(paddr) {
-                        cpu.clear_reservation();
+                    if state.check_reservation(paddr) {
+                        state.clear_reservation();
                     } else {
                         // SC failure: undo Memory2's optimistic success (rd=0) and re-fetch.
                         store_buffer.cancel(entry.tag);
                         if entry.ctrl.reg_write && !entry.rd.is_zero() {
-                            cpu.hart.regs.write(entry.rd, 1);
+                            state.hart.regs.write(entry.rd, 1);
                             // Patch PRF too so post-flush rename sees rd=1, not optimistic 0.
                             if let Some(ref mut prf) = prf {
                                 prf.write(entry.phys_dst, 1);
                             }
                         }
-                        cpu.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+                        state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
                         *redirect_pending = true;
                         break;
                     }
@@ -458,9 +458,9 @@ pub fn commit_stage(
             // RISC-V §8.2: a non-LR/SC store to the reservation set must fail any paired SC.
             if entry.lr_sc.is_none()
                 && let Some(paddr) = store_buffer.find_paddr(entry.tag)
-                && cpu.check_reservation(paddr)
+                && state.check_reservation(paddr)
             {
-                cpu.clear_reservation();
+                state.clear_reservation();
             }
             store_buffer.mark_committed(entry.tag);
         } else if crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op) {
@@ -489,10 +489,10 @@ pub fn commit_stage(
         }
 
         if entry.ctrl.system_op == SystemOp::FenceI {
-            drain_all_committed(cpu, common, store_buffer, vec_store_buffer.as_deref_mut());
+            drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
             // I-cache flush after drain so refills see new data; force a fresh redirect.
-            let _ = cpu.core.l1_i_cache.invalidate_all();
-            cpu.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            let _ = state.core.l1_i_cache.invalidate_all();
+            state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             *redirect_pending = true;
             // FENCE.I serializes: break so younger insts fetched pre-drain don't retire here.
             break;
@@ -502,15 +502,15 @@ pub fn commit_stage(
             let pred_r = pred_bits & 0b0010 != 0;
             // pred.w drains the SB; pred.r is satisfied by commit order.
             if pred_w || pred_r {
-                drain_all_committed(cpu, common, store_buffer, vec_store_buffer.as_deref_mut());
+                drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
             }
         }
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            sfence_vma_commit(cpu, &info);
-            cpu.clear_reservation();
-            cpu.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
+            sfence_vma_commit(state, &info);
+            state.clear_reservation();
+            state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             *redirect_pending = true;
             break;
         }
@@ -524,25 +524,25 @@ pub fn commit_stage(
             SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
         ) {
             let rs1 = entry.result.unwrap_or(0);
-            if let Some(trap) = commit_cbo(cpu, common, entry.ctrl.system_op, rs1, entry.inst) {
-                cpu.trap(&trap, entry.pc);
+            if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, rs1, entry.inst) {
+                state.trap(&trap, entry.pc);
                 break;
             }
         }
 
-        cpu.hart.regs.write(RegIdx::new(0), 0);
+        state.hart.regs.write(RegIdx::new(0), 0);
     }
 
     if retired_count == 0 && rob_empty_at_start {
-        cpu.stats.cycles_rob_empty += 1;
+        state.stats.cycles_rob_empty += 1;
     }
-    cpu.stats.retire_histogram[retired_count.min(3)] += 1;
+    state.stats.retire_histogram[retired_count.min(3)] += 1;
 
     // One drain per cycle: fall through to VSB if scalar SB has nothing committed.
-    if !try_drain_one_store(cpu, common, store_buffer)
+    if !try_drain_one_store(state, common, store_buffer)
         && let Some(vsb) = vec_store_buffer
     {
-        let _ = vsb.drain_one_committed(cpu, common);
+        let _ = vsb.drain_one_committed(state, common);
     }
     trap_event
 }
@@ -551,7 +551,7 @@ pub fn commit_stage(
 /// (op = Write). Returns true if a write was emitted (so the caller can
 /// decide whether to also drain the vec-store buffer in the same cycle).
 fn try_drain_one_store(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
 ) -> bool {
@@ -565,29 +565,29 @@ fn try_drain_one_store(
     // other MMIO overlays must bypass it so the per-store MemReq carries the
     // original data to the device (WCB drain packets carry zero data).
     let width_bytes = width_to_bytes(store.width);
-    let is_pure_ram = cpu.bus.ram_region_for(paddr.val(), width_bytes as u64).is_some();
+    let is_pure_ram = state.bus.ram_region_for(paddr.val(), width_bytes as u64).is_some();
 
-    if !cpu.core.wcb.is_disabled() && is_pure_ram {
+    if !state.core.wcb.is_disabled() && is_pure_ram {
         // Update RAM directly so subsequent loads via the fast path see the
         // new value while the WCB coalesces dirty-line accounting; the WCB
         // drain only signals the line was dirty, it doesn't carry data.
-        write_store_data_to_ram(cpu, paddr, data, store.width);
-        let evicted = cpu.core.wcb.merge_store(paddr, data, width_bytes);
+        write_store_data_to_ram(state, paddr, data, store.width);
+        let evicted = state.core.wcb.merge_store(paddr, data, width_bytes);
         if evicted.is_none() {
-            cpu.stats.wcb_coalesces += 1;
+            state.stats.wcb_coalesces += 1;
         }
         if let Some(drain) = evicted {
-            emit_line_writeback(cpu, common, PhysAddr::new(drain.line_addr));
-            cpu.stats.wcb_drains += 1;
+            emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
+            state.stats.wcb_drains += 1;
         }
     } else {
-        write_store_to_memory(cpu, common, paddr, data, store.width);
+        write_store_to_memory(state, common, paddr, data, store.width);
     }
-    trace_commit!(cpu.config.general.trace_instructions;
+    trace_commit!(state.config.general.trace_instructions;
         paddr      = %crate::trace::Hex(paddr.val()),
         data       = %crate::trace::Hex(data),
         width      = ?store.width,
-        via_wcb    = !cpu.core.wcb.is_disabled() && is_pure_ram,
+        via_wcb    = !state.core.wcb.is_disabled() && is_pure_ram,
         "CM: committed store drained to memory"
     );
     true
@@ -600,35 +600,35 @@ fn try_drain_one_store(
 /// Called before SATP writes (so the PTW sees up-to-date PTEs) and on FENCE
 /// commit (so younger memory ops see older committed writes).
 fn drain_all_committed(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
     vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
 ) {
     while let Some(store) = store_buffer.drain_one() {
         if let StoreResolution::Committed { paddr, data } = store.resolution {
-            write_store_to_memory(cpu, common, paddr, data, store.width);
+            write_store_to_memory(state, common, paddr, data, store.width);
         }
     }
     if let Some(vsb) = vec_store_buffer {
-        vsb.drain_all_committed(cpu, common);
+        vsb.drain_all_committed(state, common);
     }
-    flush_wcb(cpu, common);
+    flush_wcb(state, common);
 }
 
 /// Flushes all WCB entries by emitting write-back `MemReq` packets.
-fn flush_wcb(cpu: &mut SimState, common: &mut BackendCommon) {
-    let drains = cpu.core.wcb.flush_all();
+fn flush_wcb(state: &mut SimState, common: &mut BackendCommon) {
+    let drains = state.core.wcb.flush_all();
     for drain in drains {
-        emit_line_writeback(cpu, common, PhysAddr::new(drain.line_addr));
-        cpu.stats.wcb_drains += 1;
+        emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
+        state.stats.wcb_drains += 1;
     }
 }
 
 /// Emits a cache-line write-back `MemReq` to the L1D for an evicted WCB
 /// line. The cache routes it through the hierarchy; memctrl applies the
 /// actual DRAM write.
-fn emit_line_writeback(cpu: &mut SimState, common: &mut BackendCommon, paddr: PhysAddr) {
+fn emit_line_writeback(state: &mut SimState, common: &mut BackendCommon, paddr: PhysAddr) {
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
@@ -636,8 +636,8 @@ fn emit_line_writeback(cpu: &mut SimState, common: &mut BackendCommon, paddr: Ph
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
     );
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),
@@ -658,7 +658,7 @@ fn emit_line_writeback(cpu: &mut SimState, common: &mut BackendCommon, paddr: Ph
 /// visible to the page-table walk and observable by other agents before
 /// this op's side effect.
 fn commit_cbo(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut BackendCommon,
     op: SystemOp,
     rs1: u64,
@@ -672,22 +672,22 @@ fn commit_cbo(
 
     let (effective_op, access) = match op {
         SystemOp::CboZero => {
-            if !cboz_allowed(cpu.hart.csrs.menvcfg, cpu.hart.csrs.senvcfg, cpu.hart.privilege) {
+            if !cboz_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege) {
                 return Some(Trap::IllegalInstruction(inst));
             }
             (SystemOp::CboZero, AccessType::Write)
         }
         SystemOp::CboInval => match cbo_inval_action(
-            cpu.hart.csrs.menvcfg,
-            cpu.hart.csrs.senvcfg,
-            cpu.hart.privilege,
+            state.hart.csrs.menvcfg,
+            state.hart.csrs.senvcfg,
+            state.hart.privilege,
         ) {
             CboInvalAction::Illegal => return Some(Trap::IllegalInstruction(inst)),
             CboInvalAction::Flush => (SystemOp::CboFlush, AccessType::Read),
             CboInvalAction::Invalidate => (SystemOp::CboInval, AccessType::Write),
         },
         SystemOp::CboClean | SystemOp::CboFlush => {
-            if !cbocf_allowed(cpu.hart.csrs.menvcfg, cpu.hart.csrs.senvcfg, cpu.hart.privilege) {
+            if !cbocf_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege) {
                 return Some(Trap::IllegalInstruction(inst));
             }
             (op, AccessType::Read)
@@ -696,7 +696,7 @@ fn commit_cbo(
     };
 
     let aligned_va = rs1 & !(CBOZ_BLOCK_SIZE - 1);
-    let translate_result = cpu.translate(VirtAddr::new(aligned_va), access, CBOZ_BLOCK_SIZE);
+    let translate_result = state.translate(VirtAddr::new(aligned_va), access, CBOZ_BLOCK_SIZE);
     let result = match translate_result {
         crate::sim::state::memory::TranslateResult::Ready(r) => r,
         crate::sim::state::memory::TranslateResult::NeedPte { .. } => {
@@ -716,15 +716,15 @@ fn commit_cbo(
     let paddr = result.paddr.val();
 
     match effective_op {
-        SystemOp::CboZero => cboz_write(cpu, common, paddr),
+        SystemOp::CboZero => cboz_write(state, common, paddr),
         // cbo.flush is "writeback then invalidate"; in this simulator stores
         // are already at RAM by commit, so the writeback is a no-op and we
         // share cbo.inval's drop-the-line implementation.
         SystemOp::CboInval | SystemOp::CboFlush => {
-            let _ = cpu.core.l1_d_cache.invalidate_line(paddr);
+            let _ = state.core.l1_d_cache.invalidate_line(paddr);
         }
         SystemOp::CboClean => {
-            let _ = cpu.core.l1_d_cache.clean_line(paddr);
+            let _ = state.core.l1_d_cache.clean_line(paddr);
         }
         _ => {}
     }
@@ -733,13 +733,13 @@ fn commit_cbo(
 
 /// Writes `CBOZ_BLOCK_SIZE` bytes of zeros at `block_paddr` as a sequence of
 /// 8-byte stores. Caller must drain the store buffer first.
-fn cboz_write(cpu: &mut SimState, common: &mut BackendCommon, block_paddr: u64) {
+fn cboz_write(state: &mut SimState, common: &mut BackendCommon, block_paddr: u64) {
     use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
     const CHUNK: u64 = 8;
     let mut offset = 0u64;
     while offset < CBOZ_BLOCK_SIZE {
         write_store_to_memory(
-            cpu,
+            state,
             common,
             PhysAddr::new(block_paddr + offset),
             0,
@@ -761,7 +761,7 @@ fn cboz_write(cpu: &mut SimState, common: &mut BackendCommon, block_paddr: u64) 
 /// memory-controller accounting, and outstanding-store ack all see the
 /// store at the right time.
 fn write_store_to_memory(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
@@ -782,9 +782,9 @@ fn write_store_to_memory(
         MemWidth::Nop => return,
     };
 
-    write_store_data_to_ram(cpu, paddr, data, width);
+    write_store_data_to_ram(state, paddr, data, width);
 
-    let is_ram = cpu.bus.ram_region_for(paddr.val(), width_bytes).is_some();
+    let is_ram = state.bus.ram_region_for(paddr.val(), width_bytes).is_some();
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
     let target = if is_ram {
@@ -796,8 +796,8 @@ fn write_store_to_memory(
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
     );
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
@@ -814,7 +814,7 @@ fn write_store_to_memory(
 /// Writes a committed store's bytes into the `RamRegion` fast-path so subsequent
 /// loads (which read RAM directly via `read_load_bytes`) see the new value.
 /// No-op for addresses outside RAM (MMIO) — those reach their device via packet.
-fn write_store_data_to_ram(cpu: &SimState, paddr: PhysAddr, data: u64, width: MemWidth) {
+fn write_store_data_to_ram(state: &SimState, paddr: PhysAddr, data: u64, width: MemWidth) {
     let width_bytes = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,
@@ -822,7 +822,7 @@ fn write_store_data_to_ram(cpu: &SimState, paddr: PhysAddr, data: u64, width: Me
         MemWidth::Double => 8,
         MemWidth::Nop => return,
     };
-    let Some(r) = cpu.bus.ram_region_for(paddr.val(), width_bytes) else { return };
+    let Some(r) = state.bus.ram_region_for(paddr.val(), width_bytes) else { return };
     // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
     unsafe {
         let ptr = r.ptr(paddr.val());
@@ -837,10 +837,10 @@ fn write_store_data_to_ram(cpu: &SimState, paddr: PhysAddr, data: u64, width: Me
 }
 
 /// Checks for pending interrupts. Returns the trap if one should be taken.
-fn check_interrupts(cpu: &SimState) -> Option<Trap> {
-    let mip = cpu.hart.csrs.mip;
-    let mie = cpu.hart.csrs.mie;
-    let mstatus = cpu.hart.csrs.mstatus;
+fn check_interrupts(state: &SimState) -> Option<Trap> {
+    let mip = state.hart.csrs.mip;
+    let mie = state.hart.csrs.mie;
+    let mstatus = state.hart.csrs.mstatus;
 
     let m_global_ie = (mstatus & csr::MSTATUS_MIE) != 0;
     let s_global_ie = (mstatus & csr::MSTATUS_SIE) != 0;
@@ -852,14 +852,14 @@ fn check_interrupts(cpu: &SimState) -> Option<Trap> {
             return None;
         }
 
-        let delegated = (cpu.hart.csrs.mideleg & deleg_bit) != 0;
+        let delegated = (state.hart.csrs.mideleg & deleg_bit) != 0;
         let target_priv =
             if delegated { PrivilegeMode::Supervisor } else { PrivilegeMode::Machine };
 
-        if cpu.hart.privilege.to_u8() < target_priv.to_u8() {
+        if state.hart.privilege.to_u8() < target_priv.to_u8() {
             return Some(TrapHandler::irq_to_trap(bit));
         }
-        if cpu.hart.privilege == target_priv {
+        if state.hart.privilege == target_priv {
             if target_priv == PrivilegeMode::Machine && m_global_ie {
                 return Some(TrapHandler::irq_to_trap(bit));
             }
@@ -879,29 +879,29 @@ fn check_interrupts(cpu: &SimState) -> Option<Trap> {
 }
 
 /// Updates instruction statistics based on the committed entry.
-const fn update_instruction_stats(cpu: &mut SimState, entry: &crate::core::pipeline::rob::RobEntry) {
+const fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pipeline::rob::RobEntry) {
     // Check vec ops first: vec loads/stores also set mem_read/mem_write.
     if !matches!(entry.ctrl.vec_op, VectorOp::None) {
-        update_vec_instruction_stats(cpu, entry.ctrl.vec_op);
+        update_vec_instruction_stats(state, entry.ctrl.vec_op);
         return;
     }
 
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
-            cpu.stats.inst_fp_load += 1;
+            state.stats.inst_fp_load += 1;
         } else {
-            cpu.stats.inst_load += 1;
+            state.stats.inst_load += 1;
         }
     } else if entry.ctrl.mem_write {
         if entry.ctrl.rs2_fp {
-            cpu.stats.inst_fp_store += 1;
+            state.stats.inst_fp_store += 1;
         } else {
-            cpu.stats.inst_store += 1;
+            state.stats.inst_store += 1;
         }
     } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-        cpu.stats.inst_branch += 1;
+        state.stats.inst_branch += 1;
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
-        cpu.stats.inst_system += 1;
+        state.stats.inst_system += 1;
     } else {
         match entry.ctrl.alu {
             AluOp::FAdd
@@ -931,18 +931,18 @@ const fn update_instruction_stats(cpu: &mut SimState, entry: &crate::core::pipel
             | AluOp::FCvtDH
             | AluOp::FCvtHD
             | AluOp::FMvToX
-            | AluOp::FMvToF => cpu.stats.inst_fp_arith += 1,
-            AluOp::FDiv | AluOp::FSqrt => cpu.stats.inst_fp_div_sqrt += 1,
+            | AluOp::FMvToF => state.stats.inst_fp_arith += 1,
+            AluOp::FDiv | AluOp::FSqrt => state.stats.inst_fp_div_sqrt += 1,
             AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
-                cpu.stats.inst_fp_fma += 1;
+                state.stats.inst_fp_fma += 1;
             }
-            _ => cpu.stats.inst_alu += 1,
+            _ => state.stats.inst_alu += 1,
         }
     }
 }
 
 /// Categorize a vector instruction into the appropriate stat counter.
-const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
+const fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
     match op {
         VectorOp::None => {}
         VectorOp::VLoadUnit
@@ -951,13 +951,13 @@ const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
         | VectorOp::VLoadWholeReg
         | VectorOp::VLoadStride
         | VectorOp::VLoadIndexOrd
-        | VectorOp::VLoadIndexUnord => cpu.stats.inst_vec_load += 1,
+        | VectorOp::VLoadIndexUnord => state.stats.inst_vec_load += 1,
         VectorOp::VStoreUnit
         | VectorOp::VStoreMask
         | VectorOp::VStoreWholeReg
         | VectorOp::VStoreStride
         | VectorOp::VStoreIndexOrd
-        | VectorOp::VStoreIndexUnord => cpu.stats.inst_vec_store += 1,
+        | VectorOp::VStoreIndexUnord => state.stats.inst_vec_store += 1,
         VectorOp::VAdd
         | VectorOp::VSub
         | VectorOp::VRsub
@@ -1041,7 +1041,7 @@ const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
         | VectorOp::VRedMaxU
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
-        | VectorOp::VWRedSum => cpu.stats.inst_vec_int += 1,
+        | VectorOp::VWRedSum => state.stats.inst_vec_int += 1,
         VectorOp::VFAdd
         | VectorOp::VFSub
         | VectorOp::VFRSub
@@ -1111,7 +1111,7 @@ const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
         | VectorOp::VFRedMax
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
-        | VectorOp::VFWRedUSum => cpu.stats.inst_vec_fp += 1,
+        | VectorOp::VFWRedUSum => state.stats.inst_vec_fp += 1,
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
         | VectorOp::Vsetvl
@@ -1170,7 +1170,7 @@ const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
         | VectorOp::VSm4R
         | VectorOp::VSm4K
         | VectorOp::VGhsh
-        | VectorOp::VGmul => cpu.stats.inst_vec_misc += 1,
+        | VectorOp::VGmul => state.stats.inst_vec_misc += 1,
     }
 }
 
@@ -1179,33 +1179,33 @@ const fn update_vec_instruction_stats(cpu: &mut SimState, op: VectorOp) {
 /// rs1!=0,rs2==0: flush TLB entries matching vaddr in rs1;
 /// rs1==0,rs2!=0: flush non-global TLB entries matching ASID in rs2;
 /// rs1!=0,rs2!=0: flush TLB entry matching both vaddr and ASID.
-fn sfence_vma_commit(cpu: &mut SimState, info: &SfenceVmaInfo) {
+fn sfence_vma_commit(state: &mut SimState, info: &SfenceVmaInfo) {
     match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
         (false, false) => {
-            cpu.hart.mmu.dtlb.flush();
-            cpu.hart.mmu.itlb.flush();
-            cpu.hart.mmu.l2_tlb.flush();
-            let _ = cpu.core.l1_d_cache.flush();
-            let _ = cpu.core.l1_i_cache.invalidate_all();
+            state.hart.mmu.dtlb.flush();
+            state.hart.mmu.itlb.flush();
+            state.hart.mmu.l2_tlb.flush();
+            let _ = state.core.l1_d_cache.flush();
+            let _ = state.core.l1_i_cache.invalidate_all();
         }
         (true, false) => {
             let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            cpu.hart.mmu.dtlb.flush_vaddr(vpn);
-            cpu.hart.mmu.itlb.flush_vaddr(vpn);
-            cpu.hart.mmu.l2_tlb.flush_vaddr(vpn);
+            state.hart.mmu.dtlb.flush_vaddr(vpn);
+            state.hart.mmu.itlb.flush_vaddr(vpn);
+            state.hart.mmu.l2_tlb.flush_vaddr(vpn);
         }
         (false, true) => {
             let asid = Asid::new(info.rs2_val as u16);
-            cpu.hart.mmu.dtlb.flush_asid(asid);
-            cpu.hart.mmu.itlb.flush_asid(asid);
-            cpu.hart.mmu.l2_tlb.flush_asid(asid);
+            state.hart.mmu.dtlb.flush_asid(asid);
+            state.hart.mmu.itlb.flush_asid(asid);
+            state.hart.mmu.l2_tlb.flush_asid(asid);
         }
         (true, true) => {
             let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
             let asid = Asid::new(info.rs2_val as u16);
-            cpu.hart.mmu.dtlb.flush_vaddr_asid(vpn, asid);
-            cpu.hart.mmu.itlb.flush_vaddr_asid(vpn, asid);
-            cpu.hart.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
+            state.hart.mmu.dtlb.flush_vaddr_asid(vpn, asid);
+            state.hart.mmu.itlb.flush_vaddr_asid(vpn, asid);
+            state.hart.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
         }
     }
 }
@@ -1221,42 +1221,42 @@ mod tests {
     #[test]
     fn test_check_interrupts_none() {
         let config = Config::default();
-        let cpu = SimState::build(&config, "");
+        let state = SimState::build(&config, "");
 
-        assert!(check_interrupts(&cpu).is_none());
+        assert!(check_interrupts(&state).is_none());
     }
 
     #[test]
     fn test_check_interrupts_m_mode() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.mip = csr::MIP_MEIP;
-        cpu.hart.csrs.mie = csr::MIE_MEIP;
-        cpu.hart.csrs.mstatus |= csr::MSTATUS_MIE;
-        cpu.hart.privilege = PrivilegeMode::Machine;
+        state.hart.csrs.mip = csr::MIP_MEIP;
+        state.hart.csrs.mie = csr::MIE_MEIP;
+        state.hart.csrs.mstatus |= csr::MSTATUS_MIE;
+        state.hart.privilege = PrivilegeMode::Machine;
 
-        assert_eq!(check_interrupts(&cpu), Some(Trap::MachineExternalInterrupt));
+        assert_eq!(check_interrupts(&state), Some(Trap::MachineExternalInterrupt));
     }
 
     #[test]
     fn test_check_interrupts_s_mode_delegated() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.hart.csrs.mip = csr::MIP_SEIP;
-        cpu.hart.csrs.mie = csr::MIE_SEIP;
-        cpu.hart.csrs.mstatus |= csr::MSTATUS_SIE;
-        cpu.hart.csrs.mideleg |= 1 << DELEG_SEIP_BIT;
-        cpu.hart.privilege = PrivilegeMode::Supervisor;
+        state.hart.csrs.mip = csr::MIP_SEIP;
+        state.hart.csrs.mie = csr::MIE_SEIP;
+        state.hart.csrs.mstatus |= csr::MSTATUS_SIE;
+        state.hart.csrs.mideleg |= 1 << DELEG_SEIP_BIT;
+        state.hart.privilege = PrivilegeMode::Supervisor;
 
-        assert_eq!(check_interrupts(&cpu), Some(Trap::SupervisorExternalInterrupt));
+        assert_eq!(check_interrupts(&state), Some(Trap::SupervisorExternalInterrupt));
     }
 
     #[test]
     fn test_commit_stage_normal() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
         let mut rob = Rob::new(4);
         let mut store_buffer = StoreBuffer::new(4);
@@ -1286,7 +1286,7 @@ mod tests {
         let mut redirect = false;
         let mut common = BackendCommon::default();
         let trap = commit_stage(
-            &mut cpu,
+            &mut state,
             &mut common,
             &mut rob,
             &mut store_buffer,
@@ -1303,6 +1303,6 @@ mod tests {
             &mut redirect,
         );
         assert!(trap.is_none());
-        assert_eq!(cpu.hart.regs.read(RegIdx::new(1)), 42);
+        assert_eq!(state.hart.regs.read(RegIdx::new(1)), 42);
     }
 }

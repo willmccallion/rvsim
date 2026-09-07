@@ -16,7 +16,7 @@ use crate::trace_trap;
 use crate::trace_writeback;
 
 /// Executes the Writeback stage: marks ROB entries Completed (or Faulted).
-pub fn writeback_stage(cpu: &mut SimState, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
+pub fn writeback_stage(state: &mut SimState, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
     let entries = std::mem::take(input);
 
     for wb in entries {
@@ -29,7 +29,7 @@ pub fn writeback_stage(cpu: &mut SimState, input: &mut Vec<Mem2WbEntry>, rob: &m
                 trap.clone(),
                 wb.exception_stage.unwrap_or(ExceptionStage::Memory),
             );
-            trace_trap!(cpu.config.general.trace_instructions;
+            trace_trap!(state.config.general.trace_instructions;
                 event   = "writeback-fault",
                 pc      = %crate::trace::Hex(wb.pc),
                 rob_tag = wb.rob_tag.0,
@@ -62,7 +62,7 @@ pub fn writeback_stage(cpu: &mut SimState, input: &mut Vec<Mem2WbEntry>, rob: &m
         }
         rob.complete(wb.rob_tag, val);
 
-        trace_writeback!(cpu.config.general.trace_instructions;
+        trace_writeback!(state.config.general.trace_instructions;
             rob_tag  = wb.rob_tag.0,
             pc       = %crate::trace::Hex(wb.pc),
             result   = %crate::trace::Hex(val),

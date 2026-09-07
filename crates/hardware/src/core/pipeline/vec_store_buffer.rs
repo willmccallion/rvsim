@@ -408,7 +408,7 @@ impl VecStoreBuffer {
     /// to share commit-time bandwidth with the scalar SB.
     pub fn drain_one_committed(
         &mut self,
-        cpu: &mut SimState,
+        state: &mut SimState,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) -> bool {
         let Some(idx) = self.oldest_drainable_entry_index() else { return false };
@@ -417,7 +417,7 @@ impl VecStoreBuffer {
             let entry = &mut self.entries[idx];
             entry.lines.remove(0)
         };
-        write_line_to_memory(cpu, common, &line);
+        write_line_to_memory(state, common, &line);
 
         if self.entries[idx].lines.is_empty() {
             self.entries[idx].valid = false;
@@ -429,10 +429,10 @@ impl VecStoreBuffer {
     /// (commit-time barriers) and by the trap-driven full flush.
     pub fn drain_all_committed(
         &mut self,
-        cpu: &mut SimState,
+        state: &mut SimState,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) {
-        while self.drain_one_committed(cpu, common) {}
+        while self.drain_one_committed(state, common) {}
     }
 
     /// Drops entries strictly newer than `keep_tag`. Older entries (whether
@@ -491,7 +491,7 @@ impl VecStoreBuffer {
 /// Each run is rounded to a single 1/2/4/8-byte aligned `MemReq` that
 /// covers it, matching the scalar SB drain path.
 fn write_line_to_memory(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     line: &VsbLine,
 ) {
@@ -532,7 +532,7 @@ fn write_line_to_memory(
                 data |= (line.data[abs_offset + b] as u64) << (b * 8);
             }
             let paddr = PhysAddr::new(abs_addr);
-            issue_drained_write(cpu, common, paddr, data, width);
+            issue_drained_write(state, common, paddr, data, width);
 
             pos += max_natural;
         }
@@ -545,7 +545,7 @@ fn write_line_to_memory(
 /// `read_load_bytes` see the new value. MMIO addresses fall through the
 /// packet path only (no RAM-backed write).
 fn issue_drained_write(
-    cpu: &mut SimState,
+    state: &mut SimState,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     paddr: PhysAddr,
     data: u64,
@@ -570,7 +570,7 @@ fn issue_drained_write(
         MemWidth::Double => 8,
         MemWidth::Nop => return,
     };
-    if let Some(r) = cpu.bus.ram_region_for(paddr.val(), width_bytes) {
+    if let Some(r) = state.bus.ram_region_for(paddr.val(), width_bytes) {
         // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
         unsafe {
             let ptr = r.ptr(paddr.val());
@@ -591,8 +591,8 @@ fn issue_drained_write(
         req_id,
         OutstandingStore { rob_tag: RobTag::default(), paddr },
     );
-    let cycle = cpu.cycle;
-    cpu.event_queue.schedule(
+    let cycle = state.cycle;
+    state.event_queue.schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),

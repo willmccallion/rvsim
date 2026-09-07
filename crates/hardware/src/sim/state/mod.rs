@@ -407,32 +407,32 @@ mod tests {
     #[test]
     fn test_cpu_reservation() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        cpu.set_reservation(PhysAddr::new(0x1000));
-        assert!(cpu.check_reservation(PhysAddr::new(0x1000)));
-        assert!(cpu.check_reservation(PhysAddr::new(0x1008)));
-        assert!(!cpu.check_reservation(PhysAddr::new(0x2000)));
+        state.set_reservation(PhysAddr::new(0x1000));
+        assert!(state.check_reservation(PhysAddr::new(0x1000)));
+        assert!(state.check_reservation(PhysAddr::new(0x1008)));
+        assert!(!state.check_reservation(PhysAddr::new(0x2000)));
 
-        cpu.clear_reservation();
-        assert!(!cpu.check_reservation(PhysAddr::new(0x1000)));
+        state.clear_reservation();
+        assert!(!state.check_reservation(PhysAddr::new(0x1000)));
     }
 
     #[test]
     fn test_cpu_dump_state_no_panic() {
         let config = Config::default();
-        let cpu = SimState::build(&config, "");
-        cpu.dump_state();
+        let state = SimState::build(&config, "");
+        state.dump_state();
     }
 
     #[test]
     fn test_cpu_take_exit() {
         let config = Config::default();
-        let cpu = SimState::build(&config, "");
+        let state = SimState::build(&config, "");
 
-        assert_eq!(cpu.take_exit(), None);
-        cpu.signal_exit(42);
-        assert_eq!(cpu.take_exit(), Some(42));
-        assert_eq!(cpu.take_exit(), None);
+        assert_eq!(state.take_exit(), None);
+        state.signal_exit(42);
+        assert_eq!(state.take_exit(), Some(42));
+        assert_eq!(state.take_exit(), None);
     }
 }

@@ -30,7 +30,7 @@ pub fn load_binary(path: &str) -> Result<Vec<u8>, SimError> {
 /// Returns [`SimError::FileRead`] if any required binary file cannot be read from disk.
 #[allow(clippy::needless_pass_by_value)]
 pub fn setup_kernel_load(
-    cpu: &mut SimState,
+    state: &mut SimState,
     config: &Config,
     _disk_path: &str,
     dtb_path: Option<String>,
@@ -44,10 +44,10 @@ pub fn setup_kernel_load(
 
     if let Some(path) = dtb_path {
         let dtb_data = load_binary(&path)?;
-        cpu.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     } else {
         let dtb_data = crate::sim::dtb::generate_dtb(config);
-        cpu.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     }
 
     // Prefer fw_jump.bin (matches spike's fw_jump.elf for log comparison)
@@ -59,22 +59,22 @@ pub fn setup_kernel_load(
 
     if fs::metadata(sbi_path).is_ok() {
         let sbi_data = load_binary(sbi_path)?;
-        cpu.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
+        state.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
         let default_kernel_path = "software/linux/output/Image";
         let kernel_path = kernel_path_override.as_deref().unwrap_or(default_kernel_path);
 
         if fs::metadata(kernel_path).is_ok() {
             let kernel_data = load_binary(kernel_path)?;
-            cpu.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
+            state.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
         } else {
             println!("[Loader] WARNING: Linux Image not found at {kernel_path}");
         }
 
-        cpu.hart.pc = opensbi_addr;
-        cpu.hart.privilege = PrivilegeMode::Machine;
-        cpu.hart.regs.write(abi::REG_A0, 0);
-        cpu.hart.regs.write(abi::REG_A1, dtb_addr);
+        state.hart.pc = opensbi_addr;
+        state.hart.privilege = PrivilegeMode::Machine;
+        state.hart.regs.write(abi::REG_A0, 0);
+        state.hart.regs.write(abi::REG_A1, dtb_addr);
 
         if sbi_path == sbi_dynamic_path {
             // fw_dynamic_info struct: magic, version, next_addr, next_mode,
@@ -96,20 +96,20 @@ pub fn setup_kernel_load(
             for field in &fields {
                 info_bytes.extend_from_slice(&field.to_le_bytes());
             }
-            cpu.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
-            cpu.hart.regs.write(abi::REG_A2, info_addr);
+            state.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
+            state.hart.regs.write(abi::REG_A2, info_addr);
         } else {
-            cpu.hart.regs.write(abi::REG_A2, 0);
+            state.hart.regs.write(abi::REG_A2, 0);
         }
     } else {
         let load_addr = ram_base + config.system.kernel_offset;
 
-        cpu.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
-        cpu.hart.pc = ram_base;
-        cpu.hart.privilege = PrivilegeMode::Machine;
-        cpu.csr_write(csr::MEPC, load_addr);
-        cpu.hart.regs.write(abi::REG_A0, 0);
-        cpu.hart.regs.write(abi::REG_A1, dtb_addr);
+        state.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
+        state.hart.pc = ram_base;
+        state.hart.privilege = PrivilegeMode::Machine;
+        state.csr_write(csr::MEPC, load_addr);
+        state.hart.regs.write(abi::REG_A0, 0);
+        state.hart.regs.write(abi::REG_A1, dtb_addr);
     }
 
     Ok(())
@@ -209,17 +209,17 @@ mod tests {
     #[test]
     fn test_setup_kernel_load_fallback() {
         let config = Config::default();
-        let mut cpu = SimState::build(&config, "");
+        let mut state = SimState::build(&config, "");
 
-        setup_kernel_load(&mut cpu, &config, "", None, None).unwrap();
+        setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
         let ram_base = config.system.ram_base;
         let load_addr = ram_base + config.system.kernel_offset;
 
-        assert_eq!(cpu.hart.pc, ram_base);
-        assert_eq!(cpu.hart.privilege, PrivilegeMode::Machine);
-        assert_eq!(cpu.csr_read(csr::MEPC), load_addr);
-        assert_eq!(cpu.hart.regs.read(abi::REG_A0), 0);
-        assert_eq!(cpu.hart.regs.read(abi::REG_A1), ram_base + 0x2200000);
+        assert_eq!(state.hart.pc, ram_base);
+        assert_eq!(state.hart.privilege, PrivilegeMode::Machine);
+        assert_eq!(state.csr_read(csr::MEPC), load_addr);
+        assert_eq!(state.hart.regs.read(abi::REG_A0), 0);
+        assert_eq!(state.hart.regs.read(abi::REG_A1), ram_base + 0x2200000);
     }
 }
