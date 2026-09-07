@@ -5,3 +5,6 @@
 
 /// Tests for binary loader and kernel setup.
 pub mod loader;
+
+/// Tests for the hierarchical stats query language.
+pub mod stats_query;

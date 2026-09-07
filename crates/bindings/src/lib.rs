@@ -38,6 +38,8 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<instruction::PyInstruction>()?;
     m.add_class::<snapshot::PyPipelineSnapshot>()?;
+    m.add_class::<stats::PyStats>()?;
+    m.add_class::<stats::PyQueryResult>()?;
     m.add_class::<views::Registers>()?;
     m.add_class::<views::Csrs>()?;
     m.add_class::<views::Memory>()?;

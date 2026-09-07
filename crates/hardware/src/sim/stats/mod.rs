@@ -366,6 +366,33 @@ impl Stats {
         summary::format(self, cycles, instructions_retired)
     }
 
+    /// Same as [`Stats::summary`], but restricts output to a whitelist of
+    /// top-level subjects (e.g. `["core0", "hart0"]`). An empty slice emits
+    /// the header only.
+    #[must_use]
+    pub fn summary_sections(
+        &self,
+        cycles: u64,
+        instructions_retired: u64,
+        sections: &[&str],
+    ) -> String {
+        summary::format_sections(self, cycles, instructions_retired, Some(sections))
+    }
+
+    /// The set of top-level subjects that currently have at least one
+    /// registered stat.
+    #[must_use]
+    pub fn subjects(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = self
+            .meta
+            .keys()
+            .map(|p| p.split_once('.').map_or(*p, |(head, _)| head))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Resets every counter and histogram in the tree. Metadata and derived
     /// registrations are preserved so the tree shape survives phase resets.
     pub fn reset(&mut self) {

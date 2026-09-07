@@ -246,11 +246,15 @@ impl PySimulator {
         self.inner.state.config.general.trace_instructions = value;
     }
 
-    /// Performance statistics as a dict (read-only).
+    /// Snapshot of the stats tree — path lookups, wildcard queries, and the
+    /// auto-summary. See [`crate::stats::PyStats`].
     #[getter]
-    fn stats(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
-        Ok(s.to_dict(py)?.into_bound(py).into_any().unbind())
+    fn stats(&self) -> PyStats {
+        PyStats::new(
+            self.inner.state.stats.clone(),
+            self.inner.state.cycle,
+            self.inner.state.instructions_retired,
+        )
     }
 
     /// Register file — ``cpu.hart.regs[10]``, ``cpu.hart.regs[10] = v``.
@@ -354,8 +358,10 @@ impl PySimulator {
     /// Args:
     ///     limit: Max cycles to simulate. ``None`` means unlimited.
     ///     progress: Print progress to stderr every N cycles. 0 = silent.
-    ///     `stats_sections`: Print stats on completion. ``None`` = suppress,
-    ///         ``[]`` = all sections, ``["summary", ...]`` = specific sections.
+    ///     `stats_sections`: Print stats on completion. ``None`` suppresses
+    ///         the report; ``[]`` prints all subjects; a list of subjects
+    ///         (e.g. ``["core0", "hart0"]``) restricts output to those
+    ///         subjects. Use :meth:`Stats.subjects` to enumerate.
     ///
     /// Returns:
     ///     Exit code or ``None`` if *limit* was reached without exiting.
@@ -374,12 +380,20 @@ impl PySimulator {
         };
 
         if let Some(sections) = stats_sections {
-            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
-            if sections.is_empty() {
-                s.print();
+            let text = if sections.is_empty() {
+                self.inner.state.stats.summary(
+                    self.inner.state.cycle,
+                    self.inner.state.instructions_retired,
+                )
             } else {
-                s.print_sections(sections);
-            }
+                let refs: Vec<&str> = sections.iter().map(String::as_str).collect();
+                self.inner.state.stats.summary_sections(
+                    self.inner.state.cycle,
+                    self.inner.state.instructions_retired,
+                    &refs,
+                )
+            };
+            println!("{text}");
         }
 
         Ok(exit)
@@ -392,16 +406,10 @@ impl PySimulator {
     ///     limit: Maximum total cycles. ``None`` runs until program exits.
     ///
     /// Returns:
-    ///     List of stats dicts, one per interval. Wrap in ``Stats(s)`` for
-    ///     ``.query()`` support.
+    ///     List of :class:`Stats` snapshots, one per interval.
     #[pyo3(signature = (every, limit=None))]
-    fn sample(
-        &mut self,
-        py: Python<'_>,
-        every: u64,
-        limit: Option<u64>,
-    ) -> PyResult<Vec<PyObject>> {
-        let mut snapshots: Vec<PyObject> = Vec::new();
+    fn sample(&mut self, py: Python<'_>, every: u64, limit: Option<u64>) -> PyResult<Vec<PyStats>> {
+        let mut snapshots: Vec<PyStats> = Vec::new();
         let mut cycles_run = 0u64;
 
         loop {
@@ -418,8 +426,11 @@ impl PySimulator {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
-            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
-            snapshots.push(s.to_dict(py)?.into_bound(py).into_any().unbind());
+            snapshots.push(PyStats::new(
+                self.inner.state.stats.clone(),
+                self.inner.state.cycle,
+                self.inner.state.instructions_retired,
+            ));
 
             if exit.is_some() {
                 break;

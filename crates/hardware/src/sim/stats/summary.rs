@@ -18,11 +18,33 @@ use super::{Meta, Stats};
 /// emitted first as a fixed header so the derived rates that follow have
 /// context.
 pub fn format(stats: &Stats, cycles: u64, instructions_retired: u64) -> String {
+    format_sections(stats, cycles, instructions_retired, None)
+}
+
+/// Same as [`format`], but restricts output to a whitelist of top-level
+/// subjects.
+///
+/// - `sections = None` → include everything (equivalent to [`format`]).
+/// - `sections = Some(&[])` → header only, no subject sections.
+/// - `sections = Some(&["core0", "hart0"])` → those subjects only.
+///
+/// The pseudo-section `"summary"` is always implied by the header (cycles +
+/// retired count) and is accepted for symmetry with legacy callers; if it's
+/// the only entry, only the header is emitted.
+pub fn format_sections(
+    stats: &Stats,
+    cycles: u64,
+    instructions_retired: u64,
+    sections: Option<&[&str]>,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "cycles                {cycles}");
     let _ = writeln!(out, "instructions_retired  {instructions_retired}");
 
-    let entries = collect_entries(stats);
+    let include = |subject: &str| sections.is_none_or(|list| list.contains(&subject));
+
+    let entries: Vec<Entry<'_>> =
+        collect_entries(stats).into_iter().filter(|e| include(e.subject)).collect();
     if entries.is_empty() {
         return out;
     }
