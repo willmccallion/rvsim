@@ -71,7 +71,7 @@ impl SimpleController {
 impl Handle for SimpleController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let data = service_request(&self.buffer, self.base, paddr, size, op);
+            let data = service_request(&self.buffer, self.base, paddr, size, &op);
             ctx.scheduler.schedule(
                 ctx.cycle + self.latency,
                 source,
@@ -234,7 +234,7 @@ impl Handle for DramController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let latency = self.compute_latency(paddr.val(), ctx.cycle);
-            let data = service_request(&self.buffer, self.base, paddr, size, op);
+            let data = service_request(&self.buffer, self.base, paddr, size, &op);
             ctx.scheduler.schedule(
                 ctx.cycle + latency,
                 source,
@@ -293,7 +293,7 @@ fn service_request(
     base: PhysAddr,
     paddr: PhysAddr,
     size: AccessSize,
-    op: MemOp,
+    op: &MemOp,
 ) -> MemRespData {
     let offset = (paddr.val().saturating_sub(base.val())) as usize;
     match op {

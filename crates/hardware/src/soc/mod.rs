@@ -1,8 +1,9 @@
 //! System-on-Chip (SoC) Components.
 //!
-//! Component types (bus, memory controller, MMIO devices) live here; the
-//! CPU (`crate::sim::SimState`) owns instances of them directly. There is no
-//! aggregate `Soc` struct — the fields are flat on `SimState`.
+//! Component types (bus, memory controller, MMIO devices) live here.
+//!
+//! The CPU (`crate::sim::SimState`) owns instances of them directly. There is
+//! no aggregate `Soc` struct — the fields are flat on `SimState`.
 
 /// Memory-mapped I/O device implementations.
 pub mod devices;

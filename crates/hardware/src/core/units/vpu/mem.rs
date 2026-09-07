@@ -772,7 +772,8 @@ fn mem_read_element(cpu: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Tra
     let paddr = translate_vector_element(cpu, vaddr, AccessType::Read, size)?;
     let raw = paddr.val();
     let region = cpu.bus.ram_region().filter(|r| r.contains(raw, size));
-    let val = if let Some(r) = region {
+    // Architecturally invalid vector ops against MMIO return zero (None branch).
+    let val = region.map_or(0, |r| {
         // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
         unsafe {
             match eew {
@@ -782,10 +783,7 @@ fn mem_read_element(cpu: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Tra
                 Sew::E64 => r.ptr(raw).cast::<u64>().read_unaligned(),
             }
         }
-    } else {
-        // Architecturally invalid: vector ops against MMIO return zero.
-        0
-    };
+    });
     Ok(val)
 }
 

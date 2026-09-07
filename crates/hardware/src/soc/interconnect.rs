@@ -1,6 +1,8 @@
-//! System interconnect (bus) — routes packets to MMIO devices or the memory
-//! controller, ticks devices, aggregates IRQs through PLIC, and exposes a
-//! fast-path RAM region pointer for pipeline bit-exact reads.
+//! System interconnect (bus).
+//!
+//! Routes packets to MMIO devices or the memory controller, ticks devices,
+//! aggregates IRQs through PLIC, and exposes a fast-path RAM region pointer
+//! for pipeline bit-exact reads.
 
 use super::devices::Device;
 use super::memory::RamRegion;
@@ -239,15 +241,18 @@ impl Handle for Bus {
         match packet {
             Packet::MemReq { req_id, paddr, .. } => {
                 let raw = paddr.val();
-                let is_ram = self.ram_ctrl.is_some_and(|(_, start, end)| raw >= start && raw < end);
+                let ram_hit = self
+                    .ram_ctrl
+                    .filter(|(_, start, end)| raw >= *start && raw < *end);
                 let is_htif = self
                     .htif_range
                     .is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
                 let req_transit = self.calculate_transit_time(BUS_REQ_BYTES);
                 let resp_transit = self.calculate_transit_time(BUS_RESP_BYTES);
 
-                if is_ram && !is_htif {
-                    let (ctrl_id, _, _) = self.ram_ctrl.expect("ram_ctrl checked above");
+                if let Some((ctrl_id, _, _)) = ram_hit
+                    && !is_htif
+                {
                     let _ = self.pending.insert(req_id, source);
                     ctx.scheduler.schedule(
                         ctx.cycle + req_transit,

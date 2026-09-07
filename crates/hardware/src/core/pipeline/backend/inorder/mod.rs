@@ -66,10 +66,12 @@ impl InOrderEngine {
         l1_i_id: CacheId,
         l1_d_id: CacheId,
     ) -> Self {
-        let mut common = BackendCommon::default();
-        common.pipeline_id = pipeline_id;
-        common.l1_i_id = l1_i_id;
-        common.l1_d_id = l1_d_id;
+        let common = BackendCommon {
+            pipeline_id,
+            l1_i_id,
+            l1_d_id,
+            ..BackendCommon::default()
+        };
         Self {
             rob: Rob::new(config.pipeline.rob_size),
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),

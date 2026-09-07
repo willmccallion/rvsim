@@ -112,7 +112,7 @@ impl SimState {
     /// Applies the post-translation PMP + bus-address checks shared by the
     /// initial translate and walk continuation paths.
     fn finalize_outcome(
-        &mut self,
+        &self,
         outcome: TranslateOutcome,
         vaddr: VirtAddr,
         access: AccessType,
@@ -133,12 +133,9 @@ impl SimState {
                         matches!(access, AccessType::Fetch),
                         is_machine,
                     );
-                    if pmp_result != PmpResult::Allow {
-                        result = TranslationResult::fault(
-                            fault_for(access, vaddr.val()),
-                            result.cycles,
-                        );
-                    } else if !self.bus.is_valid_address(result.paddr) {
+                    if pmp_result != PmpResult::Allow
+                        || !self.bus.is_valid_address(result.paddr)
+                    {
                         result = TranslationResult::fault(
                             fault_for(access, vaddr.val()),
                             result.cycles,

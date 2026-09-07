@@ -1,6 +1,6 @@
 //! Per-hart sim-side debug bookkeeping.
 //!
-//! Lives on the Simulator (or transitionally on SimState) rather than `Hart`,
+//! Lives on the Simulator (or transitionally on `SimState`) rather than `Hart`,
 //! which is strict architectural state. These fields are simulator
 //! observability of guest behaviour: hang detection, kernel-panic
 //! observation, and a retired-instruction ring buffer used by the

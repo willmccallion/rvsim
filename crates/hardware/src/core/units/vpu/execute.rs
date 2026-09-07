@@ -407,7 +407,7 @@ pub struct VecOpResult {
     pub vxsat: bool,
 }
 
-/// Build execution context from raw CSR values (no SimState reference needed).
+/// Build execution context from raw CSR values (no `SimState` reference needed).
 const fn build_ctx_from_csrs(
     vtype_bits: u64,
     vl: u64,

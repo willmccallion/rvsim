@@ -626,6 +626,9 @@ impl Cache {
     /// Pass-through routing used when this cache level is disabled: forwards
     /// the request to `downstream` with zero added latency while recording the
     /// original requester so the eventual response routes back through here.
+    // Mirrors the shape of a MemReq packet plus routing metadata; splitting into
+    // a struct would just re-inline the same fields at every call site.
+    #[allow(clippy::too_many_arguments)]
     fn forward_pass_through(
         &mut self,
         req_id: ReqId,

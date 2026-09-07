@@ -235,12 +235,10 @@ impl Handle for Plic {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let offset = paddr.val().saturating_sub(self.base_addr);
             let value: u64 = match (size, op) {
-                (AccessSize::B4, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. }) => {
-                    u64::from(self.read_u32_reg(offset))
-                }
-                (AccessSize::B8, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. }) => {
-                    u64::from(self.read_u32_reg(offset))
-                }
+                (
+                    AccessSize::B4 | AccessSize::B8,
+                    MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. },
+                ) => u64::from(self.read_u32_reg(offset)),
                 (
                     AccessSize::B1,
                     MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. },
@@ -254,11 +252,10 @@ impl Handle for Plic {
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
                 }
-                (AccessSize::B4, MemOp::Write { data: WriteData::Small(val) }) => {
-                    self.write_u32_reg(offset, val as u32);
-                    0
-                }
-                (AccessSize::B8, MemOp::Write { data: WriteData::Small(val) }) => {
+                (
+                    AccessSize::B4 | AccessSize::B8,
+                    MemOp::Write { data: WriteData::Small(val) },
+                ) => {
                     self.write_u32_reg(offset, val as u32);
                     0
                 }

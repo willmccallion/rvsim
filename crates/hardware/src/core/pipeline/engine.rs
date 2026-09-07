@@ -237,9 +237,11 @@ impl BackendCommon {
     }
 }
 
-/// The full pipeline combines a frontend and an engine. In-flight memory
-/// bookkeeping lives on the engine's [`BackendCommon`]; the pipeline reaches
-/// it via [`ExecutionEngine::common`] / [`ExecutionEngine::common_mut`].
+/// The full pipeline combines a frontend and an engine.
+///
+/// In-flight memory bookkeeping lives on the engine's [`BackendCommon`]; the
+/// pipeline reaches it via [`ExecutionEngine::common`] /
+/// [`ExecutionEngine::common_mut`].
 #[derive(Debug)]
 pub struct Pipeline<E: ExecutionEngine> {
     /// Frontend stages: fetch, decode, rename.
@@ -323,7 +325,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     }
 }
 
-/// Type-erased pipeline for storage in the non-generic SimState struct.
+/// Type-erased pipeline for storage in the non-generic `SimState` struct.
 #[derive(Debug)]
 pub enum PipelineDispatch {
     /// In-order pipeline.

@@ -208,12 +208,11 @@ impl O3Engine {
                 config.pipeline.vec_store_buffer_size,
                 config.pipeline.vec_store_forwarding,
             ),
-            common: {
-                let mut c = crate::core::pipeline::engine::BackendCommon::default();
-                c.pipeline_id = pipeline_id;
-                c.l1_i_id = l1_i_id;
-                c.l1_d_id = l1_d_id;
-                c
+            common: crate::core::pipeline::engine::BackendCommon {
+                pipeline_id,
+                l1_i_id,
+                l1_d_id,
+                ..crate::core::pipeline::engine::BackendCommon::default()
             },
         }
     }
