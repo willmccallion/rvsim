@@ -95,12 +95,11 @@ fn test_bus_interaction_tick() {
 #[test]
 fn test_stats_updated() {
     let mut sim = create_test_sim();
-    let initial_instructions = sim.state.stats.instructions_retired;
+    let initial_instructions = sim.state.instructions_retired;
 
     sim.tick().unwrap();
 
-    // Stats should be updated or remain the same (can't execute if no valid instruction)
-    assert!(sim.state.stats.instructions_retired >= initial_instructions);
+    assert!(sim.state.instructions_retired >= initial_instructions);
 }
 
 #[test]

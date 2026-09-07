@@ -73,6 +73,10 @@ pub struct SimState {
     /// the bench view replaces direct `SimState` access.
     pub per_hart_debug: Vec<HartDebug>,
 
+    /// Number of instructions committed (retired). Read on every
+    /// INSTRET/MINSTRET CSR access — kept as a dedicated `u64` on the
+    /// hot path rather than in the observability tree.
+    pub instructions_retired: u64,
     /// Sim-side perf observability counters.
     pub stats: SimStats,
     /// Optional buffered writer for the commit log (enabled by the
@@ -305,6 +309,7 @@ impl SimState {
             l3_cache,
             config: config.clone(),
             per_hart_debug: vec![HartDebug::default()],
+            instructions_retired: 0,
             stats: SimStats::default(),
             #[cfg(feature = "commit-log")]
             commit_log: None,
@@ -352,7 +357,7 @@ impl SimState {
     }
 
     /// Loads a binary into memory at the given physical address.
-    pub fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
+    pub const fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
         self.bus.load_binary_at(data, addr);
     }
 

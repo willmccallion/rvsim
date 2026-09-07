@@ -12,22 +12,23 @@ use rvsim_core::stats::SimStats;
 pub struct PyStats {
     pub inner: SimStats,
     pub cycles: u64,
+    pub instructions_retired: u64,
 }
 
 impl PyStats {
-    /// Construct from a stats snapshot and the cycle count at the time of the snapshot.
-    pub const fn new(inner: SimStats, cycles: u64) -> Self {
-        Self { inner, cycles }
+    /// Construct from a stats snapshot, cycle count, and retired-instruction count.
+    pub const fn new(inner: SimStats, cycles: u64, instructions_retired: u64) -> Self {
+        Self { inner, cycles, instructions_retired }
     }
 
     /// Print all stats (full dump).
     pub fn print(&self) {
-        self.inner.print(self.cycles);
+        self.inner.print(self.cycles, self.instructions_retired);
     }
 
     /// Print only the given sections.
     pub fn print_sections(&self, sections: Vec<String>) {
-        self.inner.print_sections(self.cycles, &sections);
+        self.inner.print_sections(self.cycles, self.instructions_retired, &sections);
     }
 
     /// Export all stats as a Python dict (JSON-serializable).
@@ -35,7 +36,7 @@ impl PyStats {
         let d = pyo3::types::PyDict::new(py);
         let s = &self.inner;
         d.set_item("cycles", self.cycles)?;
-        d.set_item("instructions_retired", s.instructions_retired)?;
+        d.set_item("instructions_retired", self.instructions_retired)?;
         d.set_item("icache_hits", s.icache_hits)?;
         d.set_item("icache_misses", s.icache_misses)?;
         d.set_item("dcache_hits", s.dcache_hits)?;
@@ -85,8 +86,11 @@ impl PyStats {
             0.0
         };
         d.set_item("speculative_branch_accuracy_pct", spec_acc)?;
-        let ipc =
-            if self.cycles > 0 { s.instructions_retired as f64 / self.cycles as f64 } else { 0.0 };
+        let ipc = if self.cycles > 0 {
+            self.instructions_retired as f64 / self.cycles as f64
+        } else {
+            0.0
+        };
         d.set_item("ipc", ipc)?;
 
         d.set_item("inst_load", s.inst_load)?;
@@ -122,8 +126,8 @@ impl PyStats {
     }
 }
 
-impl From<(SimStats, u64)> for PyStats {
-    fn from((inner, cycles): (SimStats, u64)) -> Self {
-        Self { inner, cycles }
+impl From<(SimStats, u64, u64)> for PyStats {
+    fn from((inner, cycles, instructions_retired): (SimStats, u64, u64)) -> Self {
+        Self { inner, cycles, instructions_retired }
     }
 }

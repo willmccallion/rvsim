@@ -236,7 +236,7 @@ pub fn commit_stage(
         }
 
         if entry.inst != 0 && entry.inst != 0x13 {
-            cpu.stats.instructions_retired += 1;
+            cpu.instructions_retired += 1;
             update_instruction_stats(cpu, &entry);
         }
 
@@ -814,7 +814,7 @@ fn write_store_to_memory(
 /// Writes a committed store's bytes into the `RamRegion` fast-path so subsequent
 /// loads (which read RAM directly via `read_load_bytes`) see the new value.
 /// No-op for addresses outside RAM (MMIO) — those reach their device via packet.
-fn write_store_data_to_ram(cpu: &mut SimState, paddr: PhysAddr, data: u64, width: MemWidth) {
+fn write_store_data_to_ram(cpu: &SimState, paddr: PhysAddr, data: u64, width: MemWidth) {
     let width_bytes = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,

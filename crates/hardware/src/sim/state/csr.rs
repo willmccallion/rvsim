@@ -70,7 +70,7 @@ impl SimState {
             x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.cycle,
             x if x == csr::TIME.as_u32() => self.cycle / self.config.system.clint_divider,
             x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
-                self.stats.instructions_retired
+                self.instructions_retired
             }
             x if x == csr::PMPCFG0.as_u32() => {
                 self.hart.pmp.get_cfg(0) as u64
@@ -260,7 +260,7 @@ impl SimState {
                 self.hart.csrs.senvcfg = val;
             }
             x if x == csr::MCYCLE.as_u32() => self.cycle = val,
-            x if x == csr::MINSTRET.as_u32() => self.stats.instructions_retired = val,
+            x if x == csr::MINSTRET.as_u32() => self.instructions_retired = val,
             x if x == csr::PMPCFG0.as_u32() => {
                 for i in 0..8 {
                     self.hart.pmp.set_cfg(i, ((val >> (i * 8)) & 0xFF) as u8);

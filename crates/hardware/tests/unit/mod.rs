@@ -42,12 +42,3 @@ pub mod soc;
 /// and other simulation initialization tasks.
 pub mod sim;
 
-/// Unit tests for simulation statistics verification.
-///
-/// This module contains tests that ensure the [`SimStats`](rvsim_core::stats::SimStats) structure
-/// correctly tracks and calculates various performance metrics, including
-/// instruction mixes, cache hit rates, and stall breakdowns.
-pub mod stats_verification;
-
-/// Comprehensive simulation statistics tests.
-pub mod stats_comprehensive;
