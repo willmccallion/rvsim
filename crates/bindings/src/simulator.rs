@@ -249,7 +249,7 @@ impl PySimulator {
     /// Performance statistics as a dict (read-only).
     #[getter]
     fn stats(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.stats_hier.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
+        let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
         Ok(s.to_dict(py)?.into_bound(py).into_any().unbind())
     }
 
@@ -374,7 +374,7 @@ impl PySimulator {
         };
 
         if let Some(sections) = stats_sections {
-            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.stats_hier.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
+            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
             if sections.is_empty() {
                 s.print();
             } else {
@@ -418,7 +418,7 @@ impl PySimulator {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
-            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.stats_hier.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
+            let s = PyStats::from((self.inner.state.stats.clone(), self.inner.state.cycle, self.inner.state.instructions_retired));
             snapshots.push(s.to_dict(py)?.into_bound(py).into_any().unbind());
 
             if exit.is_some() {

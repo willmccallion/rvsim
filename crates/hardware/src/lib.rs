@@ -12,8 +12,6 @@ pub mod isa;
 pub mod sim;
 /// System-on-chip (builder, bus, devices, memory, traits).
 pub mod soc;
-/// Simulation statistics collection and reporting.
-pub mod stats;
 /// Compile-time–gated tracing macros for every pipeline subsystem.
 pub mod trace;
 

@@ -37,7 +37,6 @@ use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
     DramConfig, DramController, MemoryController, SimpleController,
 };
-use crate::stats::SimStats;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,8 +76,6 @@ pub struct SimState {
     /// INSTRET/MINSTRET CSR access — kept as a dedicated `u64` on the
     /// hot path rather than in the observability tree.
     pub instructions_retired: u64,
-    /// Sim-side perf observability counters.
-    pub stats: SimStats,
     /// Optional buffered writer for the commit log (enabled by the
     /// `commit-log` feature).
     #[cfg(feature = "commit-log")]
@@ -96,8 +93,8 @@ pub struct SimState {
 
     /// Global event queue: every inter-component message lands here.
     pub event_queue: EventQueue,
-    /// Hierarchical statistics tree. Will absorb [`SimStats`] in a later phase.
-    pub stats_hier: Stats,
+    /// Hierarchical statistics tree; sim-side perf observability counters.
+    pub stats: Stats,
     /// Monotonic counter for assigning fresh [`crate::sim::components::ReqId`]
     /// values to outgoing memory requests.
     pub next_req_id: u64,
@@ -310,14 +307,13 @@ impl SimState {
             config: config.clone(),
             per_hart_debug: vec![HartDebug::default()],
             instructions_retired: 0,
-            stats: SimStats::default(),
             #[cfg(feature = "commit-log")]
             commit_log: None,
             exit_signal,
             exit_code: None,
             direct_mode,
             event_queue: EventQueue::new(),
-            stats_hier: Stats::with_default_registrations(),
+            stats: Stats::with_default_registrations(),
             next_req_id: 0,
         }
     }

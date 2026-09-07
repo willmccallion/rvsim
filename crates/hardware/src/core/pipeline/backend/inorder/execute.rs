@@ -780,12 +780,12 @@ pub fn execute_inorder(
                 state.core.branch_predictor.repair_history(&id.ghr_snapshot);
                 state.core.branch_predictor.speculate(id.pc, taken);
                 state.core.branch_predictor.restore_ras(id.ras_snapshot);
-                state.stats_hier.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
+                state.stats.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
                 state.hart.pc = actual_next_pc;
                 *redirect_pending = true;
                 flush_remaining = true;
             } else {
-                state.stats_hier.counter(paths::core::bp::SPEC_HITS).inc();
+                state.stats.counter(paths::core::bp::SPEC_HITS).inc();
             }
         }
 
@@ -820,12 +820,12 @@ pub fn execute_inorder(
             if mispredicted {
                 state.core.branch_predictor.repair_history(&id.ghr_snapshot);
                 state.core.branch_predictor.restore_ras(id.ras_snapshot);
-                state.stats_hier.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
+                state.stats.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
                 state.hart.pc = actual_target;
                 *redirect_pending = true;
                 flush_remaining = true;
             } else {
-                state.stats_hier.counter(paths::core::bp::SPEC_HITS).inc();
+                state.stats.counter(paths::core::bp::SPEC_HITS).inc();
             }
 
             // RAS management per RISC-V Table 2.1: x1 (ra) and x5 (t0) are link registers.

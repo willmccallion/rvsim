@@ -187,7 +187,7 @@ impl SimState {
             self.hart.pc = target_pc;
         }
 
-        self.stats_hier.counter(paths::hart::TRAPS).inc();
+        self.stats.counter(paths::hart::TRAPS).inc();
     }
 
     /// Executes the `MRET` instruction (Return from Machine Mode).

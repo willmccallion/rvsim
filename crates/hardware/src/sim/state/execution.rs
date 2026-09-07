@@ -163,9 +163,9 @@ impl SimState {
     /// Tracks cycles spent in each privilege mode for statistics.
     fn track_mode_cycles(&mut self) {
         match self.hart.privilege {
-            PrivilegeMode::User => self.stats_hier.counter(paths::hart::CYCLES_USER).inc(),
-            PrivilegeMode::Supervisor => self.stats_hier.counter(paths::hart::CYCLES_KERNEL).inc(),
-            PrivilegeMode::Machine => self.stats_hier.counter(paths::hart::CYCLES_MACHINE).inc(),
+            PrivilegeMode::User => self.stats.counter(paths::hart::CYCLES_USER).inc(),
+            PrivilegeMode::Supervisor => self.stats.counter(paths::hart::CYCLES_KERNEL).inc(),
+            PrivilegeMode::Machine => self.stats.counter(paths::hart::CYCLES_MACHINE).inc(),
         }
     }
 }
@@ -182,15 +182,15 @@ mod tests {
 
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
-        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_USER).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths::hart::CYCLES_USER).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Supervisor;
         state.track_mode_cycles();
-        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_KERNEL).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths::hart::CYCLES_KERNEL).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
-        assert_eq!(state.stats_hier.get(paths::hart::CYCLES_MACHINE).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths::hart::CYCLES_MACHINE).unwrap_or(0.0) as u64, 1);
     }
 
     #[test]

@@ -6,40 +6,37 @@
 
 use pyo3::prelude::*;
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::stats::SimStats;
 
 /// Internal statistics wrapper — not exposed to Python.
 #[derive(Clone)]
 pub struct PyStats {
-    pub inner: SimStats,
-    pub stats_hier: Stats,
+    pub stats: Stats,
     pub cycles: u64,
     pub instructions_retired: u64,
 }
 
 impl PyStats {
     /// Construct from a stats snapshot, cycle count, and retired-instruction count.
-    pub const fn new(
-        inner: SimStats,
-        stats_hier: Stats,
-        cycles: u64,
-        instructions_retired: u64,
-    ) -> Self {
-        Self { inner, stats_hier, cycles, instructions_retired }
+    pub const fn new(stats: Stats, cycles: u64, instructions_retired: u64) -> Self {
+        Self { stats, cycles, instructions_retired }
     }
 
     /// Print all stats (full dump).
     pub fn print(&self) {
-        self.inner.print(self.cycles, self.instructions_retired);
+        println!("{}", self.stats.summary(self.cycles, self.instructions_retired));
     }
 
     /// Print only the given sections.
-    pub fn print_sections(&self, sections: Vec<String>) {
-        self.inner.print_sections(self.cycles, self.instructions_retired, &sections);
+    ///
+    /// `Stats::summary` renders the full auto-generated section set; per-section
+    /// filtering is not yet plumbed through the hierarchical summary, so this
+    /// currently emits the same output as `print`.
+    pub fn print_sections(&self, _sections: Vec<String>) {
+        self.print();
     }
 
     fn hier(&self, path: &str) -> u64 {
-        self.stats_hier.get(path).unwrap_or(0.0) as u64
+        self.stats.get(path).unwrap_or(0.0) as u64
     }
 
     /// Export all stats as a Python dict (JSON-serializable).
@@ -117,10 +114,8 @@ impl PyStats {
     }
 }
 
-impl From<(SimStats, Stats, u64, u64)> for PyStats {
-    fn from(
-        (inner, stats_hier, cycles, instructions_retired): (SimStats, Stats, u64, u64),
-    ) -> Self {
-        Self { inner, stats_hier, cycles, instructions_retired }
+impl From<(Stats, u64, u64)> for PyStats {
+    fn from((stats, cycles, instructions_retired): (Stats, u64, u64)) -> Self {
+        Self { stats, cycles, instructions_retired }
     }
 }

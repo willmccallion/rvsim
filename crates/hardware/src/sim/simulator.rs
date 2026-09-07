@@ -138,7 +138,7 @@ impl Simulator {
                 let cycle = self.state.cycle;
                 let mut ctx = HandleCtx {
                     scheduler: &mut self.state.event_queue,
-                    stats: &mut self.state.stats_hier,
+                    stats: &mut self.state.stats,
                     config: &self.state.config,
                     cycle,
                     self_id: ComponentId::Bus,
@@ -149,7 +149,7 @@ impl Simulator {
                 let cycle = self.state.cycle;
                 let mut ctx = HandleCtx {
                     scheduler: &mut self.state.event_queue,
-                    stats: &mut self.state.stats_hier,
+                    stats: &mut self.state.stats,
                     config: &self.state.config,
                     cycle,
                     self_id: ComponentId::MemCtrl(id),
@@ -297,10 +297,10 @@ fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: 
     let self_id = ComponentId::Cache(id);
     let cycle = state.cycle;
     // Split-borrow SimState fields explicitly so the HandleCtx (borrowing
-    // event_queue / stats_hier / config) coexists with the cache field
+    // event_queue / stats / config) coexists with the cache field
     // borrow.
     let scheduler = &mut state.event_queue;
-    let stats = &mut state.stats_hier;
+    let stats = &mut state.stats;
     let config = &state.config;
     let mut ctx = HandleCtx { scheduler, stats, config, cycle, self_id };
     match id {

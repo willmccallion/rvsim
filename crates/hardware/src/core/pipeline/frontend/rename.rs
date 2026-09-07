@@ -39,7 +39,7 @@ pub fn rename_stage<E: ExecutionEngine>(
     for id in entries {
         if budget == 0 {
             if input.is_empty() {
-                state.stats_hier.counter(paths::core::pipeline::STALLS_DISPATCH).inc();
+                state.stats.counter(paths::core::pipeline::STALLS_DISPATCH).inc();
             }
             input.push(id);
             continue;
@@ -52,7 +52,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 && engine.checkpoint_count() > 0
                 && engine.checkpoint_table().is_full()
             {
-                state.stats_hier.counter(paths::core::pipeline::STALLS_CHECKPOINT).inc();
+                state.stats.counter(paths::core::pipeline::STALLS_CHECKPOINT).inc();
                 // Set budget=0 so remaining iterations also push back to input.
                 budget = 0;
                 input.push(id);

@@ -98,15 +98,15 @@ pub fn commit_stage(
                 state.hart.pc = state.hart.wfi_pc;
                 *redirect_pending = true;
             } else {
-                state.stats_hier.counter(paths::core::pipeline::CYCLES_WFI).inc();
+                state.stats.counter(paths::core::pipeline::CYCLES_WFI).inc();
             }
-            state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
+            state.stats.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
             return trap_event;
         }
     }
 
     if trap_event.is_some() {
-        state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
+        state.stats.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
         return trap_event;
     }
 
@@ -238,7 +238,7 @@ pub fn commit_stage(
 
         if entry.inst != 0 && entry.inst != 0x13 {
             state.instructions_retired += 1;
-            state.stats_hier.counter(paths::hart::RETIRED_INSTS).inc();
+            state.stats.counter(paths::hart::RETIRED_INSTS).inc();
             update_instruction_stats(state, &entry);
         }
 
@@ -259,9 +259,9 @@ pub fn commit_stage(
                 "CM: branch predictor updated at commit"
             );
             if entry.bp_outcome.mispredicted {
-                state.stats_hier.counter(paths::core::bp::COMMITTED_MISPREDICTS).inc();
+                state.stats.counter(paths::core::bp::COMMITTED_MISPREDICTS).inc();
             } else {
-                state.stats_hier.counter(paths::core::bp::COMMITTED_HITS).inc();
+                state.stats.counter(paths::core::bp::COMMITTED_HITS).inc();
             }
         }
 
@@ -536,13 +536,13 @@ pub fn commit_stage(
     }
 
     if retired_count == 0 && rob_empty_at_start {
-        state.stats_hier.counter(paths::core::pipeline::CYCLES_ROB_EMPTY).inc();
+        state.stats.counter(paths::core::pipeline::CYCLES_ROB_EMPTY).inc();
     }
     match retired_count.min(3) {
-        0 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ZERO).inc(),
-        1 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_ONE).inc(),
-        2 => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_TWO).inc(),
-        _ => state.stats_hier.counter(paths::core::commit::RETIRE_HIST_THREE_PLUS).inc(),
+        0 => state.stats.counter(paths::core::commit::RETIRE_HIST_ZERO).inc(),
+        1 => state.stats.counter(paths::core::commit::RETIRE_HIST_ONE).inc(),
+        2 => state.stats.counter(paths::core::commit::RETIRE_HIST_TWO).inc(),
+        _ => state.stats.counter(paths::core::commit::RETIRE_HIST_THREE_PLUS).inc(),
     }
 
     // One drain per cycle: fall through to VSB if scalar SB has nothing committed.
@@ -581,11 +581,11 @@ fn try_drain_one_store(
         write_store_data_to_ram(state, paddr, data, store.width);
         let evicted = state.core.wcb.merge_store(paddr, data, width_bytes);
         if evicted.is_none() {
-            state.stats_hier.counter(paths::core::wcb::COALESCES).inc();
+            state.stats.counter(paths::core::wcb::COALESCES).inc();
         }
         if let Some(drain) = evicted {
             emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-            state.stats_hier.counter(paths::core::wcb::DRAINS).inc();
+            state.stats.counter(paths::core::wcb::DRAINS).inc();
         }
     } else {
         write_store_to_memory(state, common, paddr, data, store.width);
@@ -628,7 +628,7 @@ fn flush_wcb(state: &mut SimState, common: &mut BackendCommon) {
     let drains = state.core.wcb.flush_all();
     for drain in drains {
         emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-        state.stats_hier.counter(paths::core::wcb::DRAINS).inc();
+        state.stats.counter(paths::core::wcb::DRAINS).inc();
     }
 }
 
@@ -895,20 +895,20 @@ fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pipeline:
 
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
-            state.stats_hier.counter(paths::core::commit::FP_LOAD).inc();
+            state.stats.counter(paths::core::commit::FP_LOAD).inc();
         } else {
-            state.stats_hier.counter(paths::core::commit::OP_LOAD).inc();
+            state.stats.counter(paths::core::commit::OP_LOAD).inc();
         }
     } else if entry.ctrl.mem_write {
         if entry.ctrl.rs2_fp {
-            state.stats_hier.counter(paths::core::commit::FP_STORE).inc();
+            state.stats.counter(paths::core::commit::FP_STORE).inc();
         } else {
-            state.stats_hier.counter(paths::core::commit::OP_STORE).inc();
+            state.stats.counter(paths::core::commit::OP_STORE).inc();
         }
     } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-        state.stats_hier.counter(paths::core::commit::OP_BRANCH).inc();
+        state.stats.counter(paths::core::commit::OP_BRANCH).inc();
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
-        state.stats_hier.counter(paths::core::commit::OP_SYSTEM).inc();
+        state.stats.counter(paths::core::commit::OP_SYSTEM).inc();
     } else {
         match entry.ctrl.alu {
             AluOp::FAdd
@@ -938,14 +938,14 @@ fn update_instruction_stats(state: &mut SimState, entry: &crate::core::pipeline:
             | AluOp::FCvtDH
             | AluOp::FCvtHD
             | AluOp::FMvToX
-            | AluOp::FMvToF => state.stats_hier.counter(paths::core::commit::FP_ARITH).inc(),
+            | AluOp::FMvToF => state.stats.counter(paths::core::commit::FP_ARITH).inc(),
             AluOp::FDiv | AluOp::FSqrt => {
-                state.stats_hier.counter(paths::core::commit::FP_DIV_SQRT).inc();
+                state.stats.counter(paths::core::commit::FP_DIV_SQRT).inc();
             }
             AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
-                state.stats_hier.counter(paths::core::commit::FP_FMA).inc();
+                state.stats.counter(paths::core::commit::FP_FMA).inc();
             }
-            _ => state.stats_hier.counter(paths::core::commit::OP_ALU).inc(),
+            _ => state.stats.counter(paths::core::commit::OP_ALU).inc(),
         }
     }
 }
@@ -961,7 +961,7 @@ fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VLoadStride
         | VectorOp::VLoadIndexOrd
         | VectorOp::VLoadIndexUnord => {
-            state.stats_hier.counter(paths::core::commit::VEC_LOAD).inc();
+            state.stats.counter(paths::core::commit::VEC_LOAD).inc();
         }
         VectorOp::VStoreUnit
         | VectorOp::VStoreMask
@@ -969,7 +969,7 @@ fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VStoreStride
         | VectorOp::VStoreIndexOrd
         | VectorOp::VStoreIndexUnord => {
-            state.stats_hier.counter(paths::core::commit::VEC_STORE).inc();
+            state.stats.counter(paths::core::commit::VEC_STORE).inc();
         }
         VectorOp::VAdd
         | VectorOp::VSub
@@ -1054,7 +1054,7 @@ fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VRedMaxU
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
-        | VectorOp::VWRedSum => state.stats_hier.counter(paths::core::commit::VEC_INT).inc(),
+        | VectorOp::VWRedSum => state.stats.counter(paths::core::commit::VEC_INT).inc(),
         VectorOp::VFAdd
         | VectorOp::VFSub
         | VectorOp::VFRSub
@@ -1124,7 +1124,7 @@ fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VFRedMax
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
-        | VectorOp::VFWRedUSum => state.stats_hier.counter(paths::core::commit::VEC_FP).inc(),
+        | VectorOp::VFWRedUSum => state.stats.counter(paths::core::commit::VEC_FP).inc(),
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
         | VectorOp::Vsetvl
@@ -1183,7 +1183,7 @@ fn update_vec_instruction_stats(state: &mut SimState, op: VectorOp) {
         | VectorOp::VSm4R
         | VectorOp::VSm4K
         | VectorOp::VGhsh
-        | VectorOp::VGmul => state.stats_hier.counter(paths::core::commit::VEC_MISC).inc(),
+        | VectorOp::VGmul => state.stats.counter(paths::core::commit::VEC_MISC).inc(),
     }
 }
 
