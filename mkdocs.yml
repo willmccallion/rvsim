@@ -68,6 +68,7 @@ nav:
     - Branch Prediction: architecture/branch-prediction.md
     - ISA: architecture/isa.md
     - SoC Devices: architecture/soc.md
+    - Stats & Observability: architecture/stats.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md
     - Linux Boot: examples/linux-boot.md
