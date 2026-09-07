@@ -317,7 +317,7 @@ impl SimState {
             exit_code: None,
             direct_mode,
             event_queue: EventQueue::new(),
-            stats_hier: Stats::new(),
+            stats_hier: Stats::with_default_registrations(),
             next_req_id: 0,
         }
     }
