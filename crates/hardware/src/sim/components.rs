@@ -22,6 +22,26 @@ pub struct MemCtrlId(u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct DeviceId(u32);
 
+/// DRAM channel index inside a memory controller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct ChannelId(u8);
+
+/// DDR5 sub-channel index inside a channel (0 or 1 for standard DDR5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct SubchannelId(u8);
+
+/// DRAM rank index inside a sub-channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct RankId(u8);
+
+/// DRAM bank-group index inside a rank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct BankGroupId(u8);
+
+/// DRAM row index inside a bank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct RowId(u32);
+
 /// Per-packet request identifier; correlates a request with its response.
 ///
 /// Originators (pipeline LSU, MSHR slots, prefetchers) assign a fresh `ReqId`
@@ -59,6 +79,11 @@ impl_id_methods!(PipelineId, u32);
 impl_id_methods!(MemCtrlId, u32);
 impl_id_methods!(DeviceId, u32);
 impl_id_methods!(ReqId, u64);
+impl_id_methods!(ChannelId, u8);
+impl_id_methods!(SubchannelId, u8);
+impl_id_methods!(RankId, u8);
+impl_id_methods!(BankGroupId, u8);
+impl_id_methods!(RowId, u32);
 
 use crate::common::{CoreId, HartId};
 

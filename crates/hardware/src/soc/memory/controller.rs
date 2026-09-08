@@ -250,34 +250,13 @@ impl Handle for DramController {
     }
 }
 
-/// Pluggable memory controller. Variants share a common `Handle` impl by
-/// dispatching to the contained controller.
-#[derive(Debug)]
-pub enum MemoryController {
-    /// Fixed-latency model.
-    Simple(SimpleController),
-    /// Row-buffer-aware DRAM model.
-    Dram(DramController),
-}
+/// Pluggable memory controller. Any type that implements [`Handle`] and is
+/// `Send + Sync` can be dropped into `SimState::mem_controller` as a
+/// `Box<dyn MemoryController + Send + Sync>`.
+pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {}
 
-impl MemoryController {
-    /// Returns a clone of the underlying DRAM buffer handle.
-    pub fn buffer(&self) -> Arc<DramBuffer> {
-        match self {
-            Self::Simple(c) => c.buffer(),
-            Self::Dram(c) => c.buffer(),
-        }
-    }
-}
-
-impl Handle for MemoryController {
-    fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        match self {
-            Self::Simple(c) => c.handle(packet, source, ctx),
-            Self::Dram(c) => c.handle(packet, source, ctx),
-        }
-    }
-}
+impl MemoryController for SimpleController {}
+impl MemoryController for DramController {}
 
 /// Reads or writes the underlying buffer for a memory request and returns the
 /// response payload.

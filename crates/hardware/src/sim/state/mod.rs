@@ -58,7 +58,7 @@ pub struct SimState {
     /// IO interconnect; routes accesses to RAM and MMIO devices.
     pub bus: Bus,
     /// Main memory controller.
-    pub mem_controller: MemoryController,
+    pub mem_controller: Box<dyn MemoryController + Send + Sync>,
     /// Shared L3 cache (last-level cache; future shared LLC for multi-core).
     pub l3_cache: Cache,
 
@@ -173,8 +173,8 @@ impl SimState {
             bus.add_device(Box::new(htif));
         }
 
-        let mem_controller = match config.memory.controller {
-            MemControllerType::Dram => MemoryController::Dram(DramController::new(
+        let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller {
+            MemControllerType::Dram => Box::new(DramController::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
                 DramConfig {
@@ -188,7 +188,7 @@ impl SimState {
                     t_rfc: config.memory.t_rfc,
                 },
             )),
-            MemControllerType::Simple => MemoryController::Simple(SimpleController::new(
+            MemControllerType::Simple => Box::new(SimpleController::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
                 config.memory.row_miss_latency,

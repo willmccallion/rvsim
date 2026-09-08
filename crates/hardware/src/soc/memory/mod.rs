@@ -1,5 +1,8 @@
 //! Physical System Memory (DRAM): backing buffer, mapping device, and latency controller.
 
+/// Physical-address ↔ DRAM-coordinate mapping.
+pub mod address;
+
 /// DRAM buffer implementation (e.g., mmap or `Vec`) for raw byte storage.
 pub mod buffer;
 
