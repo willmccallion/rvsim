@@ -1,4 +1,4 @@
-//! # Memory Access Tests
+//! # Hart Address Translation Tests
 //!
 //! Tests for address translation. Cache-walk-latency tests that exercised
 //! the deleted `SimState::simulate_memory_access` synchronous helper were

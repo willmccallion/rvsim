@@ -1,4 +1,4 @@
-//! # CPU Execution Tests
+//! # Simulator Execution Tests
 //!
 //! Tests for the main execution loop and pipeline coordination.
 

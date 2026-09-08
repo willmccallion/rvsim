@@ -1,4 +1,4 @@
-//! # Trap Handling Tests
+//! # Hart Trap Handling Tests
 //!
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
