@@ -150,7 +150,8 @@ impl ExecutionEngine for InOrderEngine {
         // forwards and stores resolve straight into mem1_mem2.
         let mut input = std::mem::take(&mut self.execute_mem1);
         memory1::memory1_stage(state, self, &mut input);
-        // Whatever didn't drain (SB stall, atomic-vs-SB stall) goes back.
+        // Ops behind an unresolved translation walk go back; ops waiting on
+        // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
 
         // Skip issue+execute when M1 hasn't drained, so we don't overwrite held entries.
@@ -165,7 +166,7 @@ impl ExecutionEngine for InOrderEngine {
             }
             // Aggregate in-flight fp_flags so CSR reads of fflags see older FP results.
             let mut inflight_fp_flags: u8 = 0;
-            for e in &self.execute_mem1 {
+            for e in self.execute_mem1.iter().chain(&self.common.mem1_replay) {
                 inflight_fp_flags |= e.fp_flags;
             }
             for e in &self.mem1_mem2 {
@@ -187,6 +188,7 @@ impl ExecutionEngine for InOrderEngine {
                 let keep_tag = last.rob_tag;
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
+                self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             }
             self.scoreboard.rebuild_from_rob(&self.rob);
         }
@@ -213,6 +215,7 @@ impl ExecutionEngine for InOrderEngine {
         self.scoreboard.flush();
         self.issuer.flush();
         self.execute_mem1.clear();
+        self.common.mem1_replay.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         state.core.branch_predictor.repair_to_committed();

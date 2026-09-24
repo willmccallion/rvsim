@@ -135,6 +135,14 @@ pub mod core {
         pub const VIOLATIONS: &str = "core0.mdp.violations";
     }
 
+    /// Load/store unit counters.
+    pub mod lsq {
+        /// Memory ops memory1 sent back for replay: loads partially
+        /// overlapping an older store still in the store buffer, and LR/AMO
+        /// ops behind an older store to the same address.
+        pub const RESCHEDULED_MEM_OPS: &str = "core0.lsq.rescheduled_mem_ops";
+    }
+
     /// Write-combining buffer counters.
     pub mod wcb {
         /// Store operations coalesced into an existing WCB line.

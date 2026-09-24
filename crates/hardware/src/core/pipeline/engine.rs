@@ -191,6 +191,14 @@ pub struct BackendCommon {
     pub outstanding_stores: HashMap<ReqId, crate::core::pipeline::outstanding::OutstandingStore>,
     /// Inflight page-table walks keyed by the current PTE-read request id.
     pub outstanding_walks: HashMap<ReqId, crate::core::pipeline::outstanding::OutstandingWalk>,
+    /// Memory ops memory1 could not service yet: loads that partially
+    /// overlap an older store still in the store buffer, and LR/AMO ops
+    /// with an older store to the same address. They are retried at the
+    /// head of every memory1 tick until the blocking store drains (gem5's
+    /// `rescheduleMemInst` / `replayMemInst`). Kept out of the
+    /// execute→memory1 latch so a blocked op never back-pressures issue:
+    /// the store it waits on may sit behind an older, not-yet-issued load.
+    pub mem1_replay: Vec<crate::core::pipeline::latches::ExMem1Entry>,
     /// Completed but not-yet-emittable fetches, keyed by `fetch_seq`. A burst
     /// of mixed L1-hit and lower-level-hit fetches returns out of program
     /// order; this reorder buffer holds the early arrivals until every older
@@ -321,6 +329,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.outstanding_loads.clear();
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
+        common.mem1_replay.clear();
         self.engine.flush(state);
     }
 }

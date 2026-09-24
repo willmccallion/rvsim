@@ -505,6 +505,7 @@ impl ExecutionEngine for O3Engine {
                 self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
                 self.vec_store_buffer.flush_after(keep_tag);
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
 
                 // The violating load is not a branch, so checkpoint rebuild always applies.
                 let surviving = self.rob.len();
@@ -536,6 +537,7 @@ impl ExecutionEngine for O3Engine {
                 self.vec_mem_inflight.clear();
                 self.vec_store_buffer.flush_all();
                 self.execute_mem1.clear();
+                self.common.mem1_replay.clear();
 
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
             }
@@ -563,7 +565,9 @@ impl ExecutionEngine for O3Engine {
         self.execute_mem1.extend(input);
         let _ = now;
 
-        // Backpressure only on undrained execute_mem1; pending_results drains after issue.
+        // Backpressure only while memory1 holds ops behind an unresolved
+        // translation walk. Ops waiting on a store-buffer drain live in
+        // `common.mem1_replay` and never gate issue.
         let mem_backpressured = !self.execute_mem1.is_empty();
 
         if mem_backpressured {
@@ -1206,6 +1210,7 @@ impl ExecutionEngine for O3Engine {
             self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
             self.vec_store_buffer.flush_after(keep_tag);
             self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
             // Restore speculative rename map: checkpoint (O(1)) or forward ROB walk rebuild.
             let surviving = self.rob.len();
             if self.checkpoints.capacity() > 0 {
@@ -1322,6 +1327,7 @@ impl ExecutionEngine for O3Engine {
         self.vec_mem_inflight.clear();
         self.vec_store_buffer.flush_all();
         self.execute_mem1.clear();
+        self.common.mem1_replay.clear();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         state.core.l1d_mshrs.flush();

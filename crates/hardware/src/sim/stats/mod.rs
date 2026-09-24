@@ -436,7 +436,7 @@ impl Stats {
 /// Kept as a plain function (not a method) so callers can compose it with
 /// their own registrations if needed.
 fn register_defaults(s: &mut Stats) {
-    use paths::core::{bp, cache, commit, fu, mdp, pipeline as pipe, wcb};
+    use paths::core::{bp, cache, commit, fu, lsq, mdp, pipeline as pipe, wcb};
     use paths::hart as h;
 
     // hart<N>.*
@@ -501,6 +501,9 @@ fn register_defaults(s: &mut Stats) {
     s.register(mdp::PREDICTIONS_WAIT_ALL, Meta::events("MDP predicted wait-for-all"));
     s.register(mdp::PREDICTIONS_WAIT_FOR, Meta::events("MDP predicted wait-for-specific"));
     s.register(mdp::VIOLATIONS, Meta::events("MDP violations observed at commit"));
+
+    // core<N>.lsq.*
+    s.register(lsq::RESCHEDULED_MEM_OPS, Meta::events("Memory ops replayed behind an older store"));
 
     // core<N>.wcb.*
     s.register(wcb::COALESCES, Meta::events("WCB store coalesces"));

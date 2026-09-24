@@ -18,10 +18,11 @@
 //!   - For demand **loads**: check store-buffer forwarding first.
 //!     - SB hit → push directly to M1→M2 with `load_data` filled and
 //!       `sb_forwarded = true`. No `MemReq` issued.
-//!     - SB partial overlap → stall (push back to input).
+//!     - SB partial overlap → move to `BackendCommon::mem1_replay` and retry
+//!       next cycle; the store it overlaps must drain first.
 //!     - SB miss → emit `MemReq` to L1D and park [`OutstandingLoad`].
-//!   - For **AMO / LR**: stall on any older store to the same address still
-//!     resident in the SB. Otherwise emit `MemReq` and park.
+//!   - For **AMO / LR**: replay while any older store to the same address is
+//!     still resident in the SB. Otherwise emit `MemReq` and park.
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
 //!   - For **SC**: same as stores, plus an `AtomicOp::Sc` marker so memory2
@@ -41,13 +42,16 @@ use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
+use crate::sim::stats::paths;
 
 /// Outcome of processing a single `ExMem1Entry`.
 enum EntryOutcome {
     /// Entry was passed downstream (`Mem1Mem2` push); continue iterating.
     Done,
-    /// SB partial overlap or atomic-vs-SB stall — push back to input.
-    Stall(ExMem1Entry),
+    /// SB partial overlap or atomic-vs-SB conflict — retry on a later tick
+    /// once the blocking store has drained. Only this op waits; younger
+    /// memory ops keep flowing.
+    Replay(ExMem1Entry),
     /// Entry was parked on a page-table walk in the engine's outstanding
     /// tables. Younger memory ops cannot pass an unresolved older
     /// translation in an in-order pipeline, so halt iteration and push any
@@ -63,24 +67,21 @@ pub fn memory1_stage<E: ExecutionEngine>(
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
 ) {
-    let mut entries = std::mem::take(input);
+    let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
+    entries.append(input);
     // Out-of-order execute can drop entries into execute_mem1 in completion
     // order rather than program order. memory1's SB-forward / atomic-vs-SB
-    // checks only inspect *older* store entries, so a younger load that
-    // ends up at the front of `entries` can permanently stall on a store
-    // that hasn't committed yet, even though the older load it sits behind
-    // would have drained its blocking store first. Sort by rob_tag so the
-    // oldest in-flight memory op gets first crack at the SB each cycle.
+    // checks only inspect *older* store entries, so process oldest first to
+    // give each op the most-drained store buffer view available this cycle.
     entries.sort_by_key(|e| e.rob_tag.0);
     let mut iter = entries.into_iter();
 
     while let Some(ex) = iter.next() {
         match process_entry(state, engine, ex) {
             EntryOutcome::Done => {}
-            EntryOutcome::Stall(ex) => {
-                input.push(ex);
-                input.extend(iter);
-                return;
+            EntryOutcome::Replay(ex) => {
+                state.stats.counter(paths::core::lsq::RESCHEDULED_MEM_OPS).inc();
+                engine.common_mut().mem1_replay.push(ex);
             }
             EntryOutcome::ParkedWalk => {
                 input.extend(iter);
@@ -183,12 +184,12 @@ fn process_entry<E: ExecutionEngine>(
             push_resolved_sc(engine, ex, paddr, vaddr, pte_update);
             return EntryOutcome::Done;
         }
-        // LR / AMO: stall on older stores to this address.
+        // LR / AMO: wait for older stores to this address to drain.
         if engine
             .store_buffer()
             .has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
         {
-            return EntryOutcome::Stall(ex);
+            return EntryOutcome::Replay(ex);
         }
         emit_load_req(state, engine, ex, paddr, vaddr, pte_update, true);
         return EntryOutcome::Done;
@@ -203,7 +204,7 @@ fn process_entry<E: ExecutionEngine>(
             push_sb_forwarded_load(engine, ex, paddr, vaddr, pte_update, raw_val);
             EntryOutcome::Done
         }
-        ForwardResult::Stall => EntryOutcome::Stall(ex),
+        ForwardResult::Stall => EntryOutcome::Replay(ex),
         ForwardResult::Miss => {
             emit_load_req(state, engine, ex, paddr, vaddr, pte_update, false);
             EntryOutcome::Done
