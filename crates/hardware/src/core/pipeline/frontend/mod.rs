@@ -7,7 +7,10 @@
 //! `op = Fetch` to the L1 instruction cache and parks an `OutstandingFetch`
 //! on the engine's [`BackendCommon`](crate::core::pipeline::engine::BackendCommon).
 //! The pipeline-level mailbox drain pushes completed fetches into the
-//! `fetch1_fetch2` latch from there.
+//! `fetch1_fetch2` latch from there. Fetch1 keeps one fetch group in
+//! flight: it issues the next group only after the previous one has
+//! returned and fetch2 has drained it, like gem5's fetch stage waiting in
+//! `IcacheWaitResponse` and on its fetch queue.
 
 pub mod decode;
 pub mod fetch1;
@@ -16,6 +19,7 @@ pub mod rename;
 
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IdExEntry, IfIdEntry, RenameIssueEntry};
+use crate::sim::stats::paths;
 use std::marker::PhantomData;
 
 /// The frontend pipeline, generic over the execution engine.
@@ -75,11 +79,13 @@ impl<E: ExecutionEngine> Frontend<E> {
             fetch2::fetch2_stage(state, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
         }
 
-        // Fetch1 always emits — it parks every fetch in the engine's
-        // outstanding_fetches table. The mailbox-drain stage at the top
-        // of the next pipeline tick (after responses arrive) pushes the
-        // matching Fetch1Fetch2Entry into `fetch1_fetch2`.
-        fetch1::fetch1_stage(state, engine);
+        if engine.common().fetch_in_flight() {
+            state.stats.counter(paths::core::pipeline::STALLS_FETCH_WAIT).inc();
+            return;
+        }
+        if self.fetch1_fetch2.is_empty() {
+            fetch1::fetch1_stage(state, engine);
+        }
     }
 
     /// Flushes all frontend latches.

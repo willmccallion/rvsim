@@ -79,6 +79,9 @@ pub mod core {
 
         /// Fetch stalled on control (front-end redirect pending).
         pub const STALLS_CONTROL: &str = "core0.pipeline.stalls.control";
+        /// Fetch1 idle because an earlier fetch group is still waiting on
+        /// the I-cache response or an instruction-fetch page walk.
+        pub const STALLS_FETCH_WAIT: &str = "core0.pipeline.stalls.fetch_wait";
         /// Issue stalled on data hazard (source not ready).
         pub const STALLS_DATA: &str = "core0.pipeline.stalls.data";
         /// Issue stalled on FU structural hazard.

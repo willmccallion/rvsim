@@ -477,6 +477,7 @@ fn register_defaults(s: &mut Stats) {
     s.register(pipe::CYCLES_WFI, Meta::cycles("cycles in WFI"));
     s.register(pipe::CYCLES_ROB_EMPTY, Meta::cycles("cycles with empty ROB"));
     s.register(pipe::STALLS_CONTROL, Meta::cycles("fetch stalled on control"));
+    s.register(pipe::STALLS_FETCH_WAIT, Meta::cycles("Fetch waited on an in-flight fetch"));
     s.register(pipe::STALLS_DATA, Meta::cycles("issue stalled on data hazard"));
     s.register(pipe::STALLS_FU_STRUCTURAL, Meta::cycles("issue stalled on FU structural"));
     s.register(pipe::STALLS_BACKPRESSURE, Meta::cycles("downstream backpressure stalls"));

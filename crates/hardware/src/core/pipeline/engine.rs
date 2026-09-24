@@ -227,6 +227,17 @@ pub struct BackendCommon {
 }
 
 impl BackendCommon {
+    /// True while an instruction fetch is still waiting on the memory
+    /// system: a fetch `MemReq` without its response, a completed fetch
+    /// held in the reorder buffer behind an older one, or a fetch parked on
+    /// a page-table walk.
+    #[must_use]
+    pub fn fetch_in_flight(&self) -> bool {
+        !self.outstanding_fetches.is_empty()
+            || !self.fetch_reorder.is_empty()
+            || self.fetch_walk_pending
+    }
+
     /// Allocates a fresh [`ReqId`] for an outgoing packet.
     #[inline]
     pub const fn alloc_req_id(&mut self) -> ReqId {

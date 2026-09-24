@@ -1,7 +1,7 @@
 use crate::common::mocks::memory::MockMemory;
 use rvsim_core::Simulator;
 use rvsim_core::common::{PhysAddr, RegIdx};
-use rvsim_core::config::Config;
+use rvsim_core::config::{Config, MemoryController};
 use rvsim_core::SimState;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -27,13 +27,17 @@ impl TestContext {
     pub fn new_with_config(config: &Config) -> Self {
         let _ = env_logger::builder().is_test(true).try_init();
 
-        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let state = rvsim_core::SimState::new(config, "", exit_signal);
-        let mut sim = Simulator::new(state);
+        // Pipeline tests exercise stage behaviour, not the memory system:
+        // give every miss a single-cycle memory controller and a zero-latency
+        // bus so short programs finish inside their cycle budgets.
+        let mut config = config.clone();
+        config.memory.controller = MemoryController::Simple;
+        config.memory.row_miss_latency = 1;
+        config.system.bus_latency = 0;
 
-        // Bypass cache simulation in tests: default cache_base == ram_base routes
-        // every access through multi-cycle DRAM, starving the pipeline.
-        sim.state.config.system.ram_base = u64::MAX;
+        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+        let state = rvsim_core::SimState::new(&config, "", exit_signal);
+        let sim = Simulator::new(state);
 
         Self { sim }
     }

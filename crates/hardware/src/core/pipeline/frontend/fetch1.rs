@@ -120,14 +120,12 @@ fn issue_fetch<E: ExecutionEngine>(
 
 /// Executes the Fetch1 stage: emits up to `pipeline.width` fetch `MemReq`
 /// packets, advancing the architectural PC by the predicted next-PC.
+///
+/// The caller runs this only while no fetch is in flight
+/// ([`BackendCommon::fetch_in_flight`](crate::core::pipeline::engine::BackendCommon::fetch_in_flight)),
+/// so a parked fetch walk or an unanswered fetch request never gets a
+/// duplicate request for the same PC.
 pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
-    // Stall fetch while a translation walk is outstanding for an earlier
-    // fetch: emitting more MemReqs for the same PC every cycle just piles
-    // up duplicate walks (gem5 MinorCPU's IFU stays in the ItlbWait state
-    // until the walk completes).
-    if engine.common().fetch_walk_pending {
-        return;
-    }
     let mut current_pc = state.hart.pc;
     let c_enabled = (state.hart.csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
