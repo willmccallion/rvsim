@@ -9,20 +9,23 @@
 //!    hand them to [`SimState::translate_continue`](crate::sim::state::memory::SimState::translate_continue),
 //!    then either issue the next PTE request (multi-level walk) or trigger
 //!    the parked continuation (fetch / load / store).
-//! 2. **Fetch response** — push a fully-formed
+//! 2. **Fetch response** — release the fetch group's
 //!    [`Fetch1Fetch2Entry`](crate::core::pipeline::latches::Fetch1Fetch2Entry)
-//!    into the fetch1→fetch2 latch.
+//!    values into the fetch1→fetch2 latch, in program order.
 //! 3. **Load response** — read the raw load value (RAM fast-path or
 //!    `MemResp.data` for MMIO) and push a `Mem1Mem2Entry` into the M1→M2
 //!    latch with `load_data` filled. Memory2 takes over from there for
 //!    sign-extension, AMO RMW, and SB ordering checks.
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
-use crate::common::{ExceptionStage, PhysAddr, VirtAddr};
+use crate::common::{ExceptionStage, LineAddr, PhysAddr};
 use crate::sim::SimState;
 use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
-use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Mem1Mem2Entry};
+use crate::core::pipeline::frontend::fetch1::{
+    FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder,
+};
+use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
     OutstandingFetch, OutstandingLoad, OutstandingWalk, WalkContinuation,
 };
@@ -51,49 +54,24 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut SimStat
         }
     }
 
-    drain_fetch_reorder(pipeline);
+    drain_fetch_reorder(
+        pipeline.engine.common_mut(),
+        &mut pipeline.frontend.fetch_buffer,
+        &mut pipeline.frontend.fetch1_fetch2,
+    );
 }
 
-/// Inserts a completed fetch into the reorder buffer at its `fetch_seq`.
-/// Out-of-order arrivals (e.g. an L1I-hit fetch returning before an older
-/// fetch that missed and went all the way to DRAM) sit here until every
-/// older fetch has completed.
-fn buffer_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, fetch: OutstandingFetch) {
+/// Inserts a returned fetch group into the reorder buffer at its
+/// `fetch_seq`; the drain after the mailbox releases it once every older
+/// group has completed.
+fn buffer_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, group: OutstandingFetch) {
     let common = pipeline.engine.common_mut();
     // Stale-after-flush responses have fetch_seqs below the post-flush
     // emit cursor; drop them rather than reintroducing wrong-path entries.
-    if fetch.fetch_seq < common.next_emit_fetch_seq {
+    if group.fetch_seq < common.next_emit_fetch_seq {
         return;
     }
-    let _ = common.fetch_reorder.insert(fetch.fetch_seq, fetch);
-}
-
-/// Drains every contiguous run of completed fetches from the reorder buffer
-/// into the fetch1→fetch2 latch in program order. Stops on the first gap
-/// (a still-in-flight older fetch).
-fn drain_fetch_reorder<E: ExecutionEngine>(pipeline: &mut Pipeline<E>) {
-    loop {
-        let next_seq = pipeline.engine.common().next_emit_fetch_seq;
-        let Some(fetch) = pipeline.engine.common_mut().fetch_reorder.remove(&next_seq) else {
-            break;
-        };
-        pipeline.engine.common_mut().next_emit_fetch_seq = next_seq.wrapping_add(1);
-        complete_fetch(pipeline, fetch);
-    }
-}
-
-/// Pushes a completed fetch into the frontend's fetch1→fetch2 latch.
-fn complete_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, fetch: OutstandingFetch) {
-    pipeline.frontend.fetch1_fetch2.push(Fetch1Fetch2Entry {
-        pc: fetch.pc,
-        paddr: fetch.paddr,
-        pred_taken: fetch.pred_taken,
-        pred_target: fetch.pred_target,
-        trap: fetch.trap,
-        exception_stage: fetch.exception_stage,
-        ghr_snapshot: fetch.ghr_snapshot,
-        ras_snapshot: fetch.ras_snapshot,
-    });
+    let _ = common.fetch_reorder.insert(group.fetch_seq, group);
 }
 
 /// Reads the load's raw bytes from RAM (fast path) or the device-supplied
@@ -168,22 +146,27 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
     result: crate::common::TranslationResult,
 ) {
     match continuation {
-        WalkContinuation::Fetch(mut fetch) => {
+        WalkContinuation::Fetch { fetch_seq, mut entry, half } => {
             pipeline.engine.common_mut().fetch_walk_pending = false;
-            if let Some(trap) = result.trap {
-                fetch.trap = Some(trap);
-                fetch.exception_stage = Some(ExceptionStage::Fetch);
-                fetch.paddr = PhysAddr::new(0);
-                buffer_fetch(pipeline, fetch);
+            let line = if let Some(trap) = result.trap {
+                entry.trap = Some(trap);
+                entry.exception_stage = Some(ExceptionStage::Fetch);
+                entry.paddr = PhysAddr::new(0);
+                None
             } else {
-                fetch.paddr = result.paddr;
-                let common = pipeline.engine.common_mut();
-                let req_id = common.alloc_req_id();
-                let paddr = fetch.paddr;
-                let pc = fetch.pc;
-                let _ = common.outstanding_fetches.insert(req_id, fetch);
-                emit_fetch_req(pipeline, state, req_id, paddr, VirtAddr::new(pc));
-            }
+                if half == FetchWalkHalf::Lower {
+                    entry.paddr = result.paddr;
+                }
+                let line_bytes = state.core.l1_i_cache.line_bytes() as u64;
+                Some(LineAddr::from_phys(entry.paddr, line_bytes))
+            };
+            dispatch_fetch_group(
+                state,
+                &mut pipeline.engine,
+                &mut pipeline.frontend.fetch_buffer,
+                &mut pipeline.frontend.fetch1_fetch2,
+                OutstandingFetch { fetch_seq, line, entries: vec![entry] },
+            );
         }
         WalkContinuation::LoadStore(mut entry) => {
             if let Some(trap) = result.trap {
@@ -262,30 +245,6 @@ fn emit_pte_req<E: ExecutionEngine>(
             vaddr: None,
             size: AccessSize::B8,
             op: MemOp::Read,
-        },
-    );
-}
-
-/// Emits an instruction fetch request to the L1 instruction cache.
-fn emit_fetch_req<E: ExecutionEngine>(
-    pipeline: &Pipeline<E>,
-    state: &mut SimState,
-    req_id: ReqId,
-    paddr: PhysAddr,
-    vaddr: VirtAddr,
-) {
-    let common = pipeline.engine.common();
-    let cycle = state.cycle;
-    state.event_queue.schedule(
-        cycle,
-        ComponentId::Cache(common.l1_i_id),
-        ComponentId::Pipeline(common.pipeline_id),
-        Packet::MemReq {
-            req_id,
-            paddr,
-            vaddr: Some(vaddr),
-            size: AccessSize::B4,
-            op: MemOp::Fetch,
         },
     );
 }

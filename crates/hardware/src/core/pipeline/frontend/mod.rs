@@ -10,7 +10,9 @@
 //! `fetch1_fetch2` latch from there. Fetch1 keeps one fetch group in
 //! flight: it issues the next group only after the previous one has
 //! returned and fetch2 has drained it, like gem5's fetch stage waiting in
-//! `IcacheWaitResponse` and on its fetch queue.
+//! `IcacheWaitResponse` and on its fetch queue. Groups inside the line the
+//! I-cache last returned are served from the [`FetchBuffer`] without a new
+//! request.
 
 pub mod decode;
 pub mod fetch1;
@@ -18,6 +20,7 @@ pub mod fetch2;
 pub mod rename;
 
 use crate::core::pipeline::engine::ExecutionEngine;
+use crate::core::pipeline::frontend::fetch1::FetchBuffer;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IdExEntry, IfIdEntry, RenameIssueEntry};
 use crate::sim::stats::paths;
 use std::marker::PhantomData;
@@ -28,8 +31,10 @@ use std::marker::PhantomData;
 #[derive(Debug)]
 pub struct Frontend<E: ExecutionEngine> {
     /// Fetch1 → Fetch2 latch (populated by the mailbox-drain stage when
-    /// fetch `MemResp` packets arrive).
+    /// fetch `MemResp` packets arrive, or directly on a fetch-buffer hit).
     pub fetch1_fetch2: Vec<Fetch1Fetch2Entry>,
+    /// The cache line most recently returned by the I-cache.
+    pub fetch_buffer: FetchBuffer,
     /// Fetch2 → Decode latch.
     pub fetch2_decode: Vec<IfIdEntry>,
     /// Decode → Rename latch.
@@ -48,6 +53,7 @@ impl<E: ExecutionEngine> Frontend<E> {
     pub fn new(width: usize) -> Self {
         Self {
             fetch1_fetch2: Vec::with_capacity(width),
+            fetch_buffer: FetchBuffer::default(),
             fetch2_decode: Vec::with_capacity(width),
             decode_rename: Vec::with_capacity(width),
             fetch1_stall: 0,
@@ -84,7 +90,7 @@ impl<E: ExecutionEngine> Frontend<E> {
             return;
         }
         if self.fetch1_fetch2.is_empty() {
-            fetch1::fetch1_stage(state, engine);
+            fetch1::fetch1_stage(state, engine, &mut self.fetch_buffer, &mut self.fetch1_fetch2);
         }
     }
 

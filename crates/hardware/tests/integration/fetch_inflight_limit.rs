@@ -4,6 +4,7 @@
 //! gem5's fetch stage does (`IcacheWaitResponse`), and waits for fetch2 to
 //! drain the fetch1→fetch2 latch. Without both gates fetch runs arbitrarily
 //! far ahead of the backend and the in-flight tables grow without bound.
+//! A group is one line-sized request, so at most one request is pending.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
@@ -46,8 +47,8 @@ fn assert_fetch_bounded(backend: BackendType) {
         let inflight = inflight_fetches(&tc.sim.pipeline);
         let latched = tc.sim.pipeline.snapshot(width).fetch1_fetch2.len();
         assert!(
-            inflight <= width,
-            "cycle {cycle}: {inflight} fetches in flight exceeds the fetch width {width}"
+            inflight <= 1,
+            "cycle {cycle}: {inflight} fetch groups in flight, expected at most one"
         );
         assert!(
             latched <= width,

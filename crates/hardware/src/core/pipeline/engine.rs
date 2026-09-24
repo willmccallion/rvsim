@@ -199,11 +199,11 @@ pub struct BackendCommon {
     /// execute→memory1 latch so a blocked op never back-pressures issue:
     /// the store it waits on may sit behind an older, not-yet-issued load.
     pub mem1_replay: Vec<crate::core::pipeline::latches::ExMem1Entry>,
-    /// Completed but not-yet-emittable fetches, keyed by `fetch_seq`. A burst
-    /// of mixed L1-hit and lower-level-hit fetches returns out of program
-    /// order; this reorder buffer holds the early arrivals until every older
-    /// fetch has completed, then drains contiguously into the fetch1→fetch2
-    /// latch.
+    /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
+    /// A group can complete ahead of an older one (a fetch-buffer hit, or
+    /// a fetch walk that finishes while the previous line is still
+    /// missing); this reorder buffer holds it until every older group has
+    /// completed, then drains contiguously into the fetch1→fetch2 latch.
     pub fetch_reorder: BTreeMap<u64, crate::core::pipeline::outstanding::OutstandingFetch>,
     /// Next `fetch_seq` to assign at fetch issue time.
     pub next_fetch_seq: u64,
@@ -314,7 +314,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             common.outstanding_walks.retain(|_, walk| {
                 !matches!(
                     walk.continuation,
-                    crate::core::pipeline::outstanding::WalkContinuation::Fetch(_)
+                    crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
                 )
             });
             common.fetch_reorder.clear();

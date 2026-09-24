@@ -8,45 +8,32 @@
 //! work the original stage couldn't (apply sign extension, complete the
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
-use crate::common::{ExceptionStage, PhysAddr, Trap, VirtAddr};
-use crate::core::pipeline::latches::ExMem1Entry;
+use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::core::pipeline::frontend::fetch1::FetchWalkHalf;
+use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
 use crate::core::pipeline::rob::RobTag;
-use crate::core::units::bru::Ghr;
 use crate::core::units::mmu::ptw::WalkState;
 
-/// An instruction-fetch request awaiting its `MemResp`.
+/// One instruction-fetch group: the instructions fetch1 produced in a single
+/// cycle, all from one cache line.
 ///
-/// Fetch1 reads instruction bytes synchronously from the RAM fast path —
-/// `paddr` is the post-translation physical address used to do that — but
-/// issues a [`MemReq`](crate::sim::packet::Packet::MemReq) with `op = Fetch`
-/// to the L1I so cache timing flows through the event queue. The outstanding
-/// entry holds the prediction snapshot so the drain stage can push a
-/// fully-formed [`Fetch1Fetch2Entry`](crate::core::pipeline::latches::Fetch1Fetch2Entry)
-/// into the fetch1→fetch2 latch when the response arrives.
+/// Fetch1 reads instruction bytes synchronously from the RAM fast path, so
+/// every [`Fetch1Fetch2Entry`] is fully formed at issue time. What the group
+/// waits for is the I-cache: one line-sized
+/// [`MemReq`](crate::sim::packet::Packet::MemReq) per group, or nothing at
+/// all when the fetch buffer already holds `line`.
 #[derive(Clone, Debug)]
 pub struct OutstandingFetch {
-    /// Monotonically-increasing fetch sequence number assigned at issue
-    /// time. The mailbox-drain stage uses this to reorder responses back
-    /// into program order before pushing them into the fetch1→fetch2 latch:
-    /// a mixed cache-hit/cache-miss burst can return out of order because
-    /// the slower path arrives many cycles after the fast one.
+    /// Program-order sequence number. The mailbox-drain stage releases groups
+    /// to the fetch1→fetch2 latch in `fetch_seq` order, so a group that
+    /// completes early (fetch-buffer hit, or a walk that finished while an
+    /// older line was still missing) waits for its predecessors.
     pub fetch_seq: u64,
-    /// Program counter being fetched.
-    pub pc: u64,
-    /// Post-translation address used to issue the `MemReq`.
-    pub paddr: PhysAddr,
-    /// Whether the branch predictor predicted taken.
-    pub pred_taken: bool,
-    /// Predicted target address.
-    pub pred_target: u64,
-    /// Trap surfaced during fetch1 (alignment, deferred page-crossing fault).
-    pub trap: Option<Trap>,
-    /// Pipeline stage where the trap was first detected.
-    pub exception_stage: Option<ExceptionStage>,
-    /// Branch-predictor history snapshot captured at fetch time.
-    pub ghr_snapshot: Ghr,
-    /// Return-address-stack snapshot captured at fetch time.
-    pub ras_snapshot: usize,
+    /// Cache line the group's instructions live in. `None` when the group
+    /// holds only a fetch-fault entry, which needs no I-cache access.
+    pub line: Option<LineAddr>,
+    /// Instructions in program order.
+    pub entries: Vec<Fetch1Fetch2Entry>,
 }
 
 /// A demand load (or atomic / LR) awaiting its `MemResp`.
@@ -104,10 +91,20 @@ pub struct OutstandingWalk {
 /// What an in-progress walk resumes once it completes.
 #[derive(Clone, Debug)]
 pub enum WalkContinuation {
-    /// An instruction fetch waiting on its translation. The fetch's
-    /// `paddr` is filled in when the walk succeeds, then the fetch's
-    /// `MemReq` is issued through the L1I.
-    Fetch(OutstandingFetch),
+    /// An instruction fetch waiting on its translation. When the walk
+    /// completes the instruction is dispatched as a one-entry fetch group
+    /// under `fetch_seq`.
+    Fetch {
+        /// Sequence number reserved for the group at park time so it drains
+        /// after the instructions fetch1 issued before it.
+        fetch_seq: u64,
+        /// The instruction whose translation is outstanding.
+        entry: Fetch1Fetch2Entry,
+        /// Which half-word the walk translates. A `Lower` walk supplies the
+        /// entry's `paddr`; an `Upper` walk only warms the TLB for fetch2's
+        /// re-translation of the page-crossing upper half.
+        half: FetchWalkHalf,
+    },
     /// A demand load or store waiting on its translation. The
     /// `ExMem1Entry` is re-injected into the Execute→Memory1 latch so
     /// memory1 re-runs with the (now TLB-resident) translation.

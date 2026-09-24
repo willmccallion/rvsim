@@ -1,21 +1,27 @@
-//! Fetch1 Stage: PC generation, branch prediction, I-TLB lookup, fetch
-//! request issuance.
+//! Fetch1 Stage: PC generation, branch prediction, I-TLB lookup, and
+//! instruction-line fetch.
 //!
 //! Each cycle the stage generates up to `pipeline.width` PCs starting at
-//! the current architectural PC. For each PC it:
+//! the current architectural PC, all inside one cache line. For each PC it:
 //!
-//! 1. Translates the virtual address via `cpu.translate`. On
-//!    [`TranslateResult::NeedPte`] it parks an `OutstandingWalk` with a
-//!    [`WalkContinuation::Fetch`] and emits a `MemReq` for the first PTE.
+//! 1. Translates the virtual address via `state.translate`. On
+//!    [`TranslateResult::NeedPte`] it parks the instruction under an
+//!    [`OutstandingWalk`] with [`WalkContinuation::Fetch`] and emits a
+//!    `MemReq` for the first PTE.
 //! 2. Reads the instruction half-word from the RAM fast path so the
 //!    branch predictor can examine the encoding inline. Cache-line timing
 //!    flows through the packet model — only the data bytes use the
 //!    pointer.
 //! 3. Asks the branch predictor what the next PC is.
-//! 4. Emits a `MemReq` with `op = Fetch` to the L1 instruction cache and
-//!    parks an [`OutstandingFetch`] under the freshly-allocated `ReqId`.
-//!    When the response arrives in the engine's mailbox, the drain stage
-//!    pushes the corresponding `Fetch1Fetch2Entry` into the F1→F2 latch.
+//!
+//! The PCs form one [`OutstandingFetch`] group. When the [`FetchBuffer`]
+//! already holds the group's line, the group goes straight to the
+//! fetch1→fetch2 latch through the program-order reorder buffer. Otherwise
+//! fetch1 emits a single line-sized `MemReq` with `op = Fetch` to the L1
+//! instruction cache and parks the group under the request id; the
+//! mailbox-drain stage releases it when the response arrives. This is
+//! gem5's fetch stage: one I-cache access per `fetchBuffer` fill, and none
+//! while the PC stays inside the buffered line.
 
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
@@ -25,19 +31,86 @@ use crate::common::constants::{
     COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, OPCODE_MASK, RD_MASK, RD_SHIFT,
     RS1_MASK, RS1_SHIFT,
 };
-use crate::common::{AccessType, ExceptionStage, PhysAddr, RegIdx, Trap, VirtAddr};
-use crate::sim::SimState;
+use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, RegIdx, Trap, VirtAddr};
 use crate::core::arch::csr;
-use crate::sim::state::memory::TranslateResult;
-use crate::core::pipeline::engine::ExecutionEngine;
+use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
+use crate::core::pipeline::latches::Fetch1Fetch2Entry;
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::{BranchPredictor, Ghr};
 use crate::isa::abi;
 use crate::isa::rv64i::opcodes;
+use crate::sim::SimState;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
+use crate::sim::state::memory::TranslateResult;
 use crate::trace_branch;
 use crate::trace_fetch;
+
+/// The cache line most recently returned by the I-cache (gem5's
+/// `fetchBuffer`).
+///
+/// Timing-only: instruction bytes are always read from the RAM fast path,
+/// so the buffer never needs invalidating for correctness. It is emptied
+/// when a new line request is issued and refilled when that line's
+/// response drains to the fetch1→fetch2 latch.
+#[derive(Debug, Default)]
+pub struct FetchBuffer {
+    line: Option<LineAddr>,
+}
+
+impl FetchBuffer {
+    /// True if `line` can be fetched from without an I-cache access.
+    #[must_use]
+    pub fn holds(&self, line: LineAddr) -> bool {
+        self.line == Some(line)
+    }
+
+    const fn fill(&mut self, line: LineAddr) {
+        self.line = Some(line);
+    }
+
+    const fn invalidate(&mut self) {
+        self.line = None;
+    }
+}
+
+/// Which half of a 32-bit instruction an outstanding fetch walk translates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchWalkHalf {
+    /// The instruction's own PC; `paddr` is unknown until the walk completes.
+    Lower,
+    /// The upper half-word of an instruction straddling a page boundary;
+    /// `paddr` (the lower half) is already known and stays as is.
+    Upper,
+}
+
+/// Accumulates one cycle's fetch entries into an [`OutstandingFetch`].
+#[derive(Default)]
+struct GroupBuilder {
+    fetch_seq: Option<u64>,
+    line: Option<LineAddr>,
+    entries: Vec<Fetch1Fetch2Entry>,
+}
+
+impl GroupBuilder {
+    fn push(&mut self, common: &mut BackendCommon, entry: Fetch1Fetch2Entry, line: Option<LineAddr>) {
+        if self.fetch_seq.is_none() {
+            self.fetch_seq = Some(common.alloc_fetch_seq());
+        }
+        if self.line.is_none() {
+            self.line = line;
+        }
+        self.entries.push(entry);
+    }
+
+    fn finish(self) -> Option<OutstandingFetch> {
+        self.fetch_seq.map(|fetch_seq| OutstandingFetch {
+            fetch_seq,
+            line: self.line,
+            entries: self.entries,
+        })
+    }
+}
 
 /// Reads a 16-bit instruction half-word from the RAM fast-path pointer.
 ///
@@ -51,15 +124,33 @@ fn read_inst_half(state: &SimState, paddr: u64) -> u16 {
     })
 }
 
-/// Parks an in-progress page-table walk triggered by an instruction fetch.
+/// A latch entry for an instruction that faulted before it could be fetched.
+fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
+    Fetch1Fetch2Entry {
+        pc,
+        paddr: PhysAddr::new(0),
+        pred_taken: false,
+        pred_target: 0,
+        trap: Some(trap),
+        exception_stage: Some(ExceptionStage::Fetch),
+        ghr_snapshot: Ghr::default(),
+        ras_snapshot: 0,
+    }
+}
+
+/// Parks an instruction whose translation needs a page-table walk and
+/// emits the first PTE read. The group sequence number is reserved now so
+/// the instruction drains after everything fetch1 issued before it.
 fn park_fetch_walk<E: ExecutionEngine>(
     state: &mut SimState,
     engine: &mut E,
     walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
-    pending: OutstandingFetch,
+    entry: Fetch1Fetch2Entry,
+    half: FetchWalkHalf,
 ) {
     let common = engine.common_mut();
+    let fetch_seq = common.alloc_fetch_seq();
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
@@ -68,7 +159,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
         OutstandingWalk {
             state: walk_state,
             pte_addr,
-            continuation: WalkContinuation::Fetch(pending),
+            continuation: WalkContinuation::Fetch { fetch_seq, entry, half },
         },
     );
     common.fetch_walk_pending = true;
@@ -88,19 +179,50 @@ fn park_fetch_walk<E: ExecutionEngine>(
     );
 }
 
-/// Emits a fetch `MemReq` and parks the corresponding `OutstandingFetch`.
-fn issue_fetch<E: ExecutionEngine>(
+/// Hands a fetch group to the frontend.
+///
+/// A group whose line the fetch buffer already holds (or that needs no line
+/// at all) enters the program-order reorder buffer immediately; any other
+/// group costs one line-sized I-cache request and waits for the response.
+pub fn dispatch_fetch_group<E: ExecutionEngine>(
     state: &mut SimState,
     engine: &mut E,
-    fetch: OutstandingFetch,
+    fetch_buffer: &mut FetchBuffer,
+    latch: &mut Vec<Fetch1Fetch2Entry>,
+    group: OutstandingFetch,
 ) {
+    match group.line {
+        Some(line) if !fetch_buffer.holds(line) => {
+            issue_line_fetch(state, engine, fetch_buffer, line, group);
+        }
+        _ => {
+            let common = engine.common_mut();
+            let _ = common.fetch_reorder.insert(group.fetch_seq, group);
+            drain_fetch_reorder(common, fetch_buffer, latch);
+        }
+    }
+}
+
+fn issue_line_fetch<E: ExecutionEngine>(
+    state: &mut SimState,
+    engine: &mut E,
+    fetch_buffer: &mut FetchBuffer,
+    line: LineAddr,
+    group: OutstandingFetch,
+) {
+    trace_fetch!(state.config.general.trace_instructions;
+        line        = %crate::trace::Hex(line.val()),
+        fetch_seq   = group.fetch_seq,
+        entries     = group.entries.len(),
+        "F1: line fetch issued"
+    );
+    fetch_buffer.invalidate();
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
     let l1_i_id = common.l1_i_id;
     let pipeline_id = common.pipeline_id;
-    let paddr = fetch.paddr;
-    let pc = fetch.pc;
-    let _ = common.outstanding_fetches.insert(req_id, fetch);
+    let vaddr = group.entries.first().map(|e| VirtAddr::new(e.pc));
+    let _ = common.outstanding_fetches.insert(req_id, group);
 
     let cycle = state.cycle;
     state.event_queue.schedule(
@@ -109,39 +231,61 @@ fn issue_fetch<E: ExecutionEngine>(
         ComponentId::Pipeline(pipeline_id),
         Packet::MemReq {
             req_id,
-            paddr,
-            vaddr: Some(VirtAddr::new(pc)),
-            size: AccessSize::B4,
+            paddr: line.phys(),
+            vaddr,
+            size: AccessSize::Line,
             op: MemOp::Fetch,
         },
     );
 }
 
+/// Releases completed groups into the fetch1→fetch2 latch in program order.
+///
+/// Stops at the first gap (an older group still waiting on its line). A
+/// drained group's line becomes the fetch buffer's content.
+pub fn drain_fetch_reorder(
+    common: &mut BackendCommon,
+    fetch_buffer: &mut FetchBuffer,
+    latch: &mut Vec<Fetch1Fetch2Entry>,
+) {
+    loop {
+        let next_seq = common.next_emit_fetch_seq;
+        let Some(group) = common.fetch_reorder.remove(&next_seq) else {
+            break;
+        };
+        common.next_emit_fetch_seq = next_seq.wrapping_add(1);
+        if let Some(line) = group.line {
+            fetch_buffer.fill(line);
+        }
+        latch.extend(group.entries);
+    }
+}
 
-/// Executes the Fetch1 stage: emits up to `pipeline.width` fetch `MemReq`
-/// packets, advancing the architectural PC by the predicted next-PC.
+/// Executes the Fetch1 stage: forms up to `pipeline.width` instructions
+/// from one cache line into a fetch group, advancing the architectural PC
+/// by the predicted next-PC.
 ///
 /// The caller runs this only while no fetch is in flight
-/// ([`BackendCommon::fetch_in_flight`](crate::core::pipeline::engine::BackendCommon::fetch_in_flight)),
-/// so a parked fetch walk or an unanswered fetch request never gets a
-/// duplicate request for the same PC.
-pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
+/// ([`BackendCommon::fetch_in_flight`]), so a parked fetch walk or an
+/// unanswered line request never gets a duplicate request for the same PC.
+pub fn fetch1_stage<E: ExecutionEngine>(
+    state: &mut SimState,
+    engine: &mut E,
+    fetch_buffer: &mut FetchBuffer,
+    latch: &mut Vec<Fetch1Fetch2Entry>,
+) {
     let mut current_pc = state.hart.pc;
     let c_enabled = (state.hart.csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
     let line_bytes = state.core.l1_i_cache.line_bytes() as u64;
     let line_end = (current_pc | (line_bytes - 1)) + 1;
+    let mut group = GroupBuilder::default();
 
     for _ in 0..state.config.pipeline.width {
         if current_pc + 2 > line_end {
             break;
         }
-
-        // Allocate the program-order fetch sequence number once per PC
-        // before any walk/issue decision so the reorder buffer keys every
-        // path the same way.
-        let fetch_seq = engine.common_mut().alloc_fetch_seq();
 
         let fetch_trap = if (current_pc & align_mask) != 0 {
             Some(Trap::InstructionAddressMisaligned(current_pc))
@@ -162,10 +306,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
         let (paddr, trap) = match translated {
             TranslateResult::Ready(r) => (r.paddr, r.trap),
             TranslateResult::NeedPte { pte_addr, state: walk_state } => {
-                // Park a fetch with paddr unknown; walk completion will
-                // re-issue the actual fetch MemReq.
-                let pending = OutstandingFetch {
-                    fetch_seq,
+                let pending = Fetch1Fetch2Entry {
                     pc: current_pc,
                     paddr: PhysAddr::new(0),
                     pred_taken: false,
@@ -175,42 +316,30 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
                     ghr_snapshot: Ghr::default(),
                     ras_snapshot: 0,
                 };
-                park_fetch_walk(state, engine, walk_state, pte_addr, pending);
-                // Advance the architectural fetch PC past this instruction so
-                // when fetch_walk_pending clears, fetch1 doesn't reallocate a
-                // second fetch_seq for the same PC and double-fetch it. We
-                // can't read the encoding to know the precise size, so assume
-                // 4 bytes — a compressed instruction at the parked PC will
-                // mispredict via the normal pred_target compare in execute,
-                // exactly like a default not-taken prediction on a branch.
+                park_fetch_walk(state, engine, walk_state, pte_addr, pending, FetchWalkHalf::Lower);
+                // Advance past this instruction so the next fetch1 doesn't
+                // fetch the same PC again once the walk completes. The
+                // encoding can't be read yet, so assume 4 bytes; a
+                // compressed instruction at the parked PC mispredicts via
+                // the normal pred_target compare in execute, exactly like a
+                // default not-taken prediction on a branch.
                 current_pc = current_pc.wrapping_add(4);
                 break;
             }
         };
 
-        let trap_cause = fetch_trap.or(trap);
-        if let Some(trap_cause) = trap_cause {
+        if let Some(trap_cause) = fetch_trap.or(trap) {
             trace_fetch!(state.config.general.trace_instructions;
                 pc          = %crate::trace::Hex(current_pc),
                 trap        = ?trap_cause,
                 "F1: fetch trap"
             );
-            let fetch = OutstandingFetch {
-                fetch_seq,
-                pc: current_pc,
-                paddr: PhysAddr::new(0),
-                pred_taken: false,
-                pred_target: 0,
-                trap: Some(trap_cause),
-                exception_stage: Some(ExceptionStage::Fetch),
-                ghr_snapshot: Ghr::default(),
-                ras_snapshot: 0,
-            };
-            issue_fetch(state, engine, fetch);
+            group.push(engine.common_mut(), fault_entry(current_pc, trap_cause), None);
             break;
         }
 
         let phys_addr = paddr.val();
+        let line = LineAddr::from_phys(paddr, line_bytes);
         let half_word = read_inst_half(state, phys_addr);
         let is_compressed =
             (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
@@ -260,12 +389,11 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
                                 crosses_page = true,
                                 "F1: page-crossing fault deferred to F2"
                             );
-                            // Issue the fetch normally — the upper-half
+                            // Fetch the instruction normally — the upper-half
                             // fault is surfaced when fetch2 re-translates.
-                            let fetch = OutstandingFetch {
-                                fetch_seq,
+                            let entry = Fetch1Fetch2Entry {
                                 pc: current_pc,
-                                paddr: PhysAddr::new(phys_addr),
+                                paddr,
                                 pred_taken: false,
                                 pred_target: 0,
                                 trap: None,
@@ -273,17 +401,16 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
                                 ghr_snapshot: Ghr::default(),
                                 ras_snapshot,
                             };
-                            issue_fetch(state, engine, fetch);
-                            state.hart.pc = next_pc_calc;
-                            return;
+                            group.push(engine.common_mut(), entry, Some(line));
+                            current_pc = next_pc_calc;
+                            break;
                         }
                         r.paddr
                     }
                     TranslateResult::NeedPte { pte_addr, state: walk_state } => {
-                        let pending = OutstandingFetch {
-                            fetch_seq,
+                        let pending = Fetch1Fetch2Entry {
                             pc: current_pc,
-                            paddr: PhysAddr::new(phys_addr),
+                            paddr,
                             pred_taken: false,
                             pred_target: 0,
                             trap: None,
@@ -291,14 +418,19 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
                             ghr_snapshot,
                             ras_snapshot,
                         };
-                        park_fetch_walk(state, engine, walk_state, pte_addr, pending);
-                        // See the lower-half NeedPte arm above: advance past
-                        // this 4-byte instruction so the walk-completion path
-                        // and the next fetch1 don't both emit a fetch for the
-                        // same PC. The instruction is known to be 32-bit
-                        // here (compressed instructions never cross a page).
-                        state.hart.pc = current_pc.wrapping_add(4);
-                        return;
+                        park_fetch_walk(
+                            state,
+                            engine,
+                            walk_state,
+                            pte_addr,
+                            pending,
+                            FetchWalkHalf::Upper,
+                        );
+                        // See the lower-half NeedPte arm above. The
+                        // instruction is known to be 32-bit here (compressed
+                        // instructions never cross a page).
+                        current_pc = current_pc.wrapping_add(4);
+                        break;
                     }
                 }
             } else {
@@ -388,10 +520,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
             "F1: fetch entry issued"
         );
 
-        let fetch = OutstandingFetch {
-            fetch_seq,
+        let entry = Fetch1Fetch2Entry {
             pc: current_pc,
-            paddr: PhysAddr::new(phys_addr),
+            paddr,
             pred_taken,
             pred_target,
             trap: None,
@@ -399,7 +530,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
             ghr_snapshot,
             ras_snapshot,
         };
-        issue_fetch(state, engine, fetch);
+        group.push(engine.common_mut(), entry, Some(line));
 
         current_pc = next_pc_calc;
         if stop_fetch {
@@ -407,5 +538,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(state: &mut SimState, engine: &mut E) {
         }
     }
 
+    if let Some(group) = group.finish() {
+        dispatch_fetch_group(state, engine, fetch_buffer, latch, group);
+    }
     state.hart.pc = current_pc;
 }
