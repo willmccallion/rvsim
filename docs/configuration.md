@@ -158,7 +158,8 @@ Cache(
     line="64B",           # Line size (default: 64B)
     ways=8,               # Associativity
     latency=1,            # Hit latency in cycles
-    mshr_count=8,         # MSHRs for non-blocking operation (0 = blocking)
+    mshr_count=8,         # Outstanding line fetches (0 = simulator default, 8)
+    write_buffers=8,      # Victims in flight to the next level (0 = default, 8)
     policy=ReplacementPolicy.LRU(),       # Eviction policy
     prefetcher=Prefetcher.Stride(),       # Hardware prefetcher
 )
@@ -173,8 +174,12 @@ Cache(
 | `inclusion_policy` | `Cache.*` | `Cache.NINE()` | L1-L2 inclusion policy |
 | `wcb_entries` | `int` | `0` | Write-combining buffer entries |
 
-!!! tip "MSHRs matter"
-    With `mshr_count=0` (the default), the L1D cache is **blocking** — every miss stalls the pipeline until the line arrives. Set `mshr_count=8` or higher for realistic non-blocking behavior where the O3 backend can execute other instructions while waiting for cache fills.
+!!! tip "MSHRs and writeback buffers"
+    Every level fetches at most `mshr_count` lines at a time and keeps at
+    most `write_buffers` evicted lines in flight to the next level; while
+    either is exhausted the cache blocks and later requests queue. Passing
+    `0` (the Python default) leaves the simulator default of 8 in place; a
+    `mshr_count=1` cache is a blocking cache that serialises its misses.
 
 ### Replacement Policies
 

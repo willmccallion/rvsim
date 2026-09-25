@@ -46,9 +46,41 @@ Invalidated by:
 
 Accessed by the Memory1 stage. The critical path for load-to-use latency.
 
-**Non-blocking operation (MSHRs):** When `mshr_count > 0`, L1D misses allocate a Miss Status Holding Register. The load is parked in the MSHR, and the pipeline continues executing other instructions. Multiple misses to the same cache line are coalesced into a single MSHR entry. When the line arrives from L2/L3/DRAM, all waiting loads are woken up.
+### Every level: MSHRs, writeback buffer, blocking
 
-**Blocking operation (MSHRs = 0):** When `mshr_count = 0`, L1D misses stall the pipeline until the line arrives. This is simpler but prevents the O3 backend from exploiting memory-level parallelism.
+Each cache level is one event-driven component, modelled after gem5's
+classic cache:
+
+- A **miss allocates an MSHR** and sends one line-sized request to the
+  next level after the tag-lookup latency. A second miss to a line already
+  in flight **joins that MSHR** instead of fetching again; when the fill
+  arrives every joined request is answered at once. `mshr_count` bounds the
+  fetches in flight (default 8; zero behaves as one, a blocking cache).
+- A **write miss allocates**: the line is fetched, then installed dirty. A
+  whole-line write from above (a drained write-combining line, or a
+  cache-maintenance writeback) merges into a held line or is forwarded
+  without allocating.
+- A fill that evicts a **dirty victim** puts it in the **writeback buffer**
+  and sends it to the next level; the entry is freed when that level
+  acknowledges. Dirty lines leaving the last cache reach the memory
+  controller as writes, so DRAM sees the real write traffic.
+- While every MSHR or every writeback buffer entry (`write_buffers`,
+  default 8) is busy the cache is **blocked**: new requests queue in
+  arrival order and are retried as entries free up, which is what a blocked
+  port does to its requester.
+- **Prefetches are real fetches**: a candidate line the prefetcher wants
+  takes an MSHR (never the last free one) and travels down the hierarchy
+  like a demand miss; a demand miss that joins it counts as a useful
+  prefetch.
+
+Per-level counters live under `core<N>.cache.{l1i,l1d,l2}` and `llc`:
+`hits`, `misses`, `mshr_hits`, `blocked_requests`, `fills`, `evictions`,
+`writebacks`, `back_invalidations`, `prefetches.issued`,
+`prefetches.useful` and the derived `miss_rate`.
+
+The out-of-order backend's speculative load wakeup (issue dependents
+assuming an L1D hit) is enabled whenever the L1D has MSHRs
+(`mshr_count > 0`).
 
 ### L2 / L3 Caches
 
@@ -56,13 +88,13 @@ Unified caches accessed on L1 miss. Each level has independent size, associativi
 
 ### Inclusion Policies
 
-The relationship between L1 and L2 is configurable:
+The relationship between adjacent levels is configurable:
 
 | Policy | Behavior | Trade-off |
 |--------|----------|-----------|
-| **NINE** (default) | No inclusion enforcement | Simple, no coherence traffic |
-| **Inclusive** | L2 eviction back-invalidates matching L1 lines | Guarantees L2 is a superset of L1 |
-| **Exclusive** | L1 eviction installs the line into L2 (swap) | Maximizes effective cache capacity |
+| **NINE** (default) | No inclusion enforcement | Simple, no back-invalidation traffic |
+| **Inclusive** | An eviction back-invalidates the same line in the caches above; a dirty copy above is written back first | Guarantees each level is a superset of the levels above it, which a snooping lower level needs |
+| **Exclusive** | L1 victims (clean or dirty) are handed to the L2; the L2 gives up its copy when it fills an L1 | Maximizes effective L1+L2 capacity; the LLC stays non-inclusive |
 
 ## Store Buffer
 

@@ -291,9 +291,6 @@ impl CoreCtx<'_> {
 
                 self.hart.csrs.satp = new_val;
 
-                let _ = self.core.l1_i_cache.invalidate_all();
-                let _ = self.core.l1_d_cache.flush();
-
                 self.hart.mmu.dtlb.flush();
                 self.hart.mmu.itlb.flush();
                 self.hart.mmu.l2_tlb.flush();

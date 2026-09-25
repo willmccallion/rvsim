@@ -96,6 +96,13 @@ pub enum MemOp {
     },
     /// Instruction fetch.
     Fetch,
+    /// A whole line leaving a cache for the next level: its dirty data
+    /// (`dirty`), or a clean victim handed to an exclusive lower level. The
+    /// bytes are already in RAM; the packet carries the timing.
+    Writeback {
+        /// Whether the line was modified.
+        dirty: bool,
+    },
 }
 
 /// Cache level at which a request was satisfied.

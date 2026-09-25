@@ -192,6 +192,7 @@ class Cache:
     latency: int
     prefetcher: Any
     mshr_count: int
+    write_buffers: int
     def __init__(
         self,
         size: str | int = "4KB",
@@ -201,6 +202,7 @@ class Cache:
         latency: int = 1,
         prefetcher: Any = None,
         mshr_count: int = 0,
+        write_buffers: int = 0,
     ) -> None: ...
 
 # ── config.py ────────────────────────────────────────────────────────────────

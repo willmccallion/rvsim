@@ -29,6 +29,7 @@ use crate::core::pipeline::rob::{Rob, RobEntry, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
+use crate::core::units::cache::DirtyLine;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
@@ -402,6 +403,9 @@ pub fn commit_stage(
             );
             // SATP redirect: post-execute fetches used old tables; reset state.hart.pc to next inst.
             if csr_update.addr == csr::SATP {
+                let _ = state.core.l1_i_cache.invalidate_all();
+                let dirty = state.core.l1_d_cache.flush();
+                write_back_lines(state, common, &dirty);
                 state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
                 *redirect_pending = true;
             }
@@ -541,7 +545,7 @@ pub fn commit_stage(
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            sfence_vma_commit(state, &info);
+            sfence_vma_commit(state, common, &info);
             state.clear_reservation();
             state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             *redirect_pending = true;
@@ -730,9 +734,10 @@ fn flush_wcb(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
     }
 }
 
-/// Emits a cache-line write-back `MemReq` to the L1D for an evicted WCB
-/// line. The cache routes it through the hierarchy; memctrl applies the
-/// actual DRAM write.
+/// Emits a dirty-line writeback to the L1D for a line the pipeline drained
+/// (a WCB line, or a line a cache-maintenance instruction pushed out). The
+/// cache merges it or forwards it down the hierarchy; the memory controller
+/// accounts the DRAM write.
 fn emit_line_writeback(state: &mut CoreCtx<'_>, common: &mut BackendCommon, paddr: PhysAddr) {
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
@@ -751,9 +756,16 @@ fn emit_line_writeback(state: &mut CoreCtx<'_>, common: &mut BackendCommon, padd
             paddr,
             vaddr: None,
             size: AccessSize::Line,
-            op: MemOp::Write { data: WriteData::Small(0) },
+            op: MemOp::Writeback { dirty: true },
         },
     );
+}
+
+/// Writes back every dirty line a cache maintenance operation pushed out.
+fn write_back_lines(state: &mut CoreCtx<'_>, common: &mut BackendCommon, lines: &[DirtyLine]) {
+    for dirty in lines {
+        emit_line_writeback(state, common, dirty.line.phys());
+    }
 }
 
 /// Writes a store's data to the correct memory target (RAM fast-path or bus).
@@ -822,14 +834,18 @@ fn commit_cbo(
 
     match effective_op {
         SystemOp::CboZero => cboz_write(state, common, paddr),
-        // cbo.flush is "writeback then invalidate"; in this simulator stores
-        // are already at RAM by commit, so the writeback is a no-op and we
-        // share cbo.inval's drop-the-line implementation.
-        SystemOp::CboInval | SystemOp::CboFlush => {
+        SystemOp::CboInval => {
             let _ = state.core.l1_d_cache.invalidate_line(paddr);
         }
+        SystemOp::CboFlush => {
+            if let Some(dirty) = state.core.l1_d_cache.invalidate_line(paddr) {
+                write_back_lines(state, common, &[dirty]);
+            }
+        }
         SystemOp::CboClean => {
-            let _ = state.core.l1_d_cache.clean_line(paddr);
+            if let Some(dirty) = state.core.l1_d_cache.clean_line(paddr) {
+                write_back_lines(state, common, &[dirty]);
+            }
         }
         _ => {}
     }
@@ -1272,13 +1288,14 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
 /// rs1!=0,rs2==0: flush TLB entries matching vaddr in rs1;
 /// rs1==0,rs2!=0: flush non-global TLB entries matching ASID in rs2;
 /// rs1!=0,rs2!=0: flush TLB entry matching both vaddr and ASID.
-fn sfence_vma_commit(state: &mut CoreCtx<'_>, info: &SfenceVmaInfo) {
+fn sfence_vma_commit(state: &mut CoreCtx<'_>, common: &mut BackendCommon, info: &SfenceVmaInfo) {
     match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
         (false, false) => {
             state.hart.mmu.dtlb.flush();
             state.hart.mmu.itlb.flush();
             state.hart.mmu.l2_tlb.flush();
-            let _ = state.core.l1_d_cache.flush();
+            let dirty = state.core.l1_d_cache.flush();
+            write_back_lines(state, common, &dirty);
             let _ = state.core.l1_i_cache.invalidate_all();
         }
         (true, false) => {

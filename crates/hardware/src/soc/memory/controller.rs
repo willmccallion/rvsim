@@ -286,7 +286,7 @@ fn service_request(
     let offset = (paddr.val().saturating_sub(base.val())) as usize;
     match op {
         MemOp::Read | MemOp::Fetch => read_response(buffer, offset, size),
-        MemOp::Write { .. } => MemRespData::Small(0),
+        MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
         MemOp::Atomic { .. } => {
             // Atomic semantics are resolved upstream (LR/SC reservation, AMO
             // round-trip in the LSU). The controller serves the load value.

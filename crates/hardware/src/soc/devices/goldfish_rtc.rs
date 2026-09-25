@@ -45,7 +45,7 @@ impl Handle for GoldfishRtc {
                     (0x00, AccessSize::B8) => Self::get_time_ns(),
                     _ => 0,
                 },
-                MemOp::Write { .. } => 0,
+                MemOp::Write { .. } | MemOp::Writeback { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

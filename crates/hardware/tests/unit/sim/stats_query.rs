@@ -57,7 +57,7 @@ fn every_core_and_hart_gets_its_own_subject() {
         (CorePaths::new(CoreId::new(0)), HartId::new(0)),
         (CorePaths::new(CoreId::new(1)), HartId::new(1)),
     ];
-    let mut s = Stats::for_components(&harts, &cores);
+    let mut s = Stats::for_components(&harts, &cores, &[]);
     s.counter(harts[0].retired_insts).add(10);
     s.counter(harts[1].retired_insts).add(5);
     s.counter(cores[1].0.commit.op_load).add(7);

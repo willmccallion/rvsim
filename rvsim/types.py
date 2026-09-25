@@ -723,6 +723,7 @@ class Cache:
         latency: int = 1,
         prefetcher: "Prefetcher.Off | Prefetcher.NextLine | Prefetcher.Stride | Prefetcher.Stream | Prefetcher.Tagged | None" = None,
         mshr_count: int = 0,
+        write_buffers: int = 0,
     ):
         self.size_bytes = _parse_size(size)
         self.line_bytes = _parse_size(line)
@@ -731,12 +732,14 @@ class Cache:
         self.latency = latency
         self.prefetcher = prefetcher if prefetcher is not None else Prefetcher.Off()
         self.mshr_count = mshr_count
+        self.write_buffers = write_buffers
 
     def __repr__(self) -> str:
         return (
             f"Cache(size={self.size_bytes}, line={self.line_bytes}, "
             f"ways={self.ways}, policy={self.policy!r}, "
-            f"latency={self.latency}, prefetcher={self.prefetcher!r})"
+            f"latency={self.latency}, prefetcher={self.prefetcher!r}, "
+            f"mshr_count={self.mshr_count}, write_buffers={self.write_buffers})"
         )
 
 

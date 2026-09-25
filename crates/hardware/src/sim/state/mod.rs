@@ -25,7 +25,7 @@ pub mod trap;
 pub mod write_log;
 
 use crate::common::{HartId, PhysAddr, RegisterFile};
-use crate::config::{Config, MemoryController as MemControllerType};
+use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::hart::HartInit;
@@ -417,8 +417,14 @@ impl SimState {
             )),
         };
 
-        let mut l3_cache = Cache::new(topology.llc, CacheLevel::L3, &config.cache.l3);
+        let mut l3_cache = Cache::new(topology.llc, CacheLevel::L3, &config.cache.l3, "llc");
         l3_cache.set_downstream(ComponentId::Bus);
+        // An exclusive L1/L2 pair leaves the LLC non-inclusive of the L2s.
+        let llc_inclusion = match config.cache.inclusion_policy {
+            InclusionPolicy::Exclusive => InclusionPolicy::Nine,
+            policy => policy,
+        };
+        l3_cache.set_upstream_inclusion(llc_inclusion);
 
         let ram_region = crate::soc::memory::RamRegion::new(
             ram_buffer.as_mut_ptr(),
@@ -550,7 +556,12 @@ impl SimState {
             .zip(&cores)
             .map(|(c, core)| (core.stat_paths, c.hart_ids[0]))
             .collect();
-        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths);
+        let cache_stat_paths: Vec<_> = cores
+            .iter()
+            .flat_map(|core| [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths])
+            .chain(std::iter::once(l3_cache.stat_paths))
+            .collect();
+        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths, &cache_stat_paths);
 
         Self {
             harts,

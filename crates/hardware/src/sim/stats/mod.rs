@@ -27,6 +27,7 @@ pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
 use crate::common::{CoreId, HartId};
+use crate::core::units::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 
 /// A scalar counter.
@@ -299,7 +300,11 @@ impl Stats {
     /// writer path appears in [`Stats::query`] and [`Stats::summary`] output
     /// even before any counter has been incremented.
     #[must_use]
-    pub fn for_components(harts: &[HartPaths], cores: &[(CorePaths, HartId)]) -> Self {
+    pub fn for_components(
+        harts: &[HartPaths],
+        cores: &[(CorePaths, HartId)],
+        caches: &[CacheStatPaths],
+    ) -> Self {
         let mut s = Self::new();
         for hart in harts {
             register_hart(&mut s, hart);
@@ -307,15 +312,19 @@ impl Stats {
         for (core, first_hart) in cores {
             register_core(&mut s, core, &harts[first_hart.as_index()]);
         }
+        for cache in caches {
+            register_cache(&mut s, cache);
+        }
         register_system(&mut s, harts);
         s
     }
 
-    /// [`Stats::for_components`] for one core hosting one hart.
+    /// [`Stats::for_components`] for one core hosting one hart, with no
+    /// caches.
     #[must_use]
     pub fn with_default_registrations() -> Self {
         let hart = HartId::new(0);
-        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)])
+        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)], &[])
     }
 
     /// Returns a mutable reference to the counter at `path`.
@@ -542,6 +551,21 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
         Formula::Div(pipe.cycles_total, first_hart.retired_insts),
         Meta::ratio("cycles per instruction"),
     );
+}
+
+/// Registers one cache's counters and its miss rate.
+fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
+    s.register(c.hits, Meta::events("requests answered from the tag array"));
+    s.register(c.misses, Meta::events("requests that started or joined a line fetch"));
+    s.register(c.mshr_hits, Meta::events("misses that joined an in-flight fetch"));
+    s.register(c.blocked_requests, Meta::events("requests queued while MSHRs or writeback buffer were full"));
+    s.register(c.fills, Meta::events("lines installed"));
+    s.register(c.evictions, Meta::events("valid lines replaced"));
+    s.register(c.writebacks, Meta::events("lines written to the next level"));
+    s.register(c.back_invalidations, Meta::events("lines dropped at the next level's request"));
+    s.register(c.prefetches_issued, Meta::events("prefetch fetches started"));
+    s.register(c.prefetches_useful, Meta::events("prefetch fetches a demand request joined"));
+    s.derive(c.miss_rate, Formula::Ratio { numerator: c.misses, other: c.hits }, Meta::ratio("miss rate"));
 }
 
 /// Registers the `system.*` sums over every hart.

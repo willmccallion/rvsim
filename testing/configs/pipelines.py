@@ -207,10 +207,10 @@ PIPELINES = [
     ))),
 
     # ── MSHRs ─────────────────────────────────────────────────────────────────
-    # Blocking L1-D (mshr=0): every miss serialises, no coalescing possible.
+    # Blocking L1-D: one miss and one writeback in flight at a time.
     ("o3 w4 blocking-l1d",  Config(width=4, backend=Backend.OutOfOrder(),
                                    l1d=Cache("32KB", ways=4, latency=1,
-                                             mshr_count=0,
+                                             mshr_count=1, write_buffers=1,
                                              prefetcher=Prefetcher.Stride(degree=1, table_size=64)))),
     # Single MSHR: a second miss while one is in flight must stall.
     ("o3 w4 mshr-1",        Config(width=4, backend=Backend.OutOfOrder(),

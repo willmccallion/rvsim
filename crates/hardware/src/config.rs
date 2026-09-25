@@ -140,8 +140,11 @@ mod defaults {
     /// Default prefetch degree (1 line per trigger).
     pub const PREFETCH_DEGREE: usize = 1;
 
-    /// Default MSHR count for L1D cache (0 = blocking cache).
-    pub const L1D_MSHR_COUNT: usize = 0;
+    /// Default outstanding line fetches per cache level (gem5's classic
+    /// caches use 4 for an L1 and 20 for an L2; 8 sits between).
+    pub const MSHR_COUNT: usize = 8;
+    /// Default writeback buffer entries per cache level.
+    pub const WRITE_BUFFERS: usize = 8;
 
     /// Default pipeline width (1 instruction per cycle).
     pub const PIPELINE_WIDTH: usize = 1;
@@ -983,9 +986,15 @@ pub struct CacheConfig {
     #[serde(default = "CacheConfig::default_prefetch_degree")]
     pub prefetch_degree: usize,
 
-    /// Number of MSHRs (Miss Status Holding Registers). 0 = blocking cache.
-    #[serde(default)]
+    /// Number of MSHRs (Miss Status Holding Registers): outstanding line
+    /// fetches this level can have in flight. Zero behaves as one.
+    #[serde(default = "CacheConfig::default_mshr_count")]
     pub mshr_count: usize,
+
+    /// Writeback buffer entries: victims in flight to the next level before
+    /// the cache stops accepting requests. Zero behaves as one.
+    #[serde(default = "CacheConfig::default_write_buffers")]
+    pub write_buffers: usize,
 }
 
 impl CacheConfig {
@@ -1018,6 +1027,16 @@ impl CacheConfig {
     const fn default_prefetch_degree() -> usize {
         defaults::PREFETCH_DEGREE
     }
+
+    /// Returns the default MSHR count.
+    const fn default_mshr_count() -> usize {
+        defaults::MSHR_COUNT
+    }
+
+    /// Returns the default writeback buffer size.
+    const fn default_write_buffers() -> usize {
+        defaults::WRITE_BUFFERS
+    }
 }
 
 impl Default for CacheConfig {
@@ -1032,7 +1051,8 @@ impl Default for CacheConfig {
             prefetcher: Prefetcher::default(),
             prefetch_table_size: defaults::PREFETCH_TABLE_SIZE,
             prefetch_degree: defaults::PREFETCH_DEGREE,
-            mshr_count: defaults::L1D_MSHR_COUNT,
+            mshr_count: defaults::MSHR_COUNT,
+            write_buffers: defaults::WRITE_BUFFERS,
         }
     }
 }

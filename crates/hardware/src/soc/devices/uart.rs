@@ -298,7 +298,7 @@ impl Handle for Uart {
                     self.write_register(offset, val as u8);
                     0
                 }
-                MemOp::Write { .. } => 0,
+                MemOp::Write { .. } | MemOp::Writeback { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

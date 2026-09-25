@@ -92,6 +92,7 @@ impl Handle for MockMemory {
                     self.data[idx..end].copy_from_slice(&bytes[..end - idx]);
                     0
                 }
+                MemOp::Writeback { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

@@ -171,7 +171,7 @@ impl Handle for Clint {
                     self.write_register(offset, size, val);
                     0
                 }
-                MemOp::Write { .. } => 0,
+                MemOp::Write { .. } | MemOp::Writeback { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

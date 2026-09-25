@@ -74,6 +74,16 @@ macro_rules! impl_id_methods {
     };
 }
 
+impl ReqId {
+    /// A correlator for a request a cache originates itself (a line fetch
+    /// or a writeback). The top bit marks the cache namespace so it can
+    /// never collide with a pipeline's `(PipelineId << 48) | seq` ids.
+    #[must_use]
+    pub const fn for_cache(cache: CacheId, seq: u64) -> Self {
+        Self((1 << 63) | ((cache.0 as u64) << 48) | (seq & ((1 << 48) - 1)))
+    }
+}
+
 impl_id_methods!(CacheId, u32);
 impl_id_methods!(PipelineId, u32);
 impl_id_methods!(MemCtrlId, u32);

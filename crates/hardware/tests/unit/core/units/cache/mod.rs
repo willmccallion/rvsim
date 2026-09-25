@@ -1,2 +1,2 @@
-pub mod cache_sim;
+pub mod cache;
 pub mod policies;

@@ -1,63 +1,85 @@
-//! Set-associative cache.
+//! Set-associative cache with MSHRs and a writeback buffer.
 //!
-//! Each cache level is its own [`Handle`] component. Requests arrive as
-//! [`Packet::MemReq`]; on a hit the cache schedules a [`Packet::MemResp`] back
-//! to the requester, on a miss it forwards a `MemReq` downstream and records
-//! the original requester in [`Cache::pending`] so the eventual response can
-//! be routed back. Evictions emit [`Packet::CacheInval`] to upstream caches
-//! to maintain inclusion.
-
-pub mod policies;
+//! Each cache level is one [`Handle`] component. A request arrives as
+//! [`Packet::MemReq`]: a hit answers after the access latency; a miss
+//! allocates an MSHR, or joins the one already fetching the line, and sends
+//! one line request downstream. The fill installs the line, writes a dirty
+//! victim back through the writeback buffer, and answers every request the
+//! MSHR gathered. While the MSHRs or the writeback buffer are full the
+//! cache is blocked: new requests queue and are retried in arrival order as
+//! entries free up, which is how a blocked port stalls its requester.
+//!
+//! Caches hold tags and states, never data: functional bytes live in RAM.
 
 pub mod mshr;
+pub mod policies;
+pub mod stats;
+pub mod writeback_buffer;
 
-use std::collections::HashMap;
+use std::collections::VecDeque;
 
+use self::mshr::{Mshr, MshrTable, MshrTarget};
 use self::policies::{
     FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
 };
+use self::stats::CacheStatPaths;
+use self::writeback_buffer::{Writeback, WritebackBuffer};
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
-use crate::config::{CacheConfig, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType};
+use crate::config::{
+    CacheConfig, InclusionPolicy, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType,
+};
 use crate::core::units::prefetch::{
     NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
 };
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, Packet};
+use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet};
 
-/// Information about an evicted cache line.
-#[derive(Clone, Copy, Debug)]
-pub struct EvictedLine {
-    /// Physical address of the evicted line (cache-line aligned).
-    pub addr: u64,
-    /// Whether the evicted line was dirty.
-    pub dirty: bool,
-}
-
-/// In-flight memory request the cache is waiting to satisfy.
-///
-/// One entry per [`ReqId`] forwarded downstream; the eventual `MemResp` is
-/// routed back to `source`.
-#[derive(Clone, Debug)]
-pub struct PendingRequest {
-    /// Component that issued the original [`Packet::MemReq`].
-    pub source: ComponentId,
-    /// Post-translation address.
-    pub paddr: PhysAddr,
-    /// Pre-translation address for fault reporting.
-    pub vaddr: Option<VirtAddr>,
-    /// Access width.
-    pub size: AccessSize,
-    /// Read / write / atomic / fetch.
-    pub op: MemOp,
-}
-
-/// Cache line entry containing tag, validity, and dirty bits.
-#[derive(Clone, Debug, Default)]
+/// One tag-array entry.
+#[derive(Clone, Copy, Debug, Default)]
 struct CacheLine {
     tag: u64,
-    valid: bool,
-    dirty: bool,
+    state: MesiState,
+}
+
+impl CacheLine {
+    const fn valid(self) -> bool {
+        !matches!(self.state, MesiState::Invalid)
+    }
+
+    const fn dirty(self) -> bool {
+        matches!(self.state, MesiState::Modified | MesiState::Owned)
+    }
+}
+
+/// A request that arrived while the cache was blocked.
+#[derive(Clone, Debug)]
+struct BlockedRequest {
+    source: ComponentId,
+    req_id: ReqId,
+    paddr: PhysAddr,
+    vaddr: Option<VirtAddr>,
+    size: AccessSize,
+    op: MemOp,
+}
+
+/// A request forwarded downstream without a line of our own (the level is
+/// disabled, or a writeback for a line we do not hold), remembered so the
+/// response can be routed back to its requester.
+#[derive(Clone, Copy, Debug)]
+struct Forwarded {
+    ours: ReqId,
+    source: ComponentId,
+    theirs: ReqId,
+}
+
+/// A line that left the cache and must be written back by the caller
+/// (returned by the pipeline-facing maintenance operations, which cannot
+/// schedule events themselves).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DirtyLine {
+    /// The line.
+    pub line: LineAddr,
 }
 
 /// A set-associative cache at one level of the memory hierarchy.
@@ -66,25 +88,34 @@ pub struct Cache {
     pub id: CacheId,
     /// Position in the hierarchy.
     pub level: CacheLevel,
-    /// Caches that may hold a copy of any line installed here; receive
-    /// `CacheInval` on eviction to maintain inclusion.
+    /// Caches above this one that may hold copies of its lines.
     pub upstream: Vec<ComponentId>,
-    /// Where to forward a `MemReq` on a miss. `None` for the last cache
-    /// when no downstream has been wired yet.
+    /// Where misses and writebacks go. `None` for the last cache when no
+    /// downstream has been wired yet.
     pub downstream: Option<ComponentId>,
-    /// Outstanding misses waiting on a downstream response.
-    pub pending: HashMap<ReqId, PendingRequest>,
     /// Access latency in cycles.
     pub latency: u64,
     /// When false, accesses bypass this cache and forward straight downstream.
     pub enabled: bool,
     /// Optional hardware prefetcher.
     pub prefetcher: Option<Box<dyn Prefetcher + Send + Sync>>,
+    /// Stat paths rooted at this cache's subject.
+    pub stat_paths: CacheStatPaths,
+    /// Relationship with the caches above this one.
+    upstream_inclusion: InclusionPolicy,
+    /// True when clean victims are handed to the next level (this cache is
+    /// the upper half of an exclusive pair).
+    clean_victims_to_downstream: bool,
     lines: Vec<CacheLine>,
     num_sets: usize,
     ways: usize,
     line_bytes: usize,
     policy: Box<dyn ReplacementPolicy + Send + Sync>,
+    mshrs: MshrTable,
+    writebacks: WritebackBuffer,
+    blocked: VecDeque<BlockedRequest>,
+    forwarded: Vec<Forwarded>,
+    next_req: u64,
 }
 
 impl std::fmt::Debug for Cache {
@@ -97,22 +128,25 @@ impl std::fmt::Debug for Cache {
             .field("num_sets", &self.num_sets)
             .field("ways", &self.ways)
             .field("line_bytes", &self.line_bytes)
+            .field("mshrs", &self.mshrs)
+            .field("writebacks", &self.writebacks)
             .finish_non_exhaustive()
     }
 }
 
 impl Cache {
-    /// Creates a new cache.
+    /// Creates a cache whose stats live under `stat_subject`.
     ///
-    /// `id` and `level` identify the cache for routing; `upstream` and
-    /// `downstream` are empty by default and configured by the system builder.
-    pub fn new(id: CacheId, level: CacheLevel, config: &CacheConfig) -> Self {
+    /// `id` and `level` identify the cache for routing; `upstream`,
+    /// `downstream` and the inclusion relationship are configured by the
+    /// system builder.
+    pub fn new(id: CacheId, level: CacheLevel, config: &CacheConfig, stat_subject: &str) -> Self {
         let safe_ways = if config.ways == 0 { 1 } else { config.ways };
         let safe_line = if config.line_bytes == 0 { 64 } else { config.line_bytes };
         let safe_size = if config.size_bytes == 0 { 4096 } else { config.size_bytes };
 
         let num_lines = safe_size / safe_line;
-        let num_sets = num_lines / safe_ways;
+        let num_sets = (num_lines / safe_ways).max(1);
 
         let policy: Box<dyn ReplacementPolicy + Send + Sync> = match config.policy {
             PolicyType::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
@@ -145,343 +179,46 @@ impl Cache {
             level,
             upstream: Vec::new(),
             downstream: None,
-            pending: HashMap::new(),
+            latency: config.latency,
+            enabled: config.enabled,
+            prefetcher,
+            stat_paths: CacheStatPaths::new(stat_subject),
+            upstream_inclusion: InclusionPolicy::Nine,
+            clean_victims_to_downstream: false,
             lines: vec![CacheLine::default(); num_sets * safe_ways],
             num_sets,
             ways: safe_ways,
             line_bytes: safe_line,
-            latency: config.latency,
-            enabled: config.enabled,
             policy,
-            prefetcher,
+            mshrs: MshrTable::new(config.mshr_count),
+            writebacks: WritebackBuffer::new(config.write_buffers),
+            blocked: VecDeque::new(),
+            forwarded: Vec::new(),
+            next_req: 0,
         }
     }
 
-    /// Sets the downstream target for forwarded misses.
+    /// Sets the downstream target for misses and writebacks.
     pub const fn set_downstream(&mut self, downstream: ComponentId) {
         self.downstream = Some(downstream);
     }
 
-    /// Adds an upstream consumer that should receive `CacheInval` on
-    /// eviction to keep inclusion invariants.
+    /// Adds a cache above this one.
     pub fn add_upstream(&mut self, upstream: ComponentId) {
         self.upstream.push(upstream);
     }
 
-    /// Reconstructs the physical address from a set index and tag.
-    #[inline]
-    const fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
-        tag * (self.line_bytes * self.num_sets) as u64 + (set_index * self.line_bytes) as u64
+    /// Sets how this cache treats the caches above it: `Inclusive` back-
+    /// invalidates them on eviction, `Exclusive` gives up its own copy when
+    /// it fills one of them, `Nine` does neither.
+    pub const fn set_upstream_inclusion(&mut self, policy: InclusionPolicy) {
+        self.upstream_inclusion = policy;
     }
 
-    /// Returns true if the cache holds the line containing `addr`.
-    pub fn contains(&self, addr: u64) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Installs a cache line. Returns the write-back penalty when the victim
-    /// was dirty.
-    fn install_line(&mut self, addr: u64, is_write: bool, next_level_latency: u64) -> u64 {
-        self.install_line_tracked(addr, is_write, next_level_latency).0
-    }
-
-    /// Installs a cache line and returns both the penalty and eviction info.
-    fn install_line_tracked(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> (u64, Option<EvictedLine>) {
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        let victim_way = self.policy.get_victim(set_index);
-        let victim_idx = base_idx + victim_way;
-        let mut penalty = 0;
-        let mut evicted = None;
-
-        if self.lines[victim_idx].valid {
-            let victim_addr = self.reconstruct_addr(set_index, self.lines[victim_idx].tag);
-            let victim_dirty = self.lines[victim_idx].dirty;
-            evicted = Some(EvictedLine { addr: victim_addr, dirty: victim_dirty });
-            if victim_dirty {
-                penalty += next_level_latency;
-            }
-        }
-
-        self.lines[victim_idx] = CacheLine { tag, valid: true, dirty: is_write };
-        self.policy.update(set_index, victim_way);
-
-        (penalty, evicted)
-    }
-
-    /// Probe the cache, install on miss, run the prefetcher. Returns `(hit, penalty)`.
-    pub fn access(&mut self, addr: u64, is_write: bool, next_level_latency: u64) -> (bool, u64) {
-        if !self.enabled {
-            return (false, 0);
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        let mut hit = false;
-        let mut penalty = 0;
-
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                self.policy.update(set_index, i);
-                if is_write {
-                    self.lines[idx].dirty = true;
-                }
-                hit = true;
-                break;
-            }
-        }
-
-        if !hit {
-            penalty += self.install_line(addr, is_write, next_level_latency);
-        }
-
-        let prefetches =
-            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
-
-        for target in prefetches {
-            if !self.contains(target) {
-                let _ = self.install_line(target, false, next_level_latency);
-            }
-        }
-
-        (hit, penalty)
-    }
-
-    /// Probe the cache with eviction tracking. Prefetch candidates are
-    /// installed directly. Use `access_tracked_split` to filter them first.
-    pub fn access_tracked(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> (bool, u64, Vec<EvictedLine>) {
-        let (hit, penalty, evictions, prefetch_candidates) =
-            self.access_tracked_split(addr, is_write, next_level_latency);
-
-        let mut all_evictions = evictions;
-        for target in prefetch_candidates {
-            if !self.contains(target) {
-                let (_pen, evicted) = self.install_line_tracked(target, false, next_level_latency);
-                if let Some(ev) = evicted {
-                    all_evictions.push(ev);
-                }
-            }
-        }
-
-        (hit, penalty, all_evictions)
-    }
-
-    /// Probe with eviction tracking, returning prefetch candidates separately
-    /// instead of installing them.
-    pub fn access_tracked_split(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> (bool, u64, Vec<EvictedLine>, Vec<u64>) {
-        if !self.enabled {
-            return (false, 0, Vec::new(), Vec::new());
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        let mut hit = false;
-        let mut penalty = 0;
-        let mut evictions = Vec::new();
-
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                self.policy.update(set_index, i);
-                if is_write {
-                    self.lines[idx].dirty = true;
-                }
-                hit = true;
-                break;
-            }
-        }
-
-        if !hit {
-            let (pen, evicted) = self.install_line_tracked(addr, is_write, next_level_latency);
-            penalty += pen;
-            if let Some(ev) = evicted {
-                evictions.push(ev);
-            }
-        }
-
-        let prefetches =
-            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
-
-        (hit, penalty, evictions, prefetches)
-    }
-
-    /// Installs prefetch targets, returning any evictions.
-    pub fn install_prefetches(
-        &mut self,
-        targets: &[u64],
-        next_level_latency: u64,
-    ) -> Vec<EvictedLine> {
-        let mut evictions = Vec::new();
-        for &target in targets {
-            if !self.contains(target) {
-                let (_pen, evicted) = self.install_line_tracked(target, false, next_level_latency);
-                if let Some(ev) = evicted {
-                    evictions.push(ev);
-                }
-            }
-        }
-        evictions
-    }
-
-    /// Non-blocking probe: checks for hit/miss without installing on miss.
-    ///
-    /// On hit, updates replacement policy and dirty bit, triggers prefetcher.
-    /// On miss, triggers prefetcher but does NOT install the line.
-    pub fn access_check(&mut self, addr: u64, is_write: bool) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        let mut hit = false;
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                self.policy.update(set_index, i);
-                if is_write {
-                    self.lines[idx].dirty = true;
-                }
-                hit = true;
-                break;
-            }
-        }
-
-        let prefetches =
-            self.prefetcher.as_mut().map_or_else(Vec::new, |pref| pref.observe(addr, hit));
-        for target in prefetches {
-            if !self.contains(target) {
-                let _ = self.install_line(target, false, 0);
-            }
-        }
-
-        hit
-    }
-
-    /// Install a cache line from outside (e.g. when an MSHR completes).
-    pub fn install_line_public(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> u64 {
-        self.install_line(addr, is_write, next_level_latency)
-    }
-
-    /// Install a cache line from outside with eviction tracking.
-    pub fn install_line_public_tracked(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> (u64, Option<EvictedLine>) {
-        self.install_line_tracked(addr, is_write, next_level_latency)
-    }
-
-    /// Writes back the line at `addr` if dirty and clears the dirty bit.
-    /// Used by Zicbom `cbo.clean`. Returns true if the line was present.
-    pub fn clean_line(&mut self, addr: u64) -> bool {
-        if !self.enabled {
-            return false;
-        }
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                self.lines[idx].dirty = false;
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Invalidates the line containing `addr`. Returns true if the line was present.
-    pub fn invalidate_line(&mut self, addr: u64) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if self.lines[idx].valid && self.lines[idx].tag == tag {
-                self.lines[idx].valid = false;
-                self.lines[idx].dirty = false;
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Installs a line into an invalid way without eviction if possible.
-    /// Falls back to `install_line_tracked` if no free way exists.
-    pub fn install_or_replace(
-        &mut self,
-        addr: u64,
-        is_write: bool,
-        next_level_latency: u64,
-    ) -> (u64, Option<EvictedLine>) {
-        if !self.enabled {
-            return (0, None);
-        }
-
-        let set_index = ((addr as usize) / self.line_bytes) % self.num_sets;
-        let tag = addr / (self.line_bytes * self.num_sets) as u64;
-        let base_idx = set_index * self.ways;
-
-        for i in 0..self.ways {
-            let idx = base_idx + i;
-            if !self.lines[idx].valid {
-                self.lines[idx] = CacheLine { tag, valid: true, dirty: is_write };
-                self.policy.update(set_index, i);
-                return (0, None);
-            }
-        }
-
-        self.install_line_tracked(addr, is_write, next_level_latency)
+    /// Makes this cache hand clean victims to the next level (the upper
+    /// half of an exclusive pair).
+    pub const fn set_clean_victims_to_downstream(&mut self, enabled: bool) {
+        self.clean_victims_to_downstream = enabled;
     }
 
     /// Returns the cache line size in bytes.
@@ -490,56 +227,415 @@ impl Cache {
         self.line_bytes
     }
 
-    /// Writes back all dirty lines and invalidates them. Returns the evicted
-    /// dirty lines for writeback accounting; clean lines remain valid.
-    pub fn flush(&mut self) -> Vec<EvictedLine> {
-        let mut evicted = Vec::new();
-        if !self.enabled {
-            return evicted;
-        }
-        for i in 0..self.lines.len() {
-            if self.lines[i].valid && self.lines[i].dirty {
-                let set_index = i / self.ways;
-                evicted.push(EvictedLine {
-                    addr: self.reconstruct_addr(set_index, self.lines[i].tag),
-                    dirty: true,
-                });
-                self.lines[i].dirty = false;
-                self.lines[i].valid = false;
-            }
-        }
-        evicted
+    /// Outstanding line fetches.
+    #[must_use]
+    pub const fn mshrs(&self) -> &MshrTable {
+        &self.mshrs
     }
 
-    /// Invalidates every line, returning evicted dirty lines. Used for I-cache
-    /// invalidation on FENCE.I where stale clean lines must also be discarded.
-    pub fn invalidate_all(&mut self) -> Vec<EvictedLine> {
-        let mut evicted = Vec::new();
-        if !self.enabled {
-            return evicted;
-        }
-        for i in 0..self.lines.len() {
-            if self.lines[i].valid {
-                if self.lines[i].dirty {
-                    let set_index = i / self.ways;
-                    evicted.push(EvictedLine {
-                        addr: self.reconstruct_addr(set_index, self.lines[i].tag),
-                        dirty: true,
-                    });
+    /// Writebacks in flight to the next level.
+    #[must_use]
+    pub const fn writebacks(&self) -> &WritebackBuffer {
+        &self.writebacks
+    }
+
+    /// Requests waiting for the cache to unblock.
+    #[must_use]
+    pub fn blocked_requests(&self) -> usize {
+        self.blocked.len()
+    }
+
+    /// Lines that appear in more than one way of a set. Always empty for a
+    /// correct cache; audited by tests and the coherence checker.
+    #[must_use]
+    pub fn duplicate_lines(&self) -> Vec<LineAddr> {
+        let mut duplicates = Vec::new();
+        for set_index in 0..self.num_sets {
+            let set = &self.lines[set_index * self.ways..(set_index + 1) * self.ways];
+            for (i, line) in set.iter().enumerate() {
+                if line.valid() && set[..i].iter().any(|other| other.valid() && other.tag == line.tag) {
+                    duplicates.push(self.line_of(self.reconstruct_addr(set_index, line.tag)));
                 }
-                self.lines[i].dirty = false;
-                self.lines[i].valid = false;
             }
         }
-        evicted
+        duplicates
     }
-}
 
-const fn hit_level_for(level: CacheLevel) -> HitLevel {
-    match level {
-        CacheLevel::L1I | CacheLevel::L1D => HitLevel::L1,
-        CacheLevel::L2 => HitLevel::L2,
-        CacheLevel::L3 => HitLevel::L3,
+    const fn line_of(&self, addr: u64) -> LineAddr {
+        LineAddr::from_phys(PhysAddr::new(addr), self.line_bytes as u64)
+    }
+
+    const fn set_index(&self, addr: u64) -> usize {
+        ((addr as usize) / self.line_bytes) % self.num_sets
+    }
+
+    const fn tag_of(&self, addr: u64) -> u64 {
+        addr / (self.line_bytes * self.num_sets) as u64
+    }
+
+    const fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
+        tag * (self.line_bytes * self.num_sets) as u64 + (set_index * self.line_bytes) as u64
+    }
+
+    fn find_way(&self, addr: u64) -> Option<usize> {
+        let set_index = self.set_index(addr);
+        let tag = self.tag_of(addr);
+        (0..self.ways).find(|&way| {
+            let line = self.lines[set_index * self.ways + way];
+            line.valid() && line.tag == tag
+        })
+    }
+
+    /// Returns true if the cache holds the line containing `addr`.
+    pub fn contains(&self, addr: u64) -> bool {
+        self.enabled && self.find_way(addr).is_some()
+    }
+
+    /// Cleans the line containing `addr`, returning it when it was dirty so
+    /// the caller can write it back. Used by Zicbom `cbo.clean`.
+    pub fn clean_line(&mut self, addr: u64) -> Option<DirtyLine> {
+        if !self.enabled {
+            return None;
+        }
+        let way = self.find_way(addr)?;
+        let index = self.set_index(addr) * self.ways + way;
+        let was_dirty = self.lines[index].dirty();
+        self.lines[index].state = MesiState::Exclusive;
+        was_dirty.then(|| DirtyLine { line: self.line_of(addr) })
+    }
+
+    /// Invalidates the line containing `addr`, returning it when it was
+    /// dirty so the caller can write it back (`cbo.flush`) or drop it
+    /// (`cbo.inval`).
+    pub fn invalidate_line(&mut self, addr: u64) -> Option<DirtyLine> {
+        if !self.enabled {
+            return None;
+        }
+        let way = self.find_way(addr)?;
+        let index = self.set_index(addr) * self.ways + way;
+        let was_dirty = self.lines[index].dirty();
+        self.lines[index].state = MesiState::Invalid;
+        was_dirty.then(|| DirtyLine { line: self.line_of(addr) })
+    }
+
+    /// Invalidates every line, returning the dirty ones for the caller to
+    /// write back.
+    pub fn invalidate_all(&mut self) -> Vec<DirtyLine> {
+        let mut dirty = Vec::new();
+        if !self.enabled {
+            return dirty;
+        }
+        for index in 0..self.lines.len() {
+            if self.lines[index].dirty() {
+                let set_index = index / self.ways;
+                let addr = self.reconstruct_addr(set_index, self.lines[index].tag);
+                dirty.push(DirtyLine { line: self.line_of(addr) });
+            }
+            self.lines[index].state = MesiState::Invalid;
+        }
+        dirty
+    }
+
+    /// Writes back and invalidates every dirty line; clean lines stay
+    /// valid. Returns the dirty lines for the caller to write back.
+    pub fn flush(&mut self) -> Vec<DirtyLine> {
+        let mut dirty = Vec::new();
+        if !self.enabled {
+            return dirty;
+        }
+        for index in 0..self.lines.len() {
+            if self.lines[index].dirty() {
+                let set_index = index / self.ways;
+                let addr = self.reconstruct_addr(set_index, self.lines[index].tag);
+                dirty.push(DirtyLine { line: self.line_of(addr) });
+                self.lines[index].state = MesiState::Invalid;
+            }
+        }
+        dirty
+    }
+
+    const fn alloc_req_id(&mut self) -> ReqId {
+        let seq = self.next_req;
+        self.next_req = seq.wrapping_add(1);
+        ReqId::for_cache(self.id, seq)
+    }
+
+    const fn is_blocked(&self) -> bool {
+        self.mshrs.is_full() || self.writebacks.is_full()
+    }
+
+    const fn hit_level(&self) -> HitLevel {
+        match self.level {
+            CacheLevel::L1I | CacheLevel::L1D => HitLevel::L1,
+            CacheLevel::L2 => HitLevel::L2,
+            CacheLevel::L3 => HitLevel::L3,
+        }
+    }
+
+    fn respond(&self, ctx: &mut HandleCtx<'_>, target: ComponentId, req_id: ReqId, paddr: PhysAddr, at: u64, hit_level: HitLevel) {
+        ctx.scheduler.schedule(
+            at,
+            target,
+            ctx.self_id,
+            Packet::MemResp {
+                req_id,
+                line_addr: self.line_of(paddr.val()),
+                data: MemRespData::Small(0),
+                hit_level,
+            },
+        );
+    }
+
+    fn on_request(&mut self, req: BlockedRequest, ctx: &mut HandleCtx<'_>) {
+        if !self.enabled {
+            self.forward(req, ctx);
+            return;
+        }
+        if self.is_blocked() {
+            ctx.stats.counter(self.stat_paths.blocked_requests).inc();
+            self.blocked.push_back(req);
+            return;
+        }
+        if let MemOp::Writeback { dirty } = req.op {
+            self.on_writeback(&req, dirty, ctx);
+            return;
+        }
+
+        let addr = req.paddr.val();
+        let is_write = matches!(req.op, MemOp::Write { .. });
+        let set_index = self.set_index(addr);
+        if let Some(way) = self.find_way(addr) {
+            self.policy.update(set_index, way);
+            if is_write {
+                self.lines[set_index * self.ways + way].state = MesiState::Modified;
+            }
+            ctx.stats.counter(self.stat_paths.hits).inc();
+            let hit_level = self.hit_level();
+            self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level);
+            if self.upstream_inclusion == InclusionPolicy::Exclusive
+                && matches!(req.source, ComponentId::Cache(_))
+            {
+                // The upper level now owns the line.
+                self.lines[set_index * self.ways + way].state = MesiState::Invalid;
+            }
+            self.observe_prefetcher(addr, true, ctx);
+            return;
+        }
+
+        ctx.stats.counter(self.stat_paths.misses).inc();
+        let line = self.line_of(addr);
+        let target = MshrTarget {
+            source: req.source,
+            req_id: req.req_id,
+            paddr: req.paddr,
+            vaddr: req.vaddr,
+            size: req.size,
+            op: req.op,
+        };
+        if let Some(mshr) = self.mshrs.find_line_mut(line) {
+            ctx.stats.counter(self.stat_paths.mshr_hits).inc();
+            if mshr.prefetch && mshr.targets.is_empty() {
+                ctx.stats.counter(self.stat_paths.prefetches_useful).inc();
+            }
+            mshr.write |= is_write;
+            mshr.targets.push(target);
+        } else {
+            let fetch_op = if matches!(target.op, MemOp::Fetch) { MemOp::Fetch } else { MemOp::Read };
+            let vaddr = target.vaddr;
+            self.start_fetch(line, vec![target], is_write, false, fetch_op, vaddr, ctx);
+        }
+        self.observe_prefetcher(addr, false, ctx);
+    }
+
+    /// Allocates an MSHR for `line` and sends the line request downstream
+    /// after the tag lookup.
+    #[allow(clippy::too_many_arguments)]
+    fn start_fetch(
+        &mut self,
+        line: LineAddr,
+        targets: Vec<MshrTarget>,
+        write: bool,
+        prefetch: bool,
+        op: MemOp,
+        vaddr: Option<VirtAddr>,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let req_id = self.alloc_req_id();
+        self.mshrs.allocate(Mshr { line, req_id, targets, write, prefetch, issued_at: ctx.cycle });
+        if let Some(downstream) = self.downstream {
+            ctx.scheduler.schedule(
+                ctx.cycle + self.latency,
+                downstream,
+                ctx.self_id,
+                Packet::MemReq { req_id, paddr: line.phys(), vaddr, size: AccessSize::Line, op },
+            );
+        }
+    }
+
+    /// Runs the prefetcher on a demand access and starts fetches for the
+    /// lines it wants that are neither present nor already in flight,
+    /// keeping one MSHR free for demand misses.
+    fn observe_prefetcher(&mut self, addr: u64, hit: bool, ctx: &mut HandleCtx<'_>) {
+        let Some(prefetcher) = self.prefetcher.as_mut() else { return };
+        let candidates = prefetcher.observe(addr, hit);
+        for candidate in candidates {
+            if self.mshrs.free() <= 1 || self.downstream.is_none() {
+                return;
+            }
+            let line = self.line_of(candidate);
+            if self.contains(candidate) || self.mshrs.holds(line) || self.writebacks.holds(line) {
+                continue;
+            }
+            ctx.stats.counter(self.stat_paths.prefetches_issued).inc();
+            self.start_fetch(line, Vec::new(), false, true, MemOp::Read, None, ctx);
+        }
+    }
+
+    /// A whole line arriving from above: merge into our copy when we hold
+    /// it, otherwise pass it on without allocating. The requester is
+    /// acknowledged after the access latency either way.
+    fn on_writeback(&mut self, req: &BlockedRequest, dirty: bool, ctx: &mut HandleCtx<'_>) {
+        let addr = req.paddr.val();
+        let hit_level = self.hit_level();
+        self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level);
+        if let Some(way) = self.find_way(addr) {
+            let index = self.set_index(addr) * self.ways + way;
+            if dirty {
+                self.lines[index].state = MesiState::Modified;
+            }
+            return;
+        }
+        if dirty || self.clean_victims_to_downstream {
+            // Not ours: forward downstream through the writeback buffer.
+            self.write_back(self.line_of(addr), dirty, ctx);
+        }
+    }
+
+    /// Sends a line to the next level and tracks it until acknowledged.
+    fn write_back(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
+        let Some(downstream) = self.downstream else { return };
+        let req_id = self.alloc_req_id();
+        self.writebacks.allocate(Writeback { line, req_id, dirty });
+        ctx.stats.counter(self.stat_paths.writebacks).inc();
+        ctx.scheduler.schedule(
+            ctx.cycle + 1,
+            downstream,
+            ctx.self_id,
+            Packet::MemReq {
+                req_id,
+                paddr: line.phys(),
+                vaddr: None,
+                size: AccessSize::Line,
+                op: MemOp::Writeback { dirty },
+            },
+        );
+    }
+
+    /// Pass-through used when this level is disabled: forward the request
+    /// with our own correlator and remember where the response goes.
+    fn forward(&mut self, req: BlockedRequest, ctx: &mut HandleCtx<'_>) {
+        let Some(downstream) = self.downstream else { return };
+        let ours = self.alloc_req_id();
+        self.forwarded.push(Forwarded { ours, source: req.source, theirs: req.req_id });
+        ctx.scheduler.schedule(
+            ctx.cycle,
+            downstream,
+            ctx.self_id,
+            Packet::MemReq { req_id: ours, paddr: req.paddr, vaddr: req.vaddr, size: req.size, op: req.op },
+        );
+    }
+
+    fn on_response(&mut self, req_id: ReqId, line_addr: LineAddr, data: MemRespData, hit_level: HitLevel, ctx: &mut HandleCtx<'_>) {
+        if self.writebacks.complete(req_id) {
+            self.retry_blocked(ctx);
+            return;
+        }
+        if let Some(index) = self.forwarded.iter().position(|f| f.ours == req_id) {
+            let forwarded = self.forwarded.remove(index);
+            ctx.scheduler.schedule(
+                ctx.cycle,
+                forwarded.source,
+                ctx.self_id,
+                Packet::MemResp { req_id: forwarded.theirs, line_addr, data, hit_level },
+            );
+            return;
+        }
+        let Some(mshr) = self.mshrs.take(req_id) else { return };
+        self.fill(&mshr, ctx);
+        for target in &mshr.targets {
+            self.respond(ctx, target.source, target.req_id, target.paddr, ctx.cycle, hit_level);
+        }
+        self.retry_blocked(ctx);
+    }
+
+    /// Installs a fetched line, evicting a victim if the set is full.
+    fn fill(&mut self, mshr: &Mshr, ctx: &mut HandleCtx<'_>) {
+        let addr = mshr.line.val();
+        let set_index = self.set_index(addr);
+        let tag = self.tag_of(addr);
+        ctx.stats.counter(self.stat_paths.fills).inc();
+
+        let way = if let Some(way) = self.find_way(addr) {
+            way
+        } else if let Some(free) = (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid()) {
+            free
+        } else {
+            let victim = self.policy.get_victim(set_index);
+            self.evict(set_index, victim, ctx);
+            victim
+        };
+        let state = if mshr.write { MesiState::Modified } else { MesiState::Exclusive };
+        let index = set_index * self.ways + way;
+        self.lines[index] = CacheLine { tag, state: if self.lines[index].dirty() { MesiState::Modified } else { state } };
+        self.policy.update(set_index, way);
+    }
+
+    /// Removes the line in `way` of `set_index`: dirty lines (and clean
+    /// ones for an exclusive pair) go to the writeback buffer, and
+    /// inclusive upper levels are told to drop their copies.
+    fn evict(&mut self, set_index: usize, way: usize, ctx: &mut HandleCtx<'_>) {
+        let index = set_index * self.ways + way;
+        let victim = self.lines[index];
+        if !victim.valid() {
+            return;
+        }
+        ctx.stats.counter(self.stat_paths.evictions).inc();
+        let line = self.line_of(self.reconstruct_addr(set_index, victim.tag));
+        self.lines[index].state = MesiState::Invalid;
+        if victim.dirty() || self.clean_victims_to_downstream {
+            self.write_back(line, victim.dirty(), ctx);
+        }
+        self.back_invalidate(line, ctx);
+    }
+
+    fn back_invalidate(&self, line: LineAddr, ctx: &mut HandleCtx<'_>) {
+        if self.upstream_inclusion != InclusionPolicy::Inclusive {
+            return;
+        }
+        for &upstream in &self.upstream {
+            ctx.scheduler.schedule(ctx.cycle, upstream, ctx.self_id, Packet::CacheInval { line_addr: line });
+        }
+    }
+
+    /// The next level dropped `line`; drop our copy too (writing it back
+    /// first if it is dirty) and tell inclusive upper levels.
+    fn on_back_invalidate(&mut self, line: LineAddr, ctx: &mut HandleCtx<'_>) {
+        if !self.enabled {
+            return;
+        }
+        if let Some(dirty) = self.invalidate_line(line.val()) {
+            self.write_back(dirty.line, true, ctx);
+        }
+        ctx.stats.counter(self.stat_paths.back_invalidations).inc();
+        self.back_invalidate(line, ctx);
+    }
+
+    /// Re-presents queued requests while the cache has room for them.
+    fn retry_blocked(&mut self, ctx: &mut HandleCtx<'_>) {
+        while !self.is_blocked() {
+            let Some(req) = self.blocked.pop_front() else { return };
+            self.on_request(req, ctx);
+        }
     }
 }
 
@@ -547,108 +643,18 @@ impl Handle for Cache {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         match packet {
             Packet::MemReq { req_id, paddr, vaddr, size, op } => {
-                let line_addr = LineAddr::from_phys(paddr, self.line_bytes as u64);
-
-                if !self.enabled {
-                    self.forward_pass_through(req_id, paddr, vaddr, size, op, source, ctx);
-                    return;
-                }
-
-                let is_write = matches!(op, MemOp::Write { .. });
-                let hit = self.access_check(paddr.val(), is_write);
-
-                if hit {
-                    ctx.scheduler.schedule(
-                        ctx.cycle + self.latency,
-                        source,
-                        ctx.self_id,
-                        Packet::MemResp {
-                            req_id,
-                            line_addr,
-                            data: MemRespData::Small(0),
-                            hit_level: hit_level_for(self.level),
-                        },
-                    );
-                } else if let Some(ds) = self.downstream {
-                    let _ = self.pending.insert(
-                        req_id,
-                        PendingRequest { source, paddr, vaddr, size, op: op.clone() },
-                    );
-                    ctx.scheduler.schedule(
-                        ctx.cycle + self.latency,
-                        ds,
-                        ctx.self_id,
-                        Packet::MemReq { req_id, paddr, vaddr, size, op },
-                    );
-                }
+                self.on_request(BlockedRequest { source, req_id, paddr, vaddr, size, op }, ctx);
             }
             Packet::MemResp { req_id, line_addr, data, hit_level } => {
-                let Some(pending) = self.pending.remove(&req_id) else { return };
-
-                if self.enabled {
-                    let is_write = matches!(pending.op, MemOp::Write { .. });
-                    let (_pen, evicted) =
-                        self.install_line_tracked(pending.paddr.val(), is_write, 0);
-
-                    if let Some(ev) = evicted {
-                        let ev_line =
-                            LineAddr::from_phys(PhysAddr::new(ev.addr), self.line_bytes as u64);
-                        for &u in &self.upstream {
-                            ctx.scheduler.schedule(
-                                ctx.cycle,
-                                u,
-                                ctx.self_id,
-                                Packet::CacheInval { line_addr: ev_line },
-                            );
-                        }
-                    }
-                }
-
-                ctx.scheduler.schedule(
-                    ctx.cycle,
-                    pending.source,
-                    ctx.self_id,
-                    Packet::MemResp { req_id, line_addr, data, hit_level },
-                );
+                self.on_response(req_id, line_addr, data, hit_level, ctx);
             }
-            Packet::CacheInval { line_addr } => {
-                let _ = self.invalidate_line(line_addr.val());
-            }
+            Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
             Packet::CacheClean { line_addr } => {
-                let _ = self.clean_line(line_addr.val());
+                if let Some(dirty) = self.clean_line(line_addr.val()) {
+                    self.write_back(dirty.line, true, ctx);
+                }
             }
             _ => {}
         }
-    }
-}
-
-impl Cache {
-    /// Pass-through routing used when this cache level is disabled: forwards
-    /// the request to `downstream` with zero added latency while recording the
-    /// original requester so the eventual response routes back through here.
-    // Mirrors the shape of a MemReq packet plus routing metadata; splitting into
-    // a struct would just re-inline the same fields at every call site.
-    #[allow(clippy::too_many_arguments)]
-    fn forward_pass_through(
-        &mut self,
-        req_id: ReqId,
-        paddr: PhysAddr,
-        vaddr: Option<VirtAddr>,
-        size: AccessSize,
-        op: MemOp,
-        source: ComponentId,
-        ctx: &mut HandleCtx<'_>,
-    ) {
-        let Some(ds) = self.downstream else { return };
-        let _ = self.pending.insert(
-            req_id,
-            PendingRequest { source, paddr, vaddr, size, op: op.clone() },
-        );
-        ctx.scheduler.schedule(
-            ctx.cycle,
-            ds,
-            ctx.self_id,
-            Packet::MemReq { req_id, paddr, vaddr, size, op },
-        );
     }
 }
