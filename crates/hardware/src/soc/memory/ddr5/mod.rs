@@ -13,7 +13,7 @@ pub mod scheduler;
 pub mod state;
 pub mod timing;
 
-pub use config::Ddr5Config;
+pub use config::{Ddr5Config, PowerDownPolicy};
 pub use controller::{ClockRatio, Ddr5Controller};
 pub use refresh::{AllBank, RankLayout, RefreshKind, RefreshPolicy, RefreshTarget, SameBank};
 pub use scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler, SchedulerKind};

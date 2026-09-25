@@ -72,6 +72,22 @@ pub enum BankState {
     Refreshing,
 }
 
+/// Rank power state.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PowerState {
+    /// Clocked and accepting commands.
+    Active,
+    /// Entered power-down at `since`; must stay at least tPD and pay tXP
+    /// on exit. `with_open_rows` distinguishes active from precharge
+    /// power-down.
+    PowerDown {
+        /// Clock of the power-down entry command.
+        since: u64,
+        /// True for active power-down (rows left open).
+        with_open_rows: bool,
+    },
+}
+
 /// Where a rank is in its refresh cycle.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum RefreshPhase {
@@ -114,6 +130,11 @@ pub struct Rank {
     /// Cycle of the most recent PRECHARGE on this rank (tPPD). Zero before
     /// any precharge.
     pub last_precharge: u64,
+    /// Power state.
+    pub power: PowerState,
+    /// Earliest cycle a command may issue after the last power-down exit
+    /// (exit + tXP). Zero before any exit.
+    pub power_up_at: u64,
 }
 
 impl Rank {
@@ -131,7 +152,26 @@ impl Rank {
             refresh_seq: 0,
             last_command_cycle: 0,
             last_precharge: 0,
+            power: PowerState::Active,
+            power_up_at: 0,
         }
+    }
+
+    /// Earliest cycle the rank's command bus accepts a new command: after
+    /// the previous command's tenure and after any power-down exit.
+    #[must_use]
+    pub const fn command_floor(&self) -> u64 {
+        if self.power_up_at > self.last_command_cycle {
+            self.power_up_at
+        } else {
+            self.last_command_cycle
+        }
+    }
+
+    /// True if any bank holds an open row.
+    #[must_use]
+    pub fn has_open_row(&self) -> bool {
+        self.banks.iter().any(|b| b.state == BankState::Active)
     }
 
     /// True if bank `bank_index` is covered by a pending refresh or is

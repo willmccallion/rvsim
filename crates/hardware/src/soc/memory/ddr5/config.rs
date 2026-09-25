@@ -51,6 +51,8 @@ pub struct Ddr5Config {
     pub scheduler: SchedulerKind,
     /// Refresh cadence policy.
     pub refresh: RefreshKind,
+    /// Rank power-down policy.
+    pub power_down: PowerDownPolicy,
     /// Address-bit interleave strategy.
     pub address_mapping: AddressMappingKind,
     /// Command-timing constants.
@@ -82,10 +84,29 @@ impl Ddr5Config {
             backend_latency: Constraint::ps(10_000).cycles(bin.data_rate_mts),
             scheduler: SchedulerKind::FrFcfs,
             refresh: RefreshKind::AllBank,
+            power_down: PowerDownPolicy::Disabled,
             address_mapping: AddressMappingKind::RoRaBaChCo,
             timing: Ddr5Timing::from_bin(&bin),
         }
     }
+}
+
+/// When a rank with nothing to do enters power-down.
+///
+/// A powered-down rank pays tXP after the exit command before its next
+/// command. gem5 ships with power-down disabled (`enable_dram_powerdown`),
+/// so that is the default here too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PowerDownPolicy {
+    /// Ranks never power down.
+    #[default]
+    Disabled,
+    /// A rank enters power-down once it has had no command, no burst on
+    /// the data bus, and no queued request for `idle_clocks` DRAM clocks.
+    AfterIdle {
+        /// Idle clocks before entry.
+        idle_clocks: u64,
+    },
 }
 
 impl Default for Ddr5Config {

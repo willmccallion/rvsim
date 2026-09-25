@@ -38,11 +38,11 @@ use crate::sim::packet::{AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, 
 use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
-use crate::soc::memory::ddr5::config::Ddr5Config;
+use crate::soc::memory::ddr5::config::{Ddr5Config, PowerDownPolicy};
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
-    Bank, BankState, BusOp, DramChannel, PendingReq, RefreshPhase, WriteDrainState,
+    Bank, BankState, BusOp, DramChannel, PendingReq, PowerState, RefreshPhase, WriteDrainState,
 };
 
 /// Cache-line size used when constructing `LineAddr` in responses.
@@ -56,6 +56,8 @@ const COLUMN_CMD_CYCLES: u64 = 2;
 const PRECHARGE_CMD_CYCLES: u64 = 1;
 /// Command-bus cycles a REFRESH occupies.
 const REFRESH_CMD_CYCLES: u64 = 1;
+/// Command-bus cycles a power-down entry or exit occupies.
+const POWER_CMD_CYCLES: u64 = 1;
 
 /// Converts between simulator (core) cycles and DRAM command clocks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -304,6 +306,9 @@ impl Ddr5Controller {
         if self.command_bus_busy(chan, subch, now) {
             return;
         }
+        if self.advance_power(chan, subch, now) {
+            return;
+        }
         if self.advance_refresh(chan, subch, now) {
             return;
         }
@@ -426,6 +431,81 @@ impl Ddr5Controller {
         }
     }
 
+    /// Drives every rank's power state for one clock: exits power-down when
+    /// the rank has work (a queued request or a due refresh) and tPD has
+    /// elapsed; enters it when the rank has been idle for the policy's
+    /// timer. Returns `true` iff a power command was issued.
+    fn advance_power(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) -> bool {
+        let PowerDownPolicy::AfterIdle { idle_clocks } = self.config.power_down else {
+            return false;
+        };
+        let t = self.config.timing;
+        let rank_count = self.channels[chan.as_index()].subchannels[subch.as_index()].ranks.len();
+        for rank_idx in 0..rank_count {
+            let rank = RankId::new(index_to_u8(rank_idx));
+            let has_work = self.rank_has_work(chan, subch, rank, now);
+            let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+            let data_bus_idle = sc.last_data_end <= now;
+            let rank_mut = &mut sc.ranks[rank_idx];
+            match rank_mut.power {
+                PowerState::PowerDown { since, .. } => {
+                    if !has_work || now < since + t.t_pd || rank_mut.command_floor() > now {
+                        continue;
+                    }
+                    rank_mut.power = PowerState::Active;
+                    rank_mut.power_up_at = now + t.t_xp;
+                    rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    self.pending_commands.push(EmittedCommand {
+                        channel: chan,
+                        rank,
+                        bank: 0,
+                        row: 0,
+                        kind: DramCmdKind::PowerDownExit,
+                        fire_at: now,
+                    });
+                    return true;
+                }
+                PowerState::Active => {
+                    let idle_since = rank_mut.command_floor();
+                    let refreshing = rank_mut.refresh_phase != RefreshPhase::Idle
+                        || rank_mut.banks.iter().any(|b| b.state == BankState::Refreshing);
+                    if has_work
+                        || refreshing
+                        || !data_bus_idle
+                        || now < idle_since + idle_clocks
+                        || rank_mut.next_refresh <= now + t.t_pd
+                    {
+                        continue;
+                    }
+                    rank_mut.power =
+                        PowerState::PowerDown { since: now, with_open_rows: rank_mut.has_open_row() };
+                    rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    self.pending_commands.push(EmittedCommand {
+                        channel: chan,
+                        rank,
+                        bank: 0,
+                        row: 0,
+                        kind: DramCmdKind::PowerDownEntry,
+                        fire_at: now,
+                    });
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// True if a queued request targets `rank` or its refresh is due.
+    fn rank_has_work(&self, chan: ChannelId, subch: SubchannelId, rank: RankId, now: u64) -> bool {
+        let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
+        let rank_ref = &sc.ranks[rank.as_index()];
+        rank_ref.next_refresh <= now
+            || rank_ref.refresh_phase != RefreshPhase::Idle
+            || sc.read_queue.iter().chain(sc.write_queue.iter()).any(|r| r.loc.rank == rank)
+    }
+
     /// Drives every rank's refresh state machine for one clock. A rank
     /// whose refresh is due first stops taking new commands for the
     /// covered banks, precharges any open rows among them (PRECHARGE-ALL,
@@ -536,7 +616,7 @@ impl Ddr5Controller {
         let earliest = {
             let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
             let rank_ref = &sc.ranks[rank.as_index()];
-            let mut earliest = rank_ref.last_command_cycle.max(sc.last_command_cycle);
+            let mut earliest = rank_ref.command_floor().max(sc.last_command_cycle);
             for (bank_index, bank) in rank_ref.banks.iter().enumerate() {
                 if !mask_has(bank_mask, bank_index) {
                     continue;
@@ -668,7 +748,7 @@ impl Ddr5Controller {
             .ranks[ctx.rank.as_index()];
         let ppd_bound =
             if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
-        ras_bound.max(rtp_bound).max(wr_bound).max(rank_ref.last_command_cycle).max(ppd_bound)
+        ras_bound.max(rtp_bound).max(wr_bound).max(rank_ref.command_floor()).max(ppd_bound)
     }
 
     /// Issues PRECHARGE if legal at `now`; otherwise leaves the bank alone.
@@ -742,7 +822,7 @@ impl Ddr5Controller {
             rc: if same.last_activate == 0 { 0 } else { same.last_activate + t.t_rc },
             faw: rank_ref.earliest_activate_faw(t.t_faw),
             refresh_end: same.refresh_end,
-            command_bus: rank_ref.last_command_cycle,
+            command_bus: rank_ref.command_floor(),
         }
     }
 
@@ -945,7 +1025,7 @@ impl Ddr5Controller {
             };
             last_col + spacing
         };
-        let mut result = not_before.max(rank_ref.last_command_cycle).max(ccd);
+        let mut result = not_before.max(rank_ref.command_floor()).max(ccd);
         if is_read && sc.last_data_op == BusOp::Write && sc.last_write_end > 0 {
             let same_bg = sc.last_column_bg == Some(bg);
             let bound = if same_bg {

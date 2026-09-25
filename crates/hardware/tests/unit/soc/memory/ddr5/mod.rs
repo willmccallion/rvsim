@@ -2,6 +2,7 @@ pub mod clock;
 pub mod common;
 pub mod constraints;
 pub mod parallelism;
+pub mod power;
 pub mod refresh;
 pub mod row_buffer;
 pub mod scheduler;

@@ -198,6 +198,10 @@ pub enum DramCmdKind {
     Write,
     /// REFRESH a rank or per-bank group.
     Refresh,
+    /// Power-down entry (precharge or active power-down).
+    PowerDownEntry,
+    /// Power-down exit; commands resume after tXP.
+    PowerDownExit,
 }
 
 /// A typed packet routed through the event queue.
