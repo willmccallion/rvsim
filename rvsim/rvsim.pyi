@@ -205,6 +205,39 @@ class Cache:
         write_buffers: int = 0,
     ) -> None: ...
 
+class HomeAgent:
+    class Broadcast: ...
+
+    class SnoopFilter:
+        capacity_factor: float
+        ways: int
+        def __init__(self, capacity_factor: float = 1.5, ways: int = 8) -> None: ...
+
+class Interconnect:
+    class _Kind:
+        kind: str
+        hop_latency: int
+        bytes_per_cycle: int
+        def __init__(self, hop_latency: int = 2, bytes_per_cycle: int = 32) -> None: ...
+
+    class Crossbar(_Kind): ...
+    class Ring(_Kind): ...
+    class Mesh(_Kind): ...
+    class Torus(_Kind): ...
+    class Hypercube(_Kind): ...
+
+class Coherence:
+    protocol: str
+    home_agent: Any
+    interconnect: Any
+    txn_entries: int
+    def __init__(
+        self,
+        home_agent: Any = None,
+        interconnect: Any = None,
+        txn_entries: int = 32,
+    ) -> None: ...
+
 # ── config.py ────────────────────────────────────────────────────────────────
 
 class Config:
@@ -234,6 +267,8 @@ class Config:
     clint_divider: int
     uart_to_stderr: bool
     uart_quiet: bool
+    hart_count: int
+    coherence: Coherence
     def __init__(
         self,
         width: int = 1,
@@ -262,6 +297,8 @@ class Config:
         clint_divider: int = 10,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
+        hart_count: int = 1,
+        coherence: Optional[Coherence] = None,
     ) -> None: ...
     def to_dict(self) -> Dict[str, Any]: ...
     def replace(self, **kwargs: Any) -> Config: ...
@@ -315,6 +352,10 @@ class Simulator:
     @property
     def csrs(self) -> Csrs: ...
     @property
+    def harts(self) -> Harts: ...
+    @property
+    def hart_count(self) -> int: ...
+    @property
     def mem32(self) -> Memory: ...
     @property
     def mem64(self) -> Memory: ...
@@ -341,6 +382,18 @@ class Simulator:
     def pipeline_snapshot(self) -> PipelineSnapshot: ...
     def save(self, path: str) -> None: ...
     def restore(self, path: str) -> None: ...
+
+class Hart:
+    id: int
+    pc: int
+    privilege: str
+    instructions_retired: int
+    regs: Registers
+    csrs: Csrs
+
+class Harts:
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> Hart: ...
 
 class Registers:
     def __getitem__(self, idx: int) -> int: ...

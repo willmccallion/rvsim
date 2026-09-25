@@ -227,6 +227,7 @@ def main() -> None:
             "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
             "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
             "  rvsim mandelbrot.elf --preset fast   run with the aggressive 10-wide config\n"
+            "  rvsim spinlock.elf --harts 4         run a multi-hart program on four harts\n"
             "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
             "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"
             "  rvsim mandelbrot.elf --json out.json  save stats to JSON\n"
@@ -281,6 +282,13 @@ def main() -> None:
         default=None,
         help="write stats as JSON to FILE",
     )
+    parser.add_argument(
+        "--harts",
+        metavar="N",
+        type=int,
+        default=None,
+        help="run with N harts (overrides the config's hart_count)",
+    )
     parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
 
     args, remaining = parser.parse_known_args()
@@ -317,6 +325,10 @@ def main() -> None:
         cfg = load_config(args.config)
     else:
         cfg = Config()
+    if args.harts is not None:
+        if args.harts < 1:
+            parser.error("--harts must be at least 1")
+        cfg.hart_count = args.harts
     if args.quiet:
         cfg.uart_quiet = True
     elif args.watch:

@@ -24,8 +24,11 @@ from rvsim import (  # noqa: E402
     Backend,
     BranchPredictor,
     Cache,
+    Coherence,
     Config,
     Fu,
+    HomeAgent,
+    Interconnect,
     MemDepPredictor,
     MemoryController,
     Prefetcher,
@@ -384,6 +387,20 @@ PIPELINES = [
 
     # ── Reference machine configs ──────────────────────────────────────────────
     ("ref cortex-a72",      cortex_a72_config()),
+    # ── Coherence fabric (only matters with hart_count > 1) ──────────────────
+    ("smp broadcast",       Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(home_agent=HomeAgent.Broadcast()))),
+    ("smp ring",            Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(interconnect=Interconnect.Ring(hop_latency=1)))),
+    ("smp mesh",            Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(interconnect=Interconnect.Mesh()))),
+    ("smp torus",           Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(interconnect=Interconnect.Torus()))),
+    ("smp hypercube",       Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(interconnect=Interconnect.Hypercube(hop_latency=3)))),
+    ("smp tiny-filter",     Config(width=4, backend=Backend.OutOfOrder(),
+                                   coherence=Coherence(home_agent=HomeAgent.SnoopFilter(capacity_factor=0.05, ways=2)))),
+
     ("ref p550",            p550_config()),
     ("ref m1",              m1_config()),
     ("ref linux",           linux_config()),

@@ -41,12 +41,13 @@ const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
     }
 }
 
-/// Subscript register access returned by `cpu.harts[0].regs`.
+/// Subscript register access returned by `cpu.regs` and `cpu.harts[n].regs`.
 ///
 /// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10.
 #[pyclass(name = "Registers")]
 pub struct Registers {
     pub cpu: Py<PySimulator>,
+    pub hart: usize,
 }
 
 #[pymethods]
@@ -55,14 +56,14 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        Ok(self.cpu.borrow(py).inner.state.harts[0].regs.read(RegIdx::new(idx as u8)))
+        Ok(self.cpu.borrow(py).inner.state.harts[self.hart].regs.read(RegIdx::new(idx as u8)))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.state.harts[0].regs.write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.state.harts[self.hart].regs.write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
@@ -70,7 +71,7 @@ impl Registers {
         let cpu = self.cpu.borrow(py);
         let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.state.harts[0].regs.read(RegIdx::new(i));
+                let v = cpu.inner.state.harts[self.hart].regs.read(RegIdx::new(i));
                 if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
@@ -78,12 +79,13 @@ impl Registers {
     }
 }
 
-/// Subscript CSR access returned by `cpu.harts[0].csrs`.
+/// Subscript CSR access returned by `cpu.csrs` and `cpu.harts[n].csrs`.
 ///
 /// ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
 #[pyclass(name = "Csrs")]
 pub struct Csrs {
     pub cpu: Py<PySimulator>,
+    pub hart: usize,
 }
 
 #[pymethods]
@@ -98,11 +100,94 @@ impl Csrs {
         } else {
             return Err(PyTypeError::new_err("CSR key must be a str or int"));
         };
-        Ok(self.cpu.borrow(py).read_csr_by_name(&name))
+        Ok(self.cpu.borrow(py).read_csr_by_name(self.hart, &name))
     }
 
     const fn __repr__(&self) -> &'static str {
         "Csrs(...)"
+    }
+}
+
+/// One hart's architectural state, returned by `cpu.harts[n]`.
+#[pyclass(name = "Hart")]
+pub struct Hart {
+    pub cpu: Py<PySimulator>,
+    pub index: usize,
+}
+
+#[pymethods]
+impl Hart {
+    /// Hart id.
+    #[getter]
+    const fn id(&self) -> usize {
+        self.index
+    }
+
+    /// Program counter (read/write).
+    #[getter]
+    fn pc(&self, py: Python<'_>) -> u64 {
+        self.cpu.borrow(py).inner.state.harts[self.index].pc
+    }
+
+    #[setter]
+    fn set_pc(&self, py: Python<'_>, value: u64) {
+        self.cpu.borrow_mut(py).inner.state.harts[self.index].pc = value;
+    }
+
+    /// Current privilege level: ``"M"``, ``"S"``, or ``"U"``.
+    #[getter]
+    fn privilege(&self, py: Python<'_>) -> &'static str {
+        self.cpu.borrow(py).privilege_str(self.index)
+    }
+
+    /// Instructions this hart has retired.
+    #[getter]
+    fn instructions_retired(&self, py: Python<'_>) -> u64 {
+        self.cpu.borrow(py).inner.state.harts[self.index].instructions_retired
+    }
+
+    /// Register file — ``cpu.harts[n].regs[10]``.
+    #[getter]
+    fn regs(&self, py: Python<'_>) -> Registers {
+        Registers { cpu: self.cpu.clone_ref(py), hart: self.index }
+    }
+
+    /// CSRs — ``cpu.harts[n].csrs["mstatus"]``.
+    #[getter]
+    fn csrs(&self, py: Python<'_>) -> Csrs {
+        Csrs { cpu: self.cpu.clone_ref(py), hart: self.index }
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        let cpu = self.cpu.borrow(py);
+        let hart = &cpu.inner.state.harts[self.index];
+        format!("Hart(id={}, pc={:#x}, privilege={})", self.index, hart.pc, cpu.privilege_str(self.index))
+    }
+}
+
+/// The system's harts, returned by `cpu.harts`.
+#[pyclass(name = "Harts")]
+pub struct Harts {
+    pub cpu: Py<PySimulator>,
+}
+
+#[pymethods]
+impl Harts {
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.cpu.borrow(py).inner.state.harts.len()
+    }
+
+    fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<Hart> {
+        let count = self.__len__(py);
+        let resolved = if index < 0 { index + count as isize } else { index };
+        if resolved < 0 || resolved as usize >= count {
+            return Err(PyIndexError::new_err(format!("hart index {index} out of range (0–{})", count - 1)));
+        }
+        Ok(Hart { cpu: self.cpu.clone_ref(py), index: resolved as usize })
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        format!("Harts({})", self.__len__(py))
     }
 }
 

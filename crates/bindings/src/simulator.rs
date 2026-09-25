@@ -8,7 +8,7 @@ use crate::conversion::py_dict_to_config;
 use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
-use crate::views::{Csrs, Memory, Registers, VirtualMemory};
+use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
@@ -38,16 +38,16 @@ pub struct PySimulator {
 }
 
 impl PySimulator {
-    pub(crate) fn privilege_str(&self) -> &'static str {
-        match self.inner.state.harts[0].privilege {
+    pub(crate) fn privilege_str(&self, hart: usize) -> &'static str {
+        match self.inner.state.harts[hart].privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
             PrivilegeMode::User => "U",
         }
     }
 
-    pub(crate) fn read_csr_by_name(&self, name: &str) -> Option<u64> {
-        let c = &self.inner.state.harts[0].csrs;
+    pub(crate) fn read_csr_by_name(&self, hart: usize, name: &str) -> Option<u64> {
+        let c = &self.inner.state.harts[hart].csrs;
         match name {
             "mstatus" => Some(c.mstatus),
             "misa" => Some(c.misa),
@@ -233,7 +233,7 @@ impl PySimulator {
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
     #[getter]
     fn privilege(&self) -> &'static str {
-        self.privilege_str()
+        self.privilege_str(0)
     }
 
     /// Whether instruction tracing is enabled (read/write).
@@ -258,16 +258,29 @@ impl PySimulator {
         )
     }
 
-    /// Register file — ``cpu.harts[0].regs[10]``, ``cpu.harts[0].regs[10] = v``.
+    /// Hart 0's register file — ``cpu.regs[10]``, ``cpu.regs[10] = v``.
     #[getter]
     fn regs(slf: Bound<'_, Self>) -> Registers {
-        Registers { cpu: slf.unbind() }
+        Registers { cpu: slf.unbind(), hart: 0 }
     }
 
-    /// CSR access — ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
+    /// Hart 0's CSRs — ``cpu.csrs["mstatus"]`` or ``cpu.csrs[0x300]``.
     #[getter]
     fn csrs(slf: Bound<'_, Self>) -> Csrs {
-        Csrs { cpu: slf.unbind() }
+        Csrs { cpu: slf.unbind(), hart: 0 }
+    }
+
+    /// Every hart — ``cpu.harts[1].pc``, ``cpu.harts[1].regs[10]``,
+    /// ``len(cpu.harts)``.
+    #[getter]
+    fn harts(slf: Bound<'_, Self>) -> Harts {
+        Harts { cpu: slf.unbind() }
+    }
+
+    /// Number of harts in the system.
+    #[getter]
+    fn hart_count(&self) -> usize {
+        self.inner.state.harts.len()
     }
 
     /// Memory view for 32-bit reads — ``cpu.mem32[addr]``.
@@ -493,7 +506,7 @@ impl PySimulator {
             let stop = {
                 let cpu = slf_py.borrow(py);
                 pc.is_some_and(|p| cpu.inner.state.harts[0].pc == p)
-                    || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str() == priv_str)
+                    || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str(0) == priv_str)
             };
             if stop {
                 return Ok(None);

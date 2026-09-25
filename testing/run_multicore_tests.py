@@ -43,6 +43,12 @@ DEFAULT_PIPELINES = [
     "o3 w4 no-l2",
     "o3 w4 l3",
     "o3 w4 ddr5",
+    "smp broadcast",
+    "smp ring",
+    "smp mesh",
+    "smp torus",
+    "smp hypercube",
+    "smp tiny-filter",
     "ref p550",
 ]
 

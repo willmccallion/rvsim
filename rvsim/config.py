@@ -13,16 +13,19 @@ from typing import Any, Dict, Optional
 __all__ = ["Config"]
 
 from .types import (
-    _DISABLED_CACHE_DICT,
-    _DISABLED_CACHE_DICT_ZERO,
     Backend,
     BranchPredictor,
     Cache,
+    Coherence,
     Fu,
+    HomeAgent,
+    Interconnect,
     MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
+    _DISABLED_CACHE_DICT,
+    _DISABLED_CACHE_DICT_ZERO,
     _parse_size,
 )
 
@@ -113,6 +116,7 @@ class Config:
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
         hart_count: int = 1,
+        coherence: Optional[Coherence] = None,
     ):
         # Pipeline
         self.width = width
@@ -168,6 +172,7 @@ class Config:
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
         self.hart_count = hart_count
+        self.coherence = coherence if coherence is not None else Coherence()
 
     def to_dict(self) -> Dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
@@ -222,6 +227,7 @@ class Config:
             uart_to_stderr=self.uart_to_stderr,
             uart_quiet=self.uart_quiet,
             hart_count=self.hart_count,
+            coherence=self.coherence,
         )
         unknown = set(kwargs) - set(fields)
         if unknown:
@@ -466,6 +472,26 @@ def _mc_name(mc) -> str:
     if isinstance(mc, MemoryController.DDR5):
         return "Ddr5"
     raise TypeError(f"Unknown memory controller type: {type(mc)}")
+
+
+def _coherence_to_dict(c: Coherence) -> Dict[str, Any]:
+    """Serialize a Coherence object to the dict format the Rust backend expects."""
+    home = c.home_agent
+    if isinstance(home, HomeAgent.Broadcast):
+        home_dict: Dict[str, Any] = {"kind": "Broadcast"}
+    elif isinstance(home, HomeAgent.SnoopFilter):
+        home_dict = {"kind": "SnoopFilter", "capacity_factor": home.capacity_factor, "ways": home.ways}
+    else:
+        raise TypeError(f"Unknown home agent type: {type(home)}")
+    ic = c.interconnect
+    if not isinstance(ic, Interconnect._Kind):
+        raise TypeError(f"Unknown interconnect type: {type(ic)}")
+    return {
+        "protocol": "Mesi",
+        "home_agent": home_dict,
+        "interconnect": {"kind": ic.kind, "hop_latency": ic.hop_latency, "bytes_per_cycle": ic.bytes_per_cycle},
+        "txn_entries": c.txn_entries,
+    }
 
 
 def _backend_name(be) -> str:
@@ -779,5 +805,6 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "system": system,
         "memory": memory,
         "cache": cache,
+        "coherence": _coherence_to_dict(cfg.coherence),
         "pipeline": pipeline,
     }

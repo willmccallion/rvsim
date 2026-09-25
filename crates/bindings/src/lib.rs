@@ -42,6 +42,8 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<stats::PyQueryResult>()?;
     m.add_class::<views::Registers>()?;
     m.add_class::<views::Csrs>()?;
+    m.add_class::<views::Hart>()?;
+    m.add_class::<views::Harts>()?;
     m.add_class::<views::Memory>()?;
     m.add_class::<views::VirtualMemory>()?;
 
