@@ -160,24 +160,61 @@ HSM parks and later lifts them for Linux.
 
 LR/SC reservations live in `SharedState::reservations`, one slot per hart,
 because a store from *any* hart to a reserved line must invalidate that
-reservation. At store commit the committing hart clears every other
-hart's reservation covering the line (its own reservation is governed by
-the LR/SC pairing rules that already exist). AMOs are executed at the
-memory side of the L1D as today; with coherence enabled they require the
-line in the Modified state first, so the coherence transaction precedes
-the read-modify-write.
+reservation. A published write breaks every other hart's reservation
+covering the line (the writer's own reservation is governed by the LR/SC
+pairing rules that already exist): at drain for plain stores, at commit
+for SC and AMO. AMOs read their old value at the memory side of the L1D as
+today and apply the result at commit after the write-log check above;
+with coherence enabled they require the line in the Modified state first,
+so the coherence transaction precedes the read.
 
 ## Coherence
 
 ### Data versus timing
 
-Functional data lives in one place: RAM, written at store drain and read
-at load response. Caches hold tags, states and dirtiness, not data. This
-is what makes the model deterministic and simple to reason about: the
-coherence protocol changes *when* an access completes and *which* caches
-still hold a line, never *what* value a load returns. Memory-ordering
-semantics (RVWMO) are enforced by the load queue and store buffer per
-core, as now.
+Functional data lives in one place: RAM, written when a store is
+published and read at load response. Caches hold tags, states and
+dirtiness, not data. This is what makes the model deterministic and simple
+to reason about: the coherence protocol changes *when* an access completes
+and *which* caches still hold a line, never *what* value a load returns.
+Memory-ordering semantics (RVWMO) are enforced by the load queue and store
+buffer per core, as now.
+
+### Publishing writes and the write log
+
+Because caches hold no data, a hit on a line that another hart has just
+written returns the new RAM value even though the invalidation has not
+arrived yet, and a value read at load response can be overwritten by
+another hart before the reading instruction commits. Neither can be
+detected by the protocol, so the pipeline makes the visibility instant
+explicit:
+
+- Every RAM write goes through `SharedState::publish_write`: the bytes
+  land in RAM, every other hart's reservation on the line is broken, and
+  the write is recorded in the **write log**, a per-line `(sequence,
+  writer)` table that exists only when the system has more than one hart.
+  Plain stores publish when they drain from the store buffer (a store
+  buffer is invisible to other harts, as in hardware); SC and AMO publish
+  at commit, at the same instant as the reservation decision, and their
+  store-buffer entry then drains as timing only.
+- A load, LR or AMO response is stamped with the log sequence current
+  when its bytes were read.
+- At commit an LR whose line another hart has written after its stamp
+  re-executes (everything from it is squashed and refetched), so a
+  reservation is never set on a stale value. An AMO re-executes only if
+  another hart wrote its line *and* the word it read has changed: a real
+  core holds the line for its read-modify-write, so a write elsewhere in
+  the line, or one that restored the same value, must not perturb it, and
+  replaying on every line write lets harts contending for one lock word
+  replay each other forever. Plain loads are not replayed in the in-order
+  pipeline: RVWMO lets them keep the earlier value.
+- In the out-of-order pipeline a younger load that executed before an
+  older load to the same line is squashed when the older load's response
+  shows the line was written by another hart in between, the same rule
+  gem5's LSQ applies on an external snoop (per-location coherence, CoRR).
+
+With one hart the log does not exist and no stamp is ever compared, so
+single-core behaviour is unchanged.
 
 ### Roles
 

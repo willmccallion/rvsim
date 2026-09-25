@@ -9,6 +9,7 @@ pub mod execute;
 pub mod fu_pool;
 pub mod issue_queue;
 
+use crate::core::pipeline::backend::shared::commit::CommitEvent;
 use crate::config::Config;
 use crate::sim::CoreCtx;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
@@ -318,7 +319,7 @@ impl ExecutionEngine for O3Engine {
 
         let pc_before_commit = state.hart.pc;
 
-        let trap_event = commit::commit_stage(
+        let commit_event = commit::commit_stage(
             state,
             &mut self.common,
             &mut self.rob,
@@ -336,15 +337,27 @@ impl ExecutionEngine for O3Engine {
             redirect_pending,
         );
 
-        if let Some((trap, pc)) = trap_event {
-            // Full flush: committed_rename_map is used directly, no rebuild.
-            let squashed = self.rob.len();
-            self.flush(state);
-            self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
-            *redirect_pending = true;
-            state.trap(&trap, pc);
-            state.hart.committed_next_pc = state.hart.pc;
-            return;
+        match commit_event {
+            Some(CommitEvent::Trap(trap, pc)) => {
+                // Full flush: committed_rename_map is used directly, no rebuild.
+                let squashed = self.rob.len();
+                self.flush(state);
+                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+                *redirect_pending = true;
+                state.trap(&trap, pc);
+                state.hart.committed_next_pc = state.hart.pc;
+                return;
+            }
+            Some(CommitEvent::ReExecute(pc)) => {
+                let squashed = self.rob.len();
+                self.flush(state);
+                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+                *redirect_pending = true;
+                state.hart.pc = pc;
+                state.hart.committed_next_pc = pc;
+                return;
+            }
+            None => {}
         }
 
         if state.hart.pc != pc_before_commit {
@@ -468,15 +481,28 @@ impl ExecutionEngine for O3Engine {
             }
         }
 
-        if let Some((violating_tag, store_pc)) = mem_violation {
+        let squash = match (mem_violation, self.common.coherence_violation.take()) {
+            (Some((tag, _)), Some(coherence_tag)) if coherence_tag.is_older_than(tag) => {
+                Some((coherence_tag, None))
+            }
+            (Some((tag, store_pc)), _) => Some((tag, Some(store_pc))),
+            (None, Some(coherence_tag)) => Some((coherence_tag, None)),
+            (None, None) => None,
+        };
+
+        if let Some((violating_tag, store_pc)) = squash {
             let violation_pc = self.rob.find_entry(violating_tag).map_or(state.hart.pc, |e| e.pc);
 
-            self.mdp.violation(violation_pc, store_pc);
+            if let Some(store_pc) = store_pc {
+                self.mdp.violation(violation_pc, store_pc);
+                state.stats.counter(paths::core::pipeline::FLUSHES_MEM_VIOLATIONS).inc();
+            } else {
+                state.stats.counter(paths::core::lsq::COHERENCE_VIOLATIONS).inc();
+            }
 
             // keep_tag must be a tag actually in the ROB; synthetic `tag-1` could be a use-after-free.
             let keep_tag = self.rob.prev_tag_of(violating_tag);
 
-            state.stats.counter(paths::core::pipeline::FLUSHES_MEM_VIOLATIONS).inc();
             state.stats.counter(paths::core::pipeline::FLUSHES_TOTAL).inc();
             state.stats.counter(paths::core::pipeline::STALLS_CONTROL).inc();
 
@@ -1311,6 +1337,7 @@ impl ExecutionEngine for O3Engine {
         self.vec_store_buffer.flush_all();
         self.execute_mem1.clear();
         self.common.mem1_replay.clear();
+        self.common.coherence_violation = None;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         state.core.l1d_mshrs.flush();

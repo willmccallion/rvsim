@@ -46,6 +46,16 @@ pub enum StoreResolution {
         /// Data to write.
         data: u64,
     },
+    /// ROB has committed this store and its data is already in RAM: an SC
+    /// or AMO performs at commit, at the same instant as its reservation
+    /// decision. The entry still forwards to younger loads and drains as a
+    /// timing-only write.
+    Applied {
+        /// Physical address of the store.
+        paddr: PhysAddr,
+        /// Data written at commit.
+        data: u64,
+    },
     /// Cancelled (failed SC) — committed no-op, will drain without writing.
     Cancelled,
 }
@@ -53,7 +63,7 @@ pub enum StoreResolution {
 impl StoreResolution {
     /// Whether this entry has been committed (or cancelled) and is ready to drain.
     pub const fn is_committed(&self) -> bool {
-        matches!(self, Self::Committed { .. } | Self::Cancelled)
+        matches!(self, Self::Committed { .. } | Self::Applied { .. } | Self::Cancelled)
     }
 
     /// Whether this entry is still pending (no address resolved).
@@ -64,10 +74,23 @@ impl StoreResolution {
     /// Returns the physical address if resolved (Ready or Committed).
     pub const fn paddr(&self) -> Option<PhysAddr> {
         match self {
-            Self::Ready { paddr, .. } | Self::Committed { paddr, .. } => Some(*paddr),
+            Self::Ready { paddr, .. } | Self::Committed { paddr, .. } | Self::Applied { paddr, .. } => {
+                Some(*paddr)
+            }
             _ => None,
         }
     }
+}
+
+/// A store whose data was written to RAM at commit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppliedStore {
+    /// Physical address of the store.
+    pub paddr: PhysAddr,
+    /// Data to write.
+    pub data: u64,
+    /// Width of the store.
+    pub width: MemWidth,
 }
 
 /// A single entry in the store buffer.
@@ -189,6 +212,7 @@ impl StoreBuffer {
     }
 
     /// Marks a store as committed (the ROB has retired the instruction).
+    /// An entry already [`StoreResolution::Applied`] at commit stays so.
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
         let cap = self.entries.len();
         let mut idx = self.head;
@@ -196,7 +220,10 @@ impl StoreBuffer {
             let entry = &mut self.entries[idx];
             if entry.valid && entry.rob_tag == rob_tag {
                 debug_assert!(
-                    matches!(entry.resolution, StoreResolution::Ready { .. }),
+                    matches!(
+                        entry.resolution,
+                        StoreResolution::Ready { .. } | StoreResolution::Applied { .. }
+                    ),
                     "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
                     rob_tag.0,
                     entry.resolution,
@@ -207,6 +234,16 @@ impl StoreBuffer {
             }
             idx = (idx + 1) % cap;
         }
+    }
+
+    /// Moves a resolved store to [`StoreResolution::Applied`] and returns
+    /// what the caller must now write to RAM. `None` when the entry is
+    /// missing or not yet resolved.
+    pub fn commit_applied(&mut self, rob_tag: RobTag) -> Option<AppliedStore> {
+        let entry = self.find_by_tag_mut(rob_tag)?;
+        let StoreResolution::Ready { paddr, data } = entry.resolution else { return None };
+        entry.resolution = StoreResolution::Applied { paddr, data };
+        Some(AppliedStore { paddr, data, width: entry.width })
     }
 
     /// Attempts store-to-load forwarding.
@@ -245,7 +282,8 @@ impl StoreBuffer {
 
                 match entry.resolution {
                     StoreResolution::Ready { paddr: store_paddr, data: store_data }
-                    | StoreResolution::Committed { paddr: store_paddr, data: store_data } => {
+                    | StoreResolution::Committed { paddr: store_paddr, data: store_data }
+                    | StoreResolution::Applied { paddr: store_paddr, data: store_data } => {
                         let store_size = width_to_bytes(entry.width);
                         let store_start = store_paddr.val();
                         let store_end = store_start + store_size as u64;
@@ -338,7 +376,8 @@ impl StoreBuffer {
                     // Unresolved store to unknown address — assume overlap.
                     StoreResolution::Pending => return true,
                     StoreResolution::Ready { paddr: store_paddr, .. }
-                    | StoreResolution::Committed { paddr: store_paddr, .. } => {
+                    | StoreResolution::Committed { paddr: store_paddr, .. }
+                    | StoreResolution::Applied { paddr: store_paddr, .. } => {
                         let store_size = width_to_bytes(entry.width) as u64;
                         let store_start = store_paddr.val();
                         let store_end = store_start + store_size;
@@ -537,6 +576,32 @@ mod tests {
             StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 0xDEADBEEF }
         );
         assert!(sb.is_empty());
+    }
+
+    #[test]
+    fn commit_applied_keeps_forwarding_and_drains_as_applied() {
+        let mut sb = StoreBuffer::new(4);
+        assert!(sb.allocate(RobTag(1), MemWidth::Double));
+        sb.resolve(RobTag(1), VirtAddr::new(0x1000), PhysAddr::new(0x1000), 0x55);
+
+        let applied = sb.commit_applied(RobTag(1)).expect("resolved entry");
+        assert_eq!(applied, AppliedStore { paddr: PhysAddr::new(0x1000), data: 0x55, width: MemWidth::Double });
+        sb.mark_committed(RobTag(1));
+
+        assert!(sb.has_committed_stores());
+        assert_eq!(sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2)), ForwardResult::Hit(0x55));
+        assert!(sb.has_older_store_to(PhysAddr::new(0x1004), MemWidth::Word, RobTag(2)));
+        let drained = sb.drain_one().expect("applied entries drain");
+        assert_eq!(drained.resolution, StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 });
+        assert!(sb.is_empty());
+    }
+
+    #[test]
+    fn commit_applied_refuses_unresolved_entries() {
+        let mut sb = StoreBuffer::new(4);
+        assert!(sb.allocate(RobTag(1), MemWidth::Double));
+        assert_eq!(sb.commit_applied(RobTag(1)), None);
+        assert_eq!(sb.commit_applied(RobTag(9)), None);
     }
 
     #[test]

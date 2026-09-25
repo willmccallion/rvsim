@@ -235,6 +235,7 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
         pte_update: None,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 
@@ -261,6 +262,7 @@ fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entr
         pte_update: None,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 
@@ -292,6 +294,7 @@ fn push_trap<E: ExecutionEngine>(
         pte_update: None,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 
@@ -325,6 +328,7 @@ fn push_resolved_store<E: ExecutionEngine>(
         pte_update,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 
@@ -357,6 +361,7 @@ fn push_resolved_sc<E: ExecutionEngine>(
         pte_update,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 
@@ -391,6 +396,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
         pte_update,
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
+        observed: None,
     });
 }
 

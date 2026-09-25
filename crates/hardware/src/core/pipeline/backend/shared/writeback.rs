@@ -60,6 +60,9 @@ pub fn writeback_stage(state: &mut CoreCtx<'_>, input: &mut Vec<Mem2WbEntry>, ro
         if let Some(lr_sc_rec) = wb.lr_sc {
             rob.set_lr_sc(wb.rob_tag, lr_sc_rec);
         }
+        if let Some(seq) = wb.observed {
+            rob.set_observed(wb.rob_tag, seq);
+        }
         rob.complete(wb.rob_tag, val);
 
         trace_writeback!(state.config.general.trace_instructions;

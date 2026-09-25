@@ -324,7 +324,7 @@ pub enum AtomicOp {
 }
 
 /// Memory access width for load and store operations.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MemWidth {
     /// No memory operation.
     #[default]
@@ -341,6 +341,20 @@ pub enum MemWidth {
 
     /// 64-bit double-word access.
     Double,
+}
+
+impl MemWidth {
+    /// Bytes moved by an access of this width; zero for `Nop`.
+    #[must_use]
+    pub const fn bytes(self) -> u64 {
+        match self {
+            Self::Nop => 0,
+            Self::Byte => 1,
+            Self::Half => 2,
+            Self::Word => 4,
+            Self::Double => 8,
+        }
+    }
 }
 
 /// Source for ALU operand A.

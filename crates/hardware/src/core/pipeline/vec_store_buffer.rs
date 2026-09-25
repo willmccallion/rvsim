@@ -555,10 +555,8 @@ fn write_line_to_memory(
     }
 }
 
-/// Emits a `MemReq` (op = Write) for a single VSB-drained write and writes
-/// the bytes into the `RamRegion` fast-path so subsequent loads through
-/// `read_load_bytes` see the new value. MMIO addresses fall through the
-/// packet path only (no RAM-backed write).
+/// Publishes a single VSB-drained write and emits its `MemReq` (op = Write).
+/// MMIO addresses fall through the packet path only (no RAM-backed write).
 fn issue_drained_write(
     state: &mut CoreCtx<'_>,
     common: &mut crate::core::pipeline::engine::BackendCommon,
@@ -578,26 +576,7 @@ fn issue_drained_write(
         MemWidth::Nop => return,
     };
 
-    let width_bytes: u64 = match width {
-        MemWidth::Byte => 1,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => return,
-    };
-    if let Some(r) = state.bus.ram_region_for(paddr.val(), width_bytes) {
-        // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
-        unsafe {
-            let ptr = r.ptr(paddr.val());
-            match width {
-                MemWidth::Byte => *ptr = data as u8,
-                MemWidth::Half => ptr.cast::<u16>().write_unaligned(data as u16),
-                MemWidth::Word => ptr.cast::<u32>().write_unaligned(data as u32),
-                MemWidth::Double => ptr.cast::<u64>().write_unaligned(data),
-                MemWidth::Nop => {}
-            }
-        }
-    }
+    state.publish_write(paddr, data, width);
 
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;

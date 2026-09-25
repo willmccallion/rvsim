@@ -54,6 +54,17 @@ impl ReservationSet {
             }
         }
     }
+
+    /// Breaks every hart's reservation on the line containing `addr`, as a
+    /// write by an agent that is not a hart does.
+    pub fn invalidate_all(&mut self, addr: PhysAddr) {
+        let line = Self::align(addr);
+        for slot in &mut self.slots {
+            if *slot == Some(line) {
+                *slot = None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

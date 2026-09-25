@@ -12,6 +12,7 @@
 pub mod execute;
 pub mod issue;
 
+use crate::core::pipeline::backend::shared::commit::CommitEvent;
 use crate::config::Config;
 use crate::sim::CoreCtx;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
@@ -101,7 +102,7 @@ impl ExecutionEngine for InOrderEngine {
 
         let pc_before_commit = state.hart.pc;
 
-        let trap_event = commit::commit_stage(
+        let commit_event = commit::commit_stage(
             state,
             &mut self.common,
             &mut self.rob,
@@ -119,12 +120,22 @@ impl ExecutionEngine for InOrderEngine {
             redirect_pending,
         );
 
-        if let Some((trap, pc)) = trap_event {
-            self.flush(state);
-            *redirect_pending = true;
-            state.trap(&trap, pc);
-            state.hart.committed_next_pc = state.hart.pc;
-            return;
+        match commit_event {
+            Some(CommitEvent::Trap(trap, pc)) => {
+                self.flush(state);
+                *redirect_pending = true;
+                state.trap(&trap, pc);
+                state.hart.committed_next_pc = state.hart.pc;
+                return;
+            }
+            Some(CommitEvent::ReExecute(pc)) => {
+                self.flush(state);
+                *redirect_pending = true;
+                state.hart.pc = pc;
+                state.hart.committed_next_pc = pc;
+                return;
+            }
+            None => {}
         }
 
         // MRET/SRET changed the PC; flush so post-redirect stale fetches don't proceed.

@@ -21,6 +21,7 @@
 use crate::common::{ExceptionStage, LineAddr, PhysAddr};
 use crate::sim::CoreCtx;
 use crate::sim::state::memory::TranslateResult;
+use crate::sim::state::write_log::WriteLog;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{
     FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder,
@@ -86,7 +87,16 @@ fn complete_load<E: ExecutionEngine>(
     let entry = load.entry;
     let paddr = load.paddr;
     let load_raw = read_load_bytes(state, paddr.val(), entry.ctrl.width, resp_data);
+    let observed = state.write_log.as_ref().map(WriteLog::now);
     let cycle = state.cycle;
+
+    if let Some(log) = state.write_log.as_ref()
+        && let Some(load_queue) = pipeline.engine.load_queue_mut()
+        && let Some(violator) =
+            load_queue.check_coherence_violation(entry.rob_tag, paddr, log, state.hart.hart_id)
+    {
+        pipeline.engine.common_mut().note_coherence_violation(violator);
+    }
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         rob_tag: entry.rob_tag,
@@ -109,6 +119,7 @@ fn complete_load<E: ExecutionEngine>(
         pte_update: load.pte_update,
         sfence_vma: entry.sfence_vma,
         vec_mem: entry.vec_mem,
+        observed,
     });
 }
 

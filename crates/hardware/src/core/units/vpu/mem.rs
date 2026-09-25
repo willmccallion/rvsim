@@ -5,6 +5,7 @@
 //! and fault-only-first. All accesses go through the CPU's address translation
 //! and bus interface.
 
+use crate::core::pipeline::signals::MemWidth;
 use crate::common::{AccessType, Trap, VirtAddr};
 use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -789,23 +790,18 @@ fn mem_read_element(state: &mut CoreCtx<'_>, vaddr: u64, eew: Sew) -> Result<u64
 
 /// Write a single element to memory at `vaddr` with the given EEW.
 ///
-/// Writes via the RAM fast-path pointer. Non-RAM addresses are silently
+/// Published as a write by this hart. Non-RAM addresses are silently
 /// dropped — vector stores to MMIO are not architecturally defined.
 fn mem_write_element(state: &mut CoreCtx<'_>, vaddr: u64, eew: Sew, val: u64) -> Result<(), Trap> {
     let size = eew.bytes() as u64;
     let paddr = translate_vector_element(state, vaddr, AccessType::Write, size)?;
-    let raw = paddr.val();
-    if let Some(r) = state.bus.ram_region().filter(|r| r.contains(raw, size)) {
-        // SAFETY: `RamRegion::contains(raw, size)` bounds-checks the access.
-        unsafe {
-            match eew {
-                Sew::E8 => *r.ptr(raw) = val as u8,
-                Sew::E16 => r.ptr(raw).cast::<u16>().write_unaligned(val as u16),
-                Sew::E32 => r.ptr(raw).cast::<u32>().write_unaligned(val as u32),
-                Sew::E64 => r.ptr(raw).cast::<u64>().write_unaligned(val),
-            }
-        }
-    }
+    let width = match eew {
+        Sew::E8 => MemWidth::Byte,
+        Sew::E16 => MemWidth::Half,
+        Sew::E32 => MemWidth::Word,
+        Sew::E64 => MemWidth::Double,
+    };
+    state.publish_write(paddr, val, width);
     Ok(())
 }
 

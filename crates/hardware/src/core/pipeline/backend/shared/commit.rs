@@ -17,6 +17,7 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::sim::per_hart_debug::PC_TRACE_MAX;
+use crate::core::pipeline::backend::shared::memory2;
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::BackendCommon;
 use crate::core::pipeline::free_list::FreeList;
@@ -24,9 +25,9 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::outstanding::OutstandingStore;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
-use crate::core::pipeline::rob::{Rob, RobState};
+use crate::core::pipeline::rob::{Rob, RobEntry, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
@@ -38,6 +39,16 @@ use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
 use crate::trace_trap;
+
+/// What stopped commit this cycle. The engine flushes and redirects.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommitEvent {
+    /// Take `Trap` with the given EPC.
+    Trap(Trap, u64),
+    /// The LR or AMO at `pc` read a value another hart has since
+    /// overwritten; squash it and everything younger and refetch from `pc`.
+    ReExecute(u64),
+}
 
 /// Executes the Commit stage.
 ///
@@ -62,8 +73,8 @@ pub fn commit_stage(
     mut vec_free_list: Option<&mut FreeList<VecPhysReg>>,
     mut vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
     redirect_pending: &mut bool,
-) -> Option<(Trap, u64)> {
-    let mut trap_event: Option<(Trap, u64)> = None;
+) -> Option<CommitEvent> {
+    let mut event: Option<CommitEvent> = None;
 
     // Always check, even with empty ROB (timer firing during a stall).
     {
@@ -88,7 +99,7 @@ pub fn commit_stage(
                 priv_mode  = ?state.hart.privilege,
                 "CM: interrupt detected — flushing pipeline"
             );
-            trap_event = Some((interrupt_trap, epc));
+            event = Some(CommitEvent::Trap(interrupt_trap, epc));
         } else if state.hart.wfi_waiting {
             // Block commit while WFI is active so wrong-path post-WFI ops can't retire.
             let pending = state.hart.csrs.mip;
@@ -101,13 +112,13 @@ pub fn commit_stage(
                 state.stats.counter(paths::core::pipeline::CYCLES_WFI).inc();
             }
             state.stats.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
-            return trap_event;
+            return event;
         }
     }
 
-    if trap_event.is_some() {
+    if event.is_some() {
         state.stats.counter(paths::core::commit::RETIRE_HIST_ZERO).inc();
-        return trap_event;
+        return event;
     }
 
     let mut retired_count: usize = 0;
@@ -168,8 +179,20 @@ pub fn commit_stage(
                         }
                     }
                 }
-                trap_event = Some((the_trap.clone(), entry.pc));
+                event = Some(CommitEvent::Trap(the_trap.clone(), entry.pc));
             }
+            break;
+        }
+
+        if head.state == RobState::Completed && observed_value_is_stale(state, head, store_buffer) {
+            state.stats.counter(paths::core::lsq::COHERENCE_REPLAYS).inc();
+            trace_trap!(state.config.general.trace_instructions;
+                event   = "coherence-reexecute",
+                pc      = %crate::trace::Hex(head.pc),
+                rob_tag = head.tag.0,
+                "CM: LR/AMO read a value another hart has overwritten — re-executing"
+            );
+            event = Some(CommitEvent::ReExecute(head.pc));
             break;
         }
 
@@ -459,12 +482,18 @@ pub fn commit_stage(
         if entry.ctrl.mem_write {
             if let Some(paddr) = store_buffer.find_paddr(entry.tag) {
                 // RISC-V §8.2: a non-LR/SC store to the reservation set must
-                // fail any paired SC, and any store breaks other harts'
-                // reservations on the line.
+                // fail any paired SC. Other harts' reservations break when
+                // the store is published (at drain for plain stores, here
+                // for SC and AMO).
                 if entry.lr_sc.is_none() && state.check_reservation(paddr) {
                     state.clear_reservation();
                 }
-                state.invalidate_other_reservations(paddr);
+                if entry.ctrl.atomic_op != AtomicOp::None
+                    && is_pure_ram(state, paddr, entry.ctrl.width)
+                    && let Some(applied) = store_buffer.commit_applied(entry.tag)
+                {
+                    state.publish_write(applied.paddr, applied.data, applied.width);
+                }
             }
             store_buffer.mark_committed(entry.tag);
         } else if crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op) {
@@ -553,7 +582,62 @@ pub fn commit_stage(
     {
         let _ = vsb.drain_one_committed(state, common);
     }
-    trap_event
+    event
+}
+
+/// True when the LR or AMO at the ROB head took its value before another
+/// hart wrote its line, so what it would commit is stale.
+///
+/// An LR is stale on any such write: the reservation it would set covers
+/// the whole line. An AMO is stale only if the word it read has changed as
+/// well: a real core holds the line for its read-modify-write, so a write
+/// elsewhere in the line (or one that restored the same value) does not
+/// perturb the result, and treating it as stale would let harts hammering
+/// one lock word replay each other forever. Plain loads are not checked:
+/// RVWMO lets them keep the earlier value.
+fn observed_value_is_stale(state: &CoreCtx<'_>, head: &RobEntry, store_buffer: &StoreBuffer) -> bool {
+    let Some(log) = state.write_log.as_ref() else { return false };
+    let Some(observed) = head.observed else { return false };
+    let reader = state.hart.hart_id;
+    match (head.lr_sc, head.ctrl.atomic_op) {
+        (Some(LrScRecord::Lr { paddr }), _) => log.written_by_other_since(paddr, reader, observed),
+        (_, AtomicOp::None | AtomicOp::Sc) => false,
+        (_, _) => {
+            let Some(paddr) = store_buffer.find_paddr(head.tag) else { return false };
+            if !log.written_by_other_since(paddr, reader, observed) {
+                return false;
+            }
+            let Some(current) = read_ram_word(state, paddr, head.ctrl.width) else { return false };
+            let current = memory2::sign_extend(current, head.ctrl.width, head.ctrl.signed_load);
+            head.result != Some(current)
+        }
+    }
+}
+
+/// The word at `paddr` as it is in RAM right now; `None` outside pure RAM.
+fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Option<u64> {
+    if width == MemWidth::Nop {
+        return None;
+    }
+    let region = state.bus.ram_region_for(paddr.val(), width.bytes())?;
+    // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
+    let raw = unsafe {
+        let ptr = region.ptr(paddr.val());
+        match width {
+            MemWidth::Byte => u64::from(*ptr),
+            MemWidth::Half => u64::from(ptr.cast::<u16>().read_unaligned()),
+            MemWidth::Word => u64::from(ptr.cast::<u32>().read_unaligned()),
+            MemWidth::Double => ptr.cast::<u64>().read_unaligned(),
+            MemWidth::Nop => 0,
+        }
+    };
+    Some(raw)
+}
+
+/// True when `[paddr, paddr + width)` is RAM with no MMIO overlay, i.e. a
+/// write there can be published directly rather than through a device.
+fn is_pure_ram(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> bool {
+    state.bus.ram_region_for(paddr.val(), width.bytes()).is_some()
 }
 
 /// Drains one committed scalar SB entry to memory by emitting a `MemReq`
@@ -565,22 +649,26 @@ fn try_drain_one_store(
     store_buffer: &mut StoreBuffer,
 ) -> bool {
     let Some(store) = store_buffer.drain_one() else { return false };
-    let StoreResolution::Committed { paddr, data } = store.resolution else {
+    let (paddr, data, already_published) = match store.resolution {
+        StoreResolution::Committed { paddr, data } => (paddr, data, false),
+        StoreResolution::Applied { paddr, data } => (paddr, data, true),
         // Cancelled (failed SC) — slot was drained without a write.
-        return true;
+        _ => return true,
     };
 
     // Only pure RAM addresses go through the WCB coalesce path. HTIF and
     // other MMIO overlays must bypass it so the per-store MemReq carries the
     // original data to the device (WCB drain packets carry zero data).
     let width_bytes = width_to_bytes(store.width);
-    let is_pure_ram = state.bus.ram_region_for(paddr.val(), width_bytes as u64).is_some();
+    let pure_ram = is_pure_ram(state, paddr, store.width);
 
-    if !state.core.wcb.is_disabled() && is_pure_ram {
-        // Update RAM directly so subsequent loads via the fast path see the
-        // new value while the WCB coalesces dirty-line accounting; the WCB
+    if !state.core.wcb.is_disabled() && pure_ram {
+        // Publish now so subsequent loads via the fast path see the new
+        // value while the WCB coalesces dirty-line accounting; the WCB
         // drain only signals the line was dirty, it doesn't carry data.
-        write_store_data_to_ram(state, paddr, data, store.width);
+        if !already_published {
+            state.publish_write(paddr, data, store.width);
+        }
         let evicted = state.core.wcb.merge_store(paddr, data, width_bytes);
         if evicted.is_none() {
             state.stats.counter(paths::core::wcb::COALESCES).inc();
@@ -589,6 +677,8 @@ fn try_drain_one_store(
             emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
             state.stats.counter(paths::core::wcb::DRAINS).inc();
         }
+    } else if already_published {
+        emit_store_write_packet(state, common, paddr, data, store.width);
     } else {
         write_store_to_memory(state, common, paddr, data, store.width);
     }
@@ -596,7 +686,7 @@ fn try_drain_one_store(
         paddr      = %crate::trace::Hex(paddr.val()),
         data       = %crate::trace::Hex(data),
         width      = ?store.width,
-        via_wcb    = !state.core.wcb.is_disabled() && is_pure_ram,
+        via_wcb    = !state.core.wcb.is_disabled() && pure_ram,
         "CM: committed store drained to memory"
     );
     true
@@ -615,8 +705,14 @@ fn drain_all_committed(
     vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
 ) {
     while let Some(store) = store_buffer.drain_one() {
-        if let StoreResolution::Committed { paddr, data } = store.resolution {
-            write_store_to_memory(state, common, paddr, data, store.width);
+        match store.resolution {
+            StoreResolution::Committed { paddr, data } => {
+                write_store_to_memory(state, common, paddr, data, store.width);
+            }
+            StoreResolution::Applied { paddr, data } => {
+                emit_store_write_packet(state, common, paddr, data, store.width);
+            }
+            _ => {}
         }
     }
     if let Some(vsb) = vec_store_buffer {
@@ -758,18 +854,34 @@ fn cboz_write(state: &mut CoreCtx<'_>, common: &mut BackendCommon, block_paddr: 
     }
 }
 
-/// Writes a store's data to memory by emitting a `MemReq` (op = Write).
+/// Publishes a store's data and emits its `MemReq` (op = Write).
 ///
-/// Data dimension: for RAM-backed addresses the bytes are written directly
-/// into the `RamRegion` here so subsequent loads via the RAM fast path see
-/// the new value. MMIO addresses are not backed by RAM, so the device's
-/// `Handle::handle` runs the side effect when the packet reaches it.
+/// Data dimension: for RAM-backed addresses the bytes are published now so
+/// subsequent loads via the RAM fast path see the new value. MMIO addresses
+/// are not backed by RAM, so the device's `Handle::handle` runs the side
+/// effect when the packet reaches it.
 ///
 /// Latency / state dimension: a `Packet::MemReq` flows through the cache
 /// hierarchy regardless so the L1D dirty bit, MSHR, write-combining buffer,
 /// memory-controller accounting, and outstanding-store ack all see the
 /// store at the right time.
 fn write_store_to_memory(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    paddr: PhysAddr,
+    data: u64,
+    width: MemWidth,
+) {
+    if width == MemWidth::Nop {
+        return;
+    }
+    state.publish_write(paddr, data, width);
+    emit_store_write_packet(state, common, paddr, data, width);
+}
+
+/// Emits the `MemReq` (op = Write) for a store whose data is already
+/// published: the timing side of [`write_store_to_memory`].
+fn emit_store_write_packet(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
@@ -783,17 +895,8 @@ fn write_store_to_memory(
         MemWidth::Double => AccessSize::B8,
         MemWidth::Nop => return,
     };
-    let width_bytes = match width {
-        MemWidth::Byte => 1u64,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => return,
-    };
 
-    write_store_data_to_ram(state, paddr, data, width);
-
-    let is_ram = state.bus.ram_region_for(paddr.val(), width_bytes).is_some();
+    let is_ram = is_pure_ram(state, paddr, width);
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
     let target = if is_ram {
@@ -818,31 +921,6 @@ fn write_store_to_memory(
             op: MemOp::Write { data: WriteData::Small(data) },
         },
     );
-}
-
-/// Writes a committed store's bytes into the `RamRegion` fast-path so subsequent
-/// loads (which read RAM directly via `read_load_bytes`) see the new value.
-/// No-op for addresses outside RAM (MMIO) — those reach their device via packet.
-fn write_store_data_to_ram(state: &CoreCtx<'_>, paddr: PhysAddr, data: u64, width: MemWidth) {
-    let width_bytes = match width {
-        MemWidth::Byte => 1u64,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => return,
-    };
-    let Some(r) = state.bus.ram_region_for(paddr.val(), width_bytes) else { return };
-    // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
-    unsafe {
-        let ptr = r.ptr(paddr.val());
-        match width {
-            MemWidth::Byte => *ptr = data as u8,
-            MemWidth::Half => ptr.cast::<u16>().write_unaligned(data as u16),
-            MemWidth::Word => ptr.cast::<u32>().write_unaligned(data as u32),
-            MemWidth::Double => ptr.cast::<u64>().write_unaligned(data),
-            MemWidth::Nop => {}
-        }
-    }
 }
 
 /// Checks for pending interrupts. Returns the trap if one should be taken.

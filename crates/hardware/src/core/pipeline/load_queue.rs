@@ -15,6 +15,8 @@
 //! catches up). This implementation reuses any invalidated slot for the
 //! next allocation; ROB ordering is recovered from `rob_tag` on each entry.
 
+use crate::common::HartId;
+use crate::sim::state::write_log::{WriteLog, WriteSeq};
 use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
@@ -51,6 +53,9 @@ pub struct LoadQueueEntry {
     pub valid: bool,
     /// Element index for vector load micro-ops (`None` for scalar loads).
     pub elem_idx: Option<ElemIdx>,
+    /// Write-log position when the value was read from RAM (`None` when
+    /// forwarded from the store buffer or in a single-hart system).
+    pub observed: Option<WriteSeq>,
 }
 
 /// Load queue — bounded set of in-flight loads.
@@ -122,6 +127,7 @@ impl LoadQueue {
             state: LoadState::Pending,
             valid: true,
             elem_idx,
+            observed: None,
         };
         self.valid_count += 1;
         true
@@ -142,11 +148,19 @@ impl LoadQueue {
         }
     }
 
-    /// Fills the loaded data for a load after Memory2.
-    pub fn fill_data(&mut self, rob_tag: RobTag, elem_idx: Option<ElemIdx>, data: u64) {
+    /// Fills the loaded data for a load after Memory2, with the write-log
+    /// position at which it was read.
+    pub fn fill_data(
+        &mut self,
+        rob_tag: RobTag,
+        elem_idx: Option<ElemIdx>,
+        data: u64,
+        observed: Option<WriteSeq>,
+    ) {
         if let Some(entry) = self.find_by_tag_and_elem_mut(rob_tag, elem_idx) {
             entry.data = data;
             entry.state = LoadState::Executed;
+            entry.observed = observed;
         }
     }
 
@@ -195,6 +209,45 @@ impl LoadQueue {
             }
         }
         oldest_violator
+    }
+
+    /// Coherence check when the load `older_tag` receives its value for
+    /// `paddr`: a younger load to the same line that already executed and
+    /// whose value another hart has since overwritten read the line's
+    /// earlier value, which the older load can no longer observe. Returns
+    /// the oldest such load so the caller can squash from it. This is the
+    /// rule gem5's LSQ applies on an external snoop.
+    pub fn check_coherence_violation(
+        &self,
+        older_tag: RobTag,
+        paddr: PhysAddr,
+        log: &WriteLog,
+        reader: HartId,
+    ) -> Option<RobTag> {
+        let line_bytes = log.line_bytes();
+        let line = paddr.val() / line_bytes;
+        let mut oldest: Option<RobTag> = None;
+        for entry in &self.entries {
+            if !entry.valid
+                || !entry.rob_tag.is_newer_than(older_tag)
+                || entry.state != LoadState::Executed
+            {
+                continue;
+            }
+            let (Some(entry_paddr), Some(observed)) = (entry.paddr, entry.observed) else {
+                continue;
+            };
+            if entry_paddr.val() / line_bytes != line
+                || !log.written_by_other_since(entry_paddr, reader, observed)
+            {
+                continue;
+            }
+            match oldest {
+                Some(prev) if !entry.rob_tag.is_older_than(prev) => {}
+                _ => oldest = Some(entry.rob_tag),
+            }
+        }
+        oldest
     }
 
     /// Deallocates all load queue entries with the given ROB tag.
@@ -248,6 +301,77 @@ impl LoadQueue {
     }
 }
 
+#[cfg(test)]
+mod coherence_tests {
+    use super::*;
+    use crate::sim::state::write_log::Writer;
+
+    const H0: HartId = HartId::new(0);
+    const H1: HartId = HartId::new(1);
+
+    fn executed_load(lq: &mut LoadQueue, tag: RobTag, paddr: u64, observed: WriteSeq) {
+        assert!(lq.allocate(tag, MemWidth::Double, None));
+        lq.fill_address(tag, None, VirtAddr::new(paddr), PhysAddr::new(paddr));
+        lq.fill_data(tag, None, 0, Some(observed));
+    }
+
+    #[test]
+    fn a_younger_load_that_read_before_a_remote_write_is_squashed() {
+        let mut lq = LoadQueue::new(4);
+        let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
+        executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
+        log.record(PhysAddr::new(0x8000_0108), Writer::Hart(H1));
+
+        let violator = lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0120), &log, H0);
+
+        assert_eq!(violator, Some(RobTag(2)));
+    }
+
+    #[test]
+    fn the_oldest_violating_load_is_reported() {
+        let mut lq = LoadQueue::new(4);
+        let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
+        executed_load(&mut lq, RobTag(3), 0x8000_0100, log.now());
+        executed_load(&mut lq, RobTag(2), 0x8000_0110, log.now());
+        log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
+
+        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), Some(RobTag(2)));
+    }
+
+    #[test]
+    fn loads_to_other_lines_or_older_than_the_reader_are_ignored() {
+        let mut lq = LoadQueue::new(4);
+        let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
+        executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
+        executed_load(&mut lq, RobTag(0), 0x8000_0140, log.now());
+        log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
+        log.record(PhysAddr::new(0x8000_0140), Writer::Hart(H1));
+
+        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0200), &log, H0), None, "different line");
+        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0140), &log, H0), None, "tag 0 is older than the reader");
+    }
+
+    #[test]
+    fn a_younger_load_stamped_after_the_write_is_consistent() {
+        let mut lq = LoadQueue::new(4);
+        let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
+        log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
+        executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
+
+        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), None);
+    }
+
+    #[test]
+    fn the_readers_own_writes_never_squash() {
+        let mut lq = LoadQueue::new(4);
+        let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
+        executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
+        log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H0));
+
+        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), None);
+    }
+}
+
 /// Converts a `MemWidth` to byte count.
 const fn width_to_bytes(w: MemWidth) -> usize {
     match w {
@@ -274,7 +398,7 @@ mod tests {
         assert_eq!(lq.len(), 1);
 
         lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(tag, None, 0xDEADBEEF);
+        lq.fill_data(tag, None, 0xDEADBEEF, None);
 
         lq.deallocate(tag);
         assert!(lq.is_empty());
@@ -317,7 +441,7 @@ mod tests {
         let load_tag = RobTag(3);
         lq.allocate(load_tag, MemWidth::Word, None);
         lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(load_tag, None, 0x12345678);
+        lq.fill_data(load_tag, None, 0x12345678, None);
 
         // Store (tag=2) resolves to same address — violation!
         let result =
@@ -332,7 +456,7 @@ mod tests {
         let load_tag = RobTag(3);
         lq.allocate(load_tag, MemWidth::Word, None);
         lq.fill_address(load_tag, None, VirtAddr::new(0x2000), PhysAddr::new(0x8000_0004));
-        lq.fill_data(load_tag, None, 0x12345678);
+        lq.fill_data(load_tag, None, 0x12345678, None);
 
         let result =
             lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
@@ -346,7 +470,7 @@ mod tests {
         let load_tag = RobTag(1);
         lq.allocate(load_tag, MemWidth::Word, None);
         lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-        lq.fill_data(load_tag, None, 0x12345678);
+        lq.fill_data(load_tag, None, 0x12345678, None);
 
         let result =
             lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
@@ -381,7 +505,7 @@ mod tests {
             let tag = RobTag(i);
             assert!(lq.allocate(tag, MemWidth::Word, None));
             lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-            lq.fill_data(tag, None, i as u64);
+            lq.fill_data(tag, None, i as u64, None);
             lq.deallocate(tag);
         }
     }

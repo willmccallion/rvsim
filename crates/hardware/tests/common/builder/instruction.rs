@@ -1,4 +1,15 @@
+use rvsim_core::isa::privileged::opcodes::{CSRRS, OP_SYSTEM};
+use rvsim_core::isa::rv64a::funct5::{AMOADD, LR, SC};
+use rvsim_core::isa::rv64a::opcodes::OP_AMO;
 use rvsim_core::isa::rv64i::opcodes::*;
+
+/// `fence iorw, iorw`.
+pub const FENCE_IORW: u32 = 0x0ff0_000f;
+/// `ecall`.
+pub const ECALL: u32 = rvsim_core::isa::privileged::opcodes::ECALL;
+
+const FUNCT3_WORD: u32 = 0b010;
+const FUNCT3_DOUBLE: u32 = 0b011;
 
 pub struct InstructionBuilder {
     opcode: u32,
@@ -372,6 +383,46 @@ impl InstructionBuilder {
         self.addi(0, 0, 0)
     }
 
+    /// `csrrs rd, csr, rs1` (`csrr rd, csr` when `rs1` is x0).
+    pub fn csrrs(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+        self.opcode = OP_SYSTEM;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.funct3 = CSRRS;
+        self.imm = csr as i32;
+        self
+    }
+
+    fn amo(mut self, funct5: u32, funct3: u32, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.opcode = OP_AMO;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.rs2 = rs2;
+        self.funct3 = funct3;
+        self.funct7 = funct5 << 2;
+        self
+    }
+
+    /// `amoadd.d rd, rs2, (rs1)`.
+    pub fn amoadd_d(self, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.amo(AMOADD, FUNCT3_DOUBLE, rd, rs1, rs2)
+    }
+
+    /// `amoadd.w rd, rs2, (rs1)`.
+    pub fn amoadd_w(self, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.amo(AMOADD, FUNCT3_WORD, rd, rs1, rs2)
+    }
+
+    /// `lr.d rd, (rs1)`.
+    pub fn lr_d(self, rd: u32, rs1: u32) -> Self {
+        self.amo(LR, FUNCT3_DOUBLE, rd, rs1, 0)
+    }
+
+    /// `sc.d rd, rs2, (rs1)`.
+    pub fn sc_d(self, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.amo(SC, FUNCT3_DOUBLE, rd, rs1, rs2)
+    }
+
     pub fn build(self) -> u32 {
         let opcode = self.opcode & 0x7F;
         let rd = (self.rd & 0x1F) << 7;
@@ -381,11 +432,11 @@ impl InstructionBuilder {
         let funct7 = (self.funct7 & 0x7F) << 25;
 
         match opcode {
-            OP_REG | OP_REG_32 => {
+            OP_REG | OP_REG_32 | OP_AMO => {
                 // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
                 funct7 | rs2 | rs1 | funct3 | rd | opcode
             }
-            OP_IMM | OP_IMM_32 | OP_LOAD | OP_JALR => {
+            OP_IMM | OP_IMM_32 | OP_LOAD | OP_JALR | OP_SYSTEM => {
                 // I-type: imm[11:0] | rs1 | funct3 | rd | opcode
                 let imm_val = (self.imm as u32) & 0xFFF;
                 (imm_val << 20) | rs1 | funct3 | rd | opcode

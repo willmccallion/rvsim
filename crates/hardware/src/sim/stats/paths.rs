@@ -144,6 +144,12 @@ pub mod core {
         /// overlapping an older store still in the store buffer, and LR/AMO
         /// ops behind an older store to the same address.
         pub const RESCHEDULED_MEM_OPS: &str = "core0.lsq.rescheduled_mem_ops";
+        /// LR / AMO instructions re-executed at commit because another
+        /// hart wrote their line after they read it.
+        pub const COHERENCE_REPLAYS: &str = "core0.lsq.coherence_replays";
+        /// Younger loads squashed because another hart wrote their line
+        /// before an older load to it read the new value.
+        pub const COHERENCE_VIOLATIONS: &str = "core0.lsq.coherence_violations";
     }
 
     /// Write-combining buffer counters.

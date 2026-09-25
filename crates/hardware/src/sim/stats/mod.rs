@@ -505,6 +505,8 @@ fn register_defaults(s: &mut Stats) {
 
     // core<N>.lsq.*
     s.register(lsq::RESCHEDULED_MEM_OPS, Meta::events("Memory ops replayed behind an older store"));
+    s.register(lsq::COHERENCE_REPLAYS, Meta::events("LR/AMO re-executed after a remote write to their line"));
+    s.register(lsq::COHERENCE_VIOLATIONS, Meta::events("Loads squashed for reading a line before a remote write an older load saw"));
 
     // core<N>.wcb.*
     s.register(wcb::COALESCES, Meta::events("WCB store coalesces"));

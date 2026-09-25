@@ -262,6 +262,7 @@ impl Simulator {
                     _ => {}
                 }
             }
+            self.state.record_external_write(paddr);
             return;
         }
         let op = crate::sim::packet::MemOp::Write {

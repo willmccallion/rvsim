@@ -7,6 +7,7 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
+use crate::sim::state::write_log::WriteSeq;
 use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
 use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
@@ -344,6 +345,10 @@ pub struct Mem1Mem2Entry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (flows through from `ExMem1Entry`).
     pub vec_mem: Option<VecMemElement>,
+    /// Write-log position when `load_data` was read from RAM; `None` for
+    /// values that came from the store buffer or an MMIO device, and in
+    /// single-hart systems.
+    pub observed: Option<WriteSeq>,
 }
 
 /// Entry from Memory2 -> Writeback latch.
@@ -381,4 +386,6 @@ pub struct Mem2WbEntry {
     pub lr_sc: Option<LrScRecord>,
     /// Vector memory element metadata (flows through from `ExMem1Entry`).
     pub vec_mem: Option<VecMemElement>,
+    /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
+    pub observed: Option<WriteSeq>,
 }

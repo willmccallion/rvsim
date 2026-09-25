@@ -87,6 +87,7 @@ pub fn memory2_stage(
                 sfence_vma: mem.sfence_vma,
                 lr_sc: None,
                 vec_mem: mem.vec_mem,
+                observed: mem.observed,
             });
             continue;
         }
@@ -173,7 +174,7 @@ pub fn memory2_stage(
             }
             if let Some(ref mut lq) = load_queue {
                 let elem = mem.vec_mem.as_ref().map(|v| v.elem_idx);
-                lq.fill_data(mem.rob_tag, elem, load_data);
+                lq.fill_data(mem.rob_tag, elem, load_data, mem.observed);
             }
         } else if mem.ctrl.mem_write {
             // Scalar store: resolve the store buffer slot and check the load
@@ -238,6 +239,7 @@ pub fn memory2_stage(
             sfence_vma: mem.sfence_vma,
             lr_sc,
             vec_mem: mem.vec_mem,
+            observed: mem.observed,
         });
     }
 
@@ -254,7 +256,7 @@ const fn merge_violation(slot: &mut Option<(RobTag, u64)>, new: (RobTag, u64)) {
 
 /// Sign / zero-extends a raw load value according to the access width and
 /// the signed-load control bit.
-const fn sign_extend(raw: u64, width: MemWidth, signed: bool) -> u64 {
+pub(crate) const fn sign_extend(raw: u64, width: MemWidth, signed: bool) -> u64 {
     if signed {
         match width {
             MemWidth::Byte => (raw as u8 as i8) as i64 as u64,

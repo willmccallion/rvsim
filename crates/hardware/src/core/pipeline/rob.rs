@@ -8,6 +8,7 @@
 //! 4. **Forwarding:** Provides the most recent result for any register from in-flight instructions.
 //! 5. **Flush:** Squashes speculative entries after a misprediction or trap.
 
+use crate::sim::state::write_log::WriteSeq;
 use std::collections::HashMap;
 
 use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
@@ -147,6 +148,9 @@ pub struct RobEntry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.
     pub lr_sc: Option<LrScRecord>,
+    /// Write-log position when a load, LR or AMO read its value from RAM;
+    /// commit re-validates LR and AMO against it.
+    pub observed: Option<WriteSeq>,
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
     /// Physical vector registers allocated for destination LMUL group (O3 backend).
@@ -271,6 +275,7 @@ impl Rob {
             pte_update: None,
             sfence_vma: None,
             lr_sc: None,
+            observed: None,
             checkpoint_id: None,
             vec_phys_dst: [VecPhysReg::ZERO; 8],
             vec_old_phys_dst: [VecPhysReg::ZERO; 8],
@@ -404,6 +409,13 @@ impl Rob {
     pub fn set_lr_sc(&mut self, tag: RobTag, record: LrScRecord) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.lr_sc = Some(record);
+        }
+    }
+
+    /// Records the write-log position at which a memory read took its value.
+    pub fn set_observed(&mut self, tag: RobTag, seq: WriteSeq) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.observed = Some(seq);
         }
     }
 

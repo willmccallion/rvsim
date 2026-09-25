@@ -223,6 +223,10 @@ pub struct BackendCommon {
     /// instead of re-emitting the same PC every cycle (gem5 `MinorCPU`'s
     /// IFU `ItlbWait` state). Cleared when the matching walk completes.
     pub fetch_walk_pending: bool,
+    /// Oldest load the mailbox drain found inconsistent with an older
+    /// load's fresh value (see `LoadQueue::check_coherence_violation`);
+    /// the out-of-order engine squashes from it after memory2.
+    pub coherence_violation: Option<RobTag>,
     /// Monotonic request-id counter; allocate via [`BackendCommon::alloc_req_id`].
     pub next_req_id: u64,
     /// `PipelineId` of this engine; stamped on every outgoing packet as the
@@ -250,6 +254,18 @@ impl BackendCommon {
             crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
         });
         self.mem1_replay.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
+        if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
+            self.coherence_violation = None;
+        }
+    }
+
+    /// Records a load the drain stage must squash from, keeping the oldest
+    /// when several are found in one cycle.
+    pub const fn note_coherence_violation(&mut self, tag: RobTag) {
+        self.coherence_violation = match self.coherence_violation {
+            Some(existing) if existing.is_older_than(tag) => Some(existing),
+            _ => Some(tag),
+        };
     }
 
     /// True while an instruction fetch is still waiting on the memory
@@ -368,6 +384,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
         common.mem1_replay.clear();
+        common.coherence_violation = None;
         self.engine.flush(state);
     }
 }
