@@ -281,7 +281,7 @@ impl CoreCtx<'_> {
             x if x == csr::SATP.as_u32() => {
                 let mode = (val >> csr::SATP_MODE_SHIFT) & csr::SATP_MODE_MASK;
                 let allowed = csr::PagingMode::from_satp_mode(mode)
-                    .is_some_and(|m| m.is_at_most(self.hart.mmu.paging_mode_max));
+                    .is_some_and(|m| m.is_at_most(self.core.mmu.paging_mode_max));
 
                 let new_val = if allowed {
                     val
@@ -291,9 +291,9 @@ impl CoreCtx<'_> {
 
                 self.hart.csrs.satp = new_val;
 
-                self.hart.mmu.dtlb.flush();
-                self.hart.mmu.itlb.flush();
-                self.hart.mmu.l2_tlb.flush();
+                self.core.mmu.dtlb.flush();
+                self.core.mmu.itlb.flush();
+                self.core.mmu.l2_tlb.flush();
             }
             // Writable vector CSRs
             x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart = val,

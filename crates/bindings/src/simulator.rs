@@ -744,13 +744,15 @@ impl PySimulator {
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
 
-        let _ = cpu.cores[0].l1_i_cache.flush();
-        let _ = cpu.cores[0].l1_d_cache.flush();
-        let _ = cpu.cores[0].l2_cache.flush();
+        for core in &mut cpu.cores {
+            let _ = core.l1_i_cache.flush();
+            let _ = core.l1_d_cache.flush();
+            let _ = core.l2_cache.flush();
+            core.mmu.dtlb.flush();
+            core.mmu.itlb.flush();
+            core.mmu.l2_tlb.flush();
+        }
         let _ = cpu.l3_cache.flush();
-        cpu.harts[0].mmu.dtlb.flush();
-        cpu.harts[0].mmu.itlb.flush();
-        cpu.harts[0].mmu.l2_tlb.flush();
 
         Ok(())
     }

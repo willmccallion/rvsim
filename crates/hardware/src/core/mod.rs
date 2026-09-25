@@ -23,6 +23,7 @@ use crate::config::{Config, InclusionPolicy};
 use crate::core::pipeline::write_buffer::WriteCombiningBuffer;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::Cache;
+use crate::core::units::mmu::Mmu;
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
@@ -49,6 +50,8 @@ pub struct Core {
     pub l1_d_cache: Cache,
     /// L2 Unified Cache.
     pub l2_cache: Cache,
+    /// Address translation: the TLBs and the page-table walker.
+    pub mmu: Mmu,
     /// Write Combining Buffer for store coalescing.
     pub wcb: WriteCombiningBuffer,
     /// Branch Predictor Unit.
@@ -92,6 +95,14 @@ impl Core {
             l1_i_cache,
             l1_d_cache,
             l2_cache,
+            mmu: Mmu::new(
+                config.memory.tlb_size,
+                config.memory.l2_tlb_size,
+                config.memory.l2_tlb_ways,
+                config.memory.l2_tlb_latency,
+                config.memory.software_ad_bits,
+                config.memory.paging_mode_max,
+            ),
             wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
             branch_predictor: BranchPredictorWrapper::new(config),
             stat_paths: CorePaths::new(core_id),

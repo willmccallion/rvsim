@@ -15,7 +15,6 @@ pub mod trap;
 use crate::common::{HartId, RegisterFile};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
-use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::Pmp;
 
 /// Per-thread RISC-V architectural state.
@@ -31,8 +30,6 @@ pub struct Hart {
     pub csrs: Csrs,
     /// Current Privilege Mode (M, S, U).
     pub privilege: PrivilegeMode,
-    /// Memory Management Unit.
-    pub mmu: Mmu,
     /// Physical Memory Protection unit.
     pub pmp: Pmp,
     /// True when the hart has executed `WFI` and is waiting for an interrupt.
@@ -68,8 +65,6 @@ pub struct HartInit {
     pub csrs: Csrs,
     /// Initial privilege mode.
     pub privilege: PrivilegeMode,
-    /// MMU instance (TLBs + page-table walker).
-    pub mmu: Mmu,
     /// Physical memory protection unit.
     pub pmp: Pmp,
 }
@@ -83,7 +78,6 @@ impl Hart {
             pc: init.pc,
             csrs: init.csrs,
             privilege: init.privilege,
-            mmu: init.mmu,
             pmp: init.pmp,
             wfi_waiting: false,
             wfi_pc: 0,

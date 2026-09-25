@@ -78,7 +78,7 @@ impl CoreCtx<'_> {
             self.hart.privilege
         };
 
-        let outcome = self.hart.mmu.translate_async(
+        let outcome = self.core.mmu.translate_async(
             vaddr,
             access,
             effective_priv,
@@ -105,7 +105,7 @@ impl CoreCtx<'_> {
         // per PTE which is what `start_walk` / `continue_walk` enforce.
         let size = 8u64;
         let outcome =
-            self.hart.mmu.continue_walk(state, raw_pte, &self.hart.csrs, Some(&self.hart.pmp), bus_transit_cycles);
+            self.core.mmu.continue_walk(state, raw_pte, &self.hart.csrs, Some(&self.hart.pmp), bus_transit_cycles);
         self.finalize_outcome(outcome, vaddr, access, size, effective_priv)
     }
 

@@ -32,7 +32,6 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::hart::HartInit;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::units::cache::Cache;
-use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::Pmp;
 use crate::core::{Core, Hart};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
@@ -557,17 +556,6 @@ impl SimState {
         // via their own trap handlers; bare-metal binaries need M-mode too.
         let privilege = PrivilegeMode::Machine;
 
-        let fresh_mmu = || {
-            Mmu::new(
-                config.memory.tlb_size,
-                config.memory.l2_tlb_size,
-                config.memory.l2_tlb_ways,
-                config.memory.l2_tlb_latency,
-                config.memory.software_ad_bits,
-                config.memory.paging_mode_max,
-            )
-        };
-
         let harts: Vec<Hart> = (0..hart_count)
             .map(|index| {
                 let hart_id = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
@@ -577,7 +565,6 @@ impl SimState {
                     pc: config.general.start_pc,
                     csrs: csrs.clone(),
                     privilege,
-                    mmu: fresh_mmu(),
                     pmp: Pmp::new(),
                 });
                 hart.committed_next_pc = config.general.start_pc;

@@ -1293,31 +1293,31 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
 fn sfence_vma_commit(state: &mut CoreCtx<'_>, common: &mut BackendCommon, info: &SfenceVmaInfo) {
     match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
         (false, false) => {
-            state.hart.mmu.dtlb.flush();
-            state.hart.mmu.itlb.flush();
-            state.hart.mmu.l2_tlb.flush();
+            state.core.mmu.dtlb.flush();
+            state.core.mmu.itlb.flush();
+            state.core.mmu.l2_tlb.flush();
             let dirty = state.core.l1_d_cache.flush();
             write_back_lines(state, common, &dirty);
             let _ = state.core.l1_i_cache.invalidate_all();
         }
         (true, false) => {
             let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            state.hart.mmu.dtlb.flush_vaddr(vpn);
-            state.hart.mmu.itlb.flush_vaddr(vpn);
-            state.hart.mmu.l2_tlb.flush_vaddr(vpn);
+            state.core.mmu.dtlb.flush_vaddr(vpn);
+            state.core.mmu.itlb.flush_vaddr(vpn);
+            state.core.mmu.l2_tlb.flush_vaddr(vpn);
         }
         (false, true) => {
             let asid = Asid::new(info.rs2_val as u16);
-            state.hart.mmu.dtlb.flush_asid(asid);
-            state.hart.mmu.itlb.flush_asid(asid);
-            state.hart.mmu.l2_tlb.flush_asid(asid);
+            state.core.mmu.dtlb.flush_asid(asid);
+            state.core.mmu.itlb.flush_asid(asid);
+            state.core.mmu.l2_tlb.flush_asid(asid);
         }
         (true, true) => {
             let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
             let asid = Asid::new(info.rs2_val as u16);
-            state.hart.mmu.dtlb.flush_vaddr_asid(vpn, asid);
-            state.hart.mmu.itlb.flush_vaddr_asid(vpn, asid);
-            state.hart.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
+            state.core.mmu.dtlb.flush_vaddr_asid(vpn, asid);
+            state.core.mmu.itlb.flush_vaddr_asid(vpn, asid);
+            state.core.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
         }
     }
 }
