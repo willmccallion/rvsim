@@ -42,7 +42,6 @@ use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
-use crate::sim::stats::paths;
 
 /// Outcome of processing a single `ExMem1Entry`.
 enum EntryOutcome {
@@ -80,7 +79,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
         match process_entry(state, engine, ex) {
             EntryOutcome::Done => {}
             EntryOutcome::Replay(ex) => {
-                state.stats.counter(paths::core::lsq::RESCHEDULED_MEM_OPS).inc();
+                state.shared.stats.counter(state.core.stat_paths.lsq.rescheduled_mem_ops).inc();
                 engine.common_mut().mem1_replay.push(ex);
             }
             EntryOutcome::ParkedWalk => {

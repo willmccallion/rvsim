@@ -10,7 +10,6 @@ use crate::common::{Asid, SimError, Vpn};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
-use crate::sim::stats::paths;
 use crate::trace_trap;
 
 impl SharedState {
@@ -170,10 +169,13 @@ impl CoreCtx<'_> {
     /// Charges the cycle that just began to the hart's current privilege
     /// mode.
     pub fn track_mode_cycles(&mut self) {
+        let hart_paths = self.hart_paths();
+        let core_cycles = self.core.stat_paths.pipeline.cycles_total;
+        self.stats.counter(core_cycles).inc();
         match self.hart.privilege {
-            PrivilegeMode::User => self.stats.counter(paths::hart::CYCLES_USER).inc(),
-            PrivilegeMode::Supervisor => self.stats.counter(paths::hart::CYCLES_KERNEL).inc(),
-            PrivilegeMode::Machine => self.stats.counter(paths::hart::CYCLES_MACHINE).inc(),
+            PrivilegeMode::User => self.stats.counter(hart_paths.cycles_user).inc(),
+            PrivilegeMode::Supervisor => self.stats.counter(hart_paths.cycles_kernel).inc(),
+            PrivilegeMode::Machine => self.stats.counter(hart_paths.cycles_machine).inc(),
         }
     }
 }
@@ -189,17 +191,19 @@ mod tests {
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
+        let paths = state.hart_paths();
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths::hart::CYCLES_USER).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths.cycles_user).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Supervisor;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths::hart::CYCLES_KERNEL).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths.cycles_kernel).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths::hart::CYCLES_MACHINE).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(paths.cycles_machine).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.stats.get(state.core.stat_paths.pipeline.cycles_total).unwrap_or(0.0) as u64, 3);
     }
 
     #[test]

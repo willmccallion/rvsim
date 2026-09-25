@@ -4,43 +4,70 @@
 //! simulator writes, then runs each query variant and asserts on the
 //! aggregated result.
 
-use rvsim_core::sim::stats::paths;
+use rvsim_core::common::{CoreId, HartId};
+use rvsim_core::sim::stats::paths::{CorePaths, HartPaths};
 use rvsim_core::sim::stats::{Formula, Meta, Stats};
+
+fn hart0() -> HartPaths {
+    HartPaths::new(HartId::new(0))
+}
+
+fn core0() -> CorePaths {
+    CorePaths::new(CoreId::new(0))
+}
 
 fn seeded() -> Stats {
     let mut s = Stats::with_default_registrations();
-    // hart0
-    s.counter(paths::hart::RETIRED_INSTS).add(1000);
-    s.counter(paths::hart::TRAPS).add(3);
-    s.counter(paths::hart::CYCLES_USER).add(600);
-    s.counter(paths::hart::CYCLES_KERNEL).add(300);
-    s.counter(paths::hart::CYCLES_MACHINE).add(100);
+    let hart = hart0();
+    s.counter(hart.retired_insts).add(1000);
+    s.counter(hart.traps).add(3);
+    s.counter(hart.cycles_user).add(600);
+    s.counter(hart.cycles_kernel).add(300);
+    s.counter(hart.cycles_machine).add(100);
 
-    // core0.commit.op.*
-    s.counter(paths::core::commit::OP_LOAD).add(100);
-    s.counter(paths::core::commit::OP_STORE).add(50);
-    s.counter(paths::core::commit::OP_BRANCH).add(150);
-    s.counter(paths::core::commit::OP_ALU).add(600);
-    s.counter(paths::core::commit::OP_SYSTEM).add(10);
+    let core = core0();
+    s.counter(core.commit.op_load).add(100);
+    s.counter(core.commit.op_store).add(50);
+    s.counter(core.commit.op_branch).add(150);
+    s.counter(core.commit.op_alu).add(600);
+    s.counter(core.commit.op_system).add(10);
 
-    // core0.bp.*
-    s.counter(paths::core::bp::COMMITTED_HITS).add(140);
-    s.counter(paths::core::bp::COMMITTED_MISPREDICTS).add(10);
-    s.counter(paths::core::bp::SPEC_HITS).add(280);
-    s.counter(paths::core::bp::SPEC_MISPREDICTS).add(20);
+    s.counter(core.bp.committed_hits).add(140);
+    s.counter(core.bp.committed_mispredicts).add(10);
+    s.counter(core.bp.spec_hits).add(280);
+    s.counter(core.bp.spec_mispredicts).add(20);
 
-    // core0.pipeline.stalls.*
-    s.counter(paths::core::pipeline::STALLS_CONTROL).add(50);
-    s.counter(paths::core::pipeline::STALLS_DATA).add(70);
-    s.counter(paths::core::pipeline::STALLS_BACKPRESSURE).add(30);
+    s.counter(core.pipeline.stalls_control).add(50);
+    s.counter(core.pipeline.stalls_data).add(70);
+    s.counter(core.pipeline.stalls_backpressure).add(30);
     s
 }
 
 #[test]
 fn literal_path_read_via_get() {
     let s = seeded();
-    assert_eq!(s.get(paths::hart::RETIRED_INSTS), Some(1000.0));
-    assert_eq!(s.get(paths::core::commit::OP_LOAD), Some(100.0));
+    assert_eq!(s.get(hart0().retired_insts), Some(1000.0));
+    assert_eq!(s.get(core0().commit.op_load), Some(100.0));
+}
+
+#[test]
+fn every_core_and_hart_gets_its_own_subject() {
+    let harts = [HartPaths::new(HartId::new(0)), HartPaths::new(HartId::new(1))];
+    let cores = [
+        (CorePaths::new(CoreId::new(0)), HartId::new(0)),
+        (CorePaths::new(CoreId::new(1)), HartId::new(1)),
+    ];
+    let mut s = Stats::for_components(&harts, &cores);
+    s.counter(harts[0].retired_insts).add(10);
+    s.counter(harts[1].retired_insts).add(5);
+    s.counter(cores[1].0.commit.op_load).add(7);
+
+    assert_eq!(s.query("core*.commit.op.load").len(), 2);
+    assert_eq!(s.get("core1.commit.op.load"), Some(7.0));
+    assert_eq!(s.get("core0.commit.op.load"), Some(0.0));
+    assert_eq!(s.get("system.retired_insts"), Some(15.0));
+    assert!(s.subjects().contains(&"core1"));
+    assert!(s.subjects().contains(&"hart1"));
 }
 
 #[test]
@@ -103,10 +130,10 @@ fn by_subject_partitions_across_multiple_subjects() {
 #[test]
 fn derived_stat_is_included_in_query_results() {
     let s = seeded();
-    // `paths::core::bp::COMMITTED_ACCURACY` is registered as a derived stat
-    // by `with_default_registrations` — verify it evaluates and shows up in
+    // `core0.bp.committed.accuracy` is registered as a derived stat by
+    // `with_default_registrations` — verify it evaluates and shows up in
     // wildcard queries.
-    let accuracy = s.get(paths::core::bp::COMMITTED_ACCURACY).unwrap();
+    let accuracy = s.get(core0().bp.committed_accuracy).unwrap();
     let expected = 140.0 / (140.0 + 10.0);
     assert!((accuracy - expected).abs() < 1e-9);
 
@@ -149,8 +176,9 @@ fn unmatched_pattern_returns_empty() {
 #[test]
 fn star_matches_bare_segment() {
     let s = seeded();
-    // `*.retired_insts` should match `hart0.retired_insts`.
+    // `*.retired_insts` should match `hart0.retired_insts` and the derived
+    // `system.retired_insts` sum over every hart.
     let q = s.query("*.retired_insts");
-    assert_eq!(q.len(), 1);
-    assert_eq!(q.sum(), 1000.0);
+    assert_eq!(q.len(), 2);
+    assert_eq!(q.sum(), 2000.0);
 }

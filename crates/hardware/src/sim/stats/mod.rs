@@ -26,6 +26,9 @@ pub mod summary;
 pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
+use crate::common::{CoreId, HartId};
+use paths::{CorePaths, HartPaths, SystemPaths};
+
 /// A scalar counter.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Counter(u64);
@@ -291,15 +294,28 @@ impl Stats {
         Self::default()
     }
 
-    /// Creates a stats tree with the simulator's canonical metadata and
-    /// derived formulas pre-registered. Every writer path appears in
-    /// [`Stats::query`] and [`Stats::summary`] output even before any counter
-    /// has been incremented.
+    /// Creates a stats tree with every hart's and core's canonical metadata
+    /// and derived formulas pre-registered, plus the `system.*` sums. Every
+    /// writer path appears in [`Stats::query`] and [`Stats::summary`] output
+    /// even before any counter has been incremented.
+    #[must_use]
+    pub fn for_components(harts: &[HartPaths], cores: &[(CorePaths, HartId)]) -> Self {
+        let mut s = Self::new();
+        for hart in harts {
+            register_hart(&mut s, hart);
+        }
+        for (core, first_hart) in cores {
+            register_core(&mut s, core, &harts[first_hart.as_index()]);
+        }
+        register_system(&mut s, harts);
+        s
+    }
+
+    /// [`Stats::for_components`] for one core hosting one hart.
     #[must_use]
     pub fn with_default_registrations() -> Self {
-        let mut s = Self::new();
-        register_defaults(&mut s);
-        s
+        let hart = HartId::new(0);
+        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)])
     }
 
     /// Returns a mutable reference to the counter at `path`.
@@ -430,126 +446,115 @@ impl Stats {
     }
 }
 
-/// Registers every simulator-owned counter path with its [`Meta`], plus the
-/// derived rates ([`paths::core::IPC`], [`paths::core::CPI`], BP accuracies).
-///
-/// Kept as a plain function (not a method) so callers can compose it with
-/// their own registrations if needed.
-fn register_defaults(s: &mut Stats) {
-    use paths::core::{bp, cache, commit, fu, lsq, mdp, pipeline as pipe, wcb};
-    use paths::hart as h;
+/// Registers a hart's counters.
+fn register_hart(s: &mut Stats, h: &HartPaths) {
+    s.register(h.retired_insts, Meta::events("instructions retired"));
+    s.register(h.traps, Meta::events("trap-taken events"));
+    s.register(h.cycles_user, Meta::cycles("cycles spent in user (U) privilege"));
+    s.register(h.cycles_kernel, Meta::cycles("cycles spent in supervisor (S) privilege"));
+    s.register(h.cycles_machine, Meta::cycles("cycles spent in machine (M) privilege"));
+}
 
-    // hart<N>.*
-    s.register(h::RETIRED_INSTS, Meta::events("instructions retired"));
-    s.register(h::TRAPS, Meta::events("trap-taken events"));
-    s.register(h::CYCLES_USER, Meta::cycles("cycles spent in user (U) privilege"));
-    s.register(h::CYCLES_KERNEL, Meta::cycles("cycles spent in supervisor (S) privilege"));
-    s.register(h::CYCLES_MACHINE, Meta::cycles("cycles spent in machine (M) privilege"));
+/// Registers a core's counters and its derived rates (BP accuracies,
+/// IPC/CPI against `first_hart`'s retired instructions).
+fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
+    let commit = &c.commit;
+    s.register(commit.op_load, Meta::events("integer load retired"));
+    s.register(commit.op_store, Meta::events("integer store retired"));
+    s.register(commit.op_branch, Meta::events("branch/jump retired"));
+    s.register(commit.op_alu, Meta::events("integer ALU retired"));
+    s.register(commit.op_system, Meta::events("system / CSR / ECALL retired"));
+    s.register(commit.fp_load, Meta::events("FP load retired"));
+    s.register(commit.fp_store, Meta::events("FP store retired"));
+    s.register(commit.fp_arith, Meta::events("FP arithmetic retired"));
+    s.register(commit.fp_fma, Meta::events("FP fused multiply-add retired"));
+    s.register(commit.fp_div_sqrt, Meta::events("FP divide/sqrt retired"));
+    s.register(commit.vec_int, Meta::events("vector integer op retired"));
+    s.register(commit.vec_fp, Meta::events("vector FP op retired"));
+    s.register(commit.vec_load, Meta::events("vector load retired"));
+    s.register(commit.vec_store, Meta::events("vector store retired"));
+    s.register(commit.vec_misc, Meta::events("vector misc (permute/mask/config) retired"));
+    s.register(commit.retire_hist_zero, Meta::cycles("cycles where 0 insts retired"));
+    s.register(commit.retire_hist_one, Meta::cycles("cycles where exactly 1 inst retired"));
+    s.register(commit.retire_hist_two, Meta::cycles("cycles where exactly 2 insts retired"));
+    s.register(commit.retire_hist_three_plus, Meta::cycles("cycles where 3+ insts retired"));
 
-    // core<N>.commit.op.*
-    s.register(commit::OP_LOAD, Meta::events("integer load retired"));
-    s.register(commit::OP_STORE, Meta::events("integer store retired"));
-    s.register(commit::OP_BRANCH, Meta::events("branch/jump retired"));
-    s.register(commit::OP_ALU, Meta::events("integer ALU retired"));
-    s.register(commit::OP_SYSTEM, Meta::events("system / CSR / ECALL retired"));
+    let pipe = &c.pipeline;
+    s.register(pipe.cycles_total, Meta::cycles("cycles the core was ticked"));
+    s.register(pipe.cycles_wfi, Meta::cycles("cycles in WFI"));
+    s.register(pipe.cycles_rob_empty, Meta::cycles("cycles with empty ROB"));
+    s.register(pipe.stalls_control, Meta::cycles("fetch stalled on control"));
+    s.register(pipe.stalls_fetch_wait, Meta::cycles("Fetch waited on an in-flight fetch"));
+    s.register(pipe.stalls_data, Meta::cycles("issue stalled on data hazard"));
+    s.register(pipe.stalls_fu_structural, Meta::cycles("issue stalled on FU structural"));
+    s.register(pipe.stalls_backpressure, Meta::cycles("downstream backpressure stalls"));
+    s.register(pipe.stalls_dispatch, Meta::cycles("dispatch stalls"));
+    s.register(pipe.stalls_checkpoint, Meta::cycles("checkpoint allocation stalls"));
+    s.register(pipe.stalls_squash, Meta::cycles("squash-recovery cycles"));
+    s.register(pipe.stalls_rename_rebuild, Meta::cycles("rename-map rebuild cycles"));
+    s.register(pipe.flushes_total, Meta::events("total pipeline flushes"));
+    s.register(pipe.flushes_branch, Meta::events("flushes: branch mispredict"));
+    s.register(pipe.flushes_system, Meta::events("flushes: system serialization"));
+    s.register(pipe.flushes_mem_violations, Meta::events("flushes: memory ordering violations"));
+    s.register(pipe.flushes_squashed_insns, Meta::events("insts squashed by flushes"));
 
-    // core<N>.commit.fp.*
-    s.register(commit::FP_LOAD, Meta::events("FP load retired"));
-    s.register(commit::FP_STORE, Meta::events("FP store retired"));
-    s.register(commit::FP_ARITH, Meta::events("FP arithmetic retired"));
-    s.register(commit::FP_FMA, Meta::events("FP fused multiply-add retired"));
-    s.register(commit::FP_DIV_SQRT, Meta::events("FP divide/sqrt retired"));
+    let bp = &c.bp;
+    s.register(bp.committed_hits, Meta::events("branch predictions correct (committed)"));
+    s.register(bp.committed_mispredicts, Meta::events("branch predictions wrong (committed)"));
+    s.register(bp.spec_hits, Meta::events("branch predictions correct (speculative)"));
+    s.register(bp.spec_mispredicts, Meta::events("branch predictions wrong (speculative)"));
 
-    // core<N>.commit.vec.*
-    s.register(commit::VEC_INT, Meta::events("vector integer op retired"));
-    s.register(commit::VEC_FP, Meta::events("vector FP op retired"));
-    s.register(commit::VEC_LOAD, Meta::events("vector load retired"));
-    s.register(commit::VEC_STORE, Meta::events("vector store retired"));
-    s.register(commit::VEC_MISC, Meta::events("vector misc (permute/mask/config) retired"));
+    let mdp = &c.mdp;
+    s.register(mdp.predictions_bypass, Meta::events("MDP predicted bypass"));
+    s.register(mdp.predictions_wait_all, Meta::events("MDP predicted wait-for-all"));
+    s.register(mdp.predictions_wait_for, Meta::events("MDP predicted wait-for-specific"));
+    s.register(mdp.violations, Meta::events("MDP violations observed at commit"));
 
-    // core<N>.commit.retire_histogram.*
-    s.register(commit::RETIRE_HIST_ZERO, Meta::cycles("cycles where 0 insts retired"));
-    s.register(commit::RETIRE_HIST_ONE, Meta::cycles("cycles where exactly 1 inst retired"));
-    s.register(commit::RETIRE_HIST_TWO, Meta::cycles("cycles where exactly 2 insts retired"));
-    s.register(commit::RETIRE_HIST_THREE_PLUS, Meta::cycles("cycles where 3+ insts retired"));
+    let lsq = &c.lsq;
+    s.register(lsq.rescheduled_mem_ops, Meta::events("Memory ops replayed behind an older store"));
+    s.register(lsq.coherence_replays, Meta::events("LR/AMO re-executed after a remote write to their line"));
+    s.register(lsq.coherence_violations, Meta::events("Loads squashed for reading a line before a remote write an older load saw"));
 
-    // core<N>.pipeline.*
-    s.register(pipe::CYCLES_WFI, Meta::cycles("cycles in WFI"));
-    s.register(pipe::CYCLES_ROB_EMPTY, Meta::cycles("cycles with empty ROB"));
-    s.register(pipe::STALLS_CONTROL, Meta::cycles("fetch stalled on control"));
-    s.register(pipe::STALLS_FETCH_WAIT, Meta::cycles("Fetch waited on an in-flight fetch"));
-    s.register(pipe::STALLS_DATA, Meta::cycles("issue stalled on data hazard"));
-    s.register(pipe::STALLS_FU_STRUCTURAL, Meta::cycles("issue stalled on FU structural"));
-    s.register(pipe::STALLS_BACKPRESSURE, Meta::cycles("downstream backpressure stalls"));
-    s.register(pipe::STALLS_DISPATCH, Meta::cycles("dispatch stalls"));
-    s.register(pipe::STALLS_CHECKPOINT, Meta::cycles("checkpoint allocation stalls"));
-    s.register(pipe::STALLS_SQUASH, Meta::cycles("squash-recovery cycles"));
-    s.register(pipe::STALLS_RENAME_REBUILD, Meta::cycles("rename-map rebuild cycles"));
-    s.register(pipe::FLUSHES_TOTAL, Meta::events("total pipeline flushes"));
-    s.register(pipe::FLUSHES_BRANCH, Meta::events("flushes: branch mispredict"));
-    s.register(pipe::FLUSHES_SYSTEM, Meta::events("flushes: system serialization"));
-    s.register(pipe::FLUSHES_MEM_VIOLATIONS, Meta::events("flushes: memory ordering violations"));
-    s.register(pipe::FLUSHES_SQUASHED_INSNS, Meta::events("insts squashed by flushes"));
-
-    // core<N>.bp.*
-    s.register(bp::COMMITTED_HITS, Meta::events("branch predictions correct (committed)"));
-    s.register(bp::COMMITTED_MISPREDICTS, Meta::events("branch predictions wrong (committed)"));
-    s.register(bp::SPEC_HITS, Meta::events("branch predictions correct (speculative)"));
-    s.register(bp::SPEC_MISPREDICTS, Meta::events("branch predictions wrong (speculative)"));
-
-    // core<N>.mdp.*
-    s.register(mdp::PREDICTIONS_BYPASS, Meta::events("MDP predicted bypass"));
-    s.register(mdp::PREDICTIONS_WAIT_ALL, Meta::events("MDP predicted wait-for-all"));
-    s.register(mdp::PREDICTIONS_WAIT_FOR, Meta::events("MDP predicted wait-for-specific"));
-    s.register(mdp::VIOLATIONS, Meta::events("MDP violations observed at commit"));
-
-    // core<N>.lsq.*
-    s.register(lsq::RESCHEDULED_MEM_OPS, Meta::events("Memory ops replayed behind an older store"));
-    s.register(lsq::COHERENCE_REPLAYS, Meta::events("LR/AMO re-executed after a remote write to their line"));
-    s.register(lsq::COHERENCE_VIOLATIONS, Meta::events("Loads squashed for reading a line before a remote write an older load saw"));
-
-    // core<N>.wcb.*
-    s.register(wcb::COALESCES, Meta::events("WCB store coalesces"));
-    s.register(wcb::DRAINS, Meta::events("WCB line drains"));
-
-    // core<N>.cache.*
-    s.register(cache::L1D_EXCLUSIVE_SWAPS, Meta::events("L1D exclusive-line swaps to L2"));
-
-    // core<N>.fu.util.* — 17 paths in FuType-discriminant order.
-    for path in fu::ALL {
+    s.register(c.wcb.coalesces, Meta::events("WCB store coalesces"));
+    s.register(c.wcb.drains, Meta::events("WCB line drains"));
+    s.register(c.cache.l1d_exclusive_swaps, Meta::events("L1D exclusive-line swaps to L2"));
+    for path in c.fu.all {
         s.register(path, Meta::cycles("cycles this FU was busy"));
     }
 
-    // Derived: BP accuracies.
     s.derive(
-        bp::COMMITTED_ACCURACY,
-        Formula::Ratio { numerator: bp::COMMITTED_HITS, other: bp::COMMITTED_MISPREDICTS },
+        bp.committed_accuracy,
+        Formula::Ratio { numerator: bp.committed_hits, other: bp.committed_mispredicts },
         Meta::ratio("branch-prediction accuracy (committed)"),
     );
     s.derive(
-        bp::SPEC_ACCURACY,
-        Formula::Ratio { numerator: bp::SPEC_HITS, other: bp::SPEC_MISPREDICTS },
+        bp.spec_accuracy,
+        Formula::Ratio { numerator: bp.spec_hits, other: bp.spec_mispredicts },
         Meta::ratio("branch-prediction accuracy (speculative)"),
     );
-
-    // Derived: IPC / CPI.
-    //
-    // These are computed against `hart0.retired_insts`, which the commit stage
-    // mirrors from `SimState::instructions_retired`. Total cycles live on
-    // `SimState::cycle`, not in the tree — the summary layer supplies it, so
-    // IPC/CPI here are placeholders that resolve once the writer landed in
-    // Commit D wires `hart0.retired_insts` and a `core0.pipeline.cycles.total`
-    // counter. Until then, both evaluate to 0.0 by the divide-by-zero rule.
     s.derive(
-        paths::core::IPC,
-        Formula::Div(h::RETIRED_INSTS, "core0.pipeline.cycles.total"),
+        c.ipc,
+        Formula::Div(first_hart.retired_insts, pipe.cycles_total),
         Meta::ratio("instructions per cycle"),
     );
     s.derive(
-        paths::core::CPI,
-        Formula::Div("core0.pipeline.cycles.total", h::RETIRED_INSTS),
+        c.cpi,
+        Formula::Div(pipe.cycles_total, first_hart.retired_insts),
         Meta::ratio("cycles per instruction"),
     );
+}
+
+/// Registers the `system.*` sums over every hart.
+fn register_system(s: &mut Stats, harts: &[HartPaths]) {
+    let system = SystemPaths::new();
+    let retired: Vec<&'static str> = harts.iter().map(|h| h.retired_insts).collect();
+    let traps: Vec<&'static str> = harts.iter().map(|h| h.traps).collect();
+    s.derive(
+        system.retired_insts,
+        Formula::Sum(Box::leak(retired.into_boxed_slice())),
+        Meta::events("instructions retired by all harts"),
+    );
+    s.derive(system.traps, Formula::Sum(Box::leak(traps.into_boxed_slice())), Meta::events("traps taken by all harts"));
 }
 
 #[cfg(test)]

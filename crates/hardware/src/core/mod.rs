@@ -27,6 +27,7 @@ use crate::core::units::cache::mshr::MshrFile;
 use crate::core::units::prefetch::PrefetchFilter;
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
+use crate::sim::stats::paths::CorePaths;
 
 /// A physical processor core hosting one or more harts.
 ///
@@ -58,6 +59,8 @@ pub struct Core {
     pub prefetch_filter: PrefetchFilter,
     /// Branch Predictor Unit.
     pub branch_predictor: BranchPredictorWrapper,
+    /// Stat paths rooted at `core<N>`.
+    pub stat_paths: CorePaths,
 }
 
 impl Core {
@@ -100,6 +103,7 @@ impl Core {
             wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
             prefetch_filter: PrefetchFilter::new(prefetch_window, config.cache.l1_d.line_bytes),
             branch_predictor: BranchPredictorWrapper::new(config),
+            stat_paths: CorePaths::new(core_id),
         }
     }
 }

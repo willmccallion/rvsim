@@ -29,7 +29,6 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_prf::VecPrfView;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::sim::stats::paths;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
@@ -314,7 +313,7 @@ impl ExecutionEngine for O3Engine {
         // Squash recovery: ROB read ports are busy with reclaim / rename rebuild.
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
-            state.stats.counter(paths::core::pipeline::STALLS_SQUASH).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
         }
 
         let pc_before_commit = state.hart.pc;
@@ -451,7 +450,7 @@ impl ExecutionEngine for O3Engine {
                     && let Some(ev) = evicted
                 {
                     let _ = state.core.l2_cache.install_or_replace(ev.addr, ev.dirty, 0);
-                    state.stats.counter(paths::core::cache::L1D_EXCLUSIVE_SWAPS).inc();
+                    state.shared.stats.counter(state.core.stat_paths.cache.l1d_exclusive_swaps).inc();
                 }
 
                 for waiter in mshr_entry.waiters {
@@ -495,16 +494,16 @@ impl ExecutionEngine for O3Engine {
 
             if let Some(store_pc) = store_pc {
                 self.mdp.violation(violation_pc, store_pc);
-                state.stats.counter(paths::core::pipeline::FLUSHES_MEM_VIOLATIONS).inc();
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_mem_violations).inc();
             } else {
-                state.stats.counter(paths::core::lsq::COHERENCE_VIOLATIONS).inc();
+                state.shared.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
             }
 
             // keep_tag must be a tag actually in the ROB; synthetic `tag-1` could be a use-after-free.
             let keep_tag = self.rob.prev_tag_of(violating_tag);
 
-            state.stats.counter(paths::core::pipeline::FLUSHES_TOTAL).inc();
-            state.stats.counter(paths::core::pipeline::STALLS_CONTROL).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
 
             if let Some(keep_tag) = keep_tag {
                 for entry in self.rob.iter_after(keep_tag) {
@@ -514,7 +513,7 @@ impl ExecutionEngine for O3Engine {
                     }
                 }
                 let squashed = self.rob.iter_after(keep_tag).count();
-                state.stats.counter(paths::core::pipeline::FLUSHES_SQUASHED_INSNS).add(squashed as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_squashed_insns).add(squashed as u64);
 
                 self.issue_queue.flush_after(keep_tag);
                 self.rob.flush_after(keep_tag);
@@ -536,7 +535,7 @@ impl ExecutionEngine for O3Engine {
                 // The violating load is not a branch, so checkpoint rebuild always applies.
                 let surviving = self.rob.len();
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                state.stats.counter(paths::core::pipeline::STALLS_RENAME_REBUILD).add(surviving.div_ceil(self.width.max(1)) as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_rename_rebuild).add(surviving.div_ceil(self.width.max(1)) as u64);
             } else {
                 // Violating load is at ROB head (or older entry committed): full flush.
                 for entry in self.rob.iter_all() {
@@ -546,7 +545,7 @@ impl ExecutionEngine for O3Engine {
                     }
                 }
                 let squashed = self.rob.len();
-                state.stats.counter(paths::core::pipeline::FLUSHES_SQUASHED_INSNS).add(squashed as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_squashed_insns).add(squashed as u64);
 
                 self.issue_queue.flush();
                 self.rob.flush_all();
@@ -597,7 +596,7 @@ impl ExecutionEngine for O3Engine {
         let mem_backpressured = !self.execute_mem1.is_empty();
 
         if mem_backpressured {
-            state.stats.counter(paths::core::pipeline::STALLS_BACKPRESSURE).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
         }
 
         {
@@ -608,7 +607,7 @@ impl ExecutionEngine for O3Engine {
                     let entry = pr.entry;
                     let fu_type = pr.fu_type;
 
-                    state.stats.counter(paths::core::fu::ALL[fu_type as usize]).inc();
+                    state.shared.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).inc();
 
                     if entry.ctrl.mem_read
                         || entry.ctrl.mem_write
@@ -733,7 +732,7 @@ impl ExecutionEngine for O3Engine {
                 }
 
                 if !self.fu_pool.has_free(fu_type, now) {
-                    state.stats.counter(paths::core::pipeline::STALLS_FU_STRUCTURAL).inc();
+                    state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_fu_structural).inc();
                     stalled_fu = true;
                     let ok = self.issue_queue.dispatch(
                         entry,
@@ -1152,22 +1151,22 @@ impl ExecutionEngine for O3Engine {
             }
 
             if issued_count == 0 && !stalled_fu && !self.issue_queue.is_empty() {
-                state.stats.counter(paths::core::pipeline::STALLS_DATA).inc();
+                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
         }
 
         if let Some(keep_tag) = flush_keep_tag {
-            state.stats.counter(paths::core::pipeline::STALLS_CONTROL).inc();
-            state.stats.counter(paths::core::pipeline::FLUSHES_TOTAL).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
 
             if let Some(entry) = self.rob.find_entry(keep_tag) {
                 if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-                    state.stats.counter(paths::core::pipeline::FLUSHES_BRANCH).inc();
+                    state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_branch).inc();
                 } else {
-                    state.stats.counter(paths::core::pipeline::FLUSHES_SYSTEM).inc();
+                    state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_system).inc();
                 }
             } else {
-                state.stats.counter(paths::core::pipeline::FLUSHES_SYSTEM).inc();
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_system).inc();
             }
 
             rename_output.clear();
@@ -1178,7 +1177,7 @@ impl ExecutionEngine for O3Engine {
             let squashed: usize;
             if keep_in_rob {
                 squashed = self.rob.iter_after(keep_tag).count();
-                state.stats.counter(paths::core::pipeline::FLUSHES_SQUASHED_INSNS).add(squashed as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_squashed_insns).add(squashed as u64);
                 for entry in self.rob.iter_after(keep_tag) {
                     self.free_list.reclaim(entry.phys_dst);
                     for i in 0..entry.vec_dst_count as usize {
@@ -1201,7 +1200,7 @@ impl ExecutionEngine for O3Engine {
                     }
                 }
                 squashed = self.rob.len();
-                state.stats.counter(paths::core::pipeline::FLUSHES_SQUASHED_INSNS).add(squashed as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_squashed_insns).add(squashed as u64);
                 self.issue_queue.flush();
                 self.rob.flush_all();
                 self.store_buffer.flush_speculative();
@@ -1232,13 +1231,13 @@ impl ExecutionEngine for O3Engine {
                 } else {
                     self.rebuild_rename_map();
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                    state.stats.counter(paths::core::pipeline::STALLS_RENAME_REBUILD).add(surviving.div_ceil(self.width.max(1)) as u64);
+                    state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_rename_rebuild).add(surviving.div_ceil(self.width.max(1)) as u64);
                 }
                 self.checkpoints.flush_after(keep_tag);
             } else {
                 self.rebuild_rename_map();
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                state.stats.counter(paths::core::pipeline::STALLS_RENAME_REBUILD).add(surviving.div_ceil(self.width.max(1)) as u64);
+                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_rename_rebuild).add(surviving.div_ceil(self.width.max(1)) as u64);
             }
             self.scoreboard.rebuild_from_rob(&self.rob);
         }
@@ -1267,22 +1266,22 @@ impl ExecutionEngine for O3Engine {
 
         let mdp_stats = self.mdp.stats();
         {
-            let bypass = state.stats.counter(paths::core::mdp::PREDICTIONS_BYPASS);
+            let bypass = state.shared.stats.counter(state.core.stat_paths.mdp.predictions_bypass);
             bypass.reset();
             bypass.add(mdp_stats.predictions_bypass);
         }
         {
-            let wait_all = state.stats.counter(paths::core::mdp::PREDICTIONS_WAIT_ALL);
+            let wait_all = state.shared.stats.counter(state.core.stat_paths.mdp.predictions_wait_all);
             wait_all.reset();
             wait_all.add(mdp_stats.predictions_wait_all);
         }
         {
-            let wait_for = state.stats.counter(paths::core::mdp::PREDICTIONS_WAIT_FOR);
+            let wait_for = state.shared.stats.counter(state.core.stat_paths.mdp.predictions_wait_for);
             wait_for.reset();
             wait_for.add(mdp_stats.predictions_wait_for);
         }
         {
-            let violations = state.stats.counter(paths::core::mdp::VIOLATIONS);
+            let violations = state.shared.stats.counter(state.core.stat_paths.mdp.violations);
             violations.reset();
             violations.add(mdp_stats.violations);
         }

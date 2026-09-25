@@ -21,7 +21,6 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
-use crate::sim::stats::paths;
 use crate::trace_branch;
 use crate::trace_csr;
 use crate::trace_execute;
@@ -322,12 +321,12 @@ pub fn execute_one(
             state.core.branch_predictor.repair_history(&id.ghr_snapshot);
             state.core.branch_predictor.speculate(id.pc, taken);
             state.core.branch_predictor.restore_ras(id.ras_snapshot);
-            state.stats.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
+            state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
             state.hart.pc = actual_next_pc;
             *redirect_pending = true;
             needs_flush = true;
         } else {
-            state.stats.counter(paths::core::bp::SPEC_HITS).inc();
+            state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
         }
     }
 
@@ -371,12 +370,12 @@ pub fn execute_one(
         if mispredicted {
             state.core.branch_predictor.repair_history(&id.ghr_snapshot);
             state.core.branch_predictor.restore_ras(id.ras_snapshot);
-            state.stats.counter(paths::core::bp::SPEC_MISPREDICTS).inc();
+            state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
             state.hart.pc = actual_target;
             *redirect_pending = true;
             needs_flush = true;
         } else {
-            state.stats.counter(paths::core::bp::SPEC_HITS).inc();
+            state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
         }
 
         // RAS management per RISC-V Table 2.1: x1 (ra) and x5 (t0) are link registers.

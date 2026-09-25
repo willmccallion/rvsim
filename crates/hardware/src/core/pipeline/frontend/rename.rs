@@ -13,7 +13,6 @@ use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::{ControlFlow, VectorOp};
-use crate::sim::stats::paths;
 use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
@@ -39,7 +38,7 @@ pub fn rename_stage<E: ExecutionEngine>(
     for id in entries {
         if budget == 0 {
             if input.is_empty() {
-                state.stats.counter(paths::core::pipeline::STALLS_DISPATCH).inc();
+                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_dispatch).inc();
             }
             input.push(id);
             continue;
@@ -52,7 +51,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 && engine.checkpoint_count() > 0
                 && engine.checkpoint_table().is_full()
             {
-                state.stats.counter(paths::core::pipeline::STALLS_CHECKPOINT).inc();
+                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_checkpoint).inc();
                 // Set budget=0 so remaining iterations also push back to input.
                 budget = 0;
                 input.push(id);

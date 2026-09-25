@@ -97,35 +97,37 @@ the same counter names across cores. Every cache — regardless of level — has
 `.hits` and `.misses`. One analysis script works for every level and every
 core. gem5's per-cache-class naming is what breaks this today.
 
-## Const path declarations
+## Path structs per component
 
-Paths are declared once as `pub const` string literals in
-`sim/stats/paths.rs`:
+Paths are declared once, as fields of a struct per subject in
+`sim/stats/paths.rs`, and allocated when the component is built:
 
 ```rust
-pub mod core::commit {
-    pub const INSTS: &str = "core0.commit.insts";
-    pub const OP_LOAD: &str = "core0.commit.op.load";
-    ...
+stat_paths! {
+    CommitPaths {
+        op_load: "commit.op.load",
+        op_store: "commit.op.store",
+        ...
+    }
 }
 ```
 
-Writers use the const, not the raw string:
+`CorePaths::new(CoreId(3))` leaks `"core3.commit.op.load"` and friends once;
+the `Core` keeps the struct, `SharedState` keeps one `HartPaths` per hart.
+Writers use the field, not a string:
 
 ```rust
-state.stats.counter(paths::core::commit::INSTS).inc();
+state.shared.stats.counter(state.core.stat_paths.commit.op_load).inc();
 ```
 
 Typos become compile errors instead of silently-zero counters — which is
 exactly the failure mode Phase 2 hit (cache/MSHR/WCB counters had been printing
 zero for months because the writers had drifted out of sync with the field
-names).
-
-Multi-core paths use compile-time-fixed strings for single-hart in Phase 3b
-(`"core0.commit.insts"`). When Phase 5 introduces multi-core, we add
-`{n}`-interpolation with a lazy intern table so writers still get a
-`&'static str` on the hot path. Deferring the interpolation keeps the current
-type story simple.
+names) — and the hot path still increments through a pre-resolved
+`&'static str`. `Stats::for_components` registers every hart's and core's
+paths with their metadata from the topology, so `core1.commit.op.load` exists
+(and is zero) on a two-core system before anything has retired, and derives
+the `system.*` sums (`system.retired_insts`, `system.traps`) over every hart.
 
 ## Per-counter metadata
 

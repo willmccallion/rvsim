@@ -8,7 +8,6 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
 use crate::isa::privileged::cause::{exception, interrupt};
 use crate::isa::privileged::opcodes as sys_ops;
-use crate::sim::stats::paths;
 use crate::trace_trap;
 
 impl CoreCtx<'_> {
@@ -187,7 +186,8 @@ impl CoreCtx<'_> {
             self.hart.pc = target_pc;
         }
 
-        self.stats.counter(paths::hart::TRAPS).inc();
+        let hart_paths = self.hart_paths();
+        self.stats.counter(hart_paths.traps).inc();
     }
 
     /// Executes the `MRET` instruction (Return from Machine Mode).

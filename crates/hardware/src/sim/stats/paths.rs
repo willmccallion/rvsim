@@ -1,238 +1,332 @@
-//! Const path declarations for every stat the simulator writes.
+//! Stat paths for every component, allocated once when the component is
+//! built.
 //!
-//! Using these constants at writer sites (instead of string literals) turns
-//! typos into compile errors and makes rename-refactors trivial.
+//! Each component holds a struct of `&'static str` paths (`core3.commit.op.load`
+//! and so on) so the hot path increments a counter through a pre-resolved
+//! string and a typo at a writer site is a compile error. Paths are leaked
+//! once per component at construction, as the DDR5 controller does.
 //!
 //! Path grammar: `<subject>.<subsystem>[.<sub>].<counter>`. See
 //! `docs/architecture/stats.md` for rationale.
-//!
-//! Single-hart configuration uses `core0.*` / `hart0.*` literal paths. When
-//! multi-core lands, `{n}` interpolation will replace the fixed indices.
 
-/// Architectural, per-hart counters (retired insts, traps, mode-cycle mix).
-pub mod hart {
-    /// Instructions retired (mirrors `SimState::instructions_retired`).
-    pub const RETIRED_INSTS: &str = "hart0.retired_insts";
-    /// Trap-taken events.
-    pub const TRAPS: &str = "hart0.traps";
-    /// Cycles spent in user (U) privilege.
-    pub const CYCLES_USER: &str = "hart0.cycles.user";
-    /// Cycles spent in supervisor (S) privilege.
-    pub const CYCLES_KERNEL: &str = "hart0.cycles.kernel";
-    /// Cycles spent in machine (M) privilege.
-    pub const CYCLES_MACHINE: &str = "hart0.cycles.machine";
+use crate::common::{CoreId, HartId};
+
+fn leak(path: String) -> &'static str {
+    Box::leak(path.into_boxed_str())
 }
 
-/// Physical execution-core (pipeline + private caches + BP + MDP + WCB).
-pub mod core {
-    /// Commit-stage counters — instruction-mix breakdown at retirement.
-    pub mod commit {
-        /// Integer load retired.
-        pub const OP_LOAD: &str = "core0.commit.op.load";
-        /// Integer store retired.
-        pub const OP_STORE: &str = "core0.commit.op.store";
-        /// Branch/jump retired.
-        pub const OP_BRANCH: &str = "core0.commit.op.branch";
-        /// Integer ALU retired.
-        pub const OP_ALU: &str = "core0.commit.op.alu";
-        /// System / CSR / ECALL retired.
-        pub const OP_SYSTEM: &str = "core0.commit.op.system";
+macro_rules! stat_paths {
+    ($(#[$meta:meta])* $name:ident { $( $(#[$fmeta:meta])* $field:ident: $tail:literal ),* $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug)]
+        pub struct $name {
+            $( $(#[$fmeta])* pub $field: &'static str, )*
+        }
 
-        /// FP load retired.
-        pub const FP_LOAD: &str = "core0.commit.fp.load";
-        /// FP store retired.
-        pub const FP_STORE: &str = "core0.commit.fp.store";
-        /// FP arithmetic retired.
-        pub const FP_ARITH: &str = "core0.commit.fp.arith";
-        /// FP fused multiply-add retired.
-        pub const FP_FMA: &str = "core0.commit.fp.fma";
-        /// FP divide/sqrt retired.
-        pub const FP_DIV_SQRT: &str = "core0.commit.fp.div_sqrt";
+        impl $name {
+            fn under(subject: &str) -> Self {
+                Self { $( $field: leak(format!("{subject}.{}", $tail)), )* }
+            }
+        }
+    };
+}
 
-        /// Vector integer op retired.
-        pub const VEC_INT: &str = "core0.commit.vec.int";
-        /// Vector FP op retired.
-        pub const VEC_FP: &str = "core0.commit.vec.fp";
-        /// Vector load retired.
-        pub const VEC_LOAD: &str = "core0.commit.vec.load";
-        /// Vector store retired.
-        pub const VEC_STORE: &str = "core0.commit.vec.store";
-        /// Vector misc (permute/mask/config) retired.
-        pub const VEC_MISC: &str = "core0.commit.vec.misc";
-
-        /// Retire histogram: cycles where 0 insts retired.
-        pub const RETIRE_HIST_ZERO: &str = "core0.commit.retire_histogram.zero";
-        /// Retire histogram: cycles where exactly 1 inst retired.
-        pub const RETIRE_HIST_ONE: &str = "core0.commit.retire_histogram.one";
-        /// Retire histogram: cycles where exactly 2 insts retired.
-        pub const RETIRE_HIST_TWO: &str = "core0.commit.retire_histogram.two";
-        /// Retire histogram: cycles where 3 or more insts retired.
-        pub const RETIRE_HIST_THREE_PLUS: &str = "core0.commit.retire_histogram.three_plus";
+stat_paths! {
+    /// Architectural, per-hart counters (retired insts, traps, mode-cycle mix).
+    HartPaths {
+        /// Instructions retired (mirrors `Hart::instructions_retired`).
+        retired_insts: "retired_insts",
+        /// Trap-taken events.
+        traps: "traps",
+        /// Cycles spent in user (U) privilege.
+        cycles_user: "cycles.user",
+        /// Cycles spent in supervisor (S) privilege.
+        cycles_kernel: "cycles.kernel",
+        /// Cycles spent in machine (M) privilege.
+        cycles_machine: "cycles.machine",
     }
+}
 
+impl HartPaths {
+    /// Paths under `hart<N>`.
+    #[must_use]
+    pub fn new(hart: HartId) -> Self {
+        Self::under(&format!("hart{}", hart.val()))
+    }
+}
+
+stat_paths! {
+    /// Commit-stage counters — instruction-mix breakdown at retirement.
+    CommitPaths {
+        /// Integer load retired.
+        op_load: "commit.op.load",
+        /// Integer store retired.
+        op_store: "commit.op.store",
+        /// Branch/jump retired.
+        op_branch: "commit.op.branch",
+        /// Integer ALU retired.
+        op_alu: "commit.op.alu",
+        /// System / CSR / ECALL retired.
+        op_system: "commit.op.system",
+        /// FP load retired.
+        fp_load: "commit.fp.load",
+        /// FP store retired.
+        fp_store: "commit.fp.store",
+        /// FP arithmetic retired.
+        fp_arith: "commit.fp.arith",
+        /// FP fused multiply-add retired.
+        fp_fma: "commit.fp.fma",
+        /// FP divide/sqrt retired.
+        fp_div_sqrt: "commit.fp.div_sqrt",
+        /// Vector integer op retired.
+        vec_int: "commit.vec.int",
+        /// Vector FP op retired.
+        vec_fp: "commit.vec.fp",
+        /// Vector load retired.
+        vec_load: "commit.vec.load",
+        /// Vector store retired.
+        vec_store: "commit.vec.store",
+        /// Vector misc (permute/mask/config) retired.
+        vec_misc: "commit.vec.misc",
+        /// Retire histogram: cycles where 0 insts retired.
+        retire_hist_zero: "commit.retire_histogram.zero",
+        /// Retire histogram: cycles where exactly 1 inst retired.
+        retire_hist_one: "commit.retire_histogram.one",
+        /// Retire histogram: cycles where exactly 2 insts retired.
+        retire_hist_two: "commit.retire_histogram.two",
+        /// Retire histogram: cycles where 3 or more insts retired.
+        retire_hist_three_plus: "commit.retire_histogram.three_plus",
+    }
+}
+
+stat_paths! {
     /// Cross-stage pipeline counters (cycle categories, stalls, flushes).
-    pub mod pipeline {
+    PipelinePaths {
+        /// Cycles the core has been ticked.
+        cycles_total: "pipeline.cycles.total",
         /// Cycles the core spent in WFI (waiting for interrupt).
-        pub const CYCLES_WFI: &str = "core0.pipeline.cycles.wfi";
+        cycles_wfi: "pipeline.cycles.wfi",
         /// Cycles the ROB was empty.
-        pub const CYCLES_ROB_EMPTY: &str = "core0.pipeline.cycles.rob_empty";
-
+        cycles_rob_empty: "pipeline.cycles.rob_empty",
         /// Fetch stalled on control (front-end redirect pending).
-        pub const STALLS_CONTROL: &str = "core0.pipeline.stalls.control";
+        stalls_control: "pipeline.stalls.control",
         /// Fetch1 idle because an earlier fetch group is still waiting on
         /// the I-cache response or an instruction-fetch page walk.
-        pub const STALLS_FETCH_WAIT: &str = "core0.pipeline.stalls.fetch_wait";
+        stalls_fetch_wait: "pipeline.stalls.fetch_wait",
         /// Issue stalled on data hazard (source not ready).
-        pub const STALLS_DATA: &str = "core0.pipeline.stalls.data";
+        stalls_data: "pipeline.stalls.data",
         /// Issue stalled on FU structural hazard.
-        pub const STALLS_FU_STRUCTURAL: &str = "core0.pipeline.stalls.fu_structural";
+        stalls_fu_structural: "pipeline.stalls.fu_structural",
         /// Downstream backpressure stalls.
-        pub const STALLS_BACKPRESSURE: &str = "core0.pipeline.stalls.backpressure";
+        stalls_backpressure: "pipeline.stalls.backpressure",
         /// Dispatch stall (rename → issue queue).
-        pub const STALLS_DISPATCH: &str = "core0.pipeline.stalls.dispatch";
+        stalls_dispatch: "pipeline.stalls.dispatch",
         /// Checkpoint allocation stalls.
-        pub const STALLS_CHECKPOINT: &str = "core0.pipeline.stalls.checkpoint";
+        stalls_checkpoint: "pipeline.stalls.checkpoint",
         /// Squash-recovery cycles.
-        pub const STALLS_SQUASH: &str = "core0.pipeline.stalls.squash";
+        stalls_squash: "pipeline.stalls.squash",
         /// Rename-map rebuild cycles.
-        pub const STALLS_RENAME_REBUILD: &str = "core0.pipeline.stalls.rename_rebuild";
-
+        stalls_rename_rebuild: "pipeline.stalls.rename_rebuild",
         /// Total pipeline flushes.
-        pub const FLUSHES_TOTAL: &str = "core0.pipeline.flushes.total";
+        flushes_total: "pipeline.flushes.total",
         /// Flushes caused by branch mispredict.
-        pub const FLUSHES_BRANCH: &str = "core0.pipeline.flushes.branch";
+        flushes_branch: "pipeline.flushes.branch",
         /// Flushes caused by system-instruction serialization.
-        pub const FLUSHES_SYSTEM: &str = "core0.pipeline.flushes.system";
+        flushes_system: "pipeline.flushes.system",
         /// Flushes caused by memory-ordering violations.
-        pub const FLUSHES_MEM_VIOLATIONS: &str = "core0.pipeline.flushes.mem_violations";
+        flushes_mem_violations: "pipeline.flushes.mem_violations",
         /// Instructions squashed by flush events (misprediction penalty).
-        pub const FLUSHES_SQUASHED_INSNS: &str = "core0.pipeline.flushes.squashed_insns";
+        flushes_squashed_insns: "pipeline.flushes.squashed_insns",
     }
+}
 
+stat_paths! {
     /// Branch-prediction counters.
-    pub mod bp {
+    BpPaths {
         /// Committed branches whose prediction was correct.
-        pub const COMMITTED_HITS: &str = "core0.bp.committed.hits";
+        committed_hits: "bp.committed.hits",
         /// Committed branches whose prediction was wrong.
-        pub const COMMITTED_MISPREDICTS: &str = "core0.bp.committed.mispredicts";
+        committed_mispredicts: "bp.committed.mispredicts",
         /// Speculative branches whose prediction was correct (before commit).
-        pub const SPEC_HITS: &str = "core0.bp.spec.hits";
+        spec_hits: "bp.spec.hits",
         /// Speculative branches whose prediction was wrong.
-        pub const SPEC_MISPREDICTS: &str = "core0.bp.spec.mispredicts";
-
+        spec_mispredicts: "bp.spec.mispredicts",
         /// Derived: committed prediction accuracy (hits / (hits+mispredicts)).
-        pub const COMMITTED_ACCURACY: &str = "core0.bp.committed.accuracy";
+        committed_accuracy: "bp.committed.accuracy",
         /// Derived: speculative prediction accuracy.
-        pub const SPEC_ACCURACY: &str = "core0.bp.spec.accuracy";
+        spec_accuracy: "bp.spec.accuracy",
     }
+}
 
+stat_paths! {
     /// Memory-dependence predictor counters.
-    pub mod mdp {
+    MdpPaths {
         /// Loads predicted to bypass all older stores.
-        pub const PREDICTIONS_BYPASS: &str = "core0.mdp.predictions.bypass";
+        predictions_bypass: "mdp.predictions.bypass",
         /// Loads predicted to wait for all older stores.
-        pub const PREDICTIONS_WAIT_ALL: &str = "core0.mdp.predictions.wait_all";
+        predictions_wait_all: "mdp.predictions.wait_all",
         /// Loads predicted to wait for a specific older store.
-        pub const PREDICTIONS_WAIT_FOR: &str = "core0.mdp.predictions.wait_for";
+        predictions_wait_for: "mdp.predictions.wait_for",
         /// Load-after-store ordering violations observed at commit.
-        pub const VIOLATIONS: &str = "core0.mdp.violations";
+        violations: "mdp.violations",
     }
+}
 
+stat_paths! {
     /// Load/store unit counters.
-    pub mod lsq {
+    LsqPaths {
         /// Memory ops memory1 sent back for replay: loads partially
         /// overlapping an older store still in the store buffer, and LR/AMO
         /// ops behind an older store to the same address.
-        pub const RESCHEDULED_MEM_OPS: &str = "core0.lsq.rescheduled_mem_ops";
+        rescheduled_mem_ops: "lsq.rescheduled_mem_ops",
         /// LR / AMO instructions re-executed at commit because another
         /// hart wrote their line after they read it.
-        pub const COHERENCE_REPLAYS: &str = "core0.lsq.coherence_replays";
+        coherence_replays: "lsq.coherence_replays",
         /// Younger loads squashed because another hart wrote their line
         /// before an older load to it read the new value.
-        pub const COHERENCE_VIOLATIONS: &str = "core0.lsq.coherence_violations";
+        coherence_violations: "lsq.coherence_violations",
     }
+}
 
+stat_paths! {
     /// Write-combining buffer counters.
-    pub mod wcb {
+    WcbPaths {
         /// Store operations coalesced into an existing WCB line.
-        pub const COALESCES: &str = "core0.wcb.coalesces";
+        coalesces: "wcb.coalesces",
         /// WCB lines drained to the memory hierarchy.
-        pub const DRAINS: &str = "core0.wcb.drains";
+        drains: "wcb.drains",
     }
+}
 
+stat_paths! {
     /// Private cache counters.
-    pub mod cache {
-        /// L1D exclusive-line swaps into L2 (Phase 3c will expand this).
-        pub const L1D_EXCLUSIVE_SWAPS: &str = "core0.cache.l1d.exclusive_swaps";
+    CachePaths {
+        /// L1D exclusive-line swaps into L2.
+        l1d_exclusive_swaps: "cache.l1d.exclusive_swaps",
     }
+}
 
-    /// Functional-unit utilization: cycles each FU was busy.
-    ///
-    /// Indexed by the numeric `FuType` discriminant to match the writer's
-    /// `fu_utilization[i]` array.
-    pub mod fu {
-        /// Integer ALU.
-        pub const UTIL_INT_ALU: &str = "core0.fu.util.int_alu";
-        /// Integer multiplier.
-        pub const UTIL_INT_MUL: &str = "core0.fu.util.int_mul";
-        /// Integer divider.
-        pub const UTIL_INT_DIV: &str = "core0.fu.util.int_div";
-        /// FP adder.
-        pub const UTIL_FP_ADD: &str = "core0.fu.util.fp_add";
-        /// FP multiplier.
-        pub const UTIL_FP_MUL: &str = "core0.fu.util.fp_mul";
-        /// FP fused multiply-add.
-        pub const UTIL_FP_FMA: &str = "core0.fu.util.fp_fma";
-        /// FP divide/sqrt.
-        pub const UTIL_FP_DIV_SQRT: &str = "core0.fu.util.fp_div_sqrt";
-        /// Branch / jump.
-        pub const UTIL_BRANCH: &str = "core0.fu.util.branch";
-        /// Memory (address gen for loads/stores).
-        pub const UTIL_MEM: &str = "core0.fu.util.mem";
-        /// Vector integer ALU.
-        pub const UTIL_VEC_INT_ALU: &str = "core0.fu.util.vec_int_alu";
-        /// Vector integer multiplier.
-        pub const UTIL_VEC_INT_MUL: &str = "core0.fu.util.vec_int_mul";
-        /// Vector integer divider.
-        pub const UTIL_VEC_INT_DIV: &str = "core0.fu.util.vec_int_div";
-        /// Vector FP ALU.
-        pub const UTIL_VEC_FP_ALU: &str = "core0.fu.util.vec_fp_alu";
-        /// Vector FP FMA.
-        pub const UTIL_VEC_FP_FMA: &str = "core0.fu.util.vec_fp_fma";
-        /// Vector FP divide/sqrt.
-        pub const UTIL_VEC_FP_DIV_SQRT: &str = "core0.fu.util.vec_fp_div_sqrt";
-        /// Vector memory.
-        pub const UTIL_VEC_MEM: &str = "core0.fu.util.vec_mem";
-        /// Vector permute / mask / config.
-        pub const UTIL_VEC_PERMUTE: &str = "core0.fu.util.vec_permute";
+/// Functional-unit names in `FuType` discriminant order; consumers index
+/// [`FuPaths::all`] with the raw `FuType as usize`, so this order must match
+/// the enum layout in `fu_pool.rs`.
+const FU_NAMES: [&str; 17] = [
+    "int_alu",
+    "int_mul",
+    "int_div",
+    "fp_add",
+    "fp_mul",
+    "fp_fma",
+    "fp_div_sqrt",
+    "branch",
+    "mem",
+    "vec_int_alu",
+    "vec_int_mul",
+    "vec_int_div",
+    "vec_fp_alu",
+    "vec_fp_fma",
+    "vec_fp_div_sqrt",
+    "vec_mem",
+    "vec_permute",
+];
 
-        /// FU-utilization paths in FuType-discriminant order.
-        ///
-        /// Consumers index this array with the raw `FuType as usize` — the
-        /// order MUST match the enum layout in `fu_pool.rs`.
-        pub const ALL: [&str; 17] = [
-            UTIL_INT_ALU,
-            UTIL_INT_MUL,
-            UTIL_INT_DIV,
-            UTIL_FP_ADD,
-            UTIL_FP_MUL,
-            UTIL_FP_FMA,
-            UTIL_FP_DIV_SQRT,
-            UTIL_BRANCH,
-            UTIL_MEM,
-            UTIL_VEC_INT_ALU,
-            UTIL_VEC_INT_MUL,
-            UTIL_VEC_INT_DIV,
-            UTIL_VEC_FP_ALU,
-            UTIL_VEC_FP_FMA,
-            UTIL_VEC_FP_DIV_SQRT,
-            UTIL_VEC_MEM,
-            UTIL_VEC_PERMUTE,
-        ];
+/// Functional-unit utilization: cycles each FU was busy.
+#[derive(Clone, Copy, Debug)]
+pub struct FuPaths {
+    /// One path per FU type, in `FuType` discriminant order.
+    pub all: [&'static str; FU_NAMES.len()],
+}
+
+impl FuPaths {
+    fn under(subject: &str) -> Self {
+        let mut all = [""; FU_NAMES.len()];
+        for (slot, name) in all.iter_mut().zip(FU_NAMES) {
+            *slot = leak(format!("{subject}.fu.util.{name}"));
+        }
+        Self { all }
     }
+}
 
+/// Every path a physical core writes (pipeline + private caches + BP + MDP
+/// + WCB), rooted at `core<N>`.
+#[derive(Clone, Copy, Debug)]
+pub struct CorePaths {
+    /// `core<N>.commit.*`
+    pub commit: CommitPaths,
+    /// `core<N>.pipeline.*`
+    pub pipeline: PipelinePaths,
+    /// `core<N>.bp.*`
+    pub bp: BpPaths,
+    /// `core<N>.mdp.*`
+    pub mdp: MdpPaths,
+    /// `core<N>.lsq.*`
+    pub lsq: LsqPaths,
+    /// `core<N>.wcb.*`
+    pub wcb: WcbPaths,
+    /// `core<N>.cache.*`
+    pub cache: CachePaths,
+    /// `core<N>.fu.util.*`
+    pub fu: FuPaths,
     /// Derived: instructions per cycle.
-    pub const IPC: &str = "core0.ipc";
+    pub ipc: &'static str,
     /// Derived: cycles per instruction.
-    pub const CPI: &str = "core0.cpi";
+    pub cpi: &'static str,
+}
+
+impl CorePaths {
+    /// Paths under `core<N>`.
+    #[must_use]
+    pub fn new(core: CoreId) -> Self {
+        let subject = format!("core{}", core.val());
+        Self {
+            commit: CommitPaths::under(&subject),
+            pipeline: PipelinePaths::under(&subject),
+            bp: BpPaths::under(&subject),
+            mdp: MdpPaths::under(&subject),
+            lsq: LsqPaths::under(&subject),
+            wcb: WcbPaths::under(&subject),
+            cache: CachePaths::under(&subject),
+            fu: FuPaths::under(&subject),
+            ipc: leak(format!("{subject}.ipc")),
+            cpi: leak(format!("{subject}.cpi")),
+        }
+    }
+}
+
+/// System-wide aggregates over every hart, rooted at `system`.
+#[derive(Clone, Copy, Debug)]
+pub struct SystemPaths {
+    /// Instructions retired by all harts.
+    pub retired_insts: &'static str,
+    /// Traps taken by all harts.
+    pub traps: &'static str,
+}
+
+impl SystemPaths {
+    /// The single `system` subject.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { retired_insts: "system.retired_insts", traps: "system.traps" }
+    }
+}
+
+impl Default for SystemPaths {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_carry_their_subject_index() {
+        let core = CorePaths::new(CoreId::new(3));
+        assert_eq!(core.commit.op_load, "core3.commit.op.load");
+        assert_eq!(core.fu.all[0], "core3.fu.util.int_alu");
+        assert_eq!(core.fu.all[16], "core3.fu.util.vec_permute");
+        assert_eq!(core.ipc, "core3.ipc");
+        let hart = HartPaths::new(HartId::new(7));
+        assert_eq!(hart.cycles_kernel, "hart7.cycles.kernel");
+    }
 }

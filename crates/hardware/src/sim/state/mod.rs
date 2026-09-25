@@ -39,6 +39,7 @@ use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;
 use crate::sim::per_hart_debug::HartDebug;
 use crate::sim::stats::Stats;
+use crate::sim::stats::paths::HartPaths;
 use crate::sim::topology::Topology;
 use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
 use crate::soc::interconnect::Bus;
@@ -98,6 +99,8 @@ pub struct SharedState {
     pub event_queue: EventQueue,
     /// Hierarchical statistics tree; sim-side perf observability counters.
     pub stats: Stats,
+    /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
+    pub hart_stat_paths: Vec<HartPaths>,
 }
 
 /// The whole system: harts, cores, and the uncore.
@@ -157,6 +160,13 @@ impl DerefMut for CoreCtx<'_> {
 }
 
 impl CoreCtx<'_> {
+    /// Stat paths of the hart this view executes.
+    #[inline]
+    #[must_use]
+    pub fn hart_paths(&self) -> HartPaths {
+        self.shared.hart_stat_paths[self.hart.hart_id.as_index()]
+    }
+
     /// Sets a load reservation for this hart at `addr` (cache-line aligned).
     #[inline]
     pub fn set_reservation(&mut self, addr: PhysAddr) {
@@ -532,6 +542,16 @@ impl SimState {
             l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
         }
 
+        let hart_stat_paths: Vec<HartPaths> =
+            harts.iter().map(|hart| HartPaths::new(hart.hart_id)).collect();
+        let core_stat_paths: Vec<_> = topology
+            .cores
+            .iter()
+            .zip(&cores)
+            .map(|(c, core)| (core.stat_paths, c.hart_ids[0]))
+            .collect();
+        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths);
+
         Self {
             harts,
             cores,
@@ -559,7 +579,8 @@ impl SimState {
                 exit_code: None,
                 direct_mode,
                 event_queue: EventQueue::new(),
-                stats: Stats::with_default_registrations(),
+                stats,
+                hart_stat_paths,
             },
         }
     }

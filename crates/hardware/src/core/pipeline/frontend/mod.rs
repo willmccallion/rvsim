@@ -22,7 +22,6 @@ pub mod rename;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::frontend::fetch1::FetchBuffer;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IdExEntry, IfIdEntry, RenameIssueEntry};
-use crate::sim::stats::paths;
 use std::marker::PhantomData;
 
 /// The frontend pipeline, generic over the execution engine.
@@ -86,7 +85,7 @@ impl<E: ExecutionEngine> Frontend<E> {
         }
 
         if engine.common().fetch_in_flight() {
-            state.stats.counter(paths::core::pipeline::STALLS_FETCH_WAIT).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
         }
         if self.fetch1_fetch2.is_empty() {
