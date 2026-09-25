@@ -199,6 +199,7 @@ impl SimState {
                 PhysAddr::new(ram_base),
                 Ddr5Config::default(),
                 MemCtrlId::new(0),
+                config.system.cpu_clock_mhz,
             )),
         };
 

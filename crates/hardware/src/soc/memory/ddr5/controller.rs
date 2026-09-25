@@ -8,11 +8,20 @@
 //! command issue is guarded by `debug_assert!` calls that name the constraint
 //! being enforced; release builds compile these checks out.
 //!
-//! The scheduler issues **at most one command per subchannel per tick**,
-//! mirroring the DDR5 command bus (one command per command-clock cycle per
-//! subchannel). A request that requires N commands to retire therefore takes
-//! at least N tick invocations. This matches gem5's `MemCtrl::processNextReqEvent`
-//! and is what real memory controllers physically do.
+//! The controller runs in the DRAM command-clock domain. Requests arrive
+//! stamped with the simulator (core) cycle and are converted through a
+//! [`ClockRatio`]; command scheduling advances one DRAM clock at a time and
+//! responses are converted back. Reads pay the DRAM access plus the fixed
+//! front-end and back-end controller latencies. Writes are posted: the
+//! requester is acknowledged once the write enters the write queue, and the
+//! data reaches DRAM whenever the scheduler drains it, as in gem5's
+//! `MemCtrl`. A read to a line still in the write queue is answered from
+//! the queue; a write to a line already queued merges into it.
+//!
+//! The scheduler issues **at most one command per subchannel per DRAM clock**,
+//! mirroring the DDR5 command bus. ACT, RD and WR are two-clock commands,
+//! PRE and REF one-clock. A request that requires N commands to retire
+//! therefore takes at least N clocks.
 //!
 //! Every command issued emits a [`Packet::DramCmd`] event on the scheduler,
 //! targeted at the controller itself, so command traces surface in the event
@@ -46,6 +55,42 @@ const PRECHARGE_CMD_CYCLES: u64 = 1;
 /// Command-bus cycles a REFRESH occupies.
 const REFRESH_CMD_CYCLES: u64 = 1;
 
+/// Converts between simulator (core) cycles and DRAM command clocks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClockRatio {
+    cpu_mhz: u64,
+    dram_mhz: u64,
+}
+
+impl ClockRatio {
+    /// Ratio for a core at `cpu_mhz` driving DRAM at `data_rate_mts`
+    /// (command clock = half the data rate).
+    ///
+    /// # Panics
+    ///
+    /// Panics if either clock is zero.
+    #[must_use]
+    pub const fn new(cpu_mhz: u64, data_rate_mts: u64) -> Self {
+        assert!(cpu_mhz > 0, "core clock must be non-zero");
+        assert!(data_rate_mts >= 2, "DRAM data rate must be non-zero");
+        Self { cpu_mhz, dram_mhz: data_rate_mts / 2 }
+    }
+
+    /// The DRAM clock in progress at simulator cycle `cpu_cycle`.
+    #[inline]
+    #[must_use]
+    pub const fn to_dram(self, cpu_cycle: u64) -> u64 {
+        cpu_cycle * self.dram_mhz / self.cpu_mhz
+    }
+
+    /// The first simulator cycle at or after DRAM clock `dram_cycle`.
+    #[inline]
+    #[must_use]
+    pub const fn to_cpu(self, dram_cycle: u64) -> u64 {
+        (dram_cycle * self.cpu_mhz).div_ceil(self.dram_mhz)
+    }
+}
+
 /// DDR5 memory controller.
 #[derive(Debug)]
 pub struct Ddr5Controller {
@@ -55,28 +100,30 @@ pub struct Ddr5Controller {
     mapper: AddressMapper,
     config: Ddr5Config,
     self_id: MemCtrlId,
+    clock: ClockRatio,
     pending_commands: Vec<EmittedCommand>,
     pending_responses: Vec<ScheduledResponse>,
-    /// Highest simulator cycle the controller has processed so far. Advances
-    /// each [`MemoryController::tick`] to the incoming `ctx.cycle`.
-    now: u64,
+    /// Next DRAM clock the scheduler will process.
+    next_dram_cycle: u64,
 }
 
 impl Ddr5Controller {
     /// Constructs a controller. `base` is the physical address at which the
     /// backing buffer's first byte is mapped. `self_id` names the controller
-    /// so the emitted `DramCmd` events can target it.
+    /// so the emitted `DramCmd` events can target it. `cpu_clock_mhz` fixes
+    /// the ratio between simulator cycles and the DRAM command clock.
     ///
     /// # Panics
     ///
     /// Panics if any topology count in `config` is not a power of two (see
-    /// [`AddressMapper::new`]).
+    /// [`AddressMapper::new`]) or if `cpu_clock_mhz` is zero.
     #[must_use]
     pub fn new(
         buffer: Arc<DramBuffer>,
         base: PhysAddr,
         config: Ddr5Config,
         self_id: MemCtrlId,
+        cpu_clock_mhz: u64,
     ) -> Self {
         let mapper = AddressMapper::new(
             config.address_mapping,
@@ -107,9 +154,10 @@ impl Ddr5Controller {
             mapper,
             config,
             self_id,
+            clock: ClockRatio::new(cpu_clock_mhz, config.timing.data_rate_mts),
             pending_commands: Vec::new(),
             pending_responses: Vec::new(),
-            now: 0,
+            next_dram_cycle: 0,
         }
     }
 
@@ -124,12 +172,19 @@ impl Ddr5Controller {
     pub const fn config(&self) -> &Ddr5Config {
         &self.config
     }
+
+    /// Core-to-DRAM clock conversion in use.
+    #[must_use]
+    pub const fn clock(&self) -> ClockRatio {
+        self.clock
+    }
 }
 
 impl Handle for Ddr5Controller {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            self.enqueue(req_id, paddr, size, op, source, ctx.cycle);
+            let arrival = self.clock.to_dram(ctx.cycle);
+            self.enqueue(req_id, paddr, size, op, source, arrival);
         }
         // Other packet kinds (DramCmd / RefreshTick trace events, plus any
         // stray packets not addressed to memory controllers) are ignored.
@@ -138,17 +193,11 @@ impl Handle for Ddr5Controller {
 
 impl MemoryController for Ddr5Controller {
     fn tick(&mut self, ctx: &mut HandleCtx<'_>) {
-        if ctx.cycle > self.now {
-            self.now = ctx.cycle;
-        }
-        let chan_count = self.channels.len();
-        for chan_idx in 0..chan_count {
-            let subch_count = self.channels[chan_idx].subchannels.len();
-            for subch_idx in 0..subch_count {
-                let chan = ChannelId::new(index_to_u8(chan_idx));
-                let subch = SubchannelId::new(index_to_u8(subch_idx));
-                self.tick_subchannel(chan, subch, self.now);
-            }
+        let target = self.clock.to_dram(ctx.cycle);
+        while self.next_dram_cycle <= target {
+            let now = self.next_dram_cycle;
+            self.tick_dram_cycle(now);
+            self.next_dram_cycle += 1;
         }
         self.flush(ctx);
     }
@@ -162,24 +211,77 @@ impl Ddr5Controller {
         size: AccessSize,
         op: MemOp,
         source: ComponentId,
-        now: u64,
+        arrival: u64,
     ) {
         let loc = self.mapper.decompose(paddr);
-        let is_read = matches!(op, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. });
-        let pending = PendingReq { req_id, arrival_cycle: now, paddr, loc, size, op, source };
+        let line = LineAddr::from_phys(paddr, CACHE_LINE_BYTES);
+        let pending = PendingReq { req_id, arrival_cycle: arrival, paddr, line, loc, size, op, source };
         let sc =
             &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
-        if is_read {
-            sc.read_queue.push_back(pending);
-        } else {
-            sc.write_queue.push_back(pending);
+        sc.inbound.push_back(pending);
+    }
+
+    fn tick_dram_cycle(&mut self, now: u64) {
+        let chan_count = self.channels.len();
+        for chan_idx in 0..chan_count {
+            let subch_count = self.channels[chan_idx].subchannels.len();
+            for subch_idx in 0..subch_count {
+                let chan = ChannelId::new(index_to_u8(chan_idx));
+                let subch = SubchannelId::new(index_to_u8(subch_idx));
+                self.admit(chan, subch, now);
+                self.tick_subchannel(chan, subch, now);
+            }
         }
     }
 
-    /// Issues at most one command on `(chan, subch)` for cycle `now`. Real DDR5
-    /// command buses accept one command per command-clock cycle per subchannel;
-    /// this method encodes that invariant. If no ready request can advance
-    /// legally at `now`, the subchannel goes idle for this cycle.
+    /// Moves arrived requests from `inbound` into the read / write queues in
+    /// arrival order, stopping at the first one its queue cannot hold.
+    /// Writes are acknowledged on admission; a read whose line is still in
+    /// the write queue is answered from the queue.
+    fn admit(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
+        let read_cap = self.config.read_queue_entries;
+        let write_cap = self.config.write_queue_entries;
+        let frontend = self.config.frontend_latency;
+        loop {
+            let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+            let Some(request) = sc.inbound.pop_front() else { break };
+            if request.arrival_cycle > now {
+                sc.inbound.push_front(request);
+                break;
+            }
+            if is_read_op(&request.op) {
+                if sc.write_queue.iter().any(|w| w.line == request.line) {
+                    let payload = self.service_buffer(&request);
+                    self.pending_responses
+                        .push(ScheduledResponse::for_request(&request, now + frontend, payload));
+                    continue;
+                }
+                if sc.read_queue.len() >= read_cap {
+                    sc.inbound.push_front(request);
+                    break;
+                }
+                sc.read_queue.push_back(request);
+                continue;
+            }
+            let merges = sc.write_queue.iter().any(|w| w.line == request.line);
+            if !merges && sc.write_queue.len() >= write_cap {
+                sc.inbound.push_front(request);
+                break;
+            }
+            self.pending_responses.push(ScheduledResponse::for_request(
+                &request,
+                now + frontend,
+                MemRespData::Small(0),
+            ));
+            if !merges {
+                sc.write_queue.push_back(request);
+            }
+        }
+    }
+
+    /// Issues at most one command on `(chan, subch)` for DRAM clock `now`.
+    /// If no ready request can advance legally at `now`, the subchannel goes
+    /// idle for this clock.
     fn tick_subchannel(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
         self.update_drain_state(chan, subch);
         if self.command_bus_busy(chan, subch, now) {
@@ -195,8 +297,8 @@ impl Ddr5Controller {
         self.step_request(chan, subch, pick_writes, index, now);
     }
 
-    /// True iff the subchannel already emitted a command whose fire cycle is
-    /// `now` or later — the command bus is occupied for this cycle.
+    /// True iff the subchannel already emitted a command whose bus tenure
+    /// covers `now`.
     fn command_bus_busy(&self, chan: ChannelId, subch: SubchannelId, now: u64) -> bool {
         let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
         sc.last_command_cycle > now
@@ -219,9 +321,6 @@ impl Ddr5Controller {
         let mut best_index = 0usize;
         let mut best_start = u64::MAX;
         for (i, req) in queue.iter().enumerate() {
-            if req.arrival_cycle > now {
-                continue;
-            }
             let start = self.estimated_start(chan, subch, req, now);
             if start < best_start {
                 best_start = start;
@@ -231,7 +330,7 @@ impl Ddr5Controller {
         if best_start == u64::MAX { None } else { Some(best_index) }
     }
 
-    /// Rough estimate of the earliest cycle at which `req` could fire its
+    /// Rough estimate of the earliest clock at which `req` could fire its
     /// first command. Used only for reorder priority — the real timing is
     /// (re)computed in `step_request`. Only needs to reflect the biggest
     /// bottleneck (refresh, precharge, activate), not the full column pipeline.
@@ -255,11 +354,19 @@ impl Ddr5Controller {
     fn update_drain_state(&mut self, chan: ChannelId, subch: SubchannelId) {
         let high = self.config.write_high_watermark;
         let low = self.config.write_low_watermark;
+        let min_writes = self.config.min_writes_per_switch;
         let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
         let depth = sc.write_queue.len();
         sc.drain_state = match sc.drain_state {
-            WriteDrainState::Filling if depth >= high => WriteDrainState::Draining,
-            WriteDrainState::Draining if depth <= low => WriteDrainState::Filling,
+            WriteDrainState::Filling if depth >= high => {
+                sc.writes_this_drain = 0;
+                WriteDrainState::Draining
+            }
+            WriteDrainState::Draining
+                if depth <= low && sc.writes_this_drain >= min_writes =>
+            {
+                WriteDrainState::Filling
+            }
             state => state,
         };
     }
@@ -337,8 +444,8 @@ impl Ddr5Controller {
 
     /// Advances a single request by one command step. Removes it from its
     /// queue only when the column command has just been issued (final step).
-    /// Does nothing if the next command's earliest legal cycle exceeds `now`;
-    /// the request stays in the queue for a subsequent tick.
+    /// Does nothing if the next command's earliest legal clock exceeds `now`;
+    /// the request stays in the queue for a subsequent clock.
     fn step_request(
         &mut self,
         chan: ChannelId,
@@ -365,7 +472,7 @@ impl Ddr5Controller {
             row: request.loc.row,
         };
         let snapshot = self.bank_snapshot(ctx);
-        let is_read = matches!(request.op, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. });
+        let is_read = is_read_op(&request.op);
         match snapshot.state {
             BankState::Active if snapshot.open_row == Some(request.loc.row) => {
                 self.try_issue_column(&ctx, pick_writes, index, &request, is_read, now);
@@ -380,8 +487,8 @@ impl Ddr5Controller {
             BankState::Idle => {
                 self.try_issue_activate(&ctx, 0, now);
             }
-            // Refreshing / Activating: nothing to issue this cycle; the bank
-            // is mid-transition and will become ready on a later tick.
+            // Refreshing / Activating: nothing to issue this clock; the bank
+            // is mid-transition and will become ready on a later clock.
             BankState::Refreshing | BankState::Activating => {}
         }
     }
@@ -397,7 +504,8 @@ impl Ddr5Controller {
         let rank_ref = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
             .ranks[ctx.rank.as_index()];
         let cmd_bus = rank_ref.last_command_cycle;
-        let ppd_bound = if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
+        let ppd_bound =
+            if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
         let earliest = ras_bound.max(rtp_bound).max(wr_bound).max(cmd_bus).max(ppd_bound);
         if earliest > now {
             return;
@@ -517,7 +625,8 @@ impl Ddr5Controller {
     }
 
     /// Issues a READ or WRITE column command if legal at `now`. On success,
-    /// removes the request from its queue and schedules the response.
+    /// removes the request from its queue; reads schedule their response at
+    /// the end of the data burst plus the controller latencies.
     fn try_issue_column(
         &mut self,
         ctx: &BankCmdCtx,
@@ -543,9 +652,14 @@ impl Ddr5Controller {
         let data_start = (fire_at + lead).max(data_start_aligned);
         let data_end = data_start + self.config.timing.bl_half;
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
-        let payload = self.service_buffer(request);
-        let response = ScheduledResponse::for_request(request, data_end, payload);
-        self.pending_responses.push(response);
+        if is_read {
+            let payload = self.service_buffer(request);
+            let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
+            self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
+        } else {
+            let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
+            sc.writes_this_drain += 1;
+        }
         self.pop_request(ctx.chan, ctx.subch, pick_writes, index);
     }
 
@@ -615,7 +729,7 @@ impl Ddr5Controller {
         });
     }
 
-    /// Earliest column-command cycle honoring tCCD, tWTR, and command-bus
+    /// Earliest column-command clock honoring tCCD, tWTR, and command-bus
     /// availability. `not_before` is the caller-supplied lower bound (typically
     /// `last_activate + tRCD`). Read-to-write turnaround is a data-bus
     /// constraint and lives in [`Self::data_bus_start`].
@@ -679,7 +793,7 @@ impl Ddr5Controller {
         earliest
     }
 
-    /// Walks the column-command cycle forward so RD→data == tCAS (WR→data == tCWL)
+    /// Walks the column-command clock forward so RD→data == tCAS (WR→data == tCWL)
     /// still holds when the data bus was the binding constraint.
     const fn align_column_to_data_bus(&self, column: u64, data_start: u64, is_read: bool) -> (u64, u64) {
         let lead = column_lead(&self.config.timing, is_read);
@@ -711,11 +825,14 @@ impl Ddr5Controller {
             .banks[ctx.bank_index]
     }
 
+    /// Converts queued command traces and responses from DRAM clocks to
+    /// simulator cycles and schedules them.
     fn flush(&mut self, ctx: &mut HandleCtx<'_>) {
         let self_component = ComponentId::MemCtrl(self.self_id);
+        let clock = self.clock;
         for cmd in self.pending_commands.drain(..) {
             ctx.scheduler.schedule(
-                cmd.fire_at,
+                clock.to_cpu(cmd.fire_at),
                 self_component,
                 self_component,
                 Packet::DramCmd {
@@ -729,7 +846,7 @@ impl Ddr5Controller {
         }
         for resp in self.pending_responses.drain(..) {
             ctx.scheduler.schedule(
-                resp.fire_at,
+                clock.to_cpu(resp.fire_at),
                 resp.target,
                 self_component,
                 Packet::MemResp {
@@ -772,6 +889,7 @@ struct ScheduledResponse {
     line_addr: LineAddr,
     data: MemRespData,
     hit_level: HitLevel,
+    /// DRAM clock at which the response leaves the controller.
     fire_at: u64,
     target: ComponentId,
 }
@@ -780,13 +898,17 @@ impl ScheduledResponse {
     const fn for_request(request: &PendingReq, fire_at: u64, data: MemRespData) -> Self {
         Self {
             req_id: request.req_id,
-            line_addr: LineAddr::from_phys(request.paddr, CACHE_LINE_BYTES),
+            line_addr: request.line,
             data,
             hit_level: HitLevel::Dram,
             fire_at,
             target: request.source,
         }
     }
+}
+
+const fn is_read_op(op: &MemOp) -> bool {
+    matches!(op, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. })
 }
 
 const fn bank_index_u8(idx: usize) -> u8 {

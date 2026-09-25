@@ -1,6 +1,8 @@
 //! Row-hit and row-miss timing on a single bank.
 
-use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
+use crate::unit::soc::memory::ddr5::common::{
+    Harness, addr_from, controller_latency, read_op, tiny_config,
+};
 use rvsim_core::soc::memory::ddr5::Ddr5Timing;
 
 #[test]
@@ -12,12 +14,12 @@ fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {
     let id = h.issue(addr, 0, read_op());
     let resp = h.response_at(id);
     // ACT at 0 (cmd bus free), RD at t_rcd, data at t_rcd + t_cas,
-    // burst end at + bl_half.
-    assert_eq!(resp, t.t_rcd + t.t_cas + t.bl_half);
+    // burst end at + bl_half, then the controller's fixed latency.
+    assert_eq!(resp, t.t_rcd + t.t_cas + t.bl_half + controller_latency(&cfg));
 }
 
 #[test]
-fn row_hit_second_read_only_pays_ccd_plus_cas_plus_burst() {
+fn row_hit_second_read_only_pays_cas_plus_burst() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
     let mut h = Harness::new(cfg);
@@ -27,10 +29,9 @@ fn row_hit_second_read_only_pays_ccd_plus_cas_plus_burst() {
     let _ = h.response_at(first);
     let second = h.issue(a2, 200, read_op());
     let resp = h.response_at(second);
-    // Row already open. The controller re-issues from cycle 200 which is
-    // well past the first read's data end; column cycle = 200, data end =
-    // 200 + t_cas + bl_half.
-    assert_eq!(resp, 200 + t.t_cas + t.bl_half);
+    // Row already open. The controller issues the column command at 200,
+    // well past the first read's data end.
+    assert_eq!(resp, 200 + t.t_cas + t.bl_half + controller_latency(&cfg));
 }
 
 #[test]
@@ -47,10 +48,9 @@ fn same_bank_row_miss_pays_pre_plus_act_plus_col() {
     let start = 500;
     let id = h.issue(a2, start, read_op());
     let resp = h.response_at(id);
-    // From `start`: PRE (respect tRAS from ACT at cycle 0 — 77 is well
-    // below 500 so PRE fires at `start`), tRP to next ACT, tRCD to
-    // column, tCAS to data start, bl_half to data end.
-    let expected = start + t.t_rp + t.t_rcd + t.t_cas + t.bl_half;
+    // From `start`: PRE (tRAS from the ACT at cycle 0 has long elapsed),
+    // tRP to ACT, tRCD to column, tCAS to data start, bl_half to data end.
+    let expected = start + t.t_rp + t.t_rcd + t.t_cas + t.bl_half + controller_latency(&cfg);
     assert_eq!(resp, expected);
 }
 
@@ -59,20 +59,20 @@ fn back_to_back_same_bank_group_reads_honor_ccd_l() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
     let mut h = Harness::new(cfg);
-    // Same bank group, different banks — column stream still constrained
-    // by tCCD_L when the last column was in the same BG.
+    // Same bank group, different banks, both queued before any command:
+    // the second column command is at least tCCD_L after the first.
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let a2 = addr_from(&cfg, 0, 0, 1, 0, 0);
     let id1 = h.issue(a1, 0, read_op());
-    let end1 = h.response_at(id1);
-    let id2 = h.issue(a2, end1, read_op());
-    let end2 = h.response_at(id2);
-    // Second read is to a new bank: ACT is needed. Column cycle >=
-    // last_col + t_ccd_l. Take end1 -> last col was at end1 - bl_half - t_cas.
-    let last_col = end1 - t.bl_half - t.t_cas;
-    let expected_col = (last_col + t.t_ccd_l).max(end1);
-    // First cmd from cycle end1: ACT (>= cmd_bus, >= t_rrd_l from prior ACT).
-    // Column is bounded by max(act + t_rcd, ccd, cmd_bus).
-    // Just assert that the resp cycle >= last_col + t_ccd_l + t_cas + bl_half.
-    assert!(end2 >= expected_col + t.t_cas + t.bl_half);
+    let id2 = h.issue(a2, 0, read_op());
+    let _ = h.response_at(id1);
+    let _ = h.response_at(id2);
+    let reads = h.commands_of(rvsim_core::sim::packet::DramCmdKind::Read);
+    assert_eq!(reads.len(), 2);
+    assert!(
+        reads[1].fire_at >= reads[0].fire_at + t.t_ccd_l,
+        "RD spacing {} < tCCD_L {}",
+        reads[1].fire_at - reads[0].fire_at,
+        t.t_ccd_l
+    );
 }

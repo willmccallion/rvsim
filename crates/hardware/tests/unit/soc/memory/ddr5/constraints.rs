@@ -1,8 +1,9 @@
-//! tFAW / tWTR / tRTW / tRTP / tWR / tRTRS.
+//! tFAW / tWTR / tRTW / tRTRS.
 
 use crate::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, tworank_config, write_op,
 };
+use rvsim_core::sim::packet::DramCmdKind;
 use rvsim_core::soc::memory::ddr5::Ddr5Timing;
 
 #[test]
@@ -27,20 +28,14 @@ fn fifth_activate_stalls_on_faw() {
     for id in &ids {
         let _ = h.response_at(*id);
     }
-    let cmds = h.take_dram_cmds();
-    let acts_now: Vec<_> = cmds
-        .iter()
-        .filter(|c| matches!(c.kind, rvsim_core::sim::packet::DramCmdKind::Activate))
-        .collect();
-    assert!(acts_now.len() >= 5, "fewer than 5 ACTs recorded: {cmds:?}");
+    let acts_now = h.commands_of(DramCmdKind::Activate);
+    assert!(acts_now.len() >= 5, "fewer than 5 ACTs recorded: {acts_now:?}");
     let fifth_act = acts_now[4];
-    // t_faw is 32; without stalling the fifth ACT could be earlier, but
-    // tFAW forces it to >= faw[0] + t_faw = 0 + 32.
     assert!(
-        fifth_act.fire_at >= t.t_faw,
-        "5th ACT at {} < t_faw = {}",
+        fifth_act.fire_at >= acts_now[0].fire_at + t.t_faw,
+        "5th ACT at {} < first ACT + t_faw = {}",
         fifth_act.fire_at,
-        t.t_faw
+        acts_now[0].fire_at + t.t_faw
     );
 }
 
@@ -52,15 +47,19 @@ fn write_then_read_same_bank_group_pays_wtr_l() {
     let w = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r = addr_from(&cfg, 0, 0, 0, 0, 1);
     let wid = h.issue(w, 0, write_op());
-    let write_end = h.response_at(wid);
-    let rid = h.issue(r, write_end, read_op());
-    let read_end = h.response_at(rid);
-    // Read column cycle >= write data end + t_wtr_l.
-    let read_col_min = write_end + t.t_wtr_l;
-    let expected_min = read_col_min + t.t_cas + t.bl_half;
+    let _ = h.response_at(wid);
+    // Let the write drain to the bank, then queue a read to another line of
+    // the same row while the write burst is still on the data bus.
+    let rid = h.issue(r, t.t_rcd + 1, read_op());
+    let _ = h.response_at(rid);
+    let writes = h.commands_of(DramCmdKind::Write);
+    let reads = h.commands_of(DramCmdKind::Read);
+    let write_end = writes[0].fire_at + t.t_cwl + t.bl_half;
     assert!(
-        read_end >= expected_min,
-        "read end {read_end} < expected min {expected_min} (write_end={write_end})"
+        reads[0].fire_at >= write_end + t.t_wtr_l,
+        "RD at {} < write burst end + t_wtr_l = {}",
+        reads[0].fire_at,
+        write_end + t.t_wtr_l
     );
 }
 
@@ -72,22 +71,18 @@ fn read_then_write_pays_rtw() {
     let r = addr_from(&cfg, 0, 0, 0, 0, 0);
     let w = addr_from(&cfg, 0, 0, 0, 0, 1);
     let rid = h.issue(r, 0, read_op());
-    let read_end = h.response_at(rid);
-    let wid = h.issue(w, read_end, write_op());
+    let wid = h.issue(w, 1, write_op());
+    let _ = h.response_at(rid);
     let _ = h.response_at(wid);
-    let cmds = h.take_dram_cmds();
-    let write_cmds: Vec<_> = cmds
-        .iter()
-        .filter(|c| matches!(c.kind, rvsim_core::sim::packet::DramCmdKind::Write))
-        .collect();
-    let first_write = write_cmds.first().expect("no WR cmd emitted");
-    // The write burst may start only once the read burst has left the data
-    // bus plus the turnaround gap.
-    let write_data_start = first_write.fire_at + t.t_cwl;
+    h.run_until(400);
+    let reads = h.commands_of(DramCmdKind::Read);
+    let writes = h.commands_of(DramCmdKind::Write);
+    let read_burst_end = reads[0].fire_at + t.t_cas + t.bl_half;
+    let write_burst_start = writes[0].fire_at + t.t_cwl;
     assert!(
-        write_data_start >= read_end + t.t_rtw,
-        "WR data at {write_data_start} < read burst end + t_rtw = {}",
-        read_end + t.t_rtw
+        write_burst_start >= read_burst_end + t.t_rtw,
+        "WR data at {write_burst_start} < read burst end + t_rtw = {}",
+        read_burst_end + t.t_rtw
     );
 }
 
@@ -99,22 +94,16 @@ fn rank_switch_pays_rtrs() {
     let r0 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r1 = addr_from(&cfg, 1, 0, 0, 0, 0);
     let id0 = h.issue(r0, 0, read_op());
-    let end0 = h.response_at(id0);
-    let id1 = h.issue(r1, end0, read_op());
+    let id1 = h.issue(r1, 0, read_op());
+    let _ = h.response_at(id0);
     let _ = h.response_at(id1);
-    let cmds = h.take_dram_cmds();
-    let reads: Vec<_> = cmds
-        .iter()
-        .filter(|c| matches!(c.kind, rvsim_core::sim::packet::DramCmdKind::Read))
-        .collect();
-    assert!(reads.len() >= 2);
-    // Both reads exist; the second is on rank 1 and its data start must
-    // be >= end0 + t_rtrs.
-    let second_rd = reads[1];
-    let data_start = second_rd.fire_at + t.t_cas;
+    let reads = h.commands_of(DramCmdKind::Read);
+    assert_eq!(reads.len(), 2);
+    let first_end = reads[0].fire_at + t.t_cas + t.bl_half;
+    let second_start = reads[1].fire_at + t.t_cas;
     assert!(
-        data_start >= end0 + t.t_rtrs,
-        "cross-rank data start {data_start} < prev data end + t_rtrs {}",
-        end0 + t.t_rtrs
+        second_start >= first_end + t.t_rtrs,
+        "cross-rank data start {second_start} < prev data end + t_rtrs {}",
+        first_end + t.t_rtrs
     );
 }

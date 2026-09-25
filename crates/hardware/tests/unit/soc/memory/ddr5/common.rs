@@ -13,6 +13,10 @@ use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::MemoryController;
 use rvsim_core::soc::memory::ddr5::{Ddr5Config, Ddr5Controller};
 
+/// Core clock that makes one simulator cycle equal one DDR5-4800 command
+/// clock, so test expectations can be written directly in DRAM clocks.
+pub const ONE_TO_ONE_CPU_MHZ: u64 = 2400;
+
 /// Small canonical topology used across the timing tests: 1 channel,
 /// 1 sub-channel, 1 rank, 2 bank groups × 2 banks, 4-bit rows, 4-bit
 /// columns. Keeps addresses small and the interleave predictable.
@@ -36,10 +40,21 @@ pub fn tworank_config() -> Ddr5Config {
     cfg
 }
 
-/// Ddr5Controller wrapped with a large DRAM buffer.
+/// Fixed controller pipeline latency every read pays on top of the DRAM
+/// access.
+pub fn controller_latency(cfg: &Ddr5Config) -> u64 {
+    cfg.frontend_latency + cfg.backend_latency
+}
+
+/// Ddr5Controller wrapped with a large DRAM buffer, clocked 1:1.
 pub fn make_controller(config: Ddr5Config) -> Ddr5Controller {
+    make_controller_with_clock(config, ONE_TO_ONE_CPU_MHZ)
+}
+
+/// Ddr5Controller wrapped with a large DRAM buffer at a given core clock.
+pub fn make_controller_with_clock(config: Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
     let buffer = Arc::new(DramBuffer::new(1 << 24));
-    Ddr5Controller::new(buffer, PhysAddr::new(0), config, MemCtrlId::new(0))
+    Ddr5Controller::new(buffer, PhysAddr::new(0), config, MemCtrlId::new(0), cpu_mhz)
 }
 
 /// Encodes a physical address for the tiny topology.
@@ -80,27 +95,32 @@ pub fn addr_from(
 
 /// Wraps `Ddr5Controller` so tests can issue a request and read the resulting
 /// event trace back out.
+///
+/// Mirrors the simulator's ordering within a cycle: packets are delivered to
+/// the controller before its tick for that cycle runs.
 pub struct Harness {
     pub controller: Ddr5Controller,
     pub queue: EventQueue,
     pub stats: Stats,
     pub config: Config,
     pub next_req_id: u64,
-    /// Current simulator cycle from the harness's POV. Advanced monotonically
-    /// by [`Self::issue`] (to the request cycle) and by [`Self::response_at`]
-    /// (as ticks progress until the response fires).
-    pub sim_cycle: u64,
+    /// Next simulator cycle whose tick has not run yet.
+    pub next_tick: u64,
 }
 
 impl Harness {
     pub fn new(cfg: Ddr5Config) -> Self {
+        Self::with_controller(make_controller(cfg))
+    }
+
+    pub fn with_controller(controller: Ddr5Controller) -> Self {
         Self {
-            controller: make_controller(cfg),
+            controller,
             queue: EventQueue::new(),
             stats: Stats::new(),
             config: Config::default(),
             next_req_id: 0,
-            sim_cycle: 0,
+            next_tick: 0,
         }
     }
 
@@ -124,51 +144,60 @@ impl Harness {
         self.controller.tick(&mut ctx);
     }
 
-    /// Injects one request at `cycle` and returns the ReqId assigned. Ticks
-    /// the controller forward to `cycle` first so previously-queued work
-    /// resolves before the new arrival is visible.
-    pub fn issue(&mut self, paddr: u64, cycle: u64, op: MemOp) -> ReqId {
+    /// Runs every tick before `cycle` so earlier work has resolved.
+    fn advance_to(&mut self, cycle: u64) {
         assert!(
-            cycle >= self.sim_cycle,
-            "issue cycle {cycle} is in the past; sim_cycle={}",
-            self.sim_cycle
+            cycle >= self.next_tick,
+            "cycle {cycle} is in the past; next tick is {}",
+            self.next_tick
         );
-        while self.sim_cycle < cycle {
-            self.sim_cycle += 1;
-            self.tick_at(self.sim_cycle);
+        while self.next_tick < cycle {
+            let tick = self.next_tick;
+            self.tick_at(tick);
+            self.next_tick += 1;
         }
+    }
+
+    /// Delivers one request at `cycle` and returns the ReqId assigned. The
+    /// controller's tick for `cycle` runs on the next `response_at` /
+    /// `run_until`.
+    pub fn issue(&mut self, paddr: u64, cycle: u64, op: MemOp) -> ReqId {
+        self.issue_sized(paddr, cycle, op, AccessSize::B8)
+    }
+
+    pub fn issue_sized(&mut self, paddr: u64, cycle: u64, op: MemOp, size: AccessSize) -> ReqId {
+        self.advance_to(cycle);
         let req_id = ReqId::new(self.next_req_id);
         self.next_req_id += 1;
-        let mut ctx =
-            Self::make_ctx(&mut self.queue, &mut self.stats, &self.config, self.sim_cycle);
+        let mut ctx = Self::make_ctx(&mut self.queue, &mut self.stats, &self.config, cycle);
         self.controller.handle(
-            Packet::MemReq {
-                req_id,
-                paddr: PhysAddr::new(paddr),
-                vaddr: None,
-                size: AccessSize::B8,
-                op,
-            },
+            Packet::MemReq { req_id, paddr: PhysAddr::new(paddr), vaddr: None, size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
         );
         req_id
     }
 
-    /// Ticks the controller forward until a `MemResp` for `req_id` appears
-    /// on the queue. Returns the response's `fire_at` cycle. Non-matching
-    /// events are left on the queue for subsequent inspection.
+    /// Ticks the controller until a `MemResp` for `req_id` appears on the
+    /// queue. Returns the response's `fire_at` cycle. Non-matching events
+    /// are left on the queue for subsequent inspection.
     pub fn response_at(&mut self, req_id: ReqId) -> u64 {
-        // First trigger a tick at the current cycle so requests queued at
-        // this exact cycle get a chance to schedule commands.
-        self.tick_at(self.sim_cycle);
         loop {
             if let Some(fire_at) = self.take_response(req_id) {
-                self.sim_cycle = self.sim_cycle.max(fire_at);
                 return fire_at;
             }
-            self.sim_cycle += 1;
-            self.tick_at(self.sim_cycle);
+            let tick = self.next_tick;
+            self.tick_at(tick);
+            self.next_tick += 1;
+            assert!(self.next_tick < 1_000_000, "no response for {req_id:?}");
+        }
+    }
+
+    /// Ticks the controller through `cycle` inclusive; a no-op if the
+    /// harness has already passed it.
+    pub fn run_until(&mut self, cycle: u64) {
+        if cycle + 1 > self.next_tick {
+            self.advance_to(cycle + 1);
         }
     }
 
@@ -192,30 +221,27 @@ impl Harness {
         found
     }
 
-    /// Collects every DramCmd event currently pending on the queue, in
-    /// scheduling order. Leaves other events (MemResp, ...) in place.
-    pub fn take_dram_cmds(&mut self) -> Vec<CommandRecord> {
+    /// Every DramCmd event the controller has emitted so far, in issue
+    /// order. Leaves the event queue untouched.
+    pub fn dram_cmds(&mut self) -> Vec<CommandRecord> {
         let mut retained = Vec::new();
         let mut cmds = Vec::new();
         while let Some(event) = self.queue.pop_ready(u64::MAX) {
-            match event.packet.clone() {
-                Packet::DramCmd { channel, rank, bank, kind, row } => {
-                    cmds.push(CommandRecord {
-                        fire_at: event.fire_at,
-                        channel,
-                        rank,
-                        bank,
-                        kind,
-                        row,
-                    });
-                }
-                _ => retained.push(event),
+            if let Packet::DramCmd { channel, rank, bank, kind, row } = event.packet {
+                cmds.push(CommandRecord { fire_at: event.fire_at, channel, rank, bank, kind, row });
             }
+            retained.push(event);
         }
         for evt in retained {
             self.queue.schedule(evt.fire_at, evt.target, evt.source, evt.packet);
         }
+        cmds.sort_by_key(|c| c.fire_at);
         cmds
+    }
+
+    /// DramCmd events of one kind, in issue order.
+    pub fn commands_of(&mut self, kind: DramCmdKind) -> Vec<CommandRecord> {
+        self.dram_cmds().into_iter().filter(|c| c.kind == kind).collect()
     }
 }
 

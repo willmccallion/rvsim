@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::PhysAddr;
+use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{BankGroupId, ComponentId, RankId, ReqId, RowId};
 use crate::sim::packet::{AccessSize, MemOp};
 use crate::soc::memory::address::DramLocation;
@@ -160,10 +160,13 @@ pub enum WriteDrainState {
 pub struct PendingReq {
     /// Correlator for the eventual response.
     pub req_id: ReqId,
-    /// Original request cycle (for latency stats).
+    /// Arrival at the controller, in DRAM clocks (for latency stats).
     pub arrival_cycle: u64,
     /// Full physical address.
     pub paddr: PhysAddr,
+    /// Cache line the request targets; the unit of write merging and
+    /// read-hits-write forwarding.
+    pub line: LineAddr,
     /// Decomposed DRAM coordinates.
     pub loc: DramLocation,
     /// Access size for the response.
@@ -180,12 +183,18 @@ pub struct PendingReq {
 pub struct Subchannel {
     /// Ranks visible on this subchannel.
     pub ranks: Vec<Rank>,
+    /// Requests that have reached the controller but not yet entered their
+    /// queue: either not arrived yet (in DRAM clocks) or blocked by a full
+    /// queue. Admitted in arrival order.
+    pub inbound: VecDeque<PendingReq>,
     /// FIFO of pending reads.
     pub read_queue: VecDeque<PendingReq>,
     /// FIFO of pending writes.
     pub write_queue: VecDeque<PendingReq>,
     /// Fill-vs-drain policy state.
     pub drain_state: WriteDrainState,
+    /// Writes issued since the scheduler last switched to draining.
+    pub writes_this_drain: usize,
     /// Cycle at which the command bus is next available.
     pub last_command_cycle: u64,
     /// Cycle at which the data bus is next available.
@@ -224,9 +233,11 @@ impl Subchannel {
                     Rank::new(bank_count, t_refi + offset)
                 })
                 .collect(),
+            inbound: VecDeque::new(),
             read_queue: VecDeque::new(),
             write_queue: VecDeque::new(),
             drain_state: WriteDrainState::Filling,
+            writes_this_drain: 0,
             last_command_cycle: 0,
             last_data_end: 0,
             last_bus_rank: None,

@@ -10,5 +10,5 @@ pub mod state;
 pub mod timing;
 
 pub use config::Ddr5Config;
-pub use controller::Ddr5Controller;
+pub use controller::{ClockRatio, Ddr5Controller};
 pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};

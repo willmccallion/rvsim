@@ -1,7 +1,10 @@
 //! Randomized stress: 1024 mixed R/W requests, verify every one gets a
-//! response, no debug assertion fires, bandwidth in a wide sanity band.
+//! response, no debug assertion fires, and the data bus never carries two
+//! bursts at once.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config, write_op};
+use rvsim_core::sim::packet::DramCmdKind;
+use rvsim_core::soc::memory::ddr5::Ddr5Timing;
 
 /// LCG for deterministic pseudo-random test traffic.
 fn lcg(state: &mut u64) -> u64 {
@@ -12,6 +15,7 @@ fn lcg(state: &mut u64) -> u64 {
 #[test]
 fn stress_1024_requests_all_complete() {
     let cfg = tiny_config();
+    let t = Ddr5Timing::default();
     let mut h = Harness::new(cfg);
     let mut ids = Vec::with_capacity(1024);
     let mut seed = 0xdead_beef_cafe_babe;
@@ -28,24 +32,27 @@ fn stress_1024_requests_all_complete() {
         ids.push(h.issue(a, cycle, op));
         cycle += 4;
     }
-    let mut last_completion = 0u64;
     for id in ids {
-        let at = h.response_at(id);
-        if at > last_completion {
-            last_completion = at;
-        }
+        let _ = h.response_at(id);
     }
-    // Loose bandwidth sanity: 1024 bursts × BL/2 = 8192 data cycles is
-    // the theoretical peak on a single subchannel. Allow up to 32×
-    // slack for row misses and refresh overhead.
-    let theoretical_min = 1024 * 8;
-    let sanity_upper = theoretical_min * 32;
-    assert!(
-        last_completion >= theoretical_min,
-        "completion {last_completion} below theoretical floor {theoretical_min}"
-    );
-    assert!(
-        last_completion <= sanity_upper,
-        "completion {last_completion} above sanity ceiling {sanity_upper}"
-    );
+    h.run_until(cycle + 20_000);
+    let mut bursts: Vec<(u64, u64)> = h
+        .dram_cmds()
+        .into_iter()
+        .filter_map(|c| match c.kind {
+            DramCmdKind::Read => Some((c.fire_at + t.t_cas, c.fire_at + t.t_cas + t.bl_half)),
+            DramCmdKind::Write => Some((c.fire_at + t.t_cwl, c.fire_at + t.t_cwl + t.bl_half)),
+            _ => None,
+        })
+        .collect();
+    bursts.sort_unstable();
+    assert!(!bursts.is_empty());
+    for pair in bursts.windows(2) {
+        assert!(
+            pair[1].0 >= pair[0].1,
+            "data bursts overlap: {:?} then {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
 }

@@ -57,6 +57,12 @@ mod defaults {
     /// Divides the simulation cycle counter to produce the machine timer value.
     pub const CLINT_DIVIDER: u64 = 10;
 
+    /// Core clock in MHz. Fixes the ratio between simulator cycles and
+    /// wall-clock time for components with their own clock domain (the DDR5
+    /// controller runs at the DRAM command clock). Independent of the CLINT
+    /// timebase, which is a functional timer setting.
+    pub const CPU_CLOCK_MHZ: u64 = 2400;
+
     /// CAS (Column Access Strobe) latency in DRAM cycles.
     ///
     /// Time from column address assertion to data availability for reads.
@@ -580,6 +586,10 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_clint_divider")]
     pub clint_divider: u64,
 
+    /// Core clock in MHz; see [`defaults::CPU_CLOCK_MHZ`].
+    #[serde(default = "SystemConfig::default_cpu_clock_mhz")]
+    pub cpu_clock_mhz: u64,
+
     /// When true, UART output goes to stderr (for visibility when run from Python).
     #[serde(default)]
     pub uart_to_stderr: bool,
@@ -646,6 +656,10 @@ impl SystemConfig {
         defaults::CLINT_DIVIDER
     }
 
+    const fn default_cpu_clock_mhz() -> u64 {
+        defaults::CPU_CLOCK_MHZ
+    }
+
     /// Returns the default hart count (1).
     const fn default_hart_count() -> usize {
         1
@@ -664,6 +678,7 @@ impl Default for SystemConfig {
             bus_width: defaults::BUS_WIDTH,
             bus_latency: defaults::BUS_LATENCY,
             clint_divider: defaults::CLINT_DIVIDER,
+            cpu_clock_mhz: defaults::CPU_CLOCK_MHZ,
             uart_to_stderr: false,
             uart_quiet: false,
             tohost_addr: 0,

@@ -2,7 +2,9 @@
 //! when the data bus is oversubscribed, and each subsequent burst never
 //! overlaps a prior one.
 
-use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
+use crate::unit::soc::memory::ddr5::common::{
+    Harness, addr_from, controller_latency, read_op, tiny_config,
+};
 use rvsim_core::soc::memory::ddr5::Ddr5Timing;
 
 #[test]
@@ -26,7 +28,7 @@ fn four_reads_across_bank_groups_serialize_on_data_bus() {
     let resps: Vec<u64> = ids.iter().map(|id| h.response_at(*id)).collect();
     // First burst ends at startup + BL/2.
     let first = resps[0];
-    assert_eq!(first, t.t_rcd + t.t_cas + t.bl_half);
+    assert_eq!(first, t.t_rcd + t.t_cas + t.bl_half + controller_latency(&cfg));
     // Successive bursts strictly forward — no read completes before an
     // earlier one and each is at least BL/2 later.
     for pair in resps.windows(2) {

@@ -15,13 +15,13 @@ fn refresh_fires_after_t_refi_and_blocks_rank_for_t_rfc() {
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id1 = h.issue(a, 0, read_op());
     let _ = h.response_at(id1);
-    let cmds1 = h.take_dram_cmds();
+    let cmds1 = h.dram_cmds();
     assert!(!cmds1.iter().any(|c| matches!(c.kind, DramCmdKind::Refresh)));
 
     // Second access at cycle > t_refi triggers refresh before servicing.
     let id2 = h.issue(a, t.t_refi + 100, read_op());
     let end2 = h.response_at(id2);
-    let cmds2 = h.take_dram_cmds();
+    let cmds2 = h.dram_cmds();
     let refreshes: Vec<_> =
         cmds2.iter().filter(|c| matches!(c.kind, DramCmdKind::Refresh)).collect();
     assert_eq!(refreshes.len(), 1, "expected exactly one refresh, got {refreshes:?}");
