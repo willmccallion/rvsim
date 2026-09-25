@@ -1,4 +1,4 @@
-use rvsim_core::isa::privileged::opcodes::{CSRRS, OP_SYSTEM};
+use rvsim_core::isa::privileged::opcodes::{CSRRS, CSRRW, OP_SYSTEM};
 use rvsim_core::isa::rv64a::funct5::{AMOADD, LR, SC};
 use rvsim_core::isa::rv64a::opcodes::OP_AMO;
 use rvsim_core::isa::rv64i::opcodes::*;
@@ -381,6 +381,16 @@ impl InstructionBuilder {
     /// NOP is ADDI x0, x0, 0
     pub fn nop(self) -> Self {
         self.addi(0, 0, 0)
+    }
+
+    /// `csrrw rd, csr, rs1` (`csrw csr, rs1` when `rd` is x0).
+    pub fn csrrw(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+        self.opcode = OP_SYSTEM;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.funct3 = CSRRW;
+        self.imm = csr as i32;
+        self
     }
 
     /// `csrrs rd, csr, rs1` (`csrr rd, csr` when `rs1` is x0).
