@@ -126,11 +126,12 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def config():
+def config(hart_count: int = 1):
     """Maximum-performance config for Linux boot.
 
     Starts from the ``fast`` preset and overrides system addresses /
-    memory-map settings that must match the device tree.
+    memory-map settings that must match the device tree. ``hart_count``
+    harts boot through OpenSBI's HSM into an SMP kernel.
     """
     return presets.fast().replace(
         ram_size=256 * 1024 * 1024,
@@ -141,6 +142,7 @@ def config():
         syscon_base=0x00100000,
         kernel_offset=0x200000,
         clint_divider=1,
+        hart_count=hart_count,
     )
 
 
@@ -159,6 +161,9 @@ def main():
     )
     ap.add_argument(
         "--no-boot", action="store_true", help="Only build; do not run simulator"
+    )
+    ap.add_argument(
+        "--harts", type=int, default=1, help="Number of harts to boot (default 1)"
     )
     args = ap.parse_args()
 
@@ -191,7 +196,7 @@ def main():
 
     print("[boot_linux] Booting with Simulator (Optimized Config)...")
 
-    sim = Simulator(config(), kernel=image_path, disk=disk_path)
+    sim = Simulator(config(args.harts), kernel=image_path, disk=disk_path)
 
     try:
         return sim.run(

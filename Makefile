@@ -276,9 +276,10 @@ run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
 	.venv/bin/rvsim -f software/bin/benchmarks/qsort.elf
 
+HARTS ?= 1
 run-linux:
-	@printf "$(GREEN)Booting Linux…$(RESET)\n"
-	.venv/bin/rvsim scripts/setup/boot_linux.py
+	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s)…$(RESET)\n"
+	.venv/bin/rvsim scripts/setup/boot_linux.py --harts $(HARTS)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Profiling

@@ -467,12 +467,17 @@ impl SimState {
             ..Default::default()
         };
 
-        let fresh_regs = || {
+        // Direct-mode programs get the bare-metal boot convention: a0 = hart
+        // id, a1 = hart count, sp = a stack top every hart shares (a
+        // multi-hart runtime carves per-hart stacks below it).
+        let fresh_regs = |hart_id: HartId| {
             let mut regs = if direct_mode {
                 let sp =
                     config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
                 let mut r = RegisterFile::new();
                 r.write(abi::REG_SP, sp);
+                r.write(abi::REG_A0, u64::from(hart_id.val()));
+                r.write(abi::REG_A1, hart_count as u64);
                 r
             } else {
                 RegisterFile::new()
@@ -503,9 +508,10 @@ impl SimState {
 
         let harts: Vec<Hart> = (0..hart_count)
             .map(|index| {
+                let hart_id = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
                 let mut hart = Hart::new(HartInit {
-                    hart_id: HartId::new(u32::try_from(index).unwrap_or(u32::MAX)),
-                    regs: fresh_regs(),
+                    hart_id,
+                    regs: fresh_regs(hart_id),
                     pc: config.general.start_pc,
                     csrs: csrs.clone(),
                     privilege,
@@ -596,6 +602,20 @@ mod tests {
         state.signal_exit(42);
         assert_eq!(state.take_exit(), Some(42));
         assert_eq!(state.take_exit(), None);
+    }
+
+    #[test]
+    fn direct_mode_harts_boot_with_their_id_and_the_hart_count() {
+        use crate::isa::abi;
+        let mut config = Config::default();
+        config.general.direct_mode = true;
+        config.system.hart_count = 3;
+        let sys = SimState::build(&config, "");
+        for (index, hart) in sys.harts.iter().enumerate() {
+            assert_eq!(hart.regs.read(abi::REG_A0), index as u64);
+            assert_eq!(hart.regs.read(abi::REG_A1), 3);
+            assert_eq!(hart.regs.read(abi::REG_SP), config.system.ram_base + 0x100_0000);
+        }
     }
 
     #[test]

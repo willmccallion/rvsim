@@ -95,8 +95,13 @@ def main():
     ap.add_argument("--smoke", action="store_true",
                     help="single pipeline x first 50 tests")
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
+    ap.add_argument("--hart-count", type=int, default=None,
+                    help="Run every test on a system with this many harts")
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "riscv-tests.json"))
     args = ap.parse_args()
+
+    if args.hart_count:
+        os.environ["RVSIM_HART_COUNT"] = str(args.hart_count)
 
     tests = find_tests(args.filter)
     if not tests:

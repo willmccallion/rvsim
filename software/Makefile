@@ -25,6 +25,7 @@ APP_CFLAGS   = $(CFLAGS) $(INCLUDES) -O3
 
 # Objects
 CRT0_OBJ   = $(BUILD_DIR)/libc/crt0.o
+CRT0_SMP_OBJ = $(BUILD_DIR)/libc/crt0_smp.o
 STDIO_OBJ  = $(BUILD_DIR)/libc/stdio.o
 STDLIB_OBJ = $(BUILD_DIR)/libc/stdlib.o
 LINKER_SCR = $(LIB_DIR)/user.ld
@@ -43,6 +44,9 @@ BENCH_SYNTH_SRCS = $(wildcard $(BENCH_DIR)/synthetic/*.c)
 BENCH_KERN_SRCS  = $(wildcard $(BENCH_DIR)/kernels/*.c)
 BENCH_PROG_SRCS  = $(wildcard $(BENCH_DIR)/complete_prog/*.c)
 
+MULTICORE_SRCS = $(wildcard $(BENCH_DIR)/multicore/*.c)
+MULTICORE_ELFS = $(patsubst $(BENCH_DIR)/multicore/%.c, bin/multicore/%.elf, $(MULTICORE_SRCS))
+
 BENCH_ELFS = \
 	$(patsubst $(BENCH_DIR)/microbenchmarks/%.c, bin/benchmarks/%.elf, $(BENCH_MICRO_SRCS)) \
 	$(patsubst $(BENCH_DIR)/synthetic/%.c, bin/benchmarks/%.elf, $(BENCH_SYNTH_SRCS)) \
@@ -55,11 +59,15 @@ all: dirs disk
 
 dirs:
 	@mkdir -p $(BUILD_DIR)/libc $(BUILD_DIR)/programs \
-	          $(BUILD_DIR)/benchmarks \
-	          bin/programs bin/benchmarks
+	          $(BUILD_DIR)/benchmarks $(BUILD_DIR)/multicore \
+	          bin/programs bin/benchmarks bin/multicore
 
 # --- Libc ---
 $(CRT0_OBJ): $(LIB_DIR)/crt0.s
+	@echo "  AS (Lib) $<"
+	@$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(CRT0_SMP_OBJ): $(LIB_DIR)/crt0_smp.s
 	@echo "  AS (Lib) $<"
 	@$(CC) $(USER_CFLAGS) -c $< -o $@
 
@@ -102,6 +110,12 @@ bin/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(
 	@echo "  CC (Bench/Prog) $<"
 	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
 	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/benchmarks/$*.o -o $@
+
+# --- Multi-core programs (every hart runs smp_main) ---
+bin/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(CRT0_SMP_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
+	@echo "  CC (Multicore) $<"
+	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/multicore/$*.o
+	@$(LD) -T $(LINKER_SCR) $(CRT0_SMP_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(BUILD_DIR)/multicore/$*.o -o $@
 
 # --- CoreMark ---
 # Download source first:
@@ -146,8 +160,8 @@ linux:
 	@cd .. && python3 scripts/setup/boot_linux.py --no-boot
 
 # --- Disk Image ---
-disk: $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS)
-	@echo "  Built $(words $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS)) ELFs"
+disk: $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS) $(MULTICORE_ELFS)
+	@echo "  Built $(words $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS) $(MULTICORE_ELFS)) ELFs"
 	@echo "  Programs: bin/programs/"
 	@echo "  Benchmarks: bin/benchmarks/"
 

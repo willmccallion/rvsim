@@ -70,6 +70,13 @@ def main():
     if os.environ.get("RVSIM_MISALIGNED_TRAP") == "1":
         cfg.misaligned_access_trap = True
 
+    # Multi-hart runs: secondary harts park in the riscv-tests environment
+    # (`csrr a0, mhartid; bnez a0, .`), so every ISA test doubles as a check
+    # that extra harts neither crash nor disturb hart 0.
+    hart_count = os.environ.get("RVSIM_HART_COUNT")
+    if hart_count:
+        cfg.hart_count = int(hart_count)
+
     # Vector cosim tests are built for a specific VLEN (the path is
     # ``vlen{N}/test.elf``). The chipsalliance test ELF embeds VLEN-dependent
     # data layout, so a config with a different VLEN (e.g. ``ref linux`` at
