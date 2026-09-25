@@ -3,8 +3,8 @@
 //! Ties together the static configuration ([`config`]), the JEDEC timing
 //! table ([`timing`]), the per-bank / per-rank / per-subchannel dynamic
 //! state ([`state`]), the request selection policy ([`scheduler`]), the
-//! refresh cadence ([`refresh`]), the ECC scrubber ([`ecc`]), and the
-//! command state machines ([`controller`]).
+//! refresh cadence ([`refresh`]), the ECC scrubber ([`ecc`]), the command
+//! state machines ([`controller`]), and their statistics ([`stats`]).
 
 pub mod config;
 pub mod controller;
@@ -12,6 +12,7 @@ pub mod ecc;
 pub mod refresh;
 pub mod scheduler;
 pub mod state;
+pub mod stats;
 pub mod timing;
 
 pub use config::{Ddr5Config, PowerDownPolicy};

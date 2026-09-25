@@ -45,6 +45,7 @@ use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
     Bank, BankState, BusOp, DramChannel, PendingReq, PowerState, RefreshPhase, WriteDrainState,
 };
+use crate::soc::memory::ddr5::stats::ControllerStatPaths;
 
 /// Cache-line size used when constructing `LineAddr` in responses.
 const CACHE_LINE_BYTES: u64 = 64;
@@ -111,6 +112,8 @@ pub struct Ddr5Controller {
     layout: RankLayout,
     refresh_interval: u64,
     scrubber: Option<Scrubber>,
+    stat_paths: ControllerStatPaths,
+    stats_registered: bool,
     pending_commands: Vec<EmittedCommand>,
     pending_responses: Vec<ScheduledResponse>,
     /// Next DRAM clock the scheduler will process.
@@ -170,6 +173,13 @@ impl Ddr5Controller {
                 )
             })
             .collect();
+        let stat_paths = ControllerStatPaths::new(
+            self_id.val(),
+            usize::from(config.channels),
+            usize::from(config.subchannels_per_channel),
+            usize::from(config.ranks_per_channel),
+            bank_count,
+        );
         Self {
             buffer,
             base,
@@ -183,6 +193,8 @@ impl Ddr5Controller {
             layout,
             refresh_interval,
             scrubber,
+            stat_paths,
+            stats_registered: false,
             pending_commands: Vec::new(),
             pending_responses: Vec::new(),
             next_dram_cycle: 0,
@@ -254,6 +266,7 @@ impl Ddr5Controller {
             op,
             source,
             scrub,
+            activated: false,
         };
         let sc =
             &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
@@ -282,6 +295,7 @@ impl Ddr5Controller {
             for subch_idx in 0..subch_count {
                 let chan = ChannelId::new(index_to_u8(chan_idx));
                 let subch = SubchannelId::new(index_to_u8(subch_idx));
+                self.channels[chan_idx].subchannels[subch_idx].counters.clocks += 1;
                 self.admit(chan, subch, now);
                 self.tick_subchannel(chan, subch, now);
             }
@@ -305,6 +319,7 @@ impl Ddr5Controller {
             }
             if is_read_op(&request.op) {
                 if sc.write_queue.iter().any(|w| w.line == request.line) {
+                    sc.counters.reads_hit_write_queue += 1;
                     if !request.scrub {
                         let payload = self.service_buffer(&request);
                         self.pending_responses.push(ScheduledResponse::for_request(
@@ -316,14 +331,22 @@ impl Ddr5Controller {
                     continue;
                 }
                 if sc.read_queue.len() >= read_cap {
+                    sc.counters.read_admission_stalls += 1;
                     sc.inbound.push_front(request);
                     break;
                 }
+                if request.scrub {
+                    sc.counters.scrub_reads += 1;
+                } else {
+                    sc.counters.reads += 1;
+                }
+                sc.counters.read_queue_depth_samples.push(sc.read_queue.len() as u64);
                 sc.read_queue.push_back(request);
                 continue;
             }
             let merges = sc.write_queue.iter().any(|w| w.line == request.line);
             if !merges && sc.write_queue.len() >= write_cap {
+                sc.counters.write_admission_stalls += 1;
                 sc.inbound.push_front(request);
                 break;
             }
@@ -332,7 +355,11 @@ impl Ddr5Controller {
                 now + frontend,
                 MemRespData::Small(0),
             ));
-            if !merges {
+            if merges {
+                sc.counters.writes_merged += 1;
+            } else {
+                sc.counters.writes += 1;
+                sc.counters.write_queue_depth_samples.push(sc.write_queue.len() as u64);
                 sc.write_queue.push_back(request);
             }
         }
@@ -497,6 +524,7 @@ impl Ddr5Controller {
                     rank_mut.power_up_at = now + t.t_xp;
                     rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    sc.counters.power_down_exits += 1;
                     self.pending_commands.push(EmittedCommand {
                         channel: chan,
                         rank,
@@ -523,6 +551,7 @@ impl Ddr5Controller {
                         PowerState::PowerDown { since: now, with_open_rows: rank_mut.has_open_row() };
                     rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    sc.counters.power_down_entries += 1;
                     self.pending_commands.push(EmittedCommand {
                         channel: chan,
                         rank,
@@ -619,6 +648,7 @@ impl Ddr5Controller {
         {
             let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
             sc.last_command_cycle = sc.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            sc.counters.precharge_alls += 1;
             let rank_mut = &mut sc.ranks[rank.as_index()];
             rank_mut.last_command_cycle =
                 rank_mut.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
@@ -680,6 +710,7 @@ impl Ddr5Controller {
         let set = {
             let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
             sc.last_command_cycle = sc.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
+            sc.counters.refreshes += 1;
             let rank_mut = &mut sc.ranks[rank.as_index()];
             rank_mut.last_command_cycle =
                 rank_mut.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
@@ -756,22 +787,29 @@ impl Ddr5Controller {
         };
         let snapshot = self.bank_snapshot(ctx);
         let is_read = is_read_op(&request.op);
-        match snapshot.state {
+        let activated = match snapshot.state {
             BankState::Active if snapshot.open_row == Some(request.loc.row) => {
                 self.try_issue_column(&ctx, pick_writes, index, &request, is_read, now);
+                false
             }
             BankState::Active => {
                 self.try_issue_precharge(&ctx, &snapshot, now);
+                false
             }
             BankState::Precharging => {
                 let earliest = snapshot.last_precharge + self.config.timing.t_rp;
-                self.try_issue_activate(&ctx, earliest, now);
+                self.try_issue_activate(&ctx, earliest, now)
             }
-            BankState::Idle => {
-                self.try_issue_activate(&ctx, 0, now);
-            }
+            BankState::Idle => self.try_issue_activate(&ctx, 0, now),
             // Refreshing banks are never offered to the scheduler.
-            BankState::Refreshing => {}
+            BankState::Refreshing => false,
+        };
+        if activated {
+            let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+            let queue = if pick_writes { &mut sc.write_queue } else { &mut sc.read_queue };
+            if let Some(req) = queue.get_mut(index) {
+                req.activated = true;
+            }
         }
     }
 
@@ -825,6 +863,7 @@ impl Ddr5Controller {
             bank.state = BankState::Precharging;
             bank.last_precharge = fire_at;
             bank.open_row = None;
+            sc.counters.precharges += 1;
         }
         self.pending_commands.push(EmittedCommand {
             channel: ctx.chan,
@@ -875,11 +914,12 @@ impl Ddr5Controller {
 
     /// Issues ACTIVATE if legal at `now`; `not_before` covers state-dependent
     /// bounds already known by the caller (e.g. `last_precharge + tRP`).
-    fn try_issue_activate(&mut self, ctx: &BankCmdCtx, not_before: u64, now: u64) {
+    /// Returns `true` iff the command issued.
+    fn try_issue_activate(&mut self, ctx: &BankCmdCtx, not_before: u64, now: u64) -> bool {
         let bounds = self.activate_bounds(ctx);
         let earliest = bounds.earliest(not_before);
         if earliest > now {
-            return;
+            return false;
         }
         let fire_at = earliest.max(now);
         debug_assert!(
@@ -898,6 +938,7 @@ impl Ddr5Controller {
             bounds.rc,
         );
         self.commit_activate(ctx, fire_at);
+        true
     }
 
     fn commit_activate(&mut self, ctx: &BankCmdCtx, fire_at: u64) {
@@ -912,6 +953,8 @@ impl Ddr5Controller {
             bank.state = BankState::Active;
             bank.open_row = Some(ctx.row);
             bank.last_activate = fire_at;
+            bank.counters.activates += 1;
+            sc.counters.activates += 1;
         }
         self.pending_commands.push(EmittedCommand {
             channel: ctx.chan,
@@ -946,17 +989,37 @@ impl Ddr5Controller {
         let data_start = (fire_at + lead).max(data_start_aligned);
         let data_end = data_start + self.config.timing.bl_half;
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
-        if is_read {
-            if !request.scrub {
-                let payload = self.service_buffer(request);
-                let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
-                self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
-            }
-        } else {
-            let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.writes_this_drain += 1;
+        self.account_column(ctx, request, is_read, data_end);
+        if is_read && !request.scrub {
+            let payload = self.service_buffer(request);
+            let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
+            self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
         }
         self.pop_request(ctx.chan, ctx.subch, pick_writes, index);
+    }
+
+    /// Records the statistics of a column command that just issued.
+    fn account_column(&mut self, ctx: &BankCmdCtx, request: &PendingReq, is_read: bool, data_end: u64) {
+        let bl_half = self.config.timing.bl_half;
+        let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
+        let bank = &mut sc.ranks[ctx.rank.as_index()].banks[ctx.bank_index];
+        if request.activated {
+            bank.counters.row_misses += 1;
+            sc.counters.row_misses += 1;
+        } else {
+            bank.counters.row_hits += 1;
+            sc.counters.row_hits += 1;
+        }
+        if is_read {
+            bank.counters.reads += 1;
+            if !request.scrub {
+                sc.counters.read_latency_samples.push(data_end.saturating_sub(request.arrival_cycle));
+            }
+        } else {
+            bank.counters.writes += 1;
+            sc.writes_this_drain += 1;
+        }
+        sc.counters.bus_busy_clocks += bl_half;
     }
 
     fn pop_request(
@@ -1136,9 +1199,18 @@ impl Ddr5Controller {
             .banks[ctx.bank_index]
     }
 
-    /// Converts queued command traces and responses from DRAM clocks to
-    /// simulator cycles and schedules them.
+    /// Publishes accumulated statistics, then converts queued command traces
+    /// and responses from DRAM clocks to simulator cycles and schedules them.
     fn flush(&mut self, ctx: &mut HandleCtx<'_>) {
+        if !self.stats_registered {
+            self.stat_paths.register(ctx.stats);
+            self.stats_registered = true;
+        }
+        for (chan_idx, channel) in self.channels.iter_mut().enumerate() {
+            for (subch_idx, subchannel) in channel.subchannels.iter_mut().enumerate() {
+                self.stat_paths.publish(ctx.stats, chan_idx, subch_idx, subchannel);
+            }
+        }
         let self_component = ComponentId::MemCtrl(self.self_id);
         let clock = self.clock;
         for cmd in self.pending_commands.drain(..) {

@@ -7,6 +7,7 @@ pub mod power;
 pub mod refresh;
 pub mod row_buffer;
 pub mod scheduler;
+pub mod stats;
 pub mod stress;
 pub mod timing;
 pub mod write_drain;
