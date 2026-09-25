@@ -221,54 +221,117 @@ single-core behaviour is unchanged.
 Following CHI terminology, which maps cleanly onto real designs:
 
 - **Requesting agent (RA):** each core's private cache hierarchy, with the
-  L2 as the interface to the fabric. The L1D is kept coherent with its L2
-  by back-invalidation (inclusive at the coherence level).
+  L2 as its interface to the fabric. With more than one core the L2 is
+  made inclusive of its L1s so that a snoop can be answered from its tags;
+  a disabled L2 still acts as the agent for the L1s above it, and a core
+  with no private cache at all takes no part in coherence (its accesses
+  cross the fabric as non-snooped memory accesses).
 - **Home agent (HA):** the point of coherence for an address, co-located
   with the LLC. It serialises requests to a line, decides which RAs must
   be snooped, and forwards data from an owner or from memory.
 - **Interconnect:** carries request, snoop, response and data messages
   between RAs and the HA with modelled latency and bandwidth.
 
+### Messages
+
+Only the L2 ↔ home boundary speaks coherence messages (`Packet::Coh`);
+L1s and L2 keep exchanging `MemReq`/`MemResp`, whose responses carry the
+granted state. The vocabulary is CHI's:
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `ReadShared`, `ReadUnique` | RA → HA | fetch a line to read / to write |
+| `CleanUnique` | RA → HA | write permission for a line held Shared |
+| `WriteBack{dirty}`, `Evict` | RA → HA | a victim leaves the L2 (dirty data, or a clean copy so tracking stays exact) |
+| `SnpShared`, `SnpUnique`, `SnpInvalid` | HA → RA | keep at most a shared copy / drop the line / drop it for a recall |
+| `SnoopResp{had_copy, dirty}` | RA → HA | what the RA held |
+| `CompData{state}`, `Comp{state}` | HA → RA | completion with / without data |
+| `CompAck` | RA → HA | the completion was taken up |
+| `NoSnp`, `NoSnpData` | RA ↔ HA | an access outside coherence (a core without caches) |
+
+Each message belongs to one of four classes (request, snoop, response,
+data) that travel on separate virtual channels, so a response never waits
+behind a request. The home does not start the next transaction on a line
+until the requester's `CompAck` arrives, which is what lets an RA treat a
+snoop that arrives while it has a request outstanding for the line as
+ordered *before* that request: it answers from its current tags and the
+fill that follows is authoritative. Inside a core the L2 forwards probes
+to its L1s with the same delay as its responses, so the same rule holds
+one level up.
+
+Two consequences of that ordering are handled explicitly: a permission
+grant (`Comp` for a `CleanUnique`) that arrives after a snoop took the
+line is acknowledged and the fetch re-issued as `ReadUnique`; a
+`WriteBack` from a core whose line a snoop already collected is only
+acknowledged, its data having travelled with the snoop response.
+
 ### Traits
 
 ```rust
-pub trait CoherenceProtocol {
-    type State: Copy + Eq + Default;          // e.g. MesiState
-    fn on_request(&self, s: State, req: ReqKind) -> LocalAction;   // hit / need-upgrade / need-fill
-    fn on_snoop(&self, s: State, snoop: SnoopKind) -> SnoopAction; // downgrade / invalidate / supply
-    fn after_fill(&self, req: ReqKind, others_had_copy: bool) -> State;
+pub trait CoherenceProtocol {           // pure state machine; impl: Mesi
+    fn snoops_for(&self, kind: ReqKind, requester: CoreId, holders: Holders) -> Vec<(CoreId, SnoopKind)>;
+    fn grant(&self, kind: ReqKind, others_remain: bool) -> MesiState;
+    fn after_snoop(&self, current: MesiState, snoop: SnoopKind) -> MesiState;
 }
 
-pub trait HomeAgent {
-    fn on_request(&mut self, line: LineAddr, from: CoreId, req: ReqKind) -> HomeDecision;
-    fn on_snoop_response(&mut self, line: LineAddr, from: CoreId, resp: SnoopResp);
-    fn on_eviction(&mut self, line: LineAddr, from: CoreId);
+pub trait HomeAgent {                   // who holds a line; impls: Broadcast, SnoopFilter
+    fn holders(&mut self, line: LineAddr, ..) -> Option<Holders>;   // None: snoop everyone
+    fn room_for(&self, line: LineAddr, in_flight: &[LineAddr]) -> Room; // Available / Recall(victim) / AllBusy
+    fn on_grant(..); fn on_release(..); fn on_downgrade(..);
 }
-// impls: Broadcast (snoop everyone), SnoopFilter (bitmap of possible sharers), Directory (exact sharers + owner)
 
-pub trait Interconnect {
-    fn send(&mut self, now: u64, msg: CoherenceMsg) -> ();
-    fn tick(&mut self, now: u64) -> impl Iterator<Item = CoherenceMsg>;   // delivered this cycle
+pub trait Interconnect {                // impls: Crossbar, RoutedNetwork<Ring | Mesh2D | Hypercube>
+    fn send(&mut self, now: u64, from: Node, msg: CoherenceMsg);
+    fn tick(&mut self, now: u64, stats: &mut Stats, deliver: &mut dyn FnMut(Node, CoherenceMsg));
     fn topology(&self) -> TopologyInfo;
 }
-// impls: Crossbar (fixed latency, per-port bandwidth), Ring, Mesh (XY routing), Hypercube
 ```
 
-A transaction at the HA is a small state machine (a *transaction buffer*
-entry, like a CHI request tracker): request received → snoops sent →
-responses collected → data forwarded → done. Entries are the natural place
-for the stats real designs expose (snoops per request, cache-to-cache
-transfers, latency histograms). Line-level serialisation at the HA
-guarantees a single writer at any time; the protocol's invariants
-(at most one Modified/Exclusive holder, Shared only with an up-to-date
-memory or an Owner) are checked in debug builds after every transition.
+`CoherenceFabric` composes the three into the component the L2s talk to
+(`ComponentId::Fabric`). A transaction at the home is a small state
+machine, like a CHI request tracker: request admitted → (victim recalled
+to free tracking room) → snoops sent → responses collected → data fetched
+from the LLC or forwarded from the owner that answered dirty (whose data
+is written into the LLC at the same time) → completion sent → acknowledged.
+One transaction is live per line; later requests for the line queue
+behind it, which is the serialisation point that gives a single writer at
+any time. The LLC is an ordinary cache level the home reads and writes
+with `MemReq` packets.
+
+The **snoop filter** keeps an exact sharer bitmap and owner per tracked
+line in a set-associative array sized as a multiple of the aggregate
+private L2 capacity; when a set is full the least recently used line not
+in a live transaction is recalled (every holder invalidated) before the
+new line is tracked, as Arm's snoop filter and AMD's probe filter do. An
+untracked line with a live transaction already claims a way, so two
+concurrent misses to a full set recall two victims. **Broadcast** tracks
+nothing and snoops every other core.
+
+The **crossbar** queues messages per input port and class, arbitrates
+oldest-first for each output port and charges a hop latency plus the
+transfer time of the message at the port's bandwidth. The **routed
+networks** place the cores and the home on the nodes of a ring (shortest
+direction), a square mesh or torus (XY routing) or a hypercube
+(dimension-order routing); a message pays the hop latency and the link's
+transfer time at every hop, and each link carries one message per class
+at a time.
+
+### Invariants
+
+`coherence::audit` checks the whole system: for every line not in the
+middle of a transaction, at most one L2 holds it Modified or Exclusive and
+then no other L2 holds it; an L1 never holds a line its L2 does not, nor
+in a stronger state; the snoop filter's sharers and owner match what the
+L2s hold and it tracks no line nobody holds; no cache has duplicate tags.
+The multi-hart integration tests run the audit every few cycles on every
+home agent and interconnect.
 
 ### Default configuration
 
-MESI protocol, snoop-filter home agent at the LLC, crossbar interconnect
-with a configurable hop latency and per-port bandwidth. Single-core
-configurations bypass the fabric entirely and stay cycle-identical to
-today.
+MESI protocol, snoop-filter home agent (1.5× the private L2 lines, 8
+ways), crossbar interconnect with a 2-cycle hop and 32 bytes per cycle
+per port, 32 transaction entries. Single-core configurations have no
+fabric: the L2 talks to the LLC directly and stays cycle-identical.
 
 ### Growth paths
 
@@ -276,9 +339,8 @@ today.
   from the owner instead of writing back.
 - Directory at scale, hierarchical clusters, token coherence: new
   `HomeAgent` impls; a cluster is a `HomeAgent` that wraps two agents.
-- Ring / mesh / hypercube: new `Interconnect` impls, no protocol change.
-- Virtual channels: an interconnect concern; message classes are already
-  distinct enum variants so deadlock-freedom can be enforced per channel.
+- L1 presence bits in the L2 tags, so a snoop only probes the L1s that
+  may hold the line (today every snoop probes both L1s).
 - Memory consistency experiments: a `ConsistencyModel` gate in the load
   queue, orthogonal to coherence.
 
@@ -304,7 +366,8 @@ single-core configurations cycle-identical to the previous stage.
    interrupt lines, device tree enumeration, secondary hart reset, cross
    hart reservation invalidation; a two-hart synchronisation test.
 3. **Coherence fabric.** Protocol, home agent and interconnect traits with
-   MESI, snoop filter and crossbar; coherence states in private caches;
-   invariant checks; stats; litmus-style tests.
+   MESI, broadcast and snoop-filter homes, crossbar, ring, mesh, torus and
+   hypercube; coherence states in private caches; invariant audit; stats;
+   audited multi-hart tests.
 4. **Exposure.** Python `Config(hart_count=N)` plus per-hart accessors,
    per-core statistics paths, documentation.
