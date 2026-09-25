@@ -1803,6 +1803,16 @@ pub enum ConfigError {
     /// More harts than the coherence structures can track.
     #[error("hart_count {0} exceeds the 64 cores a coherence sharer set can hold")]
     TooManyHarts(usize),
+    /// The BTB's set count must be a power of two for its index hash.
+    #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
+    BtbSets {
+        /// Configured entries.
+        size: usize,
+        /// Configured ways.
+        ways: usize,
+        /// Resulting sets.
+        sets: usize,
+    },
 }
 
 impl Config {
@@ -1818,6 +1828,11 @@ impl Config {
         }
         if harts > 1 && self.cache.inclusion_policy == InclusionPolicy::Exclusive {
             return Err(ConfigError::ExclusiveWithCoherence);
+        }
+        let ways = self.pipeline.btb_ways.max(1);
+        let sets = (self.pipeline.btb_size / ways).max(1);
+        if !sets.is_power_of_two() {
+            return Err(ConfigError::BtbSets { size: self.pipeline.btb_size, ways, sets });
         }
         Ok(())
     }

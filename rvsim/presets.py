@@ -90,7 +90,7 @@ def fast() -> Config:
             ittage_tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
             ittage_reset_interval=500_000,
         ),
-        btb_size=12288,
+        btb_size=16384,
         btb_ways=8,
         ras_size=48,
         # ── Out-of-order backend ─────────────────────────────────────────

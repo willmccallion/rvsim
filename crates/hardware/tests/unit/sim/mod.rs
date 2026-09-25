@@ -3,6 +3,9 @@
 //! This module contains unit tests for simulation-related functionality,
 //! including binary loading and system initialization.
 
+/// Tests for the checks applied to a configuration before use.
+pub mod config_validation;
+
 /// Tests for the generated device tree.
 pub mod dtb;
 
