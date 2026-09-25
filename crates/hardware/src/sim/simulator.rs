@@ -9,7 +9,7 @@
 //! 3. Drain events scheduled for the new cycle into their targets.
 //! 4. Tick every pipeline in core order.
 //! 5. Drain again so packets the pipelines just emitted reach their targets.
-//! 6. Tick memory controllers, then drain once more.
+//! 6. Tick memory controllers, then the coherence fabric, then drain once more.
 //! 7. Per-hart post-tick.
 //!
 //! Memory traffic (instruction fetch, load, store, page-table walk) flows
@@ -127,8 +127,10 @@ impl Simulator {
         // cycle's start-of-tick drain delivers their responses.
         self.drain_events();
         self.tick_mem_controller();
+        self.tick_fabric();
         // Drain again so commands / responses emitted during the memory
-        // controller's tick reach the pipeline mailboxes on the following cycle.
+        // controller's and fabric's ticks reach their targets on the
+        // following cycle.
         self.drain_events();
         for core in 0..self.pipelines.len() {
             let prev = self.prev_privileges[self.state.topology.cores[core].hart_ids[0].as_index()];
@@ -191,11 +193,39 @@ impl Simulator {
                 };
                 shared.mem_controller.handle(packet, source, &mut ctx);
             }
+            ComponentId::Fabric => {
+                let shared = &mut self.state.shared;
+                if let Some(fabric) = shared.coherence.as_mut() {
+                    let mut ctx = HandleCtx {
+                        scheduler: &mut shared.event_queue,
+                        stats: &mut shared.stats,
+                        config: &shared.config,
+                        cycle: shared.cycle,
+                        self_id: ComponentId::Fabric,
+                    };
+                    fabric.handle(packet, source, &mut ctx);
+                }
+            }
             ComponentId::Device(_) | ComponentId::Hart(_) | ComponentId::Core(_) => {
                 // Devices are routed via Bus; Hart / Core targeting is
-                // reserved for coherence packets.
+                // reserved for future per-hart packets.
             }
         }
+    }
+
+    /// Advances the coherence fabric one cycle: moves messages through the
+    /// interconnect and lets the home agent act on what arrived.
+    fn tick_fabric(&mut self) {
+        let shared = &mut self.state.shared;
+        let Some(fabric) = shared.coherence.as_mut() else { return };
+        let mut ctx = HandleCtx {
+            scheduler: &mut shared.event_queue,
+            stats: &mut shared.stats,
+            config: &shared.config,
+            cycle: shared.cycle,
+            self_id: ComponentId::Fabric,
+        };
+        fabric.tick(&mut ctx);
     }
 
     /// Retrieves the exit code if the simulation has finished.

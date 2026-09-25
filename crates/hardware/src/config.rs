@@ -494,6 +494,10 @@ pub struct Config {
     pub memory: MemoryConfig,
     /// Cache hierarchy configuration
     pub cache: CacheHierarchyConfig,
+    /// Coherence fabric between the private caches (used when
+    /// `system.hart_count > 1`).
+    #[serde(default)]
+    pub coherence: CoherenceConfig,
     /// Pipeline and branch predictor configuration
     pub pipeline: PipelineConfig,
     /// ISA capability flags (vector ELEN/Zvfh, future Zvk*/H/Sstc/...).
@@ -1644,5 +1648,141 @@ impl StoreSetConfig {
     /// Returns the default SSIT clear interval (0 = never).
     const fn default_ssit_clear_interval() -> u64 {
         100_000
+    }
+}
+
+/// Which home agent decides who must be snooped.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(tag = "kind")]
+pub enum HomeAgentConfig {
+    /// Snoop every other core on every request.
+    Broadcast,
+    /// Exact sharer tracking in a set-associative filter.
+    SnoopFilter {
+        /// Tracked lines as a multiple of the aggregate private L2 lines.
+        #[serde(default = "HomeAgentConfig::default_capacity_factor")]
+        capacity_factor: f64,
+        /// Filter associativity.
+        #[serde(default = "HomeAgentConfig::default_ways")]
+        ways: usize,
+    },
+}
+
+impl HomeAgentConfig {
+    const fn default_capacity_factor() -> f64 {
+        1.5
+    }
+
+    const fn default_ways() -> usize {
+        8
+    }
+}
+
+impl Default for HomeAgentConfig {
+    fn default() -> Self {
+        Self::SnoopFilter { capacity_factor: Self::default_capacity_factor(), ways: Self::default_ways() }
+    }
+}
+
+/// Which interconnect carries coherence messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind")]
+pub enum InterconnectConfig {
+    /// Any port to any port, one hop.
+    Crossbar {
+        /// Cycles a message spends crossing.
+        #[serde(default = "InterconnectConfig::default_hop_latency")]
+        hop_latency: u64,
+        /// Bytes an output port moves per cycle.
+        #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
+        bytes_per_cycle: usize,
+    },
+}
+
+impl InterconnectConfig {
+    const fn default_hop_latency() -> u64 {
+        2
+    }
+
+    const fn default_bytes_per_cycle() -> usize {
+        32
+    }
+}
+
+impl Default for InterconnectConfig {
+    fn default() -> Self {
+        Self::Crossbar { hop_latency: Self::default_hop_latency(), bytes_per_cycle: Self::default_bytes_per_cycle() }
+    }
+}
+
+/// Coherence protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum CoherenceProtocolConfig {
+    /// Modified / Exclusive / Shared / Invalid.
+    #[default]
+    Mesi,
+}
+
+/// Coherence fabric configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct CoherenceConfig {
+    /// Protocol.
+    #[serde(default)]
+    pub protocol: CoherenceProtocolConfig,
+    /// Home agent.
+    #[serde(default)]
+    pub home_agent: HomeAgentConfig,
+    /// Interconnect.
+    #[serde(default)]
+    pub interconnect: InterconnectConfig,
+    /// Transactions the home can have live at once.
+    #[serde(default = "CoherenceConfig::default_txn_entries")]
+    pub txn_entries: usize,
+}
+
+impl CoherenceConfig {
+    const fn default_txn_entries() -> usize {
+        32
+    }
+}
+
+impl Default for CoherenceConfig {
+    fn default() -> Self {
+        Self {
+            protocol: CoherenceProtocolConfig::default(),
+            home_agent: HomeAgentConfig::default(),
+            interconnect: InterconnectConfig::default(),
+            txn_entries: Self::default_txn_entries(),
+        }
+    }
+}
+
+/// A configuration the simulator cannot build.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConfigError {
+    /// The cache inclusion policy cannot be combined with several harts.
+    #[error("inclusion_policy Exclusive is not supported with hart_count > 1: the L2 must be inclusive of its L1s to answer snoops")]
+    ExclusiveWithCoherence,
+    /// More harts than the coherence structures can track.
+    #[error("hart_count {0} exceeds the 64 cores a coherence sharer set can hold")]
+    TooManyHarts(usize),
+}
+
+impl Config {
+    /// Checks the combinations the simulator cannot build.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] found.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let harts = self.system.hart_count.max(1);
+        if harts > 64 {
+            return Err(ConfigError::TooManyHarts(harts));
+        }
+        if harts > 1 && self.cache.inclusion_policy == InclusionPolicy::Exclusive {
+            return Err(ConfigError::ExclusiveWithCoherence);
+        }
+        Ok(())
     }
 }

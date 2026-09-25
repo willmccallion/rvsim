@@ -26,6 +26,17 @@ pub struct CacheStatPaths {
     pub back_invalidations: &'static str,
     /// Probes received on behalf of a snoop.
     pub probes: &'static str,
+    /// Snoops received from the home agent (coherent L2 only).
+    pub snoops: &'static str,
+    /// Snoops that took the line away.
+    pub snoop_invalidations: &'static str,
+    /// Snoops that left a shared copy.
+    pub snoop_downgrades: &'static str,
+    /// Permission requests for a line held Shared (`CleanUnique`).
+    pub upgrades: &'static str,
+    /// Permission grants that arrived after a snoop took the line, re-issued
+    /// as `ReadUnique`.
+    pub upgrade_retries: &'static str,
     /// Prefetch fetches started.
     pub prefetches_issued: &'static str,
     /// Prefetch fetches a demand request joined before the fill arrived.
@@ -49,6 +60,11 @@ impl CacheStatPaths {
             writebacks: path("writebacks"),
             back_invalidations: path("back_invalidations"),
             probes: path("probes"),
+            snoops: path("coherence.snoops"),
+            snoop_invalidations: path("coherence.invalidations"),
+            snoop_downgrades: path("coherence.downgrades"),
+            upgrades: path("coherence.upgrades"),
+            upgrade_retries: path("coherence.upgrade_retries"),
             prefetches_issued: path("prefetches.issued"),
             prefetches_useful: path("prefetches.useful"),
             miss_rate: path("miss_rate"),

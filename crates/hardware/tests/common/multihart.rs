@@ -52,3 +52,21 @@ impl MultiHart {
         self.sim.probe_mem_load(PhysAddr::new(addr), 8)
     }
 }
+
+impl MultiHart {
+    /// Like [`MultiHart::new`], with the caller's configuration (its hart
+    /// count included).
+    pub fn with_config(config: &Config, program: &[u32]) -> Self {
+        let mut sim = Simulator::build(config, "");
+        for (index, word) in program.iter().enumerate() {
+            let addr = PROGRAM_BASE + (index as u64) * 4;
+            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
+        }
+        for hart in &mut sim.state.harts {
+            hart.pc = PROGRAM_BASE;
+            hart.committed_next_pc = PROGRAM_BASE;
+        }
+        sim.sync_arch_regs();
+        Self { sim }
+    }
+}

@@ -21,7 +21,7 @@ const MHARTID: u32 = 0xF14;
 const SYS_EXIT: i32 = 93;
 
 /// Lock at `data[0]`, counter at `data[1]`, arrival count at `data[2]`.
-fn program(harts: i32, iterations: i32) -> Vec<u32> {
+pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().addi(T0, 0, 31).build(),

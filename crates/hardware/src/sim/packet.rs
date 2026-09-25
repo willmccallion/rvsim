@@ -9,7 +9,8 @@
 //! Hot-path responses inline up to 8 bytes; cache-line payloads box their data
 //! to keep the enum small.
 
-use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
+use crate::coherence::messages::CoherenceMsg;
+use crate::common::{LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
 
 /// Width of a single memory access in bytes.
@@ -137,19 +138,6 @@ pub enum CacheLevel {
     L3,
 }
 
-/// Coherence snoop kind (used in Phase 8+ multi-core).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SnoopKind {
-    /// Reader is requesting shared access; current holder may keep `S`.
-    Read,
-    /// Reader is requesting exclusive access; current holder must invalidate.
-    ReadForOwnership,
-    /// Writeback request from an evicting cache.
-    Writeback,
-    /// Probe for line state without changing it.
-    Probe,
-}
-
 /// What a [`Packet::Probe`] asks of the line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProbeKind {
@@ -275,6 +263,8 @@ pub enum Packet {
         line_addr: LineAddr,
         /// Correlator from the probe.
         txn: ReqId,
+        /// Whether the responder (or a cache above it) held the line at all.
+        had_copy: bool,
         /// Whether the responder held the line modified.
         dirty: bool,
     },
@@ -295,28 +285,8 @@ pub enum Packet {
         /// Cache level that issued the prefetch.
         source_level: CacheLevel,
     },
-    /// Coherence snoop request from a remote core.
-    SnoopReq {
-        /// Correlator.
-        req_id: ReqId,
-        /// Line being snooped.
-        line_addr: LineAddr,
-        /// What the requester is asking for.
-        kind: SnoopKind,
-        /// Originating core.
-        requester: CoreId,
-    },
-    /// Coherence snoop response back to the requester.
-    SnoopResp {
-        /// Matches the request.
-        req_id: ReqId,
-        /// Line in question.
-        line_addr: LineAddr,
-        /// Responder's resulting state for the line.
-        state: MesiState,
-        /// Optional dirty data if the responder is sourcing it.
-        data: Option<MemRespData>,
-    },
+    /// A coherence message between a private L2 and the home agent.
+    Coh(CoherenceMsg),
     /// DRAM-internal command (visible for command-level stats).
     DramCmd {
         /// Channel index.

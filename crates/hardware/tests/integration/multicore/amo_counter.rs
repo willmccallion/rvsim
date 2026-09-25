@@ -20,7 +20,7 @@ const SYS_EXIT: i32 = 93;
 
 /// `data[0] += 1` `iterations` times on every hart, then `data[1] += 1`;
 /// hart 0 waits for `data[1] == harts` and exits with `data[0]`.
-fn program(harts: i32, iterations: i32) -> Vec<u32> {
+pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().addi(T0, 0, 31).build(),

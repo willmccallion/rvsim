@@ -84,6 +84,16 @@ impl ReqId {
     }
 }
 
+impl ReqId {
+    /// A correlator for a transaction the coherence fabric originates
+    /// itself (a recall, or a data fetch from the LLC on a requester's
+    /// behalf); bit 62 marks the fabric namespace.
+    #[must_use]
+    pub const fn for_fabric(seq: u64) -> Self {
+        Self((1 << 62) | (seq & ((1 << 48) - 1)))
+    }
+}
+
 impl_id_methods!(CacheId, u32);
 impl_id_methods!(PipelineId, u32);
 impl_id_methods!(MemCtrlId, u32);
@@ -117,6 +127,8 @@ pub enum ComponentId {
     MemCtrl(MemCtrlId),
     /// An MMIO device (UART, CLINT, PLIC, …).
     Device(DeviceId),
+    /// The coherence fabric: home agent plus interconnect.
+    Fabric,
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
 use crate::common::{CoreId, HartId};
+use crate::coherence::stats::CoherenceStatPaths;
 use crate::core::units::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 
@@ -304,6 +305,7 @@ impl Stats {
         harts: &[HartPaths],
         cores: &[(CorePaths, HartId)],
         caches: &[CacheStatPaths],
+        coherence: Option<&CoherenceStatPaths>,
     ) -> Self {
         let mut s = Self::new();
         for hart in harts {
@@ -315,6 +317,9 @@ impl Stats {
         for cache in caches {
             register_cache(&mut s, cache);
         }
+        if let Some(fabric) = coherence {
+            register_coherence(&mut s, fabric);
+        }
         register_system(&mut s, harts);
         s
     }
@@ -324,7 +329,7 @@ impl Stats {
     #[must_use]
     pub fn with_default_registrations() -> Self {
         let hart = HartId::new(0);
-        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)], &[])
+        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)], &[], None)
     }
 
     /// Returns a mutable reference to the counter at `path`.
@@ -564,9 +569,38 @@ fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
     s.register(c.writebacks, Meta::events("lines written to the next level"));
     s.register(c.back_invalidations, Meta::events("lines dropped at the next level's request"));
     s.register(c.probes, Meta::events("probes received on behalf of snoops"));
+    s.register(c.snoops, Meta::events("snoops received from the home agent"));
+    s.register(c.snoop_invalidations, Meta::events("snoops that took the line away"));
+    s.register(c.snoop_downgrades, Meta::events("snoops that left a shared copy"));
+    s.register(c.upgrades, Meta::events("permission requests for lines held Shared"));
+    s.register(c.upgrade_retries, Meta::events("permission grants that arrived after a snoop took the line"));
     s.register(c.prefetches_issued, Meta::events("prefetch fetches started"));
     s.register(c.prefetches_useful, Meta::events("prefetch fetches a demand request joined"));
     s.derive(c.miss_rate, Formula::Ratio { numerator: c.misses, other: c.hits }, Meta::ratio("miss rate"));
+}
+
+/// Registers the coherence fabric's counters.
+fn register_coherence(s: &mut Stats, c: &CoherenceStatPaths) {
+    let h = &c.home;
+    s.register(h.read_shared, Meta::events("ReadShared requests"));
+    s.register(h.read_unique, Meta::events("ReadUnique requests"));
+    s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
+    s.register(h.writebacks, Meta::events("writebacks from private caches"));
+    s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
+    s.register(h.stale_writebacks, Meta::events("writebacks whose line a snoop had already collected"));
+    s.register(h.non_coherent, Meta::events("accesses carried to memory without snooping"));
+    s.register(h.snoops_sent, Meta::events("snoops sent"));
+    s.register(h.c2c_transfers, Meta::events("requests served from another core's modified copy"));
+    s.register(h.recalls, Meta::events("lines recalled to free tracking room"));
+    s.register(h.serialised, Meta::events("requests that waited for an earlier transaction on their line"));
+    s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
+    s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
+    s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
+    let i = &c.interconnect;
+    s.register(i.messages, Meta::events("messages transferred"));
+    s.register(i.bytes, Meta::events("bytes transferred"));
+    s.register(i.blocked_cycles, Meta::cycles("message-cycles spent waiting for a busy link or port"));
+    s.register(i.busy_cycles, Meta::cycles("port-class-cycles spent transferring"));
 }
 
 /// Registers the `system.*` sums over every hart.

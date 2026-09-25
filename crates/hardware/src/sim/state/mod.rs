@@ -24,6 +24,7 @@ pub mod trap;
 /// Record of RAM writes for cross-hart visibility checks.
 pub mod write_log;
 
+use crate::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::common::{HartId, PhysAddr, RegisterFile};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
@@ -68,6 +69,9 @@ pub struct SharedState {
     pub mem_controller: Box<dyn MemoryController + Send + Sync>,
     /// Shared last-level cache.
     pub l3_cache: Cache,
+    /// Home agent and interconnect between the private L2s and the LLC;
+    /// present only when more than one core shares memory.
+    pub coherence: Option<CoherenceFabric>,
     /// LR/SC reservations, one per hart.
     pub reservations: ReservationSet,
     /// Most recent RAM write per cache line; present only when more than
@@ -539,14 +543,19 @@ impl SimState {
             })
             .collect();
 
-        let cores: Vec<Core> = topology
+        let mut cores: Vec<Core> = topology
             .cores
             .iter()
             .map(|c| Core::new(c.core_id, config, c.l1i.val(), topology.llc))
             .collect();
-        for core in &cores {
-            l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
-        }
+        let coherence = if cores.len() > 1 {
+            Some(Self::attach_coherence_fabric(config, &mut cores, &mut l3_cache))
+        } else {
+            for core in &cores {
+                l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
+            }
+            None
+        };
 
         let hart_stat_paths: Vec<HartPaths> =
             harts.iter().map(|hart| HartPaths::new(hart.hart_id)).collect();
@@ -561,7 +570,12 @@ impl SimState {
             .flat_map(|core| [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths])
             .chain(std::iter::once(l3_cache.stat_paths))
             .collect();
-        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths, &cache_stat_paths);
+        let stats = Stats::for_components(
+            &hart_stat_paths,
+            &core_stat_paths,
+            &cache_stat_paths,
+            coherence.as_ref().map(CoherenceFabric::stat_paths),
+        );
 
         Self {
             harts,
@@ -572,6 +586,7 @@ impl SimState {
                 bus,
                 mem_controller,
                 l3_cache,
+                coherence,
                 reservations: ReservationSet::new(hart_count),
                 write_log: (hart_count > 1).then(|| {
                     let line_bytes = if config.cache.l1_d.line_bytes == 0 {
@@ -596,6 +611,27 @@ impl SimState {
         }
     }
 
+    /// Puts the coherence fabric between every core's L2 and the LLC: the
+    /// L2s become requesting agents (inclusive of their L1s so a snoop can
+    /// be answered from their tags) and the LLC serves the home agent. A
+    /// core with no private cache at all holds no lines, so its accesses
+    /// cross the fabric without taking part in coherence.
+    fn attach_coherence_fabric(config: &Config, cores: &mut [Core], llc: &mut Cache) -> CoherenceFabric {
+        let agents: Vec<ComponentId> = cores.iter().map(|core| ComponentId::Cache(core.l2_cache.id)).collect();
+        let caches_lines = config.cache.l1_i.enabled || config.cache.l1_d.enabled || config.cache.l2.enabled;
+        for core in cores.iter_mut() {
+            core.l2_cache.set_downstream(ComponentId::Fabric);
+            if caches_lines {
+                core.l2_cache.set_coherent(core.core_id);
+            }
+            core.l2_cache.set_upstream_inclusion(InclusionPolicy::Inclusive);
+        }
+        llc.add_upstream(ComponentId::Fabric);
+        llc.set_upstream_inclusion(InclusionPolicy::Nine);
+        let line_bytes = llc.line_bytes();
+        let private_l2_lines = cores.iter().map(|core| core.l2_cache.line_count()).sum();
+        coherence::build(&config.coherence, FabricGeometry { line_bytes, private_l2_lines }, ComponentId::Cache(llc.id), agents)
+    }
 }
 
 #[cfg(test)]

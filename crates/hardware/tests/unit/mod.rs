@@ -10,6 +10,9 @@
 /// defaults, and validation of all configuration options.
 pub mod config;
 
+/// Unit tests for the coherence fabric.
+pub mod coherence;
+
 /// Unit tests for common RISC-V components.
 ///
 /// This module includes tests for address arithmetic, register indexing,

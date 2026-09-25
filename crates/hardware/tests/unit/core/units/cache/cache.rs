@@ -578,18 +578,21 @@ fn a_downgrade_probe_leaves_a_shared_copy() {
 }
 
 #[test]
-fn a_probe_that_hits_an_in_flight_fetch_is_applied_after_the_fill() {
+fn a_probe_that_hits_an_in_flight_fetch_leaves_the_fill_alone() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.read(1, 0x1000);
     let fetch = bench.downstream_requests();
     bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn: ReqId::new(5) }, DOWNSTREAM);
     let events = bench.drain();
-    assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { dirty: false, .. })), "answered at once: the line is not here yet");
+    assert!(
+        events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { had_copy: false, dirty: false, .. })),
+        "answered at once: the line is not here yet"
+    );
 
     bench.fill(fetch[0].0, 0x1000);
     let events = bench.drain();
     assert_eq!(responses_to(&events, PIPELINE).len(), 1, "the waiting load still gets its data");
-    assert!(!bench.cache.contains(0x1000), "then the probe takes the line away");
+    assert!(bench.cache.contains(0x1000), "the fill was ordered after the probe, so the line stays");
 }
 
 #[test]
@@ -612,10 +615,313 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     assert!(events.iter().all(|e| !matches!(e.packet, Packet::ProbeResp { .. })), "not answered yet");
 
     let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
-    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[0], dirty: false }, UPSTREAM);
+    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[0], had_copy: true, dirty: false }, UPSTREAM);
     assert!(bench.drain().is_empty());
-    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[1], dirty: true }, third);
+    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[1], had_copy: true, dirty: true }, third);
     let events = bench.drain();
     assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
     assert!(!bench.cache.contains(0x1000));
+}
+
+mod coherent {
+    //! The L2 as a core's requesting agent: misses, upgrades, writebacks
+    //! and evictions become coherence messages to the home (the bench
+    //! plays the fabric at `DOWNSTREAM`), snoops turn into probes of the
+    //! L1s, and completions are acknowledged.
+
+    use super::*;
+    use rvsim_core::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
+    use rvsim_core::common::CoreId;
+
+    const CORE: CoreId = CoreId::new(0);
+
+    fn coherent_l2(enabled: bool) -> Bench {
+        let config = CacheConfig { enabled, ..test_config() };
+        let mut cache = Cache::new(CacheId::new(0), CacheLevel::L2, &config, "test");
+        cache.set_downstream(DOWNSTREAM);
+        cache.add_upstream(UPSTREAM);
+        cache.set_coherent(CORE);
+        Bench::new(cache)
+    }
+
+    fn line(addr: u64) -> LineAddr {
+        LineAddr::from_phys(PhysAddr::new(addr), 64)
+    }
+
+    fn requests(events: &[Event]) -> Vec<(ReqId, ReqKind, u64, u64)> {
+        events
+            .iter()
+            .filter(|e| e.target == DOWNSTREAM)
+            .filter_map(|e| match e.packet {
+                Packet::Coh(CoherenceMsg::Req { txn, line, kind, .. }) => Some((txn, kind, line.val(), e.fire_at)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn acks(events: &[Event]) -> Vec<ReqId> {
+        events
+            .iter()
+            .filter_map(|e| match e.packet {
+                Packet::Coh(CoherenceMsg::CompAck { txn, .. }) if e.target == DOWNSTREAM => Some(txn),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn snoop_responses(events: &[Event]) -> Vec<(bool, bool)> {
+        events
+            .iter()
+            .filter_map(|e| match e.packet {
+                Packet::Coh(CoherenceMsg::SnoopResp { had_copy, dirty, .. }) if e.target == DOWNSTREAM => Some((had_copy, dirty)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn probes(events: &[Event]) -> Vec<(ProbeKind, ReqId, u64)> {
+        events
+            .iter()
+            .filter_map(|e| match e.packet {
+                Packet::Probe { kind, txn, .. } if e.target == UPSTREAM => Some((kind, txn, e.fire_at)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    impl Bench {
+        fn complete(&mut self, txn: ReqId, addr: u64, state: MesiState, with_data: bool) {
+            let msg = if with_data {
+                CoherenceMsg::CompData { txn, line: line(addr), to: CORE, state }
+            } else {
+                CoherenceMsg::Comp { txn, line: line(addr), to: CORE, state }
+            };
+            self.deliver(Packet::Coh(msg), DOWNSTREAM);
+        }
+
+        fn snoop(&mut self, addr: u64, kind: SnoopKind) -> ReqId {
+            let txn = ReqId::for_fabric(0x55);
+            self.deliver(Packet::Coh(CoherenceMsg::Snoop { txn, line: line(addr), kind, target: CORE }), DOWNSTREAM);
+            txn
+        }
+
+        fn line_request(&mut self, req_id: u64, addr: u64, op: MemOp) {
+            self.deliver(
+                Packet::MemReq { req_id: ReqId::new(req_id), paddr: PhysAddr::new(addr), vaddr: None, size: AccessSize::Line, op },
+                UPSTREAM,
+            );
+        }
+
+        /// Installs `addr` through a coherence request completed in `state`.
+        fn install_coherent(&mut self, req_id: u64, addr: u64, op: MemOp, state: MesiState) {
+            self.request(req_id, addr, op);
+            let reqs = requests(&self.drain());
+            assert_eq!(reqs.len(), 1, "one request for the line");
+            self.complete(reqs[0].0, addr, state, true);
+            let _ = self.drain();
+        }
+    }
+
+    #[test]
+    fn a_read_miss_asks_the_home_for_a_shared_copy_and_acknowledges_the_data() {
+        let mut bench = coherent_l2(true);
+
+        bench.read(1, 0x1000);
+        let events = bench.drain();
+        let reqs = requests(&events);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!((reqs[0].1, reqs[0].2, reqs[0].3), (ReqKind::ReadShared, 0x1000, bench.cycle + LATENCY));
+        assert!(events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })), "no plain memory request");
+
+        bench.complete(reqs[0].0, 0x1000, MesiState::Exclusive, true);
+        let events = bench.drain();
+        assert_eq!(acks(&events), vec![reqs[0].0]);
+        assert_eq!(responses_to(&events, PIPELINE).len(), 1);
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Exclusive));
+    }
+
+    #[test]
+    fn a_write_miss_asks_for_a_unique_copy() {
+        let mut bench = coherent_l2(true);
+        bench.write(1, 0x1000);
+        let reqs = requests(&bench.drain());
+        assert_eq!(reqs[0].1, ReqKind::ReadUnique);
+        bench.complete(reqs[0].0, 0x1000, MesiState::Modified, true);
+        let _ = bench.drain();
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+    }
+
+    #[test]
+    fn a_write_to_a_shared_line_asks_for_permission_only() {
+        let mut bench = coherent_l2(true);
+        bench.install_coherent(1, 0x1000, MemOp::Read, MesiState::Shared);
+
+        bench.write(2, 0x1008);
+        let reqs = requests(&bench.drain());
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].1, ReqKind::CleanUnique);
+        assert_eq!(bench.stat("test.coherence.upgrades"), 1);
+
+        bench.complete(reqs[0].0, 0x1000, MesiState::Modified, false);
+        let events = bench.drain();
+        assert_eq!(responses_to(&events, PIPELINE).len(), 1);
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+        assert_eq!(bench.stat("test.fills"), 2, "the grant fills the line in place");
+    }
+
+    #[test]
+    fn a_snoop_probes_the_l1s_after_the_lookup_and_answers_with_their_verdict() {
+        let mut bench = coherent_l2(true);
+        bench.install_coherent(1, 0x1000, MemOp::Write { data: WriteData::Small(1) }, MesiState::Modified);
+
+        let txn = bench.snoop(0x1000, SnoopKind::Unique);
+        let events = bench.drain();
+        let sent = probes(&events);
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].0, sent[0].2), (ProbeKind::Invalidate, bench.cycle + LATENCY));
+        assert!(snoop_responses(&events).is_empty(), "the L1s have not answered yet");
+        assert_eq!(bench.state_of(0x1000), None, "our own copy is given up at once");
+        assert!(events.iter().all(|e| !matches!(e.packet, Packet::Coh(CoherenceMsg::Req { .. }))), "no writeback: the data goes with the snoop answer");
+
+        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
+        let events = bench.drain();
+        assert_eq!(snoop_responses(&events), vec![(true, true)]);
+        assert!(events.iter().any(|e| matches!(e.packet, Packet::Coh(CoherenceMsg::SnoopResp { txn: t, .. }) if t == txn)));
+        assert_eq!(bench.stat("test.coherence.snoops"), 1);
+        assert_eq!(bench.stat("test.coherence.invalidations"), 1);
+    }
+
+    #[test]
+    fn a_shared_snoop_keeps_a_shared_copy() {
+        let mut bench = coherent_l2(true);
+        bench.install_coherent(1, 0x1000, MemOp::Read, MesiState::Exclusive);
+
+        bench.snoop(0x1000, SnoopKind::Shared);
+        let events = bench.drain();
+        let sent = probes(&events);
+        assert_eq!(sent[0].0, ProbeKind::Downgrade);
+        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        let events = bench.drain();
+        assert_eq!(snoop_responses(&events), vec![(true, false)]);
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
+        assert_eq!(bench.stat("test.coherence.downgrades"), 1);
+    }
+
+    #[test]
+    fn a_snoop_for_an_absent_line_says_so_without_touching_the_fetch() {
+        let mut bench = coherent_l2(true);
+        bench.read(1, 0x1000);
+        let reqs = requests(&bench.drain());
+
+        bench.snoop(0x1000, SnoopKind::Unique);
+        let events = bench.drain();
+        let sent = probes(&events);
+        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        assert_eq!(snoop_responses(&bench.drain()), vec![(false, false)]);
+
+        bench.complete(reqs[0].0, 0x1000, MesiState::Exclusive, true);
+        let _ = bench.drain();
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Exclusive), "the fill was ordered after the snoop");
+    }
+
+    #[test]
+    fn a_permission_grant_for_a_line_a_snoop_took_is_reissued_as_a_data_request() {
+        let mut bench = coherent_l2(true);
+        bench.install_coherent(1, 0x1000, MemOp::Read, MesiState::Shared);
+        bench.write(2, 0x1000);
+        let upgrade = requests(&bench.drain());
+        assert_eq!(upgrade[0].1, ReqKind::CleanUnique);
+
+        bench.snoop(0x1000, SnoopKind::Unique);
+        let sent = probes(&bench.drain());
+        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        let _ = bench.drain();
+        assert_eq!(bench.state_of(0x1000), None);
+
+        bench.complete(upgrade[0].0, 0x1000, MesiState::Modified, false);
+        let events = bench.drain();
+        assert_eq!(acks(&events), vec![upgrade[0].0], "the useless grant is still acknowledged");
+        let retry = requests(&events);
+        assert_eq!(retry.len(), 1);
+        assert_eq!(retry[0].1, ReqKind::ReadUnique);
+        assert_ne!(retry[0].0, upgrade[0].0, "a fresh correlator");
+        assert!(responses_to(&events, PIPELINE).is_empty(), "the writer still waits");
+        assert_eq!(bench.stat("test.coherence.upgrade_retries"), 1);
+
+        bench.complete(retry[0].0, 0x1000, MesiState::Modified, true);
+        let events = bench.drain();
+        assert_eq!(responses_to(&events, PIPELINE).len(), 1);
+        assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+    }
+
+    #[test]
+    fn a_dirty_victim_is_written_back_and_a_clean_one_reported() {
+        let mut bench = coherent_l2(true);
+        // Set 0 has two ways: 0x1000, 0x1080 and 0x1100 all map to it.
+        bench.install_coherent(1, 0x1000, MemOp::Write { data: WriteData::Small(1) }, MesiState::Modified);
+        bench.install_coherent(2, 0x1080, MemOp::Read, MesiState::Exclusive);
+
+        bench.read(3, 0x1100);
+        let fetch = requests(&bench.drain());
+        assert_eq!(fetch.len(), 1, "the victim is chosen when the line arrives");
+        bench.complete(fetch[0].0, 0x1100, MesiState::Exclusive, true);
+        let reqs = requests(&bench.drain());
+        let writeback = reqs.iter().find(|r| matches!(r.1, ReqKind::WriteBack { dirty: true })).expect("dirty victim written back");
+        assert_eq!(writeback.2, 0x1000);
+        assert!(bench.cache.writebacks().holds(line(0x1000)));
+        bench.complete(writeback.0, 0x1000, MesiState::Invalid, false);
+        let _ = bench.drain();
+        assert!(!bench.cache.writebacks().holds(line(0x1000)), "the ack retires the writeback");
+
+        bench.read(4, 0x1180);
+        let fetch = requests(&bench.drain());
+        bench.complete(fetch[0].0, 0x1180, MesiState::Exclusive, true);
+        let reqs = requests(&bench.drain());
+        let evict = reqs.iter().find(|r| r.1 == ReqKind::Evict).expect("clean victim reported");
+        assert_eq!(evict.2, 0x1080);
+    }
+
+    #[test]
+    fn a_disabled_l2_still_requests_and_probes_for_its_l1s() {
+        let mut bench = coherent_l2(false);
+
+        bench.line_request(1, 0x1000, MemOp::ReadOwn);
+        let reqs = requests(&bench.drain());
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].1, ReqKind::ReadUnique);
+        bench.complete(reqs[0].0, 0x1000, MesiState::Modified, true);
+        let events = bench.drain();
+        assert_eq!(acks(&events).len(), 1);
+        let answered: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e.packet {
+                Packet::MemResp { req_id, state, .. } if e.target == UPSTREAM => Some((req_id, state)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(answered, vec![(ReqId::new(1), MesiState::Modified)]);
+        assert!(!bench.cache.contains(0x1000), "nothing is kept here");
+
+        bench.snoop(0x1000, SnoopKind::Unique);
+        let sent = probes(&bench.drain());
+        assert_eq!(sent.len(), 1, "the L1 is asked");
+        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
+        assert_eq!(snoop_responses(&bench.drain()), vec![(true, true)]);
+
+        bench.line_request(2, 0x1000, MemOp::Writeback { dirty: true });
+        let reqs = requests(&bench.drain());
+        assert_eq!(reqs.iter().map(|r| r.1).collect::<Vec<_>>(), vec![ReqKind::WriteBack { dirty: true }]);
+        bench.line_request(3, 0x1040, MemOp::Writeback { dirty: false });
+        let reqs = requests(&bench.drain());
+        assert_eq!(reqs.iter().map(|r| r.1).collect::<Vec<_>>(), vec![ReqKind::Evict]);
+    }
+
+    #[test]
+    fn a_sub_line_access_through_a_disabled_l2_stays_a_memory_request() {
+        let mut bench = coherent_l2(false);
+        bench.read(1, 0x80000400);
+        let events = bench.drain();
+        assert!(requests(&events).is_empty());
+        assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { .. })));
+    }
 }

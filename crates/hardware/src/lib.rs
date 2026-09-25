@@ -1,6 +1,9 @@
 //! Cycle-accurate RV64GC + RVV 1.0 simulator core.
 
 /// Common types and constants (addresses, registers, traps, access types).
+/// Cache coherence: protocol, home agent, interconnect, fabric.
+pub mod coherence;
+
 pub mod common;
 /// Simulator configuration (defaults, enums, hierarchical config structures).
 pub mod config;

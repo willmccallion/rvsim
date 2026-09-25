@@ -174,6 +174,7 @@ impl PySimulator {
         disk_path: Option<String>,
     ) -> PyResult<Self> {
         let config = py_dict_to_config(py, config_dict)?;
+        config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let disk = disk_path.unwrap_or_default();
         let exit_signal =
             std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));

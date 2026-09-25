@@ -76,6 +76,11 @@ impl WritebackBuffer {
     pub fn holds(&self, line: LineAddr) -> bool {
         self.entries.iter().any(|w| w.line == line)
     }
+
+    /// Lines in flight.
+    pub fn lines(&self) -> impl Iterator<Item = LineAddr> + '_ {
+        self.entries.iter().map(|w| w.line)
+    }
 }
 
 #[cfg(test)]
