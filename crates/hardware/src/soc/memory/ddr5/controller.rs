@@ -34,7 +34,7 @@ use crate::sim::components::{
     BankGroupId, ChannelId, ComponentId, MemCtrlId, RankId, ReqId, RowId, SubchannelId,
 };
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, Packet};
+use crate::sim::packet::{AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, Packet, MesiState};
 use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
@@ -1182,7 +1182,7 @@ impl Ddr5Controller {
     fn service_buffer(&self, request: &PendingReq) -> MemRespData {
         let offset = (request.paddr.val().saturating_sub(self.base.val())) as usize;
         match &request.op {
-            MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. } => {
+            MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                 read_from_buffer(&self.buffer, offset, request.size)
             }
             MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
@@ -1237,6 +1237,7 @@ impl Ddr5Controller {
                     line_addr: resp.line_addr,
                     data: resp.data,
                     hit_level: resp.hit_level,
+                state: MesiState::Exclusive,
                 },
             );
         }
@@ -1337,7 +1338,7 @@ impl ScheduledResponse {
 }
 
 const fn is_read_op(op: &MemOp) -> bool {
-    matches!(op, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. })
+    matches!(op, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. })
 }
 
 const fn mask_has(mask: u64, bank_index: usize) -> bool {

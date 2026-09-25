@@ -33,7 +33,7 @@ use crate::core::units::prefetch::{
 };
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet};
+use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind};
 
 /// One tag-array entry.
 #[derive(Clone, Copy, Debug, Default)]
@@ -71,6 +71,22 @@ struct Forwarded {
     ours: ReqId,
     source: ComponentId,
     theirs: ReqId,
+}
+
+/// A probe this cache forwarded to the caches above it and has not yet
+/// answered.
+#[derive(Clone, Copy, Debug)]
+struct PendingProbe {
+    /// Correlator we gave the forwarded probes.
+    ours: ReqId,
+    /// Who probed us and with which correlator.
+    from: ComponentId,
+    theirs: ReqId,
+    line: LineAddr,
+    /// Upstream answers still outstanding.
+    remaining: usize,
+    /// Whether any copy (ours or an upper one) was dirty.
+    dirty: bool,
 }
 
 /// A line that left the cache and must be written back by the caller
@@ -115,6 +131,7 @@ pub struct Cache {
     writebacks: WritebackBuffer,
     blocked: VecDeque<BlockedRequest>,
     forwarded: Vec<Forwarded>,
+    pending_probes: Vec<PendingProbe>,
     next_req: u64,
 }
 
@@ -194,6 +211,7 @@ impl Cache {
             writebacks: WritebackBuffer::new(config.write_buffers),
             blocked: VecDeque::new(),
             forwarded: Vec::new(),
+            pending_probes: Vec::new(),
             next_req: 0,
         }
     }
@@ -243,6 +261,19 @@ impl Cache {
     #[must_use]
     pub fn blocked_requests(&self) -> usize {
         self.blocked.len()
+    }
+
+    /// Every valid line with its state, for audits.
+    #[must_use]
+    pub fn held_lines(&self) -> Vec<(LineAddr, MesiState)> {
+        let mut held = Vec::new();
+        for (index, line) in self.lines.iter().enumerate() {
+            if line.valid() {
+                let set_index = index / self.ways;
+                held.push((self.line_of(self.reconstruct_addr(set_index, line.tag)), line.state));
+            }
+        }
+        held
     }
 
     /// Lines that appear in more than one way of a set. Always empty for a
@@ -372,7 +403,17 @@ impl Cache {
         }
     }
 
-    fn respond(&self, ctx: &mut HandleCtx<'_>, target: ComponentId, req_id: ReqId, paddr: PhysAddr, at: u64, hit_level: HitLevel) {
+    #[allow(clippy::too_many_arguments)]
+    fn respond(
+        &self,
+        ctx: &mut HandleCtx<'_>,
+        target: ComponentId,
+        req_id: ReqId,
+        paddr: PhysAddr,
+        at: u64,
+        hit_level: HitLevel,
+        state: MesiState,
+    ) {
         ctx.scheduler.schedule(
             at,
             target,
@@ -382,6 +423,7 @@ impl Cache {
                 line_addr: self.line_of(paddr.val()),
                 data: MemRespData::Small(0),
                 hit_level,
+                state,
             },
         );
     }
@@ -402,16 +444,21 @@ impl Cache {
         }
 
         let addr = req.paddr.val();
-        let is_write = matches!(req.op, MemOp::Write { .. });
+        let is_write = matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn);
         let set_index = self.set_index(addr);
-        if let Some(way) = self.find_way(addr) {
+        let present = self.find_way(addr);
+        let needs_permission = is_write
+            && present.is_some_and(|way| self.lines[set_index * self.ways + way].state == MesiState::Shared);
+        if let Some(way) = present.filter(|_| !needs_permission) {
             self.policy.update(set_index, way);
+            let index = set_index * self.ways + way;
             if is_write {
-                self.lines[set_index * self.ways + way].state = MesiState::Modified;
+                self.lines[index].state = MesiState::Modified;
             }
             ctx.stats.counter(self.stat_paths.hits).inc();
             let hit_level = self.hit_level();
-            self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level);
+            let granted = self.lines[index].state;
+            self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level, granted);
             if self.upstream_inclusion == InclusionPolicy::Exclusive
                 && matches!(req.source, ComponentId::Cache(_))
             {
@@ -440,7 +487,11 @@ impl Cache {
             mshr.write |= is_write;
             mshr.targets.push(target);
         } else {
-            let fetch_op = if matches!(target.op, MemOp::Fetch) { MemOp::Fetch } else { MemOp::Read };
+            let fetch_op = match target.op {
+                MemOp::Fetch => MemOp::Fetch,
+                _ if is_write => MemOp::ReadOwn,
+                _ => MemOp::Read,
+            };
             let vaddr = target.vaddr;
             self.start_fetch(line, vec![target], is_write, false, fetch_op, vaddr, ctx);
         }
@@ -461,7 +512,7 @@ impl Cache {
         ctx: &mut HandleCtx<'_>,
     ) {
         let req_id = self.alloc_req_id();
-        self.mshrs.allocate(Mshr { line, req_id, targets, write, prefetch, issued_at: ctx.cycle });
+        self.mshrs.allocate(Mshr { line, req_id, targets, write, prefetch, issued_at: ctx.cycle, pending_probe: None });
         if let Some(downstream) = self.downstream {
             ctx.scheduler.schedule(
                 ctx.cycle + self.latency,
@@ -497,7 +548,7 @@ impl Cache {
     fn on_writeback(&mut self, req: &BlockedRequest, dirty: bool, ctx: &mut HandleCtx<'_>) {
         let addr = req.paddr.val();
         let hit_level = self.hit_level();
-        self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level);
+        self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level, MesiState::Invalid);
         if let Some(way) = self.find_way(addr) {
             let index = self.set_index(addr) * self.ways + way;
             if dirty {
@@ -545,7 +596,16 @@ impl Cache {
         );
     }
 
-    fn on_response(&mut self, req_id: ReqId, line_addr: LineAddr, data: MemRespData, hit_level: HitLevel, ctx: &mut HandleCtx<'_>) {
+    #[allow(clippy::too_many_arguments)]
+    fn on_response(
+        &mut self,
+        req_id: ReqId,
+        line_addr: LineAddr,
+        data: MemRespData,
+        hit_level: HitLevel,
+        granted: MesiState,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         if self.writebacks.complete(req_id) {
             self.retry_blocked(ctx);
             return;
@@ -556,20 +616,26 @@ impl Cache {
                 ctx.cycle,
                 forwarded.source,
                 ctx.self_id,
-                Packet::MemResp { req_id: forwarded.theirs, line_addr, data, hit_level },
+                Packet::MemResp { req_id: forwarded.theirs, line_addr, data, hit_level, state: granted },
             );
             return;
         }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
-        self.fill(&mshr, ctx);
+        let installed = self.fill(&mshr, granted, ctx);
         for target in &mshr.targets {
-            self.respond(ctx, target.source, target.req_id, target.paddr, ctx.cycle, hit_level);
+            self.respond(ctx, target.source, target.req_id, target.paddr, ctx.cycle, hit_level, installed);
+        }
+        if let Some(kind) = mshr.pending_probe {
+            let _ = self.apply_probe(mshr.line, kind, ctx);
         }
         self.retry_blocked(ctx);
     }
 
-    /// Installs a fetched line, evicting a victim if the set is full.
-    fn fill(&mut self, mshr: &Mshr, ctx: &mut HandleCtx<'_>) {
+    /// Installs a fetched line in the state the next level granted (a
+    /// write installs it modified; a read never installs it dirtier than
+    /// clean-exclusive), evicting a victim if the set is full. Returns the
+    /// installed state.
+    fn fill(&mut self, mshr: &Mshr, granted: MesiState, ctx: &mut HandleCtx<'_>) -> MesiState {
         let addr = mshr.line.val();
         let set_index = self.set_index(addr);
         let tag = self.tag_of(addr);
@@ -584,10 +650,19 @@ impl Cache {
             self.evict(set_index, victim, ctx);
             victim
         };
-        let state = if mshr.write { MesiState::Modified } else { MesiState::Exclusive };
+        let state = if mshr.write {
+            MesiState::Modified
+        } else {
+            match granted {
+                MesiState::Shared => MesiState::Shared,
+                _ => MesiState::Exclusive,
+            }
+        };
         let index = set_index * self.ways + way;
-        self.lines[index] = CacheLine { tag, state: if self.lines[index].dirty() { MesiState::Modified } else { state } };
+        let state = if self.lines[index].valid() && self.lines[index].dirty() { MesiState::Modified } else { state };
+        self.lines[index] = CacheLine { tag, state };
         self.policy.update(set_index, way);
+        state
     }
 
     /// Removes the line in `way` of `set_index`: dirty lines (and clean
@@ -630,6 +705,73 @@ impl Cache {
         self.back_invalidate(line, ctx);
     }
 
+    /// A probe from the next level on behalf of a snoop: give up rights to
+    /// the line here and in every cache above, then answer.
+    fn on_probe(&mut self, line: LineAddr, kind: ProbeKind, txn: ReqId, from: ComponentId, ctx: &mut HandleCtx<'_>) {
+        ctx.stats.counter(self.stat_paths.probes).inc();
+        if !self.enabled {
+            self.answer_probe(from, txn, line, false, ctx);
+            return;
+        }
+        let mut dirty = self.apply_probe(line, kind, ctx);
+        if let Some(mshr) = self.mshrs.find_line_mut(line) {
+            mshr.pending_probe = Some(match (mshr.pending_probe, kind) {
+                (Some(ProbeKind::Invalidate), _) | (_, ProbeKind::Invalidate) => ProbeKind::Invalidate,
+                _ => ProbeKind::Downgrade,
+            });
+        }
+        if self.writebacks.holds(line) {
+            dirty = true;
+        }
+        if self.upstream.is_empty() {
+            self.answer_probe(from, txn, line, dirty, ctx);
+            return;
+        }
+        let ours = self.alloc_req_id();
+        self.pending_probes.push(PendingProbe { ours, from, theirs: txn, line, remaining: self.upstream.len(), dirty });
+        for &upstream in &self.upstream {
+            ctx.scheduler.schedule(ctx.cycle, upstream, ctx.self_id, Packet::Probe { line_addr: line, kind, txn: ours });
+        }
+    }
+
+    /// Applies a probe to our own copy: a dirty line is written back first.
+    /// Returns whether the copy was dirty.
+    fn apply_probe(&mut self, line: LineAddr, kind: ProbeKind, ctx: &mut HandleCtx<'_>) -> bool {
+        let Some(way) = self.find_way(line.val()) else { return false };
+        let index = self.set_index(line.val()) * self.ways + way;
+        let dirty = self.lines[index].dirty();
+        if dirty {
+            self.write_back(line, true, ctx);
+        }
+        self.lines[index].state = match kind {
+            ProbeKind::Invalidate => MesiState::Invalid,
+            ProbeKind::Downgrade => MesiState::Shared,
+        };
+        dirty
+    }
+
+    fn answer_probe(&self, to: ComponentId, txn: ReqId, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
+        ctx.scheduler.schedule(
+            ctx.cycle + self.latency,
+            to,
+            ctx.self_id,
+            Packet::ProbeResp { line_addr: line, txn, dirty },
+        );
+    }
+
+    /// An upper cache answered one of our forwarded probes.
+    fn on_probe_resp(&mut self, txn: ReqId, dirty: bool, ctx: &mut HandleCtx<'_>) {
+        let Some(index) = self.pending_probes.iter().position(|p| p.ours == txn) else { return };
+        let pending = &mut self.pending_probes[index];
+        pending.dirty |= dirty;
+        pending.remaining -= 1;
+        if pending.remaining > 0 {
+            return;
+        }
+        let pending = self.pending_probes.remove(index);
+        self.answer_probe(pending.from, pending.theirs, pending.line, pending.dirty, ctx);
+    }
+
     /// Re-presents queued requests while the cache has room for them.
     fn retry_blocked(&mut self, ctx: &mut HandleCtx<'_>) {
         while !self.is_blocked() {
@@ -645,9 +787,11 @@ impl Handle for Cache {
             Packet::MemReq { req_id, paddr, vaddr, size, op } => {
                 self.on_request(BlockedRequest { source, req_id, paddr, vaddr, size, op }, ctx);
             }
-            Packet::MemResp { req_id, line_addr, data, hit_level } => {
-                self.on_response(req_id, line_addr, data, hit_level, ctx);
+            Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
+                self.on_response(req_id, line_addr, data, hit_level, state, ctx);
             }
+            Packet::Probe { line_addr, kind, txn } => self.on_probe(line_addr, kind, txn, source, ctx),
+            Packet::ProbeResp { txn, dirty, .. } => self.on_probe_resp(txn, dirty, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
             Packet::CacheClean { line_addr } => {
                 if let Some(dirty) = self.clean_line(line_addr.val()) {

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, MesiState};
 use crate::soc::memory::buffer::DramBuffer;
 
 /// Cache-line size used when building `LineAddr` from a `PhysAddr`.
@@ -81,6 +81,7 @@ impl Handle for SimpleController {
                     line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
                     data,
                     hit_level: HitLevel::Dram,
+                state: MesiState::Exclusive,
                 },
             );
         }
@@ -244,6 +245,7 @@ impl Handle for DramController {
                     line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
                     data,
                     hit_level: HitLevel::Dram,
+                state: MesiState::Exclusive,
                 },
             );
         }
@@ -285,7 +287,7 @@ fn service_request(
 ) -> MemRespData {
     let offset = (paddr.val().saturating_sub(base.val())) as usize;
     match op {
-        MemOp::Read | MemOp::Fetch => read_response(buffer, offset, size),
+        MemOp::Read | MemOp::ReadOwn | MemOp::Fetch => read_response(buffer, offset, size),
         MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
         MemOp::Atomic { .. } => {
             // Atomic semantics are resolved upstream (LR/SC reservation, AMO

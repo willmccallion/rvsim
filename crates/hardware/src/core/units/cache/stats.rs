@@ -24,6 +24,8 @@ pub struct CacheStatPaths {
     pub writebacks: &'static str,
     /// Lines invalidated on request of the next level.
     pub back_invalidations: &'static str,
+    /// Probes received on behalf of a snoop.
+    pub probes: &'static str,
     /// Prefetch fetches started.
     pub prefetches_issued: &'static str,
     /// Prefetch fetches a demand request joined before the fill arrived.
@@ -46,6 +48,7 @@ impl CacheStatPaths {
             evictions: path("evictions"),
             writebacks: path("writebacks"),
             back_invalidations: path("back_invalidations"),
+            probes: path("probes"),
             prefetches_issued: path("prefetches.issued"),
             prefetches_useful: path("prefetches.useful"),
             miss_rate: path("miss_rate"),

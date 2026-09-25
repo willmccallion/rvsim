@@ -3,7 +3,7 @@
 use rvsim_core::common::LineAddr;
 use rvsim_core::sim::components::ComponentId;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData};
+use rvsim_core::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
 use rvsim_core::soc::devices::Device;
 use std::sync::{Arc, Mutex};
 
@@ -79,7 +79,7 @@ impl Handle for MockMemory {
                 AccessSize::Line => 64,
             };
             let value = match op {
-                MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. } => {
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     self.read_bytes(offset, width)
                 }
                 MemOp::Write { data: WriteData::Small(v) } => {
@@ -103,6 +103,7 @@ impl Handle for MockMemory {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
+                state: MesiState::Exclusive,
                 },
             );
         }

@@ -82,6 +82,10 @@ pub enum AtomicOp {
 pub enum MemOp {
     /// Demand or speculative load.
     Read,
+    /// Read for ownership: a cache fetching a line it is about to write, so
+    /// the responder grants `Modified`. Memory and devices treat it as a
+    /// read.
+    ReadOwn,
     /// Store with payload.
     Write {
         /// Bytes to write.
@@ -144,6 +148,15 @@ pub enum SnoopKind {
     Writeback,
     /// Probe for line state without changing it.
     Probe,
+}
+
+/// What a [`Packet::Probe`] asks of the line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeKind {
+    /// Drop the line (a writer elsewhere wants it, or it is being recalled).
+    Invalidate,
+    /// Keep at most a shared copy (a reader elsewhere wants it).
+    Downgrade,
 }
 
 /// MESI / MOESI coherence state.
@@ -240,6 +253,30 @@ pub enum Packet {
         data: MemRespData,
         /// Cache level at which the hit occurred.
         hit_level: HitLevel,
+        /// Coherence state the responder grants the requester for the line
+        /// (`Shared` when another cache keeps a copy; memory and devices
+        /// grant `Exclusive`). A write request is always granted `Modified`.
+        state: MesiState,
+    },
+    /// A lower private cache asks an upper one to give up rights to a line
+    /// on behalf of a snoop; answered with [`Packet::ProbeResp`].
+    Probe {
+        /// Line probed.
+        line_addr: LineAddr,
+        /// Whether the line must be dropped or may be kept shared.
+        kind: ProbeKind,
+        /// Correlator the prober uses to collect the responses.
+        txn: ReqId,
+    },
+    /// Answer to a [`Packet::Probe`]: the line has been dropped or
+    /// downgraded (its dirty data, if any, was written back first).
+    ProbeResp {
+        /// Line probed.
+        line_addr: LineAddr,
+        /// Correlator from the probe.
+        txn: ReqId,
+        /// Whether the responder held the line modified.
+        dirty: bool,
     },
     /// Invalidate a cache line (back-invalidation, FENCE.VMA, coherence-driven).
     CacheInval {

@@ -15,7 +15,7 @@
 use crate::common::LineAddr;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData};
+use crate::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
 use crate::soc::devices::Device;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -72,6 +72,7 @@ impl Handle for Htif {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(0),
                     hit_level: HitLevel::Mmio,
+                state: MesiState::Exclusive,
                 },
             );
         }

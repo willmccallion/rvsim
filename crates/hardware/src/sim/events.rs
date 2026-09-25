@@ -123,7 +123,7 @@ mod tests {
     use super::*;
     use crate::common::{HartId, LineAddr, PhysAddr};
     use crate::sim::components::{CacheId, ReqId};
-    use crate::sim::packet::{HitLevel, MemRespData};
+    use crate::sim::packet::{HitLevel, MemRespData, MesiState};
 
     fn make_resp(req_id: u64) -> Packet {
         Packet::MemResp {
@@ -131,6 +131,7 @@ mod tests {
             line_addr: LineAddr::from_phys(PhysAddr::new(0), 64),
             data: MemRespData::Small(0),
             hit_level: HitLevel::L1,
+        state: MesiState::Exclusive,
         }
     }
 

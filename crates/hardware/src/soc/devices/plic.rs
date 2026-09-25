@@ -14,7 +14,7 @@
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
 use crate::soc::devices::Device;
 
 /// Base offset for PLIC priority registers (one per interrupt source).
@@ -231,17 +231,17 @@ impl Handle for Plic {
             let value: u64 = match (size, op) {
                 (
                     AccessSize::B4 | AccessSize::B8,
-                    MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. },
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
                 ) => u64::from(self.read_u32_reg(offset)),
                 (
                     AccessSize::B1,
-                    MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. },
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
                 ) => {
                     let aligned = offset & !3;
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u8)
                 }
-                (AccessSize::B2, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. }) => {
+                (AccessSize::B2, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. }) => {
                     let aligned = offset & !3;
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
@@ -264,6 +264,7 @@ impl Handle for Plic {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
+                state: MesiState::Exclusive,
                 },
             );
         }

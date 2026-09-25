@@ -9,7 +9,7 @@ use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemRespData, Packet};
+use crate::sim::packet::{HitLevel, MemRespData, Packet, MesiState};
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -298,16 +298,17 @@ impl Handle for Bus {
                         line_addr,
                         data: MemRespData::Small(0),
                         hit_level: HitLevel::Mmio,
+                    state: MesiState::Exclusive,
                     },
                 );
             }
-            Packet::MemResp { req_id, line_addr, data, hit_level } => {
+            Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
                 let Some(upstream) = self.pending.remove(&req_id) else { return };
                 ctx.scheduler.schedule(
                     ctx.cycle + self.calculate_transit_time(BUS_RESP_BYTES),
                     upstream,
                     ctx.self_id,
-                    Packet::MemResp { req_id, line_addr, data, hit_level },
+                    Packet::MemResp { req_id, line_addr, data, hit_level, state },
                 );
             }
             _ => {}

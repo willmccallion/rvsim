@@ -8,7 +8,7 @@
 
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::packet::{AccessSize, MemOp};
+use crate::sim::packet::{AccessSize, MemOp, ProbeKind};
 
 /// A request waiting for an MSHR's fill.
 #[derive(Clone, Debug)]
@@ -43,6 +43,9 @@ pub struct Mshr {
     pub prefetch: bool,
     /// Cycle the downstream request was sent.
     pub issued_at: u64,
+    /// A probe that arrived while the fetch was in flight; applied to the
+    /// line right after the fill answers its targets.
+    pub pending_probe: Option<ProbeKind>,
 }
 
 /// Bounded table of outstanding line fetches.
@@ -136,6 +139,7 @@ mod tests {
             write: false,
             prefetch: false,
             issued_at: 0,
+            pending_probe: None,
         }
     }
 

@@ -563,6 +563,7 @@ fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
     s.register(c.evictions, Meta::events("valid lines replaced"));
     s.register(c.writebacks, Meta::events("lines written to the next level"));
     s.register(c.back_invalidations, Meta::events("lines dropped at the next level's request"));
+    s.register(c.probes, Meta::events("probes received on behalf of snoops"));
     s.register(c.prefetches_issued, Meta::events("prefetch fetches started"));
     s.register(c.prefetches_useful, Meta::events("prefetch fetches a demand request joined"));
     s.derive(c.miss_rate, Formula::Ratio { numerator: c.misses, other: c.hits }, Meta::ratio("miss rate"));

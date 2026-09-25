@@ -13,7 +13,7 @@ use rvsim_core::core::units::cache::Cache;
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, Packet, WriteData};
+use rvsim_core::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind, WriteData};
 use rvsim_core::sim::stats::Stats;
 
 const LATENCY: u64 = 2;
@@ -107,15 +107,25 @@ impl Bench {
 
     /// Answers a downstream request as if the next level filled it.
     fn fill(&mut self, req_id: ReqId, addr: u64) {
+        self.fill_with(req_id, addr, MesiState::Exclusive);
+    }
+
+    fn fill_with(&mut self, req_id: ReqId, addr: u64, state: MesiState) {
         self.deliver(
             Packet::MemResp {
                 req_id,
                 line_addr: LineAddr::from_phys(PhysAddr::new(addr), 64),
                 data: MemRespData::Small(0),
                 hit_level: HitLevel::Dram,
+                state,
             },
             DOWNSTREAM,
         );
+    }
+
+    fn state_of(&self, addr: u64) -> Option<MesiState> {
+        let line = LineAddr::from_phys(PhysAddr::new(addr), 64);
+        self.cache.held_lines().into_iter().find(|(l, _)| *l == line).map(|(_, s)| s)
     }
 
     /// Loads `addr` into the cache through a miss and its fill.
@@ -279,7 +289,7 @@ fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
     assert_eq!(bench.cache.blocked_requests(), 1);
 
     bench.deliver(
-        Packet::MemResp { req_id: writeback_id, line_addr: LineAddr::from_phys(PhysAddr::new(0), 64), data: MemRespData::Small(0), hit_level: HitLevel::Dram },
+        Packet::MemResp { req_id: writeback_id, line_addr: LineAddr::from_phys(PhysAddr::new(0), 64), data: MemRespData::Small(0), hit_level: HitLevel::Dram, state: MesiState::Exclusive },
         DOWNSTREAM,
     );
     let events = bench.drain();
@@ -464,4 +474,148 @@ fn fills_arriving_out_of_order_never_duplicate_a_tag() {
         let _ = bench.drain();
         assert!(bench.cache.duplicate_lines().is_empty());
     }
+}
+
+fn granted_states(events: &[Event], target: ComponentId) -> Vec<MesiState> {
+    events
+        .iter()
+        .filter(|e| e.target == target)
+        .filter_map(|e| match &e.packet {
+            Packet::MemResp { state, .. } => Some(*state),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_write_miss_fetches_for_ownership_and_a_read_miss_for_sharing() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.write(1, 0x1000);
+    bench.read(2, 0x2000);
+    let ops: Vec<MemOp> = bench.downstream_requests().into_iter().map(|r| r.2).collect();
+    assert!(matches!(ops[0], MemOp::ReadOwn));
+    assert!(matches!(ops[1], MemOp::Read));
+}
+
+#[test]
+fn fills_install_the_granted_state_and_hits_grant_it_onward() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    let fetch = bench.downstream_requests();
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Shared);
+    let events = bench.drain();
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Shared]);
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
+
+    bench.read(2, 0x2000);
+    let fetch = bench.downstream_requests();
+    bench.fill_with(fetch[0].0, 0x2000, MesiState::Modified);
+    let events = bench.drain();
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Exclusive], "a read never installs dirtier than clean-exclusive");
+
+    bench.read(3, 0x1000);
+    let events = bench.drain();
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Shared], "a hit grants the line's own state");
+    bench.write(4, 0x2000);
+    let events = bench.drain();
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Modified]);
+}
+
+#[test]
+fn a_write_to_a_shared_line_is_a_permission_miss() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    let fetch = bench.downstream_requests();
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Shared);
+    let _ = bench.drain();
+
+    bench.write(2, 0x1008);
+    let requests = bench.downstream_requests();
+    assert_eq!(requests.len(), 1, "ownership is requested from the next level");
+    assert!(matches!(requests[0].2, MemOp::ReadOwn));
+    assert_eq!(bench.stat("test.misses"), 2);
+
+    bench.fill_with(requests[0].0, 0x1000, MesiState::Modified);
+    let events = bench.drain();
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Modified]);
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+    assert!(bench.cache.duplicate_lines().is_empty());
+}
+
+#[test]
+fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
+
+    let txn = ReqId::new(77);
+    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn }, DOWNSTREAM);
+    let events = bench.drain();
+    let order: Vec<&str> = events
+        .iter()
+        .filter(|e| e.target == DOWNSTREAM)
+        .map(|e| match e.packet {
+            Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. } => "writeback",
+            Packet::ProbeResp { dirty: true, .. } => "resp-dirty",
+            Packet::ProbeResp { dirty: false, .. } => "resp-clean",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(order, vec!["writeback", "resp-dirty"]);
+    assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { txn: t, .. } if t == txn)));
+    assert!(!bench.cache.contains(0x1000));
+    assert_eq!(bench.stat("test.probes"), 1);
+}
+
+#[test]
+fn a_downgrade_probe_leaves_a_shared_copy() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Read);
+    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Downgrade, txn: ReqId::new(1) }, DOWNSTREAM);
+    let events = bench.drain();
+    assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { dirty: false, .. })));
+    assert!(events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })), "clean line: no writeback");
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
+}
+
+#[test]
+fn a_probe_that_hits_an_in_flight_fetch_is_applied_after_the_fill() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    let fetch = bench.downstream_requests();
+    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn: ReqId::new(5) }, DOWNSTREAM);
+    let events = bench.drain();
+    assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { dirty: false, .. })), "answered at once: the line is not here yet");
+
+    bench.fill(fetch[0].0, 0x1000);
+    let events = bench.drain();
+    assert_eq!(responses_to(&events, PIPELINE).len(), 1, "the waiting load still gets its data");
+    assert!(!bench.cache.contains(0x1000), "then the probe takes the line away");
+}
+
+#[test]
+fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
+    let third = ComponentId::Cache(CacheId::new(3));
+    let mut cache = cache_with(&test_config());
+    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(third);
+    let mut bench = Bench::new(cache);
+    bench.install(1, 0x1000, MemOp::Read);
+
+    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn: ReqId::new(9) }, DOWNSTREAM);
+    let events = bench.drain();
+    let forwarded: Vec<ReqId> = events
+        .iter()
+        .filter(|e| e.target == UPSTREAM || e.target == third)
+        .filter_map(|e| match e.packet { Packet::Probe { txn, .. } => Some(txn), _ => None })
+        .collect();
+    assert_eq!(forwarded.len(), 2);
+    assert!(events.iter().all(|e| !matches!(e.packet, Packet::ProbeResp { .. })), "not answered yet");
+
+    let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
+    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[0], dirty: false }, UPSTREAM);
+    assert!(bench.drain().is_empty());
+    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[1], dirty: true }, third);
+    let events = bench.drain();
+    assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
+    assert!(!bench.cache.contains(0x1000));
 }

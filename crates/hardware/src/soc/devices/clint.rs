@@ -13,7 +13,7 @@
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
 use crate::soc::devices::Device;
 
 /// Offset of the first MSIP register; one 4-byte word per hart.
@@ -164,7 +164,7 @@ impl Handle for Clint {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let offset = paddr.val().saturating_sub(self.base_addr);
             let value = match op {
-                MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. } => {
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     self.read_register(offset, size)
                 }
                 MemOp::Write { data: WriteData::Small(val) } => {
@@ -182,6 +182,7 @@ impl Handle for Clint {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
+                state: MesiState::Exclusive,
                 },
             );
         }
