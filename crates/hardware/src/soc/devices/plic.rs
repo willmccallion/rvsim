@@ -1,16 +1,17 @@
 //! Platform-Level Interrupt Controller (PLIC).
 //!
 //! The PLIC arbitrates global external interrupts and distributes them to
-//! interrupt targets (HART contexts). It complies with the RISC-V PLIC specification.
+//! interrupt targets. Every hart has two contexts in the standard layout:
+//! context `2·hart` is its M-mode target and `2·hart + 1` its S-mode target.
 //!
 //! # Memory Map
 //!
 //! * `0x000000`: Interrupt Priorities
 //! * `0x001000`: Interrupt Pending Bits
-//! * `0x002000`: Interrupt Enables
-//! * `0x200000`: Priority Thresholds and Claim/Complete Registers
+//! * `0x002000 + 0x80·context`: Interrupt Enables
+//! * `0x200000 + 0x1000·context`: Priority Threshold and Claim/Complete
 
-use crate::common::LineAddr;
+use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData};
@@ -28,11 +29,29 @@ const PLIC_ENABLE_BASE: u64 = 0x002000;
 /// Base offset for PLIC context-specific registers (threshold, claim/complete).
 const PLIC_CONTEXT_BASE: u64 = 0x200000;
 
-/// Number of interrupt contexts (M-mode + S-mode per HART).
-const NUM_CONTEXTS: usize = 2;
+/// Byte stride between one context's enable block and the next.
+const ENABLE_STRIDE: u64 = 0x80;
+
+/// Byte stride between one context's threshold/claim block and the next.
+const CONTEXT_STRIDE: u64 = 0x1000;
+
+/// Contexts per hart: M-mode and S-mode.
+const CONTEXTS_PER_HART: usize = 2;
 
 /// Number of 32-bit enable words per context (covers 1024 interrupt sources).
 const ENABLE_WORDS_PER_CONTEXT: usize = 32;
+
+/// Number of interrupt sources the PLIC decodes priorities for.
+const NUM_SOURCES: usize = 1024;
+
+/// External interrupt lines the PLIC drives into one hart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExternalIrqs {
+    /// Machine external interrupt (`mip.MEIP`).
+    pub meip: bool,
+    /// Supervisor external interrupt (`mip.SEIP`).
+    pub seip: bool,
+}
 
 /// PLIC device structure.
 #[derive(Debug)]
@@ -52,74 +71,52 @@ pub struct Plic {
 }
 
 impl Plic {
-    /// Creates a new PLIC device.
-    pub fn new(base_addr: u64) -> Self {
+    /// Creates a PLIC with two contexts for each of `hart_count` harts.
+    pub fn new(base_addr: u64, hart_count: usize) -> Self {
+        let contexts = hart_count * CONTEXTS_PER_HART;
         Self {
             base_addr,
-            priorities: vec![0; 1024],
-            pending: vec![0; 32],
-            enables: vec![vec![0u32; ENABLE_WORDS_PER_CONTEXT]; NUM_CONTEXTS],
-            thresholds: vec![0; NUM_CONTEXTS],
-            claims: vec![0; NUM_CONTEXTS],
+            priorities: vec![0; NUM_SOURCES],
+            pending: vec![0; NUM_SOURCES / 32],
+            enables: vec![vec![0u32; ENABLE_WORDS_PER_CONTEXT]; contexts],
+            thresholds: vec![0; contexts],
+            claims: vec![0; contexts],
         }
+    }
+
+    /// Number of interrupt contexts (two per hart).
+    #[must_use]
+    pub const fn context_count(&self) -> usize {
+        self.thresholds.len()
     }
 
     /// Updates the pending status of interrupts based on external signals.
     pub fn update_irqs(&mut self, mask: u64) {
-        self.pending[0] = (mask & 0xFFFFFFFF) as u32;
+        self.pending[0] = (mask & 0xFFFF_FFFF) as u32;
         self.pending[1] = (mask >> 32) as u32;
     }
 
-    /// Checks for pending interrupts that exceed the priority threshold.
-    /// Returns `(meip, seip)`.
-    pub fn check_interrupts(&mut self) -> (bool, bool) {
-        let mut meip = false;
-        let mut seip = false;
-
-        if self.has_qualified_irq(0) {
-            meip = true;
-            self.claims[0] = self.calc_max_id(0);
-        } else {
-            self.claims[0] = 0;
+    /// Recomputes every context's claim register from the pending, enable
+    /// and threshold state. Call once per cycle after [`Plic::update_irqs`].
+    pub fn check_interrupts(&mut self) {
+        for ctx in 0..self.context_count() {
+            self.claims[ctx] = self.calc_max_id(ctx);
         }
-
-        if self.has_qualified_irq(1) {
-            seip = true;
-            self.claims[1] = self.calc_max_id(1);
-        } else {
-            self.claims[1] = 0;
-        }
-
-        (meip, seip)
     }
 
-    /// Determines if a context has any pending interrupt above its threshold.
-    fn has_qualified_irq(&self, ctx: usize) -> bool {
-        let threshold = self.thresholds[ctx];
-        let num_words = std::cmp::min(self.pending.len(), self.enables[ctx].len());
-
-        for word in 0..num_words {
-            let active = self.pending[word] & self.enables[ctx][word];
-            if active == 0 {
-                continue;
-            }
-            for bit in 0..32 {
-                let irq_id = word * 32 + bit;
-                if irq_id == 0 {
-                    continue;
-                }
-                if (active & (1 << bit)) != 0
-                    && irq_id < self.priorities.len()
-                    && self.priorities[irq_id] > threshold
-                {
-                    return true;
-                }
-            }
+    /// External interrupt lines for `hart` as of the last
+    /// [`Plic::check_interrupts`].
+    #[must_use]
+    pub fn hart_lines(&self, hart: HartId) -> ExternalIrqs {
+        let m_ctx = hart.as_index() * CONTEXTS_PER_HART;
+        ExternalIrqs {
+            meip: self.claims.get(m_ctx).is_some_and(|c| *c != 0),
+            seip: self.claims.get(m_ctx + 1).is_some_and(|c| *c != 0),
         }
-        false
     }
 
-    /// Calculates the ID of the highest priority pending interrupt for a context.
+    /// Calculates the ID of the highest-priority pending, enabled interrupt
+    /// above the context's threshold, or 0 when there is none.
     fn calc_max_id(&self, ctx: usize) -> u32 {
         let threshold = self.thresholds[ctx];
         let num_words = std::cmp::min(self.pending.len(), self.enables[ctx].len());
@@ -148,6 +145,16 @@ impl Plic {
         }
         max_id
     }
+
+    fn clear_pending(&mut self, irq_id: u32) {
+        if irq_id > 0 && (irq_id as usize) < NUM_SOURCES {
+            let idx = irq_id as usize / 32;
+            let bit = 1u32 << (irq_id % 32);
+            if idx < self.pending.len() {
+                self.pending[idx] &= !bit;
+            }
+        }
+    }
 }
 
 impl Plic {
@@ -164,28 +171,22 @@ impl Plic {
                 return self.pending[idx];
             }
         } else if (PLIC_ENABLE_BASE..PLIC_CONTEXT_BASE).contains(&offset) {
-            let rel = (offset - PLIC_ENABLE_BASE) as usize;
-            let ctx = rel / 0x80;
-            let word_idx = (rel % 0x80) / 4;
-            if ctx < NUM_CONTEXTS && word_idx < ENABLE_WORDS_PER_CONTEXT {
+            let rel = offset - PLIC_ENABLE_BASE;
+            let ctx = (rel / ENABLE_STRIDE) as usize;
+            let word_idx = ((rel % ENABLE_STRIDE) / 4) as usize;
+            if ctx < self.context_count() && word_idx < ENABLE_WORDS_PER_CONTEXT {
                 return self.enables[ctx][word_idx];
             }
         } else if offset >= PLIC_CONTEXT_BASE {
-            let ctx = (offset - PLIC_CONTEXT_BASE) as usize / 0x1000;
+            let ctx = ((offset - PLIC_CONTEXT_BASE) / CONTEXT_STRIDE) as usize;
             let reg = offset & 0xFFF;
-            if ctx < 2 {
+            if ctx < self.context_count() {
                 if reg == 0 {
                     return self.thresholds[ctx];
                 }
                 if reg == 4 {
                     let irq_id = self.claims[ctx];
-                    if irq_id > 0 && (irq_id as usize) < 1024 {
-                        let idx = irq_id as usize / 32;
-                        let bit = 1u32 << (irq_id % 32);
-                        if idx < self.pending.len() {
-                            self.pending[idx] &= !bit;
-                        }
-                    }
+                    self.clear_pending(irq_id);
                     return irq_id;
                 }
             }
@@ -201,28 +202,21 @@ impl Plic {
                 self.priorities[idx] = val;
             }
         } else if (PLIC_ENABLE_BASE..PLIC_CONTEXT_BASE).contains(&offset) {
-            let rel = (offset - PLIC_ENABLE_BASE) as usize;
-            let ctx = rel / 0x80;
-            let word_idx = (rel % 0x80) / 4;
-            if ctx < NUM_CONTEXTS && word_idx < ENABLE_WORDS_PER_CONTEXT {
+            let rel = offset - PLIC_ENABLE_BASE;
+            let ctx = (rel / ENABLE_STRIDE) as usize;
+            let word_idx = ((rel % ENABLE_STRIDE) / 4) as usize;
+            if ctx < self.context_count() && word_idx < ENABLE_WORDS_PER_CONTEXT {
                 self.enables[ctx][word_idx] = val;
             }
         } else if offset >= PLIC_CONTEXT_BASE {
-            let ctx = (offset - PLIC_CONTEXT_BASE) as usize / 0x1000;
+            let ctx = ((offset - PLIC_CONTEXT_BASE) / CONTEXT_STRIDE) as usize;
             let reg = offset & 0xFFF;
-            if ctx < 2 {
+            if ctx < self.context_count() {
                 if reg == 0 {
                     self.thresholds[ctx] = val;
                 }
                 if reg == 4 {
-                    let irq_id = val;
-                    if irq_id > 0 && (irq_id as usize) < 1024 {
-                        let idx = irq_id as usize / 32;
-                        let bit = 1u32 << (irq_id % 32);
-                        if idx < self.pending.len() {
-                            self.pending[idx] &= !bit;
-                        }
-                    }
+                    self.clear_pending(val);
                     self.claims[ctx] = 0;
                 }
             }
@@ -282,11 +276,6 @@ impl Device for Plic {
     }
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, 0x4000000)
-    }
-
-    fn tick(&mut self) -> bool {
-        let (meip, seip) = self.check_interrupts();
-        meip || seip
     }
 
     fn as_plic_mut(&mut self) -> Option<&mut Plic> {

@@ -1,23 +1,23 @@
 //! System interconnect (bus).
 //!
 //! Routes packets to MMIO devices or the memory controller, ticks devices,
-//! aggregates IRQs through PLIC, and exposes a fast-path RAM region pointer
-//! for pipeline bit-exact reads.
+//! folds CLINT and PLIC state into one set of interrupt lines per hart, and
+//! exposes a fast-path RAM region pointer for pipeline bit-exact reads.
 
 use super::devices::Device;
 use super::memory::RamRegion;
-use crate::common::{LineAddr, PhysAddr};
+use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemRespData, Packet};
 use std::collections::HashMap;
 
-/// Aggregated interrupt signals returned by [`Bus::tick`] each cycle.
-#[derive(Clone, Copy, Debug, Default)]
+/// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct BusIrqs {
+pub struct HartIrqs {
     /// CLINT machine timer interrupt (`mip.MTIP`).
-    pub timer: bool,
+    pub mtip: bool,
     /// CLINT machine software interrupt (`mip.MSIP`).
     pub msip: bool,
     /// PLIC machine external interrupt (`mip.MEIP`).
@@ -36,6 +36,9 @@ pub struct Bus {
     pub latency_cycles: u64,
     uart_idx: Option<usize>,
     clint_idx: Option<usize>,
+    plic_idx: Option<usize>,
+    /// Interrupt lines per hart as of the last [`Bus::tick`].
+    hart_irqs: Vec<HartIrqs>,
     /// Memory controller target for RAM-range accesses.
     ram_ctrl: Option<(MemCtrlId, u64, u64)>,
     /// Fast-path view of the DRAM region for bit-exact pipeline reads
@@ -64,14 +67,17 @@ impl std::fmt::Debug for Bus {
 }
 
 impl Bus {
-    /// Creates a new bus with the given width and latency.
-    pub fn new(width_bytes: u64, latency_cycles: u64) -> Self {
+    /// Creates a bus with the given width and latency serving `hart_count`
+    /// harts' interrupt lines.
+    pub fn new(width_bytes: u64, latency_cycles: u64, hart_count: usize) -> Self {
         Self {
             devices: Vec::new(),
             width_bytes,
             latency_cycles,
             uart_idx: None,
             clint_idx: None,
+            plic_idx: None,
+            hart_irqs: vec![HartIrqs::default(); hart_count],
             ram_ctrl: None,
             ram_region: None,
             htif_range: None,
@@ -85,6 +91,7 @@ impl Bus {
         self.devices.sort_by_key(|d| d.address_range().0);
         self.uart_idx = self.devices.iter().position(|d| d.name() == "UART0");
         self.clint_idx = self.devices.iter().position(|d| d.name() == "CLINT");
+        self.plic_idx = self.devices.iter().position(|d| d.name() == "PLIC");
         self.refresh_htif_range();
     }
 
@@ -162,37 +169,55 @@ impl Bus {
         })
     }
 
-    /// Advances all devices by one tick and updates PLIC. Returns the
-    /// aggregated interrupt vector for this cycle.
-    pub fn tick(&mut self) -> BusIrqs {
-        let mut timer = false;
+    /// Number of harts whose interrupt lines this bus drives.
+    #[must_use]
+    pub const fn hart_count(&self) -> usize {
+        self.hart_irqs.len()
+    }
+
+    /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].
+    #[must_use]
+    pub fn hart_irqs(&self, hart: HartId) -> HartIrqs {
+        self.hart_irqs.get(hart.as_index()).copied().unwrap_or_default()
+    }
+
+    /// Advances all devices by one tick, feeds the PLIC, and samples every
+    /// hart's interrupt lines (read back with [`Bus::hart_irqs`]).
+    pub fn tick(&mut self) {
         let mut active_irqs = 0u64;
 
-        for i in 0..self.devices.len() {
-            let dev = &mut self.devices[i];
-            if dev.tick() {
-                if let Some(id) = dev.get_irq_id()
-                    && id.val() < 64
-                {
-                    active_irqs |= 1 << id.val();
-                }
-                if dev.name() == "CLINT" {
-                    timer = true;
-                }
+        for dev in &mut self.devices {
+            if dev.tick()
+                && let Some(id) = dev.get_irq_id()
+                && id.val() < 64
+            {
+                active_irqs |= 1 << id.val();
             }
         }
 
-        let msip = self
-            .clint_idx
-            .and_then(|idx| self.devices[idx].as_clint_mut())
-            .is_some_and(|clint| clint.msip_pending());
+        let Self { devices, hart_irqs, clint_idx, plic_idx, .. } = self;
+        for lines in hart_irqs.iter_mut() {
+            *lines = HartIrqs::default();
+        }
 
-        let (meip, seip) = self.find_plic().map_or((false, false), |plic| {
+        if let Some(clint) = clint_idx.and_then(|idx| devices[idx].as_clint_mut()) {
+            for (index, lines) in hart_irqs.iter_mut().enumerate() {
+                let hart = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                lines.mtip = clint.timer_pending(hart);
+                lines.msip = clint.msip_pending(hart);
+            }
+        }
+
+        if let Some(plic) = plic_idx.and_then(|idx| devices[idx].as_plic_mut()) {
             plic.update_irqs(active_irqs);
-            plic.check_interrupts()
-        });
-
-        BusIrqs { timer, msip, meip, seip }
+            plic.check_interrupts();
+            for (index, lines) in hart_irqs.iter_mut().enumerate() {
+                let hart = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                let external = plic.hart_lines(hart);
+                lines.meip = external.meip;
+                lines.seip = external.seip;
+            }
+        }
     }
 
     /// Returns whether the UART device has detected a kernel panic pattern.
@@ -204,10 +229,6 @@ impl Bus {
             return uart.check_kernel_panic();
         }
         false
-    }
-
-    fn find_plic(&mut self) -> Option<&mut crate::soc::devices::Plic> {
-        self.devices.iter_mut().find_map(|d| d.as_plic_mut())
     }
 
     fn find_device_idx(&self, paddr: PhysAddr) -> Option<usize> {

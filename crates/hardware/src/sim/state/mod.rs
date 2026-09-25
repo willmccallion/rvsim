@@ -37,7 +37,7 @@ use crate::sim::per_hart_debug::HartDebug;
 use crate::sim::stats::Stats;
 use crate::sim::topology::Topology;
 use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
-use crate::soc::interconnect::{Bus, BusIrqs};
+use crate::soc::interconnect::Bus;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
     DramConfig, DramController, MemoryController, SimpleController,
@@ -210,12 +210,6 @@ impl SharedState {
         self.bus.load_binary_at(data, addr);
     }
 
-    /// Advances all bus-resident devices by one tick and returns this
-    /// cycle's interrupt snapshot.
-    pub fn bus_tick(&mut self) -> BusIrqs {
-        self.bus.tick()
-    }
-
     /// Returns the `CacheId` of the shared LLC.
     #[must_use]
     pub const fn l3_cache_id(&self) -> CacheId {
@@ -294,8 +288,11 @@ impl SimState {
         };
         use crate::isa::abi;
 
+        let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
+        let hart_count = topology.hart_count();
+
         // --- Bus + devices ---------------------------------------------
-        let mut bus = Bus::new(config.system.bus_width, config.system.bus_latency);
+        let mut bus = Bus::new(config.system.bus_width, config.system.bus_latency, hart_count);
 
         let ram_base = config.system.ram_base;
         let ram_size = config.memory.ram_size;
@@ -306,8 +303,8 @@ impl SimState {
             config.system.uart_to_stderr,
             config.system.uart_quiet,
         );
-        let clint = Clint::new(config.system.clint_base, config.system.clint_divider);
-        let plic = Plic::new(0x0c00_0000);
+        let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
+        let plic = Plic::new(0x0c00_0000, hart_count);
 
         let mut disk = VirtioBlock::new(config.system.disk_base, ram_base, ram_buffer.clone());
         if !disk_path.is_empty()
@@ -361,7 +358,6 @@ impl SimState {
             )),
         };
 
-        let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let mut l3_cache = Cache::new(topology.llc, CacheLevel::L3, &config.cache.l3);
         l3_cache.set_downstream(ComponentId::Bus);
 
@@ -456,7 +452,6 @@ impl SimState {
             )
         };
 
-        let hart_count = topology.hart_count();
         let harts: Vec<Hart> = (0..hart_count)
             .map(|index| {
                 let mut hart = Hart::new(HartInit {

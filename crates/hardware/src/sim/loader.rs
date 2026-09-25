@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_try_load_elf_invalid() {
-        let mut bus = Bus::new(8, 0);
+        let mut bus = Bus::new(8, 0, 1);
         let data = b"NOT AN ELF FILE";
         let result = try_load_elf(data, &mut bus);
         assert!(result.is_none());
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_try_load_elf_too_short() {
-        let mut bus = Bus::new(8, 0);
+        let mut bus = Bus::new(8, 0, 1);
         let data = b"EL";
         let result = try_load_elf(data, &mut bus);
         assert!(result.is_none());

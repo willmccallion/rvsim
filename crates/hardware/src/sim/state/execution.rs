@@ -1,7 +1,7 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::{CoreCtx, SharedState};
-use crate::soc::interconnect::BusIrqs;
+use crate::soc::interconnect::HartIrqs;
 use crate::common::constants::{
     HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
     WFI_INSTRUCTION,
@@ -15,16 +15,16 @@ use crate::trace_trap;
 
 impl SharedState {
     /// Uncore work at the top of a cycle: exit and kernel-panic checks, then
-    /// one tick of every bus device. Returns the interrupt lines for this
-    /// cycle, or `None` when a device has requested exit and the cycle
-    /// should be skipped.
+    /// one tick of every bus device, which samples every hart's interrupt
+    /// lines. Returns `false` when a device has requested exit and the
+    /// cycle should be skipped.
     ///
     /// # Errors
     ///
     /// Returns [`SimError::KernelPanic`] when the bus panic sentinel fires.
-    pub fn pre_cycle(&mut self) -> Result<Option<BusIrqs>, SimError> {
+    pub fn pre_cycle(&mut self) -> Result<bool, SimError> {
         if self.check_exit().is_some() {
-            return Ok(None);
+            return Ok(false);
         }
 
         if self.bus.check_kernel_panic() {
@@ -34,7 +34,8 @@ impl SharedState {
             }
         }
 
-        Ok(Some(self.bus_tick()))
+        self.bus.tick();
+        Ok(true)
     }
 
     /// Advances the master clock by one cycle.
@@ -45,8 +46,8 @@ impl SharedState {
 
 impl CoreCtx<'_> {
     /// Per-hart work at the top of a cycle, before the clock advances:
-    /// hang detection and folding this cycle's interrupt lines into `mip`.
-    pub fn pre_tick(&mut self, irqs: BusIrqs) {
+    /// hang detection and folding this hart's interrupt lines into `mip`.
+    pub fn pre_tick(&mut self, irqs: HartIrqs) {
         let hart_idx = self.hart.hart_id.as_index();
         let debug = &mut self.shared.per_hart_debug[hart_idx];
         if self.hart.pc == debug.last_pc {
@@ -96,7 +97,7 @@ impl CoreCtx<'_> {
 
         let mut mip = self.hart.csrs.mip;
 
-        if irqs.timer {
+        if irqs.mtip {
             mip |= csr::MIP_MTIP;
         } else {
             mip &= !csr::MIP_MTIP;

@@ -18,10 +18,14 @@ rvsim models a complete system-on-chip based on the QEMU `virt` machine layout. 
 
 ### CLINT (Core Local Interruptor)
 
-Timer subsystem providing `mtime` and `mtimecmp` registers:
+Timer and software-interrupt registers for every hart, at the standard
+layout (`msip` at `0x0 + 4·hart`, `mtimecmp` at `0x4000 + 8·hart`, one
+`mtime` at `0xBFF8`):
 
 - `mtime` increments every `clint_divider` CPU cycles (default: 10)
-- When `mtime >= mtimecmp`, a timer interrupt is raised (MIP.MTIP)
+- When `mtime >= mtimecmp[hart]`, that hart's timer interrupt is raised (MIP.MTIP)
+- Writing `msip[hart]` raises that hart's software interrupt (MIP.MSIP); this
+  is how firmware sends inter-processor interrupts
 - Timer interrupts can be delegated to S-mode via `mideleg`
 
 ### PLIC (Platform-Level Interrupt Controller)
@@ -29,10 +33,16 @@ Timer subsystem providing `mtime` and `mtimecmp` registers:
 Priority-based interrupt controller with:
 
 - 53 interrupt sources
-- 2 contexts: M-mode and S-mode
+- 2 contexts per hart: context `2·hart` is the hart's M-mode target and
+  `2·hart + 1` its S-mode target (enables at `0x2000 + 0x80·context`,
+  threshold and claim at `0x200000 + 0x1000·context`)
 - Per-source priority registers
 - Per-context enable bits and priority threshold
 - Claim/complete protocol: reading the claim register returns the highest-priority pending interrupt and clears it
+
+Every cycle the bus ticks each device once, feeds the active sources into
+the PLIC, and samples one set of lines per hart (`mtip`, `msip`, `meip`,
+`seip`) that the hart folds into its `mip` before its pipeline ticks.
 
 ### UART (16550A)
 

@@ -2,6 +2,7 @@
 
 pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
+pub mod interrupts;
 pub mod lsq_partial_overlap;
 pub mod vector_pipeline;
 pub mod zicboz;

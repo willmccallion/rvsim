@@ -100,10 +100,11 @@ impl Simulator {
         for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
             *slot = hart.privilege;
         }
-        let irqs = self.state.pre_cycle()?;
-        let skip = irqs.is_none();
-        if let Some(irqs) = irqs {
+        let run_cycle = self.state.pre_cycle()?;
+        if run_cycle {
             for core in 0..self.pipelines.len() {
+                let hart = self.state.topology.cores[core].hart_ids[0];
+                let irqs = self.state.bus.hart_irqs(hart);
                 self.state.core_ctx(core).pre_tick(irqs);
             }
             self.state.advance_cycle();
@@ -115,7 +116,7 @@ impl Simulator {
         // their targets (filling pipeline mailboxes with responses from
         // previous cycles' emissions).
         self.drain_events();
-        if !skip {
+        if run_cycle {
             for core in 0..self.pipelines.len() {
                 let mut ctx = self.state.core_ctx(core);
                 self.pipelines[core].tick(&mut ctx);
