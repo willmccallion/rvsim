@@ -81,12 +81,13 @@ fn read_then_write_pays_rtw() {
         .filter(|c| matches!(c.kind, rvsim_core::sim::packet::DramCmdKind::Write))
         .collect();
     let first_write = write_cmds.first().expect("no WR cmd emitted");
-    let last_read_cmd = read_end - t.t_cas - t.bl_half;
+    // The write burst may start only once the read burst has left the data
+    // bus plus the turnaround gap.
+    let write_data_start = first_write.fire_at + t.t_cwl;
     assert!(
-        first_write.fire_at >= last_read_cmd + t.t_rtw,
-        "WR at {} < last RD cmd + t_rtw = {}",
-        first_write.fire_at,
-        last_read_cmd + t.t_rtw
+        write_data_start >= read_end + t.t_rtw,
+        "WR data at {write_data_start} < read burst end + t_rtw = {}",
+        read_end + t.t_rtw
     );
 }
 

@@ -11,4 +11,4 @@ pub mod timing;
 
 pub use config::Ddr5Config;
 pub use controller::Ddr5Controller;
-pub use timing::Ddr5Timing;
+pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};

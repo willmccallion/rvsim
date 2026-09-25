@@ -90,6 +90,9 @@ pub struct Rank {
     /// enforces per-rank command-bus serialization without cross-rank
     /// interference. Zero before any command.
     pub last_command_cycle: u64,
+    /// Cycle of the most recent PRECHARGE on this rank (tPPD). Zero before
+    /// any precharge.
+    pub last_precharge: u64,
 }
 
 impl Rank {
@@ -104,6 +107,7 @@ impl Rank {
             next_refresh: t_refi,
             refresh_end: 0,
             last_command_cycle: 0,
+            last_precharge: 0,
         }
     }
 

@@ -37,6 +37,15 @@ use crate::soc::memory::ddr5::state::{
 /// Cache-line size used when constructing `LineAddr` in responses.
 const CACHE_LINE_BYTES: u64 = 64;
 
+/// Command-bus cycles an ACTIVATE occupies (DDR5 two-cycle command).
+const ACT_CMD_CYCLES: u64 = 2;
+/// Command-bus cycles a READ or WRITE occupies (DDR5 two-cycle command).
+const COLUMN_CMD_CYCLES: u64 = 2;
+/// Command-bus cycles a PRECHARGE occupies.
+const PRECHARGE_CMD_CYCLES: u64 = 1;
+/// Command-bus cycles a REFRESH occupies.
+const REFRESH_CMD_CYCLES: u64 = 1;
+
 /// DDR5 memory controller.
 #[derive(Debug)]
 pub struct Ddr5Controller {
@@ -236,7 +245,7 @@ impl Ddr5Controller {
         let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
         let rank = &sc.ranks[req.loc.rank.as_index()];
         let refresh_bound = if rank.next_refresh <= now {
-            rank.next_refresh + self.config.timing.t_rfc()
+            rank.next_refresh + self.config.timing.t_rfc1
         } else {
             rank.refresh_end
         };
@@ -272,7 +281,7 @@ impl Ddr5Controller {
         if t_refi == 0 {
             return false;
         }
-        let t_rfc = self.config.timing.t_rfc();
+        let t_rfc = self.config.timing.t_rfc1;
         let rank_count = self.channels[chan.as_index()].subchannels[subch.as_index()].ranks.len();
         for rank_idx in 0..rank_count {
             let (due, earliest) = {
@@ -307,9 +316,9 @@ impl Ddr5Controller {
         end: u64,
     ) {
         let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-        sc.last_command_cycle = sc.last_command_cycle.max(start + 1);
+        sc.last_command_cycle = sc.last_command_cycle.max(start + REFRESH_CMD_CYCLES);
         let rank_mut = &mut sc.ranks[rank.as_index()];
-        rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(start + 1);
+        rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(start + REFRESH_CMD_CYCLES);
         rank_mut.refresh_end = end;
         rank_mut.next_refresh += self.config.timing.t_refi;
         for bank in &mut rank_mut.banks {
@@ -385,10 +394,11 @@ impl Ddr5Controller {
             if snapshot.last_read_cmd == 0 { 0 } else { snapshot.last_read_cmd + t.t_rtp };
         let wr_bound =
             if snapshot.last_write_end == 0 { 0 } else { snapshot.last_write_end + t.t_wr };
-        let cmd_bus = self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
-            .ranks[ctx.rank.as_index()]
-            .last_command_cycle;
-        let earliest = ras_bound.max(rtp_bound).max(wr_bound).max(cmd_bus);
+        let rank_ref = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
+            .ranks[ctx.rank.as_index()];
+        let cmd_bus = rank_ref.last_command_cycle;
+        let ppd_bound = if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
+        let earliest = ras_bound.max(rtp_bound).max(wr_bound).max(cmd_bus).max(ppd_bound);
         if earliest > now {
             return;
         }
@@ -410,9 +420,11 @@ impl Ddr5Controller {
             .map_or(0, RowId::val);
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + 1);
+            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
             let rank_mut = &mut sc.ranks[ctx.rank.as_index()];
-            rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(fire_at + 1);
+            rank_mut.last_command_cycle =
+                rank_mut.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            rank_mut.last_precharge = fire_at;
             let bank = &mut rank_mut.banks[ctx.bank_index];
             bank.state = BankState::Precharging;
             bank.last_precharge = fire_at;
@@ -485,9 +497,9 @@ impl Ddr5Controller {
         let t = self.config.timing;
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + 1);
+            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + ACT_CMD_CYCLES);
             let rank_mut = &mut sc.ranks[ctx.rank.as_index()];
-            rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(fire_at + 1);
+            rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(fire_at + ACT_CMD_CYCLES);
             rank_mut.record_activate(fire_at, t.t_faw);
             let bank = &mut rank_mut.banks[ctx.bank_index];
             bank.state = BankState::Active;
@@ -569,9 +581,10 @@ impl Ddr5Controller {
         let kind = if is_read { DramCmdKind::Read } else { DramCmdKind::Write };
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(column_cycle + 1);
-            sc.ranks[ctx.rank.as_index()].last_command_cycle =
-                sc.ranks[ctx.rank.as_index()].last_command_cycle.max(column_cycle + 1);
+            sc.last_command_cycle = sc.last_command_cycle.max(column_cycle + COLUMN_CMD_CYCLES);
+            sc.ranks[ctx.rank.as_index()].last_command_cycle = sc.ranks[ctx.rank.as_index()]
+                .last_command_cycle
+                .max(column_cycle + COLUMN_CMD_CYCLES);
             if is_read {
                 sc.last_read_cmd = column_cycle;
                 sc.last_read_end = data_end;
@@ -602,9 +615,10 @@ impl Ddr5Controller {
         });
     }
 
-    /// Earliest column-command cycle honoring tCCD, tWTR/tRTW, and command-bus
+    /// Earliest column-command cycle honoring tCCD, tWTR, and command-bus
     /// availability. `not_before` is the caller-supplied lower bound (typically
-    /// `last_activate + tRCD`).
+    /// `last_activate + tRCD`). Read-to-write turnaround is a data-bus
+    /// constraint and lives in [`Self::data_bus_start`].
     fn column_earliest(
         &self,
         chan: ChannelId,
@@ -639,9 +653,6 @@ impl Ddr5Controller {
             };
             result = result.max(bound);
         }
-        if !is_read && sc.last_data_op == BusOp::Read && sc.last_read_cmd > 0 {
-            result = result.max(sc.last_read_cmd + t.t_rtw);
-        }
         result
     }
 
@@ -661,6 +672,9 @@ impl Ddr5Controller {
             && last_rank != rank
         {
             earliest = earliest.max(sc.last_data_end + t.t_rtrs);
+        }
+        if !is_read && sc.last_data_op == BusOp::Read {
+            earliest = earliest.max(sc.last_read_end + t.t_rtw);
         }
         earliest
     }
