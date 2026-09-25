@@ -6,6 +6,9 @@
 /// Tests for the generated device tree.
 pub mod dtb;
 
+/// Tests for RAM writes that bypass the harts' store paths.
+pub mod external_writes;
+
 /// Tests for the main execution loop and pipeline coordination.
 pub mod execution;
 

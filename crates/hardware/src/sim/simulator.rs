@@ -188,6 +188,9 @@ impl Simulator {
                     self_id: ComponentId::Bus,
                 };
                 shared.bus.handle(packet, source, &mut ctx);
+                for (paddr, len) in shared.bus.take_dma_writes() {
+                    shared.record_external_write_range(paddr, len);
+                }
             }
             ComponentId::MemCtrl(id) => {
                 let shared = &mut self.state.shared;

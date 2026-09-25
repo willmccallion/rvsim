@@ -368,3 +368,69 @@ fn virtio_device_features_lower_bits() {
     // Lower 32 bits should be 0 for this device
     assert_eq!(features, 0);
 }
+
+const RAM_BASE: u64 = 0x8000_0000;
+const DESC_TABLE: u64 = RAM_BASE + 0x1000;
+const AVAIL_RING: u64 = RAM_BASE + 0x100;
+const USED_RING: u64 = RAM_BASE + 0x200;
+const REQUEST_HEADER: u64 = RAM_BASE + 0x2000;
+const DATA_BUFFER: u64 = RAM_BASE + 0x3000;
+const STATUS_BYTE: u64 = RAM_BASE + 0x4000;
+const SECTOR: usize = 512;
+
+fn write_descriptor(ram: &DramBuffer, index: u64, addr: u64, len: u32, flags: u16, next: u16) {
+    let base = (DESC_TABLE - RAM_BASE + index * 16) as usize;
+    ram.write_slice(base, &addr.to_le_bytes());
+    ram.write_slice(base + 8, &len.to_le_bytes());
+    ram.write_slice(base + 12, &flags.to_le_bytes());
+    ram.write_slice(base + 14, &next.to_le_bytes());
+}
+
+/// Posts a one-sector read of sector 0 into `DATA_BUFFER` and notifies the device.
+fn submit_sector_read(vio: &mut VirtioBlock, ram: &DramBuffer) {
+    const F_NEXT: u16 = 1;
+    const F_WRITE: u16 = 2;
+    write_descriptor(ram, 0, REQUEST_HEADER, 16, F_NEXT, 1);
+    write_descriptor(ram, 1, DATA_BUFFER, SECTOR as u32, F_NEXT | F_WRITE, 2);
+    write_descriptor(ram, 2, STATUS_BYTE, 1, F_WRITE, 0);
+    ram.write_slice((REQUEST_HEADER - RAM_BASE) as usize, &[0u8; 16]);
+    let avail = (AVAIL_RING - RAM_BASE) as usize;
+    ram.write_slice(avail + 2, &1u16.to_le_bytes());
+    ram.write_slice(avail + 4, &0u16.to_le_bytes());
+
+    let reg = |offset: u64| rvsim_core::common::PhysAddr::new(0x1000_1000 + offset);
+    crate::common::probe::write(vio, reg(0x38), 8, 4);
+    crate::common::probe::write(vio, reg(0x80), DESC_TABLE, 4);
+    crate::common::probe::write(vio, reg(0x90), AVAIL_RING, 4);
+    crate::common::probe::write(vio, reg(0xa0), USED_RING, 4);
+    crate::common::probe::write(vio, reg(0x44), 1, 4);
+    crate::common::probe::write(vio, reg(0x50), 0, 4);
+}
+
+#[test]
+fn a_sector_read_lands_in_the_guest_buffer() {
+    let (mut vio, ram) = make_virtio_with_ram();
+    vio.load(vec![0x42; SECTOR]);
+
+    submit_sector_read(&mut vio, &ram);
+
+    assert_eq!(ram.read_slice((DATA_BUFFER - RAM_BASE) as usize, SECTOR), vec![0x42; SECTOR]);
+    assert_eq!(ram.read_u8((STATUS_BYTE - RAM_BASE) as usize), 0, "VIRTIO_BLK_S_OK");
+}
+
+#[test]
+fn every_dma_write_of_a_request_is_reported_once() {
+    let (mut vio, ram) = make_virtio_with_ram();
+    vio.load(vec![0x42; SECTOR]);
+
+    submit_sector_read(&mut vio, &ram);
+    let writes = vio.take_dma_writes();
+
+    let touched = |addr: u64| writes.iter().any(|(paddr, len)| paddr.val() <= addr && addr < paddr.val() + *len as u64);
+    assert!(touched(DATA_BUFFER), "data buffer: {writes:?}");
+    assert!(touched(DATA_BUFFER + SECTOR as u64 - 1), "end of data buffer: {writes:?}");
+    assert!(touched(STATUS_BYTE), "status byte: {writes:?}");
+    assert!(touched(USED_RING + 2), "used index: {writes:?}");
+    assert!(touched(USED_RING + 4), "used element: {writes:?}");
+    assert!(vio.take_dma_writes().is_empty(), "reported writes are drained");
+}

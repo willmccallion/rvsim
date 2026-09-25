@@ -5,7 +5,7 @@
 //! `Device` itself describes the device's location on the bus, its lifecycle
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysAddr};
 use crate::sim::handle::Handle;
 use crate::soc::devices::{Clint, Plic, Uart};
 
@@ -41,5 +41,12 @@ pub trait Device: Handle + Send + Sync {
     /// Returns a mutable reference as `Uart` if this device is a UART.
     fn as_uart_mut(&mut self) -> Option<&mut Uart> {
         None
+    }
+
+    /// RAM ranges the device wrote by DMA since the last call, so the
+    /// system can publish them like any other write (reservations, the
+    /// write log).
+    fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
+        Vec::new()
     }
 }

@@ -177,6 +177,12 @@ impl Bus {
 
     /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].
     #[must_use]
+    /// RAM ranges any device wrote by DMA since the last call.
+    pub fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
+        self.devices.iter_mut().flat_map(|d| d.take_dma_writes()).collect()
+    }
+
+    /// The interrupt lines currently asserted towards `hart`.
     pub fn hart_irqs(&self, hart: HartId) -> HartIrqs {
         self.hart_irqs.get(hart.as_index()).copied().unwrap_or_default()
     }

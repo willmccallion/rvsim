@@ -273,6 +273,16 @@ impl SharedState {
         self.note_write(Writer::External, paddr);
     }
 
+    /// Records an external write of `len` bytes from `paddr`, line by line.
+    pub fn record_external_write_range(&mut self, paddr: PhysAddr, len: usize) {
+        let line_bytes = self.write_log.as_ref().map_or(64, WriteLog::line_bytes);
+        let first = paddr.val() / line_bytes;
+        let last = paddr.val().saturating_add(len.saturating_sub(1) as u64) / line_bytes;
+        for line in first..=last {
+            self.note_write(Writer::External, PhysAddr::new(line * line_bytes));
+        }
+    }
+
     fn note_write(&mut self, writer: Writer, paddr: PhysAddr) {
         match writer {
             Writer::Hart(hart) => self.reservations.invalidate_others(hart, paddr),

@@ -8,6 +8,7 @@ use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
 use crate::soc::devices::Device;
+use crate::common::PhysAddr;
 use crate::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
@@ -134,6 +135,8 @@ pub struct VirtioBlock {
     disk_image: Vec<u8>,
     /// Shared reference to system RAM for DMA.
     ram: Arc<DramBuffer>,
+    /// DMA writes not yet published to the system.
+    dma_writes: Vec<(PhysAddr, usize)>,
 
     /// Device status register.
     status: u32,
@@ -185,6 +188,7 @@ impl VirtioBlock {
             ram_base,
             disk_image: Vec::new(),
             ram,
+            dma_writes: Vec::new(),
             status: 0,
             queue_num: 0,
             queue_ready: 0,
@@ -238,7 +242,7 @@ impl VirtioBlock {
     }
 
     /// Writes `data` to system RAM at physical address `addr` via DMA.
-    fn dma_write(&self, addr: u64, data: &[u8]) {
+    fn dma_write(&mut self, addr: u64, data: &[u8]) {
         if addr < self.ram_base {
             println!("[VirtIO] DMA Write Out of Bounds (Low): 0x{addr:x}");
             return;
@@ -255,6 +259,7 @@ impl VirtioBlock {
         }
 
         self.ram.write_slice(offset, data);
+        self.dma_writes.push((PhysAddr::new(addr), data.len()));
     }
 
     /// Processes the `VirtQueue` (triggered on Queue Notify write).
@@ -347,11 +352,9 @@ impl VirtioBlock {
                             let available =
                                 self.disk_image.len() - (sector_offset + current_offset);
                             let copy_len = std::cmp::min(*d_len as usize, available);
-                            self.dma_write(
-                                *d_addr,
-                                &self.disk_image[sector_offset + current_offset
-                                    ..sector_offset + current_offset + copy_len],
-                            );
+                            let start = sector_offset + current_offset;
+                            let sector_data = self.disk_image[start..start + copy_len].to_vec();
+                            self.dma_write(*d_addr, &sector_data);
                             len_written += copy_len as u32;
                         }
                         current_offset += *d_len as usize;
@@ -476,6 +479,10 @@ impl Handle for VirtioBlock {
 }
 
 impl Device for VirtioBlock {
+    fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
+        std::mem::take(&mut self.dma_writes)
+    }
+
     fn name(&self) -> &'static str {
         "VirtIO-Blk"
     }
