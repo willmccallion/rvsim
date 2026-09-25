@@ -1697,6 +1697,42 @@ pub enum InterconnectConfig {
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
         bytes_per_cycle: usize,
     },
+    /// Bidirectional ring; the home is one stop.
+    Ring {
+        /// Cycles per hop.
+        #[serde(default = "InterconnectConfig::default_hop_latency")]
+        hop_latency: u64,
+        /// Bytes a link moves per cycle.
+        #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
+        bytes_per_cycle: usize,
+    },
+    /// 2-D mesh with XY routing.
+    Mesh {
+        /// Cycles per hop.
+        #[serde(default = "InterconnectConfig::default_hop_latency")]
+        hop_latency: u64,
+        /// Bytes a link moves per cycle.
+        #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
+        bytes_per_cycle: usize,
+    },
+    /// 2-D torus (mesh with wraparound) with XY routing.
+    Torus {
+        /// Cycles per hop.
+        #[serde(default = "InterconnectConfig::default_hop_latency")]
+        hop_latency: u64,
+        /// Bytes a link moves per cycle.
+        #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
+        bytes_per_cycle: usize,
+    },
+    /// Hypercube with dimension-order routing.
+    Hypercube {
+        /// Cycles per hop.
+        #[serde(default = "InterconnectConfig::default_hop_latency")]
+        hop_latency: u64,
+        /// Bytes a link moves per cycle.
+        #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
+        bytes_per_cycle: usize,
+    },
 }
 
 impl InterconnectConfig {

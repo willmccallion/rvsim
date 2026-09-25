@@ -6,7 +6,7 @@ use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder}
 use crate::common::multihart::MultiHart;
 use crate::integration::multicore::{amo_counter, spinlock};
 use rvsim_core::coherence::audit::audit;
-use rvsim_core::config::{Config, HomeAgentConfig};
+use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
@@ -208,6 +208,21 @@ fn a_tiny_snoop_filter_recalls_lines_and_stays_exact() {
     let mut system = MultiHart::with_config(&config, &shared_line_stores(4, 60));
     run_audited(&mut system, 6_000_000).expect("exit");
     assert!(fabric_stat(&system, "coherence.ha.recalls") > 0, "the filter had to recall lines");
+}
+
+#[test]
+fn every_interconnect_keeps_four_harts_coherent() {
+    let fabrics = [
+        ("ring", InterconnectConfig::Ring { hop_latency: 2, bytes_per_cycle: 32 }),
+        ("mesh", InterconnectConfig::Mesh { hop_latency: 2, bytes_per_cycle: 32 }),
+        ("torus", InterconnectConfig::Torus { hop_latency: 2, bytes_per_cycle: 32 }),
+        ("hypercube", InterconnectConfig::Hypercube { hop_latency: 2, bytes_per_cycle: 32 }),
+    ];
+    for (label, interconnect) in fabrics {
+        let mut config = cached(4, BackendType::InOrder);
+        config.coherence.interconnect = interconnect;
+        check_all_programs(&config, label);
+    }
 }
 
 #[test]

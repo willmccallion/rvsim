@@ -23,7 +23,7 @@ pub use protocol::{CoherenceProtocol, CoreSet, Holders, Mesi};
 use crate::config::{CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig};
 use crate::sim::components::ComponentId;
 use home::{Broadcast, HomeAgent, SnoopFilter};
-use interconnect::{Crossbar, Interconnect};
+use interconnect::{Crossbar, Hypercube, Interconnect, Mesh2D, Ring, RoutedNetwork};
 use stats::CoherenceStatPaths;
 
 /// Sizes that shape the fabric, taken from the caches it sits between.
@@ -56,6 +56,33 @@ pub fn build(config: &CoherenceConfig, geometry: FabricGeometry, llc: ComponentI
         InterconnectConfig::Crossbar { hop_latency, bytes_per_cycle } => {
             Box::new(Crossbar::new(cores, geometry.line_bytes, hop_latency, bytes_per_cycle, paths))
         }
+        InterconnectConfig::Ring { hop_latency, bytes_per_cycle } => {
+            Box::new(RoutedNetwork::new(Ring::new(cores + 1), cores, geometry.line_bytes, hop_latency, bytes_per_cycle, paths))
+        }
+        InterconnectConfig::Mesh { hop_latency, bytes_per_cycle } => Box::new(RoutedNetwork::new(
+            Mesh2D::for_endpoints(cores + 1, false),
+            cores,
+            geometry.line_bytes,
+            hop_latency,
+            bytes_per_cycle,
+            paths,
+        )),
+        InterconnectConfig::Torus { hop_latency, bytes_per_cycle } => Box::new(RoutedNetwork::new(
+            Mesh2D::for_endpoints(cores + 1, true),
+            cores,
+            geometry.line_bytes,
+            hop_latency,
+            bytes_per_cycle,
+            paths,
+        )),
+        InterconnectConfig::Hypercube { hop_latency, bytes_per_cycle } => Box::new(RoutedNetwork::new(
+            Hypercube::for_endpoints(cores + 1),
+            cores,
+            geometry.line_bytes,
+            hop_latency,
+            bytes_per_cycle,
+            paths,
+        )),
     };
     let layout = FabricLayout { llc, agents, line_bytes: geometry.line_bytes, txn_capacity: config.txn_entries };
     CoherenceFabric::new(protocol, tracking, interconnect, layout, stat_paths)
