@@ -3,6 +3,9 @@
 //! This module contains unit tests for simulation-related functionality,
 //! including binary loading and system initialization.
 
+/// Tests for the generated device tree.
+pub mod dtb;
+
 /// Tests for the main execution loop and pipeline coordination.
 pub mod execution;
 

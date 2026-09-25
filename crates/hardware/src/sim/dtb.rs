@@ -158,15 +158,39 @@ impl FdtBuilder {
     }
 }
 
+/// Phandles for one system: interrupt controllers first so a single-hart
+/// tree keeps the values it always had (cpu0 intc = 1, PLIC = 2, syscon = 3).
+struct Phandles {
+    hart_count: u32,
+}
+
+impl Phandles {
+    const fn cpu_intc(hart: u32) -> u32 {
+        1 + hart
+    }
+
+    const fn plic(&self) -> u32 {
+        self.hart_count + 1
+    }
+
+    const fn syscon(&self) -> u32 {
+        self.hart_count + 2
+    }
+
+    const fn cpu(&self, hart: u32) -> u32 {
+        self.hart_count + 3 + hart
+    }
+}
+
 /// Generates a DTB binary matching the simulator's `SoC` layout.
 ///
 /// The generated DTB includes:
 /// - Memory region at `ram_base` with `ram_size`
-/// - CLINT at `clint_base`
-/// - PLIC at 0x0c000000
+/// - CLINT at `clint_base` with timer and software interrupts for every hart
+/// - PLIC at 0x0c000000 with M- and S-mode contexts for every hart
 /// - UART at `uart_base`
 /// - `VirtIO` block device at `disk_base`
-/// - CPU with rv64imafdc ISA and SV39 MMU
+/// - One `cpu@N` per hart (rv64imafdc ISA, SV39 MMU) and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let ram_base = config.system.ram_base;
     let ram_size = config.memory.ram_size as u64;
@@ -177,14 +201,14 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let rtc_base: u64 = 0x10_1000;
     let plic_base: u64 = 0x0c00_0000;
     let timebase_freq: u32 = 10_000_000;
+    let hart_count = u32::try_from(config.system.hart_count.max(1)).unwrap_or(u32::MAX);
 
     let bootargs =
         format!("root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,{uart_base:#x} rootwait");
     let stdout_path = format!("/soc/uart@{uart_base:x}");
 
-    // Phandle values (arbitrary unique IDs)
-    let cpu0_intc_phandle: u32 = 1;
-    let plic_phandle: u32 = 2;
+    let phandles = Phandles { hart_count };
+    let plic_phandle = phandles.plic();
 
     let mut b = FdtBuilder::new();
 
@@ -207,24 +231,37 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     b.prop_u32("#size-cells", 0);
     b.prop_u32("timebase-frequency", timebase_freq);
 
-    // /cpus/cpu@0
-    b.begin_node("cpu@0");
-    b.prop_string("device_type", "cpu");
-    b.prop_reg_1_0(0);
-    b.prop_string("status", "okay");
-    b.prop_string("compatible", "riscv");
-    b.prop_string("riscv,isa", "rv64imafdc");
-    b.prop_string("mmu-type", "riscv,sv39");
+    for hart in 0..hart_count {
+        b.begin_node(&format!("cpu@{hart}"));
+        b.prop_string("device_type", "cpu");
+        b.prop_reg_1_0(hart);
+        b.prop_string("status", "okay");
+        b.prop_string("compatible", "riscv");
+        b.prop_string("riscv,isa", "rv64imafdc");
+        b.prop_string("mmu-type", "riscv,sv39");
+        b.prop_u32("phandle", phandles.cpu(hart));
 
-    // /cpus/cpu@0/interrupt-controller
-    b.begin_node("interrupt-controller");
-    b.prop_u32("#interrupt-cells", 1);
-    b.prop_empty("interrupt-controller");
-    b.prop_string("compatible", "riscv,cpu-intc");
-    b.prop_u32("phandle", cpu0_intc_phandle);
-    b.end_node(); // interrupt-controller
+        b.begin_node("interrupt-controller");
+        b.prop_u32("#interrupt-cells", 1);
+        b.prop_empty("interrupt-controller");
+        b.prop_string("compatible", "riscv,cpu-intc");
+        b.prop_u32("phandle", Phandles::cpu_intc(hart));
+        b.end_node(); // interrupt-controller
 
-    b.end_node(); // cpu@0
+        b.end_node(); // cpu@N
+    }
+
+    // /cpus/cpu-map: one cluster, one core per hart.
+    b.begin_node("cpu-map");
+    b.begin_node("cluster0");
+    for hart in 0..hart_count {
+        b.begin_node(&format!("core{hart}"));
+        b.prop_u32("cpu", phandles.cpu(hart));
+        b.end_node();
+    }
+    b.end_node(); // cluster0
+    b.end_node(); // cpu-map
+
     b.end_node(); // cpus
 
     // /memory
@@ -249,14 +286,8 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,clint0");
         b.prop_reg_2_2(clint_base, 0x10000);
-        // interrupts-extended: <&cpu0_intc 3>, <&cpu0_intc 7>
-        // (3 = M-mode software interrupt, 7 = M-mode timer interrupt)
-        let mut ie = Vec::with_capacity(16);
-        ie.extend_from_slice(&cpu0_intc_phandle.to_be_bytes());
-        ie.extend_from_slice(&3u32.to_be_bytes());
-        ie.extend_from_slice(&cpu0_intc_phandle.to_be_bytes());
-        ie.extend_from_slice(&7u32.to_be_bytes());
-        b.prop_bytes("interrupts-extended", &ie);
+        // Per hart: <&intc 3> (M-mode software), <&intc 7> (M-mode timer).
+        b.prop_bytes("interrupts-extended", &interrupts_extended(&phandles, &[3, 7]));
         b.end_node();
     }
 
@@ -292,21 +323,15 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_reg_2_2(plic_base, 0x4000000);
         b.prop_u32("#interrupt-cells", 1);
         b.prop_empty("interrupt-controller");
-        // interrupts-extended: <&cpu0_intc 11>, <&cpu0_intc 9>
-        // (11 = M-mode external interrupt, 9 = S-mode external interrupt)
-        let mut ie = Vec::with_capacity(16);
-        ie.extend_from_slice(&cpu0_intc_phandle.to_be_bytes());
-        ie.extend_from_slice(&11u32.to_be_bytes());
-        ie.extend_from_slice(&cpu0_intc_phandle.to_be_bytes());
-        ie.extend_from_slice(&9u32.to_be_bytes());
-        b.prop_bytes("interrupts-extended", &ie);
+        // Per hart: <&intc 11> (M-mode external), <&intc 9> (S-mode external).
+        b.prop_bytes("interrupts-extended", &interrupts_extended(&phandles, &[11, 9]));
         b.prop_u32("riscv,ndev", 0x35);
         b.prop_u32("phandle", plic_phandle);
         b.end_node();
     }
 
     // /soc/syscon (with poweroff and reboot sub-nodes)
-    let syscon_phandle: u32 = 3;
+    let syscon_phandle = phandles.syscon();
     {
         let node_name = format!("syscon@{syscon_base:x}");
         b.begin_node(&node_name);
@@ -351,4 +376,17 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     b.end_node(); // root
 
     b.finalize()
+}
+
+/// `interrupts-extended` cells naming every hart's interrupt controller once
+/// per entry in `irqs`: `<&intc0 irqs[0]> <&intc0 irqs[1]> <&intc1 irqs[0]> ...`.
+fn interrupts_extended(phandles: &Phandles, irqs: &[u32]) -> Vec<u8> {
+    let mut cells = Vec::with_capacity(phandles.hart_count as usize * irqs.len() * 8);
+    for hart in 0..phandles.hart_count {
+        for irq in irqs {
+            cells.extend_from_slice(&Phandles::cpu_intc(hart).to_be_bytes());
+            cells.extend_from_slice(&irq.to_be_bytes());
+        }
+    }
+    cells
 }
