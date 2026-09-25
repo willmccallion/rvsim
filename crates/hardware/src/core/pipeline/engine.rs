@@ -49,7 +49,7 @@ pub trait ExecutionEngine {
     /// flushes the frontend (branch misprediction, trap, FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
-        state: &mut crate::sim::SimState,
+        state: &mut crate::sim::CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     );
@@ -58,10 +58,10 @@ pub trait ExecutionEngine {
     fn can_accept(&self) -> usize;
 
     /// Flush all speculative state. Committed stores in the store buffer remain.
-    fn flush(&mut self, state: &mut crate::sim::SimState);
+    fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
 
     /// Read a CSR, checking in-flight `CsrUpdate` entries in the ROB.
-    fn read_csr_speculative(&self, state: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64;
+    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64;
 
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
@@ -263,12 +263,14 @@ impl BackendCommon {
             || self.fetch_walk_pending
     }
 
-    /// Allocates a fresh [`ReqId`] for an outgoing packet.
+    /// Allocates a fresh [`ReqId`] for an outgoing packet. The pipeline
+    /// id occupies the top 16 bits so ids are unique across cores; shared
+    /// caches and memory controllers key their pending tables by them.
     #[inline]
     pub const fn alloc_req_id(&mut self) -> ReqId {
         let id = self.next_req_id;
         self.next_req_id = id.wrapping_add(1);
-        ReqId::new(id)
+        ReqId::new(((self.pipeline_id.val() as u64) << 48) | (id & ((1u64 << 48) - 1)))
     }
 
     /// Allocates a fresh fetch sequence number for the in-program-order
@@ -315,7 +317,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     ///    re-inject into Execute→Memory1; completed fetches land in F1→F2.
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
-    pub fn tick(&mut self, state: &mut crate::sim::SimState) {
+    pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         let pc_before = state.hart.pc;
 
         crate::core::pipeline::mailbox::drain(self, state);
@@ -356,7 +358,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     }
 
     /// Flush the entire pipeline.
-    pub fn flush(&mut self, state: &mut crate::sim::SimState) {
+    pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         self.frontend.flush();
         self.rename_output.clear();
         let common = self.engine.common_mut();
@@ -370,7 +372,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     }
 }
 
-/// Type-erased pipeline for storage in the non-generic `SimState` struct.
+/// Type-erased pipeline stored per core on the simulator.
 #[derive(Debug)]
 pub enum PipelineDispatch {
     /// In-order pipeline.
@@ -381,7 +383,7 @@ pub enum PipelineDispatch {
 
 impl PipelineDispatch {
     /// Run one cycle.
-    pub fn tick(&mut self, state: &mut crate::sim::SimState) {
+    pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         match self {
             Self::InOrder(p) => p.tick(state),
             Self::OutOfOrder(p) => p.tick(state),
@@ -397,7 +399,7 @@ impl PipelineDispatch {
     }
 
     /// Flush.
-    pub fn flush(&mut self, state: &mut crate::sim::SimState) {
+    pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         match self {
             Self::InOrder(p) => p.flush(state),
             Self::OutOfOrder(p) => p.flush(state),
@@ -453,7 +455,8 @@ mod tests {
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
         let config = crate::config::Config::default();
-        let mut state = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         let frontend = Frontend::new(config.pipeline.width);
         let engine = InOrderEngine::new(

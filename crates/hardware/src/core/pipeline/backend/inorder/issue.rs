@@ -7,7 +7,7 @@
 //! - If the ROB entry is still in-flight → stall (operand not ready).
 
 use crate::common::RegIdx;
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::signals::SystemOp;
@@ -64,7 +64,7 @@ impl InOrderIssueUnit {
         width: usize,
         rob: &Rob,
         store_buffer: &StoreBuffer,
-        state: &SimState,
+        state: &CoreCtx<'_>,
     ) -> Vec<RenameIssueEntry> {
         let mut selected = Vec::with_capacity(width);
 
@@ -176,7 +176,7 @@ fn read_operand_by_tag(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    state: &SimState,
+    state: &CoreCtx<'_>,
 ) -> Option<u64> {
     if !is_fp && reg.is_zero() {
         return Some(0);

@@ -19,7 +19,8 @@ fn create_test_cpu() -> SimState {
 
 #[test]
 fn test_translate_direct_mode_valid_address() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -33,7 +34,8 @@ fn test_translate_direct_mode_valid_address() {
 
 #[test]
 fn test_translate_direct_mode_different_addresses() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let test_addrs = vec![0x8000_0000u64, 0x8000_1000u64, 0x8000_2000u64];
@@ -49,7 +51,8 @@ fn test_translate_direct_mode_different_addresses() {
 
 #[test]
 fn test_translate_direct_mode_fetch_access() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -61,7 +64,8 @@ fn test_translate_direct_mode_fetch_access() {
 
 #[test]
 fn test_translate_direct_mode_write_access() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -73,7 +77,8 @@ fn test_translate_direct_mode_write_access() {
 
 #[test]
 fn test_translate_preserves_translation_cost() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -85,7 +90,8 @@ fn test_translate_preserves_translation_cost() {
 
 #[test]
 fn test_translate_multiple_calls() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     for _ in 0..5 {
@@ -99,7 +105,8 @@ fn test_translate_multiple_calls() {
 
 #[test]
 fn test_translate_invalid_address_fetch() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -111,7 +118,8 @@ fn test_translate_invalid_address_fetch() {
 
 #[test]
 fn test_translate_invalid_address_read() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -123,7 +131,8 @@ fn test_translate_invalid_address_read() {
 
 #[test]
 fn test_translate_invalid_address_write() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -135,7 +144,8 @@ fn test_translate_invalid_address_write() {
 
 #[test]
 fn test_translate_with_direct_mode_false() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     state.direct_mode = false;
 
     let vaddr = VirtAddr::new(0x8000_0000);

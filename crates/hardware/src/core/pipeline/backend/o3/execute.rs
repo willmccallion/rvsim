@@ -10,7 +10,7 @@
 
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp};
@@ -37,7 +37,7 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 /// the engine must flush younger instructions (misprediction, CSR,
 /// MRET/SRET, FENCE.I, etc.).
 pub fn execute_one(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     redirect_pending: &mut bool,
@@ -413,7 +413,7 @@ pub fn execute_one(
 
 /// Handle system instructions (MRET, SRET, WFI, SFENCE.VMA, ECALL, CSR).
 fn execute_system(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
@@ -599,7 +599,7 @@ fn execute_system(
 /// Handle CSR operations.
 #[allow(clippy::needless_pass_by_value)]
 fn execute_csr(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
@@ -993,7 +993,8 @@ mod tests {
     #[test]
     fn test_execute_one_normal() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         let tag = rob
@@ -1061,7 +1062,8 @@ mod tests {
     #[test]
     fn test_execute_trap_propagation() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         let tag = rob
@@ -1130,7 +1132,8 @@ mod tests {
     #[test]
     fn test_execute_fence_i() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         let tag = rob
@@ -1200,7 +1203,8 @@ mod tests {
     #[test]
     fn test_execute_fp_trap_when_fs_zero() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         state.hart.csrs.mstatus &= !crate::core::arch::csr::MSTATUS_FS; // Clear FS bits
@@ -1275,7 +1279,8 @@ mod tests {
     #[test]
     fn test_execute_branch_misprediction() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         let tag = rob
@@ -1351,7 +1356,8 @@ mod tests {
     #[test]
     fn test_execute_jump_jalr() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
         let tag = rob

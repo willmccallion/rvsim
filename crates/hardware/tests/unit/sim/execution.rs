@@ -53,13 +53,13 @@ fn test_last_pc_updates() {
     sim.tick().unwrap();
 
     // PC is always set to a valid address
-    let _ = sim.state.hart.pc;
+    let _ = sim.state.harts[0].pc;
 }
 
 #[test]
 fn test_same_pc_counter() {
     let mut sim = create_test_sim();
-    let idx = sim.state.hart.hart_id.as_index();
+    let idx = sim.state.harts[0].hart_id.as_index();
     let initial_count = sim.state.per_hart_debug[idx].same_pc_count;
     sim.state.per_hart_debug[idx].same_pc_count = 0;
 
@@ -77,9 +77,9 @@ fn test_privilege_preserved_across_tick() {
 
     // Privilege should be set to something valid
     assert!(
-        sim.state.hart.privilege == PrivilegeMode::User
-            || sim.state.hart.privilege == PrivilegeMode::Supervisor
-            || sim.state.hart.privilege == PrivilegeMode::Machine
+        sim.state.harts[0].privilege == PrivilegeMode::User
+            || sim.state.harts[0].privilege == PrivilegeMode::Supervisor
+            || sim.state.harts[0].privilege == PrivilegeMode::Machine
     );
 }
 
@@ -95,21 +95,21 @@ fn test_bus_interaction_tick() {
 #[test]
 fn test_stats_updated() {
     let mut sim = create_test_sim();
-    let initial_instructions = sim.state.instructions_retired;
+    let initial_instructions = sim.state.instructions_retired();
 
     sim.tick().unwrap();
 
-    assert!(sim.state.instructions_retired >= initial_instructions);
+    assert!(sim.state.instructions_retired() >= initial_instructions);
 }
 
 #[test]
 fn test_tick_does_not_corrupt_state() {
     let mut sim = create_test_sim();
-    sim.state.hart.regs.write(RegIdx::new(5), 0x1234_5678);
+    sim.state.harts[0].regs.write(RegIdx::new(5), 0x1234_5678);
 
     sim.tick().unwrap();
 
-    let _ = sim.state.hart.regs.read(RegIdx::new(5));
+    let _ = sim.state.harts[0].regs.read(RegIdx::new(5));
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn test_rapid_ticks() {
 fn test_tick_with_different_privileges() {
     for priv_level in [PrivilegeMode::Machine, PrivilegeMode::Supervisor, PrivilegeMode::User] {
         let mut sim = create_test_sim();
-        sim.state.hart.privilege = priv_level;
+        sim.state.harts[0].privilege = priv_level;
 
         let result = sim.tick();
         assert!(result.is_ok());

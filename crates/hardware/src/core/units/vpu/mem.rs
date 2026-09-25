@@ -6,7 +6,7 @@
 //! and bus interface.
 
 use crate::common::{AccessType, Trap, VirtAddr};
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::signals::{ControlSignals, VectorOp};
 use crate::core::units::vpu::regfile::VectorRegFile;
@@ -168,7 +168,7 @@ pub struct VecMemAddrOp {
 /// Returns a `Trap` if any element access causes an address translation
 /// fault or access fault (except for fault-only-first loads where only
 /// element 0 faults propagate).
-pub fn execute_vec_load(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+pub fn execute_vec_load(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let vtype = parse_vtype(state.hart.csrs.vtype);
     check_vec_mem_emul(id.inst, id.ctrl.vec_op, &id.ctrl, &vtype)?;
     let eew = id.ctrl.vec_eew;
@@ -200,7 +200,7 @@ pub fn execute_vec_load(state: &mut SimState, id: &RenameIssueEntry) -> Result<u
 ///
 /// Returns a `Trap` if any element access causes an address translation
 /// fault or access fault.
-pub fn execute_vec_store(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+pub fn execute_vec_store(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let vtype = parse_vtype(state.hart.csrs.vtype);
     check_vec_mem_emul(id.inst, id.ctrl.vec_op, &id.ctrl, &vtype)?;
     let eew = id.ctrl.vec_eew;
@@ -267,7 +267,7 @@ pub const fn is_vec_mem(op: VectorOp) -> bool {
 /// correct values to the arch VPR; the micro-ops exist only for timing.
 #[must_use]
 pub fn generate_element_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     ex_result: &ExMem1Entry,
     vec_op: VectorOp,
 ) -> Vec<VecMemAddrOp> {
@@ -308,7 +308,7 @@ const fn parse_eew_from_ctrl(ctrl: &crate::core::pipeline::signals::ControlSigna
 
 /// Generate unit-stride element addresses.
 fn gen_unit_stride_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     base: u64,
     eew: Sew,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
@@ -349,7 +349,7 @@ fn gen_unit_stride_addrs(
 
 /// Generate strided element addresses.
 fn gen_strided_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     base: u64,
     stride: i64,
     eew: Sew,
@@ -391,7 +391,7 @@ fn gen_strided_addrs(
 
 /// Generate indexed element addresses.
 fn gen_indexed_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     base: u64,
     eew: Sew,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
@@ -441,7 +441,7 @@ fn gen_indexed_addrs(
 
 /// Generate mask load/store element addresses.
 fn gen_mask_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     base: u64,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
@@ -468,7 +468,7 @@ fn gen_mask_addrs(
 
 /// Generate whole-register load/store element addresses.
 fn gen_whole_reg_addrs(
-    state: &SimState,
+    state: &CoreCtx<'_>,
     base: u64,
     ctrl: &crate::core::pipeline::signals::ControlSignals,
     is_store: bool,
@@ -714,7 +714,7 @@ fn is_element_active_vrf<V: VectorRegFile>(vrf: &V, i: usize, vm: bool) -> bool 
 /// Get `(vl, vstart)` for the current vector configuration.
 ///
 /// Returns `None` if vtype is illegal (vill=1).
-const fn get_vec_cfg(state: &SimState) -> Option<(usize, usize)> {
+const fn get_vec_cfg(state: &CoreCtx<'_>) -> Option<(usize, usize)> {
     let vtype = parse_vtype(state.hart.csrs.vtype);
     if vtype.vill {
         return None;
@@ -723,7 +723,7 @@ const fn get_vec_cfg(state: &SimState) -> Option<(usize, usize)> {
 }
 
 /// Check if element `i` is active under the current mask.
-fn is_element_active(state: &SimState, i: usize, vm: bool) -> bool {
+fn is_element_active(state: &CoreCtx<'_>, i: usize, vm: bool) -> bool {
     if vm {
         // vm=1 means unmasked — all elements active
         return true;
@@ -739,7 +739,7 @@ fn is_element_active(state: &SimState, i: usize, vm: bool) -> bool {
 /// it as the appropriate page fault — the trap commits, the OS handler
 /// installs the PTE, and the re-issue path warms the TLB before retrying.
 fn translate_vector_element(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     vaddr: u64,
     access: AccessType,
     size: u64,
@@ -767,7 +767,7 @@ fn translate_vector_element(
 /// architecturally not defined for MMIO regions; a non-RAM address
 /// surfaces zero, which the encoded operation either consumes or
 /// faults on at the protection check above).
-fn mem_read_element(state: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, Trap> {
+fn mem_read_element(state: &mut CoreCtx<'_>, vaddr: u64, eew: Sew) -> Result<u64, Trap> {
     let size = eew.bytes() as u64;
     let paddr = translate_vector_element(state, vaddr, AccessType::Read, size)?;
     let raw = paddr.val();
@@ -791,7 +791,7 @@ fn mem_read_element(state: &mut SimState, vaddr: u64, eew: Sew) -> Result<u64, T
 ///
 /// Writes via the RAM fast-path pointer. Non-RAM addresses are silently
 /// dropped — vector stores to MMIO are not architecturally defined.
-fn mem_write_element(state: &mut SimState, vaddr: u64, eew: Sew, val: u64) -> Result<(), Trap> {
+fn mem_write_element(state: &mut CoreCtx<'_>, vaddr: u64, eew: Sew, val: u64) -> Result<(), Trap> {
     let size = eew.bytes() as u64;
     let paddr = translate_vector_element(state, vaddr, AccessType::Write, size)?;
     let raw = paddr.val();
@@ -811,7 +811,7 @@ fn mem_write_element(state: &mut SimState, vaddr: u64, eew: Sew, val: u64) -> Re
 
 /// Execute a unit-stride vector load: `addr[i] = base + i * eew_bytes`.
 fn exec_unit_stride_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
@@ -847,7 +847,7 @@ fn exec_unit_stride_load(
 /// Element 0 traps normally. For elements > 0, a trap sets `vl = i` and stops
 /// without raising the exception.
 fn exec_fault_first_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
@@ -891,7 +891,7 @@ fn exec_fault_first_load(
 
 /// Execute a strided vector load: `addr[i] = base + i * stride`.
 fn exec_strided_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     stride: i64,
     vd: VRegIdx,
@@ -930,7 +930,7 @@ fn exec_strided_load(
 /// The index vector `vs2` has element width = EEW (from the instruction encoding).
 /// The data loaded has element width = SEW (from current vtype).
 fn exec_indexed_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
@@ -975,7 +975,7 @@ fn exec_indexed_load(
 /// Mask loads always use EEW=8 and ignore vtype SEW. The mask is stored
 /// as a bitfield in the destination register.
 fn exec_mask_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vd: VRegIdx,
     id: &RenameIssueEntry,
@@ -1000,7 +1000,7 @@ fn exec_mask_load(
 /// Loads `nf` complete registers (ignores vl, vtype, mask). `nf` is encoded
 /// in bits 31:29 as `nf - 1`. Loads `nf * VLEN/8` bytes sequentially.
 fn exec_whole_reg_load(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vd: VRegIdx,
     eew: Sew,
@@ -1027,7 +1027,7 @@ fn exec_whole_reg_load(
 
 /// Execute a unit-stride vector store: `addr[i] = base + i * eew_bytes`.
 fn exec_unit_stride_store(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,
@@ -1061,7 +1061,7 @@ fn exec_unit_stride_store(
 
 /// Execute a strided vector store: `addr[i] = base + i * stride`.
 fn exec_strided_store(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     stride: i64,
     vs3: VRegIdx,
@@ -1097,7 +1097,7 @@ fn exec_strided_store(
 
 /// Execute an indexed vector store: `addr[i] = base + vs2[i]`.
 fn exec_indexed_store(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,
@@ -1138,7 +1138,7 @@ fn exec_indexed_store(
 
 /// Execute a mask store (`vsm.v`): stores `ceil(vl/8)` bytes from `vs3`.
 fn exec_mask_store(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vs3: VRegIdx,
     id: &RenameIssueEntry,
@@ -1162,7 +1162,7 @@ fn exec_mask_store(
 ///
 /// Stores `nf` complete registers (ignores vl, vtype, mask).
 fn exec_whole_reg_store(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     base: u64,
     vs3: VRegIdx,
     eew: Sew,

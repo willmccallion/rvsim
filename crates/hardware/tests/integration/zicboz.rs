@@ -68,8 +68,8 @@ fn run_cbo(ctx: &mut TestContext, inst: u32, addr_in_x10: u64) {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + i * 4), u64::from(NOP), 4);
     }
     ctx.set_reg(X10 as usize, addr_in_x10);
-    ctx.cpu_mut().hart.pc = RAM_BASE;
-    ctx.cpu_mut().hart.csrs.mtvec = RAM_BASE + park_offset;
+    ctx.cpu_mut().harts[0].pc = RAM_BASE;
+    ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
     ctx.run(1000);
 }
 
@@ -139,7 +139,7 @@ fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::new_with_config(&Config::default()).with_memory(RAM_SIZE, RAM_BASE);
     assert_eq!(
-        ctx.cpu().hart.csrs.menvcfg & rvsim_core::core::arch::csr::MENVCFG_CBZE,
+        ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::core::arch::csr::MENVCFG_CBZE,
         0
     );
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
@@ -177,7 +177,7 @@ fn cbo_inval_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_inval(X10), data_addr);
 
-    assert_eq!(ctx.cpu().hart.csrs.mcause, 0);
+    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
     // Pattern survives because RAM is the source of truth in this simulator.
     let expected = 0xDEAD_BEEF_CAFE_F00Du64;
     assert_eq!(read_u64(&mut ctx, data_addr), expected);
@@ -191,7 +191,7 @@ fn cbo_clean_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_clean(X10), data_addr);
 
-    assert_eq!(ctx.cpu().hart.csrs.mcause, 0);
+    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_flush(X10), data_addr);
 
-    assert_eq!(ctx.cpu().hart.csrs.mcause, 0);
+    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
 }
 
 // L1D-state-observation tests for cbo.inval / cbo.clean / cbo.flush live

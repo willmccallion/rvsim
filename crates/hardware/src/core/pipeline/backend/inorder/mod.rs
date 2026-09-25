@@ -13,7 +13,7 @@ pub mod execute;
 pub mod issue;
 
 use crate::config::Config;
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::free_list::FreeList;
@@ -93,7 +93,7 @@ impl InOrderEngine {
 impl ExecutionEngine for InOrderEngine {
     fn tick(
         &mut self,
-        state: &mut SimState,
+        state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     ) {
@@ -209,7 +209,7 @@ impl ExecutionEngine for InOrderEngine {
         rob_free.min(sb_free).min(issue_free).min(self.width)
     }
 
-    fn flush(&mut self, state: &mut SimState) {
+    fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.scoreboard.flush();
@@ -221,7 +221,7 @@ impl ExecutionEngine for InOrderEngine {
         state.core.branch_predictor.repair_to_committed();
     }
 
-    fn read_csr_speculative(&self, state: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64 {
+    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64 {
         // In-order serialization commits older CSR writes before any CSR read issues.
         state.csr_read(addr)
     }
@@ -285,7 +285,8 @@ mod tests {
         let config = Config::default();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         engine.flush(&mut state);
 
@@ -307,7 +308,8 @@ mod tests {
         let config = Config::default();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         state.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
         assert_eq!(engine.read_csr_speculative(&state, crate::core::arch::csr::MSCRATCH), 0x1234);

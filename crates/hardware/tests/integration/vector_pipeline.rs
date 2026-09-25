@@ -56,7 +56,7 @@ fn run_program(config: &Config, program: &[u32], cycles: u64) -> TestContext {
         let addr = RAM_BASE + (i as u64) * 4;
         ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), 4);
     }
-    ctx.cpu_mut().hart.pc = RAM_BASE;
+    ctx.cpu_mut().harts[0].pc = RAM_BASE;
     ctx.run(cycles);
     ctx
 }
@@ -79,10 +79,10 @@ fn vsetvli_consumes_immediately_preceding_li() {
 
     assert_eq!(ctx.get_reg(5), 4, "t0 should hold 4 after li");
     assert_eq!(
-        ctx.cpu().hart.csrs.vl,
+        ctx.cpu().harts[0].csrs.vl,
         4,
         "vsetvli e32/m1 with AVL=4 should yield vl=4 (got {})",
-        ctx.cpu().hart.csrs.vl
+        ctx.cpu().harts[0].csrs.vl
     );
     assert_eq!(ctx.get_reg(6), 4, "t1 (vsetvli rd) should equal new vl");
 }
@@ -100,7 +100,7 @@ fn vsetvli_consumes_immediately_preceding_li_width1() {
     let ctx = run_program(&Config::default(), &program, 500);
 
     assert_eq!(ctx.get_reg(5), 4);
-    assert_eq!(ctx.cpu().hart.csrs.vl, 4, "got vl={}", ctx.cpu().hart.csrs.vl);
+    assert_eq!(ctx.cpu().harts[0].csrs.vl, 4, "got vl={}", ctx.cpu().harts[0].csrs.vl);
 }
 
 /// Closest to the chipsalliance failing-ELF pattern: a flushing vsetvli
@@ -128,10 +128,10 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
 
     assert_eq!(ctx.get_reg(5), 12, "t0 should hold 12");
     assert_eq!(
-        ctx.cpu().hart.csrs.vl,
+        ctx.cpu().harts[0].csrs.vl,
         2,
         "vsetvli e8/mf8 with AVL=12 (VLEN=128) saturates to vl=2 (got {})",
-        ctx.cpu().hart.csrs.vl
+        ctx.cpu().harts[0].csrs.vl
     );
     assert_eq!(ctx.get_reg(6), 2, "t1 (vsetvli rd) should equal new vl=2");
 }
@@ -152,10 +152,10 @@ fn vsetvli_after_flushing_vsetvli_then_li_width1() {
 
     assert_eq!(ctx.get_reg(5), 12);
     assert_eq!(
-        ctx.cpu().hart.csrs.vl,
+        ctx.cpu().harts[0].csrs.vl,
         2,
         "vsetvli e8/mf8 with AVL=12 (VLEN=128) saturates to vl=2 (got {})",
-        ctx.cpu().hart.csrs.vl
+        ctx.cpu().harts[0].csrs.vl
     );
 }
 
@@ -201,9 +201,9 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
     let ctx = run_program(&wide_inorder_config(), &program, 500);
 
     // mcause = 2 (illegal instruction) is the failure mode we're catching.
-    let mcause = ctx.cpu().hart.csrs.mcause;
+    let mcause = ctx.cpu().harts[0].csrs.mcause;
     assert_eq!(mcause, 0, "vwaddu.vv at e8/mf8 with vd=v27 must not trap (mcause={:#x})", mcause);
-    assert_eq!(ctx.cpu().hart.csrs.vl, 2);
+    assert_eq!(ctx.cpu().harts[0].csrs.vl, 2);
 }
 
 /// `vid.v` does not read any vector source register — its vs2 field is part
@@ -230,6 +230,6 @@ fn vid_v_does_not_check_vs2_alignment() {
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
 
-    let mcause = ctx.cpu().hart.csrs.mcause;
+    let mcause = ctx.cpu().harts[0].csrs.mcause;
     assert_eq!(mcause, 0, "vid.v with vs2_field=1 must not trap (mcause={:#x})", mcause);
 }

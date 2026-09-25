@@ -1,6 +1,7 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
-use super::SimState;
+use super::{CoreCtx, SharedState};
+use crate::soc::interconnect::BusIrqs;
 use crate::common::constants::{
     HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
     WFI_INSTRUCTION,
@@ -12,30 +13,42 @@ use crate::isa::abi;
 use crate::sim::stats::paths;
 use crate::trace_trap;
 
-impl SimState {
-    /// Pre-tick: exit checks, interrupts, timers, cycle counting.
-    ///
-    /// Returns `Ok(true)` if the pipeline should be skipped this cycle
-    /// (e.g. due to ALU timer stall or exit), `Ok(false)` to run the pipeline.
+impl SharedState {
+    /// Uncore work at the top of a cycle: exit and kernel-panic checks, then
+    /// one tick of every bus device. Returns the interrupt lines for this
+    /// cycle, or `None` when a device has requested exit and the cycle
+    /// should be skipped.
     ///
     /// # Errors
     ///
     /// Returns [`SimError::KernelPanic`] when the bus panic sentinel fires.
-    pub fn pre_tick(&mut self) -> Result<bool, SimError> {
+    pub fn pre_cycle(&mut self) -> Result<Option<BusIrqs>, SimError> {
         if self.check_exit().is_some() {
-            return Ok(true);
+            return Ok(None);
         }
 
-        let hart_idx = self.hart.hart_id.as_index();
         if self.bus.check_kernel_panic() {
-            let detected_at =
-                *self.per_hart_debug[hart_idx].panic_detected_at_cycle.get_or_insert(self.cycle);
+            let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.cycle);
             if self.cycle.saturating_sub(detected_at) >= 10_000 {
                 return Err(SimError::KernelPanic { cycle: detected_at });
             }
         }
 
-        let debug = &mut self.per_hart_debug[hart_idx];
+        Ok(Some(self.bus_tick()))
+    }
+
+    /// Advances the master clock by one cycle.
+    pub const fn advance_cycle(&mut self) {
+        self.cycle += 1;
+    }
+}
+
+impl CoreCtx<'_> {
+    /// Per-hart work at the top of a cycle, before the clock advances:
+    /// hang detection and folding this cycle's interrupt lines into `mip`.
+    pub fn pre_tick(&mut self, irqs: BusIrqs) {
+        let hart_idx = self.hart.hart_id.as_index();
+        let debug = &mut self.shared.per_hart_debug[hart_idx];
         if self.hart.pc == debug.last_pc {
             debug.same_pc_count += 1;
             if debug.same_pc_count == HANG_DETECTION_THRESHOLD {
@@ -81,8 +94,6 @@ impl SimState {
             debug.same_pc_count = 0;
         }
 
-        let irqs = self.bus_tick();
-
         let mut mip = self.hart.csrs.mip;
 
         if irqs.timer {
@@ -126,11 +137,6 @@ impl SimState {
         }
 
         self.hart.csrs.mip = mip;
-
-        self.cycle += 1;
-        self.track_mode_cycles();
-
-        Ok(false)
     }
 
     /// Post-tick: zero x0, privilege tracing, status printing.
@@ -160,8 +166,9 @@ impl SimState {
         }
     }
 
-    /// Tracks cycles spent in each privilege mode for statistics.
-    fn track_mode_cycles(&mut self) {
+    /// Charges the cycle that just began to the hart's current privilege
+    /// mode.
+    pub fn track_mode_cycles(&mut self) {
         match self.hart.privilege {
             PrivilegeMode::User => self.stats.counter(paths::hart::CYCLES_USER).inc(),
             PrivilegeMode::Supervisor => self.stats.counter(paths::hart::CYCLES_KERNEL).inc(),
@@ -178,7 +185,8 @@ mod tests {
     #[test]
     fn test_track_mode_cycles() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
@@ -196,7 +204,8 @@ mod tests {
     #[test]
     fn test_post_tick_zero_reg() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         state.hart.regs.write(abi::REG_ZERO, 42);
         state.post_tick(PrivilegeMode::Machine);

@@ -41,9 +41,9 @@ const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
     }
 }
 
-/// Subscript register access returned by `cpu.hart.regs`.
+/// Subscript register access returned by `cpu.harts[0].regs`.
 ///
-/// ``cpu.hart.regs[10]`` reads x10. ``cpu.hart.regs[10] = v`` writes x10.
+/// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10.
 #[pyclass(name = "Registers")]
 pub struct Registers {
     pub cpu: Py<PySimulator>,
@@ -55,14 +55,14 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        Ok(self.cpu.borrow(py).inner.state.hart.regs.read(RegIdx::new(idx as u8)))
+        Ok(self.cpu.borrow(py).inner.state.harts[0].regs.read(RegIdx::new(idx as u8)))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.state.hart.regs.write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.state.harts[0].regs.write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
@@ -70,7 +70,7 @@ impl Registers {
         let cpu = self.cpu.borrow(py);
         let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.state.hart.regs.read(RegIdx::new(i));
+                let v = cpu.inner.state.harts[0].regs.read(RegIdx::new(i));
                 if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
@@ -78,9 +78,9 @@ impl Registers {
     }
 }
 
-/// Subscript CSR access returned by `cpu.hart.csrs`.
+/// Subscript CSR access returned by `cpu.harts[0].csrs`.
 ///
-/// ``cpu.hart.csrs["mstatus"]`` or ``cpu.hart.csrs[0x300]``.
+/// ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
 #[pyclass(name = "Csrs")]
 pub struct Csrs {
     pub cpu: Py<PySimulator>,
@@ -154,7 +154,7 @@ impl VirtualMemory {
         let mut cpu = self.cpu.borrow_mut(py);
         // FFI-boundary translate: synchronously drive the walk inline,
         // because the Python caller can't park.
-        let mut outcome = cpu.inner.state.translate(VirtAddr::new(addr), AccessType::Read, 8);
+        let mut outcome = cpu.inner.state.core_ctx(0).translate(VirtAddr::new(addr), AccessType::Read, 8);
         let paddr = loop {
             match outcome {
                 TranslateResult::Ready(result) => {
@@ -167,7 +167,7 @@ impl VirtualMemory {
                 }
                 TranslateResult::NeedPte { pte_addr, state } => {
                     let raw_pte = cpu.inner.probe_mem_load(pte_addr, 8);
-                    outcome = cpu.inner.state.translate_continue(state, raw_pte, 0);
+                    outcome = cpu.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
                 }
             }
         };

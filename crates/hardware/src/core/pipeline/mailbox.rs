@@ -6,7 +6,7 @@
 //! Each `MemResp` resolves to one of four cases:
 //!
 //! 1. **Walk response** — read the PTE bytes from RAM at `walk.pte_addr`,
-//!    hand them to [`SimState::translate_continue`](crate::sim::state::memory::SimState::translate_continue),
+//!    hand them to [`CoreCtx::translate_continue`](crate::sim::CoreCtx::translate_continue),
 //!    then either issue the next PTE request (multi-level walk) or trigger
 //!    the parked continuation (fetch / load / store).
 //! 2. **Fetch response** — release the fetch group's
@@ -19,7 +19,7 @@
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
 use crate::common::{ExceptionStage, LineAddr, PhysAddr};
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{
@@ -34,7 +34,7 @@ use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet};
 
 /// Processes every packet currently in the engine's mailbox.
-pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut SimState) {
+pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut CoreCtx<'_>) {
     let mailbox = std::mem::take(&mut pipeline.engine.common_mut().mailbox);
     for (_source, packet) in mailbox {
         let Packet::MemResp { req_id, data, .. } = packet else {
@@ -79,7 +79,7 @@ fn buffer_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, group: Outstandi
 /// latch. Memory2 handles sign-extension, AMO RMW, and SB resolution.
 fn complete_load<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    state: &SimState,
+    state: &CoreCtx<'_>,
     load: OutstandingLoad,
     resp_data: &MemRespData,
 ) {
@@ -116,7 +116,7 @@ fn complete_load<E: ExecutionEngine>(
 /// continuation) or issues the next PTE `MemReq`.
 fn complete_walk<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     walk: OutstandingWalk,
 ) {
     let raw_pte = read_pte_bytes(state, walk.pte_addr);
@@ -141,7 +141,7 @@ fn complete_walk<E: ExecutionEngine>(
 /// Runs the appropriate continuation once a walk reaches Ready.
 fn dispatch_walk_continuation<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     continuation: WalkContinuation,
     result: crate::common::TranslationResult,
 ) {
@@ -187,7 +187,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 
 /// Reads a 64-bit PTE from the RAM fast path. RISC-V doesn't permit page
 /// tables in MMIO, so the read is always backed by DRAM.
-fn read_pte_bytes(state: &SimState, pte_addr: PhysAddr) -> u64 {
+fn read_pte_bytes(state: &CoreCtx<'_>, pte_addr: PhysAddr) -> u64 {
     let raw = pte_addr.val();
     state.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
         // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks the access.
@@ -197,7 +197,7 @@ fn read_pte_bytes(state: &SimState, pte_addr: PhysAddr) -> u64 {
 
 /// Reads the raw bytes of a load. RAM accesses use the fast-path pointer;
 /// MMIO loads take their data from the device's `MemResp` payload.
-fn read_load_bytes(state: &SimState, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
+fn read_load_bytes(state: &CoreCtx<'_>, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
     let size = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,
@@ -229,7 +229,7 @@ fn read_load_bytes(state: &SimState, paddr: u64, width: MemWidth, resp_data: &Me
 /// Emits a PTE read request to the L1 data cache.
 fn emit_pte_req<E: ExecutionEngine>(
     pipeline: &Pipeline<E>,
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     req_id: ReqId,
     pte_addr: PhysAddr,
 ) {

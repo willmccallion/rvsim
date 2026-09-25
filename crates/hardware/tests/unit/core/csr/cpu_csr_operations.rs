@@ -17,7 +17,8 @@ fn create_test_cpu() -> SimState {
 
 #[test]
 fn test_csr_read_machine_info() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
 
     // Read-only machine information registers should return expected values
     assert_eq!(state.csr_read(csr::MVENDORID), 0);
@@ -31,7 +32,9 @@ fn test_csr_read_machine_info() {
 fn test_mhartid_returns_hart_id() {
     use rvsim_core::common::HartId;
 
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+
+    let mut state = sys.core_ctx(0);
     state.hart.hart_id = HartId::new(7);
     assert_eq!(state.csr_read(csr::MHARTID), 7);
 
@@ -41,7 +44,8 @@ fn test_mhartid_returns_hart_id() {
 
 #[test]
 fn test_csr_read_write_mstatus() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x1800; // MPP=11 (Machine mode)
     state.csr_write(csr::MSTATUS, test_value);
@@ -52,7 +56,8 @@ fn test_csr_read_write_mstatus() {
 
 #[test]
 fn test_csr_read_write_mie() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = csr::MIE_MTIE | csr::MIE_MSIP | csr::MIE_MEIP;
     state.csr_write(csr::MIE, test_value);
@@ -61,7 +66,8 @@ fn test_csr_read_write_mie() {
 
 #[test]
 fn test_csr_read_write_mip() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Only SSIP, STIP, SEIP bits are writable
     let test_value = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
@@ -73,7 +79,8 @@ fn test_csr_read_write_mip() {
 
 #[test]
 fn test_csr_read_write_mtvec() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x8000_0000;
     state.csr_write(csr::MTVEC, test_value);
@@ -82,7 +89,8 @@ fn test_csr_read_write_mtvec() {
 
 #[test]
 fn test_csr_read_write_mscratch() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0xDEADBEEF_CAFEBABE;
     state.csr_write(csr::MSCRATCH, test_value);
@@ -91,7 +99,8 @@ fn test_csr_read_write_mscratch() {
 
 #[test]
 fn test_csr_read_write_mepc() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // MEPC should clear the lowest bit
     let test_value = 0x8000_0001;
@@ -101,7 +110,8 @@ fn test_csr_read_write_mepc() {
 
 #[test]
 fn test_csr_read_write_mcause() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x8000_0000_0000_0005; // Interrupt bit set, cause 5
     state.csr_write(csr::MCAUSE, test_value);
@@ -110,7 +120,8 @@ fn test_csr_read_write_mcause() {
 
 #[test]
 fn test_csr_read_write_mtval() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x1234_5678_9ABC_DEF0;
     state.csr_write(csr::MTVAL, test_value);
@@ -119,7 +130,8 @@ fn test_csr_read_write_mtval() {
 
 #[test]
 fn test_csr_read_write_medeleg() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0xB3FF; // Delegate all synchronous exceptions
     state.csr_write(csr::MEDELEG, test_value);
@@ -128,7 +140,8 @@ fn test_csr_read_write_medeleg() {
 
 #[test]
 fn test_csr_read_write_mideleg() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
     state.csr_write(csr::MIDELEG, test_value);
@@ -137,7 +150,8 @@ fn test_csr_read_write_mideleg() {
 
 #[test]
 fn test_csr_sstatus_synchronization() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Write to MSTATUS and verify SSTATUS is updated
     let mstatus_value = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
@@ -149,7 +163,8 @@ fn test_csr_sstatus_synchronization() {
 
 #[test]
 fn test_csr_write_sstatus_masks_properly() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Write to SSTATUS with various bits
     let sstatus_value = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
@@ -169,7 +184,8 @@ fn test_csr_write_sstatus_masks_properly() {
 
 #[test]
 fn test_csr_sie_delegation() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Set delegation mask
     let delegation = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
@@ -185,7 +201,8 @@ fn test_csr_sie_delegation() {
 
 #[test]
 fn test_csr_sip_delegation() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Set delegation mask
     let delegation = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
@@ -201,7 +218,8 @@ fn test_csr_sip_delegation() {
 
 #[test]
 fn test_csr_write_sie() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Set delegation
     let delegation = csr::MIP_SSIP | csr::MIP_SEIP;
@@ -217,7 +235,8 @@ fn test_csr_write_sie() {
 
 #[test]
 fn test_csr_write_sip() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Set delegation (only SSIP is writable from supervisor mode)
     state.csr_write(csr::MIDELEG, csr::MIP_SSIP);
@@ -231,7 +250,8 @@ fn test_csr_write_sip() {
 
 #[test]
 fn test_csr_stvec() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x8000_0100;
     state.csr_write(csr::STVEC, test_value);
@@ -240,7 +260,8 @@ fn test_csr_stvec() {
 
 #[test]
 fn test_csr_sscratch() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0xFEEDFACE_DEADBEEF;
     state.csr_write(csr::SSCRATCH, test_value);
@@ -249,7 +270,8 @@ fn test_csr_sscratch() {
 
 #[test]
 fn test_csr_sepc_clears_lowest_bit() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x8000_0003;
     state.csr_write(csr::SEPC, test_value);
@@ -258,7 +280,8 @@ fn test_csr_sepc_clears_lowest_bit() {
 
 #[test]
 fn test_csr_scause() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0x8000_0000_0000_0009;
     state.csr_write(csr::SCAUSE, test_value);
@@ -267,7 +290,8 @@ fn test_csr_scause() {
 
 #[test]
 fn test_csr_stval() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     let test_value = 0xBADC0FFE_BADC0FFE;
     state.csr_write(csr::STVAL, test_value);
@@ -276,7 +300,8 @@ fn test_csr_stval() {
 
 #[test]
 fn test_csr_stimecmp_clears_stip() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Set STIP bit
     state.csr_write(csr::MIP, csr::MIP_STIP);
@@ -290,7 +315,8 @@ fn test_csr_stimecmp_clears_stip() {
 
 #[test]
 fn test_csr_satp_sv39_mode() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // SV39 mode (mode=8)
     let satp_value = (8u64 << 60) | 0x12345;
@@ -300,7 +326,8 @@ fn test_csr_satp_sv39_mode() {
 
 #[test]
 fn test_csr_satp_bare_mode() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Bare mode (mode=0)
     let satp_value = 0x12345;
@@ -310,7 +337,8 @@ fn test_csr_satp_bare_mode() {
 
 #[test]
 fn test_csr_satp_invalid_mode_rejected() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Invalid mode (mode=5, not SV39 or BARE)
     let satp_value = (5u64 << 60) | 0x12345;
@@ -322,7 +350,8 @@ fn test_csr_satp_invalid_mode_rejected() {
 
 #[test]
 fn test_csr_satp_sv48_accepted_by_default() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     let satp = (csr::SATP_MODE_SV48 << 60) | 0x12345;
     state.csr_write(csr::SATP, satp);
     assert_eq!(state.csr_read(csr::SATP), satp);
@@ -330,7 +359,8 @@ fn test_csr_satp_sv48_accepted_by_default() {
 
 #[test]
 fn test_csr_satp_sv57_accepted_by_default() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
     let satp = (csr::SATP_MODE_SV57 << 60) | 0x12345;
     state.csr_write(csr::SATP, satp);
     assert_eq!(state.csr_read(csr::SATP), satp);
@@ -340,7 +370,8 @@ fn test_csr_satp_sv57_accepted_by_default() {
 fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
     let mut config = Config::default();
     config.memory.paging_mode_max = csr::PagingMode::Sv39;
-    let mut state = SimState::build(&config, "");
+    let mut sys = SimState::build(&config, "");
+    let mut state = sys.core_ctx(0);
 
     // Sv48 is above the cap → coerce to Bare; PPN preserved.
     let above_cap = (csr::SATP_MODE_SV48 << 60) | 0x12345;
@@ -355,7 +386,8 @@ fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
 
 #[test]
 fn test_csr_cycle_counter() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
 
     // CYCLE and MCYCLE should read the same value
     let cycle = state.csr_read(csr::CYCLE);
@@ -365,7 +397,8 @@ fn test_csr_cycle_counter() {
 
 #[test]
 fn test_csr_time_counter() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
 
     // TIME should be cycles divided by clint_divider
     let time = state.csr_read(csr::TIME);
@@ -375,7 +408,8 @@ fn test_csr_time_counter() {
 
 #[test]
 fn test_csr_instret_counter() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
 
     // INSTRET and MINSTRET should read the same value
     let instret = state.csr_read(csr::INSTRET);
@@ -385,7 +419,8 @@ fn test_csr_instret_counter() {
 
 #[test]
 fn test_csr_unknown_read_returns_zero() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
 
     // Reading an unknown/unimplemented CSR should return 0
     assert_eq!(state.csr_read(CsrAddr::from_u32(0xFFF)), 0);
@@ -393,7 +428,8 @@ fn test_csr_unknown_read_returns_zero() {
 
 #[test]
 fn test_csr_unknown_write_ignored() {
-    let mut state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
 
     // Writing to an unknown CSR should be ignored (no panic)
     state.csr_write(CsrAddr::from_u32(0xFFF), 0xDEADBEEF);
@@ -402,14 +438,16 @@ fn test_csr_unknown_write_ignored() {
 
 #[test]
 fn test_csr_mstatus_write() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
     // Verify basic MSTATUS write doesn't panic
     let _ = state;
 }
 
 #[test]
 fn test_csr_sstatus_write() {
-    let state = create_test_cpu();
+    let mut sys = create_test_cpu();
+    let state = sys.core_ctx(0);
     // Verify basic SSTATUS write doesn't panic
     let _ = state;
 }

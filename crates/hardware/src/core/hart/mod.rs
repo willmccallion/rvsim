@@ -10,10 +10,9 @@
 
 pub mod csr;
 pub mod lifecycle;
-pub mod reservation;
 pub mod trap;
 
-use crate::common::{HartId, PhysAddr, RegisterFile};
+use crate::common::{HartId, RegisterFile};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
@@ -32,8 +31,6 @@ pub struct Hart {
     pub csrs: Csrs,
     /// Current Privilege Mode (M, S, U).
     pub privilege: PrivilegeMode,
-    /// Load Reservation address (for LR/SC).
-    pub load_reservation: Option<PhysAddr>,
     /// Memory Management Unit.
     pub mmu: Mmu,
     /// Physical Memory Protection unit.
@@ -51,6 +48,8 @@ pub struct Hart {
     /// Software-written SEIP bit. The `mip` SEIP bit is the OR of this and
     /// the PLIC hardware signal, so the software component is tracked here.
     pub sw_seip: bool,
+    /// Instructions this hart has retired; backs `instret` / `minstret`.
+    pub instructions_retired: u64,
 }
 
 /// Initial values for constructing a [`Hart`].
@@ -84,13 +83,13 @@ impl Hart {
             pc: init.pc,
             csrs: init.csrs,
             privilege: init.privilege,
-            load_reservation: None,
             mmu: init.mmu,
             pmp: init.pmp,
             wfi_waiting: false,
             wfi_pc: 0,
             committed_next_pc: 0,
             sw_seip: false,
+            instructions_retired: 0,
         }
     }
 }

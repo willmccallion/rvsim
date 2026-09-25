@@ -10,7 +10,7 @@ pub mod fu_pool;
 pub mod issue_queue;
 
 use crate::config::Config;
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::ExecutionEngine;
@@ -221,7 +221,7 @@ impl O3Engine {
     /// Copy initial architectural register values into the identity-mapped PRF slots.
     ///
     /// Must be called after CPU register init but before the first pipeline tick.
-    pub fn sync_arch_regs(&mut self, state: &crate::sim::SimState) {
+    pub fn sync_arch_regs(&mut self, state: &crate::sim::CoreCtx<'_>) {
         use crate::common::RegIdx;
         use crate::core::pipeline::prf::PhysReg;
         use crate::core::units::vpu::types::VRegIdx;
@@ -302,7 +302,7 @@ const fn mem_width_from_eew_bytes(bytes: usize) -> crate::core::pipeline::signal
 impl ExecutionEngine for O3Engine {
     fn tick(
         &mut self,
-        state: &mut SimState,
+        state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect_pending: &mut bool,
     ) {
@@ -1284,7 +1284,7 @@ impl ExecutionEngine for O3Engine {
             .min(self.width)
     }
 
-    fn flush(&mut self, state: &mut SimState) {
+    fn flush(&mut self, state: &mut CoreCtx<'_>) {
         // Drain committed VSB writes; trap-driven flushes still owe pre-trap retired stores.
         self.vec_store_buffer.drain_all_committed(state, &mut self.common);
 
@@ -1333,7 +1333,7 @@ impl ExecutionEngine for O3Engine {
         );
     }
 
-    fn read_csr_speculative(&self, state: &crate::sim::SimState, addr: crate::common::CsrAddr) -> u64 {
+    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64 {
         state.csr_read(addr)
     }
 
@@ -1449,7 +1449,8 @@ mod tests {
     #[test]
     fn test_o3_engine_new_and_flush() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         let mut engine = O3Engine::new(&config, crate::sim::components::PipelineId::new(0), crate::sim::components::CacheId::new(0), crate::sim::components::CacheId::new(1));
         assert_eq!(engine.width, config.pipeline.width);
@@ -1461,7 +1462,8 @@ mod tests {
     #[test]
     fn test_o3_engine_sync_arch_regs() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
         let mut engine = O3Engine::new(&config, crate::sim::components::PipelineId::new(0), crate::sim::components::CacheId::new(0), crate::sim::components::CacheId::new(1));
 
         state.hart.regs.write(RegIdx::new(1), 42);

@@ -1,10 +1,10 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
-use super::SimState;
+use super::CoreCtx;
 use crate::common::{CsrAddr, Trap};
 use crate::core::arch::csr;
 
-impl SimState {
+impl CoreCtx<'_> {
     /// Returns `true` if the given CSR address corresponds to a CSR that is
     /// implemented by this hart.
     #[inline]
@@ -70,7 +70,7 @@ impl SimState {
             x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.cycle,
             x if x == csr::TIME.as_u32() => self.cycle / self.config.system.clint_divider,
             x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
-                self.instructions_retired
+                self.hart.instructions_retired
             }
             x if x == csr::PMPCFG0.as_u32() => {
                 self.hart.pmp.get_cfg(0) as u64
@@ -260,7 +260,7 @@ impl SimState {
                 self.hart.csrs.senvcfg = val;
             }
             x if x == csr::MCYCLE.as_u32() => self.cycle = val,
-            x if x == csr::MINSTRET.as_u32() => self.instructions_retired = val,
+            x if x == csr::MINSTRET.as_u32() => self.hart.instructions_retired = val,
             x if x == csr::PMPCFG0.as_u32() => {
                 for i in 0..8 {
                     self.hart.pmp.set_cfg(i, ((val >> (i * 8)) & 0xFF) as u8);
@@ -361,13 +361,14 @@ impl SimState {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::sim::SimState;
+    use crate::sim::CoreCtx;
     use crate::core::arch::csr;
 
     #[test]
     fn test_cpu_csr_read_write_mstatus() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
 
@@ -392,7 +393,8 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_fcsr() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::FCSR, 0xFF);
         assert_eq!(state.csr_read(csr::FCSR), 0xFF);

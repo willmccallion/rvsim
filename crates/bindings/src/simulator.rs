@@ -38,8 +38,8 @@ pub struct PySimulator {
 }
 
 impl PySimulator {
-    pub(crate) const fn privilege_str(&self) -> &'static str {
-        match self.inner.state.hart.privilege {
+    pub(crate) fn privilege_str(&self) -> &'static str {
+        match self.inner.state.harts[0].privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
             PrivilegeMode::User => "U",
@@ -47,7 +47,7 @@ impl PySimulator {
     }
 
     pub(crate) fn read_csr_by_name(&self, name: &str) -> Option<u64> {
-        let c = &self.inner.state.hart.csrs;
+        let c = &self.inner.state.harts[0].csrs;
         match name {
             "mstatus" => Some(c.mstatus),
             "misa" => Some(c.misa),
@@ -143,7 +143,7 @@ impl PySimulator {
             eprint!(
                 "\r\x1b[36m[rvsim]\x1b[0m  {:>14} cycles  {:>14} insns",
                 fmt_commas(self.inner.state.cycle),
-                fmt_commas(self.inner.state.instructions_retired),
+                fmt_commas(self.inner.state.instructions_retired()),
             );
             let _ = std::io::stderr().flush();
         }
@@ -198,12 +198,12 @@ impl PySimulator {
         let mut sim = Simulator::new(cpu);
 
         if let Some(entry) = elf_entry {
-            sim.state.hart.pc = entry;
+            sim.state.harts[0].pc = entry;
         }
 
         if tohost_addr.is_some() {
             sim.state.direct_mode = false;
-            sim.state.hart.privilege = PrivilegeMode::Machine;
+            sim.state.harts[0].privilege = PrivilegeMode::Machine;
         }
 
         if let Some(kpath) = kernel_path {
@@ -220,29 +220,29 @@ impl PySimulator {
 
     /// Program counter (read/write).
     #[getter]
-    const fn pc(&self) -> u64 {
-        self.inner.state.hart.pc
+    fn pc(&self) -> u64 {
+        self.inner.state.harts[0].pc
     }
 
     #[setter]
-    const fn set_pc(&mut self, value: u64) {
-        self.inner.state.hart.pc = value;
+    fn set_pc(&mut self, value: u64) {
+        self.inner.state.harts[0].pc = value;
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
     #[getter]
-    const fn privilege(&self) -> &'static str {
+    fn privilege(&self) -> &'static str {
         self.privilege_str()
     }
 
     /// Whether instruction tracing is enabled (read/write).
     #[getter]
-    const fn trace(&self) -> bool {
+    fn trace(&self) -> bool {
         self.inner.state.config.general.trace_instructions
     }
 
     #[setter]
-    const fn set_trace(&mut self, value: bool) {
+    fn set_trace(&mut self, value: bool) {
         self.inner.state.config.general.trace_instructions = value;
     }
 
@@ -253,17 +253,17 @@ impl PySimulator {
         PyStats::new(
             self.inner.state.stats.clone(),
             self.inner.state.cycle,
-            self.inner.state.instructions_retired,
+            self.inner.state.instructions_retired(),
         )
     }
 
-    /// Register file — ``cpu.hart.regs[10]``, ``cpu.hart.regs[10] = v``.
+    /// Register file — ``cpu.harts[0].regs[10]``, ``cpu.harts[0].regs[10] = v``.
     #[getter]
     fn regs(slf: Bound<'_, Self>) -> Registers {
         Registers { cpu: slf.unbind() }
     }
 
-    /// CSR access — ``cpu.hart.csrs["mstatus"]`` or ``cpu.hart.csrs[0x300]``.
+    /// CSR access — ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
     #[getter]
     fn csrs(slf: Bound<'_, Self>) -> Csrs {
         Csrs { cpu: slf.unbind() }
@@ -302,7 +302,7 @@ impl PySimulator {
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
     #[getter]
     fn pc_trace(&self) -> Vec<(u64, u32)> {
-        self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.clone()
+        self.inner.state.per_hart_debug[0].pc_trace.clone()
     }
 
     /// Open a commit log file. Each retired instruction is written as
@@ -318,7 +318,7 @@ impl PySimulator {
     /// before an instruction could commit.
     #[pyo3(signature = (max_cycles=100_000))]
     fn step(&mut self, py: Python<'_>, max_cycles: u64) -> PyResult<Option<PyInstruction>> {
-        let before_last = self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.last().copied();
+        let before_last = self.inner.state.per_hart_debug[0].pc_trace.last().copied();
         let mut cycles_run: u64 = 0;
 
         loop {
@@ -338,7 +338,7 @@ impl PySimulator {
             }
             cycles_run += 1;
 
-            let new_last = self.inner.state.per_hart_debug[self.inner.state.hart.hart_id.as_index()].pc_trace.last().copied();
+            let new_last = self.inner.state.per_hart_debug[0].pc_trace.last().copied();
             if new_last != before_last
                 && let Some((pc, inst)) = new_last
             {
@@ -383,13 +383,13 @@ impl PySimulator {
             let text = if sections.is_empty() {
                 self.inner.state.stats.summary(
                     self.inner.state.cycle,
-                    self.inner.state.instructions_retired,
+                    self.inner.state.instructions_retired(),
                 )
             } else {
                 let refs: Vec<&str> = sections.iter().map(String::as_str).collect();
                 self.inner.state.stats.summary_sections(
                     self.inner.state.cycle,
-                    self.inner.state.instructions_retired,
+                    self.inner.state.instructions_retired(),
                     &refs,
                 )
             };
@@ -429,7 +429,7 @@ impl PySimulator {
             snapshots.push(PyStats::new(
                 self.inner.state.stats.clone(),
                 self.inner.state.cycle,
-                self.inner.state.instructions_retired,
+                self.inner.state.instructions_retired(),
             ));
 
             if exit.is_some() {
@@ -491,7 +491,7 @@ impl PySimulator {
 
             let stop = {
                 let cpu = slf_py.borrow(py);
-                pc.is_some_and(|p| cpu.inner.state.hart.pc == p)
+                pc.is_some_and(|p| cpu.inner.state.harts[0].pc == p)
                     || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str() == priv_str)
             };
             if stop {
@@ -528,7 +528,7 @@ impl PySimulator {
         // synchronously here — emit each PTE MemReq, drain it inline, and
         // continue. This is an FFI-boundary helper; pipeline stages never
         // take this path.
-        let mut outcome = self.inner.state.translate(VirtAddr::new(vaddr), AccessType::Read, 8);
+        let mut outcome = self.inner.state.core_ctx(0).translate(VirtAddr::new(vaddr), AccessType::Read, 8);
         loop {
             match outcome {
                 TranslateResult::Ready(result) => {
@@ -541,7 +541,7 @@ impl PySimulator {
                 }
                 TranslateResult::NeedPte { pte_addr, state } => {
                     let raw_pte = self.inner.probe_mem_load(pte_addr, 8);
-                    outcome = self.inner.state.translate_continue(state, raw_pte, 0);
+                    outcome = self.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
                 }
             }
         }
@@ -594,7 +594,7 @@ impl PySimulator {
     /// simulation correctness or timing.
     fn pipeline_snapshot(&self) -> PyPipelineSnapshot {
         let width = self.inner.state.config.pipeline.width;
-        PyPipelineSnapshot::new(self.inner.pipeline.snapshot(width))
+        PyPipelineSnapshot::new(self.inner.pipelines[0].snapshot(width))
     }
 
     /// Save a checkpoint of the full simulation state to a file.
@@ -609,12 +609,12 @@ impl PySimulator {
         let mut header = serde_json::Map::new();
         let _ = header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
         let _ = header.insert("version".into(), serde_json::Value::from(1u64));
-        let _ = header.insert("pc".into(), serde_json::Value::from(cpu.hart.pc));
-        let _ = header.insert("privilege".into(), serde_json::Value::from(cpu.hart.privilege.to_u8()));
+        let _ = header.insert("pc".into(), serde_json::Value::from(cpu.harts[0].pc));
+        let _ = header.insert("privilege".into(), serde_json::Value::from(cpu.harts[0].privilege.to_u8()));
         let _ = header.insert("direct_mode".into(), serde_json::Value::from(cpu.direct_mode));
         let _ = header.insert("trace".into(), serde_json::Value::from(cpu.config.general.trace_instructions));
-        let _ = header.insert("wfi_waiting".into(), serde_json::Value::from(cpu.hart.wfi_waiting));
-        let _ = header.insert("wfi_pc".into(), serde_json::Value::from(cpu.hart.wfi_pc));
+        let _ = header.insert("wfi_waiting".into(), serde_json::Value::from(cpu.harts[0].wfi_waiting));
+        let _ = header.insert("wfi_pc".into(), serde_json::Value::from(cpu.harts[0].wfi_pc));
         let region = cpu.bus.ram_region();
         let ram_start = region.map_or(0, |r| r.base());
         let ram_end = region.map_or(0, |r| r.base() + r.size());
@@ -622,16 +622,16 @@ impl PySimulator {
         let _ = header.insert("ram_end".into(), serde_json::Value::from(ram_end));
 
         let gprs: Vec<serde_json::Value> = (0u8..32)
-            .map(|i| serde_json::Value::from(cpu.hart.regs.read(rvsim_core::common::RegIdx::new(i))))
+            .map(|i| serde_json::Value::from(cpu.harts[0].regs.read(rvsim_core::common::RegIdx::new(i))))
             .collect();
         let _ = header.insert("gpr".into(), serde_json::Value::Array(gprs));
 
         let fprs: Vec<serde_json::Value> = (0u8..32)
-            .map(|i| serde_json::Value::from(cpu.hart.regs.read_f(rvsim_core::common::RegIdx::new(i))))
+            .map(|i| serde_json::Value::from(cpu.harts[0].regs.read_f(rvsim_core::common::RegIdx::new(i))))
             .collect();
         let _ = header.insert("fpr".into(), serde_json::Value::Array(fprs));
 
-        let c = &cpu.hart.csrs;
+        let c = &cpu.harts[0].csrs;
         let mut csrs = serde_json::Map::new();
         let _ = csrs.insert("mstatus".into(), c.mstatus.into());
         let _ = csrs.insert("misa".into(), c.misa.into());
@@ -715,27 +715,27 @@ impl PySimulator {
 
         let cpu = &mut self.inner.state;
 
-        cpu.hart.pc = header["pc"].as_u64().unwrap_or(0);
-        cpu.hart.privilege = PrivilegeMode::from_u8(header["privilege"].as_u64().unwrap_or(3) as u8);
+        cpu.harts[0].pc = header["pc"].as_u64().unwrap_or(0);
+        cpu.harts[0].privilege = PrivilegeMode::from_u8(header["privilege"].as_u64().unwrap_or(3) as u8);
         cpu.direct_mode = header["direct_mode"].as_bool().unwrap_or(false);
         cpu.config.general.trace_instructions = header["trace"].as_bool().unwrap_or(false);
-        cpu.hart.wfi_waiting = header["wfi_waiting"].as_bool().unwrap_or(false);
-        cpu.hart.wfi_pc = header["wfi_pc"].as_u64().unwrap_or(0);
+        cpu.harts[0].wfi_waiting = header["wfi_waiting"].as_bool().unwrap_or(false);
+        cpu.harts[0].wfi_pc = header["wfi_pc"].as_u64().unwrap_or(0);
 
         if let Some(gprs) = header["gpr"].as_array() {
             for (i, v) in gprs.iter().enumerate().take(32) {
-                cpu.hart.regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
+                cpu.harts[0].regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
             }
         }
 
         if let Some(fprs) = header["fpr"].as_array() {
             for (i, v) in fprs.iter().enumerate().take(32) {
-                cpu.hart.regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
+                cpu.harts[0].regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
             }
         }
 
         if let Some(csrs) = header.get("csrs") {
-            let c = &mut cpu.hart.csrs;
+            let c = &mut cpu.harts[0].csrs;
             macro_rules! restore_csr {
                 ($field:ident) => {
                     if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) {
@@ -798,13 +798,13 @@ impl PySimulator {
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
 
-        let _ = cpu.core.l1_i_cache.flush();
-        let _ = cpu.core.l1_d_cache.flush();
-        let _ = cpu.core.l2_cache.flush();
+        let _ = cpu.cores[0].l1_i_cache.flush();
+        let _ = cpu.cores[0].l1_d_cache.flush();
+        let _ = cpu.cores[0].l2_cache.flush();
         let _ = cpu.l3_cache.flush();
-        cpu.hart.mmu.dtlb.flush();
-        cpu.hart.mmu.itlb.flush();
-        cpu.hart.mmu.l2_tlb.flush();
+        cpu.harts[0].mmu.dtlb.flush();
+        cpu.harts[0].mmu.itlb.flush();
+        cpu.harts[0].mmu.l2_tlb.flush();
 
         Ok(())
     }

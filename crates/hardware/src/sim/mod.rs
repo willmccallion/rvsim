@@ -14,5 +14,6 @@ pub mod per_hart_debug;
 pub mod simulator;
 pub mod state;
 pub mod stats;
+pub mod topology;
 
-pub use self::state::SimState;
+pub use self::state::{CoreCtx, SharedState, SimState};

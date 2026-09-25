@@ -14,7 +14,7 @@ pub trait PipelineStage {
     /// # Arguments
     ///
     /// * `state` - Mutable reference to the CPU state.
-    fn tick(state: &mut crate::sim::SimState);
+    fn tick(state: &mut crate::sim::CoreCtx<'_>);
 }
 
 /// Represents a pipeline latch (inter-stage buffer).

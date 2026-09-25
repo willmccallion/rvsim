@@ -71,10 +71,14 @@ pub fn setup_kernel_load(
             println!("[Loader] WARNING: Linux Image not found at {kernel_path}");
         }
 
-        state.hart.pc = opensbi_addr;
-        state.hart.privilege = PrivilegeMode::Machine;
-        state.hart.regs.write(abi::REG_A0, 0);
-        state.hart.regs.write(abi::REG_A1, dtb_addr);
+        // Every hart starts in OpenSBI with its own id in a0; the firmware's
+        // boot lottery picks the cold-boot hart and parks the rest.
+        for hart in &mut state.harts {
+            hart.pc = opensbi_addr;
+            hart.privilege = PrivilegeMode::Machine;
+            hart.regs.write(abi::REG_A0, u64::from(hart.hart_id.val()));
+            hart.regs.write(abi::REG_A1, dtb_addr);
+        }
 
         if sbi_path == sbi_dynamic_path {
             // fw_dynamic_info struct: magic, version, next_addr, next_mode,
@@ -97,19 +101,27 @@ pub fn setup_kernel_load(
                 info_bytes.extend_from_slice(&field.to_le_bytes());
             }
             state.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
-            state.hart.regs.write(abi::REG_A2, info_addr);
+            for hart in &mut state.harts {
+                hart.regs.write(abi::REG_A2, info_addr);
+            }
         } else {
-            state.hart.regs.write(abi::REG_A2, 0);
+            for hart in &mut state.harts {
+                hart.regs.write(abi::REG_A2, 0);
+            }
         }
     } else {
         let load_addr = ram_base + config.system.kernel_offset;
 
         state.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
-        state.hart.pc = ram_base;
-        state.hart.privilege = PrivilegeMode::Machine;
-        state.csr_write(csr::MEPC, load_addr);
-        state.hart.regs.write(abi::REG_A0, 0);
-        state.hart.regs.write(abi::REG_A1, dtb_addr);
+        for core in 0..state.cores.len() {
+            let mut ctx = state.core_ctx(core);
+            ctx.hart.pc = ram_base;
+            ctx.hart.privilege = PrivilegeMode::Machine;
+            ctx.csr_write(csr::MEPC, load_addr);
+            let hart_id = u64::from(ctx.hart.hart_id.val());
+            ctx.hart.regs.write(abi::REG_A0, hart_id);
+            ctx.hart.regs.write(abi::REG_A1, dtb_addr);
+        }
     }
 
     Ok(())
@@ -216,10 +228,10 @@ mod tests {
         let ram_base = config.system.ram_base;
         let load_addr = ram_base + config.system.kernel_offset;
 
-        assert_eq!(state.hart.pc, ram_base);
-        assert_eq!(state.hart.privilege, PrivilegeMode::Machine);
-        assert_eq!(state.csr_read(csr::MEPC), load_addr);
-        assert_eq!(state.hart.regs.read(abi::REG_A0), 0);
-        assert_eq!(state.hart.regs.read(abi::REG_A1), ram_base + 0x2200000);
+        assert_eq!(state.harts[0].pc, ram_base);
+        assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
+        assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), load_addr);
+        assert_eq!(state.harts[0].regs.read(abi::REG_A0), 0);
+        assert_eq!(state.harts[0].regs.read(abi::REG_A1), ram_base + 0x2200000);
     }
 }

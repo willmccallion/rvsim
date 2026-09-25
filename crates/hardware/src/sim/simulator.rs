@@ -1,75 +1,63 @@
-//! Simulator: owns the state, the pipeline, and the global event queue.
+//! Simulator: owns the system state, one pipeline per core, and drives the
+//! global event queue.
 //!
-//! Each `tick()`:
-//! 1. Increments the cycle in `pre_tick`.
-//! 2. Drains events scheduled for the new cycle, delivering packets to
-//!    pipelines / caches / bus / memory controllers.
-//! 3. Runs one cycle of the pipeline (mailbox-drain at the top, then
-//!    engine.tick, then frontend.tick).
-//! 4. Drains again so packets the pipeline just emitted reach their
-//!    targets this cycle. The cache / bus / mem-controller handlers
-//!    schedule their responses for future cycles; those land in the
-//!    pipeline's mailbox via the next cycle's start-of-tick drain.
-//! 5. Runs `post_tick` for mode tracing.
+//! Each `tick()` runs the fixed order described in
+//! `docs/architecture/multicore.md`:
+//! 1. Uncore pre-cycle: exit / panic checks and one tick of every device.
+//! 2. Per-hart pre-tick (interrupt lines into `mip`, hang detection), then
+//!    the clock advances and mode cycles are charged.
+//! 3. Drain events scheduled for the new cycle into their targets.
+//! 4. Tick every pipeline in core order.
+//! 5. Drain again so packets the pipelines just emitted reach their targets.
+//! 6. Tick memory controllers, then drain once more.
+//! 7. Per-hart post-tick.
 //!
 //! Memory traffic (instruction fetch, load, store, page-table walk) flows
 //! exclusively through scheduled `MemReq` / `MemResp` packets.
 
 use crate::common::SimError;
 use crate::config::Config;
+use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
 use crate::core::pipeline::backend::o3::O3Engine;
 use crate::core::pipeline::engine::{BackendType, Pipeline, PipelineDispatch};
 use crate::core::pipeline::frontend::Frontend;
-use crate::sim::components::{CacheId, ComponentId, MemCtrlId, PipelineId};
+use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::Packet;
 use crate::sim::state::SimState;
+use crate::sim::topology::{CacheSlot, CoreTopology, PrivateCache};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-/// Default `CacheId` for the L1 instruction cache in a single-core config.
-const L1I_CACHE_ID: CacheId = CacheId::new(0);
-/// Default `CacheId` for the L1 data cache in a single-core config.
-const L1D_CACHE_ID: CacheId = CacheId::new(1);
-/// Default `PipelineId` for the single-core pipeline.
-const PIPELINE_ID: PipelineId = PipelineId::new(0);
-
-/// Top-level simulator: `SimState` + pipeline + scheduler.
+/// Top-level simulator: system state plus one pipeline per core.
 #[derive(Debug)]
 pub struct Simulator {
-    /// Simulator-side architectural state (hart, core, bus, caches, stats).
+    /// The whole system: harts, cores, and the uncore.
     pub state: SimState,
-    /// Pipeline implementation (frontend + backend engine).
-    pub pipeline: PipelineDispatch,
+    /// Pipelines indexed by `CoreId`.
+    pub pipelines: Vec<PipelineDispatch>,
+    /// Privilege mode of each hart at the start of the current tick, kept
+    /// between ticks to avoid reallocating.
+    prev_privileges: Vec<PrivilegeMode>,
 }
 
 unsafe impl Send for Simulator {}
 unsafe impl Sync for Simulator {}
 
 impl Simulator {
-    /// Wraps an existing `SimState` with a pipeline built from its `config`.
-    /// Use this when the caller needs to interleave setup between state
-    /// construction and pipeline dispatch (e.g. loading an ELF image and
-    /// registering HTIF before the pipeline reads the reset PC).
+    /// Wraps an existing `SimState` with one pipeline per core, built from
+    /// its `config`. Use this when the caller needs to interleave setup
+    /// between state construction and pipeline dispatch (e.g. loading an
+    /// ELF image and registering HTIF before the pipeline reads the reset
+    /// PC).
     pub fn new(state: SimState) -> Self {
         let config = &state.config;
-        let pipeline = match config.pipeline.backend {
-            BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
-                frontend: Frontend::new(config.pipeline.width),
-                engine: InOrderEngine::new(config, PIPELINE_ID, L1I_CACHE_ID, L1D_CACHE_ID),
-                rename_output: Vec::with_capacity(config.pipeline.width),
-                redirect_pending: false,
-            })),
-            BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
-                frontend: Frontend::new(config.pipeline.width),
-                engine: O3Engine::new(config, PIPELINE_ID, L1I_CACHE_ID, L1D_CACHE_ID),
-                rename_output: Vec::with_capacity(config.pipeline.width),
-                redirect_pending: false,
-            })),
-        };
-        Self { state, pipeline }
+        let pipelines =
+            state.topology.cores.iter().map(|core| build_pipeline(config, core)).collect();
+        let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
+        Self { state, pipelines, prev_privileges }
     }
 
     /// Convenience constructor: builds the exit-signal `Arc`, the `SimState`,
@@ -80,13 +68,23 @@ impl Simulator {
         Self::new(SimState::new(config, disk_path, exit_signal))
     }
 
-    /// Synchronize the architectural register file into the O3 PRF.
+    /// Number of cores (and pipelines).
+    #[must_use]
+    pub const fn core_count(&self) -> usize {
+        self.pipelines.len()
+    }
+
+    /// Synchronize every hart's architectural register file into its O3
+    /// PRF.
     ///
     /// Must be called after all register initialization (loader setup, etc.)
     /// but before the first pipeline tick. For the in-order backend this is a no-op.
     pub fn sync_arch_regs(&mut self) {
-        if let PipelineDispatch::OutOfOrder(ref mut p) = self.pipeline {
-            p.engine.sync_arch_regs(&self.state);
+        for core in 0..self.pipelines.len() {
+            if let PipelineDispatch::OutOfOrder(p) = &mut self.pipelines[core] {
+                let ctx = self.state.core_ctx(core);
+                p.engine.sync_arch_regs(&ctx);
+            }
         }
     }
 
@@ -99,38 +97,55 @@ impl Simulator {
     ///
     /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires.
     pub fn tick(&mut self) -> Result<(), SimError> {
-        let prev_priv = self.state.hart.privilege;
-        let skip = self.state.pre_tick()?;
+        for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
+            *slot = hart.privilege;
+        }
+        let irqs = self.state.pre_cycle()?;
+        let skip = irqs.is_none();
+        if let Some(irqs) = irqs {
+            for core in 0..self.pipelines.len() {
+                self.state.core_ctx(core).pre_tick(irqs);
+            }
+            self.state.advance_cycle();
+            for core in 0..self.pipelines.len() {
+                self.state.core_ctx(core).track_mode_cycles();
+            }
+        }
         // First drain: deliver events scheduled for cycles <= now into
-        // their targets (filling pipeline.mailbox with responses from
+        // their targets (filling pipeline mailboxes with responses from
         // previous cycles' emissions).
         self.drain_events();
         if !skip {
-            self.pipeline.tick(&mut self.state);
+            for core in 0..self.pipelines.len() {
+                let mut ctx = self.state.core_ctx(core);
+                self.pipelines[core].tick(&mut ctx);
+            }
         }
-        // Second drain: events the pipeline just scheduled (MemReqs to L1)
+        // Second drain: events the pipelines just scheduled (MemReqs to L1)
         // reach their target component handlers this cycle so the next
         // cycle's start-of-tick drain delivers their responses.
         self.drain_events();
-        // Advance memory-controller state machines for this cycle.
         self.tick_mem_controller();
         // Drain again so commands / responses emitted during the memory
-        // controller's tick reach the pipeline mailbox on the following cycle.
+        // controller's tick reach the pipeline mailboxes on the following cycle.
         self.drain_events();
-        self.state.post_tick(prev_priv);
+        for core in 0..self.pipelines.len() {
+            let prev = self.prev_privileges[self.state.topology.cores[core].hart_ids[0].as_index()];
+            self.state.core_ctx(core).post_tick(prev);
+        }
         Ok(())
     }
 
     fn tick_mem_controller(&mut self) {
-        let cycle = self.state.cycle;
+        let shared = &mut self.state.shared;
         let mut ctx = HandleCtx {
-            scheduler: &mut self.state.event_queue,
-            stats: &mut self.state.stats,
-            config: &self.state.config,
-            cycle,
+            scheduler: &mut shared.event_queue,
+            stats: &mut shared.stats,
+            config: &shared.config,
+            cycle: shared.cycle,
             self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
         };
-        self.state.mem_controller.tick(&mut ctx);
+        shared.mem_controller.tick(&mut ctx);
     }
 
     /// Dispatches every event with `fire_at <= self.state.cycle`.
@@ -145,37 +160,39 @@ impl Simulator {
     fn dispatch(&mut self, event: Event) {
         let Event { fire_at: _, seq: _, target, source, packet } = event;
         match target {
-            ComponentId::Pipeline(_) => {
-                self.pipeline.deliver(source, packet);
+            ComponentId::Pipeline(id) => {
+                if let Some(pipeline) = self.pipelines.get_mut(id.as_index()) {
+                    pipeline.deliver(source, packet);
+                }
             }
             ComponentId::Cache(id) => {
                 dispatch_to_cache(&mut self.state, id, packet, source);
             }
             ComponentId::Bus => {
-                let cycle = self.state.cycle;
+                let shared = &mut self.state.shared;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut self.state.event_queue,
-                    stats: &mut self.state.stats,
-                    config: &self.state.config,
-                    cycle,
+                    scheduler: &mut shared.event_queue,
+                    stats: &mut shared.stats,
+                    config: &shared.config,
+                    cycle: shared.cycle,
                     self_id: ComponentId::Bus,
                 };
-                self.state.bus.handle(packet, source, &mut ctx);
+                shared.bus.handle(packet, source, &mut ctx);
             }
             ComponentId::MemCtrl(id) => {
-                let cycle = self.state.cycle;
+                let shared = &mut self.state.shared;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut self.state.event_queue,
-                    stats: &mut self.state.stats,
-                    config: &self.state.config,
-                    cycle,
+                    scheduler: &mut shared.event_queue,
+                    stats: &mut shared.stats,
+                    config: &shared.config,
+                    cycle: shared.cycle,
                     self_id: ComponentId::MemCtrl(id),
                 };
-                self.state.mem_controller.handle(packet, source, &mut ctx);
+                shared.mem_controller.handle(packet, source, &mut ctx);
             }
             ComponentId::Device(_) | ComponentId::Hart(_) | ComponentId::Core(_) => {
                 // Devices are routed via Bus; Hart / Core targeting is
-                // reserved for future multi-core / coherence packets.
+                // reserved for coherence packets.
             }
         }
     }
@@ -276,15 +293,15 @@ impl Simulator {
         let req_id = ReqId::new(u64::MAX);
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
-        let cycle = self.state.cycle;
+        let shared = &mut self.state.shared;
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
-            config: &self.state.config,
-            cycle,
+            config: &shared.config,
+            cycle: shared.cycle,
             self_id: ComponentId::Bus,
         };
-        self.state.bus.handle(
+        shared.bus.handle(
             Packet::MemReq {
                 req_id,
                 paddr,
@@ -309,23 +326,52 @@ impl Simulator {
     }
 }
 
-/// Dispatches a packet to the cache identified by `id`.
-fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: ComponentId) {
-    let self_id = ComponentId::Cache(id);
-    let cycle = state.cycle;
-    // Split-borrow SimState fields explicitly so the HandleCtx (borrowing
-    // event_queue / stats / config) coexists with the cache field
-    // borrow.
-    let scheduler = &mut state.event_queue;
-    let stats = &mut state.stats;
-    let config = &state.config;
-    let mut ctx = HandleCtx { scheduler, stats, config, cycle, self_id };
-    match id {
-        id if id == CacheId::new(0) => state.core.l1_i_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(1) => state.core.l1_d_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(2) => state.core.l2_cache.handle(packet, source, &mut ctx),
-        id if id == CacheId::new(3) => state.l3_cache.handle(packet, source, &mut ctx),
-        _ => {}
+/// Builds the pipeline for one core from the configured backend.
+fn build_pipeline(config: &Config, core: &CoreTopology) -> PipelineDispatch {
+    let l1i = core.cache(PrivateCache::L1I);
+    let l1d = core.cache(PrivateCache::L1D);
+    match config.pipeline.backend {
+        BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
+            frontend: Frontend::new(config.pipeline.width),
+            engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
+            rename_output: Vec::with_capacity(config.pipeline.width),
+            redirect_pending: false,
+        })),
+        BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
+            frontend: Frontend::new(config.pipeline.width),
+            engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
+            rename_output: Vec::with_capacity(config.pipeline.width),
+            redirect_pending: false,
+        })),
     }
 }
 
+/// Dispatches a packet to the cache identified by `id`.
+fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: ComponentId) {
+    let self_id = ComponentId::Cache(id);
+    let Some(slot) = state.topology.locate_cache(id) else { return };
+    // Split-borrow: the HandleCtx borrows the uncore's event queue, stats
+    // and config while the cache itself comes from a core or from the
+    // uncore's LLC field.
+    let SimState { cores, shared, .. } = state;
+    let cycle = shared.cycle;
+    let mut ctx = HandleCtx {
+        scheduler: &mut shared.event_queue,
+        stats: &mut shared.stats,
+        config: &shared.config,
+        cycle,
+        self_id,
+    };
+    match slot {
+        CacheSlot::Private { core, which } => {
+            let core = &mut cores[core.as_index()];
+            let cache = match which {
+                PrivateCache::L1I => &mut core.l1_i_cache,
+                PrivateCache::L1D => &mut core.l1_d_cache,
+                PrivateCache::L2 => &mut core.l2_cache,
+            };
+            cache.handle(packet, source, &mut ctx);
+        }
+        CacheSlot::Llc => shared.l3_cache.handle(packet, source, &mut ctx),
+    }
+}

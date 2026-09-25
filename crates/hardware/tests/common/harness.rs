@@ -64,18 +64,18 @@ impl TestContext {
             let offset = addr + (i as u64) * 4;
             self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), 4);
         }
-        self.sim.state.hart.pc = addr;
+        self.sim.state.harts[0].pc = addr;
         self
     }
 
     /// Set a general-purpose register value.
     pub fn set_reg(&mut self, reg: usize, val: u64) {
-        self.sim.state.hart.regs.write(RegIdx::new(reg as u8), val);
+        self.sim.state.harts[0].regs.write(RegIdx::new(reg as u8), val);
     }
 
     /// Read a general-purpose register value.
     pub fn get_reg(&self, reg: usize) -> u64 {
-        self.sim.state.hart.regs.read(RegIdx::new(reg as u8))
+        self.sim.state.harts[0].regs.read(RegIdx::new(reg as u8))
     }
 
     /// Run the CPU for a specific number of cycles.

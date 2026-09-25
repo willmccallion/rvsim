@@ -5,7 +5,7 @@
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
 
-use super::SimState;
+use super::CoreCtx;
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::core::units::mmu::TranslateOutcome;
 use crate::core::units::mmu::pmp::PmpResult;
@@ -31,7 +31,7 @@ pub enum TranslateResult {
     },
 }
 
-impl SimState {
+impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(
         &mut self,
@@ -168,7 +168,8 @@ mod tests {
     fn test_translate_direct_mode() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut state = SimState::build(&config, "");
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
 
         let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
         match result {

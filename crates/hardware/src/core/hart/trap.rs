@@ -7,7 +7,6 @@ use crate::core::arch::mode::PrivilegeMode;
 impl Hart {
     /// Executes the `MRET` instruction (Return from Machine Mode).
     pub(crate) const fn do_mret(&mut self) {
-        self.clear_reservation();
         self.pc = self.csrs.mepc & !1;
         let mstatus = self.csrs.mstatus;
         let mpp = (mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
@@ -32,7 +31,6 @@ impl Hart {
 
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
     pub(crate) const fn do_sret(&mut self) {
-        self.clear_reservation();
         self.pc = self.csrs.sepc & !1;
         let sstatus = self.csrs.sstatus;
         let spp = (sstatus & csr::MSTATUS_SPP) != 0;

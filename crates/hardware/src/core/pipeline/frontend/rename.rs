@@ -8,7 +8,7 @@
 //! so that instructions reading their own destination (e.g. ADDI x5, x5, 16)
 //! get the previous producer's tag, not their own.
 
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
@@ -26,7 +26,7 @@ use crate::trace_rename;
 ///
 /// Panics if checkpoint allocation fails after the stall check indicated a slot was available.
 pub fn rename_stage<E: ExecutionEngine>(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     input: &mut Vec<IdExEntry>,
     engine: &mut E,
     rename_output: &mut Vec<RenameIssueEntry>,

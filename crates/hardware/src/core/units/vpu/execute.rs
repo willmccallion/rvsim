@@ -10,7 +10,7 @@
 //!   (typically a `VecPrfView`) and returns side effects for commit-time application.
 
 use crate::common::Trap;
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::fpu::rounding_modes::RoundingMode;
@@ -29,7 +29,7 @@ use crate::isa::rvv::encoding as v_enc;
 /// Returns `Trap::IllegalInstruction` if vtype.vill is set and a vector
 /// operation that depends on vtype is attempted. Returns memory traps from
 /// vector load/store operations.
-pub fn execute_vec_op(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+pub fn execute_vec_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     match id.ctrl.vec_op {
         VectorOp::Vsetvli => Ok(execute_vsetvl_op(state, id)),
         VectorOp::Vsetivli => Ok(execute_vsetivli_op(state, id)),
@@ -47,7 +47,7 @@ pub fn execute_vec_op(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64
 }
 
 /// Execute a vector crypto instruction (Zvkn*/Zvks*/Zvkg).
-fn execute_vec_crypto(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_crypto(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
     let vstart = state.hart.csrs.vstart as usize;
     let vl = state.hart.csrs.vl as usize;
@@ -68,7 +68,7 @@ fn execute_vec_crypto(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64
 }
 
 /// Execute `vsetvli`: AVL from rs1, vtype from immediate.
-fn execute_vsetvl_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetvl_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
     let avl = id.rv1;
     let requested_vtype = v_enc::zimm_vsetvli(id.inst);
     let rd_is_zero = id.rd.is_zero();
@@ -86,7 +86,7 @@ fn execute_vsetvl_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Execute `vsetivli`: AVL from uimm, vtype from immediate.
-fn execute_vsetivli_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetivli_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
     let avl = v_enc::uimm_vsetivli(id.inst);
     let requested_vtype = v_enc::zimm_vsetivli(id.inst);
     let rd_is_zero = id.rd.is_zero();
@@ -104,7 +104,7 @@ fn execute_vsetivli_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Execute `vsetvl`: AVL from rs1, vtype from rs2.
-fn execute_vsetvl_rs2_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
+fn execute_vsetvl_rs2_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
     let avl = id.rv1;
     let requested_vtype = id.rv2;
     let rd_is_zero = id.rd.is_zero();
@@ -122,7 +122,7 @@ fn execute_vsetvl_rs2_op(state: &mut SimState, id: &RenameIssueEntry) -> u64 {
 }
 
 /// Build the common execution context from CPU state.
-const fn build_ctx(state: &SimState) -> VecExecCtx {
+fn build_ctx(state: &CoreCtx<'_>) -> VecExecCtx {
     let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
     VecExecCtx {
         sew: vtype.vsew,
@@ -133,10 +133,7 @@ const fn build_ctx(state: &SimState) -> VecExecCtx {
         vlmul: vtype.vlmul,
         vm: true, // overridden per-instruction
         vxrm: Vxrm::from_bits(state.hart.csrs.vxrm as u8),
-        frm: match RoundingMode::from_bits(state.hart.csrs.frm as u8) {
-            Some(rm) => rm,
-            None => RoundingMode::Rne,
-        },
+        frm: RoundingMode::from_bits(state.hart.csrs.frm as u8).unwrap_or(RoundingMode::Rne),
         zvfh: state.config.isa.vector.zvfh,
     }
 }
@@ -190,7 +187,7 @@ const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
 }
 
 /// Mark `mstatus.VS` and `sstatus.VS` as dirty.
-const fn mark_vs_dirty(state: &mut SimState) {
+const fn mark_vs_dirty(state: &mut CoreCtx<'_>) {
     state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
         | crate::core::arch::csr::MSTATUS_VS_DIRTY;
     state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
@@ -253,7 +250,7 @@ const fn check_widening_lmul(inst: u32, op: VectorOp, vlmul: Vlmul) -> Result<()
 }
 
 /// Execute a vector integer arithmetic operation on the VPR.
-fn execute_vec_arith(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_arith(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
     let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
     check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
@@ -286,7 +283,7 @@ fn execute_vec_arith(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64,
 }
 
 /// Execute a vector floating-point operation.
-fn execute_vec_fp(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_fp(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
     let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
     check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
@@ -311,7 +308,7 @@ fn execute_vec_fp(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Tr
 }
 
 /// Execute a vector reduction operation.
-fn execute_vec_reduction(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_reduction(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(state);
@@ -334,7 +331,7 @@ fn execute_vec_reduction(state: &mut SimState, id: &RenameIssueEntry) -> Result<
 }
 
 /// Execute a vector mask operation.
-fn execute_vec_mask(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_mask(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(state);
@@ -356,7 +353,7 @@ fn execute_vec_mask(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, 
 }
 
 /// Execute a vector permutation operation.
-fn execute_vec_permute(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_permute(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
 
     let mut ctx = build_ctx(state);
@@ -378,7 +375,7 @@ fn execute_vec_permute(state: &mut SimState, id: &RenameIssueEntry) -> Result<u6
 }
 
 /// Execute a vector load operation through the memory subsystem.
-fn execute_vec_load(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_load(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let result = mem::execute_vec_load(state, id)?;
     state.hart.csrs.vstart = 0;
     mark_vs_dirty(state);
@@ -386,7 +383,7 @@ fn execute_vec_load(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, 
 }
 
 /// Execute a vector store operation through the memory subsystem.
-fn execute_vec_store(state: &mut SimState, id: &RenameIssueEntry) -> Result<u64, Trap> {
+fn execute_vec_store(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     let result = mem::execute_vec_store(state, id)?;
     state.hart.csrs.vstart = 0;
     mark_vs_dirty(state);

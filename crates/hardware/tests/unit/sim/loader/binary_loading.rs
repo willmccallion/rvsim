@@ -73,18 +73,18 @@ fn test_setup_kernel_load_without_opensbi() {
     loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // Verify PC is set to RAM base
-    assert_eq!(state.hart.pc, config.system.ram_base);
+    assert_eq!(state.harts[0].pc, config.system.ram_base);
 
     // Verify privilege mode is Machine
-    assert_eq!(state.hart.privilege, PrivilegeMode::Machine);
+    assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
 
     // Verify MEPC is set to kernel load address
     let expected_mepc = config.system.ram_base + config.system.kernel_offset;
-    assert_eq!(state.csr_read(csr::MEPC), expected_mepc);
+    assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), expected_mepc);
 
     // Verify registers are set up
-    assert_eq!(state.hart.regs.read(abi::REG_A0), 0);
-    assert_eq!(state.hart.regs.read(abi::REG_A1), config.system.ram_base + 0x2200000);
+    assert_eq!(state.harts[0].regs.read(abi::REG_A0), 0);
+    assert_eq!(state.harts[0].regs.read(abi::REG_A1), config.system.ram_base + 0x2200000);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn test_setup_kernel_load_dtb_address() {
 
     // DTB should be loaded at RAM base + 0x2200000
     let expected_dtb_addr = config.system.ram_base + 0x2200000;
-    assert_eq!(state.hart.regs.read(abi::REG_A1), expected_dtb_addr);
+    assert_eq!(state.harts[0].regs.read(abi::REG_A1), expected_dtb_addr);
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn test_setup_kernel_load_register_a2_is_zero() {
     loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
 
     // a2 register should be 0
-    assert_eq!(state.hart.regs.read(abi::REG_A2), 0);
+    assert_eq!(state.harts[0].regs.read(abi::REG_A2), 0);
 }
 
 #[test]
@@ -171,11 +171,11 @@ fn test_setup_kernel_load_multiple_calls() {
 
     // First setup
     loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
-    let pc_first = state.hart.pc;
+    let pc_first = state.harts[0].pc;
 
     // Second setup (should overwrite)
     loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
-    let pc_second = state.hart.pc;
+    let pc_second = state.harts[0].pc;
 
     // Both should set the same PC
     assert_eq!(pc_first, pc_second);
@@ -197,8 +197,8 @@ fn test_setup_kernel_load_different_ram_bases() {
     loader::setup_kernel_load(&mut cpu2, &config2, "", None, None).unwrap();
 
     // PC should match the respective RAM bases
-    assert_eq!(cpu1.hart.pc, 0x80000000);
-    assert_eq!(cpu2.hart.pc, 0x90000000);
+    assert_eq!(cpu1.harts[0].pc, 0x80000000);
+    assert_eq!(cpu2.harts[0].pc, 0x90000000);
 }
 
 #[test]

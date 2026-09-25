@@ -39,7 +39,7 @@ use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, Walk
 use crate::core::units::bru::{BranchPredictor, Ghr};
 use crate::isa::abi;
 use crate::isa::rv64i::opcodes;
-use crate::sim::SimState;
+use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::sim::state::memory::TranslateResult;
@@ -117,7 +117,7 @@ impl GroupBuilder {
 /// Returns 0 for addresses outside DRAM. Architecturally, fetching from
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
-fn read_inst_half(state: &SimState, paddr: u64) -> u16 {
+fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
     state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
@@ -142,7 +142,7 @@ fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
 /// emits the first PTE read. The group sequence number is reserved now so
 /// the instruction drains after everything fetch1 issued before it.
 fn park_fetch_walk<E: ExecutionEngine>(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     engine: &mut E,
     walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
@@ -185,7 +185,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
 /// at all) enters the program-order reorder buffer immediately; any other
 /// group costs one line-sized I-cache request and waits for the response.
 pub fn dispatch_fetch_group<E: ExecutionEngine>(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
@@ -204,7 +204,7 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
 }
 
 fn issue_line_fetch<E: ExecutionEngine>(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     line: LineAddr,
@@ -269,7 +269,7 @@ pub fn drain_fetch_reorder(
 /// ([`BackendCommon::fetch_in_flight`]), so a parked fetch walk or an
 /// unanswered line request never gets a duplicate request for the same PC.
 pub fn fetch1_stage<E: ExecutionEngine>(
-    state: &mut SimState,
+    state: &mut CoreCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
