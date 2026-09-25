@@ -1,6 +1,7 @@
 pub mod clock;
 pub mod common;
 pub mod constraints;
+pub mod ecc;
 pub mod parallelism;
 pub mod power;
 pub mod refresh;

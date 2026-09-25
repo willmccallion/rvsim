@@ -39,6 +39,7 @@ use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::memory::ddr5::config::{Ddr5Config, PowerDownPolicy};
+use crate::soc::memory::ddr5::ecc::EccPolicy;
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
@@ -109,6 +110,7 @@ pub struct Ddr5Controller {
     refresh_policy: Box<dyn RefreshPolicy>,
     layout: RankLayout,
     refresh_interval: u64,
+    scrubber: Option<Scrubber>,
     pending_commands: Vec<EmittedCommand>,
     pending_responses: Vec<ScheduledResponse>,
     /// Next DRAM clock the scheduler will process.
@@ -150,6 +152,13 @@ impl Ddr5Controller {
         assert!(layout.bank_count() <= 64, "refresh bank masks cover at most 64 banks per rank");
         let refresh_policy = config.refresh.build();
         let refresh_interval = refresh_policy.interval(&config.timing, layout);
+        let ecc: Box<dyn EccPolicy> = config.ecc.build();
+        let scrubber = ecc.scrub_interval(&config.timing).map(|interval| Scrubber {
+            interval,
+            next_at: interval,
+            cursor: 0,
+            line_count: (buffer.len() as u64 / CACHE_LINE_BYTES).max(1),
+        });
         let bank_count = layout.bank_count() as usize;
         let channels = (0..config.channels)
             .map(|_| {
@@ -173,6 +182,7 @@ impl Ddr5Controller {
             refresh_policy,
             layout,
             refresh_interval,
+            scrubber,
             pending_commands: Vec::new(),
             pending_responses: Vec::new(),
             next_dram_cycle: 0,
@@ -233,13 +243,39 @@ impl Ddr5Controller {
     ) {
         let loc = self.mapper.decompose(paddr);
         let line = LineAddr::from_phys(paddr, CACHE_LINE_BYTES);
-        let pending = PendingReq { req_id, arrival_cycle: arrival, paddr, line, loc, size, op, source };
+        let scrub = source == ComponentId::MemCtrl(self.self_id);
+        let pending = PendingReq {
+            req_id,
+            arrival_cycle: arrival,
+            paddr,
+            line,
+            loc,
+            size,
+            op,
+            source,
+            scrub,
+        };
         let sc =
             &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
         sc.inbound.push_back(pending);
     }
 
+    /// Injects the next patrol-scrub read when its interval has elapsed.
+    /// The sweep walks every line of the DRAM in address order and wraps.
+    fn inject_scrub_read(&mut self, now: u64) {
+        let Some(scrubber) = self.scrubber.as_mut() else { return };
+        if now < scrubber.next_at {
+            return;
+        }
+        scrubber.next_at = now + scrubber.interval;
+        let paddr = PhysAddr::new(self.base.val() + scrubber.cursor * CACHE_LINE_BYTES);
+        scrubber.cursor = (scrubber.cursor + 1) % scrubber.line_count;
+        let source = ComponentId::MemCtrl(self.self_id);
+        self.enqueue(ReqId::new(u64::MAX), paddr, AccessSize::Line, MemOp::Read, source, now);
+    }
+
     fn tick_dram_cycle(&mut self, now: u64) {
+        self.inject_scrub_read(now);
         let chan_count = self.channels.len();
         for chan_idx in 0..chan_count {
             let subch_count = self.channels[chan_idx].subchannels.len();
@@ -269,9 +305,14 @@ impl Ddr5Controller {
             }
             if is_read_op(&request.op) {
                 if sc.write_queue.iter().any(|w| w.line == request.line) {
-                    let payload = self.service_buffer(&request);
-                    self.pending_responses
-                        .push(ScheduledResponse::for_request(&request, now + frontend, payload));
+                    if !request.scrub {
+                        let payload = self.service_buffer(&request);
+                        self.pending_responses.push(ScheduledResponse::for_request(
+                            &request,
+                            now + frontend,
+                            payload,
+                        ));
+                    }
                     continue;
                 }
                 if sc.read_queue.len() >= read_cap {
@@ -906,9 +947,11 @@ impl Ddr5Controller {
         let data_end = data_start + self.config.timing.bl_half;
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
         if is_read {
-            let payload = self.service_buffer(request);
-            let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
-            self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
+            if !request.scrub {
+                let payload = self.service_buffer(request);
+                let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
+                self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
+            }
         } else {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
             sc.writes_this_drain += 1;
@@ -1172,6 +1215,19 @@ struct BankCmdCtx {
     bg: BankGroupId,
     bank_index: usize,
     row: RowId,
+}
+
+/// Patrol-scrub sweep state.
+#[derive(Copy, Clone, Debug)]
+struct Scrubber {
+    /// DRAM clocks between scrub reads.
+    interval: u64,
+    /// Clock of the next scrub read.
+    next_at: u64,
+    /// Next line to scrub, as an index from the DRAM base.
+    cursor: u64,
+    /// Lines in the DRAM.
+    line_count: u64,
 }
 
 #[derive(Copy, Clone, Debug)]

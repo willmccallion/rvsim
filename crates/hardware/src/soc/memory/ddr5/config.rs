@@ -1,6 +1,7 @@
 //! Configuration for [`crate::soc::memory::ddr5::controller::Ddr5Controller`].
 
 use crate::soc::memory::address::AddressMappingKind;
+use crate::soc::memory::ddr5::ecc::EccKind;
 use crate::soc::memory::ddr5::refresh::RefreshKind;
 use crate::soc::memory::ddr5::scheduler::SchedulerKind;
 use crate::soc::memory::ddr5::timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};
@@ -53,6 +54,8 @@ pub struct Ddr5Config {
     pub refresh: RefreshKind,
     /// Rank power-down policy.
     pub power_down: PowerDownPolicy,
+    /// ECC and patrol-scrub policy.
+    pub ecc: EccKind,
     /// Address-bit interleave strategy.
     pub address_mapping: AddressMappingKind,
     /// Command-timing constants.
@@ -85,6 +88,7 @@ impl Ddr5Config {
             scheduler: SchedulerKind::FrFcfs,
             refresh: RefreshKind::AllBank,
             power_down: PowerDownPolicy::Disabled,
+            ecc: EccKind::None,
             address_mapping: AddressMappingKind::RoRaBaChCo,
             timing: Ddr5Timing::from_bin(&bin),
         }
