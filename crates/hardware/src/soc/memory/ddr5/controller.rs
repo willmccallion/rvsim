@@ -39,6 +39,7 @@ use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::memory::ddr5::config::Ddr5Config;
+use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
     Bank, BankState, BusOp, DramChannel, PendingReq, WriteDrainState,
 };
@@ -101,6 +102,7 @@ pub struct Ddr5Controller {
     config: Ddr5Config,
     self_id: MemCtrlId,
     clock: ClockRatio,
+    scheduler: Box<dyn MemScheduler>,
     pending_commands: Vec<EmittedCommand>,
     pending_responses: Vec<ScheduledResponse>,
     /// Next DRAM clock the scheduler will process.
@@ -155,6 +157,7 @@ impl Ddr5Controller {
             config,
             self_id,
             clock: ClockRatio::new(cpu_clock_mhz, config.timing.data_rate_mts),
+            scheduler: config.scheduler.build(),
             pending_commands: Vec::new(),
             pending_responses: Vec::new(),
             next_dram_cycle: 0,
@@ -304,8 +307,7 @@ impl Ddr5Controller {
         sc.last_command_cycle > now
     }
 
-    /// Picks the queue index whose request can start earliest given current
-    /// state. Ties broken by arrival order (i.e. lower index wins).
+    /// Asks the scheduler which request in the chosen queue to advance.
     fn pick_request_index(
         &self,
         chan: ChannelId,
@@ -315,40 +317,50 @@ impl Ddr5Controller {
     ) -> Option<usize> {
         let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
         let queue = if pick_writes { &sc.write_queue } else { &sc.read_queue };
-        if queue.is_empty() {
-            return None;
-        }
-        let mut best_index = 0usize;
-        let mut best_start = u64::MAX;
-        for (i, req) in queue.iter().enumerate() {
-            let start = self.estimated_start(chan, subch, req, now);
-            if start < best_start {
-                best_start = start;
-                best_index = i;
-            }
-        }
-        if best_start == u64::MAX { None } else { Some(best_index) }
+        let candidates: Vec<Candidate> =
+            queue.iter().map(|req| self.candidate(chan, subch, req)).collect();
+        self.scheduler.pick(&candidates, now)
     }
 
-    /// Rough estimate of the earliest clock at which `req` could fire its
-    /// first command. Used only for reorder priority — the real timing is
-    /// (re)computed in `step_request`. Only needs to reflect the biggest
-    /// bottleneck (refresh, precharge, activate), not the full column pipeline.
-    fn estimated_start(
-        &self,
-        chan: ChannelId,
-        subch: SubchannelId,
-        req: &PendingReq,
-        now: u64,
-    ) -> u64 {
-        let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
-        let rank = &sc.ranks[req.loc.rank.as_index()];
-        let refresh_bound = if rank.next_refresh <= now {
-            rank.next_refresh + self.config.timing.t_rfc1
-        } else {
-            rank.refresh_end
+    /// Summarises `req` for the scheduler: whether its row is open and the
+    /// earliest clock its column command could issue from the bank's
+    /// current state.
+    fn candidate(&self, chan: ChannelId, subch: SubchannelId, req: &PendingReq) -> Candidate {
+        let t = &self.config.timing;
+        let ctx = BankCmdCtx {
+            chan,
+            subch,
+            rank: req.loc.rank,
+            bg: req.loc.bank_group,
+            bank_index: self.bank_index(req.loc.bank_group, req.loc.bank),
+            row: req.loc.row,
         };
-        now.max(sc.last_command_cycle).max(rank.last_command_cycle).max(refresh_bound)
+        let bank = self.bank_snapshot(ctx);
+        let is_read = is_read_op(&req.op);
+        match bank.state {
+            BankState::Active if bank.open_row == Some(req.loc.row) => Candidate {
+                row_hit: true,
+                ready_at: self.column_issue_earliest(&ctx, &bank, is_read),
+            },
+            BankState::Active => {
+                let precharge = self.precharge_earliest(&ctx, &bank);
+                let activate = self.activate_earliest(&ctx, precharge + t.t_rp);
+                Candidate { row_hit: false, ready_at: activate + t.t_rcd }
+            }
+            BankState::Precharging => {
+                let activate = self.activate_earliest(&ctx, bank.last_precharge + t.t_rp);
+                Candidate { row_hit: false, ready_at: activate + t.t_rcd }
+            }
+            BankState::Idle => {
+                let activate = self.activate_earliest(&ctx, 0);
+                Candidate { row_hit: false, ready_at: activate + t.t_rcd }
+            }
+            BankState::Refreshing | BankState::Activating => {
+                let rank_ref = &self.channels[chan.as_index()].subchannels[subch.as_index()]
+                    .ranks[req.loc.rank.as_index()];
+                Candidate { row_hit: false, ready_at: rank_ref.refresh_end + t.t_rcd }
+            }
+        }
     }
 
     fn update_drain_state(&mut self, chan: ChannelId, subch: SubchannelId) {
@@ -493,8 +505,10 @@ impl Ddr5Controller {
         }
     }
 
-    /// Issues PRECHARGE if legal at `now`; otherwise leaves the bank alone.
-    fn try_issue_precharge(&mut self, ctx: &BankCmdCtx, snapshot: &Bank, now: u64) {
+    /// Earliest clock a PRECHARGE of `snapshot`'s bank is legal: tRAS from
+    /// its ACT, tRTP from its last read, tWR from its last write burst,
+    /// tPPD from the rank's last precharge, and the rank's command bus.
+    fn precharge_earliest(&self, ctx: &BankCmdCtx, snapshot: &Bank) -> u64 {
         let t = &self.config.timing;
         let ras_bound = snapshot.last_activate + t.t_ras;
         let rtp_bound =
@@ -503,19 +517,23 @@ impl Ddr5Controller {
             if snapshot.last_write_end == 0 { 0 } else { snapshot.last_write_end + t.t_wr };
         let rank_ref = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
             .ranks[ctx.rank.as_index()];
-        let cmd_bus = rank_ref.last_command_cycle;
         let ppd_bound =
             if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
-        let earliest = ras_bound.max(rtp_bound).max(wr_bound).max(cmd_bus).max(ppd_bound);
+        ras_bound.max(rtp_bound).max(wr_bound).max(rank_ref.last_command_cycle).max(ppd_bound)
+    }
+
+    /// Issues PRECHARGE if legal at `now`; otherwise leaves the bank alone.
+    fn try_issue_precharge(&mut self, ctx: &BankCmdCtx, snapshot: &Bank, now: u64) {
+        let earliest = self.precharge_earliest(ctx, snapshot);
         if earliest > now {
             return;
         }
         let fire_at = earliest.max(now);
         debug_assert!(
-            fire_at >= snapshot.last_activate + t.t_ras,
+            fire_at >= snapshot.last_activate + self.config.timing.t_ras,
             "tRAS violation: PRE at {fire_at}, ACT at {}, tRAS={}",
             snapshot.last_activate,
-            t.t_ras,
+            self.config.timing.t_ras,
         );
         self.commit_precharge(ctx, fire_at);
     }
@@ -548,55 +566,66 @@ impl Ddr5Controller {
         });
     }
 
+    /// Timing floors an ACTIVATE of `ctx`'s bank must clear.
+    fn activate_bounds(&self, ctx: &BankCmdCtx) -> ActivateBounds {
+        let t = self.config.timing;
+        let banks_per_group = usize::from(self.config.banks_per_group);
+        let sc = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
+        let rank_ref = &sc.ranks[ctx.rank.as_index()];
+        let mut rrd = 0u64;
+        for (idx, other) in rank_ref.banks.iter().enumerate() {
+            if other.last_activate == 0 {
+                continue;
+            }
+            let other_bg = idx / banks_per_group;
+            let bound = if other_bg == ctx.bg.as_index() {
+                other.last_activate + t.t_rrd_l
+            } else {
+                other.last_activate + t.t_rrd_s
+            };
+            if bound > rrd {
+                rrd = bound;
+            }
+        }
+        let same = &rank_ref.banks[ctx.bank_index];
+        ActivateBounds {
+            rrd,
+            rc: if same.last_activate == 0 { 0 } else { same.last_activate + t.t_rc },
+            faw: rank_ref.earliest_activate_faw(t.t_faw),
+            refresh_end: rank_ref.refresh_end,
+            command_bus: rank_ref.last_command_cycle,
+        }
+    }
+
+    /// Earliest clock an ACTIVATE of `ctx`'s bank is legal; `not_before`
+    /// carries the caller's state-dependent floor (e.g. `last_precharge + tRP`).
+    fn activate_earliest(&self, ctx: &BankCmdCtx, not_before: u64) -> u64 {
+        self.activate_bounds(ctx).earliest(not_before)
+    }
+
     /// Issues ACTIVATE if legal at `now`; `not_before` covers state-dependent
     /// bounds already known by the caller (e.g. `last_precharge + tRP`).
     fn try_issue_activate(&mut self, ctx: &BankCmdCtx, not_before: u64, now: u64) {
-        let t = self.config.timing;
-        let banks_per_group = usize::from(self.config.banks_per_group);
-        let (rrd_bound, tc_bound, faw_bound, refresh_end, cmd_bus) = {
-            let sc = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            let rank_ref = &sc.ranks[ctx.rank.as_index()];
-            let mut rrd = 0u64;
-            for (idx, other) in rank_ref.banks.iter().enumerate() {
-                if other.last_activate == 0 {
-                    continue;
-                }
-                let other_bg = idx / banks_per_group;
-                let bound = if other_bg == ctx.bg.as_index() {
-                    other.last_activate + t.t_rrd_l
-                } else {
-                    other.last_activate + t.t_rrd_s
-                };
-                if bound > rrd {
-                    rrd = bound;
-                }
-            }
-            let same = &rank_ref.banks[ctx.bank_index];
-            let tc = if same.last_activate == 0 { 0 } else { same.last_activate + t.t_rc };
-            let faw = rank_ref.earliest_activate_faw(t.t_faw);
-            (rrd, tc, faw, rank_ref.refresh_end, rank_ref.last_command_cycle)
-        };
-        let earliest = not_before
-            .max(cmd_bus)
-            .max(rrd_bound)
-            .max(tc_bound)
-            .max(faw_bound)
-            .max(refresh_end);
+        let bounds = self.activate_bounds(ctx);
+        let earliest = bounds.earliest(not_before);
         if earliest > now {
             return;
         }
         let fire_at = earliest.max(now);
         debug_assert!(
-            fire_at >= rrd_bound,
-            "tRRD violation: ACT at {fire_at}, min {rrd_bound}",
+            fire_at >= bounds.rrd,
+            "tRRD violation: ACT at {fire_at}, min {}",
+            bounds.rrd,
         );
         debug_assert!(
-            fire_at >= faw_bound,
-            "tFAW violation: ACT at {fire_at}, faw min {faw_bound}",
+            fire_at >= bounds.faw,
+            "tFAW violation: ACT at {fire_at}, faw min {}",
+            bounds.faw,
         );
         debug_assert!(
-            fire_at >= tc_bound,
-            "tRC violation: ACT at {fire_at}, prior ACT + tRC = {tc_bound}",
+            fire_at >= bounds.rc,
+            "tRC violation: ACT at {fire_at}, prior ACT + tRC = {}",
+            bounds.rc,
         );
         self.commit_activate(ctx, fire_at);
     }
@@ -637,18 +666,13 @@ impl Ddr5Controller {
         now: u64,
     ) {
         let bank = self.bank_snapshot(*ctx);
-        let rcd_bound = bank.last_activate + self.config.timing.t_rcd;
-        let column_earliest =
-            self.column_earliest(ctx.chan, ctx.subch, ctx.rank, ctx.bg, rcd_bound, is_read);
-        let data_earliest =
-            self.data_bus_start(ctx.chan, ctx.subch, ctx.rank, column_earliest, is_read);
-        let (column_aligned, data_start_aligned) =
-            self.align_column_to_data_bus(column_earliest, data_earliest, is_read);
+        let column_aligned = self.column_issue_earliest(ctx, &bank, is_read);
         if column_aligned > now {
             return;
         }
         let fire_at = column_aligned.max(now);
         let lead = column_lead(&self.config.timing, is_read);
+        let data_start_aligned = self.data_bus_start(ctx.chan, ctx.subch, ctx.rank, fire_at, is_read);
         let data_start = (fire_at + lead).max(data_start_aligned);
         let data_end = data_start + self.config.timing.bl_half;
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
@@ -727,6 +751,21 @@ impl Ddr5Controller {
             kind,
             fire_at: column_cycle,
         });
+    }
+
+    /// Earliest clock the column command for `bank` (which holds the row
+    /// open) can issue such that the command-bus, tCCD / tWTR and data-bus
+    /// constraints all hold and the burst follows the command by exactly
+    /// tCAS / tCWL.
+    fn column_issue_earliest(&self, ctx: &BankCmdCtx, bank: &Bank, is_read: bool) -> u64 {
+        let rcd_bound = bank.last_activate + self.config.timing.t_rcd;
+        let column_earliest =
+            self.column_earliest(ctx.chan, ctx.subch, ctx.rank, ctx.bg, rcd_bound, is_read);
+        let data_earliest =
+            self.data_bus_start(ctx.chan, ctx.subch, ctx.rank, column_earliest, is_read);
+        let (column_aligned, _) =
+            self.align_column_to_data_bus(column_earliest, data_earliest, is_read);
+        column_aligned
     }
 
     /// Earliest column-command clock honoring tCCD, tWTR, and command-bus
@@ -857,6 +896,39 @@ impl Ddr5Controller {
                 },
             );
         }
+    }
+}
+
+/// Timing floors for an ACTIVATE, each named after the constraint it comes
+/// from so violations can be reported precisely.
+#[derive(Copy, Clone, Debug)]
+struct ActivateBounds {
+    rrd: u64,
+    rc: u64,
+    faw: u64,
+    refresh_end: u64,
+    command_bus: u64,
+}
+
+impl ActivateBounds {
+    const fn earliest(self, not_before: u64) -> u64 {
+        let mut earliest = not_before;
+        if self.command_bus > earliest {
+            earliest = self.command_bus;
+        }
+        if self.rrd > earliest {
+            earliest = self.rrd;
+        }
+        if self.rc > earliest {
+            earliest = self.rc;
+        }
+        if self.faw > earliest {
+            earliest = self.faw;
+        }
+        if self.refresh_end > earliest {
+            earliest = self.refresh_end;
+        }
+        earliest
     }
 }
 

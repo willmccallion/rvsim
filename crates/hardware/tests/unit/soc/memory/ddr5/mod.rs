@@ -4,6 +4,7 @@ pub mod constraints;
 pub mod parallelism;
 pub mod refresh;
 pub mod row_buffer;
+pub mod scheduler;
 pub mod stress;
 pub mod timing;
 pub mod write_drain;

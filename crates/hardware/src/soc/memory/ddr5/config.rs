@@ -1,6 +1,7 @@
 //! Configuration for [`crate::soc::memory::ddr5::controller::Ddr5Controller`].
 
 use crate::soc::memory::address::AddressMappingKind;
+use crate::soc::memory::ddr5::scheduler::SchedulerKind;
 use crate::soc::memory::ddr5::timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};
 
 /// Static topology and policy parameters for a DDR5 memory subsystem.
@@ -45,6 +46,8 @@ pub struct Ddr5Config {
     pub frontend_latency: u64,
     /// Fixed response-path latency in DRAM clocks (gem5 `static_backend_latency`).
     pub backend_latency: u64,
+    /// Request selection policy.
+    pub scheduler: SchedulerKind,
     /// Address-bit interleave strategy.
     pub address_mapping: AddressMappingKind,
     /// Command-timing constants.
@@ -74,6 +77,7 @@ impl Ddr5Config {
             min_writes_per_switch: 16,
             frontend_latency: Constraint::ps(10_000).cycles(bin.data_rate_mts),
             backend_latency: Constraint::ps(10_000).cycles(bin.data_rate_mts),
+            scheduler: SchedulerKind::FrFcfs,
             address_mapping: AddressMappingKind::RoRaBaChCo,
             timing: Ddr5Timing::from_bin(&bin),
         }
