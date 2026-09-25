@@ -188,7 +188,7 @@ impl ExecutionEngine for InOrderEngine {
                 let keep_tag = last.rob_tag;
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
-                self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.common.squash_after(keep_tag);
             }
             self.scoreboard.rebuild_from_rob(&self.rob);
         }

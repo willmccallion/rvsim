@@ -505,7 +505,7 @@ impl ExecutionEngine for O3Engine {
                 self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
                 self.vec_store_buffer.flush_after(keep_tag);
                 self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+                self.common.squash_after(keep_tag);
 
                 // The violating load is not a branch, so checkpoint rebuild always applies.
                 let surviving = self.rob.len();
@@ -1210,7 +1210,7 @@ impl ExecutionEngine for O3Engine {
             self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
             self.vec_store_buffer.flush_after(keep_tag);
             self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.common.mem1_replay.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
+            self.common.squash_after(keep_tag);
             // Restore speculative rename map: checkpoint (O(1)) or forward ROB walk rebuild.
             let surviving = self.rob.len();
             if self.checkpoints.capacity() > 0 {

@@ -15,7 +15,7 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::prf::PhysRegFile;
 use crate::core::pipeline::rename_map::RenameMap;
-use crate::core::pipeline::rob::Rob;
+use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::snapshot::PipelineSnapshot;
 use crate::core::pipeline::store_buffer::StoreBuffer;
@@ -227,6 +227,23 @@ pub struct BackendCommon {
 }
 
 impl BackendCommon {
+    /// Drops every in-flight memory operation younger than `keep_tag`
+    /// after a partial squash (branch mispredict or memory-ordering
+    /// violation). A squashed load's response must never complete: its
+    /// destination physical register may already belong to a newer
+    /// instruction. Fetch walks belong to the frontend and are dropped by
+    /// the redirect that follows the squash.
+    pub fn squash_after(&mut self, keep_tag: RobTag) {
+        self.outstanding_loads.retain(|_, load| load.entry.rob_tag.is_older_or_eq(keep_tag));
+        self.outstanding_walks.retain(|_, walk| match &walk.continuation {
+            crate::core::pipeline::outstanding::WalkContinuation::LoadStore(entry) => {
+                entry.rob_tag.is_older_or_eq(keep_tag)
+            }
+            crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
+        });
+        self.mem1_replay.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
+    }
+
     /// True while an instruction fetch is still waiting on the memory
     /// system: a fetch `MemReq` without its response, a completed fetch
     /// held in the reorder buffer behind an older one, or a fetch parked on
