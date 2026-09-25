@@ -253,7 +253,16 @@ impl Handle for DramController {
 /// Pluggable memory controller. Any type that implements [`Handle`] and is
 /// `Send + Sync` can be dropped into `SimState::mem_controller` as a
 /// `Box<dyn MemoryController + Send + Sync>`.
-pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {}
+///
+/// [`Self::tick`] is invoked once per simulator cycle. Controllers that
+/// service requests synchronously in `handle` (fixed-latency [`SimpleController`],
+/// per-request [`DramController`]) get the default no-op tick. The DDR5
+/// controller uses tick to advance its per-cycle command scheduler.
+pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {
+    /// Advances the controller by one simulator cycle. Default implementation
+    /// is a no-op for controllers that do all their work in `handle`.
+    fn tick(&mut self, _ctx: &mut HandleCtx<'_>) {}
+}
 
 impl MemoryController for SimpleController {}
 impl MemoryController for DramController {}

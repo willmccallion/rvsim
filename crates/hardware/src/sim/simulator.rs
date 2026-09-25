@@ -112,8 +112,25 @@ impl Simulator {
         // reach their target component handlers this cycle so the next
         // cycle's start-of-tick drain delivers their responses.
         self.drain_events();
+        // Advance memory-controller state machines for this cycle.
+        self.tick_mem_controller();
+        // Drain again so commands / responses emitted during the memory
+        // controller's tick reach the pipeline mailbox on the following cycle.
+        self.drain_events();
         self.state.post_tick(prev_priv);
         Ok(())
+    }
+
+    fn tick_mem_controller(&mut self) {
+        let cycle = self.state.cycle;
+        let mut ctx = HandleCtx {
+            scheduler: &mut self.state.event_queue,
+            stats: &mut self.state.stats,
+            config: &self.state.config,
+            cycle,
+            self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
+        };
+        self.state.mem_controller.tick(&mut ctx);
     }
 
     /// Dispatches every event with `fire_at <= self.state.cycle`.
@@ -312,8 +329,3 @@ fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: 
     }
 }
 
-/// Suppress unused-import warnings until the `MemCtrlId` constant is used
-/// for routing in a follow-up.
-const _: fn() = || {
-    let _ = MemCtrlId::new(0);
-};

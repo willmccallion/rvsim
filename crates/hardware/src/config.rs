@@ -227,6 +227,13 @@ pub enum MemoryController {
     /// and row buffer hit/miss penalties for more accurate timing.
     #[serde(alias = "DRAM")]
     Dram,
+    /// DDR5 command-level controller (JEDEC-timed).
+    ///
+    /// Full per-bank command state machines, multi-channel + multi-rank,
+    /// tFAW / tRTRS / write-drain watermarks, refresh scheduling. Uses the
+    /// `Ddr5Config` defaults built into the crate.
+    #[serde(alias = "DDR5")]
+    Ddr5,
 }
 
 /// Cache replacement policy algorithms.

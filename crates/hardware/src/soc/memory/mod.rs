@@ -9,6 +9,9 @@ pub mod buffer;
 /// Memory controller implementations for access latency modeling.
 pub mod controller;
 
+/// DDR5 controller with per-bank command state machines and JEDEC timing.
+pub mod ddr5;
+
 
 /// Direct view of a contiguous physical RAM region. Lets the pipeline
 /// bypass bus device dispatch on the hot load/store path.
