@@ -8,6 +8,11 @@
 //! records its sequence number and writer against its cache line, a load
 //! response is stamped with the sequence current at that moment, and the
 //! commit-time checks compare the two.
+//!
+//! Each line remembers its latest write and the latest write by a
+//! different writer, which is enough to answer "has anyone but me written
+//! this line since?" exactly: the reader's own later write to the line
+//! must not hide another hart's earlier one.
 
 use crate::common::{HartId, PhysAddr};
 
@@ -30,14 +35,40 @@ const WRITER_BITS: u32 = 8;
 const WRITER_MASK: u64 = (1 << WRITER_BITS) - 1;
 const EXTERNAL_TAG: u64 = 0;
 
-/// Most recent write per cache line.
+/// A write as `seq << WRITER_BITS | writer_tag`; zero means none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Write(u64);
+
+impl Write {
+    const NONE: Self = Self(0);
+
+    const fn new(seq: u64, writer: Writer) -> Self {
+        Self((seq << WRITER_BITS) | WriteLog::writer_tag(writer))
+    }
+
+    const fn seq(self) -> u64 {
+        self.0 >> WRITER_BITS
+    }
+
+    const fn tag(self) -> u64 {
+        self.0 & WRITER_MASK
+    }
+}
+
+/// The latest write to a line, and the latest one by a different writer.
+#[derive(Clone, Copy, Debug, Default)]
+struct LineWrites {
+    latest: Write,
+    latest_by_other: Write,
+}
+
+/// Most recent writes per cache line.
 #[derive(Debug)]
 pub struct WriteLog {
     ram_base: u64,
     line_shift: u32,
     next: u64,
-    /// `seq << WRITER_BITS | writer_tag` per line; zero means never written.
-    last: Vec<u64>,
+    lines: Vec<LineWrites>,
 }
 
 impl WriteLog {
@@ -54,7 +85,7 @@ impl WriteLog {
         assert!(hart_count < WRITER_MASK as usize, "write log supports at most 254 harts");
         let line_shift = line_bytes.trailing_zeros();
         let lines = usize::try_from(ram_size.div_ceil(line_bytes)).unwrap_or(usize::MAX);
-        Self { ram_base, line_shift, next: 1, last: vec![0; lines] }
+        Self { ram_base, line_shift, next: 1, lines: vec![LineWrites::default(); lines] }
     }
 
     /// Granularity of the log in bytes.
@@ -73,7 +104,7 @@ impl WriteLog {
     fn line_index(&self, paddr: PhysAddr) -> Option<usize> {
         let offset = paddr.val().checked_sub(self.ram_base)?;
         let index = usize::try_from(offset >> self.line_shift).ok()?;
-        (index < self.last.len()).then_some(index)
+        (index < self.lines.len()).then_some(index)
     }
 
     const fn writer_tag(writer: Writer) -> u64 {
@@ -89,7 +120,12 @@ impl WriteLog {
         let Some(index) = self.line_index(paddr) else { return };
         let seq = self.next;
         self.next += 1;
-        self.last[index] = (seq << WRITER_BITS) | Self::writer_tag(writer);
+        let write = Write::new(seq, writer);
+        let line = &mut self.lines[index];
+        if line.latest != Write::NONE && line.latest.tag() != write.tag() {
+            line.latest_by_other = line.latest;
+        }
+        line.latest = write;
     }
 
     /// True when a writer other than `reader` has written the line
@@ -97,13 +133,10 @@ impl WriteLog {
     #[must_use]
     pub fn written_by_other_since(&self, paddr: PhysAddr, reader: HartId, since: WriteSeq) -> bool {
         let Some(index) = self.line_index(paddr) else { return false };
-        let entry = self.last[index];
-        if entry == 0 {
-            return false;
-        }
-        let seq = entry >> WRITER_BITS;
-        let tag = entry & WRITER_MASK;
-        seq > since.0 && tag != Self::writer_tag(Writer::Hart(reader))
+        let line = self.lines[index];
+        let reader_tag = Self::writer_tag(Writer::Hart(reader));
+        let by_other = if line.latest.tag() == reader_tag { line.latest_by_other } else { line.latest };
+        by_other != Write::NONE && by_other.seq() > since.0
     }
 }
 
@@ -155,12 +188,24 @@ mod tests {
     }
 
     #[test]
-    fn the_latest_writer_wins() {
+    fn the_readers_own_later_write_does_not_hide_anothers() {
         let mut log = log();
         let stamp = log.now();
         log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
+        log.record(PhysAddr::new(0x8000_0008), Writer::Hart(H0));
+        assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp), "hart 1 wrote after the stamp");
+        assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp), "hart 0 wrote after the stamp");
+    }
+
+    #[test]
+    fn only_writes_after_the_stamp_count_whoever_wrote_last() {
+        let mut log = log();
+        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
+        let stamp = log.now();
         log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
-        assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp), "hart 0's own write was last");
+        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
+        assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp), "hart 1's write predates the stamp");
+        assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
 
     #[test]
