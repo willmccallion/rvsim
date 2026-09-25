@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format is based on 
 - `cpu.harts[i]` exposes every hart's `pc`, `privilege`, `regs` and `csrs`;
   `rvsim prog.elf --harts N` on the command line.
 - Statistics are rooted at `core<N>` and `hart<N>`, with `system.*` sums.
+- Tracing: every event is tagged with its hart, and `cpu.trace_filter(harts=,
+  cycles=, trap_causes=)` narrows an armed trace to some harts, a cycle
+  window and specific `mcause` values.
+- Checkpoints save and restore every hart and the cycle counter.
 
 ## Releases
 

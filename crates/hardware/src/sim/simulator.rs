@@ -118,9 +118,16 @@ impl Simulator {
         self.drain_events();
         if run_cycle {
             for core in 0..self.pipelines.len() {
+                let hart = self.state.topology.cores[core].hart_ids[0];
+                let cycle = self.state.cycle;
+                self.state.config.general.trace_instructions = self.state.trace.applies(Some(hart), cycle);
+                let span = tracing::trace_span!("hart", id = hart.val());
+                let _entered = span.enter();
                 let mut ctx = self.state.core_ctx(core);
                 self.pipelines[core].tick(&mut ctx);
             }
+            let cycle = self.state.cycle;
+            self.state.config.general.trace_instructions = self.state.trace.applies(None, cycle);
         }
         // Second drain: events the pipelines just scheduled (MemReqs to L1)
         // reach their target component handlers this cycle so the next

@@ -55,27 +55,6 @@ impl CoreCtx<'_> {
             return;
         }
 
-        let is_timer =
-            matches!(cause, Trap::MachineTimerInterrupt | Trap::SupervisorTimerInterrupt);
-        let is_ecall = matches!(
-            cause,
-            Trap::EnvironmentCallFromUMode
-                | Trap::EnvironmentCallFromSMode
-                | Trap::EnvironmentCallFromMMode
-        );
-
-        if !is_timer && !is_ecall {
-            trace_trap!(self.config.general.trace_instructions;
-                event      = "taken",
-                epc        = %crate::trace::Hex(epc),
-                cause      = ?cause,
-                priv_mode  = ?self.hart.privilege,
-                stvec      = %crate::trace::Hex(self.hart.csrs.stvec),
-                mtvec      = %crate::trace::Hex(self.hart.csrs.mtvec),
-                "trap taken"
-            );
-        }
-
         let (is_interrupt, code) = match *cause {
             Trap::InstructionAddressMisaligned(_) => {
                 (false, exception::INSTRUCTION_ADDRESS_MISALIGNED)
@@ -114,6 +93,29 @@ impl CoreCtx<'_> {
             Trap::RequestedTrap(c) => (false, c),
             Trap::DoubleFault(_) => (false, exception::HARDWARE_ERROR),
         };
+        let cause_code = if is_interrupt { code | CAUSE_INTERRUPT_BIT } else { code };
+        let is_timer =
+            matches!(cause, Trap::MachineTimerInterrupt | Trap::SupervisorTimerInterrupt);
+        let is_ecall = matches!(
+            cause,
+            Trap::EnvironmentCallFromUMode
+                | Trap::EnvironmentCallFromSMode
+                | Trap::EnvironmentCallFromMMode
+        );
+
+        if self.trace.trap_visible(cause_code, is_timer || is_ecall) {
+            trace_trap!(self.config.general.trace_instructions;
+                event      = "taken",
+                epc        = %crate::trace::Hex(epc),
+                cause      = ?cause,
+                priv_mode  = ?self.hart.privilege,
+                stvec      = %crate::trace::Hex(self.hart.csrs.stvec),
+                mtvec      = %crate::trace::Hex(self.hart.csrs.mtvec),
+                "trap taken"
+            );
+        }
+
+
 
         let deleg_mask = if is_interrupt { self.hart.csrs.mideleg } else { self.hart.csrs.medeleg };
         let delegate_to_s =

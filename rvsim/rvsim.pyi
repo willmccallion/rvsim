@@ -1,6 +1,6 @@
 """Type stubs for rvsim."""
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # ── pipeline.py ───────────────────────────────────────────────────────────────
 
@@ -345,6 +345,12 @@ class Simulator:
     def trace(self) -> bool: ...
     @trace.setter
     def trace(self, value: bool) -> None: ...
+    def trace_filter(
+        self,
+        harts: Optional[List[int]] = None,
+        cycles: Optional[Tuple[int, int]] = None,
+        trap_causes: Optional[List[int]] = None,
+    ) -> None: ...
     @property
     def stats(self) -> Dict[str, Any]: ...
     @property

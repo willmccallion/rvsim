@@ -12,6 +12,7 @@ use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
+use rvsim_core::common::HartId;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::sim::loader;
 use std::io::Write;
@@ -236,15 +237,35 @@ impl PySimulator {
         self.privilege_str(0)
     }
 
-    /// Whether instruction tracing is enabled (read/write).
+    /// Whether instruction tracing is armed (read/write). Events go to
+    /// stderr through the ``RUST_LOG`` filter (``rvsim::trap=trace``,
+    /// ``rvsim::fetch=trace``, ...), each tagged with the hart it belongs
+    /// to; :meth:`trace_filter` narrows them further.
     #[getter]
     fn trace(&self) -> bool {
-        self.inner.state.config.general.trace_instructions
+        self.inner.state.trace.armed
     }
 
     #[setter]
     fn set_trace(&mut self, value: bool) {
-        self.inner.state.config.general.trace_instructions = value;
+        self.inner.state.trace.armed = value;
+    }
+
+    /// Narrows what an armed trace prints.
+    ///
+    /// Args:
+    ///     harts: Hart ids whose events print; ``None`` for every hart.
+    ///     cycles: ``(first, last)`` cycle window; ``None`` for no window.
+    ///     `trap_causes`: `mcause` values (interrupt bit included) whose
+    ///         trap-taken events print; ``None`` prints every trap except
+    ///         timer interrupts and ecalls.
+    #[pyo3(signature = (harts=None, cycles=None, trap_causes=None))]
+    fn trace_filter(&mut self, harts: Option<Vec<u32>>, cycles: Option<(u64, u64)>, trap_causes: Option<Vec<u64>>) {
+        let trace = &mut self.inner.state.trace;
+        trace.harts = harts.unwrap_or_default().into_iter().map(HartId::new).collect();
+        trace.cycle_from = cycles.map(|(from, _)| from);
+        trace.cycle_to = cycles.map(|(_, to)| to);
+        trace.trap_causes = trap_causes.unwrap_or_default();
     }
 
     /// Snapshot of the stats tree — path lookups, wildcard queries, and the
@@ -622,62 +643,17 @@ impl PySimulator {
 
         let mut header = serde_json::Map::new();
         let _ = header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
-        let _ = header.insert("version".into(), serde_json::Value::from(1u64));
-        let _ = header.insert("pc".into(), serde_json::Value::from(cpu.harts[0].pc));
-        let _ = header.insert("privilege".into(), serde_json::Value::from(cpu.harts[0].privilege.to_u8()));
+        let _ = header.insert("version".into(), serde_json::Value::from(2u64));
+        let _ = header.insert("cycle".into(), serde_json::Value::from(cpu.cycle));
         let _ = header.insert("direct_mode".into(), serde_json::Value::from(cpu.direct_mode));
-        let _ = header.insert("trace".into(), serde_json::Value::from(cpu.config.general.trace_instructions));
-        let _ = header.insert("wfi_waiting".into(), serde_json::Value::from(cpu.harts[0].wfi_waiting));
-        let _ = header.insert("wfi_pc".into(), serde_json::Value::from(cpu.harts[0].wfi_pc));
+        let _ = header.insert("trace".into(), serde_json::Value::from(cpu.trace.armed));
         let region = cpu.bus.ram_region();
         let ram_start = region.map_or(0, |r| r.base());
         let ram_end = region.map_or(0, |r| r.base() + r.size());
         let _ = header.insert("ram_start".into(), serde_json::Value::from(ram_start));
         let _ = header.insert("ram_end".into(), serde_json::Value::from(ram_end));
-
-        let gprs: Vec<serde_json::Value> = (0u8..32)
-            .map(|i| serde_json::Value::from(cpu.harts[0].regs.read(rvsim_core::common::RegIdx::new(i))))
-            .collect();
-        let _ = header.insert("gpr".into(), serde_json::Value::Array(gprs));
-
-        let fprs: Vec<serde_json::Value> = (0u8..32)
-            .map(|i| serde_json::Value::from(cpu.harts[0].regs.read_f(rvsim_core::common::RegIdx::new(i))))
-            .collect();
-        let _ = header.insert("fpr".into(), serde_json::Value::Array(fprs));
-
-        let c = &cpu.harts[0].csrs;
-        let mut csrs = serde_json::Map::new();
-        let _ = csrs.insert("mstatus".into(), c.mstatus.into());
-        let _ = csrs.insert("misa".into(), c.misa.into());
-        let _ = csrs.insert("medeleg".into(), c.medeleg.into());
-        let _ = csrs.insert("mideleg".into(), c.mideleg.into());
-        let _ = csrs.insert("mie".into(), c.mie.into());
-        let _ = csrs.insert("mtvec".into(), c.mtvec.into());
-        let _ = csrs.insert("mscratch".into(), c.mscratch.into());
-        let _ = csrs.insert("mepc".into(), c.mepc.into());
-        let _ = csrs.insert("mcause".into(), c.mcause.into());
-        let _ = csrs.insert("mtval".into(), c.mtval.into());
-        let _ = csrs.insert("mip".into(), c.mip.into());
-        let _ = csrs.insert("sstatus".into(), c.sstatus.into());
-        let _ = csrs.insert("sie".into(), c.sie.into());
-        let _ = csrs.insert("stvec".into(), c.stvec.into());
-        let _ = csrs.insert("sscratch".into(), c.sscratch.into());
-        let _ = csrs.insert("sepc".into(), c.sepc.into());
-        let _ = csrs.insert("scause".into(), c.scause.into());
-        let _ = csrs.insert("stval".into(), c.stval.into());
-        let _ = csrs.insert("sip".into(), c.sip.into());
-        let _ = csrs.insert("satp".into(), c.satp.into());
-        let _ = csrs.insert("cycle".into(), c.cycle.into());
-        let _ = csrs.insert("time".into(), c.time.into());
-        let _ = csrs.insert("instret".into(), c.instret.into());
-        let _ = csrs.insert("mcycle".into(), c.mcycle.into());
-        let _ = csrs.insert("minstret".into(), c.minstret.into());
-        let _ = csrs.insert("stimecmp".into(), c.stimecmp.into());
-        let _ = csrs.insert("fflags".into(), c.fflags.into());
-        let _ = csrs.insert("frm".into(), c.frm.into());
-        let _ = csrs.insert("mcounteren".into(), c.mcounteren.into());
-        let _ = csrs.insert("scounteren".into(), c.scounteren.into());
-        let _ = header.insert("csrs".into(), serde_json::Value::Object(csrs));
+        let harts: Vec<serde_json::Value> = cpu.harts.iter().map(hart_to_json).collect();
+        let _ = header.insert("harts".into(), serde_json::Value::Array(harts));
 
         let header_bytes = serde_json::to_vec(&serde_json::Value::Object(header))
             .map_err(|e| PyRuntimeError::new_err(format!("serialization error: {e}")))?;
@@ -697,7 +673,6 @@ impl PySimulator {
                     .map_err(|e| PyRuntimeError::new_err(format!("write error: {e}")))?;
             }
         }
-
         std::io::Write::flush(&mut w)
             .map_err(|e| PyRuntimeError::new_err(format!("flush error: {e}")))?;
         Ok(())
@@ -729,64 +704,21 @@ impl PySimulator {
 
         let cpu = &mut self.inner.state;
 
-        cpu.harts[0].pc = header["pc"].as_u64().unwrap_or(0);
-        cpu.harts[0].privilege = PrivilegeMode::from_u8(header["privilege"].as_u64().unwrap_or(3) as u8);
         cpu.direct_mode = header["direct_mode"].as_bool().unwrap_or(false);
-        cpu.config.general.trace_instructions = header["trace"].as_bool().unwrap_or(false);
-        cpu.harts[0].wfi_waiting = header["wfi_waiting"].as_bool().unwrap_or(false);
-        cpu.harts[0].wfi_pc = header["wfi_pc"].as_u64().unwrap_or(0);
-
-        if let Some(gprs) = header["gpr"].as_array() {
-            for (i, v) in gprs.iter().enumerate().take(32) {
-                cpu.harts[0].regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
-            }
+        cpu.trace.armed = header["trace"].as_bool().unwrap_or(false);
+        if let Some(cycle) = header["cycle"].as_u64() {
+            cpu.cycle = cycle;
         }
-
-        if let Some(fprs) = header["fpr"].as_array() {
-            for (i, v) in fprs.iter().enumerate().take(32) {
-                cpu.harts[0].regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
-            }
+        let saved_harts = header["harts"].as_array().cloned().unwrap_or_else(|| vec![header.clone()]);
+        if saved_harts.len() != cpu.harts.len() {
+            return Err(PyRuntimeError::new_err(format!(
+                "hart count mismatch: checkpoint has {} harts, simulator has {}",
+                saved_harts.len(),
+                cpu.harts.len()
+            )));
         }
-
-        if let Some(csrs) = header.get("csrs") {
-            let c = &mut cpu.harts[0].csrs;
-            macro_rules! restore_csr {
-                ($field:ident) => {
-                    if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) {
-                        c.$field = v;
-                    }
-                };
-            }
-            restore_csr!(mstatus);
-            restore_csr!(misa);
-            restore_csr!(medeleg);
-            restore_csr!(mideleg);
-            restore_csr!(mie);
-            restore_csr!(mtvec);
-            restore_csr!(mscratch);
-            restore_csr!(mepc);
-            restore_csr!(mcause);
-            restore_csr!(mtval);
-            restore_csr!(mip);
-            restore_csr!(sstatus);
-            restore_csr!(sie);
-            restore_csr!(stvec);
-            restore_csr!(sscratch);
-            restore_csr!(sepc);
-            restore_csr!(scause);
-            restore_csr!(stval);
-            restore_csr!(sip);
-            restore_csr!(satp);
-            restore_csr!(cycle);
-            restore_csr!(time);
-            restore_csr!(instret);
-            restore_csr!(mcycle);
-            restore_csr!(minstret);
-            restore_csr!(stimecmp);
-            restore_csr!(fflags);
-            restore_csr!(frm);
-            restore_csr!(mcounteren);
-            restore_csr!(scounteren);
+        for (hart, saved) in cpu.harts.iter_mut().zip(&saved_harts) {
+            hart_from_json(hart, saved);
         }
 
         let ckpt_ram_start = header["ram_start"].as_u64().unwrap_or(0);
@@ -822,4 +754,64 @@ impl PySimulator {
 
         Ok(())
     }
+}
+
+/// One hart's architectural state as checkpoint JSON.
+fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
+    let mut h = serde_json::Map::new();
+    let _ = h.insert("pc".into(), serde_json::Value::from(hart.pc));
+    let _ = h.insert("privilege".into(), serde_json::Value::from(hart.privilege.to_u8()));
+    let _ = h.insert("wfi_waiting".into(), serde_json::Value::from(hart.wfi_waiting));
+    let _ = h.insert("wfi_pc".into(), serde_json::Value::from(hart.wfi_pc));
+    let _ = h.insert("sw_seip".into(), serde_json::Value::from(hart.sw_seip));
+    let _ = h.insert("instructions_retired".into(), serde_json::Value::from(hart.instructions_retired));
+    let gprs: Vec<serde_json::Value> =
+        (0u8..32).map(|i| serde_json::Value::from(hart.regs.read(rvsim_core::common::RegIdx::new(i)))).collect();
+    let _ = h.insert("gpr".into(), serde_json::Value::Array(gprs));
+    let fprs: Vec<serde_json::Value> =
+        (0u8..32).map(|i| serde_json::Value::from(hart.regs.read_f(rvsim_core::common::RegIdx::new(i)))).collect();
+    let _ = h.insert("fpr".into(), serde_json::Value::Array(fprs));
+    let c = &hart.csrs;
+    let mut csrs = serde_json::Map::new();
+    macro_rules! save_csr {
+        ($($field:ident),*) => { $( let _ = csrs.insert(stringify!($field).into(), c.$field.into()); )* };
+    }
+    save_csr!(
+        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus, sie, stvec,
+        sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle, minstret, stimecmp, fflags, frm,
+        mcounteren, scounteren, menvcfg
+    );
+    let _ = h.insert("csrs".into(), serde_json::Value::Object(csrs));
+    serde_json::Value::Object(h)
+}
+
+/// Restores one hart's architectural state from checkpoint JSON.
+fn hart_from_json(hart: &mut rvsim_core::core::Hart, saved: &serde_json::Value) {
+    hart.pc = saved["pc"].as_u64().unwrap_or(0);
+    hart.committed_next_pc = hart.pc;
+    hart.privilege = PrivilegeMode::from_u8(saved["privilege"].as_u64().unwrap_or(3) as u8);
+    hart.wfi_waiting = saved["wfi_waiting"].as_bool().unwrap_or(false);
+    hart.wfi_pc = saved["wfi_pc"].as_u64().unwrap_or(0);
+    hart.sw_seip = saved["sw_seip"].as_bool().unwrap_or(false);
+    hart.instructions_retired = saved["instructions_retired"].as_u64().unwrap_or(0);
+    if let Some(gprs) = saved["gpr"].as_array() {
+        for (i, v) in gprs.iter().enumerate().take(32) {
+            hart.regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
+        }
+    }
+    if let Some(fprs) = saved["fpr"].as_array() {
+        for (i, v) in fprs.iter().enumerate().take(32) {
+            hart.regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
+        }
+    }
+    let Some(csrs) = saved.get("csrs") else { return };
+    let c = &mut hart.csrs;
+    macro_rules! restore_csr {
+        ($($field:ident),*) => { $( if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) { c.$field = v; } )* };
+    }
+    restore_csr!(
+        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus, sie, stvec,
+        sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle, minstret, stimecmp, fflags, frm,
+        mcounteren, scounteren, menvcfg
+    );
 }

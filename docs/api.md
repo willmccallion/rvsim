@@ -226,6 +226,29 @@ for hart in (cpu.harts[i] for i in range(cpu.hart_count)):
 
 Read memory at a physical address with the given width.
 
+#### `trace -> bool`, `trace_filter(harts=None, cycles=None, trap_causes=None)`
+
+`cpu.trace = True` arms the pipeline trace; events go to stderr through
+the `RUST_LOG` target filter (`RUST_LOG=rvsim::trap=trace,rvsim::fetch=trace`
+and so on), each inside a `hart{id=N}` span. `trace_filter` narrows an
+armed trace to some harts, a `(first, last)` cycle window, and, for the
+trap-taken event, a list of `mcause` values (interrupt bit included);
+without a cause list every trap prints except timer interrupts and ecalls.
+
+```python
+cpu.run(limit=19_000_000)
+cpu.trace_filter(harts=[1], cycles=(19_100_000, 19_160_000), trap_causes=[1, 12])
+cpu.trace = True
+cpu.run(limit=60_000)
+```
+
+#### `save(path)`, `restore(path)`
+
+A checkpoint holds RAM, the cycle counter and every hart's architectural
+state (PC, privilege, registers, CSRs). It does not hold device state or
+in-flight memory traffic, so restore into a freshly built simulator with
+the same configuration and expect cold caches and re-armed timers.
+
 #### `pipeline_snapshot() -> PipelineSnapshot`
 
 Capture the current pipeline state. Call `.visualize()` on the result to print an ASCII diagram, or `.render()` to get the string.

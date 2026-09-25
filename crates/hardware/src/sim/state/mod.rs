@@ -56,9 +56,51 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// What the trace macros print once tracing is armed.
+///
+/// Every event, or only those of some harts, inside a cycle window, or for
+/// some trap causes. The simulator resolves this into the per-core switch
+/// every component reads (`config.general.trace_instructions`) before each
+/// core's tick.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TraceControl {
+    /// Tracing is switched on at all.
+    pub armed: bool,
+    /// Harts whose events print; empty means every hart.
+    pub harts: Vec<HartId>,
+    /// First cycle that prints, when set.
+    pub cycle_from: Option<u64>,
+    /// Last cycle that prints, when set.
+    pub cycle_to: Option<u64>,
+    /// `mcause` values (interrupt bit included) whose trap-taken events
+    /// print; empty means every trap except the timer and ecall traffic
+    /// that would swamp a trace.
+    pub trap_causes: Vec<u64>,
+}
+
+impl TraceControl {
+    /// Whether events of `hart` print at `cycle`.
+    #[must_use]
+    pub fn applies(&self, hart: Option<HartId>, cycle: u64) -> bool {
+        self.armed
+            && self.cycle_from.is_none_or(|from| cycle >= from)
+            && self.cycle_to.is_none_or(|to| cycle <= to)
+            && hart.is_none_or(|h| self.harts.is_empty() || self.harts.contains(&h))
+    }
+
+    /// Whether a trap with `mcause` value `code` prints; `routine` marks
+    /// the timer and ecall traffic that is hidden unless asked for.
+    #[must_use]
+    pub fn trap_visible(&self, code: u64, routine: bool) -> bool {
+        if self.trap_causes.is_empty() { !routine } else { self.trap_causes.contains(&code) }
+    }
+}
+
 /// The uncore: everything shared by all cores.
 #[derive(Debug)]
 pub struct SharedState {
+    /// What the trace macros print; see [`TraceControl`].
+    pub trace: TraceControl,
     /// Component identifiers for the whole system.
     pub topology: Topology,
     /// Master clock; every subsystem reads from this.
@@ -581,6 +623,7 @@ impl SimState {
             harts,
             cores,
             shared: SharedState {
+                trace: TraceControl { armed: config.general.trace_instructions, ..TraceControl::default() },
                 topology,
                 cycle: 0,
                 bus,
