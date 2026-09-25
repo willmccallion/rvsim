@@ -84,6 +84,8 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 **RV64IMAFDC + V** — base integer, multiply/divide, atomics (LR/SC + AMO), single/double float with IEEE 754 NaN-boxing, compressed instructions, and the V vector extension (RVV 1.0). M/S/U privilege modes, full CSR set, trap delegation, MRET/SRET, WFI, SFENCE.VMA, FENCE/FENCE.I, PMP (16 regions). Cache management ops via Zicbom and Zicboz.
 
+Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
+
 The vector extension supports configurable VLEN (default 512) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against spike.
 
 Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. The RISCOF compliance framework is integrated under `testing/riscof/`.

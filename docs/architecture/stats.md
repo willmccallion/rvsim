@@ -51,7 +51,7 @@ core<N>       — physical execution core (pipeline + private caches + BP)
 hart<N>       — architectural hart (regs, CSRs, retired-inst counter)
 memctrl<N>    — memory controller channels
 bus           — interconnect
-coherence     — coherence protocol (single instance)
+coherence     — coherence fabric: coherence.ha.* (home agent), coherence.interconnect.*
 ```
 
 ### Why no `system.` prefix

@@ -280,6 +280,77 @@ These parameters control the SoC memory map and device configuration. You normal
 | `bus_latency` | `int` | `4` | Bus transaction latency in cycles |
 | `clint_divider` | `int` | `10` | Timer tick divider (mtime increments every N cycles) |
 | `cpu_clock_mhz` | `int` | `2400` | Core clock, used to convert between simulator cycles and the DDR5 command clock |
+| `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
+
+---
+
+## Multi-core
+
+`hart_count=N` builds `N` single-threaded cores, each with its own
+pipeline, branch predictor and private L1/L2, sharing the LLC, memory and
+devices. Every hart has its own CLINT timer and software-interrupt slots
+and its own PLIC contexts, and the generated device tree enumerates them.
+Bare-metal programs start every hart at the entry point with `a0` holding
+the hart id and `a1` the hart count.
+
+```python
+from rvsim import Config, Coherence, HomeAgent, Interconnect
+
+config = Config(
+    width=4,
+    hart_count=4,
+    coherence=Coherence(
+        home_agent=HomeAgent.SnoopFilter(capacity_factor=1.5, ways=8),
+        interconnect=Interconnect.Mesh(hop_latency=2, bytes_per_cycle=32),
+    ),
+)
+```
+
+With more than one core the private L2s become requesting agents on a
+coherence fabric: MESI states in every private cache, a home agent at the
+LLC that serialises requests per line and decides who is snooped, and an
+interconnect that carries request, snoop, response and data messages on
+separate virtual channels. The L2 is made inclusive of its L1s so snoops
+are answered from its tags; `Cache.Exclusive()` is therefore rejected
+with `hart_count > 1`. A single core builds no fabric and is unaffected.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `coherence.home_agent` | `HomeAgent.*` | `HomeAgent.SnoopFilter()` | Who must be snooped for a request |
+| `coherence.interconnect` | `Interconnect.*` | `Interconnect.Crossbar()` | Message transport between the L2s and the home |
+| `coherence.txn_entries` | `int` | `32` | Transactions the home can have live at once |
+
+### Home agents
+
+```python
+HomeAgent.SnoopFilter(capacity_factor=1.5, ways=8)  # exact sharers + owner per tracked line (default)
+HomeAgent.Broadcast()                                # track nothing; snoop every other core
+```
+
+The snoop filter tracks `capacity_factor` times the aggregate private L2
+lines in a `ways`-way set-associative array. When a set is full, its least
+recently used line is recalled (every holder invalidated) before a new
+line is tracked, as Arm's snoop filter and AMD's probe filter do.
+
+### Interconnects
+
+```python
+Interconnect.Crossbar(hop_latency=2, bytes_per_cycle=32)   # any port to any port (default)
+Interconnect.Ring(hop_latency=2, bytes_per_cycle=32)       # bidirectional ring, shorter direction
+Interconnect.Mesh(hop_latency=2, bytes_per_cycle=32)       # square 2-D mesh, XY routing
+Interconnect.Torus(hop_latency=2, bytes_per_cycle=32)      # mesh with wraparound
+Interconnect.Hypercube(hop_latency=2, bytes_per_cycle=32)  # dimension-order routing
+```
+
+`hop_latency` is the cycles a message spends per hop and `bytes_per_cycle`
+the width of a port or link; a 64-byte data message on a 32-byte link
+occupies it for two cycles. The crossbar is one hop; the routed networks
+place the cores and the home on their nodes and charge every hop.
+
+The fabric reports under `coherence.ha.*` (requests by kind, snoops,
+cache-to-cache transfers, recalls, transaction latency) and
+`coherence.interconnect.*` (messages, bytes, busy and blocked cycles);
+each private L2 counts its snoops under `core<N>.l2.coherence.*`.
 
 ---
 

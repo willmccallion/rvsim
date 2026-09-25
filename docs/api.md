@@ -19,6 +19,8 @@ config = Config(
     backend=Backend.OutOfOrder(rob_size=128),
     l1d=Cache("32KB", ways=8, latency=1, mshr_count=8),
     l2=Cache("256KB", ways=8, latency=10),
+    hart_count=2,
+    coherence=Coherence(interconnect=Interconnect.Ring()),
 )
 ```
 
@@ -205,6 +207,19 @@ from rvsim import csr
 print(cpu.csrs[csr.MSTATUS])
 print(cpu.csrs[csr.SATP])
 print(cpu.csrs[csr.SEPC])
+```
+
+`cpu.pc`, `cpu.regs` and `cpu.csrs` are hart 0's.
+
+#### `harts[i] -> Hart`, `hart_count -> int`
+
+Every hart's architectural state on a multi-core system
+(`Config(hart_count=N)`): `pc` (read/write), `privilege`,
+`instructions_retired`, `regs[idx]` and `csrs[addr]`.
+
+```python
+for hart in (cpu.harts[i] for i in range(cpu.hart_count)):
+    print(hart.id, hex(hart.pc), hart.privilege, hart.regs[reg.A0])
 ```
 
 #### `mem8[addr]`, `mem16[addr]`, `mem32[addr]`, `mem64[addr]`
