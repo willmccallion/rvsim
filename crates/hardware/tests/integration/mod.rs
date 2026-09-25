@@ -8,4 +8,5 @@ pub mod interrupts;
 pub mod lsq_partial_overlap;
 pub mod multicore;
 pub mod vector_pipeline;
+pub mod xret_squash;
 pub mod zicboz;

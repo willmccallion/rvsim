@@ -1,4 +1,4 @@
-use rvsim_core::isa::privileged::opcodes::{CSRRS, CSRRW, OP_SYSTEM};
+use rvsim_core::isa::privileged::opcodes::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
 use rvsim_core::isa::rv64a::funct5::{AMOADD, LR, SC};
 use rvsim_core::isa::rv64a::opcodes::OP_AMO;
 use rvsim_core::isa::rv64i::opcodes::*;
@@ -7,6 +7,8 @@ use rvsim_core::isa::rv64i::opcodes::*;
 pub const FENCE_IORW: u32 = 0x0ff0_000f;
 /// `ecall`.
 pub const ECALL: u32 = rvsim_core::isa::privileged::opcodes::ECALL;
+/// `mret`.
+pub const MRET: u32 = 0x3020_0073;
 
 const FUNCT3_WORD: u32 = 0b010;
 const FUNCT3_DOUBLE: u32 = 0b011;
@@ -389,6 +391,16 @@ impl InstructionBuilder {
         self.rd = rd;
         self.rs1 = rs1;
         self.funct3 = CSRRW;
+        self.imm = csr as i32;
+        self
+    }
+
+    /// `csrrc rd, csr, rs1`.
+    pub fn csrrc(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+        self.opcode = OP_SYSTEM;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.funct3 = CSRRC;
         self.imm = csr as i32;
         self
     }

@@ -48,6 +48,11 @@ pub enum CommitEvent {
     /// The LR or AMO at `pc` read a value another hart has since
     /// overwritten; squash it and everything younger and refetch from `pc`.
     ReExecute(u64),
+    /// The instruction just retired changed state that every younger
+    /// instruction was fetched or translated without (privilege, satp, the
+    /// instruction memory, a reservation): squash everything younger and
+    /// refetch from `pc`, whether or not the fetch PC already points there.
+    SquashAfter(u64),
 }
 
 /// Executes the Commit stage.
@@ -406,8 +411,7 @@ pub fn commit_stage(
                 let _ = state.core.l1_i_cache.invalidate_all();
                 let dirty = state.core.l1_d_cache.flush();
                 write_back_lines(state, common, &dirty);
-                state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
-                *redirect_pending = true;
+                event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
             break;
         }
@@ -425,6 +429,7 @@ pub fn commit_stage(
                 priv_mode  = ?state.hart.privilege,
                 "CM: MRET committed — privilege restored"
             );
+            event = Some(CommitEvent::SquashAfter(state.hart.pc));
             break;
         }
         if entry.ctrl.system_op == SystemOp::Sret {
@@ -440,6 +445,7 @@ pub fn commit_stage(
                 priv_mode  = ?state.hart.privilege,
                 "CM: SRET committed — privilege restored"
             );
+            event = Some(CommitEvent::SquashAfter(state.hart.pc));
             break;
         }
 
@@ -449,8 +455,7 @@ pub fn commit_stage(
                 state.hart.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             } else {
                 // Nothing enabled or pending — treat as NOP to avoid OpenSBI early-boot deadlock.
-                state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
-                *redirect_pending = true;
+                event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
             state.hart.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             break;
@@ -475,8 +480,7 @@ pub fn commit_stage(
                                 prf.write(entry.phys_dst, 1);
                             }
                         }
-                        state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
-                        *redirect_pending = true;
+                        event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
                         break;
                     }
                 }
@@ -529,9 +533,8 @@ pub fn commit_stage(
             drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
             // I-cache flush after drain so refills see new data; force a fresh redirect.
             let _ = state.core.l1_i_cache.invalidate_all();
-            state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
-            *redirect_pending = true;
-            // FENCE.I serializes: break so younger insts fetched pre-drain don't retire here.
+            // FENCE.I serializes: younger instructions were fetched before the drain.
+            event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
         } else if entry.ctrl.system_op == SystemOp::Fence {
             let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
@@ -547,8 +550,7 @@ pub fn commit_stage(
         if let Some(info) = entry.sfence_vma {
             sfence_vma_commit(state, common, &info);
             state.clear_reservation();
-            state.hart.pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
-            *redirect_pending = true;
+            event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
         }
 

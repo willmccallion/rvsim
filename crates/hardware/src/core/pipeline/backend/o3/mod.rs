@@ -347,7 +347,7 @@ impl ExecutionEngine for O3Engine {
                 state.hart.committed_next_pc = state.hart.pc;
                 return;
             }
-            Some(CommitEvent::ReExecute(pc)) => {
+            Some(CommitEvent::ReExecute(pc) | CommitEvent::SquashAfter(pc)) => {
                 let squashed = self.rob.len();
                 self.flush(state);
                 self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
