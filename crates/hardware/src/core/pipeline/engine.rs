@@ -223,6 +223,10 @@ pub struct BackendCommon {
     /// instead of re-emitting the same PC every cycle (gem5 `MinorCPU`'s
     /// IFU `ItlbWait` state). Cleared when the matching walk completes.
     pub fetch_walk_pending: bool,
+    /// Where fetch continues once a parked fetch walk has completed: the
+    /// end of the parked instruction, whose size is known only when its
+    /// translation arrives. Taken by the next fetch1 pass.
+    pub fetch_resume_pc: Option<u64>,
     /// Oldest load the mailbox drain found inconsistent with an older
     /// load's fresh value (see `LoadQueue::check_coherence_violation`);
     /// the out-of-order engine squashes from it after memory2.
@@ -362,6 +366,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             });
             common.fetch_reorder.clear();
             common.fetch_walk_pending = false;
+            common.fetch_resume_pc = None;
             // Bump the emit cursor past every fetch_seq allocated so far so
             // any straggler responses for pre-flush fetches are dropped
             // rather than entering the post-flush fetch stream.
@@ -383,6 +388,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.outstanding_loads.clear();
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
+        common.fetch_resume_pc = None;
         common.mem1_replay.clear();
         common.coherence_violation = None;
         self.engine.flush(state);

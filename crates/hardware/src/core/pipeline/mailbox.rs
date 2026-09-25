@@ -18,13 +18,13 @@
 //!    sign-extension, AMO RMW, and SB ordering checks.
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
-use crate::common::{ExceptionStage, LineAddr, PhysAddr};
+use crate::common::{ExceptionStage, InstSize, LineAddr, PhysAddr};
 use crate::sim::CoreCtx;
 use crate::sim::state::memory::TranslateResult;
 use crate::sim::state::write_log::WriteLog;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{
-    FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder,
+    FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder, inst_size_at,
 };
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
@@ -171,6 +171,18 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 let line_bytes = state.core.l1_i_cache.line_bytes() as u64;
                 Some(LineAddr::from_phys(entry.paddr, line_bytes))
             };
+            // Fetch held at the parked PC while the lower half's
+            // translation was outstanding; now the encoding is readable
+            // and fetch resumes after this instruction. A faulting fetch
+            // has no size: the trap redirects fetch anyway.
+            if half == FetchWalkHalf::Lower {
+                let size = if entry.trap.is_some() {
+                    InstSize::Standard
+                } else {
+                    inst_size_at(state, entry.paddr)
+                };
+                pipeline.engine.common_mut().fetch_resume_pc = Some(entry.pc.wrapping_add(size.as_u64()));
+            }
             dispatch_fetch_group(
                 state,
                 &mut pipeline.engine,

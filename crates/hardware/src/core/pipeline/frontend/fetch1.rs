@@ -124,6 +124,16 @@ fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
     })
 }
 
+/// Size of the instruction whose first half-word is at `paddr`.
+pub(crate) fn inst_size_at(state: &CoreCtx<'_>, paddr: PhysAddr) -> InstSize {
+    let half_word = read_inst_half(state, paddr.val());
+    if (half_word & COMPRESSED_INSTRUCTION_MASK) == COMPRESSED_INSTRUCTION_VALUE {
+        InstSize::Standard
+    } else {
+        InstSize::Compressed
+    }
+}
+
 /// A latch entry for an instruction that faulted before it could be fetched.
 fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
@@ -274,7 +284,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
 ) {
-    let mut current_pc = state.hart.pc;
+    let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(state.hart.pc);
     let c_enabled = (state.hart.csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
@@ -317,13 +327,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     ras_snapshot: 0,
                 };
                 park_fetch_walk(state, engine, walk_state, pte_addr, pending, FetchWalkHalf::Lower);
-                // Advance past this instruction so the next fetch1 doesn't
-                // fetch the same PC again once the walk completes. The
-                // encoding can't be read yet, so assume 4 bytes; a
-                // compressed instruction at the parked PC mispredicts via
-                // the normal pred_target compare in execute, exactly like a
-                // default not-taken prediction on a branch.
-                current_pc = current_pc.wrapping_add(4);
+                // Fetch holds here until the translation returns: the
+                // encoding, and so the next PC, is unknown until then.
                 break;
             }
         };
