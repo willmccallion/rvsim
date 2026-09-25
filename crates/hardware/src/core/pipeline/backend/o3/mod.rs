@@ -1326,10 +1326,6 @@ impl ExecutionEngine for O3Engine {
         );
     }
 
-    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64 {
-        state.csr_read(addr)
-    }
-
     fn rob(&self) -> &Rob {
         &self.rob
     }

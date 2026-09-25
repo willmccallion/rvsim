@@ -231,11 +231,6 @@ impl ExecutionEngine for InOrderEngine {
         state.core.branch_predictor.repair_to_committed();
     }
 
-    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64 {
-        // In-order serialization commits older CSR writes before any CSR read issues.
-        state.csr_read(addr)
-    }
-
     fn rob(&self) -> &Rob {
         &self.rob
     }
@@ -313,15 +308,4 @@ mod tests {
         assert_eq!(engine.can_accept(), engine.width);
     }
 
-    #[test]
-    fn test_inorder_engine_read_csr_speculative() {
-        let config = Config::default();
-        let engine =
-            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut sys = crate::sim::SimState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.csr_write(crate::core::arch::csr::MSCRATCH, 0x1234);
-        assert_eq!(engine.read_csr_speculative(&state, crate::core::arch::csr::MSCRATCH), 0x1234);
-    }
 }

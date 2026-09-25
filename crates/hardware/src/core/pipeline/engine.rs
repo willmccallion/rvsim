@@ -60,9 +60,6 @@ pub trait ExecutionEngine {
     /// Flush all speculative state. Committed stores in the store buffer remain.
     fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
 
-    /// Read a CSR, checking in-flight `CsrUpdate` entries in the ROB.
-    fn read_csr_speculative(&self, state: &crate::sim::CoreCtx<'_>, addr: crate::common::CsrAddr) -> u64;
-
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
     /// Access the scoreboard mutably (for rename to mark producers).
