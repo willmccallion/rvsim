@@ -338,6 +338,20 @@ PIPELINES = [
                                        t_cas=30, t_ras=36, t_pre=12,
                                        row_miss_latency=200,
                                    ))),
+    # DDR5-4800 command-level controller at a 1:1 clock ratio.
+    ("o3 w4 ddr5",          Config(width=4, backend=Backend.OutOfOrder(),
+                                   memory_controller=MemoryController.DDR5())),
+    ("inorder w4 ddr5",     Config(width=4, backend=Backend.InOrder(),
+                                   memory_controller=MemoryController.DDR5())),
+    # 3 GHz core over DDR5-5600 with same-bank refresh, power-down and
+    # patrol scrubbing: every clock-domain and policy path exercised.
+    ("o3 w4 ddr5-5600",     Config(width=4, backend=Backend.OutOfOrder(),
+                                   cpu_clock_mhz=3000,
+                                   memory_controller=MemoryController.DDR5(
+                                       speed_bin="5600B", refresh="SameBank",
+                                       power_down_idle_ns=200, ecc="SecDed",
+                                       patrol_scrub_ns=100_000,
+                                   ))),
 
     # ── Memory dependence predictors ────────────────────────────────────────
     ("o3 w4 mdp-blind",     Config(width=4, backend=Backend.OutOfOrder(),

@@ -227,7 +227,35 @@ MemoryController.DRAM(        # Row-buffer aware timing
     t_pre=14,                 # Precharge latency
     row_miss_latency=120,     # Full row-miss penalty
 )
+MemoryController.DDR5(        # Command-level DDR5 (see architecture/memory.md)
+    speed_bin="4800B",        # JEDEC bin: "4800B" or "5600B"
+    channels=2,               # Channels × 2 sub-channels each
+    ranks_per_channel=2,
+    bank_groups_per_rank=8,
+    banks_per_group=4,
+    row_bits=16,              # 16 Gb x8 devices
+    column_bits=6,            # 4 KiB rows per sub-channel (64 B lines)
+    read_queue_entries=64,
+    write_queue_entries=64,
+    write_high_watermark=54,  # Start draining writes at this depth
+    write_low_watermark=32,   # Return to reads at this depth
+    min_writes_per_switch=16,
+    frontend_latency_ns=10,   # Controller pipeline, gem5 defaults
+    backend_latency_ns=10,
+    scheduler="FrFcfs",       # or "Fcfs"
+    refresh="AllBank",        # or "SameBank"
+    address_mapping="RoRaBaChCo",  # or "RoRaBaCoCh", "RoCoRaBaCh"
+    power_down_idle_ns=None,  # e.g. 200 to enable rank power-down
+    ecc="None",               # "SecDed" / "ChipKill"
+    patrol_scrub_ns=None,     # e.g. 100_000 to enable patrol scrubbing
+    timing={"t_rcd": 40},     # Per-field overrides in DRAM command clocks
+)
 ```
+
+The DDR5 controller runs at the DRAM command clock (half the data rate);
+`Config(cpu_clock_mhz=...)` sets the core clock it converts to and from.
+Its statistics appear under `memctrl0.ch<C>.sc<S>.*` (see
+`Stats.query("memctrl0.**")`).
 
 ---
 
@@ -246,6 +274,7 @@ These parameters control the SoC memory map and device configuration. You normal
 | `bus_width` | `int` | `8` | Bus width in bytes |
 | `bus_latency` | `int` | `4` | Bus transaction latency in cycles |
 | `clint_divider` | `int` | `10` | Timer tick divider (mtime increments every N cycles) |
+| `cpu_clock_mhz` | `int` | `2400` | Core clock, used to convert between simulator cycles and the DDR5 command clock |
 
 ---
 

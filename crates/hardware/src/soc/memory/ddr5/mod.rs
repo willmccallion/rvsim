@@ -15,9 +15,9 @@ pub mod state;
 pub mod stats;
 pub mod timing;
 
-pub use config::{Ddr5Config, PowerDownPolicy};
+pub use config::{Ddr5Config, Ddr5Params, Ddr5ParamsError, Ddr5SpeedBinName, EccMode, PowerDownPolicy};
 pub use ecc::{EccKind, EccPolicy, NoEcc, SideBandEcc};
 pub use controller::{ClockRatio, Ddr5Controller};
 pub use refresh::{AllBank, RankLayout, RefreshKind, RefreshPolicy, RefreshTarget, SameBank};
 pub use scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler, SchedulerKind};
-pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};
+pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};

@@ -257,6 +257,74 @@ impl Ddr5Timing {
     }
 }
 
+/// A [`Ddr5Timing`] field that configuration may override, named as the
+/// JEDEC parameter in snake case (`t_rcd`, `t_ccd_l_wr`, ...).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum Ddr5TimingField {
+    TCas,
+    TCwl,
+    TRcd,
+    TRp,
+    TRas,
+    TRc,
+    TRrdS,
+    TRrdL,
+    TCcdS,
+    TCcdL,
+    TCcdLWr,
+    TFaw,
+    TWtrS,
+    TWtrL,
+    TRtw,
+    TWr,
+    TRtp,
+    TPpd,
+    TRtrs,
+    TRfc1,
+    TRfc2,
+    TRfcsb,
+    TRefi,
+    TXp,
+    TPd,
+    BlHalf,
+}
+
+impl Ddr5Timing {
+    /// Overrides one field with a value in command clocks.
+    pub const fn set(&mut self, field: Ddr5TimingField, clocks: u64) {
+        match field {
+            Ddr5TimingField::TCas => self.t_cas = clocks,
+            Ddr5TimingField::TCwl => self.t_cwl = clocks,
+            Ddr5TimingField::TRcd => self.t_rcd = clocks,
+            Ddr5TimingField::TRp => self.t_rp = clocks,
+            Ddr5TimingField::TRas => self.t_ras = clocks,
+            Ddr5TimingField::TRc => self.t_rc = clocks,
+            Ddr5TimingField::TRrdS => self.t_rrd_s = clocks,
+            Ddr5TimingField::TRrdL => self.t_rrd_l = clocks,
+            Ddr5TimingField::TCcdS => self.t_ccd_s = clocks,
+            Ddr5TimingField::TCcdL => self.t_ccd_l = clocks,
+            Ddr5TimingField::TCcdLWr => self.t_ccd_l_wr = clocks,
+            Ddr5TimingField::TFaw => self.t_faw = clocks,
+            Ddr5TimingField::TWtrS => self.t_wtr_s = clocks,
+            Ddr5TimingField::TWtrL => self.t_wtr_l = clocks,
+            Ddr5TimingField::TRtw => self.t_rtw = clocks,
+            Ddr5TimingField::TWr => self.t_wr = clocks,
+            Ddr5TimingField::TRtp => self.t_rtp = clocks,
+            Ddr5TimingField::TPpd => self.t_ppd = clocks,
+            Ddr5TimingField::TRtrs => self.t_rtrs = clocks,
+            Ddr5TimingField::TRfc1 => self.t_rfc1 = clocks,
+            Ddr5TimingField::TRfc2 => self.t_rfc2 = clocks,
+            Ddr5TimingField::TRfcsb => self.t_rfcsb = clocks,
+            Ddr5TimingField::TRefi => self.t_refi = clocks,
+            Ddr5TimingField::TXp => self.t_xp = clocks,
+            Ddr5TimingField::TPd => self.t_pd = clocks,
+            Ddr5TimingField::BlHalf => self.bl_half = clocks,
+        }
+    }
+}
+
 impl Default for Ddr5Timing {
     fn default() -> Self {
         Self::ddr5_4800()

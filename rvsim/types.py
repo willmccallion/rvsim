@@ -6,7 +6,7 @@ Provides structured, Pythonic alternatives to raw string enums:
 - MemDepPredictor: Blind, StoreSet
 - ReplacementPolicy: LRU, PLRU, FIFO, Random, MRU
 - Prefetcher: Off, NextLine, Stride, Stream, Tagged
-- MemoryController: Simple, DRAM
+- MemoryController: Simple, DRAM, DDR5
 - Backend: InOrder, OutOfOrder
 - Cache: cache level configuration with size parsing
 """
@@ -357,6 +357,104 @@ class MemoryController:
             return (
                 f"MemoryController.DRAM(t_cas={self.t_cas}, t_ras={self.t_ras}, "
                 f"t_pre={self.t_pre}, row_miss_latency={self.row_miss_latency})"
+            )
+
+    class DDR5:
+        """Command-level DDR5 controller with JEDEC timing.
+
+        Timing comes from ``speed_bin`` (``"4800B"`` or ``"5600B"``) and may
+        be overridden per field with ``timing={"t_rcd": 40, ...}`` in DRAM
+        command clocks. The controller runs at the DRAM clock; the core clock
+        is ``Config(cpu_clock_mhz=...)``.
+
+        Policies: ``scheduler`` is ``"FrFcfs"`` (default) or ``"Fcfs"``;
+        ``refresh`` is ``"AllBank"`` (default) or ``"SameBank"``;
+        ``address_mapping`` is ``"RoRaBaChCo"`` (default), ``"RoRaBaCoCh"``
+        or ``"RoCoRaBaCh"``; ``ecc`` is ``"None"``, ``"SecDed"`` or
+        ``"ChipKill"``. ``power_down_idle_ns`` enables rank power-down after
+        that many idle nanoseconds; ``patrol_scrub_ns`` enables ECC patrol
+        scrubbing at that interval.
+        """
+
+        def __init__(
+            self,
+            speed_bin: str = "4800B",
+            channels: int = 2,
+            subchannels_per_channel: int = 2,
+            ranks_per_channel: int = 2,
+            bank_groups_per_rank: int = 8,
+            banks_per_group: int = 4,
+            row_bits: int = 16,
+            column_bits: int = 6,
+            read_queue_entries: int = 64,
+            write_queue_entries: int = 64,
+            write_high_watermark: int = 54,
+            write_low_watermark: int = 32,
+            min_writes_per_switch: int = 16,
+            frontend_latency_ns: int = 10,
+            backend_latency_ns: int = 10,
+            scheduler: str = "FrFcfs",
+            refresh: str = "AllBank",
+            address_mapping: str = "RoRaBaChCo",
+            power_down_idle_ns: Optional[int] = None,
+            ecc: str = "None",
+            patrol_scrub_ns: Optional[int] = None,
+            timing: Optional[Dict[str, int]] = None,
+        ):
+            self.speed_bin = speed_bin
+            self.channels = channels
+            self.subchannels_per_channel = subchannels_per_channel
+            self.ranks_per_channel = ranks_per_channel
+            self.bank_groups_per_rank = bank_groups_per_rank
+            self.banks_per_group = banks_per_group
+            self.row_bits = row_bits
+            self.column_bits = column_bits
+            self.read_queue_entries = read_queue_entries
+            self.write_queue_entries = write_queue_entries
+            self.write_high_watermark = write_high_watermark
+            self.write_low_watermark = write_low_watermark
+            self.min_writes_per_switch = min_writes_per_switch
+            self.frontend_latency_ns = frontend_latency_ns
+            self.backend_latency_ns = backend_latency_ns
+            self.scheduler = scheduler
+            self.refresh = refresh
+            self.address_mapping = address_mapping
+            self.power_down_idle_ns = power_down_idle_ns
+            self.ecc = ecc
+            self.patrol_scrub_ns = patrol_scrub_ns
+            self.timing = dict(timing) if timing else {}
+
+        def to_dict(self) -> Dict[str, Any]:
+            return {
+                "speed_bin": self.speed_bin,
+                "channels": self.channels,
+                "subchannels_per_channel": self.subchannels_per_channel,
+                "ranks_per_channel": self.ranks_per_channel,
+                "bank_groups_per_rank": self.bank_groups_per_rank,
+                "banks_per_group": self.banks_per_group,
+                "row_bits": self.row_bits,
+                "column_bits": self.column_bits,
+                "read_queue_entries": self.read_queue_entries,
+                "write_queue_entries": self.write_queue_entries,
+                "write_high_watermark": self.write_high_watermark,
+                "write_low_watermark": self.write_low_watermark,
+                "min_writes_per_switch": self.min_writes_per_switch,
+                "frontend_latency_ns": self.frontend_latency_ns,
+                "backend_latency_ns": self.backend_latency_ns,
+                "scheduler": self.scheduler,
+                "refresh": self.refresh,
+                "address_mapping": self.address_mapping,
+                "power_down_idle_ns": self.power_down_idle_ns,
+                "ecc": self.ecc,
+                "patrol_scrub_ns": self.patrol_scrub_ns,
+                "timing": self.timing,
+            }
+
+        def __repr__(self) -> str:
+            return (
+                f"MemoryController.DDR5(speed_bin={self.speed_bin!r}, "
+                f"channels={self.channels}, ranks_per_channel={self.ranks_per_channel}, "
+                f"scheduler={self.scheduler!r}, refresh={self.refresh!r})"
             )
 
 

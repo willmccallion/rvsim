@@ -87,9 +87,10 @@ A shared **prefetch deduplication filter** prevents redundant requests across le
 
 ## DRAM Controller
 
-When all cache levels miss, the request reaches the memory controller:
+Three memory controllers are available; all sit behind the L3 (or the last
+enabled cache level) and the system bus.
 
-**Simple controller** — fixed latency for all accesses.
+**Simple controller** — every access takes `row_miss_latency` cycles.
 
 **DRAM controller** — models row-buffer aware timing:
 
@@ -99,3 +100,65 @@ When all cache levels miss, the request reaches the memory controller:
 - **Refresh**: periodic refresh cycles (`t_refi` / `t_rfc`) temporarily block accesses
 
 The DRAM controller maintains per-bank row buffer state, so the actual latency of an access depends on whether the target row is already open.
+
+### DDR5 Controller
+
+`MemoryController.DDR5()` is a command-level model of a DDR5 memory
+subsystem in the style of gem5's `MemCtrl` / `DRAMInterface`. Every request
+becomes a sequence of JEDEC commands scheduled against per-bank state, and
+every command must clear the timing constraints of JESD79-5B.
+
+**Clock domain.** The controller runs at the DRAM command clock (data rate
+/ 2, so 2400 MHz for DDR5-4800). Requests arrive stamped with the core cycle
+and are converted through `cpu_clock_mhz`; responses are converted back. Set
+`cpu_clock_mhz` to the core you are modelling; the default 2400 MHz gives a
+1:1 ratio with DDR5-4800.
+
+**Topology.** `channels` × two sub-channels (each with its own command and
+32-bit data bus) × `ranks_per_channel` × `bank_groups_per_rank` ×
+`banks_per_group`. Physical addresses are split into these coordinates by
+the `address_mapping` interleave; rows are `64 << column_bits` bytes.
+
+**Timing.** A speed bin (`4800B`, `5600B`) carries each JEDEC parameter as
+"the larger of N clocks and T ns" and resolves it for the bin's clock,
+rounding up as the standard does. Enforced per command: tRCD, tRP, tRAS,
+tRC, tRRD_S/L, tCCD_S/L, tCCD_L_WR, tFAW (four-activate window per rank),
+tWTR_S/L, tWR, tRTP, tPPD, tRTRS (rank switch on the data bus), the
+read-to-write bus turnaround, CL / CWL and the BL16 burst. ACT, RD and WR
+occupy the command bus for two clocks, PRE and REF for one. Any field can be
+overridden with `timing={...}`.
+
+**Queues and scheduling.** Reads and writes have separate bounded queues
+(64 entries each); requests wait for admission in arrival order. Writes are
+posted: acknowledged when queued and drained later, once the write queue
+crosses its high watermark or when there are no reads, for at least
+`min_writes_per_switch` writes. A write to a line already queued merges into
+it; a read to a line in the write queue is answered from the queue. Reads
+pay the fixed front-end and back-end latencies (10 ns each) on top of the
+DRAM access. The scheduler is FR-FCFS by default: an open-row hit that can
+issue now wins, otherwise the request that becomes ready soonest; `Fcfs`
+keeps arrival order.
+
+**Refresh.** `AllBank` issues `REFab` every tREFI: the rank stops taking
+commands, open rows close with a PRECHARGE-ALL, REFRESH issues after tRP,
+and the rank is busy for tRFC1. `SameBank` issues `REFsb` every
+tREFI / banks-per-group, rotating through the bank sets so only one bank
+per bank group is busy (for tRFCsb) while the rest of the rank keeps
+serving.
+
+**Power-down.** With `power_down_idle_ns`, a rank with no command, no burst
+in flight and no queued request for that long enters precharge or active
+power-down, and pays tXP after the exit command before its next command.
+
+**ECC.** `SecDed` and `ChipKill` do not change DRAM timing; with
+`patrol_scrub_ns` they add a background scrubber that reads every line in
+address order at that rate.
+
+**Statistics** live under `memctrl0.ch<C>.sc<S>`: `reads`, `writes`,
+`writes_merged`, `reads_hit_write_queue`, `scrub_reads`, `activates`,
+`precharges`, `precharge_alls`, `refreshes`, `row_hits`, `row_misses`,
+`row_hit_rate`, `power_down_entries`, `power_down_exits`, `bus_busy_clocks`,
+`clocks`, `data_bus_utilization`, `read_admission_stalls`,
+`write_admission_stalls`, and the histograms `read_latency`,
+`read_queue_depth`, `write_queue_depth`. Per-bank counters sit under
+`rank<R>.bank<B>` and are queryable but omitted from the summary.

@@ -235,9 +235,10 @@ pub enum MemoryController {
     Dram,
     /// DDR5 command-level controller (JEDEC-timed).
     ///
-    /// Full per-bank command state machines, multi-channel + multi-rank,
-    /// tFAW / tRTRS / write-drain watermarks, refresh scheduling. Uses the
-    /// `Ddr5Config` defaults built into the crate.
+    /// Per-bank command state machines across channels, sub-channels and
+    /// ranks, JEDEC timing from a speed bin, FR-FCFS scheduling, refresh,
+    /// power-down and ECC scrubbing. Parameters come from
+    /// [`MemoryConfig::ddr5`].
     #[serde(alias = "DDR5")]
     Ddr5,
 }
@@ -701,6 +702,10 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub controller: MemoryController,
 
+    /// DDR5 controller parameters; used when `controller` is `Ddr5`.
+    #[serde(default)]
+    pub ddr5: crate::soc::memory::ddr5::Ddr5Params,
+
     /// CAS latency (column access strobe)
     #[serde(default = "MemoryConfig::default_t_cas")]
     pub t_cas: u64,
@@ -899,6 +904,7 @@ impl Default for MemoryConfig {
         Self {
             ram_size: defaults::RAM_SIZE,
             controller: MemoryController::default(),
+            ddr5: crate::soc::memory::ddr5::Ddr5Params::default(),
             t_cas: defaults::T_CAS,
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,

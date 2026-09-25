@@ -109,6 +109,7 @@ class Config:
         bus_width: int = 8,
         bus_latency: int = 4,
         clint_divider: int = 10,
+        cpu_clock_mhz: int = 2400,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
         hart_count: int = 1,
@@ -163,6 +164,7 @@ class Config:
         self.bus_width = bus_width
         self.bus_latency = bus_latency
         self.clint_divider = clint_divider
+        self.cpu_clock_mhz = cpu_clock_mhz
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
         self.hart_count = hart_count
@@ -216,6 +218,7 @@ class Config:
             bus_width=self.bus_width,
             bus_latency=self.bus_latency,
             clint_divider=self.clint_divider,
+            cpu_clock_mhz=self.cpu_clock_mhz,
             uart_to_stderr=self.uart_to_stderr,
             uart_quiet=self.uart_quiet,
             hart_count=self.hart_count,
@@ -460,6 +463,8 @@ def _mc_name(mc) -> str:
         return "Simple"
     if isinstance(mc, MemoryController.DRAM):
         return "Dram"
+    if isinstance(mc, MemoryController.DDR5):
+        return "Ddr5"
     raise TypeError(f"Unknown memory controller type: {type(mc)}")
 
 
@@ -667,6 +672,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "bus_width": cfg.bus_width,
         "bus_latency": cfg.bus_latency,
         "clint_divider": cfg.clint_divider,
+        "cpu_clock_mhz": cfg.cpu_clock_mhz,
         "uart_to_stderr": cfg.uart_to_stderr,
         "uart_quiet": cfg.uart_quiet,
         "tohost_addr": 0,
@@ -697,6 +703,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         memory["t_ras"] = 14
         memory["t_pre"] = 14
         memory["row_miss_latency"] = 120
+    if isinstance(mc, MemoryController.DDR5):
+        memory["ddr5"] = mc.to_dict()
 
     # Caches
     cache = {

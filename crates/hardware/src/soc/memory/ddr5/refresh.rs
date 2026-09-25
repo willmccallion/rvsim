@@ -82,7 +82,7 @@ impl RefreshPolicy for SameBank {
 }
 
 /// Which [`RefreshPolicy`] a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum RefreshKind {
     /// [`AllBank`].
     #[default]

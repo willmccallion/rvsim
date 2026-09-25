@@ -41,7 +41,7 @@ pub struct DramLocation {
 /// Address-bit interleave strategy. Names read high-order to low-order bit,
 /// so `RoRaBaChCo` uses `column` as the lowest-order bits (best for burst
 /// spatial locality on a single channel).
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize)]
 pub enum AddressMappingKind {
     /// Row : Rank : Bank(Group+Bank) : Channel : Column.
     /// gem5 default; good spatial locality for sequential streams.

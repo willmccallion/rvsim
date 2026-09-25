@@ -3,6 +3,7 @@ pub mod common;
 pub mod constraints;
 pub mod ecc;
 pub mod parallelism;
+pub mod params;
 pub mod power;
 pub mod refresh;
 pub mod row_buffer;

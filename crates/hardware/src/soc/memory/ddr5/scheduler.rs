@@ -67,7 +67,7 @@ impl MemScheduler for FrFcfs {
 }
 
 /// Which [`MemScheduler`] a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum SchedulerKind {
     /// [`Fcfs`].
     Fcfs,

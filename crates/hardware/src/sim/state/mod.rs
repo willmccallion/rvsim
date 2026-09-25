@@ -37,7 +37,7 @@ use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
     DramConfig, DramController, MemoryController, SimpleController,
 };
-use crate::soc::memory::ddr5::{Ddr5Config, Ddr5Controller};
+use crate::soc::memory::ddr5::Ddr5Controller;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -197,7 +197,7 @@ impl SimState {
             MemControllerType::Ddr5 => Box::new(Ddr5Controller::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
-                Ddr5Config::default(),
+                config.memory.ddr5.to_config(),
                 MemCtrlId::new(0),
                 config.system.cpu_clock_mhz,
             )),
