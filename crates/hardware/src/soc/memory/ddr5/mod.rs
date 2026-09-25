@@ -2,16 +2,19 @@
 //!
 //! Ties together the static configuration ([`config`]), the JEDEC timing
 //! table ([`timing`]), the per-bank / per-rank / per-subchannel dynamic
-//! state ([`state`]), the request selection policy ([`scheduler`]), and
-//! the command state machines ([`controller`]).
+//! state ([`state`]), the request selection policy ([`scheduler`]), the
+//! refresh cadence ([`refresh`]), and the command state machines
+//! ([`controller`]).
 
 pub mod config;
 pub mod controller;
+pub mod refresh;
 pub mod scheduler;
 pub mod state;
 pub mod timing;
 
 pub use config::Ddr5Config;
 pub use controller::{ClockRatio, Ddr5Controller};
+pub use refresh::{AllBank, RankLayout, RefreshKind, RefreshPolicy, RefreshTarget, SameBank};
 pub use scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler, SchedulerKind};
 pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing};

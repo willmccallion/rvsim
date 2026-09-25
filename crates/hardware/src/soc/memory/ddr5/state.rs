@@ -29,6 +29,9 @@ pub struct Bank {
     pub last_write_cmd: u64,
     /// Cycle at which the last WRITE's data burst ends on the data bus.
     pub last_write_end: u64,
+    /// Cycle at which the bank's in-progress refresh completes; meaningful
+    /// while `state` is [`BankState::Refreshing`].
+    pub refresh_end: u64,
 }
 
 impl Bank {
@@ -44,6 +47,7 @@ impl Bank {
             last_read_end: 0,
             last_write_cmd: 0,
             last_write_end: 0,
+            refresh_end: 0,
         }
     }
 }
@@ -54,19 +58,33 @@ impl Default for Bank {
     }
 }
 
-/// Bank lifecycle. `Refreshing` collapses every bank in a rank simultaneously.
+/// Bank lifecycle.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BankState {
     /// No row open, precharged.
     Idle,
-    /// ACTIVATE issued but tRCD has not elapsed.
-    Activating,
     /// A row is open and column commands are legal (subject to tRCD).
     Active,
     /// PRECHARGE issued but tRP has not elapsed.
     Precharging,
-    /// Rank-wide refresh; no commands may issue to this bank until tRFC.
+    /// Under refresh; no commands may issue to this bank until
+    /// [`Bank::refresh_end`].
     Refreshing,
+}
+
+/// Where a rank is in its refresh cycle.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RefreshPhase {
+    /// No refresh due.
+    Idle,
+    /// A refresh is due: the covered banks accept no new commands, open
+    /// rows are precharged, then the REFRESH command issues.
+    Pending {
+        /// Banks the pending refresh covers.
+        bank_mask: u64,
+        /// Clocks the banks stay busy once the REFRESH issues.
+        duration: u64,
+    },
 }
 
 /// Per-rank rolling-window state for tFAW plus refresh scheduling.
@@ -82,10 +100,13 @@ pub struct Rank {
     /// Number of ACTIVATEs recorded so far, saturating at 4. The tFAW
     /// constraint only kicks in once the window is fully populated.
     pub faw_populated: u8,
-    /// Cycle at which the next auto-refresh becomes due.
+    /// Cycle at which the next refresh command becomes due.
     pub next_refresh: u64,
-    /// Cycle until which the rank is blocked by an in-progress refresh.
-    pub refresh_end: u64,
+    /// Refresh state machine.
+    pub refresh_phase: RefreshPhase,
+    /// Refresh commands issued so far on this rank; selects the bank set
+    /// for same-bank refresh.
+    pub refresh_seq: u64,
     /// Cycle at which the last command targeting this rank was issued;
     /// enforces per-rank command-bus serialization without cross-rank
     /// interference. Zero before any command.
@@ -96,19 +117,34 @@ pub struct Rank {
 }
 
 impl Rank {
-    /// Fresh rank with `bank_count` idle banks.
+    /// Fresh rank with `bank_count` idle banks whose first refresh is due at
+    /// `first_refresh`.
     #[must_use]
-    pub fn new(bank_count: usize, t_refi: u64) -> Self {
+    pub fn new(bank_count: usize, first_refresh: u64) -> Self {
         Self {
             banks: vec![Bank::new(); bank_count],
             faw: [0; 4],
             faw_slot: 0,
             faw_populated: 0,
-            next_refresh: t_refi,
-            refresh_end: 0,
+            next_refresh: first_refresh,
+            refresh_phase: RefreshPhase::Idle,
+            refresh_seq: 0,
             last_command_cycle: 0,
             last_precharge: 0,
         }
+    }
+
+    /// True if bank `bank_index` is covered by a pending refresh or is
+    /// currently refreshing, so it must not receive new commands.
+    #[must_use]
+    pub fn bank_held_for_refresh(&self, bank_index: usize) -> bool {
+        let pending = match self.refresh_phase {
+            RefreshPhase::Idle => false,
+            RefreshPhase::Pending { bank_mask, .. } => {
+                bank_index < 64 && (bank_mask >> bank_index) & 1 == 1
+            }
+        };
+        pending || self.banks[bank_index].state == BankState::Refreshing
     }
 
     /// Advances the tFAW rolling window with a new ACTIVATE at `cycle`. Returns
@@ -220,17 +256,17 @@ pub struct Subchannel {
 impl Subchannel {
     /// Constructs a fresh subchannel with `rank_count` idle ranks each holding
     /// `bank_count` banks. Per-rank first-refresh cycles are staggered evenly
-    /// across `t_refi` so multiple ranks do not synchronously demand the
-    /// command bus for their first refresh.
+    /// across `refresh_interval` so multiple ranks do not synchronously
+    /// demand the command bus for their first refresh.
     #[must_use]
-    pub fn new(rank_count: usize, bank_count: usize, t_refi: u64) -> Self {
+    pub fn new(rank_count: usize, bank_count: usize, refresh_interval: u64) -> Self {
         let ranks_as_u64 = u64::try_from(rank_count).unwrap_or(u64::MAX);
-        let stagger = if ranks_as_u64 == 0 { 0 } else { t_refi / ranks_as_u64 };
+        let stagger = if ranks_as_u64 == 0 { 0 } else { refresh_interval / ranks_as_u64 };
         Self {
             ranks: (0..rank_count)
                 .map(|r| {
                     let offset = u64::try_from(r).unwrap_or(0) * stagger;
-                    Rank::new(bank_count, t_refi + offset)
+                    Rank::new(bank_count, refresh_interval + offset)
                 })
                 .collect(),
             inbound: VecDeque::new(),
@@ -261,10 +297,15 @@ pub struct DramChannel {
 impl DramChannel {
     /// Constructs a channel with `subchannel_count` fresh subchannels.
     #[must_use]
-    pub fn new(subchannel_count: usize, rank_count: usize, bank_count: usize, t_refi: u64) -> Self {
+    pub fn new(
+        subchannel_count: usize,
+        rank_count: usize,
+        bank_count: usize,
+        refresh_interval: u64,
+    ) -> Self {
         Self {
             subchannels: (0..subchannel_count)
-                .map(|_| Subchannel::new(rank_count, bank_count, t_refi))
+                .map(|_| Subchannel::new(rank_count, bank_count, refresh_interval))
                 .collect(),
         }
     }

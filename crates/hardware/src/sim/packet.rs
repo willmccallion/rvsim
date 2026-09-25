@@ -190,6 +190,8 @@ pub enum DramCmdKind {
     Activate,
     /// PRECHARGE: close the open row.
     Precharge,
+    /// PRECHARGE-ALL (or same-bank): close every open row a refresh covers.
+    PrechargeAll,
     /// READ from the open row.
     Read,
     /// WRITE to the open row.

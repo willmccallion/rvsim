@@ -39,9 +39,10 @@ use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::memory::ddr5::config::Ddr5Config;
+use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
-    Bank, BankState, BusOp, DramChannel, PendingReq, WriteDrainState,
+    Bank, BankState, BusOp, DramChannel, PendingReq, RefreshPhase, WriteDrainState,
 };
 
 /// Cache-line size used when constructing `LineAddr` in responses.
@@ -103,6 +104,9 @@ pub struct Ddr5Controller {
     self_id: MemCtrlId,
     clock: ClockRatio,
     scheduler: Box<dyn MemScheduler>,
+    refresh_policy: Box<dyn RefreshPolicy>,
+    layout: RankLayout,
+    refresh_interval: u64,
     pending_commands: Vec<EmittedCommand>,
     pending_responses: Vec<ScheduledResponse>,
     /// Next DRAM clock the scheduler will process.
@@ -137,15 +141,21 @@ impl Ddr5Controller {
             config.row_bits,
             config.column_bits,
         );
-        let bank_count =
-            usize::from(config.bank_groups_per_rank) * usize::from(config.banks_per_group);
+        let layout = RankLayout {
+            bank_groups: config.bank_groups_per_rank,
+            banks_per_group: config.banks_per_group,
+        };
+        assert!(layout.bank_count() <= 64, "refresh bank masks cover at most 64 banks per rank");
+        let refresh_policy = config.refresh.build();
+        let refresh_interval = refresh_policy.interval(&config.timing, layout);
+        let bank_count = layout.bank_count() as usize;
         let channels = (0..config.channels)
             .map(|_| {
                 DramChannel::new(
                     usize::from(config.subchannels_per_channel),
                     usize::from(config.ranks_per_channel),
                     bank_count,
-                    config.timing.t_refi,
+                    refresh_interval,
                 )
             })
             .collect();
@@ -158,6 +168,9 @@ impl Ddr5Controller {
             self_id,
             clock: ClockRatio::new(cpu_clock_mhz, config.timing.data_rate_mts),
             scheduler: config.scheduler.build(),
+            refresh_policy,
+            layout,
+            refresh_interval,
             pending_commands: Vec::new(),
             pending_responses: Vec::new(),
             next_dram_cycle: 0,
@@ -286,11 +299,12 @@ impl Ddr5Controller {
     /// If no ready request can advance legally at `now`, the subchannel goes
     /// idle for this clock.
     fn tick_subchannel(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
+        self.release_refreshed_banks(chan, subch, now);
         self.update_drain_state(chan, subch);
         if self.command_bus_busy(chan, subch, now) {
             return;
         }
-        if self.try_issue_refresh(chan, subch, now) {
+        if self.advance_refresh(chan, subch, now) {
             return;
         }
         let Some(pick_writes) = self.pick_queue(chan, subch) else { return };
@@ -317,9 +331,17 @@ impl Ddr5Controller {
     ) -> Option<usize> {
         let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
         let queue = if pick_writes { &sc.write_queue } else { &sc.read_queue };
-        let candidates: Vec<Candidate> =
-            queue.iter().map(|req| self.candidate(chan, subch, req)).collect();
-        self.scheduler.pick(&candidates, now)
+        let mut indices = Vec::with_capacity(queue.len());
+        let mut candidates = Vec::with_capacity(queue.len());
+        for (index, req) in queue.iter().enumerate() {
+            let rank = &sc.ranks[req.loc.rank.as_index()];
+            if rank.bank_held_for_refresh(self.bank_index(req.loc.bank_group, req.loc.bank)) {
+                continue;
+            }
+            indices.push(index);
+            candidates.push(self.candidate(chan, subch, req));
+        }
+        self.scheduler.pick(&candidates, now).map(|chosen| indices[chosen])
     }
 
     /// Summarises `req` for the scheduler: whether its row is open and the
@@ -355,10 +377,9 @@ impl Ddr5Controller {
                 let activate = self.activate_earliest(&ctx, 0);
                 Candidate { row_hit: false, ready_at: activate + t.t_rcd }
             }
-            BankState::Refreshing | BankState::Activating => {
-                let rank_ref = &self.channels[chan.as_index()].subchannels[subch.as_index()]
-                    .ranks[req.loc.rank.as_index()];
-                Candidate { row_hit: false, ready_at: rank_ref.refresh_end + t.t_rcd }
+            BankState::Refreshing => {
+                let activate = self.activate_earliest(&ctx, bank.refresh_end);
+                Candidate { row_hit: false, ready_at: activate + t.t_rcd }
             }
         }
     }
@@ -393,65 +414,194 @@ impl Ddr5Controller {
         }
     }
 
-    /// Attempts to fire an all-bank refresh on any rank whose window has
-    /// opened by `now`. Returns `true` iff a REFRESH command was issued.
-    fn try_issue_refresh(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) -> bool {
-        let t_refi = self.config.timing.t_refi;
-        if t_refi == 0 {
+    /// Returns banks whose refresh has completed to the idle state.
+    fn release_refreshed_banks(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
+        let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+        for rank in &mut sc.ranks {
+            for bank in &mut rank.banks {
+                if bank.state == BankState::Refreshing && bank.refresh_end <= now {
+                    bank.state = BankState::Idle;
+                }
+            }
+        }
+    }
+
+    /// Drives every rank's refresh state machine for one clock. A rank
+    /// whose refresh is due first stops taking new commands for the
+    /// covered banks, precharges any open rows among them (PRECHARGE-ALL,
+    /// once tRAS / tRTP / tWR allow), then issues REFRESH once tRP has
+    /// elapsed. Returns `true` iff a command was issued.
+    fn advance_refresh(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) -> bool {
+        if self.refresh_interval == 0 {
             return false;
         }
-        let t_rfc = self.config.timing.t_rfc1;
         let rank_count = self.channels[chan.as_index()].subchannels[subch.as_index()].ranks.len();
         for rank_idx in 0..rank_count {
-            let (due, earliest) = {
-                let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
-                let rank_ref = &sc.ranks[rank_idx];
-                let due = rank_ref.next_refresh <= now;
-                let earliest = rank_ref
-                    .next_refresh
-                    .max(rank_ref.refresh_end)
-                    .max(rank_ref.last_command_cycle)
-                    .max(sc.last_command_cycle);
-                (due, earliest)
-            };
-            if !due || earliest > now {
-                continue;
-            }
             let rank = RankId::new(index_to_u8(rank_idx));
-            let fire_at = earliest.max(now);
-            let refresh_end = fire_at + t_rfc;
-            self.commit_refresh(chan, subch, rank, fire_at, refresh_end);
-            return true;
+            self.arm_due_refresh(chan, subch, rank, now);
+            let RefreshPhase::Pending { bank_mask, duration } =
+                self.channels[chan.as_index()].subchannels[subch.as_index()].ranks[rank_idx]
+                    .refresh_phase
+            else {
+                continue;
+            };
+            if self.try_precharge_for_refresh(chan, subch, rank, bank_mask, now) {
+                return true;
+            }
+            if self.try_issue_refresh(chan, subch, rank, bank_mask, duration, now) {
+                return true;
+            }
         }
         false
     }
 
-    fn commit_refresh(
+    /// Moves a rank whose refresh interval has elapsed into the pending
+    /// phase, freezing the covered banks.
+    fn arm_due_refresh(&mut self, chan: ChannelId, subch: SubchannelId, rank: RankId, now: u64) {
+        let timing = self.config.timing;
+        let layout = self.layout;
+        let rank_mut = &mut self.channels[chan.as_index()].subchannels[subch.as_index()]
+            .ranks[rank.as_index()];
+        if rank_mut.refresh_phase != RefreshPhase::Idle || rank_mut.next_refresh > now {
+            return;
+        }
+        let target = self.refresh_policy.target(&timing, layout, rank_mut.refresh_seq);
+        rank_mut.refresh_phase =
+            RefreshPhase::Pending { bank_mask: target.bank_mask, duration: target.duration };
+    }
+
+    /// Precharges the open rows a pending refresh covers as soon as every
+    /// one of them may legally close. Returns `true` iff PRECHARGE-ALL issued.
+    fn try_precharge_for_refresh(
         &mut self,
         chan: ChannelId,
         subch: SubchannelId,
         rank: RankId,
-        start: u64,
-        end: u64,
-    ) {
-        let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-        sc.last_command_cycle = sc.last_command_cycle.max(start + REFRESH_CMD_CYCLES);
-        let rank_mut = &mut sc.ranks[rank.as_index()];
-        rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(start + REFRESH_CMD_CYCLES);
-        rank_mut.refresh_end = end;
-        rank_mut.next_refresh += self.config.timing.t_refi;
-        for bank in &mut rank_mut.banks {
-            bank.open_row = None;
-            bank.state = BankState::Idle;
+        bank_mask: u64,
+        now: u64,
+    ) -> bool {
+        let bank_count = self.layout.bank_count() as usize;
+        let mut earliest = 0u64;
+        let mut any_open = false;
+        for bank_index in (0..bank_count).filter(|i| mask_has(bank_mask, *i)) {
+            let ctx = self.bank_ctx(chan, subch, rank, bank_index);
+            let bank = self.bank_snapshot(ctx);
+            if bank.state == BankState::Active {
+                any_open = true;
+                earliest = earliest.max(self.precharge_earliest(&ctx, &bank));
+            }
+        }
+        if !any_open || earliest > now {
+            return false;
+        }
+        let fire_at = earliest.max(now);
+        {
+            let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            let rank_mut = &mut sc.ranks[rank.as_index()];
+            rank_mut.last_command_cycle =
+                rank_mut.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            rank_mut.last_precharge = fire_at;
+            for (bank_index, bank) in rank_mut.banks.iter_mut().enumerate() {
+                if mask_has(bank_mask, bank_index) && bank.state == BankState::Active {
+                    bank.state = BankState::Precharging;
+                    bank.last_precharge = fire_at;
+                    bank.open_row = None;
+                }
+            }
         }
         self.pending_commands.push(EmittedCommand {
             channel: chan,
             rank,
             bank: 0,
             row: 0,
-            kind: DramCmdKind::Refresh,
-            fire_at: start,
+            kind: DramCmdKind::PrechargeAll,
+            fire_at,
         });
+        true
+    }
+
+    /// Issues the REFRESH for a pending refresh once every covered bank is
+    /// precharged with tRP elapsed. Returns `true` iff it issued.
+    fn try_issue_refresh(
+        &mut self,
+        chan: ChannelId,
+        subch: SubchannelId,
+        rank: RankId,
+        bank_mask: u64,
+        duration: u64,
+        now: u64,
+    ) -> bool {
+        let t_rp = self.config.timing.t_rp;
+        let earliest = {
+            let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
+            let rank_ref = &sc.ranks[rank.as_index()];
+            let mut earliest = rank_ref.last_command_cycle.max(sc.last_command_cycle);
+            for (bank_index, bank) in rank_ref.banks.iter().enumerate() {
+                if !mask_has(bank_mask, bank_index) {
+                    continue;
+                }
+                match bank.state {
+                    BankState::Active => return false,
+                    BankState::Precharging => earliest = earliest.max(bank.last_precharge + t_rp),
+                    BankState::Refreshing => earliest = earliest.max(bank.refresh_end),
+                    BankState::Idle => {}
+                }
+            }
+            earliest
+        };
+        if earliest > now {
+            return false;
+        }
+        let fire_at = earliest.max(now);
+        let refresh_end = fire_at + duration;
+        let interval = self.refresh_interval;
+        let set = {
+            let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
+            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
+            let rank_mut = &mut sc.ranks[rank.as_index()];
+            rank_mut.last_command_cycle =
+                rank_mut.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
+            for (bank_index, bank) in rank_mut.banks.iter_mut().enumerate() {
+                if mask_has(bank_mask, bank_index) {
+                    bank.state = BankState::Refreshing;
+                    bank.refresh_end = refresh_end;
+                    bank.open_row = None;
+                }
+            }
+            let set = rank_mut.refresh_seq;
+            rank_mut.refresh_seq += 1;
+            rank_mut.next_refresh += interval;
+            rank_mut.refresh_phase = RefreshPhase::Idle;
+            set
+        };
+        self.pending_commands.push(EmittedCommand {
+            channel: chan,
+            rank,
+            bank: index_to_u8(set as usize % usize::from(self.config.banks_per_group.max(1))),
+            row: 0,
+            kind: DramCmdKind::Refresh,
+            fire_at,
+        });
+        true
+    }
+
+    fn bank_ctx(
+        &self,
+        chan: ChannelId,
+        subch: SubchannelId,
+        rank: RankId,
+        bank_index: usize,
+    ) -> BankCmdCtx {
+        let banks_per_group = usize::from(self.config.banks_per_group.max(1));
+        BankCmdCtx {
+            chan,
+            subch,
+            rank,
+            bg: BankGroupId::new(index_to_u8(bank_index / banks_per_group)),
+            bank_index,
+            row: RowId::new(0),
+        }
     }
 
     /// Advances a single request by one command step. Removes it from its
@@ -499,9 +649,8 @@ impl Ddr5Controller {
             BankState::Idle => {
                 self.try_issue_activate(&ctx, 0, now);
             }
-            // Refreshing / Activating: nothing to issue this clock; the bank
-            // is mid-transition and will become ready on a later clock.
-            BankState::Refreshing | BankState::Activating => {}
+            // Refreshing banks are never offered to the scheduler.
+            BankState::Refreshing => {}
         }
     }
 
@@ -592,7 +741,7 @@ impl Ddr5Controller {
             rrd,
             rc: if same.last_activate == 0 { 0 } else { same.last_activate + t.t_rc },
             faw: rank_ref.earliest_activate_faw(t.t_faw),
-            refresh_end: rank_ref.refresh_end,
+            refresh_end: same.refresh_end,
             command_bus: rank_ref.last_command_cycle,
         }
     }
@@ -981,6 +1130,10 @@ impl ScheduledResponse {
 
 const fn is_read_op(op: &MemOp) -> bool {
     matches!(op, MemOp::Read | MemOp::Fetch | MemOp::Atomic { .. })
+}
+
+const fn mask_has(mask: u64, bank_index: usize) -> bool {
+    bank_index < 64 && (mask >> bank_index) & 1 == 1
 }
 
 const fn bank_index_u8(idx: usize) -> u8 {
