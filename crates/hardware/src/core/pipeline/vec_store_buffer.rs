@@ -83,8 +83,9 @@ pub struct VecStoreBufferEntry {
     pub rob_tag: RobTag,
     /// Cache-line buffers; one per distinct 64-byte line touched.
     pub lines: Vec<VsbLine>,
-    /// Active-element count at execute time (may be less than `vl` if masked).
-    pub expected_elements: usize,
+    /// Active-element count, known once the store executes (may be less
+    /// than `vl` if masked). `None` while the entry is only reserved.
+    pub expected_elements: Option<usize>,
     /// Number of element-resolves received via `resolve_element`.
     pub resolved_elements: usize,
     /// `true` once the ROB has retired the parent vec store.
@@ -95,7 +96,9 @@ pub struct VecStoreBufferEntry {
 
 impl VecStoreBufferEntry {
     const fn is_drainable(&self) -> bool {
-        self.valid && self.committed && self.resolved_elements == self.expected_elements
+        self.valid
+            && self.committed
+            && matches!(self.expected_elements, Some(expected) if expected == self.resolved_elements)
     }
 }
 
@@ -143,12 +146,13 @@ impl VecStoreBuffer {
         self.capacity.saturating_sub(self.len())
     }
 
-    /// Reserves a new entry for `rob_tag` expecting `expected_elements`
-    /// element-resolves. Returns `false` if the buffer is at capacity, in
-    /// which case the caller must re-dispatch the vec store.
+    /// Reserves an entry for `rob_tag`. Called at rename, in program order,
+    /// so a younger vector store can never hold the last slot an older one
+    /// needs. Returns `false` if the buffer is at capacity, in which case
+    /// rename must stall.
     ///
     /// Panics in debug builds if `rob_tag` is already present.
-    pub fn allocate(&mut self, rob_tag: RobTag, expected_elements: usize) -> bool {
+    pub fn allocate(&mut self, rob_tag: RobTag) -> bool {
         debug_assert!(
             !self.entries.iter().any(|e| e.valid && e.rob_tag == rob_tag),
             "VSB allocate: rob_tag {rob_tag:?} already present",
@@ -162,7 +166,7 @@ impl VecStoreBuffer {
         let new_entry = VecStoreBufferEntry {
             rob_tag,
             lines: Vec::new(),
-            expected_elements,
+            expected_elements: None,
             resolved_elements: 0,
             committed: false,
             valid: true,
@@ -174,8 +178,18 @@ impl VecStoreBuffer {
             self.entries.push(new_entry);
         }
 
-        // expected_elements == 0 (fully-masked store) is drainable immediately as a no-op.
         true
+    }
+
+    /// Records how many element-resolves the store for `rob_tag` will
+    /// deliver, once execute has evaluated `vl` and the mask. Zero (a fully
+    /// masked store) makes the entry drainable as a no-op.
+    pub fn set_expected_elements(&mut self, rob_tag: RobTag, expected_elements: usize) {
+        let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) else {
+            debug_assert!(false, "VSB set_expected_elements: no entry for {rob_tag:?}");
+            return;
+        };
+        entry.expected_elements = Some(expected_elements);
     }
 
     /// Records one resolved element write. Splits across cache lines if
@@ -250,7 +264,7 @@ impl VecStoreBuffer {
         self.entries
             .iter()
             .find(|e| e.valid && e.rob_tag == rob_tag)
-            .is_some_and(|e| e.resolved_elements == e.expected_elements)
+            .is_some_and(|e| e.expected_elements == Some(e.resolved_elements))
     }
 
     /// Forwarding check for a younger load. Policy-dependent — see module doc.
@@ -380,7 +394,8 @@ impl VecStoreBuffer {
             if !entry.rob_tag.is_older_than(load_rob_tag) {
                 continue;
             }
-            let unresolved_older = entry.resolved_elements < entry.expected_elements;
+            let unresolved_older =
+                entry.expected_elements.is_none_or(|expected| entry.resolved_elements < expected);
             for line in &entry.lines {
                 if line.line_addr == load_line && (line.valid_mask & load_byte_mask) != 0 {
                     return ForwardResult::Stall;
@@ -612,6 +627,16 @@ mod tests {
     use super::*;
     use crate::common::PhysAddr;
 
+    impl VecStoreBuffer {
+        fn reserve_for_test(&mut self, rob_tag: RobTag, expected_elements: usize) -> bool {
+            if !self.allocate(rob_tag) {
+                return false;
+            }
+            self.set_expected_elements(rob_tag, expected_elements);
+            true
+        }
+    }
+
     fn vsb(cap: usize) -> VecStoreBuffer {
         VecStoreBuffer::new(cap, VecStoreForwarding::ByteMask)
     }
@@ -620,17 +645,17 @@ mod tests {
     fn allocate_and_free_slots() {
         let mut b = vsb(2);
         assert_eq!(b.free_slots(), 2);
-        assert!(b.allocate(RobTag(1), 4));
+        assert!(b.reserve_for_test(RobTag(1), 4));
         assert_eq!(b.free_slots(), 1);
-        assert!(b.allocate(RobTag(2), 4));
+        assert!(b.reserve_for_test(RobTag(2), 4));
         assert_eq!(b.free_slots(), 0);
-        assert!(!b.allocate(RobTag(3), 4));
+        assert!(!b.reserve_for_test(RobTag(3), 4));
     }
 
     #[test]
     fn resolve_single_line_word() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xDEAD_BEEF, MemWidth::Word);
 
         // Forward a Word-aligned read from the same address — full hit.
@@ -647,7 +672,7 @@ mod tests {
     #[test]
     fn resolve_cross_line_double() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         // Write 8 bytes starting 4 before a line boundary — splits across lines.
         b.resolve_element(
             RobTag(1),
@@ -667,7 +692,7 @@ mod tests {
     #[test]
     fn forward_partial_overlap_stalls() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0004), 0xAABB, MemWidth::Half);
         // Load Word at offset 0x8000_0002 overlaps bytes 4..6 of the line but
         // wants 4 bytes (2..6). Bytes 2..4 are not valid → partial overlap.
@@ -678,7 +703,7 @@ mod tests {
     #[test]
     fn forward_no_overlap_misses() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xFF, MemWidth::Byte);
         let r = b.forward_load(PhysAddr::new(0x8000_0008), MemWidth::Word, RobTag(2));
         assert_eq!(r, ForwardResult::Miss);
@@ -687,8 +712,8 @@ mod tests {
     #[test]
     fn youngest_older_match_wins() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
-        b.allocate(RobTag(2), 1);
+        b.reserve_for_test(RobTag(1), 1);
+        b.reserve_for_test(RobTag(2), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0x1111, MemWidth::Half);
         b.resolve_element(RobTag(2), PhysAddr::new(0x8000_0000), 0x2222, MemWidth::Half);
 
@@ -699,7 +724,7 @@ mod tests {
     #[test]
     fn newer_store_does_not_forward_to_older_load() {
         let mut b = vsb(2);
-        b.allocate(RobTag(5), 1);
+        b.reserve_for_test(RobTag(5), 1);
         b.resolve_element(RobTag(5), PhysAddr::new(0x8000_0000), 0xABCD, MemWidth::Half);
         // Load tag 3 is older than store tag 5 — must not forward.
         let r = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Half, RobTag(3));
@@ -709,7 +734,7 @@ mod tests {
     #[test]
     fn cross_line_load_does_not_forward() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(
             RobTag(1),
             PhysAddr::new(0x8000_003C),
@@ -724,7 +749,7 @@ mod tests {
     #[test]
     fn last_writer_wins_per_byte() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 2);
+        b.reserve_for_test(RobTag(1), 2);
         // Two elements writing the same byte; the second call wins.
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xBB, MemWidth::Byte);
@@ -735,7 +760,7 @@ mod tests {
     #[test]
     fn stall_policy_stalls_on_overlap() {
         let mut b = VecStoreBuffer::new(2, VecStoreForwarding::Stall);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         let r = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
         assert_eq!(r, ForwardResult::Stall);
@@ -746,7 +771,7 @@ mod tests {
     #[test]
     fn off_policy_stalls_on_any_older_entry() {
         let mut b = VecStoreBuffer::new(2, VecStoreForwarding::Off);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         // Even before any element resolves, an older entry causes a stall.
         let r = b.forward_load(PhysAddr::new(0x9000_0000), MemWidth::Byte, RobTag(2));
         assert_eq!(r, ForwardResult::Stall);
@@ -755,7 +780,7 @@ mod tests {
     #[test]
     fn mark_committed_does_not_change_forwarding() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 1);
+        b.reserve_for_test(RobTag(1), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         b.mark_committed(RobTag(1));
         let r = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
@@ -765,9 +790,9 @@ mod tests {
     #[test]
     fn flush_after_drops_newer_entries() {
         let mut b = vsb(4);
-        b.allocate(RobTag(1), 1);
-        b.allocate(RobTag(2), 1);
-        b.allocate(RobTag(3), 1);
+        b.reserve_for_test(RobTag(1), 1);
+        b.reserve_for_test(RobTag(2), 1);
+        b.reserve_for_test(RobTag(3), 1);
         b.flush_after(RobTag(1));
         assert!(b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag(1)));
         assert!(!b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag(2)));
@@ -777,8 +802,8 @@ mod tests {
     #[test]
     fn flush_speculative_keeps_committed() {
         let mut b = vsb(4);
-        b.allocate(RobTag(1), 1);
-        b.allocate(RobTag(2), 1);
+        b.reserve_for_test(RobTag(1), 1);
+        b.reserve_for_test(RobTag(2), 1);
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         b.mark_committed(RobTag(1));
         b.flush_speculative();
@@ -789,14 +814,14 @@ mod tests {
     #[test]
     fn allocation_reuses_freed_slot() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 0);
-        b.allocate(RobTag(2), 0);
+        b.reserve_for_test(RobTag(1), 0);
+        b.reserve_for_test(RobTag(2), 0);
         b.flush_speculative();
         assert_eq!(b.len(), 0);
         // Should reuse the freed slots, not grow.
-        assert!(b.allocate(RobTag(3), 0));
-        assert!(b.allocate(RobTag(4), 0));
-        assert!(!b.allocate(RobTag(5), 0));
+        assert!(b.reserve_for_test(RobTag(3), 0));
+        assert!(b.reserve_for_test(RobTag(4), 0));
+        assert!(!b.reserve_for_test(RobTag(5), 0));
     }
 
     #[test]
@@ -808,7 +833,7 @@ mod tests {
     #[test]
     fn is_fully_resolved_tracks_progress() {
         let mut b = vsb(2);
-        b.allocate(RobTag(1), 2);
+        b.reserve_for_test(RobTag(1), 2);
         assert!(!b.is_fully_resolved(RobTag(1)));
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         assert!(!b.is_fully_resolved(RobTag(1)));

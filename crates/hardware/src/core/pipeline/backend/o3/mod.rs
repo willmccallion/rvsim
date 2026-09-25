@@ -706,24 +706,6 @@ impl ExecutionEngine for O3Engine {
                     continue;
                 }
 
-                // Structural hazard: stall vec stores back to IQ if the VSB is full.
-                if fu_type == FuType::VecMem
-                    && is_vec_store(entry.ctrl.vec_op)
-                    && self.vec_store_buffer.free_slots() == 0
-                {
-                    state.stats.counter(paths::core::pipeline::STALLS_FU_STRUCTURAL).inc();
-                    let ok = self.issue_queue.dispatch(
-                        entry,
-                        &self.rob,
-                        state,
-                        Some(&self.prf),
-                        Some(&self.vec_prf),
-                        mem_dep,
-                    );
-                    debug_assert!(ok, "re-dispatch after VSB-full failed");
-                    continue;
-                }
-
                 if !self.fu_pool.has_free(fu_type, now) {
                     state.stats.counter(paths::core::pipeline::STALLS_FU_STRUCTURAL).inc();
                     stalled_fu = true;
@@ -1077,8 +1059,7 @@ impl ExecutionEngine for O3Engine {
                         }
 
                         if is_store {
-                            let ok = self.vec_store_buffer.allocate(ex_result.rob_tag, total);
-                            debug_assert!(ok, "VSB allocate failed despite pre-check");
+                            self.vec_store_buffer.set_expected_elements(ex_result.rob_tag, total);
                         }
 
                         self.vec_mem_inflight.push(VecMemInflight {
@@ -1288,12 +1269,14 @@ impl ExecutionEngine for O3Engine {
         }
         let rob_free = self.rob.free_slots();
         let sb_free = self.store_buffer.free_slots();
+        let vsb_free = self.vec_store_buffer.free_slots();
         let lq_free = self.load_queue.free_slots();
         let iq_free = self.issue_queue.available_slots();
         let prf_free = self.free_list.available();
         let vec_prf_free = self.vec_free_list.available();
         rob_free
             .min(sb_free)
+            .min(vsb_free)
             .min(lq_free)
             .min(iq_free)
             .min(prf_free)
@@ -1368,6 +1351,10 @@ impl ExecutionEngine for O3Engine {
 
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
         &mut self.store_buffer
+    }
+
+    fn vec_store_buffer_mut(&mut self) -> Option<&mut VecStoreBuffer> {
+        Some(&mut self.vec_store_buffer)
     }
 
     fn scoreboard(&self) -> &Scoreboard {

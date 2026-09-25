@@ -199,6 +199,12 @@ pub fn rename_stage<E: ExecutionEngine>(
                     input.push(id);
                     break;
                 }
+            } else if is_vec_store(id.ctrl.vec_op)
+                && let Some(vsb) = engine.vec_store_buffer_mut()
+                && !vsb.allocate(rob_tag)
+            {
+                input.push(id);
+                break;
             }
 
             if id.ctrl.mem_read

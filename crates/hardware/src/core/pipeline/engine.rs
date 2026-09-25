@@ -78,6 +78,14 @@ pub trait ExecutionEngine {
     /// Access the store buffer mutably (for rename to allocate entries).
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
 
+    /// Access the vector store buffer mutably (for rename to reserve
+    /// entries). `None` for backends without one.
+    fn vec_store_buffer_mut(
+        &mut self,
+    ) -> Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer> {
+        None
+    }
+
     /// Access the speculative rename map (O3 only).
     fn rename_map(&self) -> &RenameMap {
         panic!("rename_map only available for O3 backend")
