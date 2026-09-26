@@ -19,10 +19,10 @@ use pyo3::prelude::*;
 
 /// Python dict to Rust `Config` conversion.
 pub mod conversion;
-/// Simulator binding (`PySimulator` exposed as `Simulator`).
-pub mod simulator;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
 pub mod instruction;
+/// Simulator binding (`PySimulator` exposed as `Simulator`).
+pub mod simulator;
 /// Pipeline snapshot binding (`PyPipelineSnapshot` exposed as `PipelineSnapshot`).
 pub mod snapshot;
 /// Statistics (internal, not exposed to Python).

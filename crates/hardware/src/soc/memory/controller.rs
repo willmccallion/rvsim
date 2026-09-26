@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, MesiState};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
 use crate::soc::memory::buffer::DramBuffer;
 
 /// Cache-line size used when building `LineAddr` from a `PhysAddr`.
@@ -81,7 +81,7 @@ impl Handle for SimpleController {
                     line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
                     data,
                     hit_level: HitLevel::Dram,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }
@@ -245,7 +245,7 @@ impl Handle for DramController {
                     line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
                     data,
                     hit_level: HitLevel::Dram,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }
@@ -318,4 +318,3 @@ fn read_response(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> M
         }
     }
 }
-

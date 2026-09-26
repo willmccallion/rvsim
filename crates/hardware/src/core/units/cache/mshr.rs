@@ -169,7 +169,9 @@ mod tests {
     fn targets_join_the_mshr_for_their_line() {
         let mut table = MshrTable::new(2);
         table.allocate(mshr(0x1000, 1));
-        let entry = table.find_line_mut(LineAddr::from_phys(PhysAddr::new(0x1008), 64)).expect("line in flight");
+        let entry = table
+            .find_line_mut(LineAddr::from_phys(PhysAddr::new(0x1008), 64))
+            .expect("line in flight");
         entry.targets.push(MshrTarget {
             source: ComponentId::Cache(CacheId::new(0)),
             req_id: ReqId::new(9),

@@ -7,7 +7,6 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
-use crate::sim::state::write_log::WriteSeq;
 use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
 use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
@@ -15,6 +14,7 @@ use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
+use crate::sim::state::write_log::WriteSeq;
 
 /// Metadata for a vector memory element micro-op flowing through Memory1/Memory2.
 ///

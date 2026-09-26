@@ -49,11 +49,11 @@ use crate::soc::memory::controller::{
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
 use reservations::ReservationSet;
-use write_log::{WriteLog, Writer};
 use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use write_log::{WriteLog, Writer};
 
 /// What the trace macros print once tracing is armed.
 ///
@@ -271,7 +271,8 @@ impl SharedState {
     /// [`TraceControl`] settings.
     #[must_use]
     pub fn trace_trap_enabled(&self, trap: &Trap) -> bool {
-        self.config.general.trace_instructions && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
+        self.config.general.trace_instructions
+            && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
     }
 
     /// Records a write that bypassed [`SharedState::publish_write`] (the
@@ -450,7 +451,8 @@ impl SimState {
             bus.add_device(Box::new(htif));
         }
 
-        let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller {
+        let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller
+        {
             MemControllerType::Dram => Box::new(DramController::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
@@ -488,11 +490,8 @@ impl SimState {
         };
         l3_cache.set_upstream_inclusion(llc_inclusion);
 
-        let ram_region = crate::soc::memory::RamRegion::new(
-            ram_buffer.as_mut_ptr(),
-            ram_base,
-            ram_size as u64,
-        );
+        let ram_region =
+            crate::soc::memory::RamRegion::new(ram_buffer.as_mut_ptr(), ram_base, ram_size as u64);
         bus.attach_ram(MemCtrlId::new(0), ram_region);
 
         // --- Hart architectural state ----------------------------------
@@ -550,8 +549,7 @@ impl SimState {
         // multi-hart runtime carves per-hart stacks below it).
         let fresh_regs = |hart_id: HartId| {
             let mut regs = if direct_mode {
-                let sp =
-                    config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
+                let sp = config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
                 let mut r = RegisterFile::new();
                 r.write(abi::REG_SP, sp);
                 r.write(abi::REG_A0, u64::from(hart_id.val()));
@@ -613,7 +611,9 @@ impl SimState {
             .collect();
         let cache_stat_paths: Vec<_> = cores
             .iter()
-            .flat_map(|core| [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths])
+            .flat_map(|core| {
+                [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths]
+            })
             .chain(std::iter::once(l3_cache.stat_paths))
             .collect();
         let stats = Stats::for_components(
@@ -627,7 +627,10 @@ impl SimState {
             harts,
             cores,
             shared: SharedState {
-                trace: TraceControl { armed: config.general.trace_instructions, ..TraceControl::default() },
+                trace: TraceControl {
+                    armed: config.general.trace_instructions,
+                    ..TraceControl::default()
+                },
                 topology,
                 cycle: 0,
                 bus,
@@ -663,9 +666,15 @@ impl SimState {
     /// be answered from their tags) and the LLC serves the home agent. A
     /// core with no private cache at all holds no lines, so its accesses
     /// cross the fabric without taking part in coherence.
-    fn attach_coherence_fabric(config: &Config, cores: &mut [Core], llc: &mut Cache) -> CoherenceFabric {
-        let agents: Vec<ComponentId> = cores.iter().map(|core| ComponentId::Cache(core.l2_cache.id)).collect();
-        let caches_lines = config.cache.l1_i.enabled || config.cache.l1_d.enabled || config.cache.l2.enabled;
+    fn attach_coherence_fabric(
+        config: &Config,
+        cores: &mut [Core],
+        llc: &mut Cache,
+    ) -> CoherenceFabric {
+        let agents: Vec<ComponentId> =
+            cores.iter().map(|core| ComponentId::Cache(core.l2_cache.id)).collect();
+        let caches_lines =
+            config.cache.l1_i.enabled || config.cache.l1_d.enabled || config.cache.l2.enabled;
         for core in cores.iter_mut() {
             core.l2_cache.set_downstream(ComponentId::Fabric);
             if caches_lines {
@@ -677,7 +686,12 @@ impl SimState {
         llc.set_upstream_inclusion(InclusionPolicy::Nine);
         let line_bytes = llc.line_bytes();
         let private_l2_lines = cores.iter().map(|core| core.l2_cache.line_count()).sum();
-        coherence::build(&config.coherence, FabricGeometry { line_bytes, private_l2_lines }, ComponentId::Cache(llc.id), agents)
+        coherence::build(
+            &config.coherence,
+            FabricGeometry { line_bytes, private_l2_lines },
+            ComponentId::Cache(llc.id),
+            agents,
+        )
     }
 }
 

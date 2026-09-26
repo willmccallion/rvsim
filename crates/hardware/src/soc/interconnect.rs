@@ -9,7 +9,7 @@ use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemRespData, Packet, MesiState};
+use crate::sim::packet::{HitLevel, MemRespData, MesiState, Packet};
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -123,9 +123,7 @@ impl Bus {
             if !r.contains(paddr, size) {
                 return false;
             }
-            !self
-                .htif_range
-                .is_some_and(|(start, end)| paddr < end && paddr + size > start)
+            !self.htif_range.is_some_and(|(start, end)| paddr < end && paddr + size > start)
         })
     }
 
@@ -268,12 +266,9 @@ impl Handle for Bus {
         match packet {
             Packet::MemReq { req_id, paddr, .. } => {
                 let raw = paddr.val();
-                let ram_hit = self
-                    .ram_ctrl
-                    .filter(|(_, start, end)| raw >= *start && raw < *end);
-                let is_htif = self
-                    .htif_range
-                    .is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
+                let ram_hit = self.ram_ctrl.filter(|(_, start, end)| raw >= *start && raw < *end);
+                let is_htif =
+                    self.htif_range.is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
                 let req_transit = self.calculate_transit_time(BUS_REQ_BYTES);
                 let resp_transit = self.calculate_transit_time(BUS_RESP_BYTES);
 
@@ -304,7 +299,7 @@ impl Handle for Bus {
                         line_addr,
                         data: MemRespData::Small(0),
                         hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
+                        state: MesiState::Exclusive,
                     },
                 );
             }

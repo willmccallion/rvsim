@@ -14,7 +14,7 @@
 use crate::common::LineAddr;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
+use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -61,7 +61,10 @@ impl Handle for SysCon {
             // partial writes that don't reach a full register width are
             // discarded, mirroring real device behaviour and what tests rely on.
             if offset == 0
-                && matches!(size, crate::sim::packet::AccessSize::B4 | crate::sim::packet::AccessSize::B8)
+                && matches!(
+                    size,
+                    crate::sim::packet::AccessSize::B4 | crate::sim::packet::AccessSize::B8
+                )
                 && let MemOp::Write { data: WriteData::Small(val) } = op
             {
                 self.act_on_command(val as u32);
@@ -75,7 +78,7 @@ impl Handle for SysCon {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(0),
                     hit_level: HitLevel::Mmio,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }

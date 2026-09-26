@@ -7,7 +7,7 @@
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
+use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -309,7 +309,7 @@ impl Handle for Uart {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }

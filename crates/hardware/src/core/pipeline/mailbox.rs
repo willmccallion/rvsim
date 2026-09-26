@@ -19,9 +19,6 @@
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
 use crate::common::{ExceptionStage, InstSize, LineAddr, PhysAddr};
-use crate::sim::CoreCtx;
-use crate::sim::state::memory::TranslateResult;
-use crate::sim::state::write_log::WriteLog;
 use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{
     FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder, inst_size_at,
@@ -31,8 +28,11 @@ use crate::core::pipeline::outstanding::{
     OutstandingFetch, OutstandingLoad, OutstandingWalk, WalkContinuation,
 };
 use crate::core::pipeline::signals::MemWidth;
+use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet};
+use crate::sim::state::memory::TranslateResult;
+use crate::sim::state::write_log::WriteLog;
 
 /// Processes every packet currently in the engine's mailbox.
 pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut CoreCtx<'_>) {
@@ -181,7 +181,8 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 } else {
                     inst_size_at(state, entry.paddr)
                 };
-                pipeline.engine.common_mut().fetch_resume_pc = Some(entry.pc.wrapping_add(size.as_u64()));
+                pipeline.engine.common_mut().fetch_resume_pc =
+                    Some(entry.pc.wrapping_add(size.as_u64()));
             }
             dispatch_fetch_group(
                 state,
@@ -220,7 +221,12 @@ fn read_pte_bytes(state: &CoreCtx<'_>, pte_addr: PhysAddr) -> u64 {
 
 /// Reads the raw bytes of a load. RAM accesses use the fast-path pointer;
 /// MMIO loads take their data from the device's `MemResp` payload.
-fn read_load_bytes(state: &CoreCtx<'_>, paddr: u64, width: MemWidth, resp_data: &MemRespData) -> u64 {
+fn read_load_bytes(
+    state: &CoreCtx<'_>,
+    paddr: u64,
+    width: MemWidth,
+    resp_data: &MemRespData,
+) -> u64 {
     let size = match width {
         MemWidth::Byte => 1u64,
         MemWidth::Half => 2,

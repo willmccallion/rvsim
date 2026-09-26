@@ -11,7 +11,7 @@
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, MesiState};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
 use crate::soc::devices::Device;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -39,12 +39,14 @@ impl Handle for GoldfishRtc {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let offset = paddr.val().saturating_sub(self.base_addr);
             let value: u64 = match op {
-                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => match (offset, size) {
-                    (0x00, AccessSize::B4) => u64::from(Self::get_time_ns() as u32),
-                    (0x04, AccessSize::B4) => u64::from((Self::get_time_ns() >> 32) as u32),
-                    (0x00, AccessSize::B8) => Self::get_time_ns(),
-                    _ => 0,
-                },
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
+                    match (offset, size) {
+                        (0x00, AccessSize::B4) => u64::from(Self::get_time_ns() as u32),
+                        (0x04, AccessSize::B4) => u64::from((Self::get_time_ns() >> 32) as u32),
+                        (0x00, AccessSize::B8) => Self::get_time_ns(),
+                        _ => 0,
+                    }
+                }
                 MemOp::Write { .. } | MemOp::Writeback { .. } => 0,
             };
             ctx.scheduler.schedule(
@@ -56,7 +58,7 @@ impl Handle for GoldfishRtc {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }

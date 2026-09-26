@@ -12,7 +12,6 @@ pub mod controller;
 /// DDR5 controller with per-bank command state machines and JEDEC timing.
 pub mod ddr5;
 
-
 /// Direct view of a contiguous physical RAM region. Lets the pipeline
 /// bypass bus device dispatch on the hot load/store path.
 ///
@@ -73,4 +72,3 @@ impl RamRegion {
         unsafe { self.ptr.add((addr - self.base) as usize) }
     }
 }
-

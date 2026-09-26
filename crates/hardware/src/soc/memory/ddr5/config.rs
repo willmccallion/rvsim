@@ -193,10 +193,9 @@ impl std::fmt::Display for Ddr5ParamsError {
                 write!(f, "ddr5.{field} must be a power of two, got {value}")
             }
             Self::Zero { field } => write!(f, "ddr5.{field} must be non-zero"),
-            Self::WriteQueue => write!(
-                f,
-                "ddr5 write watermarks must satisfy low < high <= write_queue_entries"
-            ),
+            Self::WriteQueue => {
+                write!(f, "ddr5 write watermarks must satisfy low < high <= write_queue_entries")
+            }
             Self::TooManyBanks => write!(f, "ddr5 supports at most 64 banks per rank"),
         }
     }

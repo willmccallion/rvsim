@@ -10,7 +10,6 @@
 //!   (typically a `VecPrfView`) and returns side effects for commit-time application.
 
 use crate::common::Trap;
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::fpu::rounding_modes::RoundingMode;
@@ -20,6 +19,7 @@ use crate::core::units::vpu::types::{Vlmul, Vxrm, parse_vtype_with_elen};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::core::units::vpu::{crypto, fpu, mask, mem, permute, reduction};
 use crate::isa::rvv::encoding as v_enc;
+use crate::sim::CoreCtx;
 
 /// Execute a vector operation. Returns the scalar result (for vsetvl family)
 /// or 0 for arithmetic/memory ops.

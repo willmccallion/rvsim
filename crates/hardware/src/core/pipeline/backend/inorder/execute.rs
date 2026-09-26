@@ -4,7 +4,6 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
@@ -18,6 +17,7 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
+use crate::sim::CoreCtx;
 use crate::{trace_execute, trace_trap};
 
 const FUNCT3_SHIFT: u32 = 12;
@@ -237,7 +237,9 @@ pub fn execute_inorder(
                     continue;
                 }
                 let tsr = (state.hart.csrs.mstatus >> 22) & 1;
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                    && tsr != 0
+                {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -318,7 +320,9 @@ pub fn execute_inorder(
 
             if id.ctrl.system_op == SystemOp::SfenceVma {
                 let tvm = (state.hart.csrs.mstatus >> 20) & 1;
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
+                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                    && tvm != 0
+                {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),

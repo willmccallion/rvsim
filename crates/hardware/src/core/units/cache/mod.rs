@@ -34,7 +34,9 @@ use crate::core::units::prefetch::{
 };
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind};
+use crate::sim::packet::{
+    AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind,
+};
 
 /// One tag-array entry.
 #[derive(Clone, Copy, Debug, Default)]
@@ -344,7 +346,9 @@ impl Cache {
         for set_index in 0..self.num_sets {
             let set = &self.lines[set_index * self.ways..(set_index + 1) * self.ways];
             for (i, line) in set.iter().enumerate() {
-                if line.valid() && set[..i].iter().any(|other| other.valid() && other.tag == line.tag) {
+                if line.valid()
+                    && set[..i].iter().any(|other| other.valid() && other.tag == line.tag)
+                {
                     duplicates.push(self.line_of(self.reconstruct_addr(set_index, line.tag)));
                 }
             }
@@ -512,7 +516,9 @@ impl Cache {
         let set_index = self.set_index(addr);
         let present = self.find_way(addr);
         let needs_permission = is_write
-            && present.is_some_and(|way| self.lines[set_index * self.ways + way].state == MesiState::Shared);
+            && present.is_some_and(|way| {
+                self.lines[set_index * self.ways + way].state == MesiState::Shared
+            });
         if let Some(way) = present.filter(|_| !needs_permission) {
             self.policy.update(set_index, way);
             let index = set_index * self.ways + way;
@@ -522,7 +528,15 @@ impl Cache {
             ctx.stats.counter(self.stat_paths.hits).inc();
             let hit_level = self.hit_level();
             let granted = self.lines[index].state;
-            self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level, granted);
+            self.respond(
+                ctx,
+                req.source,
+                req.req_id,
+                req.paddr,
+                ctx.cycle + self.latency,
+                hit_level,
+                granted,
+            );
             if self.upstream_inclusion == InclusionPolicy::Exclusive
                 && matches!(req.source, ComponentId::Cache(_))
             {
@@ -577,7 +591,15 @@ impl Cache {
     ) {
         let req_id = self.alloc_req_id();
         let upgrade = self.find_way(line.val()).is_some();
-        self.mshrs.allocate(Mshr { line, req_id, targets, write, prefetch, issued_at: ctx.cycle, upgrade });
+        self.mshrs.allocate(Mshr {
+            line,
+            req_id,
+            targets,
+            write,
+            prefetch,
+            issued_at: ctx.cycle,
+            upgrade,
+        });
         let Some(downstream) = self.downstream else { return };
         let packet = match self.coherent {
             Some(requester) => {
@@ -591,7 +613,9 @@ impl Cache {
                 };
                 Packet::Coh(CoherenceMsg::Req { txn: req_id, line, kind, requester })
             }
-            None => Packet::MemReq { req_id, paddr: line.phys(), vaddr, size: AccessSize::Line, op },
+            None => {
+                Packet::MemReq { req_id, paddr: line.phys(), vaddr, size: AccessSize::Line, op }
+            }
         };
         ctx.scheduler.schedule(ctx.cycle + self.latency, downstream, ctx.self_id, packet);
     }
@@ -621,7 +645,15 @@ impl Cache {
     fn on_writeback(&mut self, req: &BlockedRequest, dirty: bool, ctx: &mut HandleCtx<'_>) {
         let addr = req.paddr.val();
         let hit_level = self.hit_level();
-        self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, hit_level, MesiState::Invalid);
+        self.respond(
+            ctx,
+            req.source,
+            req.req_id,
+            req.paddr,
+            ctx.cycle + self.latency,
+            hit_level,
+            MesiState::Invalid,
+        );
         let line = self.line_of(addr);
         if self.pending_probes.iter().any(|p| p.line == line) {
             self.note_probe_writeback(line, dirty, ctx);
@@ -647,8 +679,21 @@ impl Cache {
         self.writebacks.allocate(Writeback { line, req_id, dirty });
         ctx.stats.counter(self.stat_paths.writebacks).inc();
         let packet = self.coherent.map_or_else(
-            || Packet::MemReq { req_id, paddr: line.phys(), vaddr: None, size: AccessSize::Line, op: MemOp::Writeback { dirty } },
-            |requester| Packet::Coh(CoherenceMsg::Req { txn: req_id, line, kind: ReqKind::WriteBack { dirty }, requester }),
+            || Packet::MemReq {
+                req_id,
+                paddr: line.phys(),
+                vaddr: None,
+                size: AccessSize::Line,
+                op: MemOp::Writeback { dirty },
+            },
+            |requester| {
+                Packet::Coh(CoherenceMsg::Req {
+                    txn: req_id,
+                    line,
+                    kind: ReqKind::WriteBack { dirty },
+                    requester,
+                })
+            },
         );
         ctx.scheduler.schedule(ctx.cycle + 1, downstream, ctx.self_id, packet);
     }
@@ -676,7 +721,13 @@ impl Cache {
             ctx.cycle,
             downstream,
             ctx.self_id,
-            Packet::MemReq { req_id: ours, paddr: req.paddr, vaddr: req.vaddr, size: req.size, op: req.op },
+            Packet::MemReq {
+                req_id: ours,
+                paddr: req.paddr,
+                vaddr: req.vaddr,
+                size: req.size,
+                op: req.op,
+            },
         );
     }
 
@@ -689,7 +740,15 @@ impl Cache {
         let kind = match &req.op {
             MemOp::Writeback { dirty } => {
                 let dirty = *dirty;
-                self.respond(ctx, req.source, req.req_id, req.paddr, ctx.cycle + self.latency, self.hit_level(), MesiState::Invalid);
+                self.respond(
+                    ctx,
+                    req.source,
+                    req.req_id,
+                    req.paddr,
+                    ctx.cycle + self.latency,
+                    self.hit_level(),
+                    MesiState::Invalid,
+                );
                 if self.pending_probes.iter().any(|p| p.line == line) {
                     self.note_probe_writeback(line, dirty, ctx);
                 } else if dirty {
@@ -744,14 +803,28 @@ impl Cache {
                 ctx.cycle,
                 forwarded.source,
                 ctx.self_id,
-                Packet::MemResp { req_id: forwarded.theirs, line_addr, data, hit_level, state: granted },
+                Packet::MemResp {
+                    req_id: forwarded.theirs,
+                    line_addr,
+                    data,
+                    hit_level,
+                    state: granted,
+                },
             );
             return;
         }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
         let installed = self.fill(&mshr, granted, ctx);
         for target in &mshr.targets {
-            self.respond(ctx, target.source, target.req_id, target.paddr, ctx.cycle, hit_level, installed);
+            self.respond(
+                ctx,
+                target.source,
+                target.req_id,
+                target.paddr,
+                ctx.cycle,
+                hit_level,
+                installed,
+            );
         }
         self.retry_blocked(ctx);
     }
@@ -768,7 +841,9 @@ impl Cache {
 
         let way = if let Some(way) = self.find_way(addr) {
             way
-        } else if let Some(free) = (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid()) {
+        } else if let Some(free) =
+            (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid())
+        {
             free
         } else {
             let victim = self.policy.get_victim(set_index);
@@ -784,7 +859,11 @@ impl Cache {
             }
         };
         let index = set_index * self.ways + way;
-        let state = if self.lines[index].valid() && self.lines[index].dirty() { MesiState::Modified } else { state };
+        let state = if self.lines[index].valid() && self.lines[index].dirty() {
+            MesiState::Modified
+        } else {
+            state
+        };
         self.lines[index] = CacheLine { tag, state };
         self.policy.update(set_index, way);
         state
@@ -815,7 +894,12 @@ impl Cache {
             return;
         }
         for &upstream in &self.upstream {
-            ctx.scheduler.schedule(ctx.cycle, upstream, ctx.self_id, Packet::CacheInval { line_addr: line });
+            ctx.scheduler.schedule(
+                ctx.cycle,
+                upstream,
+                ctx.self_id,
+                Packet::CacheInval { line_addr: line },
+            );
         }
     }
 
@@ -834,7 +918,14 @@ impl Cache {
 
     /// A probe from the next level on behalf of a snoop: give up rights to
     /// the line here and in every cache above, then answer.
-    fn on_probe(&mut self, line: LineAddr, kind: ProbeKind, txn: ReqId, from: ComponentId, ctx: &mut HandleCtx<'_>) {
+    fn on_probe(
+        &mut self,
+        line: LineAddr,
+        kind: ProbeKind,
+        txn: ReqId,
+        from: ComponentId,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         ctx.stats.counter(self.stat_paths.probes).inc();
         self.give_up_rights(line, kind, ProbeOrigin::Probe { from, txn }, true, ctx);
     }
@@ -857,27 +948,53 @@ impl Cache {
         self.give_up_rights(line, probe_kind, ProbeOrigin::Snoop { txn }, false, ctx);
     }
 
-    fn give_up_rights(&mut self, line: LineAddr, kind: ProbeKind, origin: ProbeOrigin, write_back_dirty: bool, ctx: &mut HandleCtx<'_>) {
+    fn give_up_rights(
+        &mut self,
+        line: LineAddr,
+        kind: ProbeKind,
+        origin: ProbeOrigin,
+        write_back_dirty: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         // A fetch outstanding for the line was ordered after this probe at
         // the next level, so its fill is authoritative and is left alone.
         let had_copy = self.contains(line.val());
-        let dirty = self.apply_probe(line, kind, write_back_dirty, ctx) || self.writebacks.holds(line);
+        let dirty =
+            self.apply_probe(line, kind, write_back_dirty, ctx) || self.writebacks.holds(line);
         if self.upstream.is_empty() {
             self.answer(origin, line, had_copy, dirty, ctx);
             return;
         }
         let ours = self.alloc_req_id();
-        self.pending_probes.push(PendingProbe { ours, origin, line, remaining: self.upstream.len(), dirty, had_copy });
+        self.pending_probes.push(PendingProbe {
+            ours,
+            origin,
+            line,
+            remaining: self.upstream.len(),
+            dirty,
+            had_copy,
+        });
         // Probes share the response path's delay so they cannot overtake a
         // response already sent to an upper cache.
         for &upstream in &self.upstream {
-            ctx.scheduler.schedule(ctx.cycle + self.latency, upstream, ctx.self_id, Packet::Probe { line_addr: line, kind, txn: ours });
+            ctx.scheduler.schedule(
+                ctx.cycle + self.latency,
+                upstream,
+                ctx.self_id,
+                Packet::Probe { line_addr: line, kind, txn: ours },
+            );
         }
     }
 
     /// Applies a probe to our own copy, writing a dirty line back first
     /// when asked. Returns whether the copy was dirty.
-    fn apply_probe(&mut self, line: LineAddr, kind: ProbeKind, write_back_dirty: bool, ctx: &mut HandleCtx<'_>) -> bool {
+    fn apply_probe(
+        &mut self,
+        line: LineAddr,
+        kind: ProbeKind,
+        write_back_dirty: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) -> bool {
         if !self.enabled {
             return false;
         }
@@ -894,7 +1011,14 @@ impl Cache {
         dirty
     }
 
-    fn answer(&self, origin: ProbeOrigin, line: LineAddr, had_copy: bool, dirty: bool, ctx: &mut HandleCtx<'_>) {
+    fn answer(
+        &self,
+        origin: ProbeOrigin,
+        line: LineAddr,
+        had_copy: bool,
+        dirty: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         // Never before the dirty data a probe writes back, which leaves a
         // cycle later.
         let at = ctx.cycle + self.latency.max(1);
@@ -906,7 +1030,9 @@ impl Cache {
                 Packet::ProbeResp { line_addr: line, txn, had_copy, dirty },
             ),
             ProbeOrigin::Snoop { txn } => {
-                let (Some(from), Some(downstream)) = (self.coherent, self.downstream) else { return };
+                let (Some(from), Some(downstream)) = (self.coherent, self.downstream) else {
+                    return;
+                };
                 ctx.scheduler.schedule(
                     at,
                     downstream,
@@ -934,7 +1060,8 @@ impl Cache {
     /// A coherence message from the home agent.
     fn on_coherence(&mut self, msg: CoherenceMsg, ctx: &mut HandleCtx<'_>) {
         match msg {
-            CoherenceMsg::CompData { txn, line, state, .. } | CoherenceMsg::Comp { txn, line, state, .. } => {
+            CoherenceMsg::CompData { txn, line, state, .. }
+            | CoherenceMsg::Comp { txn, line, state, .. } => {
                 self.on_completion(txn, line, state, ctx);
             }
             CoherenceMsg::Snoop { txn, line, kind, .. } => self.on_snoop(line, kind, txn, ctx),
@@ -949,10 +1076,22 @@ impl Cache {
     /// The home completed one of our requests: acknowledge it, then fill
     /// or retire the writeback. A permission grant for a line a snoop took
     /// away in the meantime is useless, so the fetch is re-issued for data.
-    fn on_completion(&mut self, txn: ReqId, line: LineAddr, state: MesiState, ctx: &mut HandleCtx<'_>) {
+    fn on_completion(
+        &mut self,
+        txn: ReqId,
+        line: LineAddr,
+        state: MesiState,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let (Some(from), Some(downstream)) = (self.coherent, self.downstream) else { return };
-        ctx.scheduler.schedule(ctx.cycle, downstream, ctx.self_id, Packet::Coh(CoherenceMsg::CompAck { txn, line, from }));
-        let lost_upgrade = self.mshrs.iter().any(|m| m.req_id == txn && m.upgrade) && !self.contains(line.val());
+        ctx.scheduler.schedule(
+            ctx.cycle,
+            downstream,
+            ctx.self_id,
+            Packet::Coh(CoherenceMsg::CompAck { txn, line, from }),
+        );
+        let lost_upgrade =
+            self.mshrs.iter().any(|m| m.req_id == txn && m.upgrade) && !self.contains(line.val());
         if lost_upgrade {
             self.reissue_for_data(txn, ctx);
             return;
@@ -973,7 +1112,12 @@ impl Cache {
             ctx.cycle + self.latency,
             downstream,
             ctx.self_id,
-            Packet::Coh(CoherenceMsg::Req { txn: req_id, line, kind: ReqKind::ReadUnique, requester }),
+            Packet::Coh(CoherenceMsg::Req {
+                txn: req_id,
+                line,
+                kind: ReqKind::ReadUnique,
+                requester,
+            }),
         );
     }
 
@@ -995,8 +1139,12 @@ impl Handle for Cache {
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
                 self.on_response(req_id, line_addr, data, hit_level, state, ctx);
             }
-            Packet::Probe { line_addr, kind, txn } => self.on_probe(line_addr, kind, txn, source, ctx),
-            Packet::ProbeResp { txn, had_copy, dirty, .. } => self.on_probe_resp(txn, had_copy, dirty, ctx),
+            Packet::Probe { line_addr, kind, txn } => {
+                self.on_probe(line_addr, kind, txn, source, ctx)
+            }
+            Packet::ProbeResp { txn, had_copy, dirty, .. } => {
+                self.on_probe_resp(txn, had_copy, dirty, ctx)
+            }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
             Packet::CacheClean { line_addr } => {

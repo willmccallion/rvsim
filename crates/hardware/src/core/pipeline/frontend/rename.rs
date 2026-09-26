@@ -8,7 +8,6 @@
 //! so that instructions reading their own destination (e.g. ADDI x5, x5, 16)
 //! get the previous producer's tag, not their own.
 
-use crate::sim::CoreCtx;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
@@ -17,6 +16,7 @@ use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg, parse_vtype};
+use crate::sim::CoreCtx;
 use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.

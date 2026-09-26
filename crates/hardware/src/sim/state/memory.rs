@@ -33,12 +33,7 @@ pub enum TranslateResult {
 
 impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
-    pub fn translate(
-        &mut self,
-        vaddr: VirtAddr,
-        access: AccessType,
-        size: u64,
-    ) -> TranslateResult {
+    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
         if self.direct_mode {
             let paddr = PhysAddr::new(vaddr.val());
 
@@ -104,8 +99,13 @@ impl CoreCtx<'_> {
         // again once the leaf PTE resolves, but the walk itself reads 8 bytes
         // per PTE which is what `start_walk` / `continue_walk` enforce.
         let size = 8u64;
-        let outcome =
-            self.core.mmu.continue_walk(state, raw_pte, &self.hart.csrs, Some(&self.hart.pmp), bus_transit_cycles);
+        let outcome = self.core.mmu.continue_walk(
+            state,
+            raw_pte,
+            &self.hart.csrs,
+            Some(&self.hart.pmp),
+            bus_transit_cycles,
+        );
         self.finalize_outcome(outcome, vaddr, access, size, effective_priv)
     }
 
@@ -133,13 +133,9 @@ impl CoreCtx<'_> {
                         matches!(access, AccessType::Fetch),
                         is_machine,
                     );
-                    if pmp_result != PmpResult::Allow
-                        || !self.bus.is_valid_address(result.paddr)
-                    {
-                        result = TranslationResult::fault(
-                            fault_for(access, vaddr.val()),
-                            result.cycles,
-                        );
+                    if pmp_result != PmpResult::Allow || !self.bus.is_valid_address(result.paddr) {
+                        result =
+                            TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
                     }
                 }
                 TranslateResult::Ready(result)

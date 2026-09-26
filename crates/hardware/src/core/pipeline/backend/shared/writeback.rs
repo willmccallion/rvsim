@@ -8,10 +8,10 @@
 //! records).
 
 use crate::common::ExceptionStage;
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::Mem2WbEntry;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::signals::ControlFlow;
+use crate::sim::CoreCtx;
 use crate::trace_trap;
 use crate::trace_writeback;
 
@@ -40,7 +40,9 @@ pub fn writeback_stage(state: &mut CoreCtx<'_>, input: &mut Vec<Mem2WbEntry>, ro
             continue;
         }
 
-        let val = if wb.ctrl.mem_read || wb.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None {
+        let val = if wb.ctrl.mem_read
+            || wb.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
+        {
             wb.load_data
         } else if wb.ctrl.control_flow == ControlFlow::Jump {
             wb.pc.wrapping_add(wb.inst_size.as_u64())

@@ -17,10 +17,10 @@
 
 use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
 use crate::common::{AccessType, ExceptionStage, InstSize, Trap, VirtAddr};
-use crate::sim::CoreCtx;
-use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::isa::rvc::expand::expand;
+use crate::sim::CoreCtx;
+use crate::sim::state::memory::TranslateResult;
 use crate::{trace_fetch, trace_trap};
 
 /// Reads a 16-bit instruction half-word from the RAM fast-path pointer.

@@ -118,17 +118,13 @@ pub trait ExecutionEngine {
     /// stage uses this to re-inject `ExMem1Entry` values after a page-table
     /// walk completes so memory1 reprocesses them with the new TLB entry in
     /// place.
-    fn execute_mem1_mut(
-        &mut self,
-    ) -> &mut Vec<crate::core::pipeline::latches::ExMem1Entry>;
+    fn execute_mem1_mut(&mut self) -> &mut Vec<crate::core::pipeline::latches::ExMem1Entry>;
 
     /// Mutable access to the Memory1→Memory2 latch. Memory1 pushes
     /// completed (non-load or SB-forwarded) entries here directly; the
     /// mailbox-drain stage pushes parked-load completions here once the
     /// matching `MemResp` arrives.
-    fn mem1_mem2_mut(
-        &mut self,
-    ) -> &mut Vec<crate::core::pipeline::latches::Mem1Mem2Entry>;
+    fn mem1_mem2_mut(&mut self) -> &mut Vec<crate::core::pipeline::latches::Mem1Mem2Entry>;
 
     /// Shared in-flight memory bookkeeping (mailbox + outstanding tables +
     /// routing IDs).
@@ -366,7 +362,10 @@ impl<E: ExecutionEngine> Pipeline<E> {
         let common = self.engine.common_mut();
         common.outstanding_fetches.clear();
         common.outstanding_walks.retain(|_, walk| {
-            !matches!(walk.continuation, crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. })
+            !matches!(
+                walk.continuation,
+                crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
+            )
         });
         common.fetch_reorder.clear();
         common.fetch_walk_pending = false;
@@ -493,18 +492,10 @@ mod tests {
         let mut state = sys.core_ctx(0);
 
         let frontend = Frontend::new(config.pipeline.width);
-        let engine = InOrderEngine::new(
-            &config,
-            PipelineId::new(0),
-            CacheId::new(0),
-            CacheId::new(1),
-        );
-        let pipeline = Pipeline {
-            frontend,
-            engine,
-            rename_output: Vec::new(),
-            redirect_pending: false,
-        };
+        let engine =
+            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+        let pipeline =
+            Pipeline { frontend, engine, rename_output: Vec::new(), redirect_pending: false };
         let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
 
         dispatch.tick(&mut state);

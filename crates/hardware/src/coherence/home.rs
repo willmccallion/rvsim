@@ -31,7 +31,12 @@ pub trait HomeAgent: Send + Sync + std::fmt::Debug {
 
     /// Who holds `line`; `None` when the agent does not know (everyone
     /// must be snooped).
-    fn holders(&mut self, line: LineAddr, stats: &mut Stats, paths: &HomeStatPaths) -> Option<Holders>;
+    fn holders(
+        &mut self,
+        line: LineAddr,
+        stats: &mut Stats,
+        paths: &HomeStatPaths,
+    ) -> Option<Holders>;
 
     /// Whether `line` can be tracked, and what must be recalled first when
     /// its set is full. `in_flight` lines have a live transaction: they
@@ -64,7 +69,12 @@ impl HomeAgent for Broadcast {
         "broadcast"
     }
 
-    fn holders(&mut self, _line: LineAddr, _stats: &mut Stats, _paths: &HomeStatPaths) -> Option<Holders> {
+    fn holders(
+        &mut self,
+        _line: LineAddr,
+        _stats: &mut Stats,
+        _paths: &HomeStatPaths,
+    ) -> Option<Holders> {
         None
     }
 
@@ -148,7 +158,12 @@ impl HomeAgent for SnoopFilter {
         "snoop-filter"
     }
 
-    fn holders(&mut self, line: LineAddr, stats: &mut Stats, paths: &HomeStatPaths) -> Option<Holders> {
+    fn holders(
+        &mut self,
+        line: LineAddr,
+        stats: &mut Stats,
+        paths: &HomeStatPaths,
+    ) -> Option<Holders> {
         let Some((set, way)) = self.find(line) else {
             stats.counter(paths.filter_misses).inc();
             return Some(Holders::default());
@@ -229,7 +244,11 @@ impl HomeAgent for SnoopFilter {
     }
 
     fn exact_holders(&self, line: LineAddr) -> Option<Holders> {
-        Some(self.find(line).and_then(|(set, way)| self.sets[set][way]).map_or_else(Holders::default, |e| e.holders))
+        Some(
+            self.find(line)
+                .and_then(|(set, way)| self.sets[set][way])
+                .map_or_else(Holders::default, |e| e.holders),
+        )
     }
 
     fn tracked_lines(&self) -> Option<Vec<LineAddr>> {

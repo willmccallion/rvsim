@@ -36,8 +36,7 @@ pub struct SideBandEcc {
 
 impl EccPolicy for SideBandEcc {
     fn scrub_interval(&self, timing: &Ddr5Timing) -> Option<u64> {
-        self.patrol_scrub_ns
-            .map(|ns| Constraint::ps(ns * 1000).cycles(timing.data_rate_mts).max(1))
+        self.patrol_scrub_ns.map(|ns| Constraint::ps(ns * 1000).cycles(timing.data_rate_mts).max(1))
     }
 }
 

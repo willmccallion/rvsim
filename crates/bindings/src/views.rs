@@ -63,7 +63,9 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.state.harts[self.hart].regs.write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.state.harts[self.hart]
+            .regs
+            .write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
@@ -161,7 +163,12 @@ impl Hart {
     fn __repr__(&self, py: Python<'_>) -> String {
         let cpu = self.cpu.borrow(py);
         let hart = &cpu.inner.state.harts[self.index];
-        format!("Hart(id={}, pc={:#x}, privilege={})", self.index, hart.pc, cpu.privilege_str(self.index))
+        format!(
+            "Hart(id={}, pc={:#x}, privilege={})",
+            self.index,
+            hart.pc,
+            cpu.privilege_str(self.index)
+        )
     }
 }
 
@@ -181,7 +188,10 @@ impl Harts {
         let count = self.__len__(py);
         let resolved = if index < 0 { index + count as isize } else { index };
         if resolved < 0 || resolved as usize >= count {
-            return Err(PyIndexError::new_err(format!("hart index {index} out of range (0–{})", count - 1)));
+            return Err(PyIndexError::new_err(format!(
+                "hart index {index} out of range (0–{})",
+                count - 1
+            )));
         }
         Ok(Hart { cpu: self.cpu.clone_ref(py), index: resolved as usize })
     }
@@ -239,7 +249,8 @@ impl VirtualMemory {
         let mut cpu = self.cpu.borrow_mut(py);
         // FFI-boundary translate: synchronously drive the walk inline,
         // because the Python caller can't park.
-        let mut outcome = cpu.inner.state.core_ctx(0).translate(VirtAddr::new(addr), AccessType::Read, 8);
+        let mut outcome =
+            cpu.inner.state.core_ctx(0).translate(VirtAddr::new(addr), AccessType::Read, 8);
         let paddr = loop {
             match outcome {
                 TranslateResult::Ready(result) => {

@@ -1,7 +1,6 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::{CoreCtx, SharedState};
-use crate::soc::interconnect::HartIrqs;
 use crate::common::constants::{
     HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
     WFI_INSTRUCTION,
@@ -10,6 +9,7 @@ use crate::common::{Asid, SimError, Vpn};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
+use crate::soc::interconnect::HartIrqs;
 use crate::trace_trap;
 
 impl SharedState {
@@ -58,18 +58,18 @@ impl CoreCtx<'_> {
                 // Hang detection reads the instruction at the stuck PC for
                 // tracing; uses the RAM fast-path pointer (bench-side
                 // observability — no cache modelling needed).
-                let paddr_raw = if let Some(hit) =
-                    self.core.mmu.dtlb.lookup(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
+                let paddr_raw = if let Some(hit) = self
+                    .core
+                    .mmu
+                    .dtlb
+                    .lookup(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
                 {
                     hit.ppn.to_addr() | (self.hart.pc & PAGE_OFFSET_MASK)
                 } else {
                     self.hart.pc
                 };
-                let inst = self
-                    .bus
-                    .ram_region()
-                    .filter(|r| r.contains(paddr_raw, 4))
-                    .map_or(0u32, |r| {
+                let inst =
+                    self.bus.ram_region().filter(|r| r.contains(paddr_raw, 4)).map_or(0u32, |r| {
                         // SAFETY: `RamRegion::contains` bounds-checks the access.
                         unsafe { r.ptr(paddr_raw).cast::<u32>().read_unaligned() }
                     });
@@ -203,7 +203,10 @@ mod tests {
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
         assert_eq!(state.stats.get(paths.cycles_machine).unwrap_or(0.0) as u64, 1);
-        assert_eq!(state.stats.get(state.core.stat_paths.pipeline.cycles_total).unwrap_or(0.0) as u64, 3);
+        assert_eq!(
+            state.stats.get(state.core.stat_paths.pipeline.cycles_total).unwrap_or(0.0) as u64,
+            3
+        );
     }
 
     #[test]

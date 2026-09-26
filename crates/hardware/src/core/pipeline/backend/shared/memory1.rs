@@ -28,20 +28,18 @@
 //!   - For **SC**: same as stores, plus an `AtomicOp::Sc` marker so memory2
 //!     records the deferred `LrScRecord::Sc`.
 
-use crate::common::{
-    AccessType, ExceptionStage, PhysAddr, PteUpdate, Trap, VirtAddr,
-};
-use crate::sim::CoreCtx;
+use crate::common::{AccessType, ExceptionStage, PhysAddr, PteUpdate, Trap, VirtAddr};
 use crate::core::arch::mode::PrivilegeMode;
-use crate::sim::state::memory::TranslateResult;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{OutstandingLoad, OutstandingWalk, WalkContinuation};
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
+use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
+use crate::sim::state::memory::TranslateResult;
 
 /// Outcome of processing a single `ExMem1Entry`.
 enum EntryOutcome {
@@ -184,10 +182,7 @@ fn process_entry<E: ExecutionEngine>(
             return EntryOutcome::Done;
         }
         // LR / AMO: wait for older stores to this address to drain.
-        if engine
-            .store_buffer()
-            .has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
-        {
+        if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag) {
             return EntryOutcome::Replay(ex);
         }
         emit_load_req(state, engine, ex, paddr, vaddr, pte_update, true);
@@ -195,10 +190,7 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     // Demand load: try store-buffer forwarding first.
-    match engine
-        .store_buffer()
-        .forward_load(paddr, ex.ctrl.width, ex.rob_tag)
-    {
+    match engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(engine, ex, paddr, vaddr, pte_update, raw_val);
             EntryOutcome::Done
@@ -448,10 +440,10 @@ fn emit_load_req<E: ExecutionEngine>(
         Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: access_size, op },
     );
 
-    let _ = engine.common_mut().outstanding_loads.insert(
-        req_id,
-        OutstandingLoad { entry: ex, paddr, vaddr, pte_update },
-    );
+    let _ = engine
+        .common_mut()
+        .outstanding_loads
+        .insert(req_id, OutstandingLoad { entry: ex, paddr, vaddr, pte_update });
 }
 
 /// Records the parked walk and issues the PTE `MemReq`.

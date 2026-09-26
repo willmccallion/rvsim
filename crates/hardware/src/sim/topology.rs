@@ -100,7 +100,8 @@ impl Topology {
                 }
             })
             .collect();
-        let llc = CacheId::new(u32::try_from(core_count).unwrap_or(u32::MAX) * PRIVATE_CACHES_PER_CORE);
+        let llc =
+            CacheId::new(u32::try_from(core_count).unwrap_or(u32::MAX) * PRIVATE_CACHES_PER_CORE);
         Self { cores, llc, mem_ctrls: vec![MemCtrlId::new(0)] }
     }
 
@@ -149,7 +150,10 @@ mod tests {
         assert_eq!(t.cores[1].l1i, CacheId::new(3));
         assert_eq!(t.cores[1].l2, CacheId::new(5));
         assert_eq!(t.llc, CacheId::new(6));
-        assert_eq!(t.locate_cache(CacheId::new(4)), Some(CacheSlot::Private { core: CoreId::new(1), which: PrivateCache::L1D }));
+        assert_eq!(
+            t.locate_cache(CacheId::new(4)),
+            Some(CacheSlot::Private { core: CoreId::new(1), which: PrivateCache::L1D })
+        );
         assert_eq!(t.locate_cache(CacheId::new(6)), Some(CacheSlot::Llc));
         assert_eq!(t.locate_cache(CacheId::new(7)), None);
         assert_eq!(t.core_of_hart(HartId::new(1)), Some(CoreId::new(1)));

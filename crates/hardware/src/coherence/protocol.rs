@@ -85,7 +85,12 @@ pub trait CoherenceProtocol: Send + Sync + std::fmt::Debug {
     /// Snoops the home must issue so that `requester` can be granted
     /// `kind`, given who holds the line now. Cores are snooped at most
     /// once and never the requester.
-    fn snoops_for(&self, kind: ReqKind, requester: CoreId, holders: Holders) -> Vec<(CoreId, SnoopKind)>;
+    fn snoops_for(
+        &self,
+        kind: ReqKind,
+        requester: CoreId,
+        holders: Holders,
+    ) -> Vec<(CoreId, SnoopKind)>;
 
     /// State the requester installs once the snoops are done.
     /// `others_remain` says some other core keeps a (shared) copy.
@@ -103,7 +108,12 @@ pub trait CoherenceProtocol: Send + Sync + std::fmt::Debug {
 pub struct Mesi;
 
 impl CoherenceProtocol for Mesi {
-    fn snoops_for(&self, kind: ReqKind, requester: CoreId, holders: Holders) -> Vec<(CoreId, SnoopKind)> {
+    fn snoops_for(
+        &self,
+        kind: ReqKind,
+        requester: CoreId,
+        holders: Holders,
+    ) -> Vec<(CoreId, SnoopKind)> {
         let others = holders.sharers.without(requester);
         match kind {
             ReqKind::ReadShared => match holders.owner {
@@ -130,7 +140,9 @@ impl CoherenceProtocol for Mesi {
 
     fn after_snoop(&self, current: MesiState, snoop: SnoopKind) -> MesiState {
         match (current, snoop) {
-            (MesiState::Invalid, _) | (_, SnoopKind::Unique | SnoopKind::Invalid) => MesiState::Invalid,
+            (MesiState::Invalid, _) | (_, SnoopKind::Unique | SnoopKind::Invalid) => {
+                MesiState::Invalid
+            }
             (_, SnoopKind::Shared) => MesiState::Shared,
         }
     }
@@ -160,9 +172,18 @@ mod tests {
     fn read_shared_snoops_only_an_owner_and_grants_exclusive_when_alone() {
         let mesi = Mesi;
         assert!(mesi.snoops_for(ReqKind::ReadShared, C0, Holders::default()).is_empty());
-        assert!(mesi.snoops_for(ReqKind::ReadShared, C0, holders(&[C1, C2], None)).is_empty(), "sharers keep S");
-        assert_eq!(mesi.snoops_for(ReqKind::ReadShared, C0, holders(&[C1], Some(C1))), vec![(C1, SnoopKind::Shared)]);
-        assert!(mesi.snoops_for(ReqKind::ReadShared, C1, holders(&[C1], Some(C1))).is_empty(), "never snoop the requester");
+        assert!(
+            mesi.snoops_for(ReqKind::ReadShared, C0, holders(&[C1, C2], None)).is_empty(),
+            "sharers keep S"
+        );
+        assert_eq!(
+            mesi.snoops_for(ReqKind::ReadShared, C0, holders(&[C1], Some(C1))),
+            vec![(C1, SnoopKind::Shared)]
+        );
+        assert!(
+            mesi.snoops_for(ReqKind::ReadShared, C1, holders(&[C1], Some(C1))).is_empty(),
+            "never snoop the requester"
+        );
         assert_eq!(mesi.grant(ReqKind::ReadShared, false), MesiState::Exclusive);
         assert_eq!(mesi.grant(ReqKind::ReadShared, true), MesiState::Shared);
     }

@@ -177,8 +177,7 @@ impl PySimulator {
         let config = py_dict_to_config(py, config_dict)?;
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let disk = disk_path.unwrap_or_default();
-        let exit_signal =
-            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let exit_signal = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
         let mut cpu = rvsim_core::SimState::new(&config, &disk, exit_signal.clone());
 
         let mut elf_entry: Option<u64> = None;
@@ -260,7 +259,12 @@ impl PySimulator {
     ///         trap-taken events print; ``None`` prints every trap except
     ///         timer interrupts and ecalls.
     #[pyo3(signature = (harts=None, cycles=None, trap_causes=None))]
-    fn trace_filter(&mut self, harts: Option<Vec<u32>>, cycles: Option<(u64, u64)>, trap_causes: Option<Vec<u64>>) {
+    fn trace_filter(
+        &mut self,
+        harts: Option<Vec<u32>>,
+        cycles: Option<(u64, u64)>,
+        trap_causes: Option<Vec<u64>>,
+    ) {
         let trace = &mut self.inner.state.trace;
         trace.harts = harts.unwrap_or_default().into_iter().map(HartId::new).collect();
         trace.cycle_from = cycles.map(|(from, _)| from);
@@ -416,10 +420,10 @@ impl PySimulator {
 
         if let Some(sections) = stats_sections {
             let text = if sections.is_empty() {
-                self.inner.state.stats.summary(
-                    self.inner.state.cycle,
-                    self.inner.state.instructions_retired(),
-                )
+                self.inner
+                    .state
+                    .stats
+                    .summary(self.inner.state.cycle, self.inner.state.instructions_retired())
             } else {
                 let refs: Vec<&str> = sections.iter().map(String::as_str).collect();
                 self.inner.state.stats.summary_sections(
@@ -563,7 +567,8 @@ impl PySimulator {
         // synchronously here — emit each PTE MemReq, drain it inline, and
         // continue. This is an FFI-boundary helper; pipeline stages never
         // take this path.
-        let mut outcome = self.inner.state.core_ctx(0).translate(VirtAddr::new(vaddr), AccessType::Read, 8);
+        let mut outcome =
+            self.inner.state.core_ctx(0).translate(VirtAddr::new(vaddr), AccessType::Read, 8);
         loop {
             match outcome {
                 TranslateResult::Ready(result) => {
@@ -597,12 +602,8 @@ impl PySimulator {
         paddr: u64,
         length: usize,
     ) -> Bound<'py, pyo3::types::PyBytes> {
-        if let Some(r) = self
-            .inner
-            .state
-            .bus
-            .ram_region()
-            .filter(|r| r.contains(paddr, length as u64))
+        if let Some(r) =
+            self.inner.state.bus.ram_region().filter(|r| r.contains(paddr, length as u64))
         {
             // SAFETY: bounds-checked by `RamRegion::contains(paddr, length)` above.
             let slice = unsafe { std::slice::from_raw_parts(r.ptr(paddr), length) };
@@ -711,7 +712,8 @@ impl PySimulator {
         if let Some(cycle) = header["cycle"].as_u64() {
             cpu.cycle = cycle;
         }
-        let saved_harts = header["harts"].as_array().cloned().unwrap_or_else(|| vec![header.clone()]);
+        let saved_harts =
+            header["harts"].as_array().cloned().unwrap_or_else(|| vec![header.clone()]);
         if saved_harts.len() != cpu.harts.len() {
             return Err(PyRuntimeError::new_err(format!(
                 "hart count mismatch: checkpoint has {} harts, simulator has {}",
@@ -740,8 +742,7 @@ impl PySimulator {
         {
             // SAFETY: `reg.as_ptr()` is the start of a contiguous DRAM region of
             // exactly `reg.size()` bytes owned by the Memory device on the bus.
-            let ram_slice =
-                unsafe { std::slice::from_raw_parts_mut(reg.as_ptr(), ckpt_ram_size) };
+            let ram_slice = unsafe { std::slice::from_raw_parts_mut(reg.as_ptr(), ckpt_ram_size) };
             Read::read_exact(&mut r, ram_slice)
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
@@ -769,12 +770,15 @@ fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
     let _ = h.insert("wfi_waiting".into(), serde_json::Value::from(hart.wfi_waiting));
     let _ = h.insert("wfi_pc".into(), serde_json::Value::from(hart.wfi_pc));
     let _ = h.insert("sw_seip".into(), serde_json::Value::from(hart.sw_seip));
-    let _ = h.insert("instructions_retired".into(), serde_json::Value::from(hart.instructions_retired));
-    let gprs: Vec<serde_json::Value> =
-        (0u8..32).map(|i| serde_json::Value::from(hart.regs.read(rvsim_core::common::RegIdx::new(i)))).collect();
+    let _ =
+        h.insert("instructions_retired".into(), serde_json::Value::from(hart.instructions_retired));
+    let gprs: Vec<serde_json::Value> = (0u8..32)
+        .map(|i| serde_json::Value::from(hart.regs.read(rvsim_core::common::RegIdx::new(i))))
+        .collect();
     let _ = h.insert("gpr".into(), serde_json::Value::Array(gprs));
-    let fprs: Vec<serde_json::Value> =
-        (0u8..32).map(|i| serde_json::Value::from(hart.regs.read_f(rvsim_core::common::RegIdx::new(i)))).collect();
+    let fprs: Vec<serde_json::Value> = (0u8..32)
+        .map(|i| serde_json::Value::from(hart.regs.read_f(rvsim_core::common::RegIdx::new(i))))
+        .collect();
     let _ = h.insert("fpr".into(), serde_json::Value::Array(fprs));
     let c = &hart.csrs;
     let mut csrs = serde_json::Map::new();
@@ -782,9 +786,9 @@ fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
         ($($field:ident),*) => { $( let _ = csrs.insert(stringify!($field).into(), c.$field.into()); )* };
     }
     save_csr!(
-        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus, sie, stvec,
-        sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle, minstret, stimecmp, fflags, frm,
-        mcounteren, scounteren, menvcfg
+        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus,
+        sie, stvec, sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle,
+        minstret, stimecmp, fflags, frm, mcounteren, scounteren, menvcfg
     );
     let _ = h.insert("csrs".into(), serde_json::Value::Object(csrs));
     serde_json::Value::Object(h)
@@ -815,8 +819,8 @@ fn hart_from_json(hart: &mut rvsim_core::core::Hart, saved: &serde_json::Value) 
         ($($field:ident),*) => { $( if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) { c.$field = v; } )* };
     }
     restore_csr!(
-        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus, sie, stvec,
-        sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle, minstret, stimecmp, fflags, frm,
-        mcounteren, scounteren, menvcfg
+        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus,
+        sie, stvec, sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle,
+        minstret, stimecmp, fflags, frm, mcounteren, scounteren, menvcfg
     );
 }

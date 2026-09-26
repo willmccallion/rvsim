@@ -208,7 +208,9 @@ impl CoherenceFabric {
         for (to, msg) in arrived {
             match (to, msg) {
                 (Node::Home, msg) => self.on_home_message(msg, ctx),
-                (Node::Core(_), CoherenceMsg::NoSnpData { txn, .. }) => self.deliver_parked_response(txn, ctx),
+                (Node::Core(_), CoherenceMsg::NoSnpData { txn, .. }) => {
+                    self.deliver_parked_response(txn, ctx)
+                }
                 (Node::Core(core), msg) => {
                     let agent = self.agents[core.as_index()];
                     ctx.scheduler.schedule(ctx.cycle, agent, ctx.self_id, Packet::Coh(msg));
@@ -243,7 +245,9 @@ impl CoherenceFabric {
     fn on_home_message(&mut self, msg: CoherenceMsg, ctx: &mut HandleCtx<'_>) {
         match msg {
             CoherenceMsg::Req { .. } => self.admit(Waiting { msg, arrived: ctx.cycle }, ctx),
-            CoherenceMsg::SnoopResp { txn, from, had_copy, dirty, .. } => self.on_snoop_resp(txn, from, had_copy, dirty, ctx),
+            CoherenceMsg::SnoopResp { txn, from, had_copy, dirty, .. } => {
+                self.on_snoop_resp(txn, from, had_copy, dirty, ctx)
+            }
             CoherenceMsg::CompAck { txn, .. } => self.on_comp_ack(txn, ctx),
             CoherenceMsg::NoSnp { txn, .. } => self.forward_parked_request(txn, ctx),
             CoherenceMsg::Snoop { .. }
@@ -295,12 +299,20 @@ impl CoherenceFabric {
             ReqKind::WriteBack { dirty } => {
                 // A snoop that already collected the line made this
                 // writeback stale: its data went with the snoop response.
-                let stale = self.tracking.exact_holders(line).is_some_and(|h| !h.sharers.contains(requester));
+                let stale = self
+                    .tracking
+                    .exact_holders(line)
+                    .is_some_and(|h| !h.sharers.contains(requester));
                 self.tracking.on_release(line, requester);
                 if stale {
                     ctx.stats.counter(self.stat_paths.home.stale_writebacks).inc();
                     self.txns.push(txn);
-                    let comp = CoherenceMsg::Comp { txn: txn.id, line, to: requester, state: MesiState::Invalid };
+                    let comp = CoherenceMsg::Comp {
+                        txn: txn.id,
+                        line,
+                        to: requester,
+                        state: MesiState::Invalid,
+                    };
                     self.complete(txn.id, comp, MesiState::Invalid, ctx);
                     return;
                 }
@@ -337,7 +349,8 @@ impl CoherenceFabric {
     fn start_recall(&mut self, victim: LineAddr, ctx: &mut HandleCtx<'_>) {
         ctx.stats.counter(self.stat_paths.home.recalls).inc();
         let id = self.fabric_req_id();
-        let holders = self.tracking.holders(victim, ctx.stats, &self.stat_paths.home).unwrap_or_default();
+        let holders =
+            self.tracking.holders(victim, ctx.stats, &self.stat_paths.home).unwrap_or_default();
         let mut txn = Txn {
             id,
             line: victim,
@@ -369,11 +382,13 @@ impl CoherenceFabric {
         let snoops = if let Some(holders) = holders {
             self.protocol.snoops_for(kind, requester, holders)
         } else {
-            let snoop_kind = if kind == ReqKind::ReadShared { SnoopKind::Shared } else { SnoopKind::Unique };
+            let snoop_kind =
+                if kind == ReqKind::ReadShared { SnoopKind::Shared } else { SnoopKind::Unique };
             self.all_cores().without(requester).iter().map(|core| (core, snoop_kind)).collect()
         };
         // Sharers a read need not snoop still keep their copies.
-        let sharers_stay = kind == ReqKind::ReadShared && holders.is_some_and(|h| !h.sharers.without(requester).is_empty());
+        let sharers_stay = kind == ReqKind::ReadShared
+            && holders.is_some_and(|h| !h.sharers.without(requester).is_empty());
         if let Some(t) = self.txn_mut(id) {
             t.phase = Phase::Snooping;
             t.snoops_outstanding = snoops.len();
@@ -387,9 +402,20 @@ impl CoherenceFabric {
         }
     }
 
-    fn send_snoop(&mut self, txn: ReqId, line: LineAddr, kind: SnoopKind, target: CoreId, ctx: &mut HandleCtx<'_>) {
+    fn send_snoop(
+        &mut self,
+        txn: ReqId,
+        line: LineAddr,
+        kind: SnoopKind,
+        target: CoreId,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         ctx.stats.counter(self.stat_paths.home.snoops_sent).inc();
-        self.interconnect.send(ctx.cycle, Node::Home, CoherenceMsg::Snoop { txn, line, kind, target });
+        self.interconnect.send(
+            ctx.cycle,
+            Node::Home,
+            CoherenceMsg::Snoop { txn, line, kind, target },
+        );
     }
 
     fn send_llc(&self, req_id: ReqId, line: LineAddr, op: MemOp, ctx: &mut HandleCtx<'_>) {
@@ -401,7 +427,14 @@ impl CoherenceFabric {
         );
     }
 
-    fn on_snoop_resp(&mut self, id: ReqId, from: CoreId, had_copy: bool, dirty: bool, ctx: &mut HandleCtx<'_>) {
+    fn on_snoop_resp(
+        &mut self,
+        id: ReqId,
+        from: CoreId,
+        had_copy: bool,
+        dirty: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let Some(txn) = self.txn_mut(id).copied() else { return };
         let snoop_kind = match txn.kind {
             TxnKind::Recall => SnoopKind::Invalid,
@@ -410,7 +443,9 @@ impl CoherenceFabric {
         };
         match snoop_kind {
             SnoopKind::Shared if had_copy => self.tracking.on_downgrade(txn.line, from),
-            SnoopKind::Shared | SnoopKind::Unique | SnoopKind::Invalid => self.tracking.on_release(txn.line, from),
+            SnoopKind::Shared | SnoopKind::Unique | SnoopKind::Invalid => {
+                self.tracking.on_release(txn.line, from)
+            }
         }
         let Some(t) = self.txn_mut(id) else { return };
         t.others_remain |= had_copy && snoop_kind == SnoopKind::Shared;
@@ -456,7 +491,12 @@ impl CoherenceFabric {
         match kind {
             ReqKind::CleanUnique => {
                 let state = self.protocol.grant(kind, false);
-                self.complete(id, CoherenceMsg::Comp { txn: id, line: txn.line, to: requester, state }, state, ctx);
+                self.complete(
+                    id,
+                    CoherenceMsg::Comp { txn: id, line: txn.line, to: requester, state },
+                    state,
+                    ctx,
+                );
             }
             ReqKind::ReadShared | ReqKind::ReadUnique => {
                 if txn.dirty_from.is_some() {
@@ -464,7 +504,12 @@ impl CoherenceFabric {
                     let llc_req = self.fabric_req_id();
                     self.send_llc(llc_req, txn.line, MemOp::Writeback { dirty: true }, ctx);
                     let state = self.protocol.grant(kind, txn.others_remain);
-                    self.complete(id, CoherenceMsg::CompData { txn: id, line: txn.line, to: requester, state }, state, ctx);
+                    self.complete(
+                        id,
+                        CoherenceMsg::CompData { txn: id, line: txn.line, to: requester, state },
+                        state,
+                        ctx,
+                    );
                 } else {
                     let llc_req = self.fabric_req_id();
                     if let Some(t) = self.txn_mut(id) {
@@ -481,16 +526,28 @@ impl CoherenceFabric {
 
     /// The LLC answered one of the fabric's requests.
     fn on_llc_response(&mut self, llc_req: ReqId, ctx: &mut HandleCtx<'_>) {
-        let Some(txn) = self.txns.iter().find(|t| t.llc_req == Some(llc_req)).copied() else { return };
+        let Some(txn) = self.txns.iter().find(|t| t.llc_req == Some(llc_req)).copied() else {
+            return;
+        };
         let TxnKind::Request { kind, requester } = txn.kind else { return };
         match txn.phase {
             Phase::FetchingData => {
                 let state = self.protocol.grant(kind, txn.others_remain);
-                self.complete(txn.id, CoherenceMsg::CompData { txn: txn.id, line: txn.line, to: requester, state }, state, ctx);
+                self.complete(
+                    txn.id,
+                    CoherenceMsg::CompData { txn: txn.id, line: txn.line, to: requester, state },
+                    state,
+                    ctx,
+                );
             }
             Phase::WritingBack => {
                 let state = MesiState::Invalid;
-                self.complete(txn.id, CoherenceMsg::Comp { txn: txn.id, line: txn.line, to: requester, state }, state, ctx);
+                self.complete(
+                    txn.id,
+                    CoherenceMsg::Comp { txn: txn.id, line: txn.line, to: requester, state },
+                    state,
+                    ctx,
+                );
             }
             Phase::Recalling { .. } | Phase::Snooping | Phase::AwaitingAck => {}
         }
@@ -498,7 +555,13 @@ impl CoherenceFabric {
 
     /// Sends the completion and records the grant; the line stays busy
     /// until the requester acknowledges.
-    fn complete(&mut self, id: ReqId, msg: CoherenceMsg, granted: MesiState, ctx: &mut HandleCtx<'_>) {
+    fn complete(
+        &mut self,
+        id: ReqId,
+        msg: CoherenceMsg,
+        granted: MesiState,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let Some(txn) = self.txn_mut(id) else { return };
         txn.phase = Phase::AwaitingAck;
         let txn = *txn;
@@ -508,13 +571,18 @@ impl CoherenceFabric {
                 state => self.tracking.on_grant(txn.line, requester, state, ctx.cycle),
             }
         }
-        ctx.stats.histogram(self.stat_paths.home.txn_latency).record(ctx.cycle.saturating_sub(txn.started_at));
+        ctx.stats
+            .histogram(self.stat_paths.home.txn_latency)
+            .record(ctx.cycle.saturating_sub(txn.started_at));
         self.interconnect.send(ctx.cycle, Node::Home, msg);
     }
 
     /// A core's uncached access: park it and send its marker to the home.
     fn on_non_coherent_request(&mut self, packet: Packet, from: Node, ctx: &mut HandleCtx<'_>) {
-        let (Packet::MemReq { req_id, paddr, op, .. }, Node::Core(requester)) = (&packet, from) else { return };
+        let (Packet::MemReq { req_id, paddr, op, .. }, Node::Core(requester)) = (&packet, from)
+        else {
+            return;
+        };
         let txn = *req_id;
         let line = LineAddr::from_phys(*paddr, self.line_bytes as u64);
         let bytes = match op {
@@ -524,7 +592,11 @@ impl CoherenceFabric {
         };
         ctx.stats.counter(self.stat_paths.home.non_coherent).inc();
         self.parked_requests.push(Parked { txn, requester, packet: Some(packet) });
-        self.interconnect.send(ctx.cycle, from, CoherenceMsg::NoSnp { txn, line, requester, bytes });
+        self.interconnect.send(
+            ctx.cycle,
+            from,
+            CoherenceMsg::NoSnp { txn, line, requester, bytes },
+        );
     }
 
     /// The marker of a parked request reached the home: the request itself
@@ -554,13 +626,22 @@ impl CoherenceFabric {
         let Some(index) = self.parked_responses.iter().position(|p| p.txn == txn) else { return };
         let parked = self.parked_responses.remove(index);
         let Some(packet) = parked.packet else { return };
-        ctx.scheduler.schedule(ctx.cycle, self.agents[parked.requester.as_index()], ctx.self_id, packet);
+        ctx.scheduler.schedule(
+            ctx.cycle,
+            self.agents[parked.requester.as_index()],
+            ctx.self_id,
+            packet,
+        );
     }
 
     /// The requester took up its completion: free the transaction and admit
     /// waiting requests.
     fn on_comp_ack(&mut self, id: ReqId, ctx: &mut HandleCtx<'_>) {
-        let Some(index) = self.txns.iter().position(|t| t.id == id && t.phase == Phase::AwaitingAck) else { return };
+        let Some(index) =
+            self.txns.iter().position(|t| t.id == id && t.phase == Phase::AwaitingAck)
+        else {
+            return;
+        };
         let _acked = self.txns.remove(index);
         self.admit_waiting(ctx);
     }
@@ -573,7 +654,10 @@ impl CoherenceFabric {
         let queue = std::mem::take(&mut self.waiting);
         for waiting in queue {
             let line = waiting.msg.line();
-            if self.txns.len() >= self.txn_capacity || self.line_busy(line) || self.waiting.iter().any(|w| w.msg.line() == line) {
+            if self.txns.len() >= self.txn_capacity
+                || self.line_busy(line)
+                || self.waiting.iter().any(|w| w.msg.line() == line)
+            {
                 self.waiting.push_back(waiting);
                 continue;
             }

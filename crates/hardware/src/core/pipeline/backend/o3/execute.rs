@@ -10,7 +10,6 @@
 
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp};
@@ -21,6 +20,7 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
+use crate::sim::CoreCtx;
 use crate::trace_branch;
 use crate::trace_csr;
 use crate::trace_execute;
@@ -489,7 +489,8 @@ fn execute_system(
     if id.ctrl.system_op == SystemOp::Wfi {
         let tw = (state.hart.csrs.mstatus >> 21) & 1;
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
-            || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tw != 0)
+            || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                && tw != 0)
         {
             trace_trap!(state.trace_trap_enabled(&Trap::IllegalInstruction(id.inst));
                 event   = "illegal",
@@ -649,7 +650,8 @@ fn execute_csr(
             let denied = match state.hart.privilege {
                 PrivilegeMode::Supervisor => (state.hart.csrs.mcounteren & mask) == 0,
                 PrivilegeMode::User => {
-                    (state.hart.csrs.mcounteren & mask) == 0 || (state.hart.csrs.scounteren & mask) == 0
+                    (state.hart.csrs.mcounteren & mask) == 0
+                        || (state.hart.csrs.scounteren & mask) == 0
                 }
                 PrivilegeMode::Machine => false,
             };

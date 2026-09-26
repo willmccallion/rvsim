@@ -1680,7 +1680,10 @@ impl HomeAgentConfig {
 
 impl Default for HomeAgentConfig {
     fn default() -> Self {
-        Self::SnoopFilter { capacity_factor: Self::default_capacity_factor(), ways: Self::default_ways() }
+        Self::SnoopFilter {
+            capacity_factor: Self::default_capacity_factor(),
+            ways: Self::default_ways(),
+        }
     }
 }
 
@@ -1747,7 +1750,10 @@ impl InterconnectConfig {
 
 impl Default for InterconnectConfig {
     fn default() -> Self {
-        Self::Crossbar { hop_latency: Self::default_hop_latency(), bytes_per_cycle: Self::default_bytes_per_cycle() }
+        Self::Crossbar {
+            hop_latency: Self::default_hop_latency(),
+            bytes_per_cycle: Self::default_bytes_per_cycle(),
+        }
     }
 }
 
@@ -1798,7 +1804,9 @@ impl Default for CoherenceConfig {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
     /// The cache inclusion policy cannot be combined with several harts.
-    #[error("inclusion_policy Exclusive is not supported with hart_count > 1: the L2 must be inclusive of its L1s to answer snoops")]
+    #[error(
+        "inclusion_policy Exclusive is not supported with hart_count > 1: the L2 must be inclusive of its L1s to answer snoops"
+    )]
     ExclusiveWithCoherence,
     /// More harts than the coherence structures can track.
     #[error("hart_count {0} exceeds the 64 cores a coherence sharer set can hold")]

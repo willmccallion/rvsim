@@ -74,9 +74,9 @@ impl StoreResolution {
     /// Returns the physical address if resolved (Ready or Committed).
     pub const fn paddr(&self) -> Option<PhysAddr> {
         match self {
-            Self::Ready { paddr, .. } | Self::Committed { paddr, .. } | Self::Applied { paddr, .. } => {
-                Some(*paddr)
-            }
+            Self::Ready { paddr, .. }
+            | Self::Committed { paddr, .. }
+            | Self::Applied { paddr, .. } => Some(*paddr),
             _ => None,
         }
     }
@@ -585,14 +585,23 @@ mod tests {
         sb.resolve(RobTag(1), VirtAddr::new(0x1000), PhysAddr::new(0x1000), 0x55);
 
         let applied = sb.commit_applied(RobTag(1)).expect("resolved entry");
-        assert_eq!(applied, AppliedStore { paddr: PhysAddr::new(0x1000), data: 0x55, width: MemWidth::Double });
+        assert_eq!(
+            applied,
+            AppliedStore { paddr: PhysAddr::new(0x1000), data: 0x55, width: MemWidth::Double }
+        );
         sb.mark_committed(RobTag(1));
 
         assert!(sb.has_committed_stores());
-        assert_eq!(sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2)), ForwardResult::Hit(0x55));
+        assert_eq!(
+            sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2)),
+            ForwardResult::Hit(0x55)
+        );
         assert!(sb.has_older_store_to(PhysAddr::new(0x1004), MemWidth::Word, RobTag(2)));
         let drained = sb.drain_one().expect("applied entries drain");
-        assert_eq!(drained.resolution, StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 });
+        assert_eq!(
+            drained.resolution,
+            StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 }
+        );
         assert!(sb.is_empty());
     }
 

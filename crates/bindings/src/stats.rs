@@ -68,9 +68,7 @@ impl PyStats {
 
     /// `stats[path]` — same as `.get`, but raises `KeyError` on miss.
     fn __getitem__(&self, path: &str) -> PyResult<f64> {
-        self.stats
-            .get(path)
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(path.to_string()))
+        self.stats.get(path).ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(path.to_string()))
     }
 
     /// True if the path is registered (raw counter or derived stat).

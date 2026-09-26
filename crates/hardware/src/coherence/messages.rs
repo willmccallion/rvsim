@@ -196,9 +196,14 @@ impl CoherenceMsg {
     #[must_use]
     pub const fn destination(self) -> Node {
         match self {
-            Self::Req { .. } | Self::SnoopResp { .. } | Self::CompAck { .. } | Self::NoSnp { .. } => Node::Home,
+            Self::Req { .. }
+            | Self::SnoopResp { .. }
+            | Self::CompAck { .. }
+            | Self::NoSnp { .. } => Node::Home,
             Self::Snoop { target, .. } => Node::Core(target),
-            Self::CompData { to, .. } | Self::Comp { to, .. } | Self::NoSnpData { to, .. } => Node::Core(to),
+            Self::CompData { to, .. } | Self::Comp { to, .. } | Self::NoSnpData { to, .. } => {
+                Node::Core(to)
+            }
         }
     }
 
@@ -252,15 +257,30 @@ mod tests {
     #[test]
     fn classes_destinations_and_sizes() {
         let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
-        let req = CoherenceMsg::Req { txn: ReqId::new(1), line, kind: ReqKind::ReadShared, requester: CoreId::new(2) };
+        let req = CoherenceMsg::Req {
+            txn: ReqId::new(1),
+            line,
+            kind: ReqKind::ReadShared,
+            requester: CoreId::new(2),
+        };
         assert_eq!(req.class(), MsgClass::Request);
         assert_eq!(req.destination(), Node::Home);
         assert_eq!(req.bytes(64), 8);
-        let data = CoherenceMsg::CompData { txn: ReqId::new(1), line, to: CoreId::new(2), state: MesiState::Shared };
+        let data = CoherenceMsg::CompData {
+            txn: ReqId::new(1),
+            line,
+            to: CoreId::new(2),
+            state: MesiState::Shared,
+        };
         assert_eq!(data.class(), MsgClass::Data);
         assert_eq!(data.destination(), Node::Core(CoreId::new(2)));
         assert_eq!(data.bytes(64), 72);
-        let snoop = CoherenceMsg::Snoop { txn: ReqId::new(3), line, kind: SnoopKind::Unique, target: CoreId::new(0) };
+        let snoop = CoherenceMsg::Snoop {
+            txn: ReqId::new(3),
+            line,
+            kind: SnoopKind::Unique,
+            target: CoreId::new(0),
+        };
         assert_eq!(snoop.class(), MsgClass::Snoop);
         assert_eq!(snoop.destination(), Node::Core(CoreId::new(0)));
     }

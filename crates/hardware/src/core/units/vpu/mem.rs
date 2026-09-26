@@ -5,15 +5,15 @@
 //! and fault-only-first. All accesses go through the CPU's address translation
 //! and bus interface.
 
-use crate::core::pipeline::signals::MemWidth;
 use crate::common::{AccessType, Trap, VirtAddr};
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
+use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::signals::{ControlSignals, VectorOp};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{
     ElemIdx, Emul, Nf, Sew, VRegIdx, VecPhysReg, VtypeFields, parse_vtype,
 };
+use crate::sim::CoreCtx;
 
 /// Returns `(data_emul_regs, idx_emul_regs)` for a vec memory op.
 ///
@@ -334,8 +334,11 @@ fn gen_unit_stride_addrs(
             let addr =
                 base.wrapping_add(((i * nf.fields_usize() + seg) as u64).wrapping_mul(eew_bytes));
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-            let store_data =
-                if is_store { state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
+            let store_data = if is_store {
+                state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew)
+            } else {
+                0
+            };
             ops.push(VecMemAddrOp {
                 vaddr: VirtAddr::new(addr),
                 store_data,
@@ -376,8 +379,11 @@ fn gen_strided_addrs(
         for seg in 0..nf.fields_usize() {
             let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
             let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-            let store_data =
-                if is_store { state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew) } else { 0 };
+            let store_data = if is_store {
+                state.hart.regs.vpr().read_element(dest, ElemIdx::new(i), eew)
+            } else {
+                0
+            };
             ops.push(VecMemAddrOp {
                 vaddr: VirtAddr::new(addr),
                 store_data,
@@ -454,8 +460,11 @@ fn gen_mask_addrs(
 
     for i in 0..num_bytes {
         let addr = base.wrapping_add(i as u64);
-        let store_data =
-            if is_store { state.hart.regs.vpr().read_element(vd, ElemIdx::new(i), Sew::E8) } else { 0 };
+        let store_data = if is_store {
+            state.hart.regs.vpr().read_element(vd, ElemIdx::new(i), Sew::E8)
+        } else {
+            0
+        };
         ops.push(VecMemAddrOp {
             vaddr: VirtAddr::new(addr),
             store_data,

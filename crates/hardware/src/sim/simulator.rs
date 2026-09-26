@@ -280,12 +280,7 @@ impl Simulator {
     /// mailbox-drain stage.
     pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: u8) -> u64 {
         let raw = paddr.val();
-        if let Some(r) = self
-            .state
-            .bus
-            .ram_region()
-            .filter(|r| r.contains(raw, u64::from(width)))
-        {
+        if let Some(r) = self.state.bus.ram_region().filter(|r| r.contains(raw, u64::from(width))) {
             // SAFETY: bounds-checked by `RamRegion::contains(raw, width)`.
             return unsafe {
                 match width {
@@ -303,19 +298,9 @@ impl Simulator {
     /// Synchronously writes `width` bytes to physical memory. For RAM the
     /// fast-path pointer is used directly; for MMIO a `MemReq` is dispatched
     /// through the bus's `Handle` impl so the device's side effect runs.
-    pub fn probe_mem_store(
-        &mut self,
-        paddr: crate::common::PhysAddr,
-        value: u64,
-        width: u8,
-    ) {
+    pub fn probe_mem_store(&mut self, paddr: crate::common::PhysAddr, value: u64, width: u8) {
         let raw = paddr.val();
-        if let Some(r) = self
-            .state
-            .bus
-            .ram_region()
-            .filter(|r| r.contains(raw, u64::from(width)))
-        {
+        if let Some(r) = self.state.bus.ram_region().filter(|r| r.contains(raw, u64::from(width))) {
             // SAFETY: bounds-checked above.
             unsafe {
                 match width {
@@ -329,9 +314,8 @@ impl Simulator {
             self.state.record_external_write(paddr);
             return;
         }
-        let op = crate::sim::packet::MemOp::Write {
-            data: crate::sim::packet::WriteData::Small(value),
-        };
+        let op =
+            crate::sim::packet::MemOp::Write { data: crate::sim::packet::WriteData::Small(value) };
         let _ = self.probe_mmio(paddr, width, op);
     }
 
@@ -368,13 +352,7 @@ impl Simulator {
             self_id: ComponentId::Bus,
         };
         shared.bus.handle(
-            Packet::MemReq {
-                req_id,
-                paddr,
-                vaddr: None,
-                size: access_size,
-                op,
-            },
+            Packet::MemReq { req_id, paddr, vaddr: None, size: access_size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
         );

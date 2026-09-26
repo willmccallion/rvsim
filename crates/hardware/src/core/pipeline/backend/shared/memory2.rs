@@ -27,13 +27,13 @@
 //! - **Non-memory ops:** pass through untouched.
 
 use crate::common::error::{ExceptionStage, LrScRecord, Trap};
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::lsu::Lsu;
+use crate::sim::CoreCtx;
 use crate::trace_fwd;
 use crate::trace_mem;
 use crate::trace_trap;

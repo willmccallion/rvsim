@@ -26,8 +26,8 @@ pub mod summary;
 pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
-use crate::common::{CoreId, HartId};
 use crate::coherence::stats::CoherenceStatPaths;
+use crate::common::{CoreId, HartId};
 use crate::core::units::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 
@@ -76,11 +76,7 @@ pub struct Histogram {
 impl Histogram {
     /// Records a sample.
     pub fn record(&mut self, sample: u64) {
-        let bucket = if sample <= 1 {
-            0
-        } else {
-            (64 - sample.leading_zeros() - 1) as usize
-        };
+        let bucket = if sample <= 1 { 0 } else { (64 - sample.leading_zeros() - 1) as usize };
         if self.buckets.len() <= bucket {
             self.buckets.resize(bucket + 1, 0);
         }
@@ -107,11 +103,7 @@ impl Histogram {
 
     /// Returns the mean of recorded samples, or 0 if no samples were recorded.
     pub fn mean(&self) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            self.sum as f64 / self.count as f64
-        }
+        if self.count == 0 { 0.0 } else { self.sum as f64 / self.count as f64 }
     }
 
     /// Returns the minimum recorded sample, or 0 if no samples were recorded.
@@ -168,7 +160,8 @@ impl StatGroup {
     /// intermediate segment or the leaf itself has never been written.
     #[must_use]
     pub fn get(&self, path: &str) -> Option<&Counter> {
-        let (head, rest) = path.find('.').map_or((path, None), |i| (&path[..i], Some(&path[i + 1..])));
+        let (head, rest) =
+            path.find('.').map_or((path, None), |i| (&path[..i], Some(&path[i + 1..])));
         if let Some(rest) = rest {
             self.children.get(head)?.get(rest)
         } else {
@@ -180,19 +173,13 @@ impl StatGroup {
     /// the fully-qualified dotted path and a reference to the counter.
     pub fn walk(&self, prefix: &str, visit: &mut dyn FnMut(&str, &Counter)) {
         for (name, c) in &self.counters {
-            let path = if prefix.is_empty() {
-                (*name).to_string()
-            } else {
-                format!("{prefix}.{name}")
-            };
+            let path =
+                if prefix.is_empty() { (*name).to_string() } else { format!("{prefix}.{name}") };
             visit(&path, c);
         }
         for (name, child) in &self.children {
-            let next = if prefix.is_empty() {
-                (*name).to_string()
-            } else {
-                format!("{prefix}.{name}")
-            };
+            let next =
+                if prefix.is_empty() { (*name).to_string() } else { format!("{prefix}.{name}") };
             child.walk(&next, visit);
         }
     }
@@ -226,11 +213,8 @@ impl StatGroup {
             )?;
         }
         for (name, child) in &self.children {
-            let next = if prefix.is_empty() {
-                format!("{name}.")
-            } else {
-                format!("{prefix}{name}.")
-            };
+            let next =
+                if prefix.is_empty() { format!("{name}.") } else { format!("{prefix}{name}.") };
             child.dump_text(&next, out)?;
         }
         Ok(())
@@ -239,8 +223,7 @@ impl StatGroup {
 
 #[inline]
 fn split_path(path: &'static str) -> (&'static str, Option<&'static str>) {
-    path.find('.')
-        .map_or((path, None), |idx| (&path[..idx], Some(&path[idx + 1..])))
+    path.find('.').map_or((path, None), |idx| (&path[..idx], Some(&path[idx + 1..])))
 }
 
 /// Output format for `Stats::dump`.
@@ -329,7 +312,12 @@ impl Stats {
     #[must_use]
     pub fn with_default_registrations() -> Self {
         let hart = HartId::new(0);
-        Self::for_components(&[HartPaths::new(hart)], &[(CorePaths::new(CoreId::new(0)), hart)], &[], None)
+        Self::for_components(
+            &[HartPaths::new(hart)],
+            &[(CorePaths::new(CoreId::new(0)), hart)],
+            &[],
+            None,
+        )
     }
 
     /// Returns a mutable reference to the counter at `path`.
@@ -413,11 +401,8 @@ impl Stats {
     /// registered stat.
     #[must_use]
     pub fn subjects(&self) -> Vec<&'static str> {
-        let mut out: Vec<&'static str> = self
-            .meta
-            .keys()
-            .map(|p| p.split_once('.').map_or(*p, |(head, _)| head))
-            .collect();
+        let mut out: Vec<&'static str> =
+            self.meta.keys().map(|p| p.split_once('.').map_or(*p, |(head, _)| head)).collect();
         out.sort_unstable();
         out.dedup();
         out
@@ -526,8 +511,14 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
 
     let lsq = &c.lsq;
     s.register(lsq.rescheduled_mem_ops, Meta::events("Memory ops replayed behind an older store"));
-    s.register(lsq.coherence_replays, Meta::events("LR/AMO re-executed after a remote write to their line"));
-    s.register(lsq.coherence_violations, Meta::events("Loads squashed for reading a line before a remote write an older load saw"));
+    s.register(
+        lsq.coherence_replays,
+        Meta::events("LR/AMO re-executed after a remote write to their line"),
+    );
+    s.register(
+        lsq.coherence_violations,
+        Meta::events("Loads squashed for reading a line before a remote write an older load saw"),
+    );
 
     s.register(c.wcb.coalesces, Meta::events("WCB store coalesces"));
     s.register(c.wcb.drains, Meta::events("WCB line drains"));
@@ -563,7 +554,10 @@ fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
     s.register(c.hits, Meta::events("requests answered from the tag array"));
     s.register(c.misses, Meta::events("requests that started or joined a line fetch"));
     s.register(c.mshr_hits, Meta::events("misses that joined an in-flight fetch"));
-    s.register(c.blocked_requests, Meta::events("requests queued while MSHRs or writeback buffer were full"));
+    s.register(
+        c.blocked_requests,
+        Meta::events("requests queued while MSHRs or writeback buffer were full"),
+    );
     s.register(c.fills, Meta::events("lines installed"));
     s.register(c.evictions, Meta::events("valid lines replaced"));
     s.register(c.writebacks, Meta::events("lines written to the next level"));
@@ -573,10 +567,17 @@ fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
     s.register(c.snoop_invalidations, Meta::events("snoops that took the line away"));
     s.register(c.snoop_downgrades, Meta::events("snoops that left a shared copy"));
     s.register(c.upgrades, Meta::events("permission requests for lines held Shared"));
-    s.register(c.upgrade_retries, Meta::events("permission grants that arrived after a snoop took the line"));
+    s.register(
+        c.upgrade_retries,
+        Meta::events("permission grants that arrived after a snoop took the line"),
+    );
     s.register(c.prefetches_issued, Meta::events("prefetch fetches started"));
     s.register(c.prefetches_useful, Meta::events("prefetch fetches a demand request joined"));
-    s.derive(c.miss_rate, Formula::Ratio { numerator: c.misses, other: c.hits }, Meta::ratio("miss rate"));
+    s.derive(
+        c.miss_rate,
+        Formula::Ratio { numerator: c.misses, other: c.hits },
+        Meta::ratio("miss rate"),
+    );
 }
 
 /// Registers the coherence fabric's counters.
@@ -587,19 +588,28 @@ fn register_coherence(s: &mut Stats, c: &CoherenceStatPaths) {
     s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
     s.register(h.writebacks, Meta::events("writebacks from private caches"));
     s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
-    s.register(h.stale_writebacks, Meta::events("writebacks whose line a snoop had already collected"));
+    s.register(
+        h.stale_writebacks,
+        Meta::events("writebacks whose line a snoop had already collected"),
+    );
     s.register(h.non_coherent, Meta::events("accesses carried to memory without snooping"));
     s.register(h.snoops_sent, Meta::events("snoops sent"));
     s.register(h.c2c_transfers, Meta::events("requests served from another core's modified copy"));
     s.register(h.recalls, Meta::events("lines recalled to free tracking room"));
-    s.register(h.serialised, Meta::events("requests that waited for an earlier transaction on their line"));
+    s.register(
+        h.serialised,
+        Meta::events("requests that waited for an earlier transaction on their line"),
+    );
     s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
     s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
     s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
     let i = &c.interconnect;
     s.register(i.messages, Meta::events("messages transferred"));
     s.register(i.bytes, Meta::events("bytes transferred"));
-    s.register(i.blocked_cycles, Meta::cycles("message-cycles spent waiting for a busy link or port"));
+    s.register(
+        i.blocked_cycles,
+        Meta::cycles("message-cycles spent waiting for a busy link or port"),
+    );
     s.register(i.busy_cycles, Meta::cycles("port-class-cycles spent transferring"));
 }
 
@@ -613,7 +623,11 @@ fn register_system(s: &mut Stats, harts: &[HartPaths]) {
         Formula::Sum(Box::leak(retired.into_boxed_slice())),
         Meta::events("instructions retired by all harts"),
     );
-    s.derive(system.traps, Formula::Sum(Box::leak(traps.into_boxed_slice())), Meta::events("traps taken by all harts"));
+    s.derive(
+        system.traps,
+        Formula::Sum(Box::leak(traps.into_boxed_slice())),
+        Meta::events("traps taken by all harts"),
+    );
 }
 
 #[cfg(test)]

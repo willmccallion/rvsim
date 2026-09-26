@@ -191,7 +191,10 @@ impl ControllerStatPaths {
             stats.register(sc.reads, Meta::events("demand reads admitted"));
             stats.register(sc.writes, Meta::events("writes admitted"));
             stats.register(sc.writes_merged, Meta::events("writes merged into a queued write"));
-            stats.register(sc.reads_hit_write_queue, Meta::events("reads served from the write queue"));
+            stats.register(
+                sc.reads_hit_write_queue,
+                Meta::events("reads served from the write queue"),
+            );
             stats.register(sc.scrub_reads, Meta::events("patrol-scrub reads"));
             stats.register(sc.activates, Meta::events("ACTIVATE commands"));
             stats.register(sc.precharges, Meta::events("PRECHARGE commands"));
@@ -201,10 +204,19 @@ impl ControllerStatPaths {
             stats.register(sc.row_misses, Meta::events("column commands needing an ACTIVATE"));
             stats.register(sc.power_down_entries, Meta::events("power-down entries"));
             stats.register(sc.power_down_exits, Meta::events("power-down exits"));
-            stats.register(sc.bus_busy_clocks, Meta::cycles("DRAM clocks with a burst on the data bus"));
+            stats.register(
+                sc.bus_busy_clocks,
+                Meta::cycles("DRAM clocks with a burst on the data bus"),
+            );
             stats.register(sc.clocks, Meta::cycles("DRAM clocks elapsed"));
-            stats.register(sc.read_admission_stalls, Meta::cycles("clocks a read waited for a queue slot"));
-            stats.register(sc.write_admission_stalls, Meta::cycles("clocks a write waited for a queue slot"));
+            stats.register(
+                sc.read_admission_stalls,
+                Meta::cycles("clocks a read waited for a queue slot"),
+            );
+            stats.register(
+                sc.write_admission_stalls,
+                Meta::cycles("clocks a write waited for a queue slot"),
+            );
             stats.derive(
                 sc.row_hit_rate,
                 Formula::Ratio { numerator: sc.row_hits, other: sc.row_misses },

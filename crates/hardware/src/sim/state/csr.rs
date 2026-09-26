@@ -99,7 +99,9 @@ impl CoreCtx<'_> {
             x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart,
             x if x == csr::VXSAT.as_u32() => self.hart.csrs.vxsat & 0x1,
             x if x == csr::VXRM.as_u32() => self.hart.csrs.vxrm & 0x3,
-            x if x == csr::VCSR.as_u32() => (self.hart.csrs.vxsat & 0x1) | ((self.hart.csrs.vxrm & 0x3) << 1),
+            x if x == csr::VCSR.as_u32() => {
+                (self.hart.csrs.vxsat & 0x1) | ((self.hart.csrs.vxrm & 0x3) << 1)
+            }
             x if x == csr::VL.as_u32() => self.hart.csrs.vl,
             x if x == csr::VTYPE.as_u32() => self.hart.csrs.vtype,
             x if x == csr::VLENB.as_u32() => self.hart.csrs.vlenb,
@@ -126,19 +128,25 @@ impl CoreCtx<'_> {
         match raw {
             x if x == csr::FFLAGS.as_u32() => {
                 self.hart.csrs.fflags = val & 0x1F;
-                self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus = (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mstatus =
+                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.sstatus =
+                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::FRM.as_u32() => {
                 self.hart.csrs.frm = val & 0x7;
-                self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus = (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mstatus =
+                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.sstatus =
+                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::FCSR.as_u32() => {
                 self.hart.csrs.fflags = val & 0x1F;
                 self.hart.csrs.frm = (val >> 5) & 0x7;
-                self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus = (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mstatus =
+                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.sstatus =
+                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::CSR_SIM_PANIC.as_u32() => {
                 self.trap(&Trap::RequestedTrap(val), self.hart.pc);
@@ -164,7 +172,8 @@ impl CoreCtx<'_> {
 
                 // WARL: MPP must encode a supported privilege mode (0=U, 1=S, 3=M).
                 // Value 2 is reserved; clamp to 0 (User) to prevent privilege escalation.
-                let mpp = (self.hart.csrs.mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
+                let mpp =
+                    (self.hart.csrs.mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
                 if mpp == 2 {
                     self.hart.csrs.mstatus &= !csr::MSTATUS_MPP;
                 }
@@ -226,7 +235,8 @@ impl CoreCtx<'_> {
                     | csr::MSTATUS_MXR;
                 let read_mask = writable_mask | csr::MSTATUS_UXL;
 
-                self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !writable_mask) | (val & writable_mask);
+                self.hart.csrs.mstatus =
+                    (self.hart.csrs.mstatus & !writable_mask) | (val & writable_mask);
                 self.hart.csrs.sstatus = self.hart.csrs.mstatus & read_mask;
             }
             x if x == csr::SIE.as_u32() => {
@@ -358,7 +368,7 @@ impl CoreCtx<'_> {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::sim::CoreCtx;
+
     use crate::core::arch::csr;
 
     #[test]

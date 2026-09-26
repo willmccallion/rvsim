@@ -57,7 +57,11 @@ pub const fn port_of(node: Node, cores: usize) -> usize {
 /// The node on port `port`.
 #[must_use]
 pub fn node_of(port: usize, cores: usize) -> Node {
-    if port == cores { Node::Home } else { Node::Core(CoreId::new(u32::try_from(port).unwrap_or(u32::MAX))) }
+    if port == cores {
+        Node::Home
+    } else {
+        Node::Core(CoreId::new(u32::try_from(port).unwrap_or(u32::MAX)))
+    }
 }
 
 /// A message waiting in an input queue.
@@ -111,7 +115,13 @@ pub struct Crossbar {
 impl Crossbar {
     /// A crossbar for `cores` requesting agents plus the home.
     #[must_use]
-    pub fn new(cores: usize, line_bytes: usize, hop_latency: u64, bytes_per_cycle: usize, stat_paths: InterconnectStatPaths) -> Self {
+    pub fn new(
+        cores: usize,
+        line_bytes: usize,
+        hop_latency: u64,
+        bytes_per_cycle: usize,
+        stat_paths: InterconnectStatPaths,
+    ) -> Self {
         let ports = cores + 1;
         Self {
             cores,
@@ -193,11 +203,17 @@ impl Interconnect for Crossbar {
     }
 
     fn is_idle(&self) -> bool {
-        self.in_flight.is_empty() && self.inputs.iter().all(|queues| queues.iter().all(VecDeque::is_empty))
+        self.in_flight.is_empty()
+            && self.inputs.iter().all(|queues| queues.iter().all(VecDeque::is_empty))
     }
 
     fn topology(&self) -> TopologyInfo {
-        TopologyInfo { kind: "crossbar", endpoints: self.cores + 1, nodes: self.cores + 1, diameter: 1 }
+        TopologyInfo {
+            kind: "crossbar",
+            endpoints: self.cores + 1,
+            nodes: self.cores + 1,
+            diameter: 1,
+        }
     }
 }
 
@@ -270,7 +286,16 @@ mod tests {
         let mut xbar = Crossbar::new(1, 64, 1, 8, paths());
         // A long data transfer to core 0 and a short response to core 0 in the same cycle.
         xbar.send(0, Node::Home, data(1, 0));
-        xbar.send(0, Node::Home, CoherenceMsg::Comp { txn: ReqId::new(2), line: LineAddr::from_phys(PhysAddr::new(0), 64), to: CoreId::new(0), state: MesiState::Modified });
+        xbar.send(
+            0,
+            Node::Home,
+            CoherenceMsg::Comp {
+                txn: ReqId::new(2),
+                line: LineAddr::from_phys(PhysAddr::new(0), 64),
+                to: CoreId::new(0),
+                state: MesiState::Modified,
+            },
+        );
         let delivered = run(&mut xbar, 0, 20);
         let comp_at = delivered.iter().find(|(_, _, m)| m.txn().val() == 2).map(|d| d.0);
         assert_eq!(comp_at, Some(2), "the response channel is not behind the data channel");
@@ -321,7 +346,11 @@ impl NetworkTopology for Ring {
 
     fn next_hop(&self, from: usize, to: usize) -> usize {
         let forward = (to + self.nodes - from) % self.nodes;
-        if forward <= self.nodes - forward { (from + 1) % self.nodes } else { (from + self.nodes - 1) % self.nodes }
+        if forward <= self.nodes - forward {
+            (from + 1) % self.nodes
+        } else {
+            (from + self.nodes - 1) % self.nodes
+        }
     }
 
     fn diameter(&self) -> usize {
@@ -491,13 +520,25 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
     ///
     /// Panics when `topology` has fewer than `cores + 1` nodes.
     #[must_use]
-    pub fn new(topology: T, cores: usize, line_bytes: usize, hop_latency: u64, bytes_per_cycle: usize, stat_paths: InterconnectStatPaths) -> Self {
+    pub fn new(
+        topology: T,
+        cores: usize,
+        line_bytes: usize,
+        hop_latency: u64,
+        bytes_per_cycle: usize,
+        stat_paths: InterconnectStatPaths,
+    ) -> Self {
         let nodes = topology.node_count();
         assert!(nodes > cores, "topology must have a node per core plus the home");
         let queues = (0..nodes)
-            .map(|node| (0..topology.neighbours(node).len()).map(|_| std::array::from_fn(|_| VecDeque::new())).collect())
+            .map(|node| {
+                (0..topology.neighbours(node).len())
+                    .map(|_| std::array::from_fn(|_| VecDeque::new()))
+                    .collect()
+            })
             .collect();
-        let link_free_at = (0..nodes).map(|node| vec![[0; 4]; topology.neighbours(node).len()]).collect();
+        let link_free_at =
+            (0..nodes).map(|node| vec![[0; 4]; topology.neighbours(node).len()]).collect();
         Self {
             topology,
             cores,
@@ -519,12 +560,8 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
     /// Queues `routed` at `node` on the link towards its destination.
     fn enqueue(&mut self, node: usize, routed: Routed) {
         let next = self.topology.next_hop(node, routed.to_node);
-        let link = self
-            .topology
-            .neighbours(node)
-            .iter()
-            .position(|n| *n == next)
-            .unwrap_or_default();
+        let link =
+            self.topology.neighbours(node).iter().position(|n| *n == next).unwrap_or_default();
         self.queues[node][link][routed.msg.class().index()].push_back(routed);
     }
 
@@ -585,11 +622,20 @@ impl<T: NetworkTopology> Interconnect for RoutedNetwork<T> {
     }
 
     fn is_idle(&self) -> bool {
-        self.in_flight.is_empty() && self.queues.iter().all(|links| links.iter().all(|qs| qs.iter().all(VecDeque::is_empty)))
+        self.in_flight.is_empty()
+            && self
+                .queues
+                .iter()
+                .all(|links| links.iter().all(|qs| qs.iter().all(VecDeque::is_empty)))
     }
 
     fn topology(&self) -> TopologyInfo {
-        TopologyInfo { kind: self.topology.kind(), endpoints: self.cores + 1, nodes: self.topology.node_count(), diameter: self.topology.diameter() }
+        TopologyInfo {
+            kind: self.topology.kind(),
+            endpoints: self.cores + 1,
+            nodes: self.topology.node_count(),
+            diameter: self.topology.diameter(),
+        }
     }
 }
 
@@ -653,7 +699,8 @@ mod routed_tests {
     #[test]
     fn a_message_pays_hop_latency_per_hop() {
         // 4 cores + home on a 6-stop ring: core 0 at node 0, home at node 4.
-        let mut net = RoutedNetwork::new(Ring::new(6), 4, 64, 2, 8, InterconnectStatPaths::new("t"));
+        let mut net =
+            RoutedNetwork::new(Ring::new(6), 4, 64, 2, 8, InterconnectStatPaths::new("t"));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 40);
         // Two hops backwards (0 -> 5 -> 4), each 2 + 1 cycles.
@@ -663,7 +710,8 @@ mod routed_tests {
 
     #[test]
     fn a_busy_link_serialises_same_class_messages() {
-        let mut net = RoutedNetwork::new(Ring::new(3), 2, 64, 1, 8, InterconnectStatPaths::new("t"));
+        let mut net =
+            RoutedNetwork::new(Ring::new(3), 2, 64, 1, 8, InterconnectStatPaths::new("t"));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 20);

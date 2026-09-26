@@ -12,9 +12,8 @@
 pub mod execute;
 pub mod issue;
 
-use crate::core::pipeline::backend::shared::commit::CommitEvent;
 use crate::config::Config;
-use crate::sim::CoreCtx;
+use crate::core::pipeline::backend::shared::commit::CommitEvent;
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::free_list::FreeList;
@@ -25,6 +24,7 @@ use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::bru::BranchPredictor;
+use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 
 use self::issue::InOrderIssueUnit;
@@ -67,12 +67,7 @@ impl InOrderEngine {
         l1_i_id: CacheId,
         l1_d_id: CacheId,
     ) -> Self {
-        let common = BackendCommon {
-            pipeline_id,
-            l1_i_id,
-            l1_d_id,
-            ..BackendCommon::default()
-        };
+        let common = BackendCommon { pipeline_id, l1_i_id, l1_d_id, ..BackendCommon::default() };
         Self {
             rob: Rob::new(config.pipeline.rob_size),
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
@@ -185,7 +180,13 @@ impl ExecutionEngine for InOrderEngine {
             for e in &self.mem2_wb {
                 inflight_fp_flags |= e.fp_flags;
             }
-            execute::execute_inorder(state, issued, &mut self.rob, inflight_fp_flags, redirect_pending)
+            execute::execute_inorder(
+                state,
+                issued,
+                &mut self.rob,
+                inflight_fp_flags,
+                redirect_pending,
+            )
         };
         self.execute_mem1.extend(results);
 
@@ -311,5 +312,4 @@ mod tests {
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         assert_eq!(engine.can_accept(), engine.width);
     }
-
 }

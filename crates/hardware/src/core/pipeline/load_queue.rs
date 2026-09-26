@@ -16,11 +16,11 @@
 //! next allocation; ROB ordering is recovered from `rob_tag` on each entry.
 
 use crate::common::HartId;
-use crate::sim::state::write_log::{WriteLog, WriteSeq};
 use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::units::vpu::types::ElemIdx;
+use crate::sim::state::write_log::{WriteLog, WriteSeq};
 
 /// Lifecycle state of a load queue entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -322,7 +322,8 @@ mod coherence_tests {
         executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
         log.record(PhysAddr::new(0x8000_0108), Writer::Hart(H1));
 
-        let violator = lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0120), &log, H0);
+        let violator =
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0120), &log, H0);
 
         assert_eq!(violator, Some(RobTag(2)));
     }
@@ -335,7 +336,10 @@ mod coherence_tests {
         executed_load(&mut lq, RobTag(2), 0x8000_0110, log.now());
         log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
 
-        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), Some(RobTag(2)));
+        assert_eq!(
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0),
+            Some(RobTag(2))
+        );
     }
 
     #[test]
@@ -347,8 +351,16 @@ mod coherence_tests {
         log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
         log.record(PhysAddr::new(0x8000_0140), Writer::Hart(H1));
 
-        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0200), &log, H0), None, "different line");
-        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0140), &log, H0), None, "tag 0 is older than the reader");
+        assert_eq!(
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0200), &log, H0),
+            None,
+            "different line"
+        );
+        assert_eq!(
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0140), &log, H0),
+            None,
+            "tag 0 is older than the reader"
+        );
     }
 
     #[test]
@@ -358,7 +370,10 @@ mod coherence_tests {
         log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H1));
         executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
 
-        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), None);
+        assert_eq!(
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0),
+            None
+        );
     }
 
     #[test]
@@ -368,7 +383,10 @@ mod coherence_tests {
         executed_load(&mut lq, RobTag(2), 0x8000_0100, log.now());
         log.record(PhysAddr::new(0x8000_0100), Writer::Hart(H0));
 
-        assert_eq!(lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0), None);
+        assert_eq!(
+            lq.check_coherence_violation(RobTag(1), PhysAddr::new(0x8000_0100), &log, H0),
+            None
+        );
     }
 }
 

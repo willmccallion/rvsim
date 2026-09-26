@@ -107,7 +107,8 @@ impl CoreCtx<'_> {
             self.hart.csrs.sstatus = sstatus;
 
             let sstatus_mask = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
-            self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !sstatus_mask) | (sstatus & sstatus_mask);
+            self.hart.csrs.mstatus =
+                (self.hart.csrs.mstatus & !sstatus_mask) | (sstatus & sstatus_mask);
 
             self.hart.privilege = PrivilegeMode::Supervisor;
             let stvec_base = self.hart.csrs.stvec & !3;
@@ -237,7 +238,8 @@ mod tests {
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mepc = 0x2000;
-        state.hart.csrs.mstatus = (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
+        state.hart.csrs.mstatus =
+            (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
         state.hart.csrs.mstatus |= csr::MSTATUS_MPIE;
 
         state.do_mret();

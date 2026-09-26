@@ -135,7 +135,8 @@ impl WriteLog {
         let Some(index) = self.line_index(paddr) else { return false };
         let line = self.lines[index];
         let reader_tag = Self::writer_tag(Writer::Hart(reader));
-        let by_other = if line.latest.tag() == reader_tag { line.latest_by_other } else { line.latest };
+        let by_other =
+            if line.latest.tag() == reader_tag { line.latest_by_other } else { line.latest };
         by_other != Write::NONE && by_other.seq() > since.0
     }
 }
@@ -193,8 +194,14 @@ mod tests {
         let stamp = log.now();
         log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
         log.record(PhysAddr::new(0x8000_0008), Writer::Hart(H0));
-        assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp), "hart 1 wrote after the stamp");
-        assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp), "hart 0 wrote after the stamp");
+        assert!(
+            log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
+            "hart 1 wrote after the stamp"
+        );
+        assert!(
+            log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp),
+            "hart 0 wrote after the stamp"
+        );
     }
 
     #[test]
@@ -204,7 +211,10 @@ mod tests {
         let stamp = log.now();
         log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
         log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
-        assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp), "hart 1's write predates the stamp");
+        assert!(
+            !log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
+            "hart 1's write predates the stamp"
+        );
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
 

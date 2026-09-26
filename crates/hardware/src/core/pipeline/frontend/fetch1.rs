@@ -93,7 +93,12 @@ struct GroupBuilder {
 }
 
 impl GroupBuilder {
-    fn push(&mut self, common: &mut BackendCommon, entry: Fetch1Fetch2Entry, line: Option<LineAddr>) {
+    fn push(
+        &mut self,
+        common: &mut BackendCommon,
+        entry: Fetch1Fetch2Entry,
+        line: Option<LineAddr>,
+    ) {
         if self.fetch_seq.is_none() {
             self.fetch_seq = Some(common.alloc_fetch_seq());
         }
@@ -307,10 +312,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let translated = if fetch_trap.is_none() {
             state.translate(VirtAddr::new(current_pc), AccessType::Fetch, 2)
         } else {
-            TranslateResult::Ready(crate::common::TranslationResult::success(
-                PhysAddr::new(0),
-                0,
-            ))
+            TranslateResult::Ready(crate::common::TranslationResult::success(PhysAddr::new(0), 0))
         };
 
         let (paddr, trap) = match translated {
@@ -363,9 +365,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             if quadrant == 0x01 && (funct3_c == 0b110 || funct3_c == 0b111) {
                 let (taken, target) = state.core.branch_predictor.predict_branch(current_pc);
                 state.core.branch_predictor.speculate(current_pc, taken);
-                if taken
-                    && let Some(tgt) = target
-                {
+                if taken && let Some(tgt) = target {
                     next_pc_calc = tgt;
                     pred_taken = true;
                     pred_target = tgt;
@@ -452,9 +452,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             if opcode == opcodes::OP_BRANCH {
                 let (taken, target) = state.core.branch_predictor.predict_branch(current_pc);
                 state.core.branch_predictor.speculate(current_pc, taken);
-                if taken
-                    && let Some(tgt) = target
-                {
+                if taken && let Some(tgt) = target {
                     next_pc_calc = tgt;
                     pred_taken = true;
                     pred_target = tgt;

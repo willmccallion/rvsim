@@ -70,10 +70,7 @@ impl EventQueue {
     /// Constructs an empty queue.
     #[inline]
     pub const fn new() -> Self {
-        Self {
-            heap: BinaryHeap::new(),
-            next_seq: 0,
-        }
+        Self { heap: BinaryHeap::new(), next_seq: 0 }
     }
 
     /// Schedules a packet for delivery at `fire_at`. The assigned sequence number
@@ -85,13 +82,7 @@ impl EventQueue {
         source: ComponentId,
         packet: Packet,
     ) {
-        let event = Event {
-            fire_at,
-            seq: self.next_seq,
-            target,
-            source,
-            packet,
-        };
+        let event = Event { fire_at, seq: self.next_seq, target, source, packet };
         self.next_seq += 1;
         self.heap.push(Reverse(event));
     }
@@ -131,7 +122,7 @@ mod tests {
             line_addr: LineAddr::from_phys(PhysAddr::new(0), 64),
             data: MemRespData::Small(0),
             hit_level: HitLevel::L1,
-        state: MesiState::Exclusive,
+            state: MesiState::Exclusive,
         }
     }
 

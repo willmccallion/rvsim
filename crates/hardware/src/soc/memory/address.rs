@@ -193,7 +193,7 @@ impl AddressMapper {
             ),
             rank: RankId::new(extract(raw, self.rank_shift, self.rank_bits) as u8),
             bank_group: BankGroupId::new(
-                extract(raw, self.bank_group_shift, self.bank_group_bits) as u8,
+                extract(raw, self.bank_group_shift, self.bank_group_bits) as u8
             ),
             bank: extract(raw, self.bank_shift, self.bank_bits) as u8,
             row: RowId::new(extract(raw, self.row_shift, self.row_bits) as u32),

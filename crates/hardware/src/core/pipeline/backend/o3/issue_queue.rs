@@ -9,7 +9,6 @@
 //!   selected for execution (up to `width`).
 
 use crate::common::RegIdx;
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
@@ -18,6 +17,7 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
 use crate::core::units::vpu::types::VecPhysReg;
+use crate::sim::CoreCtx;
 
 /// Readiness state of a single source operand.
 ///
@@ -203,8 +203,10 @@ impl IssueQueue {
             };
             (s1, s2, s3)
         } else {
-            let s1 = resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
-            let s2 = resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
+            let s1 =
+                resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
+            let s2 =
+                resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
             let s3 = if entry.ctrl.rs3_fp {
                 resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, state)
             } else {
@@ -673,7 +675,8 @@ fn resolve_operand_legacy(
             Some(_) => OperandState::not_ready(PhysReg(0), Some(t)),
             None => {
                 // ROB entry already committed — read from register file.
-                let value = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
+                let value =
+                    if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
                 OperandState::ready(PhysReg(0), None, value)
             }
         },

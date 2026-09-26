@@ -12,11 +12,9 @@ use crate::common::constants::{
 };
 use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
 use crate::common::{Asid, LrScRecord, PhysAddr, RegIdx, SfenceVmaInfo, Trap, Vpn};
-use crate::sim::CoreCtx;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
-use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::core::pipeline::backend::shared::memory2;
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::BackendCommon;
@@ -29,12 +27,14 @@ use crate::core::pipeline::rob::{Rob, RobEntry, RobState};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
-use crate::core::units::cache::DirtyLine;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
+use crate::core::units::cache::DirtyLine;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
+use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
+use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -308,8 +308,10 @@ pub fn commit_stage(
                 free_list.reclaim(entry.old_phys_dst);
             }
             committed_rename_map.set(entry.rd, true, entry.phys_dst);
-            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.mstatus =
+                (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.sstatus =
+                (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -355,8 +357,10 @@ pub fn commit_stage(
                 committed_rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
                 scoreboard.clear_vec_if_match(vreg, entry.tag);
             }
-            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.mstatus =
+                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.sstatus =
+                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
             state.hart.csrs.vstart = 0;
         }
 
@@ -373,14 +377,22 @@ pub fn commit_stage(
         }
 
         if let Some(pte_upd) = entry.pte_update {
-            write_store_to_memory(state, common, pte_upd.pte_addr, pte_upd.pte_value, MemWidth::Double);
+            write_store_to_memory(
+                state,
+                common,
+                pte_upd.pte_addr,
+                pte_upd.pte_value,
+                MemWidth::Double,
+            );
         }
 
         // Apply fp_flags before CSR writes to keep execute-time CSR reads of fflags consistent.
         if entry.fp_flags != 0 {
             state.hart.csrs.fflags |= entry.fp_flags as u64;
-            state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.mstatus =
+                (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+            state.hart.csrs.sstatus =
+                (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
         }
 
         if entry.vxsat {
@@ -411,7 +423,8 @@ pub fn commit_stage(
                 let _ = state.core.l1_i_cache.invalidate_all();
                 let dirty = state.core.l1_d_cache.flush();
                 write_back_lines(state, common, &dirty);
-                event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
+                event =
+                    Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
             break;
         }
@@ -455,7 +468,8 @@ pub fn commit_stage(
                 state.hart.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             } else {
                 // Nothing enabled or pending — treat as NOP to avoid OpenSBI early-boot deadlock.
-                event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
+                event =
+                    Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
             state.hart.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             break;
@@ -480,7 +494,9 @@ pub fn commit_stage(
                                 prf.write(entry.phys_dst, 1);
                             }
                         }
-                        event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
+                        event = Some(CommitEvent::SquashAfter(
+                            entry.pc.wrapping_add(entry.inst_size.as_u64()),
+                        ));
                         break;
                     }
                 }
@@ -601,7 +617,11 @@ pub fn commit_stage(
 /// perturb the result, and treating it as stale would let harts hammering
 /// one lock word replay each other forever. Plain loads are not checked:
 /// RVWMO lets them keep the earlier value.
-fn observed_value_is_stale(state: &CoreCtx<'_>, head: &RobEntry, store_buffer: &StoreBuffer) -> bool {
+fn observed_value_is_stale(
+    state: &CoreCtx<'_>,
+    head: &RobEntry,
+    store_buffer: &StoreBuffer,
+) -> bool {
     let Some(log) = state.write_log.as_ref() else { return false };
     let Some(observed) = head.observed else { return false };
     let reader = state.hart.hart_id;
@@ -784,14 +804,13 @@ fn commit_cbo(
     inst: u32,
 ) -> Option<Trap> {
     use crate::common::{AccessType, VirtAddr};
-    use crate::core::arch::csr::{
-        CboInvalAction, cbo_inval_action, cbocf_allowed, cboz_allowed,
-    };
+    use crate::core::arch::csr::{CboInvalAction, cbo_inval_action, cbocf_allowed, cboz_allowed};
     use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 
     let (effective_op, access) = match op {
         SystemOp::CboZero => {
-            if !cboz_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege) {
+            if !cboz_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege)
+            {
                 return Some(Trap::IllegalInstruction(inst));
             }
             (SystemOp::CboZero, AccessType::Write)
@@ -806,7 +825,11 @@ fn commit_cbo(
             CboInvalAction::Invalidate => (SystemOp::CboInval, AccessType::Write),
         },
         SystemOp::CboClean | SystemOp::CboFlush => {
-            if !cbocf_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege) {
+            if !cbocf_allowed(
+                state.hart.csrs.menvcfg,
+                state.hart.csrs.senvcfg,
+                state.hart.privilege,
+            ) {
                 return Some(Trap::IllegalInstruction(inst));
             }
             (op, AccessType::Read)
@@ -917,11 +940,7 @@ fn emit_store_write_packet(
     let is_ram = is_pure_ram(state, paddr, width);
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
-    let target = if is_ram {
-        ComponentId::Cache(common.l1_d_id)
-    } else {
-        ComponentId::Bus
-    };
+    let target = if is_ram { ComponentId::Cache(common.l1_d_id) } else { ComponentId::Bus };
     let _ = common.outstanding_stores.insert(
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
@@ -1036,7 +1055,9 @@ fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &crate::core::pipeli
             | AluOp::FCvtDH
             | AluOp::FCvtHD
             | AluOp::FMvToX
-            | AluOp::FMvToF => state.shared.stats.counter(state.core.stat_paths.commit.fp_arith).inc(),
+            | AluOp::FMvToF => {
+                state.shared.stats.counter(state.core.stat_paths.commit.fp_arith).inc()
+            }
             AluOp::FDiv | AluOp::FSqrt => {
                 state.shared.stats.counter(state.core.stat_paths.commit.fp_div_sqrt).inc();
             }
@@ -1152,7 +1173,9 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VRedMaxU
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
-        | VectorOp::VWRedSum => state.shared.stats.counter(state.core.stat_paths.commit.vec_int).inc(),
+        | VectorOp::VWRedSum => {
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_int).inc()
+        }
         VectorOp::VFAdd
         | VectorOp::VFSub
         | VectorOp::VFRSub
@@ -1222,7 +1245,9 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VFRedMax
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
-        | VectorOp::VFWRedUSum => state.shared.stats.counter(state.core.stat_paths.commit.vec_fp).inc(),
+        | VectorOp::VFWRedUSum => {
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_fp).inc()
+        }
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
         | VectorOp::Vsetvl
@@ -1281,7 +1306,9 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VSm4R
         | VectorOp::VSm4K
         | VectorOp::VGhsh
-        | VectorOp::VGmul => state.shared.stats.counter(state.core.stat_paths.commit.vec_misc).inc(),
+        | VectorOp::VGmul => {
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_misc).inc()
+        }
     }
 }
 
@@ -1328,7 +1355,6 @@ mod tests {
     use super::*;
     use crate::common::InstSize;
     use crate::config::Config;
-    use crate::sim::CoreCtx;
 
     #[test]
     fn test_check_interrupts_none() {
@@ -1343,7 +1369,7 @@ mod tests {
     fn test_check_interrupts_m_mode() {
         let config = Config::default();
         let mut sys = crate::sim::SimState::build(&config, "");
-        let mut state = sys.core_ctx(0);
+        let state = sys.core_ctx(0);
 
         state.hart.csrs.mip = csr::MIP_MEIP;
         state.hart.csrs.mie = csr::MIE_MEIP;
@@ -1357,7 +1383,7 @@ mod tests {
     fn test_check_interrupts_s_mode_delegated() {
         let config = Config::default();
         let mut sys = crate::sim::SimState::build(&config, "");
-        let mut state = sys.core_ctx(0);
+        let state = sys.core_ctx(0);
 
         state.hart.csrs.mip = csr::MIP_SEIP;
         state.hart.csrs.mie = csr::MIE_SEIP;

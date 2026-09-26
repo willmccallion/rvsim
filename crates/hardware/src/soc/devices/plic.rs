@@ -14,7 +14,7 @@
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 
 /// Base offset for PLIC priority registers (one per interrupt source).
@@ -241,15 +241,15 @@ impl Handle for Plic {
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u8)
                 }
-                (AccessSize::B2, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. }) => {
+                (
+                    AccessSize::B2,
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+                ) => {
                     let aligned = offset & !3;
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
                 }
-                (
-                    AccessSize::B4 | AccessSize::B8,
-                    MemOp::Write { data: WriteData::Small(val) },
-                ) => {
+                (AccessSize::B4 | AccessSize::B8, MemOp::Write { data: WriteData::Small(val) }) => {
                     self.write_u32_reg(offset, val as u32);
                     0
                 }
@@ -264,7 +264,7 @@ impl Handle for Plic {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }

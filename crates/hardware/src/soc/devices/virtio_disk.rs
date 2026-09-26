@@ -3,12 +3,12 @@
 //! Implements a `VirtIO` block device over Memory-Mapped I/O (MMIO) for disk access.
 //! Supports the legacy `VirtIO` interface required by the Linux kernel.
 
+use crate::common::PhysAddr;
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, Packet, WriteData, MesiState};
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
-use crate::common::PhysAddr;
 use crate::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
@@ -439,15 +439,22 @@ impl Handle for VirtioBlock {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let offset = paddr.val().saturating_sub(self.base_addr);
             let value: u64 = match (size, op) {
-                (AccessSize::B4 | AccessSize::B8, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. }) => {
-                    u64::from(self.read_u32_reg(offset))
-                }
-                (AccessSize::B1, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. }) => {
+                (
+                    AccessSize::B4 | AccessSize::B8,
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+                ) => u64::from(self.read_u32_reg(offset)),
+                (
+                    AccessSize::B1,
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+                ) => {
                     let aligned = offset & !3;
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u8)
                 }
-                (AccessSize::B2, MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. }) => {
+                (
+                    AccessSize::B2,
+                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+                ) => {
                     let aligned = offset & !3;
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
@@ -471,7 +478,7 @@ impl Handle for VirtioBlock {
                     line_addr: LineAddr::from_phys(paddr, 64),
                     data: MemRespData::Small(value),
                     hit_level: HitLevel::Mmio,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }

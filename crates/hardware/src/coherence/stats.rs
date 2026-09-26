@@ -104,7 +104,10 @@ impl CoherenceStatPaths {
     /// Paths under `coherence`.
     #[must_use]
     pub fn new() -> Self {
-        Self { home: HomeStatPaths::new("coherence.ha"), interconnect: InterconnectStatPaths::new("coherence.interconnect") }
+        Self {
+            home: HomeStatPaths::new("coherence.ha"),
+            interconnect: InterconnectStatPaths::new("coherence.interconnect"),
+        }
     }
 }
 

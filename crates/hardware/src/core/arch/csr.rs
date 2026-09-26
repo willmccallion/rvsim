@@ -124,9 +124,7 @@ pub const fn cboz_allowed(
     match privilege {
         PrivilegeMode::Machine => true,
         PrivilegeMode::Supervisor => (menvcfg & MENVCFG_CBZE) != 0,
-        PrivilegeMode::User => {
-            (menvcfg & MENVCFG_CBZE) != 0 && (senvcfg & SENVCFG_CBZE) != 0
-        }
+        PrivilegeMode::User => (menvcfg & MENVCFG_CBZE) != 0 && (senvcfg & SENVCFG_CBZE) != 0,
     }
 }
 
@@ -142,9 +140,7 @@ pub const fn cbocf_allowed(
     match privilege {
         PrivilegeMode::Machine => true,
         PrivilegeMode::Supervisor => (menvcfg & MENVCFG_CBCFE) != 0,
-        PrivilegeMode::User => {
-            (menvcfg & MENVCFG_CBCFE) != 0 && (senvcfg & SENVCFG_CBCFE) != 0
-        }
+        PrivilegeMode::User => (menvcfg & MENVCFG_CBCFE) != 0 && (senvcfg & SENVCFG_CBCFE) != 0,
     }
 }
 
@@ -785,11 +781,8 @@ impl Csrs {
             x if x == SIP.as_u32() => self.sip = val,
             x if x == SATP.as_u32() => {
                 let mode = (val >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
-                let new_mode = if PagingMode::from_satp_mode(mode).is_some() {
-                    mode
-                } else {
-                    SATP_MODE_BARE
-                };
+                let new_mode =
+                    if PagingMode::from_satp_mode(mode).is_some() { mode } else { SATP_MODE_BARE };
                 let mask = !(SATP_MODE_MASK << SATP_MODE_SHIFT);
                 self.satp = (val & mask) | (new_mode << SATP_MODE_SHIFT);
             }

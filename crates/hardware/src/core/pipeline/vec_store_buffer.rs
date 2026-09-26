@@ -35,10 +35,10 @@
 //! pipeline's FIFO memory path. This matches spike, ARM SVE, and AVX-512.
 
 use crate::common::PhysAddr;
-use crate::sim::CoreCtx;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
+use crate::sim::CoreCtx;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
@@ -581,10 +581,9 @@ fn issue_drained_write(
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_stores.insert(
-        req_id,
-        OutstandingStore { rob_tag: RobTag::default(), paddr },
-    );
+    let _ = common
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { rob_tag: RobTag::default(), paddr });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,

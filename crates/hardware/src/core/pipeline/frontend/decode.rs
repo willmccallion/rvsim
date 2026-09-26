@@ -9,7 +9,6 @@
 
 use crate::common::RegIdx;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
@@ -19,6 +18,7 @@ use crate::core::units::vpu::types::{Sew, VRegIdx};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
+use crate::sim::CoreCtx;
 
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::rv64a::{funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes};
@@ -28,10 +28,10 @@ use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opc
 use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
 use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::rv64zfh::funct7 as h_funct7;
-use crate::isa::zicboz;
 use crate::isa::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
+use crate::isa::zicboz;
 
 /// ADDI x0, x0, 0 instruction encoding (canonical NOP).
 const INSTRUCTION_NOP: u32 = 0x0000_0013;
@@ -1494,8 +1494,10 @@ pub fn decode_stage(
             bundle_writes.push((d.rd, true));
         }
 
-        let rv1 = if ctrl.rs1_fp { state.hart.regs.read_f(d.rs1) } else { state.hart.regs.read(d.rs1) };
-        let rv2 = if ctrl.rs2_fp { state.hart.regs.read_f(d.rs2) } else { state.hart.regs.read(d.rs2) };
+        let rv1 =
+            if ctrl.rs1_fp { state.hart.regs.read_f(d.rs1) } else { state.hart.regs.read(d.rs1) };
+        let rv2 =
+            if ctrl.rs2_fp { state.hart.regs.read_f(d.rs2) } else { state.hart.regs.read(d.rs2) };
         let rv3 = if ctrl.rs3_fp { state.hart.regs.read_f(rs3_idx) } else { 0 };
 
         let has_trap = trap.is_some();

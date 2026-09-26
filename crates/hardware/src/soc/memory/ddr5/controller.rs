@@ -34,7 +34,9 @@ use crate::sim::components::{
     BankGroupId, ChannelId, ComponentId, MemCtrlId, RankId, ReqId, RowId, SubchannelId,
 };
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, Packet, MesiState};
+use crate::sim::packet::{
+    AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, MesiState, Packet,
+};
 use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
@@ -268,8 +270,7 @@ impl Ddr5Controller {
             scrub,
             activated: false,
         };
-        let sc =
-            &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
+        let sc = &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
         sc.inbound.push_back(pending);
     }
 
@@ -468,9 +469,7 @@ impl Ddr5Controller {
                 sc.writes_this_drain = 0;
                 WriteDrainState::Draining
             }
-            WriteDrainState::Draining
-                if depth <= low && sc.writes_this_drain >= min_writes =>
-            {
+            WriteDrainState::Draining if depth <= low && sc.writes_this_drain >= min_writes => {
                 WriteDrainState::Filling
             }
             state => state,
@@ -522,7 +521,8 @@ impl Ddr5Controller {
                     }
                     rank_mut.power = PowerState::Active;
                     rank_mut.power_up_at = now + t.t_xp;
-                    rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    rank_mut.last_command_cycle =
+                        rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.counters.power_down_exits += 1;
                     self.pending_commands.push(EmittedCommand {
@@ -547,9 +547,12 @@ impl Ddr5Controller {
                     {
                         continue;
                     }
-                    rank_mut.power =
-                        PowerState::PowerDown { since: now, with_open_rows: rank_mut.has_open_row() };
-                    rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                    rank_mut.power = PowerState::PowerDown {
+                        since: now,
+                        with_open_rows: rank_mut.has_open_row(),
+                    };
+                    rank_mut.last_command_cycle =
+                        rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
                     sc.counters.power_down_entries += 1;
                     self.pending_commands.push(EmittedCommand {
@@ -610,8 +613,8 @@ impl Ddr5Controller {
     fn arm_due_refresh(&mut self, chan: ChannelId, subch: SubchannelId, rank: RankId, now: u64) {
         let timing = self.config.timing;
         let layout = self.layout;
-        let rank_mut = &mut self.channels[chan.as_index()].subchannels[subch.as_index()]
-            .ranks[rank.as_index()];
+        let rank_mut = &mut self.channels[chan.as_index()].subchannels[subch.as_index()].ranks
+            [rank.as_index()];
         if rank_mut.refresh_phase != RefreshPhase::Idle || rank_mut.next_refresh > now {
             return;
         }
@@ -823,8 +826,8 @@ impl Ddr5Controller {
             if snapshot.last_read_cmd == 0 { 0 } else { snapshot.last_read_cmd + t.t_rtp };
         let wr_bound =
             if snapshot.last_write_end == 0 { 0 } else { snapshot.last_write_end + t.t_wr };
-        let rank_ref = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
-            .ranks[ctx.rank.as_index()];
+        let rank_ref = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()].ranks
+            [ctx.rank.as_index()];
         let ppd_bound =
             if rank_ref.last_precharge == 0 { 0 } else { rank_ref.last_precharge + t.t_ppd };
         ras_bound.max(rtp_bound).max(wr_bound).max(rank_ref.command_floor()).max(ppd_bound)
@@ -847,9 +850,9 @@ impl Ddr5Controller {
     }
 
     fn commit_precharge(&mut self, ctx: &BankCmdCtx, fire_at: u64) {
-        let open_row = self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
-            .ranks[ctx.rank.as_index()]
-            .banks[ctx.bank_index]
+        let open_row = self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()].ranks
+            [ctx.rank.as_index()]
+        .banks[ctx.bank_index]
             .open_row
             .map_or(0, RowId::val);
         {
@@ -985,7 +988,8 @@ impl Ddr5Controller {
         }
         let fire_at = column_aligned.max(now);
         let lead = column_lead(&self.config.timing, is_read);
-        let data_start_aligned = self.data_bus_start(ctx.chan, ctx.subch, ctx.rank, fire_at, is_read);
+        let data_start_aligned =
+            self.data_bus_start(ctx.chan, ctx.subch, ctx.rank, fire_at, is_read);
         let data_start = (fire_at + lead).max(data_start_aligned);
         let data_end = data_start + self.config.timing.bl_half;
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
@@ -999,7 +1003,13 @@ impl Ddr5Controller {
     }
 
     /// Records the statistics of a column command that just issued.
-    fn account_column(&mut self, ctx: &BankCmdCtx, request: &PendingReq, is_read: bool, data_end: u64) {
+    fn account_column(
+        &mut self,
+        ctx: &BankCmdCtx,
+        request: &PendingReq,
+        is_read: bool,
+        data_end: u64,
+    ) {
         let bl_half = self.config.timing.bl_half;
         let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
         let bank = &mut sc.ranks[ctx.rank.as_index()].banks[ctx.bank_index];
@@ -1013,7 +1023,9 @@ impl Ddr5Controller {
         if is_read {
             bank.counters.reads += 1;
             if !request.scrub {
-                sc.counters.read_latency_samples.push(data_end.saturating_sub(request.arrival_cycle));
+                sc.counters
+                    .read_latency_samples
+                    .push(data_end.saturating_sub(request.arrival_cycle));
             }
         } else {
             bank.counters.writes += 1;
@@ -1030,11 +1042,8 @@ impl Ddr5Controller {
         index: usize,
     ) {
         let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-        let _ = if pick_writes {
-            sc.write_queue.remove(index)
-        } else {
-            sc.read_queue.remove(index)
-        };
+        let _ =
+            if pick_writes { sc.write_queue.remove(index) } else { sc.read_queue.remove(index) };
     }
 
     fn commit_column(
@@ -1124,21 +1133,15 @@ impl Ddr5Controller {
             0
         } else {
             let same_bg = sc.last_column_bg == Some(bg);
-            let spacing = if same_bg {
-                if is_read { t.t_ccd_l } else { t.t_ccd_l_wr }
-            } else {
-                t.t_ccd_s
-            };
+            let spacing =
+                if same_bg { if is_read { t.t_ccd_l } else { t.t_ccd_l_wr } } else { t.t_ccd_s };
             last_col + spacing
         };
         let mut result = not_before.max(rank_ref.command_floor()).max(ccd);
         if is_read && sc.last_data_op == BusOp::Write && sc.last_write_end > 0 {
             let same_bg = sc.last_column_bg == Some(bg);
-            let bound = if same_bg {
-                sc.last_write_end + t.t_wtr_l
-            } else {
-                sc.last_write_end + t.t_wtr_s
-            };
+            let bound =
+                if same_bg { sc.last_write_end + t.t_wtr_l } else { sc.last_write_end + t.t_wtr_s };
             result = result.max(bound);
         }
         result
@@ -1169,7 +1172,12 @@ impl Ddr5Controller {
 
     /// Walks the column-command clock forward so RD→data == tCAS (WR→data == tCWL)
     /// still holds when the data bus was the binding constraint.
-    const fn align_column_to_data_bus(&self, column: u64, data_start: u64, is_read: bool) -> (u64, u64) {
+    const fn align_column_to_data_bus(
+        &self,
+        column: u64,
+        data_start: u64,
+        is_read: bool,
+    ) -> (u64, u64) {
         let lead = column_lead(&self.config.timing, is_read);
         if data_start > column + lead {
             let new_col = data_start - lead;
@@ -1194,9 +1202,9 @@ impl Ddr5Controller {
     }
 
     fn bank_snapshot(&self, ctx: BankCmdCtx) -> Bank {
-        self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()]
-            .ranks[ctx.rank.as_index()]
-            .banks[ctx.bank_index]
+        self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()].ranks
+            [ctx.rank.as_index()]
+        .banks[ctx.bank_index]
     }
 
     /// Publishes accumulated statistics, then converts queued command traces
@@ -1237,7 +1245,7 @@ impl Ddr5Controller {
                     line_addr: resp.line_addr,
                     data: resp.data,
                     hit_level: resp.hit_level,
-                state: MesiState::Exclusive,
+                    state: MesiState::Exclusive,
                 },
             );
         }
@@ -1370,9 +1378,7 @@ fn read_from_buffer(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -
         }
         AccessSize::B8 => {
             let s = buffer.read_slice(offset, 8);
-            MemRespData::Small(u64::from_le_bytes([
-                s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7],
-            ]))
+            MemRespData::Small(u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
         }
         AccessSize::Line => {
             let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);

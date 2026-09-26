@@ -7,12 +7,12 @@
 //! - If the ROB entry is still in-flight → stall (operand not ready).
 
 use crate::common::RegIdx;
-use crate::sim::CoreCtx;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+use crate::sim::CoreCtx;
 use crate::trace_issue;
 
 use std::collections::VecDeque;

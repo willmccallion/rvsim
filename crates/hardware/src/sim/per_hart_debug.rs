@@ -23,10 +23,6 @@ pub struct HartDebug {
 
 impl Default for HartDebug {
     fn default() -> Self {
-        Self {
-            last_pc: 0,
-            same_pc_count: 0,
-            pc_trace: Vec::with_capacity(PC_TRACE_MAX),
-        }
+        Self { last_pc: 0, same_pc_count: 0, pc_trace: Vec::with_capacity(PC_TRACE_MAX) }
     }
 }
