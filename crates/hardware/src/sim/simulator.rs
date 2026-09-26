@@ -68,6 +68,17 @@ impl Simulator {
         Self::new(SimState::new(config, disk_path, exit_signal))
     }
 
+    /// Discards every core's speculative work, writes its committed stores
+    /// to RAM and leaves each hart at its committed PC: the self-contained
+    /// architectural state a checkpoint records. Like gem5's drain, it
+    /// perturbs the timing of a run that continues afterwards.
+    pub fn drain(&mut self) {
+        for core in 0..self.pipelines.len() {
+            let mut ctx = self.state.core_ctx(core);
+            self.pipelines[core].drain(&mut ctx);
+        }
+    }
+
     /// Number of cores (and pipelines).
     #[must_use]
     pub const fn core_count(&self) -> usize {

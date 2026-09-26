@@ -60,6 +60,9 @@ pub trait ExecutionEngine {
     /// Flush all speculative state. Committed stores in the store buffer remain.
     fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
 
+    /// Write every committed store still buffered to memory.
+    fn drain_committed_stores(&mut self, state: &mut crate::sim::CoreCtx<'_>);
+
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
     /// Access the scoreboard mutably (for rename to mark producers).
@@ -375,6 +378,14 @@ impl<E: ExecutionEngine> Pipeline<E> {
         }
     }
 
+    /// Flush the pipeline, write its committed stores to memory and leave
+    /// the hart at its committed PC.
+    pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+        self.flush(state);
+        self.engine.drain_committed_stores(state);
+        state.hart.pc = state.hart.committed_next_pc;
+    }
+
     /// Flush the entire pipeline.
     pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         self.frontend.flush();
@@ -423,6 +434,14 @@ impl PipelineDispatch {
         match self {
             Self::InOrder(p) => p.flush(state),
             Self::OutOfOrder(p) => p.flush(state),
+        }
+    }
+
+    /// See [`Pipeline::drain`].
+    pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+        match self {
+            Self::InOrder(p) => p.drain(state),
+            Self::OutOfOrder(p) => p.drain(state),
         }
     }
 

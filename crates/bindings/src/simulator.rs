@@ -635,7 +635,8 @@ impl PySimulator {
     /// Save a checkpoint of the full simulation state to a file.
     ///
     /// The checkpoint includes PC, registers, CSRs, privilege mode, and RAM.
-    fn save(&self, path: &str) -> PyResult<()> {
+    fn save(&mut self, path: &str) -> PyResult<()> {
+        self.inner.drain();
         let cpu = &self.inner.state;
         let file = std::fs::File::create(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot create checkpoint file: {e}")))?;
@@ -702,6 +703,7 @@ impl PySimulator {
             return Err(PyRuntimeError::new_err("not a valid rvsim checkpoint file"));
         }
 
+        self.inner.drain();
         let cpu = &mut self.inner.state;
 
         cpu.direct_mode = header["direct_mode"].as_bool().unwrap_or(false);
@@ -753,6 +755,7 @@ impl PySimulator {
             core.mmu.l2_tlb.flush();
         }
         let _ = cpu.l3_cache.flush();
+        self.inner.sync_arch_regs();
 
         Ok(())
     }

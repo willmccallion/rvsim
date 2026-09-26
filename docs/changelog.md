@@ -20,7 +20,11 @@ All notable changes to this project are documented here. The format is based on 
 - Tracing: every event is tagged with its hart, and `cpu.trace_filter(harts=,
   cycles=, trap_causes=)` narrows an armed trace to some harts, a cycle
   window and specific `mcause` values.
-- Checkpoints save and restore every hart and the cycle counter.
+- Checkpoints save and restore every hart and the cycle counter; `save`
+  drains the pipelines first so the checkpoint is the committed state.
+- Device DMA writes are published to the reservation set and write log;
+  the MMU is per core; BTB geometries that are not a power of two of sets
+  are rejected.
 
 ## Releases
 

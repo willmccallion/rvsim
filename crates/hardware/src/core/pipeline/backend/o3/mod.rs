@@ -1346,6 +1346,10 @@ impl ExecutionEngine for O3Engine {
         Some(&mut self.vec_store_buffer)
     }
 
+    fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
+        commit::drain_all_committed(state, &mut self.common, &mut self.store_buffer, Some(&mut self.vec_store_buffer));
+    }
+
     fn scoreboard(&self) -> &Scoreboard {
         &self.scoreboard
     }

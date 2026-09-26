@@ -231,6 +231,10 @@ impl ExecutionEngine for InOrderEngine {
         state.core.branch_predictor.repair_to_committed();
     }
 
+    fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
+        commit::drain_all_committed(state, &mut self.common, &mut self.store_buffer, None);
+    }
+
     fn rob(&self) -> &Rob {
         &self.rob
     }

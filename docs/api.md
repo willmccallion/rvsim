@@ -175,7 +175,7 @@ Run until the PC matches the given address or the privilege level matches the gi
 
 #### `save(path: str)`
 
-Save a checkpoint to disk.
+Drain the pipelines and save a checkpoint to disk.
 
 #### `restore(path: str)`
 
@@ -246,9 +246,13 @@ cpu.run(limit=60_000)
 #### `save(path)`, `restore(path)`
 
 A checkpoint holds RAM, the cycle counter and every hart's architectural
-state (PC, privilege, registers, CSRs). It does not hold device state or
-in-flight memory traffic, so restore into a freshly built simulator with
-the same configuration and expect cold caches and re-armed timers.
+state (PC, privilege, registers, CSRs). `save` first drains every
+pipeline the way gem5 does: speculative work is discarded, committed
+stores still in the store buffers reach RAM and each hart is left at its
+committed PC, so a run that continues after a save is not cycle-identical
+to one without it. A checkpoint does not hold device state or in-flight
+memory traffic, so restore into a freshly built simulator with the same
+configuration and expect cold caches and re-armed timers.
 
 #### `pipeline_snapshot() -> PipelineSnapshot`
 

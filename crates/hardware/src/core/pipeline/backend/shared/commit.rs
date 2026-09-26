@@ -704,7 +704,7 @@ fn try_drain_one_store(
 ///
 /// Called before SATP writes (so the PTW sees up-to-date PTEs) and on FENCE
 /// commit (so younger memory ops see older committed writes).
-fn drain_all_committed(
+pub(crate) fn drain_all_committed(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,

@@ -1,6 +1,7 @@
 //! Integration tests for the RISC-V emulator.
 
 pub mod csr_ordering;
+pub mod drain;
 pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
 pub mod fetch_walk;
