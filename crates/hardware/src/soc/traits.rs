@@ -30,6 +30,10 @@ pub trait Device: Handle + Send + Sync {
         None
     }
 
+    /// Returns a reference as `Clint` if this device is the CLINT.
+    fn as_clint(&self) -> Option<&Clint> {
+        None
+    }
     /// Returns a mutable reference as `Clint` if this device is the CLINT.
     fn as_clint_mut(&mut self) -> Option<&mut Clint> {
         None

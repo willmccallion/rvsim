@@ -200,12 +200,15 @@ print(cpu.regs[reg.RA])
 
 #### `csrs[addr] -> int`
 
-Read a CSR by address. Use `csr` constants for named access:
+Read a CSR by address or by name, exactly as a CSR instruction on that
+hart would read it (`sip` is the delegated view of `mip`, `time` is the
+CLINT's counter, and so on). An address the hart does not implement
+raises `KeyError`.
 
 ```python
 from rvsim import csr
 print(cpu.csrs[csr.MSTATUS])
-print(cpu.csrs[csr.SATP])
+print(cpu.csrs["satp"])
 print(cpu.csrs[csr.SEPC])
 ```
 

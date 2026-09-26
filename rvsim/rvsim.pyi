@@ -406,6 +406,8 @@ class Registers:
     def __setitem__(self, idx: int, value: int) -> None: ...
 
 class Csrs:
+    """``cpu.csrs["mstatus"]`` or ``cpu.csrs[0x300]``, read as a CSR instruction would."""
+
     def __getitem__(self, key: str | int) -> int: ...
 
 class Memory:

@@ -5,6 +5,7 @@
 //! exposes a fast-path RAM region pointer for pipeline bit-exact reads.
 
 use super::devices::Device;
+use super::devices::clint::Clint;
 use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
@@ -178,6 +179,12 @@ impl Bus {
     /// RAM ranges any device wrote by DMA since the last call.
     pub fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
         self.devices.iter_mut().flat_map(|d| d.take_dma_writes()).collect()
+    }
+
+    /// The CLINT's `mtime`, which the `time` CSR reads; zero without a CLINT.
+    #[must_use]
+    pub fn mtime(&self) -> u64 {
+        self.clint_idx.and_then(|i| self.devices[i].as_clint()).map_or(0, Clint::mtime)
     }
 
     /// The interrupt lines currently asserted towards `hart`.

@@ -230,6 +230,7 @@ _CSR_BY_NAME: dict[str, int] = {
     "instret": 0xC02,
     "mcycle": 0xB00,
     "minstret": 0xB02,
+    "mcountinhibit": 0x320,
     # Stimecmp (Sstc extension)
     "stimecmp": 0x14D,
 }

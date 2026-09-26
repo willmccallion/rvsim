@@ -215,6 +215,16 @@ pub const PMPADDR15: CsrAddr = CsrAddr::from_u32(0x3BF);
 /// Machine counter-inhibit register CSR address.
 pub const MCOUNTINHIBIT: CsrAddr = CsrAddr::from_u32(0x320);
 
+/// `mcountinhibit.CY`: stops `mcycle`.
+pub const MCOUNTINHIBIT_CY: u64 = 1;
+
+/// `mcountinhibit.IR`: stops `minstret`.
+pub const MCOUNTINHIBIT_IR: u64 = 1 << 2;
+
+/// The `mcountinhibit` bits that exist: CY and IR (TM is hardwired zero and
+/// no hardware performance counters count).
+pub const MCOUNTINHIBIT_WRITABLE: u64 = MCOUNTINHIBIT_CY | MCOUNTINHIBIT_IR;
+
 /// First machine hardware performance-monitoring event selector (mhpmevent3).
 pub const MHPMEVENT3: CsrAddr = CsrAddr::from_u32(0x323);
 
@@ -648,16 +658,15 @@ pub struct Csrs {
     pub sip: u64,
     /// Supervisor address translation and protection (SATP).
     pub satp: u64,
-    /// Cycle counter (user-readable).
-    pub cycle: u64,
-    /// Timer value (user-readable, derived from cycles).
-    pub time: u64,
-    /// Instructions retired counter (user-readable).
-    pub instret: u64,
-    /// Machine cycle counter.
+    /// Machine cycle counter: counts this hart's clock cycles unless
+    /// `mcountinhibit.CY` is set; `cycle` is its read-only alias.
     pub mcycle: u64,
-    /// Machine instructions retired counter.
+    /// Machine instructions-retired counter: counts every retired
+    /// instruction unless `mcountinhibit.IR` is set; `instret` is its
+    /// read-only alias.
     pub minstret: u64,
+    /// Machine counter-inhibit register (only the CY and IR bits exist).
+    pub mcountinhibit: u64,
     /// Supervisor timer compare (for timer interrupt).
     pub stimecmp: u64,
     /// Floating-point accrued exception flags (5 bits: NV, DZ, OF, UF, NX).
@@ -695,6 +704,20 @@ pub struct Csrs {
 }
 
 impl Csrs {
+    /// Advances `mcycle` by one clock unless inhibited.
+    pub const fn count_cycle(&mut self) {
+        if self.mcountinhibit & MCOUNTINHIBIT_CY == 0 {
+            self.mcycle = self.mcycle.wrapping_add(1);
+        }
+    }
+
+    /// Counts one retired instruction in `minstret` unless inhibited.
+    pub const fn count_retired(&mut self) {
+        if self.mcountinhibit & MCOUNTINHIBIT_IR == 0 {
+            self.minstret = self.minstret.wrapping_add(1);
+        }
+    }
+
     /// Reads a CSR value by its address. Returns 0 for unrecognized addresses.
     pub const fn read(&self, addr: CsrAddr) -> u64 {
         match addr.as_u32() {
@@ -731,11 +754,9 @@ impl Csrs {
             x if x == STVAL.as_u32() => self.stval,
             x if x == SIP.as_u32() => self.sip,
             x if x == SATP.as_u32() => self.satp,
-            x if x == CYCLE.as_u32() => self.cycle,
-            x if x == TIME.as_u32() => self.time,
-            x if x == INSTRET.as_u32() => self.instret,
-            x if x == MCYCLE.as_u32() => self.mcycle,
-            x if x == MINSTRET.as_u32() => self.minstret,
+            x if x == CYCLE.as_u32() || x == MCYCLE.as_u32() => self.mcycle,
+            x if x == INSTRET.as_u32() || x == MINSTRET.as_u32() => self.minstret,
+            x if x == MCOUNTINHIBIT.as_u32() => self.mcountinhibit,
             x if x == MCOUNTEREN.as_u32() => self.mcounteren,
             x if x == SCOUNTEREN.as_u32() => self.scounteren,
             x if x == MENVCFG.as_u32() => self.menvcfg,
@@ -786,11 +807,9 @@ impl Csrs {
                 let mask = !(SATP_MODE_MASK << SATP_MODE_SHIFT);
                 self.satp = (val & mask) | (new_mode << SATP_MODE_SHIFT);
             }
-            x if x == CYCLE.as_u32() => self.cycle = val,
-            x if x == TIME.as_u32() => self.time = val,
-            x if x == INSTRET.as_u32() => self.instret = val,
             x if x == MCYCLE.as_u32() => self.mcycle = val,
             x if x == MINSTRET.as_u32() => self.minstret = val,
+            x if x == MCOUNTINHIBIT.as_u32() => self.mcountinhibit = val & MCOUNTINHIBIT_WRITABLE,
             x if x == MCOUNTEREN.as_u32() => self.mcounteren = val,
             x if x == SCOUNTEREN.as_u32() => self.scounteren = val,
             x if x == MENVCFG.as_u32() => self.menvcfg = val,

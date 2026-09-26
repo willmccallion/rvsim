@@ -33,9 +33,6 @@ use crate::isa::rvv::{
 };
 use crate::isa::zicboz;
 
-/// ADDI x0, x0, 0 instruction encoding (canonical NOP).
-const INSTRUCTION_NOP: u32 = 0x0000_0013;
-
 /// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
 const FUNCT7_ALT_BIT: u32 = 0x20;
 
@@ -1394,11 +1391,6 @@ pub fn decode_stage(
         }
 
         let inst = if_entry.inst;
-
-        if inst == INSTRUCTION_NOP {
-            consumed_count += 1;
-            continue;
-        }
 
         let d = instruction_decode(inst);
 

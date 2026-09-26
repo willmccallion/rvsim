@@ -264,12 +264,11 @@ pub fn commit_stage(
             let _ = pc_trace.remove(0);
         }
 
-        if entry.inst != 0 && entry.inst != 0x13 {
-            state.hart.instructions_retired += 1;
-            let hart_paths = state.hart_paths();
-            state.stats.counter(hart_paths.retired_insts).inc();
-            update_instruction_stats(state, &entry);
-        }
+        state.hart.csrs.count_retired();
+        state.hart.instructions_retired += 1;
+        let hart_paths = state.hart_paths();
+        state.stats.counter(hart_paths.retired_insts).inc();
+        update_instruction_stats(state, &entry);
 
         if entry.bp_update {
             state.core.branch_predictor.update_branch(

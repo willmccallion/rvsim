@@ -5,40 +5,61 @@
 
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
-use rvsim_core::common::RegIdx;
+use rvsim_core::common::{CsrAddr, RegIdx};
 
 use crate::simulator::PySimulator;
 
-const fn csr_addr_to_name(addr: u64) -> Option<&'static str> {
-    match addr {
-        0x100 => Some("sstatus"),
-        0x104 => Some("sie"),
-        0x105 => Some("stvec"),
-        0x140 => Some("sscratch"),
-        0x141 => Some("sepc"),
-        0x142 => Some("scause"),
-        0x143 => Some("stval"),
-        0x144 => Some("sip"),
-        0x180 => Some("satp"),
-        0x300 => Some("mstatus"),
-        0x301 => Some("misa"),
-        0x302 => Some("medeleg"),
-        0x303 => Some("mideleg"),
-        0x304 => Some("mie"),
-        0x305 => Some("mtvec"),
-        0x340 => Some("mscratch"),
-        0x341 => Some("mepc"),
-        0x342 => Some("mcause"),
-        0x343 => Some("mtval"),
-        0x344 => Some("mip"),
-        0xC00 => Some("cycle"),
-        0xC01 => Some("time"),
-        0xC02 => Some("instret"),
-        0xB00 => Some("mcycle"),
-        0xB02 => Some("minstret"),
-        0x14D => Some("stimecmp"),
-        _ => None,
-    }
+/// CSR names accepted by `cpu.csrs[...]`, with their addresses.
+const CSR_NAMES: &[(&str, u32)] = &[
+    ("fflags", 0x001),
+    ("frm", 0x002),
+    ("fcsr", 0x003),
+    ("vstart", 0x008),
+    ("vxsat", 0x009),
+    ("vxrm", 0x00A),
+    ("vcsr", 0x00F),
+    ("sstatus", 0x100),
+    ("sie", 0x104),
+    ("stvec", 0x105),
+    ("scounteren", 0x106),
+    ("senvcfg", 0x10A),
+    ("sscratch", 0x140),
+    ("sepc", 0x141),
+    ("scause", 0x142),
+    ("stval", 0x143),
+    ("sip", 0x144),
+    ("stimecmp", 0x14D),
+    ("satp", 0x180),
+    ("mstatus", 0x300),
+    ("misa", 0x301),
+    ("medeleg", 0x302),
+    ("mideleg", 0x303),
+    ("mie", 0x304),
+    ("mtvec", 0x305),
+    ("mcounteren", 0x306),
+    ("menvcfg", 0x30A),
+    ("mcountinhibit", 0x320),
+    ("mscratch", 0x340),
+    ("mepc", 0x341),
+    ("mcause", 0x342),
+    ("mtval", 0x343),
+    ("mip", 0x344),
+    ("mcycle", 0xB00),
+    ("minstret", 0xB02),
+    ("cycle", 0xC00),
+    ("time", 0xC01),
+    ("instret", 0xC02),
+    ("vl", 0xC20),
+    ("vtype", 0xC21),
+    ("vlenb", 0xC22),
+    ("mvendorid", 0xF11),
+    ("marchid", 0xF12),
+    ("mimpid", 0xF13),
+    ("mhartid", 0xF14),
+];
+
+fn csr_name_to_addr(name: &str) -> Option<u32> {
+    CSR_NAMES.iter().find(|(n, _)| *n == name).map(|(_, addr)| *addr)
 }
 
 /// Subscript register access returned by `cpu.regs` and `cpu.harts[n].regs`.
@@ -92,17 +113,19 @@ pub struct Csrs {
 
 #[pymethods]
 impl Csrs {
-    fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
-        let name: String = if let Ok(addr) = key.extract::<u64>() {
-            csr_addr_to_name(addr)
-                .ok_or_else(|| PyKeyError::new_err(format!("unknown CSR address {addr:#x}")))?
-                .to_string()
-        } else if let Ok(s) = key.extract::<String>() {
-            s.to_lowercase()
+    fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<u64> {
+        let addr = if let Ok(addr) = key.extract::<u32>() {
+            addr
+        } else if let Ok(name) = key.extract::<String>() {
+            csr_name_to_addr(&name.to_lowercase())
+                .ok_or_else(|| PyKeyError::new_err(format!("unknown CSR name {name:?}")))?
         } else {
             return Err(PyTypeError::new_err("CSR key must be a str or int"));
         };
-        Ok(self.cpu.borrow(py).read_csr_by_name(self.hart, &name))
+        self.cpu
+            .borrow_mut(py)
+            .read_csr(self.hart, CsrAddr::from_u32(addr))
+            .ok_or_else(|| PyKeyError::new_err(format!("CSR {addr:#x} is not implemented")))
     }
 
     const fn __repr__(&self) -> &'static str {

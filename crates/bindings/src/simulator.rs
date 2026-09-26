@@ -12,7 +12,7 @@ use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
-use rvsim_core::common::HartId;
+use rvsim_core::common::{CsrAddr, HartId};
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::sim::loader;
 use std::io::Write;
@@ -47,37 +47,12 @@ impl PySimulator {
         }
     }
 
-    pub(crate) fn read_csr_by_name(&self, hart: usize, name: &str) -> Option<u64> {
-        let c = &self.inner.state.harts[hart].csrs;
-        match name {
-            "mstatus" => Some(c.mstatus),
-            "misa" => Some(c.misa),
-            "mie" => Some(c.mie),
-            "mip" => Some(c.mip),
-            "mtvec" => Some(c.mtvec),
-            "mepc" => Some(c.mepc),
-            "mcause" => Some(c.mcause),
-            "mtval" => Some(c.mtval),
-            "medeleg" => Some(c.medeleg),
-            "mideleg" => Some(c.mideleg),
-            "mscratch" => Some(c.mscratch),
-            "sstatus" => Some(c.sstatus),
-            "sie" => Some(c.sie),
-            "sip" => Some(c.sip),
-            "stvec" => Some(c.stvec),
-            "sepc" => Some(c.sepc),
-            "scause" => Some(c.scause),
-            "stval" => Some(c.stval),
-            "sscratch" => Some(c.sscratch),
-            "satp" => Some(c.satp),
-            "cycle" => Some(c.cycle),
-            "time" => Some(c.time),
-            "instret" => Some(c.instret),
-            "mcycle" => Some(c.mcycle),
-            "minstret" => Some(c.minstret),
-            "stimecmp" => Some(c.stimecmp),
-            _ => None,
-        }
+    /// Reads `addr` on `hart` the way a CSR instruction would; `None`
+    /// when the hart does not implement that CSR.
+    pub(crate) fn read_csr(&mut self, hart: usize, addr: CsrAddr) -> Option<u64> {
+        let core = self.inner.state.topology.core_of_hart(HartId::new(hart as u32))?;
+        let ctx = self.inner.state.core_ctx(core.as_index());
+        ctx.is_valid_csr(addr).then(|| ctx.csr_read(addr))
     }
 
     /// Runs for up to `limit` cycles, checking Python signals every 10000 cycles.
@@ -786,9 +761,35 @@ fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
         ($($field:ident),*) => { $( let _ = csrs.insert(stringify!($field).into(), c.$field.into()); )* };
     }
     save_csr!(
-        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus,
-        sie, stvec, sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle,
-        minstret, stimecmp, fflags, frm, mcounteren, scounteren, menvcfg
+        mstatus,
+        misa,
+        medeleg,
+        mideleg,
+        mie,
+        mtvec,
+        mscratch,
+        mepc,
+        mcause,
+        mtval,
+        mip,
+        sstatus,
+        sie,
+        stvec,
+        sscratch,
+        sepc,
+        scause,
+        stval,
+        sip,
+        satp,
+        mcycle,
+        minstret,
+        mcountinhibit,
+        stimecmp,
+        fflags,
+        frm,
+        mcounteren,
+        scounteren,
+        menvcfg
     );
     let _ = h.insert("csrs".into(), serde_json::Value::Object(csrs));
     serde_json::Value::Object(h)
@@ -819,8 +820,34 @@ fn hart_from_json(hart: &mut rvsim_core::core::Hart, saved: &serde_json::Value) 
         ($($field:ident),*) => { $( if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) { c.$field = v; } )* };
     }
     restore_csr!(
-        mstatus, misa, medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, sstatus,
-        sie, stvec, sscratch, sepc, scause, stval, sip, satp, cycle, time, instret, mcycle,
-        minstret, stimecmp, fflags, frm, mcounteren, scounteren, menvcfg
+        mstatus,
+        misa,
+        medeleg,
+        mideleg,
+        mie,
+        mtvec,
+        mscratch,
+        mepc,
+        mcause,
+        mtval,
+        mip,
+        sstatus,
+        sie,
+        stvec,
+        sscratch,
+        sepc,
+        scause,
+        stval,
+        sip,
+        satp,
+        mcycle,
+        minstret,
+        mcountinhibit,
+        stimecmp,
+        fflags,
+        frm,
+        mcounteren,
+        scounteren,
+        menvcfg
     );
 }

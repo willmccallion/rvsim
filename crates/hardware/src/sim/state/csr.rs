@@ -67,11 +67,12 @@ impl CoreCtx<'_> {
             x if x == csr::SCOUNTEREN.as_u32() => self.hart.csrs.scounteren,
             x if x == csr::MENVCFG.as_u32() => self.hart.csrs.menvcfg,
             x if x == csr::SENVCFG.as_u32() => self.hart.csrs.senvcfg,
-            x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.cycle,
-            x if x == csr::TIME.as_u32() => self.cycle / self.config.system.clint_divider,
+            x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle,
+            x if x == csr::TIME.as_u32() => self.bus.mtime(),
             x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
-                self.hart.instructions_retired
+                self.hart.csrs.minstret
             }
+            x if x == csr::MCOUNTINHIBIT.as_u32() => self.hart.csrs.mcountinhibit,
             x if x == csr::PMPCFG0.as_u32() => {
                 self.hart.pmp.get_cfg(0) as u64
                     | ((self.hart.pmp.get_cfg(1) as u64) << 8)
@@ -269,8 +270,11 @@ impl CoreCtx<'_> {
             x if x == csr::SENVCFG.as_u32() => {
                 self.hart.csrs.senvcfg = val;
             }
-            x if x == csr::MCYCLE.as_u32() => self.cycle = val,
-            x if x == csr::MINSTRET.as_u32() => self.hart.instructions_retired = val,
+            x if x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle = val,
+            x if x == csr::MINSTRET.as_u32() => self.hart.csrs.minstret = val,
+            x if x == csr::MCOUNTINHIBIT.as_u32() => {
+                self.hart.csrs.mcountinhibit = val & csr::MCOUNTINHIBIT_WRITABLE;
+            }
             x if x == csr::PMPCFG0.as_u32() => {
                 for i in 0..8 {
                     self.hart.pmp.set_cfg(i, ((val >> (i * 8)) & 0xFF) as u8);

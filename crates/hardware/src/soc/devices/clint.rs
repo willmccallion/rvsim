@@ -210,6 +210,10 @@ impl Device for Clint {
         false
     }
 
+    fn as_clint(&self) -> Option<&Clint> {
+        Some(self)
+    }
+
     fn as_clint_mut(&mut self) -> Option<&mut Clint> {
         Some(self)
     }

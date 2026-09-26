@@ -148,20 +148,16 @@ fn csr_write_unknown_address_is_ignored() {
     assert_eq!(csrs.read(CsrAddr::from_u32(0x999)), 0);
 }
 
-/// Verifies the read and write operations for common counter CSRs.
+/// The unprivileged counter aliases read the machine counters.
 #[test]
 fn csr_counter_csrs() {
     let mut csrs = Csrs::default();
-    csrs.write(csr::CYCLE, 100);
-    csrs.write(csr::TIME, 200);
-    csrs.write(csr::INSTRET, 300);
     csrs.write(csr::MCYCLE, 400);
     csrs.write(csr::MINSTRET, 500);
 
-    assert_eq!(csrs.read(csr::CYCLE), 100);
-    assert_eq!(csrs.read(csr::TIME), 200);
-    assert_eq!(csrs.read(csr::INSTRET), 300);
+    assert_eq!(csrs.read(csr::CYCLE), 400);
     assert_eq!(csrs.read(csr::MCYCLE), 400);
+    assert_eq!(csrs.read(csr::INSTRET), 500);
     assert_eq!(csrs.read(csr::MINSTRET), 500);
 }
 

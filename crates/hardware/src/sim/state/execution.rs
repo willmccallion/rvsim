@@ -169,6 +169,7 @@ impl CoreCtx<'_> {
     /// Charges the cycle that just began to the hart's current privilege
     /// mode.
     pub fn track_mode_cycles(&mut self) {
+        self.hart.csrs.count_cycle();
         let hart_paths = self.hart_paths();
         let core_cycles = self.core.stat_paths.pipeline.cycles_total;
         self.stats.counter(core_cycles).inc();
