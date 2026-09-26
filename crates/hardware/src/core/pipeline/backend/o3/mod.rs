@@ -25,6 +25,7 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_prf::VecPrfView;
@@ -102,6 +103,8 @@ pub struct O3Engine {
     pub checkpoints: CheckpointTable,
     /// Stall cycles remaining for in-progress squash recovery (blocks dispatch while > 0).
     pub squash_stall_remaining: u64,
+    /// Cycles from a result that redirects to the squash being taken.
+    redirect_latency: u64,
     /// Vector physical register file (VLEN-bit storage per register + ready bits).
     pub vec_prf: VecPhysRegFile,
     /// Vector physical register free list.
@@ -166,6 +169,7 @@ impl O3Engine {
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_stall_remaining: 0,
+            redirect_latency: config.pipeline.redirect_latency(),
             vec_prf: {
                 let prf_vpr_size = config.pipeline.prf_vpr_size;
                 let vlen = Vlen::new_unchecked(config.pipeline.vlen);
@@ -246,6 +250,106 @@ impl O3Engine {
         }
     }
 
+    /// Takes a squash: drops everything younger than its kept tag (or the
+    /// whole window when that tag has already retired), reclaims their
+    /// physical registers, restores the rename map, and redirects fetch.
+    fn apply_squash(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        squash: PendingSquash,
+        redirect_pending: &mut bool,
+    ) {
+        let paths = &state.core.stat_paths.pipeline;
+        state.shared.stats.counter(paths.stalls_control).inc();
+        state.shared.stats.counter(paths.flushes_total).inc();
+        match squash.redirect.cause {
+            SquashCause::Branch => state.shared.stats.counter(paths.flushes_branch).inc(),
+            SquashCause::System => state.shared.stats.counter(paths.flushes_system).inc(),
+            SquashCause::MemoryOrder | SquashCause::Coherence => {}
+        }
+
+        let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        let squashed = if let Some(keep_tag) = keep_tag {
+            for entry in self.rob.iter_after(keep_tag) {
+                self.free_list.reclaim(entry.phys_dst);
+                for i in 0..entry.vec_dst_count as usize {
+                    self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                }
+            }
+            self.rob.iter_after(keep_tag).count()
+        } else {
+            for entry in self.rob.iter_all() {
+                self.free_list.reclaim(entry.phys_dst);
+                for i in 0..entry.vec_dst_count as usize {
+                    self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
+                }
+            }
+            self.rob.len()
+        };
+        state.shared.stats.counter(paths.flushes_squashed_insns).add(squashed as u64);
+
+        if let Some(keep_tag) = keep_tag {
+            // flush_after, not flush: older un-issued IQ entries must survive or deadlock the pipeline.
+            self.issue_queue.flush_after(keep_tag);
+            self.rob.flush_after(keep_tag);
+            self.store_buffer.flush_after(keep_tag);
+            self.load_queue.flush_after(keep_tag);
+            self.mdp.flush_after(keep_tag, &self.rob);
+            self.vec_store_buffer.flush_after(keep_tag);
+            self.common.squash_after(keep_tag);
+        } else {
+            self.issue_queue.flush();
+            self.rob.flush_all();
+            self.store_buffer.flush_speculative();
+            self.load_queue.flush();
+            self.mdp.flush();
+            self.vec_store_buffer.flush_all();
+            self.common.squash_all();
+        }
+        let survives = |tag: crate::core::pipeline::rob::RobTag| {
+            keep_tag.is_some_and(|keep_tag| tag.is_older_or_eq(keep_tag))
+        };
+        self.mem1_mem2.retain(|e| survives(e.rob_tag));
+        self.mem2_wb.retain(|e| survives(e.rob_tag));
+        self.pending_results.retain(|p| survives(p.entry.rob_tag));
+        self.vec_pending.retain(|v| survives(v.rob_tag));
+        self.vec_mem_pending.retain(|m| survives(m.entry.rob_tag));
+        self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
+        self.execute_mem1.retain(|e| survives(e.rob_tag));
+
+        // Restore speculative rename map: checkpoint (O(1)) or forward ROB walk rebuild.
+        let surviving = self.rob.len();
+        let checkpoint = keep_tag
+            .filter(|_| self.checkpoints.capacity() > 0)
+            .and_then(|tag| self.checkpoints.find_by_tag(tag).map(|ckpt| ckpt.rename_map.clone()));
+        if let Some(rename_map) = checkpoint {
+            self.rename_map = rename_map;
+            self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+        } else {
+            self.rebuild_rename_map();
+            self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
+            state
+                .shared
+                .stats
+                .counter(paths.stalls_rename_rebuild)
+                .add(surviving.div_ceil(self.width.max(1)) as u64);
+        }
+        if let Some(keep_tag) = keep_tag {
+            self.checkpoints.flush_after(keep_tag);
+        } else {
+            self.checkpoints.flush_all();
+        }
+        self.scoreboard.rebuild_from_rob(&self.rob);
+
+        if let Some(target) = squash.redirect.target {
+            state.hart.pc = target;
+            *redirect_pending = true;
+        }
+        if let Some(repair) = squash.redirect.repair {
+            repair.apply(&mut state.core.branch_predictor);
+        }
+    }
+
     /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.
     fn issue_vec_mem_waves(&mut self) {
         for inflight in &mut self.vec_mem_inflight {
@@ -278,6 +382,11 @@ impl ExecutionEngine for O3Engine {
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
             state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
+        }
+
+        if let Some(squash) = self.common.take_due_squash(now) {
+            self.apply_squash(state, squash, redirect_pending);
+            rename_output.clear();
         }
 
         let pc_before_commit = state.hart.pc;
@@ -423,108 +532,24 @@ impl ExecutionEngine for O3Engine {
 
         if let Some((violating_tag, store_pc)) = squash {
             let violation_pc = self.rob.find_entry(violating_tag).map_or(state.hart.pc, |e| e.pc);
-
-            if let Some(store_pc) = store_pc {
+            let cause = if let Some(store_pc) = store_pc {
                 self.mdp.violation(violation_pc, store_pc);
                 state
                     .shared
                     .stats
                     .counter(state.core.stat_paths.pipeline.flushes_mem_violations)
                     .inc();
+                SquashCause::MemoryOrder
             } else {
                 state.shared.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
-            }
-
-            // keep_tag must be a tag actually in the ROB; synthetic `tag-1` could be a use-after-free.
-            let keep_tag = self.rob.prev_tag_of(violating_tag);
-
-            state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
-
-            if let Some(keep_tag) = keep_tag {
-                for entry in self.rob.iter_after(keep_tag) {
-                    self.free_list.reclaim(entry.phys_dst);
-                    for i in 0..entry.vec_dst_count as usize {
-                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                    }
-                }
-                let squashed = self.rob.iter_after(keep_tag).count();
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.flushes_squashed_insns)
-                    .add(squashed as u64);
-
-                self.issue_queue.flush_after(keep_tag);
-                self.rob.flush_after(keep_tag);
-                self.store_buffer.flush_after(keep_tag);
-                self.load_queue.flush_after(keep_tag);
-                self.mdp.flush_after(keep_tag, &self.rob);
-
-                self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
-                self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
-                self.vec_mem_pending.retain(|m| m.entry.rob_tag.is_older_or_eq(keep_tag));
-                self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
-                self.vec_store_buffer.flush_after(keep_tag);
-                self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-                self.common.squash_after(keep_tag);
-
-                // The violating load is not a branch, so checkpoint rebuild always applies.
-                let surviving = self.rob.len();
-                self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.stalls_rename_rebuild)
-                    .add(surviving.div_ceil(self.width.max(1)) as u64);
-            } else {
-                // Violating load is at ROB head (or older entry committed): full flush.
-                for entry in self.rob.iter_all() {
-                    self.free_list.reclaim(entry.phys_dst);
-                    for i in 0..entry.vec_dst_count as usize {
-                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                    }
-                }
-                let squashed = self.rob.len();
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.flushes_squashed_insns)
-                    .add(squashed as u64);
-
-                self.issue_queue.flush();
-                self.rob.flush_all();
-                self.store_buffer.flush_speculative();
-                self.load_queue.flush();
-                self.mdp.flush();
-
-                self.mem1_mem2.clear();
-                self.mem2_wb.clear();
-                self.pending_results.clear();
-                self.vec_pending.clear();
-                self.vec_mem_pending.clear();
-                self.vec_mem_inflight.clear();
-                self.vec_store_buffer.flush_all();
-                self.execute_mem1.clear();
-                self.common.mem1_replay.clear();
-
-                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
-            }
-
-            self.rebuild_rename_map();
-            self.scoreboard.rebuild_from_rob(&self.rob);
-            if let Some(keep_tag) = keep_tag {
-                self.checkpoints.flush_after(keep_tag);
-            } else {
-                self.checkpoints.flush_all();
-            }
-
-            state.hart.pc = violation_pc;
-            *redirect_pending = true;
-            rename_output.clear();
-            return;
+                SquashCause::Coherence
+            };
+            // The violating load re-executes, so it does not survive either.
+            self.common.request_squash(PendingSquash {
+                keep_tag: self.rob.prev_tag_of(violating_tag),
+                redirect: Redirect::to(violation_pc, cause),
+                apply_at: now + self.redirect_latency,
+            });
         }
 
         // Packet-based memory1 always accepts work and parks loads in
@@ -640,9 +665,6 @@ impl ExecutionEngine for O3Engine {
                 }
             }
         }
-
-        // Set when any issued instruction returns needs_flush=true.
-        let mut flush_keep_tag: Option<crate::core::pipeline::rob::RobTag> = None;
 
         {
             let issued = self.issue_queue.select(
@@ -781,9 +803,15 @@ impl ExecutionEngine for O3Engine {
                     self.fu_pool.acquire(fu_type, now)
                 };
 
-                let (ex_result, flush) =
-                    execute::execute_one(state, entry, &mut self.rob, redirect_pending);
+                let (ex_result, redirect) = execute::execute_one(state, entry, &mut self.rob);
                 issued_count += 1;
+                if let Some(redirect) = redirect {
+                    self.common.request_squash(PendingSquash {
+                        keep_tag: Some(ex_result.rob_tag),
+                        redirect,
+                        apply_at: complete_cycle + self.redirect_latency,
+                    });
+                }
                 if is_vec_config {
                     self.common.vector_config_unresolved = false;
                 }
@@ -893,11 +921,6 @@ impl ExecutionEngine for O3Engine {
                         });
                     }
 
-                    let keep_tag = ex_result.rob_tag;
-                    if flush {
-                        flush_keep_tag = Some(keep_tag);
-                        break;
-                    }
                     continue;
                 }
 
@@ -1006,11 +1029,6 @@ impl ExecutionEngine for O3Engine {
                         });
                     }
 
-                    let keep_tag = ex_result.rob_tag;
-                    if flush {
-                        flush_keep_tag = Some(keep_tag);
-                        break;
-                    }
                     continue;
                 }
 
@@ -1020,17 +1038,11 @@ impl ExecutionEngine for O3Engine {
                     self.issue_queue.speculative_wakeup_phys(ex_result.rd_phys);
                 }
 
-                let keep_tag = ex_result.rob_tag;
                 self.pending_results.push(PendingResult {
                     entry: ex_result,
                     complete_cycle,
                     fu_type,
                 });
-
-                if flush {
-                    flush_keep_tag = Some(keep_tag);
-                    break;
-                }
             }
 
             if issued_count == 0 && !stalled_fu && !self.issue_queue.is_empty() {
@@ -1038,103 +1050,7 @@ impl ExecutionEngine for O3Engine {
             }
         }
 
-        if let Some(keep_tag) = flush_keep_tag {
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
-            state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
-
-            if let Some(entry) = self.rob.find_entry(keep_tag) {
-                if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-                    state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_branch).inc();
-                } else {
-                    state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_system).inc();
-                }
-            } else {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_system).inc();
-            }
-
-            rename_output.clear();
-
-            // keep_tag may have been committed in step 1; if so, flush everything younger.
-            let keep_in_rob = self.rob.find_entry(keep_tag).is_some();
-
-            let squashed: usize;
-            if keep_in_rob {
-                squashed = self.rob.iter_after(keep_tag).count();
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.flushes_squashed_insns)
-                    .add(squashed as u64);
-                for entry in self.rob.iter_after(keep_tag) {
-                    self.free_list.reclaim(entry.phys_dst);
-                    for i in 0..entry.vec_dst_count as usize {
-                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                    }
-                }
-                // flush_after, not flush: older un-issued IQ entries must survive or deadlock the pipeline.
-                self.issue_queue.flush_after(keep_tag);
-                self.rob.flush_after(keep_tag);
-                self.store_buffer.flush_after(keep_tag);
-                self.load_queue.flush_after(keep_tag);
-                self.mdp.flush_after(keep_tag, &self.rob);
-            } else {
-                // keep_tag already committed: flush everything in-flight.
-                for entry in self.rob.iter_all() {
-                    self.free_list.reclaim(entry.phys_dst);
-                    for i in 0..entry.vec_dst_count as usize {
-                        self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                    }
-                }
-                squashed = self.rob.len();
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.flushes_squashed_insns)
-                    .add(squashed as u64);
-                self.issue_queue.flush();
-                self.rob.flush_all();
-                self.store_buffer.flush_speculative();
-                self.load_queue.flush();
-                self.mdp.flush();
-            }
-            self.mem1_mem2.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.mem2_wb.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.pending_results.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
-            self.vec_pending.retain(|v| v.rob_tag.is_older_or_eq(keep_tag));
-            self.vec_mem_pending.retain(|m| m.entry.rob_tag.is_older_or_eq(keep_tag));
-            self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
-            self.vec_store_buffer.flush_after(keep_tag);
-            self.execute_mem1.retain(|e| e.rob_tag.is_older_or_eq(keep_tag));
-            self.common.squash_after(keep_tag);
-            // Restore speculative rename map: checkpoint (O(1)) or forward ROB walk rebuild.
-            let surviving = self.rob.len();
-            if self.checkpoints.capacity() > 0 {
-                if let Some(ckpt) = self.checkpoints.find_by_tag(keep_tag) {
-                    self.rename_map = ckpt.rename_map.clone();
-                    self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
-                } else {
-                    self.rebuild_rename_map();
-                    self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                    state
-                        .shared
-                        .stats
-                        .counter(state.core.stat_paths.pipeline.stalls_rename_rebuild)
-                        .add(surviving.div_ceil(self.width.max(1)) as u64);
-                }
-                self.checkpoints.flush_after(keep_tag);
-            } else {
-                self.rebuild_rename_map();
-                self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.stalls_rename_rebuild)
-                    .add(surviving.div_ceil(self.width.max(1)) as u64);
-            }
-            self.scoreboard.rebuild_from_rob(&self.rob);
-        }
-
-        if flush_keep_tag.is_none() {
+        {
             let entries = std::mem::take(rename_output);
             for entry in entries {
                 let is_load = entry.ctrl.mem_read;
@@ -1230,6 +1146,7 @@ impl ExecutionEngine for O3Engine {
         self.execute_mem1.clear();
         self.common.mem1_replay.clear();
         self.common.coherence_violation = None;
+        self.common.pending_squash = None;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         state.core.branch_predictor.repair_to_committed();

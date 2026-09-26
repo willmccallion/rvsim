@@ -7,10 +7,12 @@ use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
+use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{
     AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
 };
+use crate::core::pipeline::squash::{BranchRepair, Redirect, SquashCause};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
@@ -24,29 +26,33 @@ const FUNCT3_SHIFT: u32 = 12;
 const FUNCT3_MASK: u32 = 0x7;
 const JALR_ALIGNMENT_MASK: u64 = !1;
 
+/// What one cycle of in-order execute produced.
+#[derive(Debug, Default)]
+pub struct ExecutedBatch {
+    /// The results, in issue order.
+    pub results: Vec<ExMem1Entry>,
+    /// The redirect each squashing instruction asked for, by ROB tag.
+    pub redirects: Vec<(RobTag, Redirect)>,
+}
+
 /// Executes instructions in the in-order backend.
 ///
 /// Takes issued instructions, performs ALU/FPU operations, resolves branches,
 /// and produces `ExMem1Entry` results. CSR writes and `MRET`/`SRET` are recorded
 /// in the ROB for deferred application at commit.
 ///
-/// Returns `(results, needs_frontend_flush)`. When `needs_frontend_flush` is true,
-/// the engine must flush the issue queue and frontend (branch misprediction,
-/// CSR, MRET/SRET, FENCE.I, etc.).
+/// Returns the results and the redirects the batch asked for (branch
+/// misprediction, CSR write, MRET/SRET, FENCE.I, a fault); the engine takes
+/// each after the redirect latency.
 pub fn execute_inorder(
     state: &mut CoreCtx<'_>,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
-    redirect_pending: &mut bool,
-) -> (Vec<ExMem1Entry>, bool) {
+) -> ExecutedBatch {
     let mut results = Vec::with_capacity(entries.len());
-    let mut flush_remaining = false;
+    let mut redirects = Vec::new();
 
     for id in entries {
-        if flush_remaining {
-            break;
-        }
-
         if let Some(trap) = id.trap.clone() {
             trace_trap!(state.trace_trap_enabled(&trap);
                 event   = "propagate",
@@ -73,7 +79,7 @@ pub fn execute_inorder(
                 sfence_vma: None,
                 vec_mem: None,
             });
-            flush_remaining = true;
+            redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
             continue;
         }
 
@@ -118,7 +124,7 @@ pub fn execute_inorder(
                 sfence_vma: None,
                 vec_mem: None,
             });
-            flush_remaining = true;
+            redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
             continue;
         }
 
@@ -136,9 +142,10 @@ pub fn execute_inorder(
 
         // I-cache flush deferred to commit so prior stores are visible before refill.
         if id.ctrl.system_op == SystemOp::FenceI {
-            state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-            *redirect_pending = true;
-            flush_remaining = true;
+            redirects.push((
+                id.rob_tag,
+                Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System),
+            ));
 
             results.push(ExMem1Entry {
                 rob_tag: id.rob_tag,
@@ -168,7 +175,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -187,7 +194,7 @@ pub fn execute_inorder(
                     });
                     continue;
                 }
-                flush_remaining = true;
+                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -214,7 +221,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -242,7 +249,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -262,7 +269,7 @@ pub fn execute_inorder(
                     continue;
                 }
 
-                flush_remaining = true;
+                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -295,7 +302,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                 }
-                flush_remaining = true;
+                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -325,7 +332,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -346,9 +353,10 @@ pub fn execute_inorder(
                 }
 
                 // Defer TLB flush to commit (after store buffer drains); just flush the frontend.
-                state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                *redirect_pending = true;
-                flush_remaining = true;
+                redirects.push((
+                    id.rob_tag,
+                    Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System),
+                ));
 
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -408,7 +416,7 @@ pub fn execute_inorder(
                 };
 
                 rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-                flush_remaining = true;
+                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
 
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -439,7 +447,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -487,7 +495,8 @@ pub fn execute_inorder(
                                 Trap::IllegalInstruction(id.inst),
                                 ExceptionStage::Execute,
                             );
-                            flush_remaining = true;
+                            redirects
+                                .push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                             results.push(ExMem1Entry {
                                 rob_tag: id.rob_tag,
                                 pc: id.pc,
@@ -515,7 +524,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -542,7 +551,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    flush_remaining = true;
+                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -576,7 +585,7 @@ pub fn execute_inorder(
                             Trap::IllegalInstruction(id.inst),
                             ExceptionStage::Execute,
                         );
-                        flush_remaining = true;
+                        redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                         results.push(ExMem1Entry {
                             rob_tag: id.rob_tag,
                             pc: id.pc,
@@ -629,9 +638,10 @@ pub fn execute_inorder(
                     );
                 }
 
-                state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                *redirect_pending = true;
-                flush_remaining = true;
+                redirects.push((
+                    id.rob_tag,
+                    Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System),
+                ));
 
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -659,7 +669,7 @@ pub fn execute_inorder(
             let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
             if fs == 0 && is_fp {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-                flush_remaining = true;
+                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -706,9 +716,13 @@ pub fn execute_inorder(
         if id.ctrl.vec_op != VectorOp::None {
             match crate::core::units::vpu::execute::execute_vec_op(state, &id) {
                 Ok(alu_out) => {
-                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                    *redirect_pending = true;
-                    flush_remaining = true;
+                    redirects.push((
+                        id.rob_tag,
+                        Redirect::to(
+                            id.pc.wrapping_add(id.inst_size.as_u64()),
+                            SquashCause::System,
+                        ),
+                    ));
 
                     rob.complete(id.rob_tag, alu_out);
                     results.push(ExMem1Entry {
@@ -729,9 +743,13 @@ pub fn execute_inorder(
                     });
                 }
                 Err(trap) => {
-                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                    *redirect_pending = true;
-                    flush_remaining = true;
+                    redirects.push((
+                        id.rob_tag,
+                        Redirect::to(
+                            id.pc.wrapping_add(id.inst_size.as_u64()),
+                            SquashCause::System,
+                        ),
+                    ));
 
                     rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
                     results.push(ExMem1Entry {
@@ -786,14 +804,10 @@ pub fn execute_inorder(
             );
 
             if mispredicted {
-                // Restore GHR to pre-speculation state, then push the actual outcome.
-                state.core.branch_predictor.repair_history(&id.ghr_snapshot);
-                state.core.branch_predictor.speculate(id.pc, taken);
-                state.core.branch_predictor.restore_ras(id.ras_snapshot);
                 state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
-                state.hart.pc = actual_next_pc;
-                *redirect_pending = true;
-                flush_remaining = true;
+                let repair =
+                    BranchRepair { pc: id.pc, taken, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
+                redirects.push((id.rob_tag, Redirect::mispredict(actual_next_pc, repair)));
             } else {
                 state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
             }
@@ -825,13 +839,14 @@ pub fn execute_inorder(
             }
 
             if mispredicted {
-                state.core.branch_predictor.repair_history(&id.ghr_snapshot);
-                state.core.branch_predictor.speculate(id.pc, true);
-                state.core.branch_predictor.restore_ras(id.ras_snapshot);
                 state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
-                state.hart.pc = actual_target;
-                *redirect_pending = true;
-                flush_remaining = true;
+                let repair = BranchRepair {
+                    pc: id.pc,
+                    taken: true,
+                    ghr: id.ghr_snapshot,
+                    ras: id.ras_snapshot,
+                };
+                redirects.push((id.rob_tag, Redirect::mispredict(actual_target, repair)));
             } else {
                 state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
             }
@@ -855,7 +870,7 @@ pub fn execute_inorder(
         });
     }
 
-    (results, flush_remaining)
+    ExecutedBatch { results, redirects }
 }
 
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`.

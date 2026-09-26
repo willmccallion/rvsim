@@ -26,6 +26,7 @@ use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
+use crate::core::pipeline::squash::{PendingSquash, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::bru::BranchPredictor;
@@ -96,6 +97,8 @@ pub struct InOrderEngine {
     /// Current cycle counter (used for debug stats; the simulator's cycle
     /// drives all timing).
     cycle: u64,
+    /// Cycles from a result that redirects to the squash being taken.
+    redirect_latency: u64,
     /// Committed rename map stub (unused; required by shared `commit_stage` signature).
     committed_rename_map: RenameMap,
     /// Free list stub (unused; required by shared `commit_stage` signature).
@@ -116,6 +119,56 @@ impl InOrderEngine {
             state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.rob.forward(done.entry.rob_tag, forwarded_value(&done.entry));
             self.execute_mem1.push(done.entry);
+        }
+    }
+
+    /// Takes a squash: drops everything younger than its kept tag (or the
+    /// whole window when that tag has already retired) and redirects fetch.
+    fn apply_squash(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        squash: PendingSquash,
+        redirect_pending: &mut bool,
+    ) {
+        let paths = &state.core.stat_paths.pipeline;
+        state.shared.stats.counter(paths.stalls_control).inc();
+        state.shared.stats.counter(paths.flushes_total).inc();
+        match squash.redirect.cause {
+            SquashCause::Branch => state.shared.stats.counter(paths.flushes_branch).inc(),
+            SquashCause::System => state.shared.stats.counter(paths.flushes_system).inc(),
+            SquashCause::MemoryOrder | SquashCause::Coherence => {}
+        }
+
+        // Everything in the issue queue is younger than any executed instruction.
+        self.issuer.flush();
+        let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        if let Some(keep_tag) = keep_tag {
+            self.rob.flush_after(keep_tag);
+            self.store_buffer.flush_after(keep_tag);
+            self.vec_store_buffer.flush_after(keep_tag);
+            self.common.squash_after(keep_tag);
+        } else {
+            self.rob.flush_all();
+            self.store_buffer.flush_speculative();
+            self.vec_store_buffer.flush_speculative();
+            self.common.squash_all();
+        }
+        let survives = |tag: crate::core::pipeline::rob::RobTag| {
+            keep_tag.is_some_and(|k| tag.is_older_or_eq(k))
+        };
+        self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
+        self.pending.retain(|p| survives(p.entry.rob_tag));
+        self.execute_mem1.retain(|e| survives(e.rob_tag));
+        self.mem1_mem2.retain(|e| survives(e.rob_tag));
+        self.mem2_wb.retain(|e| survives(e.rob_tag));
+        self.scoreboard.rebuild_from_rob(&self.rob);
+
+        if let Some(target) = squash.redirect.target {
+            state.hart.pc = target;
+            *redirect_pending = true;
+        }
+        if let Some(repair) = squash.redirect.repair {
+            repair.apply(&mut state.core.branch_predictor);
         }
     }
 
@@ -290,6 +343,7 @@ impl InOrderEngine {
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             common,
             cycle: 0,
+            redirect_latency: config.pipeline.redirect_latency(),
             committed_rename_map: RenameMap::new(),
             free_list: FreeList::new(0, 0),
         }
@@ -305,6 +359,11 @@ impl ExecutionEngine for InOrderEngine {
     ) {
         self.cycle += 1;
         let now = self.cycle;
+
+        if let Some(squash) = self.common.take_due_squash(now) {
+            self.apply_squash(state, squash, redirect_pending);
+            rename_output.clear();
+        }
 
         let pc_before_commit = state.hart.pc;
 
@@ -377,8 +436,8 @@ impl ExecutionEngine for InOrderEngine {
 
         self.deliver_ready_results(state, now);
 
-        let (results, units, needs_flush) = if backpressured {
-            (Vec::new(), Vec::new(), false)
+        let (results, units) = if backpressured {
+            (Vec::new(), Vec::new())
         } else {
             let (issued, units) = self.issuer.select(
                 self.issue_width,
@@ -387,6 +446,7 @@ impl ExecutionEngine for InOrderEngine {
                 state,
                 &mut self.fu_pool,
                 now,
+                self.common.pending_squash,
             );
             if issued.is_empty() && !self.issuer.is_empty() {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
@@ -397,39 +457,28 @@ impl ExecutionEngine for InOrderEngine {
             for entry in &vec_mem {
                 self.start_vec_mem_op(state, entry);
             }
-            let (results, needs_flush) =
-                execute::execute_inorder(state, issued, &mut self.rob, redirect_pending);
-            (results, units, needs_flush)
+            let executed = execute::execute_inorder(state, issued, &mut self.rob);
+            for (tag, redirect) in executed.redirects {
+                let complete_cycle =
+                    units.iter().find(|u| u.tag == tag).map_or(now + 1, |u| u.complete_cycle);
+                self.common.request_squash(PendingSquash {
+                    keep_tag: Some(tag),
+                    redirect,
+                    apply_at: complete_cycle + self.redirect_latency,
+                });
+            }
+            (executed.results, units)
         };
-        let keep_tag = results.last().map(|r| r.rob_tag);
         if results.iter().any(|r| r.ctrl.vec_op.is_config()) {
             self.common.vector_config_unresolved = false;
         }
         self.hold_results(results, &units, now);
         self.issue_vec_mem_elements(state);
 
-        if needs_flush {
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
-            state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
-            self.issuer.flush();
-            rename_output.clear();
-            if let Some(keep_tag) = keep_tag {
-                self.rob.flush_after(keep_tag);
-                self.store_buffer.flush_after(keep_tag);
-                self.vec_store_buffer.flush_after(keep_tag);
-                self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
-                self.common.squash_after(keep_tag);
-                self.pending.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
-            }
-            self.scoreboard.rebuild_from_rob(&self.rob);
-        }
-
         // Dispatch even during backpressure: skipping it lets rename_output outgrow issue capacity.
-        if !needs_flush {
-            let rename_entries = std::mem::take(rename_output);
-            if !rename_entries.is_empty() {
-                self.issuer.dispatch(rename_entries);
-            }
+        let rename_entries = std::mem::take(rename_output);
+        if !rename_entries.is_empty() {
+            self.issuer.dispatch(rename_entries);
         }
     }
 
@@ -451,6 +500,7 @@ impl ExecutionEngine for InOrderEngine {
         self.pending.clear();
         self.execute_mem1.clear();
         self.common.mem1_replay.clear();
+        self.common.pending_squash = None;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         state.core.branch_predictor.repair_to_committed();

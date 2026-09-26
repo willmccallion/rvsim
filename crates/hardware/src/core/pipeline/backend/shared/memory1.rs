@@ -332,9 +332,11 @@ fn reads_a_device(state: &CoreCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
     state.bus.ram_region_for(paddr.val(), size).is_none()
 }
 
-/// True when `tag` is the oldest instruction in the ROB.
+/// True when `tag` is the oldest instruction in the ROB and no squash on
+/// its way will remove it.
 fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
     engine.rob().peek_head().is_some_and(|head| head.tag == tag)
+        && !engine.common().will_squash(tag)
 }
 
 /// Pushes an ALU/non-memory entry directly into the M1→M2 latch.

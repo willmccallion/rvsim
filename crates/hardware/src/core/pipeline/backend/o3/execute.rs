@@ -16,6 +16,7 @@ use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{
     AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
 };
+use crate::core::pipeline::squash::{BranchRepair, Redirect, SquashCause};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
@@ -35,15 +36,14 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 
 /// Execute a single instruction for the O3 backend.
 ///
-/// Returns `(ExMem1Entry, needs_flush)`. When `needs_flush` is true,
-/// the engine must flush younger instructions (misprediction, CSR,
-/// MRET/SRET, FENCE.I, etc.).
+/// Returns the result and, when the instruction squashes what follows it
+/// (misprediction, CSR write, MRET/SRET, FENCE.I, a fault), the
+/// [`Redirect`] the engine takes after the redirect latency.
 pub fn execute_one(
     state: &mut CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
-    redirect_pending: &mut bool,
-) -> (ExMem1Entry, bool) {
+) -> (ExMem1Entry, Option<Redirect>) {
     if let Some(trap) = id.trap.clone() {
         trace_execute!(state.config.general.trace_instructions;
             rob_tag         = id.rob_tag.0,
@@ -70,7 +70,7 @@ pub fn execute_one(
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, true);
+        return (result, Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     if state.check_execute_trigger(id.pc) {
@@ -90,7 +90,7 @@ pub fn execute_one(
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, false);
+        return (result, None);
     }
 
     trace_execute!(state.config.general.trace_instructions;
@@ -151,7 +151,7 @@ pub fn execute_one(
                 sfence_vma: None,
                 vec_mem: None,
             };
-            return (result, false);
+            return (result, None);
         }
 
         // Non-vsetvl vector ops are executed in O3Engine::tick() where VecPrfView is available.
@@ -171,17 +171,16 @@ pub fn execute_one(
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, false);
+        return (result, None);
     }
 
     // I-cache flush deferred to commit so prior stores are visible before refill.
     if id.ctrl.system_op == SystemOp::FenceI {
-        state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-        *redirect_pending = true;
+        let next_pc = id.pc.wrapping_add(id.inst_size.as_u64());
         trace_execute!(state.config.general.trace_instructions;
             rob_tag = id.rob_tag.0,
             pc      = %crate::trace::Hex(id.pc),
-            next_pc = %crate::trace::Hex(state.hart.pc),
+            next_pc = %crate::trace::Hex(next_pc),
             "EX: FENCE.I — pipeline flush, I-cache invalidation deferred to commit"
         );
 
@@ -201,12 +200,12 @@ pub fn execute_one(
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, true);
+        return (result, Some(Redirect::to(next_pc, SquashCause::System)));
     }
 
     // FENCE is a NOP at execute — handled at commit only.
     if !matches!(id.ctrl.system_op, SystemOp::None | SystemOp::Fence) {
-        return execute_system(state, id, rob, fwd_a, store_data, redirect_pending);
+        return execute_system(state, id, rob, fwd_a, store_data);
     }
 
     // When mstatus.FS == OFF, all FP instructions trap as illegal.
@@ -231,7 +230,7 @@ pub fn execute_one(
                 sfence_vma: None,
                 vec_mem: None,
             };
-            return (result, true);
+            return (result, Some(Redirect::squash_younger(SquashCause::System)));
         }
     }
 
@@ -249,7 +248,7 @@ pub fn execute_one(
         "EX: ALU/FPU result"
     );
 
-    let mut needs_flush = false;
+    let mut redirect = None;
 
     if id.ctrl.control_flow == ControlFlow::Branch {
         let taken = match (id.inst >> FUNCT3_SHIFT) & FUNCT3_MASK {
@@ -290,14 +289,10 @@ pub fn execute_one(
             "EX: branch resolved"
         );
         if mispredicted {
-            // Restore GHR to pre-speculation state, then push the actual outcome.
-            state.core.branch_predictor.repair_history(&id.ghr_snapshot);
-            state.core.branch_predictor.speculate(id.pc, taken);
-            state.core.branch_predictor.restore_ras(id.ras_snapshot);
             state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
-            state.hart.pc = actual_next_pc;
-            *redirect_pending = true;
-            needs_flush = true;
+            let repair =
+                BranchRepair { pc: id.pc, taken, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
+            redirect = Some(Redirect::mispredict(actual_next_pc, repair));
         } else {
             state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
         }
@@ -340,13 +335,10 @@ pub fn execute_one(
             "EX: jump resolved"
         );
         if mispredicted {
-            state.core.branch_predictor.repair_history(&id.ghr_snapshot);
-            state.core.branch_predictor.speculate(id.pc, true);
-            state.core.branch_predictor.restore_ras(id.ras_snapshot);
             state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
-            state.hart.pc = actual_target;
-            *redirect_pending = true;
-            needs_flush = true;
+            let repair =
+                BranchRepair { pc: id.pc, taken: true, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
+            redirect = Some(Redirect::mispredict(actual_target, repair));
         } else {
             state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
         }
@@ -369,18 +361,17 @@ pub fn execute_one(
         vec_mem: None,
     };
 
-    (result, needs_flush)
+    (result, redirect)
 }
 
 /// Handle system instructions (MRET, SRET, WFI, SFENCE.VMA, ECALL, CSR).
 fn execute_system(
-    state: &mut CoreCtx<'_>,
+    state: &CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
     store_data: u64,
-    redirect_pending: &mut bool,
-) -> (ExMem1Entry, bool) {
+) -> (ExMem1Entry, Option<Redirect>) {
     let make_result =
         |alu: u64, ctrl: crate::core::pipeline::signals::ControlSignals| ExMem1Entry {
             rob_tag: id.rob_tag,
@@ -402,7 +393,7 @@ fn execute_system(
     if id.ctrl.system_op == SystemOp::Mret {
         if state.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), true);
+            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
         }
         trace_trap!(state.config.general.trace_instructions;
             event       = "return",
@@ -414,13 +405,13 @@ fn execute_system(
             mstatus     = %crate::trace::Hex(state.hart.csrs.mstatus),
             "EX: MRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), true);
+        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Sret {
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), true);
+            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
         }
         let tsr = (state.hart.csrs.mstatus >> 22) & 1;
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
@@ -433,7 +424,7 @@ fn execute_system(
                 "EX: SRET -> IllegalInstruction (TSR)"
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), true);
+            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
         }
         trace_trap!(state.config.general.trace_instructions;
             event     = "return",
@@ -445,7 +436,7 @@ fn execute_system(
             mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
             "EX: SRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), true);
+        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Wfi {
@@ -463,7 +454,7 @@ fn execute_system(
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         }
-        return (make_result(0, id.ctrl), true);
+        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     // SFENCE.VMA: do nothing at execute. Operands flow to commit which drains
@@ -489,7 +480,7 @@ fn execute_system(
                     sfence_vma: None,
                     vec_mem: None,
                 },
-                true,
+                Some(Redirect::squash_younger(SquashCause::System)),
             );
         }
 
@@ -515,7 +506,7 @@ fn execute_system(
                 }),
                 vec_mem: None,
             },
-            false,
+            None,
         );
     }
 
@@ -527,7 +518,7 @@ fn execute_system(
         id.ctrl.system_op,
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
     ) {
-        return (make_result(fwd_a, id.ctrl), true);
+        return (make_result(fwd_a, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     if id.inst == sys_ops::ECALL {
@@ -548,26 +539,25 @@ fn execute_system(
             "EX: ECALL"
         );
         rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-        return (make_result(0, id.ctrl), true);
+        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
     }
 
     if id.ctrl.csr_op != CsrOp::None {
-        return execute_csr(state, id, rob, fwd_a, store_data, redirect_pending);
+        return execute_csr(state, id, rob, fwd_a, store_data);
     }
 
-    (make_result(0, id.ctrl), true)
+    (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)))
 }
 
 /// Handle CSR operations.
 #[allow(clippy::needless_pass_by_value)]
 fn execute_csr(
-    state: &mut CoreCtx<'_>,
+    state: &CoreCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
     store_data: u64,
-    redirect_pending: &mut bool,
-) -> (ExMem1Entry, bool) {
+) -> (ExMem1Entry, Option<Redirect>) {
     if id.ctrl.csr_addr == crate::core::arch::csr::SATP
         && state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
         && ((state.hart.csrs.mstatus >> 20) & 1) != 0
@@ -590,7 +580,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            true,
+            Some(Redirect::squash_younger(SquashCause::System)),
         );
     }
 
@@ -636,7 +626,7 @@ fn execute_csr(
                         sfence_vma: None,
                         vec_mem: None,
                     },
-                    true,
+                    Some(Redirect::squash_younger(SquashCause::System)),
                 );
             }
         }
@@ -661,7 +651,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            true,
+            Some(Redirect::squash_younger(SquashCause::System)),
         );
     }
 
@@ -685,7 +675,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            true,
+            Some(Redirect::squash_younger(SquashCause::System)),
         );
     }
 
@@ -716,7 +706,7 @@ fn execute_csr(
                     sfence_vma: None,
                     vec_mem: None,
                 },
-                true,
+                Some(Redirect::squash_younger(SquashCause::System)),
             );
         }
     }
@@ -760,11 +750,8 @@ fn execute_csr(
     }
 
     // Only CSR writes need a flush; pure reads stay serialized at issue time.
-    let needs_flush = would_write;
-    if needs_flush {
-        state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-        *redirect_pending = true;
-    }
+    let redirect = would_write
+        .then(|| Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System));
 
     (
         ExMem1Entry {
@@ -783,7 +770,7 @@ fn execute_csr(
             sfence_vma: None,
             vec_mem: None,
         },
-        needs_flush,
+        redirect,
     )
 }
 
@@ -1006,9 +993,8 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(!flush);
+        let (result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert!(redirect.is_none());
         assert_eq!(result.alu, 10); // rv1 (10) + 0
         assert_eq!(result.rob_tag, tag);
     }
@@ -1075,9 +1061,8 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (_result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(flush);
+        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert!(redirect.is_some());
         let entry = rob.find_entry(tag).unwrap();
         assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
         assert!(entry.trap.is_some());
@@ -1147,11 +1132,8 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (_result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(flush);
-        assert!(redirect_pending);
-        assert_eq!(state.hart.pc, 0x1004);
+        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert_eq!(redirect.map(|r| r.target), Some(Some(0x1004)));
     }
 
     #[test]
@@ -1223,9 +1205,8 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (_result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(flush);
+        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert!(redirect.is_some());
         let entry = rob.find_entry(tag).unwrap();
         assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
     }
@@ -1298,11 +1279,9 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (_result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(flush);
-        assert!(redirect_pending);
-        assert_eq!(state.hart.pc, 0x1008); // Mispredicted, redirect to actual target
+        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert_eq!(redirect.map(|r| r.target), Some(Some(0x1008)));
+        assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
         let entry = rob.find_entry(tag).unwrap();
         assert!(entry.bp_outcome.mispredicted);
     }
@@ -1371,12 +1350,10 @@ mod tests {
             vec_frm: 0,
         };
 
-        let mut redirect_pending = false;
-        let (_result, flush) = execute_one(&mut state, issue, &mut rob, &mut redirect_pending);
-        assert!(flush);
-        assert!(redirect_pending);
+        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        assert!(redirect.is_some());
 
         let expected_target = (0x2000 + 0x15) & !1;
-        assert_eq!(state.hart.pc, expected_target);
+        assert_eq!(redirect.map(|r| r.target), Some(Some(expected_target)));
     }
 }

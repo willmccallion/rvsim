@@ -200,6 +200,14 @@ mod defaults {
     /// (gem5's O3 `trapLatency`).
     pub const TRAP_LATENCY: u64 = 13;
 
+    /// Cycles from an in-order execute resolving a redirect to fetch
+    /// taking it: gem5 `MinorCPU`'s execute-to-fetch1 branch latch.
+    pub const REDIRECT_LATENCY_INORDER: u64 = 1;
+
+    /// Cycles from an out-of-order execute resolving a redirect to fetch
+    /// taking it: gem5's `iewToCommitDelay` plus `commitToFetchDelay`.
+    pub const REDIRECT_LATENCY_O3: u64 = 2;
+
     /// Default Physical Register File GPR size (256 entries).
     pub const PRF_GPR_SIZE: usize = 256;
 
@@ -1115,6 +1123,12 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_trap_latency")]
     pub trap_latency: u64,
 
+    /// Cycles between execute resolving a misprediction, CSR write, fault
+    /// or ordering violation and the pipeline squashing into the redirect;
+    /// the backend's gem5 value when unset.
+    #[serde(default)]
+    pub redirect_latency: Option<u64>,
+
     /// Instructions fetched per cycle; `width` when unset.
     #[serde(default)]
     pub fetch_width: Option<usize>,
@@ -1287,6 +1301,18 @@ impl PipelineConfig {
         Self::stage_width(self.commit_width, self.width)
     }
 
+    /// Cycles between execute resolving a redirect and the squash into it.
+    #[must_use]
+    pub const fn redirect_latency(&self) -> u64 {
+        match self.redirect_latency {
+            Some(latency) => latency,
+            None => match self.backend {
+                BackendType::InOrder => defaults::REDIRECT_LATENCY_INORDER,
+                BackendType::OutOfOrder => defaults::REDIRECT_LATENCY_O3,
+            },
+        }
+    }
+
     const fn stage_width(configured: Option<usize>, width: usize) -> usize {
         match configured {
             Some(stage) => stage,
@@ -1389,6 +1415,7 @@ impl Default for PipelineConfig {
         Self {
             width: defaults::PIPELINE_WIDTH,
             trap_latency: defaults::TRAP_LATENCY,
+            redirect_latency: None,
             fetch_width: None,
             decode_width: None,
             rename_width: None,

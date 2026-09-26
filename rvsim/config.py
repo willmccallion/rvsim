@@ -74,6 +74,7 @@ class Config:
         issue_width: Optional[int] = None,
         commit_width: Optional[int] = None,
         trap_latency: int = 13,
+        redirect_latency: Optional[int] = None,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
         backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
         mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.Blind(),
@@ -133,6 +134,7 @@ class Config:
         self.issue_width = issue_width
         self.commit_width = commit_width
         self.trap_latency = trap_latency
+        self.redirect_latency = redirect_latency
         self.branch_predictor = branch_predictor
         self.backend = backend if backend is not None else Backend.InOrder()
         self.mem_dep_predictor = mem_dep_predictor
@@ -210,6 +212,7 @@ class Config:
             issue_width=self.issue_width,
             commit_width=self.commit_width,
             trap_latency=self.trap_latency,
+            redirect_latency=self.redirect_latency,
             branch_predictor=self.branch_predictor,
             backend=self.backend,
             btb_size=self.btb_size,
@@ -812,6 +815,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "issue_width": cfg.issue_width,
         "commit_width": cfg.commit_width,
         "trap_latency": cfg.trap_latency,
+        "redirect_latency": cfg.redirect_latency,
         "branch_predictor": _bp_name(bp),
         "btb_size": cfg.btb_size,
         "btb_ways": cfg.btb_ways,

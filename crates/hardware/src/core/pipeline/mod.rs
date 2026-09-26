@@ -24,6 +24,9 @@ pub mod signals;
 /// Tag-based register scoreboard.
 pub mod scoreboard;
 
+/// Squashes execute asks for and the pipeline takes after the redirect latency.
+pub mod squash;
+
 /// Store buffer with forwarding.
 pub mod store_buffer;
 

@@ -29,14 +29,15 @@ fn handler() -> Vec<u32> {
     vec![InstructionBuilder::new().jal(0, 0).build()]
 }
 
-/// Arms the machine timer a few ticks ahead, then runs a chain of divides
-/// long enough for it to fire while they are in flight, then a marker.
+/// Arms the machine timer far enough ahead that the refetch after the
+/// mstatus write has landed, then runs a chain of divides long enough for
+/// it to fire while they are in flight, then a marker.
 fn timer_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
         i().lui(T0, 0x02004).build(),
         i().csrrs(T1, TIME, 0).build(),
-        i().addi(T1, T1, 8).build(),
+        i().addi(T1, T1, 16).build(),
         i().sd(T0, T1, 0).build(),
         i().addi(T2, 0, MIE_MTIE).build(),
         i().csrrs(0, MIE, T2).build(),

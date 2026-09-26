@@ -15,6 +15,7 @@ use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{SystemOp, VectorOp};
+use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::sim::CoreCtx;
 use crate::trace_issue;
@@ -74,9 +75,12 @@ impl InOrderIssueUnit {
     /// operands populated.
     ///
     /// In-order: if the head-of-queue is blocked, nothing behind it can issue.
+    /// Nothing a pending squash will remove issues at all: an in-order
+    /// core drops the instructions behind a resolved misprediction at once.
     ///
     /// Each issued instruction's unit and the cycle its result is ready are
     /// returned alongside it; a trapped instruction takes no unit.
+    #[allow(clippy::too_many_arguments)]
     pub fn select(
         &mut self,
         width: usize,
@@ -85,12 +89,16 @@ impl InOrderIssueUnit {
         state: &mut CoreCtx<'_>,
         fu_pool: &mut FuPool,
         now: u64,
+        pending_squash: Option<PendingSquash>,
     ) -> (Vec<RenameIssueEntry>, Vec<IssuedUnit>) {
         let mut selected = Vec::with_capacity(width);
         let mut units = Vec::with_capacity(width);
 
         for _ in 0..width {
             let Some(entry) = self.queue.front() else { break };
+            if pending_squash.is_some_and(|squash| squash.squashes(entry.rob_tag)) {
+                break;
+            }
 
             if entry.trap.is_some() {
                 if let Some(e) = self.queue.pop_front() {

@@ -18,6 +18,7 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::snapshot::PipelineSnapshot;
+use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::vpu::types::VecPhysReg;
@@ -269,6 +270,9 @@ pub struct BackendCommon {
     pub vector_config_unresolved: bool,
     /// A trap on its way to being taken.
     pub trap: TrapProgress,
+    /// The squash execute asked for that has not been taken yet. Commit
+    /// retires nothing it will remove.
+    pub pending_squash: Option<PendingSquash>,
     /// No instruction is between fetch and rename this cycle, so the ROB
     /// holds everything in flight.
     pub frontend_empty: bool,
@@ -315,6 +319,10 @@ impl BackendCommon {
     /// instruction. Fetch walks belong to the frontend and are dropped by
     /// the redirect that follows the squash.
     pub fn squash_after(&mut self, keep_tag: RobTag) {
+        if self.pending_squash.is_some_and(|s| s.keep_tag.is_none_or(|k| k.is_newer_than(keep_tag)))
+        {
+            self.pending_squash = None;
+        }
         self.outstanding_loads.retain(|_, load| load.entry.rob_tag.is_older_or_eq(keep_tag));
         self.outstanding_walks.retain(|_, walk| match &walk.continuation {
             crate::core::pipeline::outstanding::WalkContinuation::LoadStore(entry) => {
@@ -330,6 +338,45 @@ impl BackendCommon {
         if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
             self.coherence_violation = None;
         }
+    }
+
+    /// Drops every in-flight memory operation of the backend after a full
+    /// squash; fetch walks belong to the frontend and are dropped by the
+    /// redirect that follows.
+    pub fn squash_all(&mut self) {
+        self.pending_squash = None;
+        self.outstanding_loads.clear();
+        self.outstanding_walks.retain(|_, walk| {
+            matches!(
+                walk.continuation,
+                crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
+            )
+        });
+        self.mem1_replay.clear();
+        self.mem1_delayed.clear();
+        self.forwarded_loads.clear();
+        self.load_parts.clear();
+        self.coherence_violation = None;
+    }
+
+    /// Files a squash, keeping the one that removes more of the window
+    /// when one is already pending.
+    pub fn request_squash(&mut self, squash: PendingSquash) {
+        let replaces = self.pending_squash.is_none_or(|pending| squash.is_older_than(&pending));
+        if replaces {
+            self.pending_squash = Some(squash);
+        }
+    }
+
+    /// Takes the pending squash once its latency has elapsed.
+    pub fn take_due_squash(&mut self, now: u64) -> Option<PendingSquash> {
+        self.pending_squash.take_if(|squash| squash.is_due(now))
+    }
+
+    /// True when the pending squash, if any, will remove `tag`.
+    #[must_use]
+    pub fn will_squash(&self, tag: RobTag) -> bool {
+        self.pending_squash.is_some_and(|squash| squash.squashes(tag))
     }
 
     /// Records a load the drain stage must squash from, keeping the oldest
@@ -481,6 +528,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.mem1_delayed.clear();
         common.forwarded_loads.clear();
         common.coherence_violation = None;
+        common.pending_squash = None;
         common.trap = TrapProgress::None;
         self.engine.flush(state);
     }

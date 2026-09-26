@@ -1,9 +1,11 @@
-//! Cycle-exact checks of the backend timing model: a functional unit's
-//! latency is what its dependents wait for, on both backends.
+//! Cycle-exact checks of the backend timing model on both backends.
+//!
+//! A functional unit's latency is what its dependents wait for, and a
+//! resolved misprediction redirects fetch `redirect_latency` cycles later.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::Config;
+use rvsim_core::config::{BranchPredictor, Config};
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const BASE_ADDR: u64 = 0x8000_0000;
@@ -87,4 +89,69 @@ fn o3_independent_ops_on_a_pipelined_unit_pay_the_latency_once() {
 #[test]
 fn inorder_independent_ops_on_a_pipelined_unit_pay_the_latency_once() {
     assert_independent_ops_pay_latency_once(BackendType::InOrder);
+}
+
+const TARGET_REG: usize = 3;
+const TARGET_VALUE: u64 = 42;
+const WRONG_PATH_REG: usize = 4;
+
+fn redirect_config(backend: BackendType, width: usize, redirect_latency: u64) -> Config {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.width = width;
+    config.pipeline.branch_predictor = BranchPredictor::Static;
+    config.pipeline.redirect_latency = Some(redirect_latency);
+    // The wrong path runs into the next line; with a real I-cache the
+    // refetch of the target is a hit instead of a second trip to memory.
+    config.cache.l1_i.enabled = true;
+    config
+}
+
+/// A branch the static predictor gets wrong, two wrong-path writes to
+/// `WRONG_PATH_REG`, then the target's write to `TARGET_REG`.
+fn mispredicted_branch() -> Vec<u32> {
+    let nop = InstructionBuilder::new().nop().build();
+    let mut program = vec![
+        InstructionBuilder::new().addi(1, 0, 1).build(),
+        InstructionBuilder::new().beq(0, 0, 12).build(),
+        InstructionBuilder::new().addi(WRONG_PATH_REG as u32, 0, 99).build(),
+        InstructionBuilder::new().addi(WRONG_PATH_REG as u32, 0, 98).build(),
+        InstructionBuilder::new().addi(TARGET_REG as u32, 0, TARGET_VALUE as i32).build(),
+    ];
+    program.extend(std::iter::repeat_n(nop, 8));
+    program
+}
+
+fn cycles_to_reach_target(config: &Config) -> u64 {
+    let mut tc = TestContext::new_with_config(config)
+        .with_memory(MEM_SIZE, BASE_ADDR)
+        .load_program(BASE_ADDR, &mispredicted_branch());
+    let cycles = tc
+        .run_until(5_000, |tc| tc.get_reg(TARGET_REG) == TARGET_VALUE)
+        .expect("branch target never reached");
+    assert_eq!(tc.get_reg(WRONG_PATH_REG), 0, "a wrong-path instruction retired");
+    cycles
+}
+
+#[test]
+fn inorder_redirect_lands_exactly_redirect_latency_after_the_branch_resolves() {
+    let one = cycles_to_reach_target(&redirect_config(BackendType::InOrder, 1, 1));
+    let five = cycles_to_reach_target(&redirect_config(BackendType::InOrder, 1, 5));
+
+    assert_eq!(five - one, 4);
+}
+
+#[test]
+fn o3_redirect_lands_exactly_redirect_latency_after_the_branch_resolves() {
+    let one = cycles_to_reach_target(&redirect_config(BackendType::OutOfOrder, 4, 1));
+    let five = cycles_to_reach_target(&redirect_config(BackendType::OutOfOrder, 4, 5));
+
+    assert_eq!(five - one, 4);
+}
+
+#[test]
+fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let _ = cycles_to_reach_target(&redirect_config(backend, 4, 12));
+    }
 }

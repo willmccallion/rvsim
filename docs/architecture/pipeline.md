@@ -45,7 +45,7 @@ flowchart LR
 
 **Issue Queue** — CAM-style wakeup/select structure. When an instruction's source operands are written back (broadcast on the result bus), the instruction wakes up and becomes ready to issue. Selection uses oldest-first priority with per-functional-unit-type port limits.
 
-**Execute** — Instructions execute on their assigned functional unit. ALU operations complete in 1 cycle. Multiplies take 3 cycles (pipelined). Divides take 35 cycles (non-pipelined). Branch resolution happens here — on misprediction, the pipeline is flushed.
+**Execute** — Instructions execute on their assigned functional unit. A result is written to the physical register file, its dependents woken and its ROB entry completed when the unit's latency has elapsed (ALU 1 cycle, multiply 3 pipelined, divide 35 non-pipelined by default). Branches resolve here; a misprediction, CSR write, FENCE.I or execute-stage fault produces a `Redirect` that the pipeline takes `redirect_latency` cycles after the result completes, as gem5's squash travels from IEW through commit to fetch. Until it is taken, commit retires nothing the squash will remove and issue keeps executing wrong-path work.
 
 **Memory1** — Translates virtual addresses through the D-TLB, probes L1D cache tags. On a hit, the data is available for Memory2. On a miss with MSHRs, the load is parked in an MSHR and the pipeline continues. On a miss without MSHRs, the access blocks until the line arrives.
 
@@ -70,7 +70,7 @@ flowchart LR
 
 **Reorder buffer** — circular buffer with O(1) tag lookup via HashMap. Supports partial flush after branch misprediction (preserves older in-flight work).
 
-**Branch misprediction recovery** — GHR repaired from per-instruction snapshot, RAS restored from snapshot pointer, rename map rebuilt, pipeline flushed after the mispredicting instruction's ROB tag.
+**Branch misprediction recovery** — the squash is taken `redirect_latency` cycles after the branch's result completes: GHR repaired from the per-instruction snapshot with the real outcome pushed, RAS restored from its snapshot, rename map restored from a checkpoint or rebuilt, everything after the mispredicting instruction's ROB tag flushed, and fetch redirected. A memory-ordering or coherence violation squashes through the same path.
 
 **Memory dependence prediction.** The Memory Dependence Unit (MDU) determines at dispatch time whether a load can speculatively bypass unresolved older stores. Two predictors are available:
 
@@ -121,7 +121,7 @@ flowchart LR
 
 **Backpressure gating.** The execute-to-memory1 latch has limited capacity. When it's occupied (e.g., the previous instruction is still in the memory pipeline), the issue stage is gated off — no new instructions can issue until the latch drains.
 
-**Same serialization guarantees as O3.** The same four serialization checks (system/CSR, FENCE, FENCE blocking, store address resolution) are enforced at issue time. This ensures correctness and makes the two backends functionally equivalent.
+**Same serialization guarantees as O3.** The same four serialization checks (system/CSR, FENCE, FENCE blocking, store address resolution) are enforced at issue time. This ensures correctness and makes the two backends functionally equivalent. A redirect is taken `redirect_latency` cycles (default 1, gem5 MinorCPU's execute-to-fetch latch) after the result completes; unlike the O3 backend, nothing the pending squash will remove issues in the meantime.
 
 **Vector memory through the memory stages.** A vector load or store issues from the ROB head and becomes one element micro-op per element address, flowing through Memory1, Memory2 and Writeback like scalar accesses. A load's elements land in the architectural register at writeback; a store's element data waits in the vector store buffer, forwards to younger scalar loads, and is published at commit. Other vector instructions still execute against the architectural registers at issue and flush what follows them.
 

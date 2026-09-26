@@ -33,6 +33,7 @@ wide = base.replace(width=8)
 | `width` | `int` | `4` | Instructions per cycle for every stage that has no width of its own |
 | `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths, as gem5's `fetchWidth` … `commitWidth` |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
+| `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect, as gem5's `iewToCommitDelay` + `commitToFetchDelay` and Minor's execute-to-fetch branch latch; commit retires nothing the pending squash will remove |
 | `backend` | `Backend.*` | `OutOfOrder()` | Pipeline backend: `Backend.InOrder()` or `Backend.OutOfOrder(...)` |
 | `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Branch predictor type |
 | `btb_size` | `int` | `4096` | Branch target buffer entries |

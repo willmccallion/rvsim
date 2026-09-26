@@ -152,6 +152,11 @@ pub fn commit_stage(
     for _ in 0..width {
         let Some(head) = rob.peek_head() else { break };
 
+        // A squash on its way will remove the head: it is wrong-path.
+        if common.will_squash(head.tag) {
+            break;
+        }
+
         // Block load retirement while older stores have unresolved addresses,
         // so memory2 can still flag a violation against a later-resolving store.
         if head.state == RobState::Completed
