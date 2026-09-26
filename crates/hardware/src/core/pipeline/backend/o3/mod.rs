@@ -658,7 +658,6 @@ impl ExecutionEngine for O3Engine {
                 &self.rob,
                 self.load_ports,
                 self.store_ports,
-                Some(&self.prf),
             );
 
             let mut issued_count = 0;
@@ -1016,12 +1015,6 @@ impl ExecutionEngine for O3Engine {
                     }
 
                     continue;
-                }
-
-                // Speculative load wakeup assuming L1D hit (only if MSHRs are configured).
-                let is_load = ex_result.ctrl.mem_read && !ex_result.ctrl.mem_write;
-                if is_load && ex_result.trap.is_none() && state.config.cache.l1_d.mshr_count > 0 {
-                    self.issue_queue.speculative_wakeup_phys(ex_result.rd_phys);
                 }
 
                 self.pending_results.push(PendingResult {

@@ -20,33 +20,20 @@ use crate::core::units::vpu::types::VecPhysReg;
 use crate::sim::StageCtx;
 
 /// Readiness state of a single source operand.
-///
-/// Encodes the three mutually-exclusive states an operand can be in,
-/// making it impossible to read a value that isn't ready.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum OperandReady {
     /// Value not available yet — waiting on producer.
     #[default]
     NotReady,
-    /// Speculatively woken by a load (assuming L1D hit).
-    /// The PRF has NOT been written yet — the real value must be read
-    /// from the PRF at select time after validation.
-    Speculative,
     /// Ready with a real value.
     Ready(u64),
 }
 
 impl OperandReady {
-    /// Returns `true` if the operand is ready (either `Ready` or `Speculative`).
+    /// Returns `true` if the operand is ready.
     #[inline]
     pub const fn is_ready(self) -> bool {
-        !matches!(self, Self::NotReady)
-    }
-
-    /// Returns `true` if speculative (load-hit speculation, not yet confirmed).
-    #[inline]
-    pub const fn is_speculative(self) -> bool {
-        matches!(self, Self::Speculative)
+        matches!(self, Self::Ready(_))
     }
 }
 
@@ -283,57 +270,6 @@ impl IssueQueue {
         }
     }
 
-    /// Speculatively mark operands waiting on `p` as ready.
-    ///
-    /// Used for load speculation: when a load issues, we optimistically wake
-    /// dependents so they can be selected next cycle (assuming L1D hit).
-    /// The PRF is NOT written — `select()` validates against PRF before issuing.
-    /// If the load hits, normal writeback will write the PRF and re-wakeup with
-    /// the real value. If it misses, `cancel_wakeup_phys()` reverts this.
-    pub fn speculative_wakeup_phys(&mut self, p: PhysReg) {
-        if p.0 == 0 {
-            return;
-        }
-        for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && !iq.src1.readiness.is_ready() {
-                iq.src1.readiness = OperandReady::Speculative;
-            }
-            if iq.src2.phys == p && !iq.src2.readiness.is_ready() {
-                iq.src2.readiness = OperandReady::Speculative;
-            }
-            if iq.src3.phys == p && !iq.src3.readiness.is_ready() {
-                iq.src3.readiness = OperandReady::Speculative;
-            }
-        }
-    }
-
-    /// Cancel a speculative wakeup: revert operands waiting on `p` to not-ready.
-    ///
-    /// Called when a speculatively-woken load turns out to be an L1D miss.
-    /// Only reverts operands whose PRF entry is still not-ready (the speculative
-    /// ones). Operands that have since been written by a real wakeup are unaffected.
-    pub fn cancel_wakeup_phys(&mut self, p: PhysReg, prf: &PhysRegFile) {
-        if p.0 == 0 {
-            return;
-        }
-        // Only cancel if the PRF says this register is still not ready
-        // (i.e., no real wakeup has arrived yet).
-        if prf.is_ready(p) {
-            return;
-        }
-        for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.phys == p && iq.src1.readiness.is_speculative() {
-                iq.src1.readiness = OperandReady::NotReady;
-            }
-            if iq.src2.phys == p && iq.src2.readiness.is_speculative() {
-                iq.src2.readiness = OperandReady::NotReady;
-            }
-            if iq.src3.phys == p && iq.src3.readiness.is_speculative() {
-                iq.src3.readiness = OperandReady::NotReady;
-            }
-        }
-    }
-
     /// Broadcast a completed result via ROB tag (legacy wakeup path).
     pub fn wakeup(&mut self, tag: RobTag, value: u64) {
         for iq in self.slots.iter_mut().flatten() {
@@ -372,11 +308,6 @@ impl IssueQueue {
     /// Selected entries have their `rv1/rv2/rv3` fields populated from the
     /// resolved operand values. The slots are freed.
     ///
-    /// When `prf` is provided, operands that were speculatively marked ready
-    /// are validated: if the IQ says ready but the PRF says not-ready, the
-    /// operand was speculatively woken by a load that hasn't completed yet.
-    /// Such entries are skipped (not issued).
-    ///
     /// Memory dependencies are checked via the cached [`MemDepState`] set at
     /// dispatch time, rather than re-querying the predictor every cycle.
     ///
@@ -392,7 +323,6 @@ impl IssueQueue {
         rob: &Rob,
         load_ports: usize,
         store_ports: usize,
-        prf: Option<&PhysRegFile>,
     ) -> Vec<SelectedEntry> {
         let mut ready_indices: Vec<usize> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
@@ -406,13 +336,6 @@ impl IssueQueue {
                         && iq.vec_src2.ready
                         && iq.vec_src3.ready
                         && iq.mask_ready);
-                // Validate speculative wakeups against the PRF.
-                let prf_valid = prf.is_none_or(|prf| {
-                    Self::prf_validated(&iq.src1, prf)
-                        && Self::prf_validated(&iq.src2, prf)
-                        && Self::prf_validated(&iq.src3, prf)
-                });
-                let all_ready = all_ready && prf_valid;
                 if all_ready {
                     let mem_ready = match &iq.mem_dep {
                         MemDepState::None | MemDepState::Bypass | MemDepState::Resolved(_) => true,
@@ -518,9 +441,9 @@ impl IssueQueue {
                     entry.rob_tag.0,
                     entry.pc,
                 );
-                entry.rv1 = Self::resolve_value(&iq.src1, prf);
-                entry.rv2 = Self::resolve_value(&iq.src2, prf);
-                entry.rv3 = Self::resolve_value(&iq.src3, prf);
+                entry.rv1 = Self::resolve_value(&iq.src1);
+                entry.rv2 = Self::resolve_value(&iq.src2);
+                entry.rv3 = Self::resolve_value(&iq.src3);
             }
             result.push(SelectedEntry { entry, mem_dep });
         }
@@ -528,35 +451,12 @@ impl IssueQueue {
         result
     }
 
-    /// Check whether a speculatively-ready operand is validated by the PRF.
-    ///
-    /// Returns `true` if the operand is genuinely ready, or was never
-    /// speculatively woken. Returns `false` if it was speculatively woken
-    /// and the PRF still hasn't been written (load hasn't completed yet).
+    /// The operand value at select time; `NotReady` only for faulted
+    /// instructions, which take no operands.
     #[inline]
-    fn prf_validated(src: &OperandState, prf: &PhysRegFile) -> bool {
-        match src.readiness {
-            OperandReady::Speculative => prf.is_ready(src.phys),
-            _ => true,
-        }
-    }
-
-    /// Resolve the final operand value at select time.
-    ///
-    /// For `Ready(v)`, returns `v` directly.
-    /// For `Speculative`, reads the real value from the PRF (which has been
-    /// written by the real wakeup by the time we reach select).
-    /// For `NotReady`, returns 0 (should only happen for faulted instructions).
-    #[inline]
-    fn resolve_value(src: &OperandState, prf: Option<&PhysRegFile>) -> u64 {
+    const fn resolve_value(src: &OperandState) -> u64 {
         match src.readiness {
             OperandReady::Ready(v) => v,
-            OperandReady::Speculative => {
-                if src.phys.0 == 0 {
-                    return 0;
-                }
-                prf.map_or(0, |prf| prf.read(src.phys))
-            }
             OperandReady::NotReady => 0,
         }
     }
@@ -766,8 +666,7 @@ mod tests {
         });
         iq.count = 1;
 
-        let selected =
-            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rob_tag.0, 1);
         assert_eq!(selected[0].entry.rv1, 42);
@@ -798,16 +697,14 @@ mod tests {
         iq.count = 1;
 
         // Not ready yet
-        let selected =
-            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 0);
 
         // Wakeup with phys reg 5
         iq.wakeup_phys(p5, 999);
 
         // Now should be selectable
-        let selected =
-            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rv1, 999);
     }
@@ -836,8 +733,7 @@ mod tests {
         // Wakeup with tag 5
         iq.wakeup(RobTag(5), 999);
 
-        let selected =
-            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rv1, 999);
     }
@@ -865,16 +761,14 @@ mod tests {
         iq.count = 3;
 
         // Select width=2 should get tags 1 and 2 (oldest first)
-        let selected =
-            iq.select(2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].entry.rob_tag.0, 1);
         assert_eq!(selected[1].entry.rob_tag.0, 2);
         assert_eq!(iq.len(), 1);
 
         // Remaining is tag 3
-        let selected =
-            iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rob_tag.0, 3);
     }
@@ -1005,7 +899,7 @@ mod tests {
         iq.count = 5;
 
         // With load_ports=2, store_ports=1, width=4: should get 2 loads + 1 store = 3
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
         assert_eq!(selected.len(), 3);
         // Oldest first: tags 1 (load), 2 (load), 4 (store)
         assert_eq!(selected[0].entry.rob_tag.0, 1);
@@ -1019,7 +913,7 @@ mod tests {
         assert_eq!(iq.len(), 2);
 
         // Next cycle: should get remaining load + store
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1, None);
+        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].entry.rob_tag.0, 3);
         assert_eq!(selected[1].entry.rob_tag.0, 5);
