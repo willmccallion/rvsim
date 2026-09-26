@@ -26,7 +26,7 @@
 //!   register receives.
 //! - **Non-memory ops:** pass through untouched.
 
-use crate::common::error::{ExceptionStage, LrScRecord, Trap};
+use crate::common::error::LrScRecord;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
@@ -275,9 +275,3 @@ pub(crate) const fn sign_extend(raw: u64, width: MemWidth, signed: bool) -> u64 
         }
     }
 }
-
-// Re-export `Trap` so callers see the same module path the old file used.
-#[allow(dead_code)]
-type _Trap = Trap;
-#[allow(dead_code)]
-type _ExceptionStage = ExceptionStage;
