@@ -1,5 +1,6 @@
 //! Integration tests for the RISC-V emulator.
 
+pub mod amo_cache_access;
 pub mod bus_occupancy;
 pub mod csr_head_execution;
 pub mod csr_ordering;

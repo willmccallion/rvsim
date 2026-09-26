@@ -741,11 +741,14 @@ fn try_drain_one_store(
     store_buffer: &mut StoreBuffer,
 ) -> bool {
     let Some(store) = store_buffer.drain_one() else { return false };
-    let (paddr, data, already_published) = match store.resolution {
-        StoreResolution::Committed { paddr, data } => (paddr, data, false),
-        StoreResolution::Applied { paddr, data } => (paddr, data, true),
-        // Cancelled (failed SC) — slot was drained without a write.
-        _ => return true,
+    let (paddr, data) = match store.resolution {
+        StoreResolution::Committed { paddr, data } => (paddr, data),
+        // An AMO's result was written by the L1D as part of its atomic
+        // access and published at commit; a failed SC wrote nothing.
+        StoreResolution::Applied { .. }
+        | StoreResolution::Pending
+        | StoreResolution::Ready { .. }
+        | StoreResolution::Cancelled => return true,
     };
 
     // Only pure RAM addresses go through the WCB coalesce path. HTIF and
@@ -758,9 +761,7 @@ fn try_drain_one_store(
         // Publish now so subsequent loads via the fast path see the new
         // value while the WCB coalesces dirty-line accounting; the WCB
         // drain only signals the line was dirty, it doesn't carry data.
-        if !already_published {
-            state.publish_write(paddr, data, store.width);
-        }
+        state.publish_write(paddr, data, store.width);
         for (part_paddr, part_data, part_bytes) in line_parts(state, paddr, data, width_bytes) {
             let evicted = state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
             if evicted.is_none() {
@@ -771,8 +772,6 @@ fn try_drain_one_store(
                 state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
             }
         }
-    } else if already_published {
-        emit_store_write_packet(state, common, paddr, data, store.width);
     } else {
         write_store_to_memory(state, common, paddr, data, store.width);
     }
@@ -799,14 +798,8 @@ pub(crate) fn drain_all_committed(
     vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
 ) {
     while let Some(store) = store_buffer.drain_one() {
-        match store.resolution {
-            StoreResolution::Committed { paddr, data } => {
-                write_store_to_memory(state, common, paddr, data, store.width);
-            }
-            StoreResolution::Applied { paddr, data } => {
-                emit_store_write_packet(state, common, paddr, data, store.width);
-            }
-            _ => {}
+        if let StoreResolution::Committed { paddr, data } = store.resolution {
+            write_store_to_memory(state, common, paddr, data, store.width);
         }
     }
     if let Some(vsb) = vec_store_buffer {

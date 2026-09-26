@@ -45,6 +45,9 @@ Invalidated by:
 ### L1 Data Cache
 
 Accessed by the Memory1 stage. The critical path for load-to-use latency.
+An atomic (AMO) is one access: the cache takes the line writable, the
+read-modify-write is performed on it and it is left modified, so commit
+has no separate store to send.
 
 ### Every level: MSHRs, writeback buffer, blocking
 

@@ -512,7 +512,10 @@ impl Cache {
         }
 
         let addr = req.paddr.val();
-        let is_write = matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn);
+        // An atomic is performed in the cache: it needs the line writable
+        // and leaves it modified, like a store.
+        let is_write =
+            matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. });
         let set_index = self.set_index(addr);
         let present = self.find_way(addr);
         let needs_permission = is_write
