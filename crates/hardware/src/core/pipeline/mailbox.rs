@@ -112,27 +112,11 @@ fn complete_load<E: ExecutionEngine>(
     }
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: entry.rob_tag,
-        pc: entry.pc,
-        inst: entry.inst,
-        inst_size: entry.inst_size,
-        rd: entry.rd,
-        rd_phys: entry.rd_phys,
-        alu: entry.alu,
-        vaddr: load.vaddr,
-        paddr,
-        store_data: entry.store_data,
         load_data: load_raw,
-        sb_forwarded: false,
-        ctrl: entry.ctrl,
-        trap: None,
-        exception_stage: None,
-        fp_flags: entry.fp_flags,
         complete_cycle: cycle,
         pte_update: load.pte_update,
-        sfence_vma: entry.sfence_vma,
-        vec_mem: entry.vec_mem,
         observed,
+        ..Mem1Mem2Entry::from_execute(entry, load.vaddr, paddr)
     });
 }
 

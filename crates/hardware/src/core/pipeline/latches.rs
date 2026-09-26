@@ -416,6 +416,36 @@ pub struct Mem1Mem2Entry {
     pub observed: Option<WriteSeq>,
 }
 
+impl Mem1Mem2Entry {
+    /// Carries `ex`, its trap included, into memory2 at `vaddr`/`paddr`
+    /// with nothing loaded yet.
+    pub const fn from_execute(ex: ExMem1Entry, vaddr: VirtAddr, paddr: PhysAddr) -> Self {
+        Self {
+            rob_tag: ex.rob_tag,
+            pc: ex.pc,
+            inst: ex.inst,
+            inst_size: ex.inst_size,
+            rd: ex.rd,
+            rd_phys: ex.rd_phys,
+            alu: ex.alu,
+            vaddr,
+            paddr,
+            store_data: ex.store_data,
+            load_data: 0,
+            sb_forwarded: false,
+            ctrl: ex.ctrl,
+            trap: ex.trap,
+            exception_stage: ex.exception_stage,
+            fp_flags: ex.fp_flags,
+            complete_cycle: 0,
+            pte_update: None,
+            sfence_vma: ex.sfence_vma,
+            vec_mem: ex.vec_mem,
+            observed: None,
+        }
+    }
+}
+
 /// Entry from Memory2 -> Writeback latch.
 #[derive(Clone, Default, Debug)]
 pub struct Mem2WbEntry {

@@ -284,7 +284,7 @@ fn process_entry<E: ExecutionEngine>(
 
     if is_atomic {
         if ex.ctrl.atomic_op == AtomicOp::Sc {
-            push_resolved_sc(engine, ex, paddr, vaddr, pte_update);
+            push_resolved_store(engine, ex, paddr, vaddr, pte_update);
             return EntryOutcome::Done;
         }
         // LR / AMO: wait for older stores to this address to drain.
@@ -341,56 +341,14 @@ fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
 
 /// Pushes an ALU/non-memory entry directly into the M1→M2 latch.
 fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr: VirtAddr::new(0),
-        paddr: PhysAddr::new(0),
-        store_data: ex.store_data,
-        load_data: 0,
-        sb_forwarded: false,
-        ctrl: ex.ctrl,
-        trap: None,
-        exception_stage: None,
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
-        pte_update: None,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
-    });
+    let entry = Mem1Mem2Entry::from_execute(ex, VirtAddr::new(0), PhysAddr::new(0));
+    engine.mem1_mem2_mut().push(entry);
 }
 
 /// Forwards an entry that already carries a trap from an earlier stage.
 fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr: VirtAddr::new(ex.alu),
-        paddr: PhysAddr::new(0),
-        store_data: ex.store_data,
-        load_data: 0,
-        sb_forwarded: false,
-        ctrl: ex.ctrl,
-        trap: ex.trap,
-        exception_stage: ex.exception_stage,
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
-        pte_update: None,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
-    });
+    let vaddr = VirtAddr::new(ex.alu);
+    engine.mem1_mem2_mut().push(Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0)));
 }
 
 /// Emits a fresh trap entry into the M1→M2 latch.
@@ -400,33 +358,17 @@ fn push_trap<E: ExecutionEngine>(
     trap: Trap,
     stage: ExceptionStage,
 ) {
+    let vaddr = VirtAddr::new(ex.alu);
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr: VirtAddr::new(ex.alu),
-        paddr: PhysAddr::new(0),
-        store_data: ex.store_data,
-        load_data: 0,
-        sb_forwarded: false,
-        ctrl: ex.ctrl,
         trap: Some(trap),
         exception_stage: Some(stage),
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
-        pte_update: None,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
+        ..Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0))
     });
 }
 
-/// Pushes a resolved store entry into the M1→M2 latch. Memory2 resolves the
-/// store buffer slot and checks the load queue for ordering violations.
+/// Pushes a translated store or store-conditional into the M1→M2 latch.
+/// Memory2 resolves the store buffer slot and checks the load queue for
+/// ordering violations.
 fn push_resolved_store<E: ExecutionEngine>(
     engine: &mut E,
     ex: ExMem1Entry,
@@ -434,62 +376,9 @@ fn push_resolved_store<E: ExecutionEngine>(
     vaddr: VirtAddr,
     pte_update: Option<PteUpdate>,
 ) {
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr,
-        paddr,
-        store_data: ex.store_data,
-        load_data: 0,
-        sb_forwarded: false,
-        ctrl: ex.ctrl,
-        trap: None,
-        exception_stage: None,
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
-        pte_update,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
-    });
-}
-
-/// Pushes a resolved store-conditional entry into the M1→M2 latch.
-fn push_resolved_sc<E: ExecutionEngine>(
-    engine: &mut E,
-    ex: ExMem1Entry,
-    paddr: PhysAddr,
-    vaddr: VirtAddr,
-    pte_update: Option<PteUpdate>,
-) {
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr,
-        paddr,
-        store_data: ex.store_data,
-        load_data: 0,
-        sb_forwarded: false,
-        ctrl: ex.ctrl,
-        trap: None,
-        exception_stage: None,
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
-        pte_update,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
-    });
+    engine
+        .mem1_mem2_mut()
+        .push(Mem1Mem2Entry { pte_update, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) });
 }
 
 /// Pushes an SB-forwarded load into M1→M2 with the forwarded raw value
@@ -507,27 +396,10 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
     let latency =
         if state.core().l1_d_cache.is_enabled() { state.core().l1_d_cache.latency } else { 1 };
     let entry = Mem1Mem2Entry {
-        rob_tag: ex.rob_tag,
-        pc: ex.pc,
-        inst: ex.inst,
-        inst_size: ex.inst_size,
-        rd: ex.rd,
-        rd_phys: ex.rd_phys,
-        alu: ex.alu,
-        vaddr,
-        paddr,
-        store_data: ex.store_data,
         load_data: raw_val,
         sb_forwarded: true,
-        ctrl: ex.ctrl,
-        trap: None,
-        exception_stage: None,
-        fp_flags: ex.fp_flags,
-        complete_cycle: 0,
         pte_update,
-        sfence_vma: ex.sfence_vma,
-        vec_mem: ex.vec_mem,
-        observed: None,
+        ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr)
     };
     engine
         .common_mut()
