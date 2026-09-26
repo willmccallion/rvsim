@@ -129,16 +129,12 @@ impl Simulator {
         self.drain_events();
         if run_cycle {
             for core in 0..self.pipelines.len() {
-                let hart = self.state.topology.cores[core].hart_ids[0];
-                let cycle = self.state.cycle;
-                self.state.config.general.trace_instructions = self.state.trace.applies(Some(hart), cycle);
-                let span = tracing::trace_span!(target: "rvsim::hart", "hart", id = hart.val());
-                let _entered = span.enter();
-                let mut ctx = self.state.core_ctx(core);
-                self.pipelines[core].tick(&mut ctx);
+                self.scoped_to_hart(core, |sim| {
+                    let mut ctx = sim.state.core_ctx(core);
+                    sim.pipelines[core].tick(&mut ctx);
+                });
             }
-            let cycle = self.state.cycle;
-            self.state.config.general.trace_instructions = self.state.trace.applies(None, cycle);
+            self.leave_hart_scope();
         }
         // Second drain: events the pipelines just scheduled (MemReqs to L1)
         // reach their target component handlers this cycle so the next
@@ -152,9 +148,26 @@ impl Simulator {
         self.drain_events();
         for core in 0..self.pipelines.len() {
             let prev = self.prev_privileges[self.state.topology.cores[core].hart_ids[0].as_index()];
-            self.state.core_ctx(core).post_tick(prev);
+            self.scoped_to_hart(core, |sim| sim.state.core_ctx(core).post_tick(prev));
         }
+        self.leave_hart_scope();
         Ok(())
+    }
+
+    /// Runs `f` inside `core`'s hart span with the trace armed for that
+    /// hart, so every event it emits is tagged and filtered per hart.
+    fn scoped_to_hart(&mut self, core: usize, f: impl FnOnce(&mut Self)) {
+        let hart = self.state.topology.cores[core].hart_ids[0];
+        let cycle = self.state.cycle;
+        self.state.config.general.trace_instructions = self.state.trace.applies(Some(hart), cycle);
+        let span = tracing::trace_span!(target: "rvsim::hart", "hart", id = hart.val());
+        let _entered = span.enter();
+        f(self);
+    }
+
+    fn leave_hart_scope(&mut self) {
+        let cycle = self.state.cycle;
+        self.state.config.general.trace_instructions = self.state.trace.applies(None, cycle);
     }
 
     fn tick_mem_controller(&mut self) {
