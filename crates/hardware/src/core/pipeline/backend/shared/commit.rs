@@ -30,6 +30,7 @@ use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::cache::DirtyLine;
+use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
@@ -703,13 +704,15 @@ fn try_drain_one_store(
         if !already_published {
             state.publish_write(paddr, data, store.width);
         }
-        let evicted = state.core.wcb.merge_store(paddr, data, width_bytes);
-        if evicted.is_none() {
-            state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
-        }
-        if let Some(drain) = evicted {
-            emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-            state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+        for (part_paddr, part_data, part_bytes) in line_parts(state, paddr, data, width_bytes) {
+            let evicted = state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
+            if evicted.is_none() {
+                state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
+            }
+            if let Some(drain) = evicted {
+                emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
+                state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+            }
         }
     } else if already_published {
         emit_store_write_packet(state, common, paddr, data, store.width);
@@ -928,14 +931,57 @@ fn write_store_to_memory(
     emit_store_write_packet(state, common, paddr, data, width);
 }
 
-/// Emits the `MemReq` (op = Write) for a store whose data is already
-/// published: the timing side of [`write_store_to_memory`].
+/// Emits the `MemReq`s (op = Write) for a store whose data is already
+/// published: the timing side of [`write_store_to_memory`]. A RAM store
+/// straddling a cache line is one write per line.
 fn emit_store_write_packet(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
+) {
+    if width == MemWidth::Nop {
+        return;
+    }
+    if !is_pure_ram(state, paddr, width) {
+        emit_store_write_packet_to(state, common, paddr, data, width, ComponentId::Bus);
+        return;
+    }
+    let l1d = ComponentId::Cache(common.l1_d_id);
+    for (part_paddr, part_data, _) in line_parts(state, paddr, data, width.bytes() as usize) {
+        emit_store_write_packet_to(state, common, part_paddr, part_data, width, l1d);
+    }
+}
+
+/// The byte ranges of a store's data that fall in each cache line it
+/// touches: `(address, data shifted to start at that address, bytes)`.
+fn line_parts(
+    state: &CoreCtx<'_>,
+    paddr: PhysAddr,
+    data: u64,
+    width_bytes: usize,
+) -> Vec<(PhysAddr, u64, usize)> {
+    let line_bytes = state.core.l1_d_cache.line_bytes() as u64;
+    if !unaligned::crosses_cache_line(paddr.val(), width_bytes as u64, line_bytes) {
+        return vec![(paddr, data, width_bytes)];
+    }
+    let second = (paddr.val() | (line_bytes - 1)) + 1;
+    let first_bytes = (second - paddr.val()) as usize;
+    vec![
+        (paddr, data, first_bytes),
+        (PhysAddr::new(second), data >> (8 * first_bytes), width_bytes - first_bytes),
+    ]
+}
+
+/// Emits one `MemReq` (op = Write) to `target`.
+fn emit_store_write_packet_to(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    paddr: PhysAddr,
+    data: u64,
+    width: MemWidth,
+    target: ComponentId,
 ) {
     let access_size = match width {
         MemWidth::Byte => AccessSize::B1,
@@ -944,11 +990,8 @@ fn emit_store_write_packet(
         MemWidth::Double => AccessSize::B8,
         MemWidth::Nop => return,
     };
-
-    let is_ram = is_pure_ram(state, paddr, width);
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
-    let target = if is_ram { ComponentId::Cache(common.l1_d_id) } else { ComponentId::Bus };
     let _ = common.outstanding_stores.insert(
         req_id,
         OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },

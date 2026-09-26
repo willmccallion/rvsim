@@ -19,7 +19,7 @@
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
 use crate::common::{ExceptionStage, LineAddr, PhysAddr};
-use crate::core::pipeline::engine::{ExecutionEngine, Pipeline};
+use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{
     FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder,
 };
@@ -47,7 +47,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut CoreCtx
         } else if let Some(fetch) = pipeline.engine.common_mut().outstanding_fetches.remove(&req_id)
         {
             buffer_fetch(pipeline, fetch);
-        } else if let Some(load) = pipeline.engine.common_mut().outstanding_loads.remove(&req_id) {
+        } else if let Some(load) = take_completed_load(pipeline.engine.common_mut(), req_id) {
             complete_load(pipeline, state, load, &data);
         } else {
             // outstanding_stores ack or stale post-flush response — drop.
@@ -60,6 +60,18 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut CoreCtx
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,
     );
+}
+
+/// Accounts one answered part of the load `req_id` belongs to and returns
+/// the load once every part has answered.
+fn take_completed_load(common: &mut BackendCommon, req_id: ReqId) -> Option<OutstandingLoad> {
+    let primary = common.load_parts.remove(&req_id).unwrap_or(req_id);
+    let load = common.outstanding_loads.get_mut(&primary)?;
+    load.parts_outstanding = load.parts_outstanding.saturating_sub(1);
+    if load.parts_outstanding > 0 {
+        return None;
+    }
+    common.outstanding_loads.remove(&primary)
 }
 
 /// Inserts a returned fetch group into the reorder buffer at its

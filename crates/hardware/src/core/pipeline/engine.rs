@@ -203,6 +203,13 @@ pub struct BackendCommon {
     /// execute→memory1 latch so a blocked op never back-pressures issue:
     /// the store it waits on may sit behind an older, not-yet-issued load.
     pub mem1_replay: Vec<crate::core::pipeline::latches::ExMem1Entry>,
+    /// Memory ops waiting out an L2 TLB hit's latency.
+    pub mem1_delayed: Vec<crate::core::pipeline::outstanding::DelayedAccess>,
+    /// Secondary request of a line-straddling load, mapped to the request
+    /// its [`OutstandingLoad`] is filed under.
+    pub load_parts: std::collections::HashMap<ReqId, ReqId>,
+    /// Fetch waits until this cycle for an L2 ITLB hit's latency.
+    pub fetch_hold_until: u64,
     /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
     /// A group can complete ahead of an older one (a fetch-buffer hit, or
     /// a fetch walk that finishes while the previous line is still
@@ -254,6 +261,9 @@ impl BackendCommon {
             crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
         });
         self.mem1_replay.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
+        self.mem1_delayed.retain(|access| access.entry.rob_tag.is_older_or_eq(keep_tag));
+        let loads = &self.outstanding_loads;
+        self.load_parts.retain(|_, primary| loads.contains_key(primary));
         if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
             self.coherence_violation = None;
         }
@@ -279,6 +289,12 @@ impl BackendCommon {
             || self.fetch_walk_pending
     }
 
+    /// True while fetch is waiting out an L2 ITLB hit's latency.
+    #[must_use]
+    pub const fn fetch_held(&self, now: u64) -> bool {
+        self.fetch_hold_until > now
+    }
+
     /// Allocates a fresh [`ReqId`] for an outgoing packet. The pipeline
     /// id occupies the top 16 bits so ids are unique across cores; shared
     /// caches and memory controllers key their pending tables by them.
@@ -287,12 +303,6 @@ impl BackendCommon {
         let id = self.next_req_id;
         self.next_req_id = id.wrapping_add(1);
         ReqId::new(((self.pipeline_id.val() as u64) << 48) | (id & ((1u64 << 48) - 1)))
-    }
-
-    /// True while fetch is waiting out an L2 ITLB hit's latency.
-    #[must_use]
-    pub const fn fetch_held(&self, now: u64) -> bool {
-        self.fetch_hold_until > now
     }
 
     /// Allocates a fresh fetch sequence number for the in-program-order
@@ -376,6 +386,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.fetch_reorder.clear();
         common.fetch_walk_pending = false;
         common.fetch_resume_pc = None;
+        common.fetch_hold_until = 0;
         // Straggler responses for pre-flush fetches are dropped rather than
         // entering the post-flush fetch stream.
         common.next_emit_fetch_seq = common.next_fetch_seq;
@@ -386,7 +397,6 @@ impl<E: ExecutionEngine> Pipeline<E> {
     pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         self.flush(state);
         self.engine.drain_committed_stores(state);
-        common.fetch_hold_until = 0;
         state.hart.pc = state.hart.committed_next_pc;
     }
 
@@ -398,7 +408,9 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.outstanding_loads.clear();
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
+        common.load_parts.clear();
         common.mem1_replay.clear();
+        common.mem1_delayed.clear();
         common.coherence_violation = None;
         self.engine.flush(state);
     }
@@ -410,7 +422,6 @@ pub enum PipelineDispatch {
     /// In-order pipeline.
     InOrder(Box<Pipeline<crate::core::pipeline::backend::inorder::InOrderEngine>>),
     /// Out-of-order pipeline.
-        common.mem1_delayed.clear();
     OutOfOrder(Box<Pipeline<crate::core::pipeline::backend::o3::O3Engine>>),
 }
 

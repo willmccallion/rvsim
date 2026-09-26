@@ -530,6 +530,10 @@ fn emit_load_req<E: ExecutionEngine>(
     };
 
     let target = mmio_or_l1d(state, engine, paddr, access_size);
+    let line_bytes = state.core.l1_d_cache.line_bytes() as u64;
+    let second_line = (!matches!(target, ComponentId::Bus)
+        && unaligned::crosses_cache_line(paddr.val(), ex.ctrl.width.bytes(), line_bytes))
+    .then(|| PhysAddr::new((paddr.val() | (line_bytes - 1)) + 1));
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
@@ -541,12 +545,31 @@ fn emit_load_req<E: ExecutionEngine>(
         ComponentId::Pipeline(pipeline_id),
         Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: access_size, op },
     );
+    // The bytes past the line boundary are a second cache access.
+    if let Some(second) = second_line {
+        let common = engine.common_mut();
+        let second_id = common.alloc_req_id();
+        let _ = common.load_parts.insert(second_id, req_id);
+        state.event_queue.schedule(
+            cycle,
+            target,
+            ComponentId::Pipeline(pipeline_id),
+            Packet::MemReq {
+                req_id: second_id,
+                paddr: second,
+                vaddr: Some(vaddr),
+                size: access_size,
+                op: MemOp::Read,
+            },
+        );
+    }
 
     let side_effecting = matches!(target, ComponentId::Bus);
-    let _ = engine
-        .common_mut()
-        .outstanding_loads
-        .insert(req_id, OutstandingLoad { entry: ex, paddr, vaddr, pte_update, side_effecting });
+    let parts_outstanding = if second_line.is_some() { 2 } else { 1 };
+    let _ = engine.common_mut().outstanding_loads.insert(
+        req_id,
+        OutstandingLoad { entry: ex, paddr, vaddr, pte_update, side_effecting, parts_outstanding },
+    );
 }
 
 /// Records the parked walk and issues the PTE `MemReq`.
