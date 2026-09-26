@@ -598,14 +598,15 @@ pub fn execute_inorder(
                 }
 
                 let old = state.csr_read(id.ctrl.csr_addr);
+                let base = state.csr_read_for_update(id.ctrl.csr_addr);
                 let src = match id.ctrl.csr_op {
                     CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => id.rs1.as_usize() as u64 & 0x1f,
                     _ => fwd_a,
                 };
                 let new = match id.ctrl.csr_op {
                     CsrOp::Rw | CsrOp::Rwi => src,
-                    CsrOp::Rs | CsrOp::Rsi => old | src,
-                    CsrOp::Rc | CsrOp::Rci => old & !src,
+                    CsrOp::Rs | CsrOp::Rsi => base | src,
+                    CsrOp::Rc | CsrOp::Rci => base & !src,
                     CsrOp::None => old,
                 };
 

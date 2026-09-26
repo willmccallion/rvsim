@@ -12,6 +12,20 @@ impl CoreCtx<'_> {
         self.hart.is_valid_csr(addr)
     }
 
+    /// The value a CSR read-modify-write starts from. `mip` reads SEIP as
+    /// the OR of the PLIC's line and the software bit, but only the
+    /// software bit takes part in a CSRRS/CSRRC (privileged spec §3.1.9):
+    /// otherwise clearing another bit while the line is high would set
+    /// the software bit and leave SEIP pending for good.
+    pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
+        let value = self.csr_read(addr);
+        if addr.as_u32() != csr::MIP.as_u32() {
+            return value;
+        }
+        let software_seip = if self.hart.sw_seip { csr::MIP_SEIP } else { 0 };
+        (value & !csr::MIP_SEIP) | software_seip
+    }
+
     /// Reads a value from a Control and Status Register (CSR).
     pub fn csr_read(&self, addr: CsrAddr) -> u64 {
         let raw = addr.as_u32();
