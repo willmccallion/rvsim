@@ -341,6 +341,7 @@ pub fn execute_one(
         );
         if mispredicted {
             state.core.branch_predictor.repair_history(&id.ghr_snapshot);
+            state.core.branch_predictor.speculate(id.pc, true);
             state.core.branch_predictor.restore_ras(id.ras_snapshot);
             state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
             state.hart.pc = actual_target;

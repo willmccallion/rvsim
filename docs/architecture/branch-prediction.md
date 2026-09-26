@@ -40,7 +40,7 @@ exactly like its 32-bit expansion.
 
 Arbitrary-length bit vector recording the direction (taken/not-taken) of recent branches. The GHR is speculatively updated during Fetch1 and repaired on misprediction from per-instruction snapshots.
 
-The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
+Every control instruction shifts the GHR at fetch: a conditional branch with its predicted direction, a jump, call or return as taken (as gem5's predictors do), so a branch reached through a jump sees a different path from one reached without. The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
 
 ## Predictors
 

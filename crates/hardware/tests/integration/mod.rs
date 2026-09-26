@@ -15,6 +15,7 @@ pub mod forwarding_latency;
 pub mod frontend_prediction;
 pub mod inorder_units;
 pub mod interrupts;
+pub mod jump_history;
 pub mod line_crossing;
 pub mod lsq_partial_overlap;
 pub mod mmio_loads;

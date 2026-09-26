@@ -151,7 +151,8 @@ struct ControlFlowPrediction {
 /// Predicts an instruction's control flow from its encoding, the way a
 /// predecoded fetch line lets a real front end: a direct branch or jump
 /// takes its target from the immediate, a return pops the RAS, an indirect
-/// jump asks the BTB, and a call pushes its return address at once.
+/// jump asks the BTB, and a call pushes its return address at once. Every
+/// control instruction shifts the global history, a jump as taken.
 fn predict_control_flow(
     state: &mut CoreCtx<'_>,
     pc: u64,
@@ -175,6 +176,7 @@ fn predict_control_flow(
             ControlFlowPrediction { target, stop: taken, kind: Some("branch") }
         }
         opcodes::OP_JAL => {
+            bp.speculate(pc, true);
             if rd_link {
                 bp.push_return(return_address);
             }
@@ -185,6 +187,7 @@ fn predict_control_flow(
             }
         }
         opcodes::OP_JALR => {
+            bp.speculate(pc, true);
             let is_return = rs1_link && (!rd_link || rd != rs1);
             let target = if is_return { bp.pop_return() } else { bp.predict_btb(pc) };
             if rd_link {
