@@ -224,6 +224,34 @@ impl Bus {
         self.devices.iter_mut().flat_map(|d| d.take_dma_writes()).collect()
     }
 
+    /// Finishes every device's work in flight before a checkpoint.
+    pub fn drain_devices(&mut self) {
+        for device in &mut self.devices {
+            device.drain();
+        }
+    }
+
+    /// Every device's checkpoint state, keyed by device name.
+    #[must_use]
+    pub fn checkpoint_devices(&self) -> serde_json::Value {
+        let states: serde_json::Map<String, serde_json::Value> = self
+            .devices
+            .iter()
+            .filter_map(|device| Some((device.name().to_owned(), device.checkpoint()?)))
+            .collect();
+        serde_json::Value::Object(states)
+    }
+
+    /// Restores the devices named in `states`, as [`Bus::checkpoint_devices`]
+    /// produced them.
+    pub fn restore_devices(&mut self, states: &serde_json::Value) {
+        for device in &mut self.devices {
+            if let Some(state) = states.get(device.name()) {
+                device.restore(state);
+            }
+        }
+    }
+
     /// The CLINT's `mtime`, which the `time` CSR reads; zero without a CLINT.
     #[must_use]
     pub fn mtime(&self) -> u64 {

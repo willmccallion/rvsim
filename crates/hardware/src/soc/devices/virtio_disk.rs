@@ -13,6 +13,8 @@ use crate::soc::memory::buffer::DramBuffer;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 /// `VirtIO` MMIO magic value register offset.
 const REG_MAGIC: u64 = 0x00;
 
@@ -180,6 +182,41 @@ pub struct VirtioBlock {
     next_dma_seq: u64,
 }
 
+/// The device's registers, as a checkpoint carries them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VirtioBlockState {
+    /// Device status register.
+    pub status: u32,
+    /// Configured queue size.
+    pub queue_num: u32,
+    /// Queue ready bit.
+    pub queue_ready: u32,
+    /// Queue notify register.
+    pub queue_notify: u32,
+    /// Descriptor table address, low half.
+    pub queue_desc_low: u32,
+    /// Descriptor table address, high half.
+    pub queue_desc_high: u32,
+    /// Available ring address, low half.
+    pub queue_avail_low: u32,
+    /// Available ring address, high half.
+    pub queue_avail_high: u32,
+    /// Used ring address, low half.
+    pub queue_used_low: u32,
+    /// Used ring address, high half.
+    pub queue_used_high: u32,
+    /// Interrupt status register.
+    pub interrupt_status: u32,
+    /// Next available ring index to process.
+    pub last_avail_idx: u16,
+    /// Device features selector.
+    pub device_features_sel: u32,
+    /// Driver features selector.
+    pub driver_features_sel: u32,
+    /// Sequence number of the next DMA request id.
+    pub next_dma_seq: u64,
+}
+
 /// One DMA transfer of a request, as the bus sees it.
 #[derive(Clone, Copy, Debug)]
 struct DmaAccess {
@@ -317,11 +354,33 @@ impl VirtioBlock {
     /// in flight: its DMA is issued phase by phase and it completes when
     /// the last transfer has returned.
     fn start_next_request(&mut self, ctx: &mut HandleCtx<'_>) {
-        while self.job.is_none() && self.queue_num != 0 {
+        while self.job.is_none() {
+            let Some((head_idx, ring_offset)) = self.next_available_chain() else { return };
+            let phases = self.plan_request(head_idx, ring_offset);
+            tracing::trace!(
+                target: "rvsim::dma",
+                cycle = ctx.cycle,
+                head_idx,
+                transfers = ?phases.iter().map(Vec::len).collect::<Vec<_>>(),
+                "virtio: request started"
+            );
+            self.job = Some(DmaJob { head_idx, phases, outstanding: Vec::new() });
+            self.issue_phase(ctx);
+        }
+    }
+
+    /// Takes the next chain the driver made available: its head index and
+    /// its slot's offset in the ring. Chains with an invalid head are
+    /// skipped.
+    fn next_available_chain(&mut self) -> Option<(u16, u64)> {
+        loop {
+            if self.queue_num == 0 {
+                return None;
+            }
             let avail_addr = self.avail_addr();
             let avail_idx = self.dma_read_u16(avail_addr + 2);
             if self.last_avail_idx == avail_idx {
-                return;
+                return None;
             }
             let ring_offset = 4 + (self.last_avail_idx as u64 % self.queue_num as u64) * 2;
             let head_idx = self.dma_read_u16(avail_addr + ring_offset);
@@ -333,17 +392,7 @@ impl VirtioBlock {
                 );
                 continue;
             }
-            let phases = self.plan_request(head_idx, ring_offset);
-            tracing::trace!(
-                target: "rvsim::dma",
-                cycle = ctx.cycle,
-                head_idx,
-                avail_idx,
-                transfers = ?phases.iter().map(Vec::len).collect::<Vec<_>>(),
-                "virtio: request started"
-            );
-            self.job = Some(DmaJob { head_idx, phases, outstanding: Vec::new() });
-            self.issue_phase(ctx);
+            return Some((head_idx, ring_offset));
         }
     }
 
@@ -544,6 +593,49 @@ impl VirtioBlock {
         self.interrupt_status |= 1;
     }
 
+    /// The registers a checkpoint carries.
+    #[must_use]
+    pub const fn state(&self) -> VirtioBlockState {
+        VirtioBlockState {
+            status: self.status,
+            queue_num: self.queue_num,
+            queue_ready: self.queue_ready,
+            queue_notify: self.queue_notify,
+            queue_desc_low: self.queue_desc_low,
+            queue_desc_high: self.queue_desc_high,
+            queue_avail_low: self.queue_avail_low,
+            queue_avail_high: self.queue_avail_high,
+            queue_used_low: self.queue_used_low,
+            queue_used_high: self.queue_used_high,
+            interrupt_status: self.interrupt_status,
+            last_avail_idx: self.last_avail_idx,
+            device_features_sel: self.device_features_sel,
+            driver_features_sel: self.driver_features_sel,
+            next_dma_seq: self.next_dma_seq,
+        }
+    }
+
+    /// Restores registers from a checkpoint; no request is in flight
+    /// afterwards, since a checkpoint is taken drained.
+    pub fn set_state(&mut self, state: &VirtioBlockState) {
+        self.status = state.status;
+        self.queue_num = state.queue_num;
+        self.queue_ready = state.queue_ready;
+        self.queue_notify = state.queue_notify;
+        self.queue_desc_low = state.queue_desc_low;
+        self.queue_desc_high = state.queue_desc_high;
+        self.queue_avail_low = state.queue_avail_low;
+        self.queue_avail_high = state.queue_avail_high;
+        self.queue_used_low = state.queue_used_low;
+        self.queue_used_high = state.queue_used_high;
+        self.interrupt_status = state.interrupt_status;
+        self.last_avail_idx = state.last_avail_idx;
+        self.device_features_sel = state.device_features_sel;
+        self.driver_features_sel = state.driver_features_sel;
+        self.next_dma_seq = state.next_dma_seq;
+        self.job = None;
+    }
+
     const fn desc_addr(&self) -> u64 {
         ((self.queue_desc_high as u64) << 32) | (self.queue_desc_low as u64)
     }
@@ -673,6 +765,27 @@ impl Handle for VirtioBlock {
 impl Device for VirtioBlock {
     fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
         std::mem::take(&mut self.dma_writes)
+    }
+
+    /// Completes the request in flight and every chain still available
+    /// at once: after a restore nothing would notify the device again.
+    fn drain(&mut self) {
+        if let Some(job) = self.job.take() {
+            self.complete_request(job.head_idx);
+        }
+        while let Some((head_idx, _)) = self.next_available_chain() {
+            self.complete_request(head_idx);
+        }
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(self.state()).ok()
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) {
+        if let Ok(state) = serde_json::from_value::<VirtioBlockState>(state.clone()) {
+            self.set_state(&state);
+        }
     }
 
     fn name(&self) -> &'static str {

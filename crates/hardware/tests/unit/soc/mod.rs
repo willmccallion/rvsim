@@ -1,3 +1,4 @@
+pub mod checkpoint;
 pub mod clint_timer;
 pub mod devices;
 pub mod goldfish_rtc;

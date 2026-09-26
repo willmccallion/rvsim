@@ -250,14 +250,17 @@ cpu.run(limit=60_000)
 
 #### `save(path)`, `restore(path)`
 
-A checkpoint holds RAM, the cycle counter and every hart's architectural
-state (PC, privilege, registers, CSRs). `save` first drains every
-pipeline the way gem5 does: speculative work is discarded, committed
-stores still in the store buffers reach RAM and each hart is left at its
-committed PC, so a run that continues after a save is not cycle-identical
-to one without it. A checkpoint does not hold device state or in-flight
-memory traffic, so restore into a freshly built simulator with the same
-configuration and expect cold caches and re-armed timers.
+A checkpoint holds RAM, the cycle counter, every hart's architectural
+state (PC, privilege, registers, CSRs) and the devices' registers (CLINT
+timers and `mtime`, PLIC priorities, enables, thresholds and claims, UART
+registers and unread input, the virtio disk's queue). `save` first drains
+the machine the way gem5 does: speculative work is discarded, committed
+stores still in the store buffers reach RAM, each hart is left at its
+committed PC and a disk request in flight completes at once, so a run
+that continues after a save is not cycle-identical to one without it. A
+checkpoint does not hold cache contents or in-flight memory traffic, so
+restore into a freshly built simulator with the same configuration and
+expect cold caches.
 
 #### `pipeline_snapshot() -> PipelineSnapshot`
 

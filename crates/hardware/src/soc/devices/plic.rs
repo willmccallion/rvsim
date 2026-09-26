@@ -13,6 +13,8 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -79,7 +81,52 @@ pub struct Plic {
 /// harts' lines and claim registers reflecting it (gem5's PLIC).
 const UPDATE_DELAY_CYCLES: usize = 3;
 
+/// The PLIC's registers, as a checkpoint carries them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlicState {
+    /// Per-source priorities.
+    pub priorities: Vec<u32>,
+    /// Pending bitmap words.
+    pub pending: Vec<u32>,
+    /// Per-context enable words.
+    pub enables: Vec<Vec<u32>>,
+    /// Per-context thresholds.
+    pub thresholds: Vec<u32>,
+    /// Per-context claim registers as the harts see them.
+    pub claims: Vec<u32>,
+}
+
 impl Plic {
+    /// The registers a checkpoint carries.
+    #[must_use]
+    pub fn state(&self) -> PlicState {
+        PlicState {
+            priorities: self.priorities.clone(),
+            pending: self.pending.clone(),
+            enables: self.enables.clone(),
+            thresholds: self.thresholds.clone(),
+            claims: self.claims.clone(),
+        }
+    }
+
+    /// Restores registers from a checkpoint, keeping this PLIC's context
+    /// count; updates still on their way are dropped.
+    pub fn set_state(&mut self, state: &PlicState) {
+        fn copy<T: Copy>(into: &mut [T], from: &[T]) {
+            for (slot, value) in into.iter_mut().zip(from) {
+                *slot = *value;
+            }
+        }
+        copy(&mut self.priorities, &state.priorities);
+        copy(&mut self.pending, &state.pending);
+        for (into, from) in self.enables.iter_mut().zip(&state.enables) {
+            copy(into, from);
+        }
+        copy(&mut self.thresholds, &state.thresholds);
+        copy(&mut self.claims, &state.claims);
+        self.updates.clear();
+    }
+
     /// Creates a PLIC with two contexts for each of `hart_count` harts.
     pub fn new(base_addr: u64, hart_count: usize) -> Self {
         let contexts = hart_count * CONTEXTS_PER_HART;
@@ -293,6 +340,16 @@ impl Device for Plic {
     }
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, 0x4000000)
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(self.state()).ok()
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) {
+        if let Ok(state) = serde_json::from_value::<PlicState>(state.clone()) {
+            self.set_state(&state);
+        }
     }
 
     fn as_plic_mut(&mut self) -> Option<&mut Plic> {

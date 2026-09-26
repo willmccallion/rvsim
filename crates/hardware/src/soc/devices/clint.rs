@@ -10,6 +10,8 @@
 //! * `0x4000 + 8·hart`: MTIMECMP (Machine Time Compare)
 //! * `0xBFF8`: MTIME (Machine Time)
 
+use serde::{Deserialize, Serialize};
+
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -45,7 +47,44 @@ pub struct Clint {
     counter: u64,
 }
 
+/// The CLINT's registers and clock, as a checkpoint carries them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClintState {
+    /// The shared `mtime` counter.
+    pub mtime: u64,
+    /// Per-hart `mtimecmp`.
+    pub mtimecmp: Vec<u64>,
+    /// Per-hart `msip`.
+    pub msip: Vec<u32>,
+    /// Cycles counted towards the next `mtime` tick.
+    pub counter: u64,
+}
+
 impl Clint {
+    /// The registers and clock a checkpoint carries.
+    #[must_use]
+    pub fn state(&self) -> ClintState {
+        ClintState {
+            mtime: self.mtime,
+            mtimecmp: self.mtimecmp.clone(),
+            msip: self.msip.clone(),
+            counter: self.counter,
+        }
+    }
+
+    /// Restores registers and clock from a checkpoint; per-hart vectors
+    /// keep this CLINT's hart count.
+    pub fn set_state(&mut self, state: &ClintState) {
+        self.mtime = state.mtime;
+        self.counter = state.counter;
+        for (slot, value) in self.mtimecmp.iter_mut().zip(&state.mtimecmp) {
+            *slot = *value;
+        }
+        for (slot, value) in self.msip.iter_mut().zip(&state.msip) {
+            *slot = *value;
+        }
+    }
+
     /// Creates a CLINT serving `hart_count` harts.
     ///
     /// `divider` is the ratio of CPU cycles to timer ticks (10 means `mtime`
@@ -212,6 +251,16 @@ impl Device for Clint {
 
     fn as_clint(&self) -> Option<&Clint> {
         Some(self)
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(self.state()).ok()
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) {
+        if let Ok(state) = serde_json::from_value::<ClintState>(state.clone()) {
+            self.set_state(&state);
+        }
     }
 
     fn as_clint_mut(&mut self) -> Option<&mut Clint> {

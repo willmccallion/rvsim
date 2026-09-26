@@ -610,7 +610,8 @@ impl PySimulator {
 
     /// Save a checkpoint of the full simulation state to a file.
     ///
-    /// The checkpoint includes PC, registers, CSRs, privilege mode, and RAM.
+    /// The checkpoint includes PC, registers, CSRs, privilege mode, RAM and
+    /// the devices' registers.
     fn save(&mut self, path: &str) -> PyResult<()> {
         self.inner.drain();
         let cpu = &self.inner.state;
@@ -620,7 +621,7 @@ impl PySimulator {
 
         let mut header = serde_json::Map::new();
         let _ = header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
-        let _ = header.insert("version".into(), serde_json::Value::from(2u64));
+        let _ = header.insert("version".into(), serde_json::Value::from(3u64));
         let _ = header.insert("cycle".into(), serde_json::Value::from(cpu.cycle));
         let _ = header.insert("direct_mode".into(), serde_json::Value::from(cpu.direct_mode));
         let _ = header.insert("trace".into(), serde_json::Value::from(cpu.trace.armed));
@@ -631,6 +632,7 @@ impl PySimulator {
         let _ = header.insert("ram_end".into(), serde_json::Value::from(ram_end));
         let harts: Vec<serde_json::Value> = cpu.harts.iter().map(hart_to_json).collect();
         let _ = header.insert("harts".into(), serde_json::Value::Array(harts));
+        let _ = header.insert("devices".into(), cpu.bus.checkpoint_devices());
 
         let header_bytes = serde_json::to_vec(&serde_json::Value::Object(header))
             .map_err(|e| PyRuntimeError::new_err(format!("serialization error: {e}")))?;
@@ -698,6 +700,9 @@ impl PySimulator {
         }
         for (hart, saved) in cpu.harts.iter_mut().zip(&saved_harts) {
             hart_from_json(hart, saved);
+        }
+        if let Some(devices) = header.get("devices") {
+            cpu.bus.restore_devices(devices);
         }
 
         let ckpt_ram_start = header["ram_start"].as_u64().unwrap_or(0);

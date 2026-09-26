@@ -53,4 +53,17 @@ pub trait Device: Handle + Send + Sync {
     fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
         Vec::new()
     }
+
+    /// Finishes the device's work in flight before a checkpoint, the way
+    /// a pipeline drain writes its committed stores.
+    fn drain(&mut self) {}
+
+    /// The device's architectural state for a checkpoint; `None` for a
+    /// device with none.
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Restores state a [`Device::checkpoint`] produced.
+    fn restore(&mut self, _state: &serde_json::Value) {}
 }

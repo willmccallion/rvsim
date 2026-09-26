@@ -77,6 +77,11 @@ impl Simulator {
             let mut ctx = self.state.core_ctx(core);
             self.pipelines[core].drain(&mut ctx);
         }
+        let shared = &mut self.state.shared;
+        shared.bus.drain_devices();
+        for (paddr, len) in shared.bus.take_dma_writes() {
+            shared.record_external_write_range(paddr, len);
+        }
     }
 
     /// Number of cores (and pipelines).

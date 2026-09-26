@@ -5,6 +5,8 @@
 //! with stdin/stdout for console I/O. Output leaves at once; the transmit
 //! and receive interrupts rise 225 ns after their cause, as in gem5.
 
+use serde::{Deserialize, Serialize};
+
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -121,7 +123,68 @@ pub struct Uart {
     panic_detected: bool,
 }
 
+/// The UART's registers, interrupt timing and received data, as a
+/// checkpoint carries them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UartState {
+    /// Interrupt Enable Register.
+    pub ier: u8,
+    /// Line Control Register.
+    pub lcr: u8,
+    /// Modem Control Register.
+    pub mcr: u8,
+    /// Scratch Register.
+    pub scr: u8,
+    /// Divisor latch.
+    pub div: u16,
+    /// Cycles since reset.
+    pub cycle: u64,
+    /// The cycle the transmit-empty interrupt rises, if scheduled.
+    pub tx_interrupt_at: Option<u64>,
+    /// The cycle the receive-data interrupt rises, if scheduled.
+    pub rx_interrupt_at: Option<u64>,
+    /// Transmit-empty interrupt pending.
+    pub thre_ip: bool,
+    /// Received data announced.
+    pub rx_ready: bool,
+    /// Received bytes not yet read.
+    pub rx_queue: Vec<u8>,
+}
+
 impl Uart {
+    /// The registers, interrupt timing and received data a checkpoint carries.
+    #[must_use]
+    pub fn state(&self) -> UartState {
+        UartState {
+            ier: self.ier,
+            lcr: self.lcr,
+            mcr: self.mcr,
+            scr: self.scr,
+            div: self.div,
+            cycle: self.cycle,
+            tx_interrupt_at: self.tx_interrupt_at,
+            rx_interrupt_at: self.rx_interrupt_at,
+            thre_ip: self.thre_ip,
+            rx_ready: self.rx_ready,
+            rx_queue: self.rx_queue.iter().copied().collect(),
+        }
+    }
+
+    /// Restores registers, interrupt timing and received data from a checkpoint.
+    pub fn set_state(&mut self, state: &UartState) {
+        self.ier = state.ier;
+        self.lcr = state.lcr;
+        self.mcr = state.mcr;
+        self.scr = state.scr;
+        self.div = state.div;
+        self.cycle = state.cycle;
+        self.tx_interrupt_at = state.tx_interrupt_at;
+        self.rx_interrupt_at = state.rx_interrupt_at;
+        self.thre_ip = state.thre_ip;
+        self.rx_ready = state.rx_ready;
+        self.rx_queue = state.rx_queue.iter().copied().collect();
+    }
+
     /// Creates a new UART device, spawning a background thread to read stdin.
     /// `cpu_clock_mhz` sizes the interrupt delay in cycles.
     pub fn new(base_addr: u64, to_stderr: bool, quiet: bool, cpu_clock_mhz: u64) -> Self {
@@ -385,6 +448,16 @@ impl Device for Uart {
 
     fn get_irq_id(&self) -> Option<IrqId> {
         Some(IrqId::new(10))
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(self.state()).ok()
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) {
+        if let Ok(state) = serde_json::from_value::<UartState>(state.clone()) {
+            self.set_state(&state);
+        }
     }
 
     fn as_uart_mut(&mut self) -> Option<&mut Uart> {

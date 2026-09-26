@@ -174,3 +174,26 @@ fn a_read_request_completes_after_its_three_dma_phases() {
     assert!(device.tick(), "the interrupt is raised once the request completes");
     assert!(dma_requests(&mut queue).is_empty(), "nothing else was queued");
 }
+
+#[test]
+fn draining_the_device_completes_a_queued_request_at_once() {
+    let (mut device, ram) = device_with_a_queued_read();
+    let mut queue = EventQueue::new();
+    let notify = Packet::MemReq {
+        req_id: ReqId::new(1),
+        paddr: PhysAddr::new(MMIO + 0x50),
+        vaddr: None,
+        size: AccessSize::B4,
+        op: MemOp::Write { data: WriteData::Small(0) },
+    };
+    deliver(&mut device, &mut queue, 0, ComponentId::Pipeline(PipelineId::new(0)), notify);
+    assert_eq!(dma_requests(&mut queue).len(), 10, "the request is in flight");
+
+    device.drain();
+
+    let expected: Vec<u8> = (512..1024u32).map(|i| (i % 251) as u8).collect();
+    assert_eq!(ram.read_slice(DATA as usize, 512), &expected[..], "the data landed");
+    assert_eq!(used_idx(&ram), 1);
+    assert!(device.tick(), "the interrupt is raised");
+    assert!(!device.take_dma_writes().is_empty(), "the writes are reported for publishing");
+}
