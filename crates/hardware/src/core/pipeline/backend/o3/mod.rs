@@ -11,13 +11,14 @@ pub mod issue_queue;
 
 use crate::config::Config;
 use crate::core::pipeline::backend::shared::commit::CommitEvent;
+use crate::core::pipeline::backend::shared::vec_mem::{
+    VecMemInflight, VecMemMicroOp, mem_width_from_eew_bytes, micro_ops_for, retire_element,
+};
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::free_list::FreeList;
-use crate::core::pipeline::latches::{
-    ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, VecMemElement,
-};
+use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
@@ -119,40 +120,6 @@ pub struct O3Engine {
     pub vec_store_buffer: VecStoreBuffer,
     /// In-flight memory bookkeeping: mailbox + outstanding tables + routing IDs.
     pub common: crate::core::pipeline::engine::BackendCommon,
-}
-
-/// A single vector memory micro-op representing one element (or cache-line chunk)
-/// flowing through the Memory1 → Memory2 → Writeback pipeline.
-#[derive(Debug, Clone)]
-pub struct VecMemMicroOp {
-    /// The `ExMem1Entry` carrying the element's virtual address and metadata.
-    pub entry: ExMem1Entry,
-    /// Element index within the vector register (for writeback targeting).
-    pub elem_idx: crate::core::units::vpu::types::ElemIdx,
-    /// Effective element width for this access.
-    pub eew: crate::core::units::vpu::types::Sew,
-    /// Destination physical vector register for this element's data.
-    pub vd_phys: VecPhysReg,
-    /// Whether this is a store (vs load).
-    pub is_store: bool,
-}
-
-/// Per-element progress tracker for an in-flight vec mem op (data lives in `vec_store_buffer`).
-#[derive(Debug, Clone)]
-pub struct VecMemInflight {
-    /// ROB tag of the parent vector memory instruction.
-    pub rob_tag: crate::core::pipeline::rob::RobTag,
-    /// Number of micro-ops still outstanding (not yet written back).
-    pub remaining: usize,
-    /// Physical destination registers for the LMUL group (for chaining wakeup).
-    pub vd_phys: [VecPhysReg; 8],
-    /// Number of destination registers in the LMUL group.
-    pub vd_count: u8,
-    /// Whether chaining wakeup has fired (first cache-line returned).
-    pub wakeup_fired: bool,
-    /// Micro-ops generated at issue but not yet pushed into the memory
-    /// pipeline (waiting for LQ slots to free up).
-    pub pending_micro_ops: std::collections::VecDeque<VecMemMicroOp>,
 }
 
 impl O3Engine {
@@ -297,17 +264,6 @@ impl O3Engine {
     }
 }
 
-/// Convert an EEW byte count (1/2/4/8) to the corresponding `MemWidth`.
-const fn mem_width_from_eew_bytes(bytes: usize) -> crate::core::pipeline::signals::MemWidth {
-    use crate::core::pipeline::signals::MemWidth as MW;
-    match bytes {
-        1 => MW::Byte,
-        2 => MW::Half,
-        8 => MW::Double,
-        _ => MW::Word,
-    }
-}
-
 impl ExecutionEngine for O3Engine {
     fn tick(
         &mut self,
@@ -382,7 +338,9 @@ impl ExecutionEngine for O3Engine {
             let vec_entries = std::mem::take(&mut self.mem2_wb);
             for wb in vec_entries {
                 if let Some(ref vme) = wb.vec_mem {
-                    if wb.trap.is_none() && !vme.is_store {
+                    let retired =
+                        retire_element(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
+                    if retired.write_data {
                         let vlen_bits = self.vec_prf.vlen().bits();
                         let eew_bits = vme.eew.bytes() * 8;
                         let elems_per_reg = if eew_bits > 0 { vlen_bits / eew_bits } else { 1 };
@@ -392,25 +350,19 @@ impl ExecutionEngine for O3Engine {
                     if !vme.is_store {
                         self.load_queue.deallocate_elem(wb.rob_tag, vme.elem_idx);
                     }
-                    if let Some(parent) =
-                        self.vec_mem_inflight.iter_mut().find(|m| m.rob_tag == wb.rob_tag)
+                    // Fire chaining wakeup only on full completion: dependents bulk-read all elements.
+                    if retired.completed
+                        && let Some(parent) =
+                            self.vec_mem_inflight.iter_mut().find(|m| m.rob_tag == wb.rob_tag)
+                        && !parent.wakeup_fired
                     {
-                        parent.remaining = parent.remaining.saturating_sub(1);
-
-                        // Fire chaining wakeup only on full completion: dependents bulk-read all elements.
-                        if parent.remaining == 0 {
-                            if !parent.wakeup_fired {
-                                for j in 0..parent.vd_count as usize {
-                                    self.vec_prf.mark_ready(parent.vd_phys[j]);
-                                }
-                                for j in 0..parent.vd_count as usize {
-                                    self.issue_queue
-                                        .wakeup_vec_phys(parent.vd_phys[j], &self.vec_prf);
-                                }
-                                parent.wakeup_fired = true;
-                            }
-                            self.rob.complete(parent.rob_tag, 0);
+                        for j in 0..parent.vd_count as usize {
+                            self.vec_prf.mark_ready(parent.vd_phys[j]);
                         }
+                        for j in 0..parent.vd_count as usize {
+                            self.issue_queue.wakeup_vec_phys(parent.vd_phys[j], &self.vec_prf);
+                        }
+                        parent.wakeup_fired = true;
                     }
                 } else {
                     scalar_wb.push(wb);
@@ -1047,44 +999,7 @@ impl ExecutionEngine for O3Engine {
                     } else {
                         // Build all micro-ops up front; issue_vec_mem_waves releases them in waves.
                         let total = micro_ops.len();
-                        let mut all_micro_ops: std::collections::VecDeque<VecMemMicroOp> =
-                            std::collections::VecDeque::with_capacity(total);
-                        for mop in micro_ops {
-                            let eew_width = mem_width_from_eew_bytes(mop.eew.bytes());
-                            let mut ctrl = ex_result.ctrl;
-                            ctrl.mem_read = !is_store;
-                            ctrl.mem_write = is_store;
-                            ctrl.width = eew_width;
-
-                            let vec_elem = VecMemElement {
-                                elem_idx: mop.elem_idx,
-                                eew: mop.eew,
-                                vd_phys: mop.vd_phys,
-                                is_store,
-                            };
-                            all_micro_ops.push_back(VecMemMicroOp {
-                                entry: ExMem1Entry {
-                                    rob_tag: ex_result.rob_tag,
-                                    pc: ex_result.pc,
-                                    inst: ex_result.inst,
-                                    inst_size: ex_result.inst_size,
-                                    rd: ex_result.rd,
-                                    rd_phys: ex_result.rd_phys,
-                                    alu: mop.vaddr.val(),
-                                    store_data: mop.store_data,
-                                    ctrl,
-                                    trap: None,
-                                    exception_stage: None,
-                                    fp_flags: 0,
-                                    sfence_vma: None,
-                                    vec_mem: Some(vec_elem),
-                                },
-                                elem_idx: mop.elem_idx,
-                                eew: mop.eew,
-                                vd_phys: mop.vd_phys,
-                                is_store,
-                            });
-                        }
+                        let all_micro_ops = micro_ops_for(&ex_result, micro_ops, is_store);
 
                         if is_store {
                             self.vec_store_buffer.set_expected_elements(ex_result.rob_tag, total);
@@ -1097,6 +1012,7 @@ impl ExecutionEngine for O3Engine {
                             vd_count,
                             wakeup_fired: false,
                             pending_micro_ops: all_micro_ops,
+                            trimmed_at: None,
                         });
                     }
 

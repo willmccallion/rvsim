@@ -12,8 +12,12 @@
 pub mod execute;
 pub mod issue;
 
+use crate::common::error::ExceptionStage;
 use crate::config::Config;
 use crate::core::pipeline::backend::shared::commit::CommitEvent;
+use crate::core::pipeline::backend::shared::vec_mem::{
+    VecMemInflight, micro_ops_for, retire_element,
+};
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::free_list::FreeList;
@@ -23,7 +27,10 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::bru::BranchPredictor;
+use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+use crate::core::units::vpu::types::{ElemIdx, VRegIdx, VecPhysReg, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 
@@ -73,6 +80,11 @@ pub struct InOrderEngine {
     issue_width: usize,
     /// Instructions retired per cycle.
     commit_width: usize,
+    /// Vector memory instructions in flight, with the element micro-ops
+    /// not yet in the memory pipeline.
+    vec_mem_inflight: Vec<VecMemInflight>,
+    /// Buffered element data of vector stores, published at commit.
+    vec_store_buffer: VecStoreBuffer,
     /// Execute → Memory1 latch.
     pub execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 → Memory2 latch.
@@ -130,6 +142,125 @@ impl InOrderEngine {
         }
     }
 
+    /// Starts a vector load or store: its element micro-ops are generated
+    /// from the architectural registers, which are current because a
+    /// vector instruction issues only from the ROB head.
+    fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
+        use crate::core::units::vpu::mem::{
+            check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
+        };
+        let vec_op = entry.ctrl.vec_op;
+        let is_store = is_vec_store(vec_op);
+        let vtype = parse_vtype(state.hart.csrs.vtype);
+        if let Err(trap) = check_vec_mem_emul(entry.inst, vec_op, &entry.ctrl, &vtype) {
+            self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
+            return;
+        }
+        let vd_count = if is_store {
+            0
+        } else {
+            vec_mem_dst_count(
+                vec_op,
+                entry.ctrl.vec_eew,
+                vtype.vsew,
+                vtype.vlmul,
+                entry.ctrl.vec_nf,
+            )
+        };
+        let mut vd_regs = [VecPhysReg::ZERO; 8];
+        for (offset, reg) in vd_regs.iter_mut().enumerate().take(vd_count as usize) {
+            *reg = VecPhysReg::new(u16::from(entry.ctrl.vd.as_u8()) + offset as u16);
+        }
+        let addresses = generate_element_addrs_vrf(
+            state.hart.regs.vpr(),
+            entry.rv1,
+            entry.rv2 as i64,
+            &entry.ctrl,
+            state.hart.csrs.vtype,
+            state.hart.csrs.vl as usize,
+            state.hart.csrs.vstart as usize,
+            vec_op,
+            &vd_regs,
+            vd_count,
+        );
+        if addresses.is_empty() {
+            self.rob.complete(entry.rob_tag, 0);
+            return;
+        }
+        let parent = ExMem1Entry {
+            rob_tag: entry.rob_tag,
+            pc: entry.pc,
+            inst: entry.inst,
+            inst_size: entry.inst_size,
+            rd: entry.rd,
+            rd_phys: PhysReg::default(),
+            alu: entry.rv1,
+            store_data: entry.rv2,
+            ctrl: entry.ctrl,
+            trap: None,
+            exception_stage: None,
+            fp_flags: 0,
+            sfence_vma: None,
+            vec_mem: None,
+        };
+        let total = addresses.len();
+        let micro_ops = micro_ops_for(&parent, addresses, is_store);
+        if is_store {
+            self.vec_store_buffer.set_expected_elements(entry.rob_tag, total);
+        }
+        self.vec_mem_inflight.push(VecMemInflight {
+            rob_tag: entry.rob_tag,
+            remaining: total,
+            vd_phys: vd_regs,
+            vd_count,
+            wakeup_fired: false,
+            pending_micro_ops: micro_ops,
+            trimmed_at: None,
+        });
+    }
+
+    /// Moves element micro-ops into the memory pipeline, as many per cycle
+    /// as the load and store ports allow.
+    fn issue_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
+        let mut loads_left = state.config.pipeline.load_ports;
+        let mut stores_left = state.config.pipeline.store_ports;
+        for inflight in &mut self.vec_mem_inflight {
+            while let Some(front) = inflight.pending_micro_ops.front() {
+                let ports_left = if front.is_store { &mut stores_left } else { &mut loads_left };
+                if *ports_left == 0 {
+                    return;
+                }
+                *ports_left -= 1;
+                let Some(mop) = inflight.pending_micro_ops.pop_front() else { break };
+                self.execute_mem1.push(mop.entry);
+            }
+        }
+    }
+
+    /// Retires the element micro-ops that reached writeback: a load's
+    /// element data goes to the architectural register, and the
+    /// instruction completes with its last element.
+    fn retire_vec_mem_elements(&mut self, state: &mut CoreCtx<'_>) {
+        let entries = std::mem::take(&mut self.mem2_wb);
+        for wb in entries {
+            let Some(element) = wb.vec_mem.as_ref() else {
+                self.mem2_wb.push(wb);
+                continue;
+            };
+            let retired = retire_element(&wb, element, &mut self.vec_mem_inflight, &mut self.rob);
+            if retired.write_data {
+                let vlen_bits = state.hart.regs.vpr().vlen().bits();
+                let elems_per_reg = (vlen_bits / (element.eew.bytes() * 8)).max(1);
+                let reg = VRegIdx::new(element.vd_phys.as_u16() as u8);
+                let local = ElemIdx::new(element.elem_idx.as_usize() % elems_per_reg);
+                state.hart.regs.vpr_mut().write_element(reg, local, element.eew, wb.load_data);
+            }
+            if retired.completed {
+                self.vec_mem_inflight.retain(|m| m.rob_tag != wb.rob_tag);
+            }
+        }
+    }
+
     /// Creates a new in-order engine from config and routing IDs.
     pub fn new(
         config: &Config,
@@ -149,6 +280,11 @@ impl InOrderEngine {
             rename_width: config.pipeline.rename_width(),
             issue_width: config.pipeline.issue_width(),
             commit_width: config.pipeline.commit_width(),
+            vec_mem_inflight: Vec::new(),
+            vec_store_buffer: VecStoreBuffer::new(
+                config.pipeline.vec_store_buffer_size,
+                config.pipeline.vec_store_forwarding,
+            ),
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
@@ -186,7 +322,7 @@ impl ExecutionEngine for InOrderEngine {
             None,
             None,
             None,
-            None,
+            Some(&mut self.vec_store_buffer),
             redirect_pending,
         );
 
@@ -215,6 +351,7 @@ impl ExecutionEngine for InOrderEngine {
             return;
         }
 
+        self.retire_vec_mem_elements(state);
         writeback::writeback_stage(state, &mut self.mem2_wb, &mut self.rob);
 
         let _ = memory2::memory2_stage(
@@ -223,7 +360,7 @@ impl ExecutionEngine for InOrderEngine {
             &mut self.mem2_wb,
             &mut self.store_buffer,
             None,
-            None,
+            Some(&mut self.vec_store_buffer),
         );
 
         // Memory1 consumes execute_mem1, emits MemReq packets for misses,
@@ -254,6 +391,12 @@ impl ExecutionEngine for InOrderEngine {
             if issued.is_empty() && !self.issuer.is_empty() {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
+            let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
+                is_vec_load(entry.ctrl.vec_op) || is_vec_store(entry.ctrl.vec_op)
+            });
+            for entry in &vec_mem {
+                self.start_vec_mem_op(state, entry);
+            }
             let (results, needs_flush) =
                 execute::execute_inorder(state, issued, &mut self.rob, redirect_pending);
             (results, units, needs_flush)
@@ -263,6 +406,7 @@ impl ExecutionEngine for InOrderEngine {
             self.common.vector_config_unresolved = false;
         }
         self.hold_results(results, &units, now);
+        self.issue_vec_mem_elements(state);
 
         if needs_flush {
             state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
@@ -272,6 +416,8 @@ impl ExecutionEngine for InOrderEngine {
             if let Some(keep_tag) = keep_tag {
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
+                self.vec_store_buffer.flush_after(keep_tag);
+                self.vec_mem_inflight.retain(|m| m.rob_tag.is_older_or_eq(keep_tag));
                 self.common.squash_after(keep_tag);
                 self.pending.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
             }
@@ -290,13 +436,16 @@ impl ExecutionEngine for InOrderEngine {
     fn can_accept(&self) -> usize {
         let rob_free = self.rob.free_slots();
         let sb_free = self.store_buffer.free_slots();
+        let vsb_free = self.vec_store_buffer.free_slots();
         let issue_free = self.issuer.available_slots();
-        rob_free.min(sb_free).min(issue_free).min(self.rename_width)
+        rob_free.min(sb_free).min(vsb_free).min(issue_free).min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
+        self.vec_store_buffer.flush_speculative();
+        self.vec_mem_inflight.clear();
         self.scoreboard.flush();
         self.issuer.flush();
         self.pending.clear();
@@ -308,7 +457,20 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
-        commit::drain_all_committed(state, &mut self.common, &mut self.store_buffer, None);
+        commit::drain_all_committed(
+            state,
+            &mut self.common,
+            &mut self.store_buffer,
+            Some(&mut self.vec_store_buffer),
+        );
+    }
+
+    fn vec_store_buffer(&self) -> Option<&VecStoreBuffer> {
+        Some(&self.vec_store_buffer)
+    }
+
+    fn vec_store_buffer_mut(&mut self) -> Option<&mut VecStoreBuffer> {
+        Some(&mut self.vec_store_buffer)
     }
 
     fn rob(&self) -> &Rob {

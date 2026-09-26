@@ -127,6 +127,11 @@ pub struct RobEntry {
     pub csr_update: Option<CsrUpdate>,
     /// The vector configuration a `vsetvl` sets, written to the CSRs at commit.
     pub vec_csr_update: Option<VectorConfig>,
+    /// The element a vector memory instruction faulted on: `vstart` when
+    /// its trap is taken.
+    pub fault_vstart: Option<u64>,
+    /// The `vl` a fault-only-first load trimmed itself to, written at commit.
+    pub vl_trim: Option<u64>,
     /// Whether this entry is valid (occupied).
     pub valid: bool,
     /// Physical register allocated for rd at rename (O3 backend).
@@ -270,6 +275,8 @@ impl Rob {
             exception_stage: None,
             csr_update: None,
             vec_csr_update: None,
+            fault_vstart: None,
+            vl_trim: None,
             valid: true,
             phys_dst,
             old_phys_dst,
@@ -337,6 +344,22 @@ impl Rob {
     #[must_use]
     pub fn is_head(&self, tag: RobTag) -> bool {
         self.peek_head().is_some_and(|head| head.tag == tag)
+    }
+
+    /// Records the element a vector memory instruction faulted on.
+    pub fn set_fault_vstart(&mut self, tag: RobTag, element: u64) {
+        if let Some(entry) = self.find_entry_mut(tag)
+            && entry.fault_vstart.is_none()
+        {
+            entry.fault_vstart = Some(element);
+        }
+    }
+
+    /// Records the `vl` a fault-only-first load trims itself to.
+    pub fn set_vl_trim(&mut self, tag: RobTag, vl: u64) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vl_trim = Some(entry.vl_trim.map_or(vl, |current| current.min(vl)));
+        }
     }
 
     /// Records the vector configuration a `vsetvl` establishes.

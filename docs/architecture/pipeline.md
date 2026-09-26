@@ -123,6 +123,8 @@ flowchart LR
 
 **Same serialization guarantees as O3.** The same four serialization checks (system/CSR, FENCE, FENCE blocking, store address resolution) are enforced at issue time. This ensures correctness and makes the two backends functionally equivalent.
 
+**Vector memory through the memory stages.** A vector load or store issues from the ROB head and becomes one element micro-op per element address, flowing through Memory1, Memory2 and Writeback like scalar accesses. A load's elements land in the architectural register at writeback; a store's element data waits in the vector store buffer, forwards to younger scalar loads, and is published at commit. Other vector instructions still execute against the architectural registers at issue and flush what follows them.
+
 ---
 
 ## Stage Sharing

@@ -194,6 +194,9 @@ pub fn commit_stage(
                     mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
                     "CM: synchronous exception at commit"
                 );
+                if let Some(vstart) = entry.fault_vstart {
+                    state.hart.csrs.vstart = vstart;
+                }
                 // Faulting entry was popped before the post-trap flush, so reclaim its phys_dst here.
                 if entry.phys_dst.0 != 0 {
                     free_list.reclaim(entry.phys_dst);
@@ -417,6 +420,10 @@ pub fn commit_stage(
 
         if entry.vxsat {
             state.hart.csrs.vxsat = 1;
+        }
+
+        if let Some(vl) = entry.vl_trim {
+            state.hart.csrs.vl = vl;
         }
 
         if let Some(vector) = entry.vec_csr_update {

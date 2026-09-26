@@ -15,6 +15,7 @@ pub mod fill_latency;
 pub mod forwarding_latency;
 pub mod frontend_prediction;
 pub mod inorder_units;
+pub mod inorder_vector_memory;
 pub mod interrupts;
 pub mod jump_history;
 pub mod line_crossing;

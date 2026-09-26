@@ -90,6 +90,12 @@ pub trait ExecutionEngine {
     /// Access the store buffer mutably (for rename to allocate entries).
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
 
+    /// The vector store buffer younger loads forward from. `None` for
+    /// backends without one.
+    fn vec_store_buffer(&self) -> Option<&crate::core::pipeline::vec_store_buffer::VecStoreBuffer> {
+        None
+    }
+
     /// Access the vector store buffer mutably (for rename to reserve
     /// entries). `None` for backends without one.
     fn vec_store_buffer_mut(
