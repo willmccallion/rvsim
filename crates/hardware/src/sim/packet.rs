@@ -32,6 +32,20 @@ pub enum AccessSize {
     Line,
 }
 
+impl AccessSize {
+    /// Bytes the access moves; a line is the 64-byte line the bus carries.
+    #[must_use]
+    pub const fn bytes(self) -> usize {
+        match self {
+            Self::B1 => 1,
+            Self::B2 => 2,
+            Self::B4 => 4,
+            Self::B8 => 8,
+            Self::Line => 64,
+        }
+    }
+}
+
 /// Payload carried in a `Write` operation. Inline storage for sub-line writes;
 /// boxed slice for line-sized writes.
 #[derive(Clone, Debug)]

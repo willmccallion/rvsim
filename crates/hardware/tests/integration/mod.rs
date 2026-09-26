@@ -1,5 +1,6 @@
 //! Integration tests for the RISC-V emulator.
 
+pub mod bus_occupancy;
 pub mod csr_ordering;
 pub mod drain;
 pub mod fault_precedence;
@@ -7,8 +8,8 @@ pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
 pub mod fetch_page_crossing;
 pub mod fetch_walk;
-pub mod frontend_prediction;
 pub mod forwarding_latency;
+pub mod frontend_prediction;
 pub mod inorder_units;
 pub mod interrupts;
 pub mod line_crossing;

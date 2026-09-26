@@ -10,7 +10,7 @@ use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemRespData, MesiState, Packet};
+use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -51,7 +51,12 @@ pub struct Bus {
     /// In-flight RAM `MemReq`s forwarded to the memory controller, keyed by
     /// `ReqId` so the matching `MemResp` from the controller can be routed back
     /// to the originating upstream component (typically the LLC).
-    pending: HashMap<ReqId, ComponentId>,
+    pending: HashMap<ReqId, (ComponentId, usize)>,
+    /// Cycle the request channel is free again: each transaction occupies
+    /// it for its transfer time, so back-to-back requests queue.
+    request_busy_until: u64,
+    /// Cycle the response channel is free again.
+    response_busy_until: u64,
 }
 
 impl std::fmt::Debug for Bus {
@@ -83,6 +88,8 @@ impl Bus {
             ram_region: None,
             htif_range: None,
             pending: HashMap::new(),
+            request_busy_until: 0,
+            response_busy_until: 0,
         }
     }
 
@@ -136,8 +143,28 @@ impl Bus {
 
     /// Returns cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
     pub const fn calculate_transit_time(&self, bytes: usize) -> u64 {
-        let transfers = (bytes as u64).div_ceil(self.width_bytes);
-        self.latency_cycles + transfers
+        self.latency_cycles + self.transfer_cycles(bytes)
+    }
+
+    /// Cycles a transaction of `bytes` occupies a channel.
+    const fn transfer_cycles(&self, bytes: usize) -> u64 {
+        (bytes as u64).div_ceil(self.width_bytes)
+    }
+
+    /// Claims the request channel from `now`, returning when the request
+    /// has crossed the bus.
+    const fn send_request(&mut self, now: u64, bytes: usize) -> u64 {
+        let start = if now > self.request_busy_until { now } else { self.request_busy_until };
+        self.request_busy_until = start + self.transfer_cycles(bytes);
+        start + self.calculate_transit_time(bytes)
+    }
+
+    /// Claims the response channel from `now`, returning when the response
+    /// has crossed the bus.
+    const fn send_response(&mut self, now: u64, bytes: usize) -> u64 {
+        let start = if now > self.response_busy_until { now } else { self.response_busy_until };
+        self.response_busy_until = start + self.transfer_cycles(bytes);
+        start + self.calculate_transit_time(bytes)
     }
 
     /// Writes a binary blob into RAM at the given physical address.
@@ -258,15 +285,33 @@ impl Bus {
     }
 }
 
-/// Bytes-on-the-bus for the address phase of any `MemReq` (the bus carries an
-/// 8-byte address plus control). Pre-refactor `simulate_memory_access`
-/// charged `calculate_transit_time(8)` here too.
-const BUS_REQ_BYTES: usize = 8;
+/// Bytes an 8-byte address and its control take on the bus.
+const COMMAND_BYTES: usize = 8;
 
-/// Bytes-on-the-bus for a `MemResp` returning a cache line. Sub-line responses
-/// are still charged this size to match the pre-refactor cycle model, which
-/// always pulled a full line for the demand miss.
-const BUS_RESP_BYTES: usize = 64;
+/// Bytes a `MemReq` moves over the request channel: the command, plus the
+/// data a write carries.
+fn request_bytes(packet: &Packet) -> usize {
+    match packet {
+        Packet::MemReq { op: MemOp::Write { data: WriteData::Small(_) }, size, .. } => {
+            COMMAND_BYTES + size.bytes()
+        }
+        Packet::MemReq { op: MemOp::Write { data: WriteData::Line(line) }, .. } => {
+            COMMAND_BYTES + line.len()
+        }
+        Packet::MemReq { op: MemOp::Writeback { .. }, size, .. } => COMMAND_BYTES + size.bytes(),
+        _ => COMMAND_BYTES,
+    }
+}
+
+/// Bytes the answer to `packet` moves over the response channel: the data
+/// a read returns, or a bare acknowledgement for a write.
+const fn response_bytes(packet: &Packet) -> usize {
+    match packet {
+        Packet::MemReq { op: MemOp::Write { .. } | MemOp::Writeback { .. }, .. } => COMMAND_BYTES,
+        Packet::MemReq { size, .. } => size.bytes(),
+        _ => COMMAND_BYTES,
+    }
+}
 
 impl Handle for Bus {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
@@ -276,15 +321,13 @@ impl Handle for Bus {
                 let ram_hit = self.ram_ctrl.filter(|(_, start, end)| raw >= *start && raw < *end);
                 let is_htif =
                     self.htif_range.is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
-                let req_transit = self.calculate_transit_time(BUS_REQ_BYTES);
-                let resp_transit = self.calculate_transit_time(BUS_RESP_BYTES);
-
                 if let Some((ctrl_id, _, _)) = ram_hit
                     && !is_htif
                 {
-                    let _ = self.pending.insert(req_id, source);
+                    let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
+                    let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
                     ctx.scheduler.schedule(
-                        ctx.cycle + req_transit,
+                        arrives,
                         ComponentId::MemCtrl(ctrl_id),
                         ctx.self_id,
                         packet,
@@ -297,8 +340,9 @@ impl Handle for Bus {
                 }
                 // Unmapped address: reply with zeros so the originator unblocks.
                 let line_addr = LineAddr::from_phys(paddr, 64);
+                let arrives = self.send_response(ctx.cycle, response_bytes(&packet));
                 ctx.scheduler.schedule(
-                    ctx.cycle + resp_transit,
+                    arrives,
                     source,
                     ctx.self_id,
                     Packet::MemResp {
@@ -311,9 +355,10 @@ impl Handle for Bus {
                 );
             }
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
-                let Some(upstream) = self.pending.remove(&req_id) else { return };
+                let Some((upstream, bytes)) = self.pending.remove(&req_id) else { return };
+                let arrives = self.send_response(ctx.cycle, bytes);
                 ctx.scheduler.schedule(
-                    ctx.cycle + self.calculate_transit_time(BUS_RESP_BYTES),
+                    arrives,
                     upstream,
                     ctx.self_id,
                     Packet::MemResp { req_id, line_addr, data, hit_level, state },
