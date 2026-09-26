@@ -15,19 +15,21 @@ use crate::common::{Asid, LrScRecord, PhysAddr, RegIdx, SfenceVmaInfo, Trap, Vpn
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
+use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::backend::shared::memory2;
-use crate::core::pipeline::checkpoint::CheckpointTable;
+use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::outstanding::OutstandingStore;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
-use crate::core::pipeline::rob::{Rob, RobEntry, RobState};
+use crate::core::pipeline::rob::{Rob, RobEntry, RobState, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
+use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::cache::DirtyLine;
 use crate::core::units::lsu::unaligned;
@@ -56,29 +58,121 @@ pub enum CommitEvent {
     SquashAfter(u64),
 }
 
+/// The backend state commit retires into.
+#[derive(Debug)]
+pub struct CommitResources<'a> {
+    /// State both backends share.
+    pub common: &'a mut BackendCommon,
+    /// The reorder buffer retirement pops from.
+    pub rob: &'a mut Rob,
+    /// Scalar stores, marked committed at retire and drained to memory.
+    pub store_buffer: &'a mut StoreBuffer,
+    /// Vector stores, marked committed at retire and drained to memory.
+    pub vec_store_buffer: &'a mut VecStoreBuffer,
+    /// Instructions retired per cycle.
+    pub width: usize,
+    /// The destination tracking retirement releases.
+    pub registers: CommitRegisters<'a>,
+}
+
+/// How the backend tracks the destination of every in-flight instruction,
+/// which decides what retiring one releases.
+#[derive(Debug)]
+pub enum CommitRegisters<'a> {
+    /// Results are already in the architectural file; retiring clears the
+    /// tag that marked the register busy.
+    Scoreboard(&'a mut Scoreboard),
+    /// Results live in physical registers; retiring commits the mapping,
+    /// frees the previous mapping and releases the per-instruction slots
+    /// only a renaming backend allocates.
+    Renamed {
+        /// The committed architectural-to-physical mapping.
+        rename_map: &'a mut RenameMap,
+        /// Free scalar physical registers.
+        free_list: &'a mut FreeList<PhysReg>,
+        /// Scalar physical register values.
+        prf: &'a mut PhysRegFile,
+        /// In-flight loads, released as they retire.
+        load_queue: &'a mut LoadQueue,
+        /// Branch checkpoints, freed as their branch retires.
+        checkpoints: &'a mut CheckpointTable,
+        /// Vector physical register values.
+        vec_prf: &'a mut VecPhysRegFile,
+        /// Free vector physical registers.
+        vec_free_list: &'a mut FreeList<VecPhysReg>,
+    },
+}
+
+impl CommitRegisters<'_> {
+    fn retire_scalar(&mut self, entry: &RobEntry, is_fp: bool) {
+        match self {
+            Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(entry.rd, is_fp, entry.tag),
+            Self::Renamed { rename_map, free_list, .. } => {
+                if entry.old_phys_dst.0 != entry.phys_dst.0 {
+                    free_list.reclaim(entry.old_phys_dst);
+                }
+                rename_map.set(entry.rd, is_fp, entry.phys_dst);
+            }
+        }
+    }
+
+    /// Retires the `i`th vector destination of `entry` into `vreg`.
+    fn retire_vec(&mut self, vpr: &mut Vpr, entry: &RobEntry, i: usize, vreg: VRegIdx) {
+        match self {
+            Self::Scoreboard(scoreboard) => scoreboard.clear_vec_if_match(vreg, entry.tag),
+            Self::Renamed { rename_map, vec_prf, vec_free_list, .. } => {
+                vpr.write_bytes(vreg, vec_prf.read_bytes(entry.vec_phys_dst[i]));
+                if entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i] {
+                    vec_free_list.reclaim(entry.vec_old_phys_dst[i]);
+                }
+                rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
+            }
+        }
+    }
+
+    /// Frees the destinations of an entry that trapped instead of retiring.
+    fn reclaim_faulted(&mut self, entry: &RobEntry) {
+        let Self::Renamed { free_list, vec_free_list, .. } = self else {
+            return;
+        };
+        if entry.phys_dst.0 != 0 {
+            free_list.reclaim(entry.phys_dst);
+        }
+        for i in 0..entry.vec_dst_count as usize {
+            if !entry.vec_phys_dst[i].is_zero() {
+                vec_free_list.reclaim(entry.vec_phys_dst[i]);
+            }
+        }
+    }
+
+    /// Records a failed SC's result of 1 where a post-squash rename reads it.
+    fn record_sc_failure(&mut self, phys_dst: PhysReg) {
+        if let Self::Renamed { prf, .. } = self {
+            prf.write(phys_dst, 1);
+        }
+    }
+
+    fn release_load(&mut self, tag: RobTag) {
+        if let Self::Renamed { load_queue, .. } = self {
+            load_queue.deallocate(tag);
+        }
+    }
+
+    fn free_checkpoint(&mut self, id: CheckpointId) {
+        if let Self::Renamed { checkpoints, .. } = self {
+            checkpoints.free(id);
+        }
+    }
+}
+
 /// Executes the Commit stage.
 ///
-/// Retires up to `width` instructions from the ROB head per cycle.
+/// Retires up to `res.width` instructions from the ROB head per cycle.
 /// Handles register writes, CSR application, trap dispatch, and
 /// store buffer drain. Store drains emit `MemReq` packets through the
 /// engine's `BackendCommon`.
-#[allow(clippy::too_many_arguments)]
-pub fn commit_stage(
-    state: &mut CoreCtx<'_>,
-    common: &mut BackendCommon,
-    rob: &mut Rob,
-    store_buffer: &mut StoreBuffer,
-    scoreboard: &mut Scoreboard,
-    committed_rename_map: &mut RenameMap,
-    free_list: &mut FreeList<PhysReg>,
-    width: usize,
-    mut load_queue: Option<&mut LoadQueue>,
-    mut prf: Option<&mut PhysRegFile>,
-    mut checkpoints: Option<&mut CheckpointTable>,
-    mut vec_prf: Option<&mut VecPhysRegFile>,
-    mut vec_free_list: Option<&mut FreeList<VecPhysReg>>,
-    mut vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
-) -> Option<CommitEvent> {
+pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option<CommitEvent> {
+    let CommitResources { common, rob, store_buffer, vec_store_buffer, width, mut registers } = res;
     let mut event: Option<CommitEvent> = None;
 
     if let TrapProgress::Pending(pending) = &common.trap {
@@ -199,16 +293,7 @@ pub fn commit_stage(
                     state.hart.csrs.vstart = vstart;
                 }
                 // Faulting entry was popped before the post-trap flush, so reclaim its phys_dst here.
-                if entry.phys_dst.0 != 0 {
-                    free_list.reclaim(entry.phys_dst);
-                }
-                if let Some(ref mut vfl) = vec_free_list {
-                    for i in 0..entry.vec_dst_count as usize {
-                        if !entry.vec_phys_dst[i].is_zero() {
-                            vfl.reclaim(entry.vec_phys_dst[i]);
-                        }
-                    }
-                }
+                registers.reclaim_faulted(&entry);
                 event = schedule_trap(state, common, the_trap.clone(), entry.pc);
             }
             break;
@@ -328,11 +413,7 @@ pub fn commit_stage(
         let val = entry.result.unwrap_or(0);
         if entry.ctrl.fp_reg_write {
             state.hart.regs.write_f(entry.rd, val);
-            scoreboard.clear_if_match(entry.rd, true, entry.tag);
-            if entry.old_phys_dst.0 != entry.phys_dst.0 {
-                free_list.reclaim(entry.old_phys_dst);
-            }
-            committed_rename_map.set(entry.rd, true, entry.phys_dst);
+            registers.retire_scalar(&entry, true);
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             state.hart.csrs.sstatus =
@@ -349,11 +430,7 @@ pub fn commit_stage(
             );
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
             state.hart.regs.write(entry.rd, val);
-            scoreboard.clear_if_match(entry.rd, false, entry.tag);
-            if entry.old_phys_dst.0 != entry.phys_dst.0 {
-                free_list.reclaim(entry.old_phys_dst);
-            }
-            committed_rename_map.set(entry.rd, false, entry.phys_dst);
+            registers.retire_scalar(&entry, false);
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -379,17 +456,7 @@ pub fn commit_stage(
             let vd_base = entry.ctrl.vd.as_u8();
             for i in 0..entry.vec_dst_count as usize {
                 let vreg = VRegIdx::new(vd_base + i as u8);
-                if let Some(ref mut vprf) = vec_prf {
-                    let bytes = vprf.read_bytes(entry.vec_phys_dst[i]);
-                    state.hart.regs.vpr_mut().write_bytes(vreg, bytes);
-                }
-                if let Some(ref mut vfl) = vec_free_list
-                    && entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i]
-                {
-                    vfl.reclaim(entry.vec_old_phys_dst[i]);
-                }
-                committed_rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
-                scoreboard.clear_vec_if_match(vreg, entry.tag);
+                registers.retire_vec(state.hart.regs.vpr_mut(), &entry, i, vreg);
             }
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
@@ -450,7 +517,7 @@ pub fn commit_stage(
         if let Some(csr_update) = entry.csr_update {
             // SATP write: drain SB so PTW reads up-to-date PTEs after translation mode change.
             if csr_update.addr == csr::SATP {
-                drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
+                drain_all_committed(state, common, store_buffer, vec_store_buffer);
             }
             // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
             if !csr_update.applied {
@@ -539,10 +606,7 @@ pub fn commit_stage(
                         store_buffer.cancel(entry.tag);
                         if entry.ctrl.reg_write && !entry.rd.is_zero() {
                             state.hart.regs.write(entry.rd, 1);
-                            // Patch PRF too so post-flush rename sees rd=1, not optimistic 0.
-                            if let Some(ref mut prf) = prf {
-                                prf.write(entry.phys_dst, 1);
-                            }
+                            registers.record_sc_failure(entry.phys_dst);
                         }
                         event = Some(CommitEvent::SquashAfter(
                             entry.pc.wrapping_add(entry.inst_size.as_u64()),
@@ -573,30 +637,19 @@ pub fn commit_stage(
         } else if crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op) {
             // Vector store data lives in the dedicated VecStoreBuffer.
             store_buffer.mark_committed(entry.tag);
-            if let Some(vsb) = vec_store_buffer.as_deref_mut() {
-                vsb.mark_committed(entry.tag);
-            }
+            vec_store_buffer.mark_committed(entry.tag);
         }
 
-        if entry.ctrl.mem_read
-            && let Some(ref mut lq) = load_queue
-        {
-            lq.deallocate(entry.tag);
-        } else if crate::core::units::vpu::mem::is_vec_load(entry.ctrl.vec_op)
-            && let Some(ref mut lq) = load_queue
-        {
-            // Per-element micro-op slots leak otherwise; vec loads stay parked in IQ.
-            lq.deallocate(entry.tag);
+        if entry.ctrl.mem_read || crate::core::units::vpu::mem::is_vec_load(entry.ctrl.vec_op) {
+            registers.release_load(entry.tag);
         }
 
-        if let Some(ckpt_id) = entry.checkpoint_id
-            && let Some(ref mut ckpt_table) = checkpoints
-        {
-            ckpt_table.free(ckpt_id);
+        if let Some(ckpt_id) = entry.checkpoint_id {
+            registers.free_checkpoint(ckpt_id);
         }
 
         if entry.ctrl.system_op == SystemOp::FenceI {
-            drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
+            drain_all_committed(state, common, store_buffer, vec_store_buffer);
             // I-cache flush after drain so refills see new data; force a fresh redirect.
             let _ = state.core.l1_i_cache.invalidate_all();
             // FENCE.I serializes: younger instructions were fetched before the drain.
@@ -608,7 +661,7 @@ pub fn commit_stage(
             let pred_r = pred_bits & 0b0010 != 0;
             // pred.w drains the SB; pred.r is satisfied by commit order.
             if pred_w || pred_r {
-                drain_all_committed(state, common, store_buffer, vec_store_buffer.as_deref_mut());
+                drain_all_committed(state, common, store_buffer, vec_store_buffer);
             }
         }
 
@@ -650,10 +703,8 @@ pub fn commit_stage(
     }
 
     // One drain per cycle: fall through to VSB if scalar SB has nothing committed.
-    if !try_drain_one_store(state, common, store_buffer)
-        && let Some(vsb) = vec_store_buffer
-    {
-        let _ = vsb.drain_one_committed(state, common);
+    if !try_drain_one_store(state, common, store_buffer) {
+        let _ = vec_store_buffer.drain_one_committed(state, common);
     }
     event
 }
@@ -816,16 +867,14 @@ pub(crate) fn drain_all_committed(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
-    vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
+    vec_store_buffer: &mut VecStoreBuffer,
 ) {
     while let Some(store) = store_buffer.drain_one() {
         if let StoreResolution::Committed { paddr, data } = store.resolution {
             write_store_to_memory(state, common, paddr, data, store.width);
         }
     }
-    if let Some(vsb) = vec_store_buffer {
-        vsb.drain_all_committed(state, common);
-    }
+    vec_store_buffer.drain_all_committed(state, common);
     flush_wcb(state, common);
 }
 
@@ -1524,9 +1573,11 @@ mod tests {
 
         let mut rob = Rob::new(4);
         let mut store_buffer = StoreBuffer::new(4);
+        let mut vec_store_buffer = VecStoreBuffer::new(
+            4,
+            crate::core::pipeline::vec_store_buffer::VecStoreForwarding::Off,
+        );
         let mut scoreboard = Scoreboard::new();
-        let mut committed_rename_map = RenameMap::new();
-        let mut free_list = FreeList::new(64, 32);
 
         let ctrl = crate::core::pipeline::signals::ControlSignals {
             reg_write: true,
@@ -1550,19 +1601,14 @@ mod tests {
         let mut common = BackendCommon::default();
         let trap = commit_stage(
             &mut state,
-            &mut common,
-            &mut rob,
-            &mut store_buffer,
-            &mut scoreboard,
-            &mut committed_rename_map,
-            &mut free_list,
-            1,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            CommitResources {
+                common: &mut common,
+                rob: &mut rob,
+                store_buffer: &mut store_buffer,
+                vec_store_buffer: &mut vec_store_buffer,
+                width: 1,
+                registers: CommitRegisters::Scoreboard(&mut scoreboard),
+            },
         );
         assert!(trap.is_none());
         assert_eq!(state.hart.regs.read(RegIdx::new(1)), 42);

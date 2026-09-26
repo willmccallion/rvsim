@@ -11,7 +11,9 @@ pub mod issue_queue;
 mod rename;
 
 use crate::config::Config;
-use crate::core::pipeline::backend::shared::commit::CommitEvent;
+use crate::core::pipeline::backend::shared::commit::{
+    CommitEvent, CommitRegisters, CommitResources,
+};
 use crate::core::pipeline::backend::shared::vec_mem::{
     VecMemInflight, VecMemMicroOp, mem_width_from_eew_bytes, micro_ops_for, retire_element,
 };
@@ -24,7 +26,6 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
@@ -70,8 +71,6 @@ pub struct O3Engine {
     pub rename_map: RenameMap,
     /// Committed rename map — restored on full trap flush.
     pub committed_rename_map: RenameMap,
-    /// Tag-based register scoreboard (kept for in-order compatibility; O3 uses PRF).
-    pub scoreboard: Scoreboard,
     /// CAM-style issue queue with wakeup/select.
     pub issue_queue: IssueQueue,
     /// Functional unit pool for structural hazard modeling.
@@ -153,7 +152,6 @@ impl O3Engine {
             free_list: FreeList::new(prf_total, num_arch),
             rename_map: RenameMap::new(),
             committed_rename_map: RenameMap::new(),
-            scoreboard: Scoreboard::new(),
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),
             fu_pool,
             pending_results: Vec::new(),
@@ -340,7 +338,6 @@ impl O3Engine {
         } else {
             self.checkpoints.flush_all();
         }
-        self.scoreboard.rebuild_from_rob(&self.rob);
 
         *redirect = Some(squash.redirect.target);
         if let Some(repair) = squash.redirect.repair {
@@ -389,19 +386,22 @@ impl ExecutionEngine for O3Engine {
 
         let commit_event = commit::commit_stage(
             state,
-            &mut self.common,
-            &mut self.rob,
-            &mut self.store_buffer,
-            &mut self.scoreboard,
-            &mut self.committed_rename_map,
-            &mut self.free_list,
-            self.commit_width,
-            Some(&mut self.load_queue),
-            Some(&mut self.prf),
-            Some(&mut self.checkpoints),
-            Some(&mut self.vec_prf),
-            Some(&mut self.vec_free_list),
-            Some(&mut self.vec_store_buffer),
+            CommitResources {
+                common: &mut self.common,
+                rob: &mut self.rob,
+                store_buffer: &mut self.store_buffer,
+                vec_store_buffer: &mut self.vec_store_buffer,
+                width: self.commit_width,
+                registers: CommitRegisters::Renamed {
+                    rename_map: &mut self.committed_rename_map,
+                    free_list: &mut self.free_list,
+                    prf: &mut self.prf,
+                    load_queue: &mut self.load_queue,
+                    checkpoints: &mut self.checkpoints,
+                    vec_prf: &mut self.vec_prf,
+                    vec_free_list: &mut self.vec_free_list,
+                },
+            },
         );
 
         match commit_event {
@@ -1112,7 +1112,6 @@ impl ExecutionEngine for O3Engine {
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.load_queue.flush();
-        self.scoreboard.flush();
         self.issue_queue.flush();
         self.mdp.flush();
         self.checkpoints.flush_all();
@@ -1172,7 +1171,7 @@ impl ExecutionEngine for O3Engine {
             state,
             &mut self.common,
             &mut self.store_buffer,
-            Some(&mut self.vec_store_buffer),
+            &mut self.vec_store_buffer,
         );
     }
 

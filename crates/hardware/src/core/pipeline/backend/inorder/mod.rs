@@ -15,16 +15,16 @@ mod rename;
 
 use crate::common::error::ExceptionStage;
 use crate::config::Config;
-use crate::core::pipeline::backend::shared::commit::CommitEvent;
+use crate::core::pipeline::backend::shared::commit::{
+    CommitEvent, CommitRegisters, CommitResources,
+};
 use crate::core::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, retire_element,
 };
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
-use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::squash::{PendingSquash, SquashCause};
@@ -101,10 +101,6 @@ pub struct InOrderEngine {
     cycle: u64,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
-    /// Committed rename map stub (unused; required by shared `commit_stage` signature).
-    committed_rename_map: RenameMap,
-    /// Free list stub (unused; required by shared `commit_stage` signature).
-    free_list: FreeList<PhysReg>,
 }
 
 impl InOrderEngine {
@@ -347,8 +343,6 @@ impl InOrderEngine {
             common,
             cycle: 0,
             redirect_latency: config.pipeline.redirect_latency(),
-            committed_rename_map: RenameMap::new(),
-            free_list: FreeList::new(0, 0),
         }
     }
 }
@@ -370,19 +364,14 @@ impl ExecutionEngine for InOrderEngine {
 
         let commit_event = commit::commit_stage(
             state,
-            &mut self.common,
-            &mut self.rob,
-            &mut self.store_buffer,
-            &mut self.scoreboard,
-            &mut self.committed_rename_map,
-            &mut self.free_list,
-            self.commit_width,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(&mut self.vec_store_buffer),
+            CommitResources {
+                common: &mut self.common,
+                rob: &mut self.rob,
+                store_buffer: &mut self.store_buffer,
+                vec_store_buffer: &mut self.vec_store_buffer,
+                width: self.commit_width,
+                registers: CommitRegisters::Scoreboard(&mut self.scoreboard),
+            },
         );
 
         match commit_event {
@@ -502,7 +491,7 @@ impl ExecutionEngine for InOrderEngine {
             state,
             &mut self.common,
             &mut self.store_buffer,
-            Some(&mut self.vec_store_buffer),
+            &mut self.vec_store_buffer,
         );
     }
 
