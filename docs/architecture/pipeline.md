@@ -63,7 +63,7 @@ flowchart LR
 
 **Serialization enforcement.** Four checks at issue time prevent incorrect execution:
 
-1. **System/CSR instructions** wait for all older instructions to complete (`all_before_completed`)
+1. **System/CSR instructions** issue only from the head of the ROB, once everything older has retired (`rob.is_head`)
 2. **FENCE** instructions wait for older operations matching the predecessor bits (`fence_pred_satisfied`)
 3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits (`has_fence_blocking`)
 4. **Loads** wait for all older stores to resolve their addresses (`has_unresolved_store_before`)
