@@ -17,7 +17,9 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, DeviceId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData};
+use rvsim_core::sim::packet::{
+    AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
+};
 use rvsim_core::sim::stats::Stats;
 
 /// Maps a `width_bytes` value (1/2/4/8) to the matching [`AccessSize`].
@@ -96,8 +98,45 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
     let _ = queue.pop_ready(u64::MAX);
 }
 
-// Silence the unused-import warning for `LineAddr` — packets reference it
-// internally via `LineAddr::from_phys` but tests don't import it directly.
-const _: fn() = || {
-    let _ = LineAddr::from_phys(PhysAddr::new(0), 64);
-};
+/// Dispatches a `MemReq::Write` to `device`, then answers every DMA request
+/// it puts on the bus until it has none left, so a request the write
+/// notified runs to completion.
+pub fn write_and_run_dma<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) {
+    let mut queue = EventQueue::new();
+    let mut stats = Stats::new();
+    let config = Config::default();
+    let mut cycle = 0;
+    let mut pending = vec![Packet::MemReq {
+        req_id: ReqId::new(u64::MAX),
+        paddr,
+        vaddr: None,
+        size: access_size_for(width),
+        op: MemOp::Write { data: WriteData::Small(value) },
+    }];
+    while !pending.is_empty() {
+        for packet in std::mem::take(&mut pending) {
+            let mut ctx = HandleCtx {
+                scheduler: &mut queue,
+                stats: &mut stats,
+                config: &config,
+                cycle,
+                self_id: ComponentId::Device(DeviceId::new(0)),
+            };
+            device.handle(packet, ComponentId::Bus, &mut ctx);
+        }
+        cycle += 1;
+        while let Some(event) = queue.pop_ready(u64::MAX) {
+            if let (ComponentId::Bus, Packet::MemReq { req_id, paddr, .. }) =
+                (event.target, event.packet)
+            {
+                pending.push(Packet::MemResp {
+                    req_id,
+                    line_addr: LineAddr::from_phys(paddr, 64),
+                    data: MemRespData::Small(0),
+                    hit_level: HitLevel::Dram,
+                    state: MesiState::Exclusive,
+                });
+            }
+        }
+    }
+}

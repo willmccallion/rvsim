@@ -848,7 +848,7 @@ fn submit_sector_read(vio: &mut VirtioBlock, ram: &DramBuffer) {
     crate::common::probe::write(vio, reg(0x90), AVAIL_RING, 4);
     crate::common::probe::write(vio, reg(0xa0), USED_RING, 4);
     crate::common::probe::write(vio, reg(0x44), 1, 4);
-    crate::common::probe::write(vio, reg(0x50), 0, 4);
+    crate::common::probe::write_and_run_dma(vio, reg(0x50), 0, 4);
 }
 
 #[test]

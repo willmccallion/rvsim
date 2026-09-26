@@ -61,9 +61,13 @@ VirtIO specification-compliant block device:
 
 - MMIO transport (VirtIO version 2)
 - Single virtqueue for block I/O requests
-- Read and write operations via DMA from/to guest memory
+- Read and write operations via DMA from/to guest memory: a request's
+  DMA moves over the system bus and memory controller phase by phase (the
+  ring and descriptor reads, the data in line-sized transfers, then the
+  status and used-ring writes), and the request completes when its last
+  transfer returns
 - Backed by a host file (e.g., a rootfs image)
-- Interrupt notification via PLIC
+- Interrupt notification via PLIC, raised when the request completes
 
 Used to mount the root filesystem when booting Linux.
 

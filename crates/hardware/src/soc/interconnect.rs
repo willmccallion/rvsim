@@ -8,7 +8,7 @@ use super::devices::Device;
 use super::devices::clint::Clint;
 use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
-use crate::sim::components::{ComponentId, MemCtrlId, ReqId};
+use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use std::collections::HashMap;
@@ -91,6 +91,22 @@ impl Bus {
             request_busy_until: 0,
             response_busy_until: 0,
         }
+    }
+
+    /// Hands `packet` to the device `id` names, which sees itself as
+    /// `ComponentId::Device(id)` for the requests it originates.
+    pub fn handle_device(
+        &mut self,
+        id: DeviceId,
+        packet: Packet,
+        source: ComponentId,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let Some(device) = self.devices.get_mut(id.as_index()) else { return };
+        let outer = ctx.self_id;
+        ctx.self_id = ComponentId::Device(id);
+        device.handle(packet, source, ctx);
+        ctx.self_id = outer;
     }
 
     /// Registers a device on the bus; devices are sorted by base address for lookup.
@@ -335,7 +351,12 @@ impl Handle for Bus {
                     return;
                 }
                 if let Some(idx) = self.find_device_idx(paddr) {
-                    self.devices[idx].handle(packet, source, ctx);
+                    self.handle_device(
+                        DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX)),
+                        packet,
+                        source,
+                        ctx,
+                    );
                     return;
                 }
                 // Unmapped address: reply with zeros so the originator unblocks.

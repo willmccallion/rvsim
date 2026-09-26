@@ -240,9 +240,22 @@ impl Simulator {
                     fabric.handle(packet, source, &mut ctx);
                 }
             }
-            ComponentId::Device(_) | ComponentId::Hart(_) | ComponentId::Core(_) => {
-                // Devices are routed via Bus; Hart / Core targeting is
-                // reserved for future per-hart packets.
+            ComponentId::Device(id) => {
+                let shared = &mut self.state.shared;
+                let mut ctx = HandleCtx {
+                    scheduler: &mut shared.event_queue,
+                    stats: &mut shared.stats,
+                    config: &shared.config,
+                    cycle: shared.cycle,
+                    self_id: ComponentId::Device(id),
+                };
+                shared.bus.handle_device(id, packet, source, &mut ctx);
+                for (paddr, len) in shared.bus.take_dma_writes() {
+                    shared.record_external_write_range(paddr, len);
+                }
+            }
+            ComponentId::Hart(_) | ComponentId::Core(_) => {
+                // Reserved for future per-hart packets.
             }
         }
     }

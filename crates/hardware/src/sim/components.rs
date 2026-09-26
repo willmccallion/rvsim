@@ -92,6 +92,13 @@ impl ReqId {
     pub const fn for_fabric(seq: u64) -> Self {
         Self((1 << 62) | (seq & ((1 << 48) - 1)))
     }
+
+    /// A correlator for a DMA request a device originates; bit 61 marks
+    /// the device namespace.
+    #[must_use]
+    pub const fn for_device(device: DeviceId, seq: u64) -> Self {
+        Self((1 << 61) | ((device.0 as u64) << 48) | (seq & ((1 << 48) - 1)))
+    }
 }
 
 impl_id_methods!(CacheId, u32);
