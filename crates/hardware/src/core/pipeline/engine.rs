@@ -348,34 +348,32 @@ impl<E: ExecutionEngine> Pipeline<E> {
         let needs_frontend_flush = self.redirect_pending || state.hart.pc != pc_before;
         self.redirect_pending = false;
         if needs_frontend_flush {
-            self.frontend.flush();
-            self.rename_output.clear();
-            // Drop wrong-path frontend speculation (fetches, fetch-walks, the
-            // fetch reorder buffer). Backend resources — outstanding loads,
-            // stores, and load/store-walks — belong to ROB entries that the
-            // mispredict-redirect path leaves intact (only the engine's own
-            // flush path empties the ROB), so they must survive this flush
-            // or the parked op never completes and commit deadlocks.
-            let common = self.engine.common_mut();
-            common.outstanding_fetches.clear();
-            common.outstanding_walks.retain(|_, walk| {
-                !matches!(
-                    walk.continuation,
-                    crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
-                )
-            });
-            common.fetch_reorder.clear();
-            common.fetch_walk_pending = false;
-            common.fetch_resume_pc = None;
-            // Bump the emit cursor past every fetch_seq allocated so far so
-            // any straggler responses for pre-flush fetches are dropped
-            // rather than entering the post-flush fetch stream.
-            common.next_emit_fetch_seq = common.next_fetch_seq;
+            self.discard_frontend_speculation();
         }
 
         if state.check_exit().is_none() && !state.hart.wfi_waiting {
             self.frontend.tick(state, &mut self.engine, &mut self.rename_output);
         }
+    }
+
+    /// Drops wrong-path frontend speculation: the fetch latches, in-flight
+    /// fetches and fetch walks, and the fetch reorder buffer. Backend
+    /// resources (outstanding loads, stores and their walks) belong to ROB
+    /// entries a redirect leaves intact, so they survive.
+    fn discard_frontend_speculation(&mut self) {
+        self.frontend.flush();
+        self.rename_output.clear();
+        let common = self.engine.common_mut();
+        common.outstanding_fetches.clear();
+        common.outstanding_walks.retain(|_, walk| {
+            !matches!(walk.continuation, crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. })
+        });
+        common.fetch_reorder.clear();
+        common.fetch_walk_pending = false;
+        common.fetch_resume_pc = None;
+        // Straggler responses for pre-flush fetches are dropped rather than
+        // entering the post-flush fetch stream.
+        common.next_emit_fetch_seq = common.next_fetch_seq;
     }
 
     /// Flush the pipeline, write its committed stores to memory and leave
@@ -388,15 +386,12 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
     /// Flush the entire pipeline.
     pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
-        self.frontend.flush();
-        self.rename_output.clear();
+        self.discard_frontend_speculation();
         let common = self.engine.common_mut();
         common.mailbox.clear();
-        common.outstanding_fetches.clear();
         common.outstanding_loads.clear();
         common.outstanding_stores.clear();
         common.outstanding_walks.clear();
-        common.fetch_resume_pc = None;
         common.mem1_replay.clear();
         common.coherence_violation = None;
         self.engine.flush(state);

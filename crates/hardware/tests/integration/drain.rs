@@ -57,6 +57,34 @@ fn drain_after(backend: BackendType, cycles: u64) -> u64 {
     committed - in_ram_before
 }
 
+fn keeps_running_after_a_drain(backend: BackendType, cycles: u64) {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.width = 4;
+    config.system.uart_quiet = true;
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    ctx.run(cycles);
+    ctx.sim.drain();
+    let retired_at_drain = ctx.sim.state.harts[0].instructions_retired;
+
+    ctx.run(200);
+
+    let hart = &ctx.sim.state.harts[0];
+    assert!(hart.instructions_retired > retired_at_drain, "{backend:?} @{cycles}: fetch resumed after the drain");
+    assert_eq!(hart.pc, PROGRAM_BASE + 4 * (STORES + 2), "{backend:?} @{cycles}: the program reached its spin");
+    for s in 0..STORES {
+        assert_eq!(slot(&mut ctx, s), MARK, "{backend:?} @{cycles}: every store landed");
+    }
+}
+
+#[test]
+fn a_drained_pipeline_resumes_from_the_committed_pc() {
+    for cycles in (5..60).step_by(7) {
+        keeps_running_after_a_drain(BackendType::InOrder, cycles);
+        keeps_running_after_a_drain(BackendType::OutOfOrder, cycles);
+    }
+}
+
 #[test]
 fn a_drain_leaves_the_committed_state_in_ram_on_both_backends() {
     for cycles in 5..60 {
