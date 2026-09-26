@@ -184,11 +184,14 @@ make -C software
 
 ## Linux Boot
 
-Boots Linux 6.6 through OpenSBI to a BusyBox shell on both backends.
+Boots Linux 6.6 through OpenSBI to a BusyBox shell on both backends. The
+default boot is four out-of-order cores with coherent private caches over
+a mesh and a DDR5-5600 memory subsystem.
 
 ```bash
 make -C software linux              # Build kernel + rootfs via Buildroot
-rvsim scripts/setup/boot_linux.py   # Boot (login: root, no password)
+make run-linux                      # Boot 4 SMP cores (login: root, no password)
+rvsim scripts/setup/boot_linux.py --harts 1   # Single core
 ```
 
 ## Documentation

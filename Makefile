@@ -77,7 +77,7 @@ help:
 	@printf "    %-$(HELP_W)s  Wipe testing/builds/ (forces full rebuild)\n" "make clean-testing"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
-	@printf "    %-$(HELP_W)s  Boot Linux (requires 'make linux' first)\n" "make run-linux"
+	@printf "    %-$(HELP_W)s  Boot SMP Linux: 4 O3 cores, snoop filter, mesh, DDR5 (HARTS=N)\n" "make run-linux"
 	@printf "\n  $(CYAN)Profiling$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build with profiling symbols\n" "make profile-build"
 	@printf "    %-$(HELP_W)s  Generate flamegraph (ARGS=…)\n" "make flamegraph"
@@ -276,9 +276,9 @@ run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
 	.venv/bin/rvsim -f software/bin/benchmarks/qsort.elf
 
-HARTS ?= 1
+HARTS ?= 4
 run-linux:
-	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s)…$(RESET)\n"
+	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s) with DDR5-5600 over a mesh…$(RESET)\n"
 	.venv/bin/rvsim scripts/setup/boot_linux.py --harts $(HARTS)
 
 # ═══════════════════════════════════════════════════════════════════════════════

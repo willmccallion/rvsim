@@ -8,6 +8,11 @@ Run from repo root:
   sim script scripts/setup/boot_linux.py            # build if needed, then boot
   sim script scripts/setup/boot_linux.py --no-boot  # only download & build
   sim script scripts/setup/boot_linux.py --no-build # boot only (fail if no Image)
+
+The default boot is the showcase system: four out-of-order cores from the
+``fast`` preset, a MESI snoop-filter home agent over a 2-D mesh, and a
+DDR5-5600 memory subsystem. ``--harts``, ``--memory``, ``--speed-bin`` and
+``--interconnect`` trim it down.
 """
 
 import argparse
@@ -20,6 +25,9 @@ import urllib.request
 
 from rvsim import (
     Cache,
+    Coherence,
+    HomeAgent,
+    Interconnect,
     MemoryController,
     Simulator,
     presets,
@@ -126,12 +134,36 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def config(hart_count: int = 1):
-    """Maximum-performance config for Linux boot.
+INTERCONNECTS = {
+    "crossbar": Interconnect.Crossbar,
+    "ring": Interconnect.Ring,
+    "mesh": Interconnect.Mesh,
+    "torus": Interconnect.Torus,
+    "hypercube": Interconnect.Hypercube,
+}
 
-    Starts from the ``fast`` preset and overrides system addresses /
+
+def memory_controller(kind: str, speed_bin: str):
+    """The DDR5 controller at ``speed_bin``, or the preset's row-buffer DRAM model."""
+    if kind == "ddr5":
+        return MemoryController.DDR5(speed_bin=speed_bin)
+    return presets.fast().memory_controller
+
+
+def config(
+    hart_count: int = 4,
+    memory: str = "ddr5",
+    speed_bin: str = "5600B",
+    interconnect: str = "mesh",
+):
+    """The Linux boot system.
+
+    Starts from the ``fast`` preset and overrides the system addresses and
     memory-map settings that must match the device tree. ``hart_count``
-    harts boot through OpenSBI's HSM into an SMP kernel.
+    harts boot through OpenSBI's HSM into an SMP kernel; with more than
+    one hart the private caches are kept coherent by a snoop-filter home
+    agent over ``interconnect``. ``memory`` is ``ddr5`` (JEDEC command-level
+    timing at ``speed_bin``) or ``dram`` (the preset's row-buffer model).
     """
     return presets.fast().replace(
         ram_size=256 * 1024 * 1024,
@@ -143,6 +175,11 @@ def config(hart_count: int = 1):
         kernel_offset=0x200000,
         clint_divider=1,
         hart_count=hart_count,
+        coherence=Coherence(
+            home_agent=HomeAgent.SnoopFilter(),
+            interconnect=INTERCONNECTS[interconnect](),
+        ),
+        memory_controller=memory_controller(memory, speed_bin),
     )
 
 
@@ -163,7 +200,24 @@ def main():
         "--no-boot", action="store_true", help="Only build; do not run simulator"
     )
     ap.add_argument(
-        "--harts", type=int, default=1, help="Number of harts to boot (default 1)"
+        "--harts", type=int, default=4, help="Number of harts to boot (default 4)"
+    )
+    ap.add_argument(
+        "--memory",
+        choices=["ddr5", "dram"],
+        default="ddr5",
+        help="Memory subsystem: JEDEC DDR5 command timing or the row-buffer DRAM model",
+    )
+    ap.add_argument(
+        "--speed-bin",
+        default="5600B",
+        help="DDR5 speed bin, 4800B or 5600B (default 5600B)",
+    )
+    ap.add_argument(
+        "--interconnect",
+        choices=sorted(INTERCONNECTS),
+        default="mesh",
+        help="Coherence interconnect between the cores (default mesh)",
     )
     args = ap.parse_args()
 
@@ -194,9 +248,13 @@ def main():
 
     os.chdir(root)
 
-    print("[boot_linux] Booting with Simulator (Optimized Config)...")
+    cfg = config(args.harts, args.memory, args.speed_bin, args.interconnect)
+    print(
+        f"[boot_linux] Booting {args.harts} hart(s), {args.interconnect} interconnect, "
+        f"{args.memory}{' ' + args.speed_bin if args.memory == 'ddr5' else ''} memory..."
+    )
 
-    sim = Simulator(config(args.harts), kernel=image_path, disk=disk_path)
+    sim = Simulator(cfg, kernel=image_path, disk=disk_path)
 
     try:
         return sim.run(
