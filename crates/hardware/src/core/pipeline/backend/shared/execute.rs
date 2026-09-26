@@ -16,7 +16,6 @@ use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
-use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
 use crate::sim::StageCtx;
 use crate::{trace_branch, trace_csr, trace_trap};
@@ -112,11 +111,6 @@ pub const fn privileged_op_fault(state: &StageCtx<'_>, id: &RenameIssueEntry) ->
         _ => false,
     };
     if illegal { Some(Trap::IllegalInstruction(id.inst)) } else { None }
-}
-
-/// True for ECALL, which decodes to the generic system op.
-pub const fn is_ecall(id: &RenameIssueEntry) -> bool {
-    id.inst == sys_ops::ECALL
 }
 
 /// The environment-call trap for the current privilege level.

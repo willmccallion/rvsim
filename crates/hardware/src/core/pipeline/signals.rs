@@ -436,8 +436,11 @@ pub enum SystemOp {
     /// `CBO.FLUSH` (Zicbom) — writeback then invalidate the L1D line at rs1.
     CboFlush,
 
-    /// Generic system instruction (CSR, ECALL) not covered by a specific variant.
-    System,
+    /// `ECALL` — environment call.
+    Ecall,
+
+    /// `CSRRW`/`CSRRS`/`CSRRC` and their immediate forms; `csr_op` says which.
+    Csr,
 }
 
 impl SystemOp {

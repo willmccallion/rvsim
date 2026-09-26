@@ -14,6 +14,7 @@ pub mod fetch_walk;
 pub mod fill_latency;
 pub mod forwarding_latency;
 pub mod frontend_prediction;
+pub mod illegal_system;
 pub mod inorder_units;
 pub mod inorder_vector_memory;
 pub mod interrupts;

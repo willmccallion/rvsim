@@ -590,32 +590,30 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             // Mask out rs1 (bits 19:15) and rs2 (bits 24:20) for matching.
             if (inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
                 c.system_op = SystemOp::SfenceVma;
-            } else {
-                match d.raw {
+            } else if d.funct3 == 0 {
+                c.system_op = match d.raw {
                     sys_ops::EBREAK => return Err(Trap::Breakpoint(pc)),
-                    sys_ops::MRET => c.system_op = SystemOp::Mret,
-                    sys_ops::SRET => c.system_op = SystemOp::Sret,
-                    sys_ops::WFI => c.system_op = SystemOp::Wfi,
-                    sys_ops::ECALL => c.system_op = SystemOp::System,
-                    _ => {
-                        if d.funct3 != 0 {
-                            c.system_op = SystemOp::System;
-                            c.csr_addr = inst.csr();
-                            c.a_src = OpASrc::Reg1;
-                            c.b_src = OpBSrc::Zero;
-                            c.csr_op = match d.funct3 {
-                                sys_ops::CSRRW => CsrOp::Rw,
-                                sys_ops::CSRRS => CsrOp::Rs,
-                                sys_ops::CSRRC => CsrOp::Rc,
-                                sys_ops::CSRRWI => CsrOp::Rwi,
-                                sys_ops::CSRRSI => CsrOp::Rsi,
-                                sys_ops::CSRRCI => CsrOp::Rci,
-                                _ => CsrOp::None,
-                            };
-                            c.reg_write = !d.rd.is_zero();
-                        }
-                    }
-                }
+                    sys_ops::MRET => SystemOp::Mret,
+                    sys_ops::SRET => SystemOp::Sret,
+                    sys_ops::WFI => SystemOp::Wfi,
+                    sys_ops::ECALL => SystemOp::Ecall,
+                    _ => return Err(Trap::IllegalInstruction(inst)),
+                };
+            } else {
+                c.csr_op = match d.funct3 {
+                    sys_ops::CSRRW => CsrOp::Rw,
+                    sys_ops::CSRRS => CsrOp::Rs,
+                    sys_ops::CSRRC => CsrOp::Rc,
+                    sys_ops::CSRRWI => CsrOp::Rwi,
+                    sys_ops::CSRRSI => CsrOp::Rsi,
+                    sys_ops::CSRRCI => CsrOp::Rci,
+                    _ => return Err(Trap::IllegalInstruction(inst)),
+                };
+                c.system_op = SystemOp::Csr;
+                c.csr_addr = inst.csr();
+                c.a_src = OpASrc::Reg1;
+                c.b_src = OpBSrc::Zero;
+                c.reg_write = !d.rd.is_zero();
             }
         }
         i_opcodes::OP_MISC_MEM => match d.funct3 {

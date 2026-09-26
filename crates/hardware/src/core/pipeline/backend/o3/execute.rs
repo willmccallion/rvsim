@@ -7,13 +7,13 @@
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::execute::{
-    csr_access, ecall_trap, evaluate, fault, fp_disabled, is_ecall, next_pc, operands,
-    privileged_op_fault, propagate_trap, resolve_branch, resolve_jump,
+    csr_access, ecall_trap, evaluate, fault, fp_disabled, next_pc, operands, privileged_op_fault,
+    propagate_trap, resolve_branch, resolve_jump,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::{ControlFlow, CsrOp, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{ControlFlow, SystemOp, VectorOp};
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::sim::StageCtx;
 use crate::{trace_execute, trace_trap};
@@ -74,14 +74,8 @@ pub fn execute_one(
         return (ExMem1Entry::from_issue(id, op_a, id.rv2), None);
     }
 
-    // I-cache flush deferred to commit so prior stores are visible before refill.
-    if id.ctrl.system_op == SystemOp::FenceI {
-        return (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)));
-    }
-
-    // FENCE is a NOP at execute — handled at commit only.
-    if !matches!(id.ctrl.system_op, SystemOp::None | SystemOp::Fence) {
-        return execute_system(state, id, rob);
+    if let Some(executed) = execute_system(state, id, rob) {
+        return executed;
     }
 
     if fp_disabled(state, id) {
@@ -112,16 +106,23 @@ fn faulted(
     (result, Some(redirect))
 }
 
-/// Handle system instructions (MRET, SRET, WFI, SFENCE.VMA, CBO, ECALL, CSR).
+/// Executes a system instruction; `None` for everything else, FENCE
+/// included (it orders memory in issue and at commit, not here).
 fn execute_system(
     state: &StageCtx<'_>,
     id: &RenameIssueEntry,
     rob: &mut Rob,
-) -> (ExMem1Entry, Option<Redirect>) {
+) -> Option<(ExMem1Entry, Option<Redirect>)> {
     if let Some(trap) = privileged_op_fault(state, id) {
-        return faulted(state, rob, id, trap);
+        return Some(faulted(state, rob, id, trap));
     }
-    match id.ctrl.system_op {
+    let executed = match id.ctrl.system_op {
+        SystemOp::None | SystemOp::Fence => return None,
+        // FENCE.I's I-cache flush waits for commit, so older stores are
+        // visible before the refill.
+        SystemOp::FenceI | SystemOp::Wfi => {
+            (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)))
+        }
         SystemOp::Mret | SystemOp::Sret => {
             trace_trap!(state.config.general.trace_instructions;
                 event     = "return",
@@ -153,8 +154,8 @@ fn execute_system(
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
             (ExMem1Entry::from_issue(id, id.rv1, 0), None)
         }
-        _ if is_ecall(id) => faulted(state, rob, id, ecall_trap(state)),
-        _ if id.ctrl.csr_op != CsrOp::None => match csr_access(state, id) {
+        SystemOp::Ecall => faulted(state, rob, id, ecall_trap(state)),
+        SystemOp::Csr => match csr_access(state, id) {
             // Only CSR writes need a flush; pure reads stay serialized at issue time.
             Ok(access) => {
                 let redirect = access.update.map(|update| {
@@ -165,8 +166,8 @@ fn execute_system(
             }
             Err(trap) => faulted(state, rob, id, trap),
         },
-        _ => (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id))),
-    }
+    };
+    Some(executed)
 }
 
 #[cfg(test)]
