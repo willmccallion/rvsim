@@ -28,15 +28,19 @@
 //!   - For **SC**: same as stores, plus an `AtomicOp::Sc` marker so memory2
 //!     records the deferred `LrScRecord::Sc`.
 
+use crate::common::TranslationResult;
 use crate::common::{AccessType, ExceptionStage, PhysAddr, PteUpdate, Trap, VirtAddr};
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
-use crate::core::pipeline::outstanding::{OutstandingLoad, OutstandingWalk, WalkContinuation};
+use crate::core::pipeline::outstanding::{
+    DelayedAccess, OutstandingLoad, OutstandingWalk, WalkContinuation,
+};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
+use crate::core::units::vpu::types::ElemIdx;
 use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
@@ -55,6 +59,8 @@ enum EntryOutcome {
     /// translation in an in-order pipeline, so halt iteration and push any
     /// remaining entries back to the input latch.
     ParkedWalk,
+    /// The translation hit the L2 TLB; the op continues after its latency.
+    Delayed(DelayedAccess),
 }
 
 /// Executes the Memory1 stage. Returns immediately; ordering-violation
@@ -65,8 +71,26 @@ pub fn memory1_stage<E: ExecutionEngine>(
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
 ) {
+    let now = state.cycle;
     let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
     entries.append(input);
+    let delayed = &mut engine.common_mut().mem1_delayed;
+    let mut ready: Vec<DelayedAccess> = Vec::new();
+    delayed.retain(|access| {
+        if access.ready_cycle <= now {
+            ready.push(access.clone());
+            false
+        } else {
+            true
+        }
+    });
+    let mut translations: Vec<(RobTag, Option<ElemIdx>, TranslationResult)> = ready
+        .iter()
+        .map(|a| {
+            (a.entry.rob_tag, a.entry.vec_mem.as_ref().map(|v| v.elem_idx), a.translation.clone())
+        })
+        .collect();
+    entries.extend(ready.into_iter().map(|a| a.entry));
     // Out-of-order execute can drop entries into execute_mem1 in completion
     // order rather than program order. memory1's SB-forward / atomic-vs-SB
     // checks only inspect *older* store entries, so process oldest first to
@@ -75,12 +99,18 @@ pub fn memory1_stage<E: ExecutionEngine>(
     let mut iter = entries.into_iter();
 
     while let Some(ex) = iter.next() {
-        match process_entry(state, engine, ex) {
+        let elem = ex.vec_mem.as_ref().map(|v| v.elem_idx);
+        let translated = translations
+            .iter()
+            .position(|(tag, e, _)| *tag == ex.rob_tag && *e == elem)
+            .map(|i| translations.swap_remove(i).2);
+        match process_entry(state, engine, ex, translated) {
             EntryOutcome::Done => {}
             EntryOutcome::Replay(ex) => {
                 state.shared.stats.counter(state.core.stat_paths.lsq.rescheduled_mem_ops).inc();
                 engine.common_mut().mem1_replay.push(ex);
             }
+            EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
             EntryOutcome::ParkedWalk => {
                 input.extend(iter);
                 return;
@@ -89,10 +119,13 @@ pub fn memory1_stage<E: ExecutionEngine>(
     }
 }
 
+/// Processes one entry; `translated` is the translation an access that
+/// waited out the L2 TLB latency already holds.
 fn process_entry<E: ExecutionEngine>(
     state: &mut CoreCtx<'_>,
     engine: &mut E,
     ex: ExMem1Entry,
+    translated: Option<TranslationResult>,
 ) -> EntryOutcome {
     // 1. Trap propagation.
     if ex.trap.is_some() {
@@ -133,14 +166,25 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Done;
     }
 
-    // 4. Translation.
+    // 4. Translation. An L2 TLB hit refills the L1 and costs its latency
+    // before the access continues; the L1 TLB answers in the same cycle.
     let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
-    let outcome = state.translate(VirtAddr::new(ex.alu), access_type, size);
+    let outcome = match translated {
+        Some(r) => TranslateResult::Ready(r),
+        None => state.translate(VirtAddr::new(ex.alu), access_type, size),
+    };
     let (paddr, pte_update) = match outcome {
         TranslateResult::Ready(r) => {
             if let Some(trap) = r.trap {
                 push_trap(engine, ex, trap, ExceptionStage::Memory);
                 return EntryOutcome::Done;
+            }
+            if r.cycles > 0 {
+                return EntryOutcome::Delayed(DelayedAccess {
+                    ready_cycle: state.cycle + r.cycles,
+                    entry: ex,
+                    translation: TranslationResult { cycles: 0, ..r },
+                });
             }
             (r.paddr, r.pte_update)
         }
@@ -160,6 +204,13 @@ fn process_entry<E: ExecutionEngine>(
                 if let Some(trap) = r.trap {
                     push_trap(engine, ex, trap, ExceptionStage::Memory);
                     return EntryOutcome::Done;
+                }
+                if r.cycles > 0 {
+                    return EntryOutcome::Delayed(DelayedAccess {
+                        ready_cycle: state.cycle + r.cycles,
+                        entry: ex,
+                        translation: TranslationResult { paddr, cycles: 0, trap: None, pte_update },
+                    });
                 }
                 let first_page_bytes = second_va.wrapping_sub(ex.alu);
                 if r.paddr.val() != paddr.val().wrapping_add(first_page_bytes) {

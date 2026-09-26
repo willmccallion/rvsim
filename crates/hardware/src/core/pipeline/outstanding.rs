@@ -58,6 +58,21 @@ pub struct OutstandingLoad {
     /// The access reads a device, so it was issued non-speculatively from
     /// the ROB head and must complete before anything pre-empts it.
     pub side_effecting: bool,
+    /// Cache requests still to be answered: two for an access that
+    /// straddles a line, otherwise one.
+    pub parts_outstanding: u8,
+}
+
+/// A memory access whose translation hit the L2 TLB: it proceeds once the
+/// L2 TLB's latency has elapsed, with the translation it already has.
+#[derive(Clone, Debug)]
+pub struct DelayedAccess {
+    /// Cycle at which the access may continue.
+    pub ready_cycle: u64,
+    /// The access.
+    pub entry: ExMem1Entry,
+    /// Its translation, latency already paid.
+    pub translation: crate::common::TranslationResult,
 }
 
 /// A store awaiting cache write-allocate acknowledgment.

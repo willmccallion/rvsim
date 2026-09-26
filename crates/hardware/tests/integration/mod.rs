@@ -12,5 +12,6 @@ pub mod mmio_loads;
 pub mod multicore;
 pub mod page_crossing;
 pub mod vector_pipeline;
+pub mod tlb_latency;
 pub mod xret_squash;
 pub mod zicboz;

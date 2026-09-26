@@ -289,6 +289,12 @@ impl BackendCommon {
         ReqId::new(((self.pipeline_id.val() as u64) << 48) | (id & ((1u64 << 48) - 1)))
     }
 
+    /// True while fetch is waiting out an L2 ITLB hit's latency.
+    #[must_use]
+    pub const fn fetch_held(&self, now: u64) -> bool {
+        self.fetch_hold_until > now
+    }
+
     /// Allocates a fresh fetch sequence number for the in-program-order
     /// fetch reorder buffer.
     #[inline]
@@ -380,6 +386,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         self.flush(state);
         self.engine.drain_committed_stores(state);
+        common.fetch_hold_until = 0;
         state.hart.pc = state.hart.committed_next_pc;
     }
 
@@ -403,6 +410,7 @@ pub enum PipelineDispatch {
     /// In-order pipeline.
     InOrder(Box<Pipeline<crate::core::pipeline::backend::inorder::InOrderEngine>>),
     /// Out-of-order pipeline.
+        common.mem1_delayed.clear();
     OutOfOrder(Box<Pipeline<crate::core::pipeline::backend::o3::O3Engine>>),
 }
 

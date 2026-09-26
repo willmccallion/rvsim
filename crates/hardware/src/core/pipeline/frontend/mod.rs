@@ -84,7 +84,7 @@ impl<E: ExecutionEngine> Frontend<E> {
             fetch2::fetch2_stage(state, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
         }
 
-        if engine.common().fetch_in_flight() {
+        if engine.common().fetch_in_flight() || engine.common().fetch_held(state.cycle) {
             state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
         }

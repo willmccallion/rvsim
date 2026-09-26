@@ -129,6 +129,15 @@ fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
     })
 }
 
+/// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
+/// has now refilled the L1, and the instruction is fetched again after the
+/// L2's latency.
+fn hold_fetch<E: ExecutionEngine>(state: &CoreCtx<'_>, engine: &mut E, pc: u64, cycles: u64) {
+    let common = engine.common_mut();
+    common.fetch_hold_until = state.cycle + cycles;
+    common.fetch_resume_pc = Some(pc);
+}
+
 /// A latch entry for an instruction that faulted before it could be fetched.
 fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
@@ -307,6 +316,10 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         };
 
         let (paddr, trap) = match translated {
+            TranslateResult::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
+                hold_fetch(state, engine, current_pc, r.cycles);
+                break;
+            }
             TranslateResult::Ready(r) => (r.paddr, r.trap),
             TranslateResult::NeedPte { pte_addr, state: walk_state } => {
                 let pending = Fetch1Fetch2Entry {
@@ -379,6 +392,10 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
             let upper_phys = if crosses_page {
                 match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
+                    TranslateResult::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
+                        hold_fetch(state, engine, current_pc, r.cycles);
+                        break;
+                    }
                     TranslateResult::Ready(r) => {
                         if let Some(trap) = r.trap {
                             trace_fetch!(state.config.general.trace_instructions;
