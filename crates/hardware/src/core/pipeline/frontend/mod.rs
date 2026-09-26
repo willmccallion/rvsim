@@ -21,9 +21,18 @@ pub mod rename;
 
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::frontend::fetch1::FetchBuffer;
-use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IdExEntry, IfIdEntry, RenameIssueEntry};
+use crate::core::pipeline::latches::{
+    Fetch1Fetch2Entry, IdExEntry, IfIdEntry, Latch, RenameIssueEntry,
+};
 use crate::sim::StageCtx;
 use std::marker::PhantomData;
+
+/// Cycles from a stage writing its latch to the next stage reading it.
+pub const STAGE_DELAY: u64 = 1;
+
+/// The fetch1→fetch2 latch is the I-cache's landing point: its response
+/// already carried the access latency, so fetch2 reads it the same cycle.
+const FETCH_LANDING_DELAY: u64 = 0;
 
 /// The frontend pipeline, generic over the execution engine.
 ///
@@ -36,13 +45,13 @@ pub struct Frontend<E: ExecutionEngine> {
     pub fetch_pc: u64,
     /// Fetch1 → Fetch2 latch (populated by the mailbox-drain stage when
     /// fetch `MemResp` packets arrive, or directly on a fetch-buffer hit).
-    pub fetch1_fetch2: Vec<Fetch1Fetch2Entry>,
+    pub fetch1_fetch2: Latch<Fetch1Fetch2Entry>,
     /// The cache line most recently returned by the I-cache.
     pub fetch_buffer: FetchBuffer,
     /// Fetch2 → Decode latch.
-    pub fetch2_decode: Vec<IfIdEntry>,
+    pub fetch2_decode: Latch<IfIdEntry>,
     /// Decode → Rename latch.
-    pub decode_rename: Vec<IdExEntry>,
+    pub decode_rename: Latch<IdExEntry>,
     /// Retained for snapshot compatibility; the packet model no longer
     /// uses it (fetch latency arrives through `MemResp` arrival cycle).
     pub fetch1_stall: u64,
@@ -53,45 +62,60 @@ pub struct Frontend<E: ExecutionEngine> {
 }
 
 impl<E: ExecutionEngine> Frontend<E> {
-    /// Creates a new frontend with the given pipeline width, fetching from
-    /// `pc`.
-    pub fn new(width: usize, pc: u64) -> Self {
+    /// Creates a new frontend fetching from `pc`.
+    pub fn new(pc: u64) -> Self {
         Self {
             fetch_pc: pc,
-            fetch1_fetch2: Vec::with_capacity(width),
+            fetch1_fetch2: Latch::new(FETCH_LANDING_DELAY),
             fetch_buffer: FetchBuffer::default(),
-            fetch2_decode: Vec::with_capacity(width),
-            decode_rename: Vec::with_capacity(width),
+            fetch2_decode: Latch::new(STAGE_DELAY),
+            decode_rename: Latch::new(STAGE_DELAY),
             fetch1_stall: 0,
             fetch2_stall: 0,
             _marker: PhantomData,
         }
     }
 
-    /// Executes one cycle of all frontend stages (reverse order).
+    /// Executes one cycle of all frontend stages (reverse order). Each
+    /// stage runs only when the latch it writes is empty, which is how a
+    /// stall propagates back to fetch.
     pub fn tick(
         &mut self,
         state: &mut StageCtx<'_>,
         engine: &mut E,
-        rename_output: &mut Vec<RenameIssueEntry>,
+        rename_output: &mut Latch<RenameIssueEntry>,
     ) {
-        rename::rename_stage(state, &mut self.decode_rename, engine, rename_output);
+        let now = state.cycle;
 
-        // Gate decode on rename draining to avoid O(n²) regrowth of decode_rename.
-        if self.decode_rename.is_empty() && !engine.common().vector_config_unresolved {
+        if let Some(decoded) = self.decode_rename.ready(now) {
+            let mut renamed = Vec::new();
+            rename::rename_stage(state, decoded, engine, &mut renamed);
+            rename_output.push(now, renamed);
+        }
+
+        if self.decode_rename.is_empty()
+            && !engine.common().vector_config_unresolved
+            && let Some(fetched) = self.fetch2_decode.ready(now)
+        {
             let vector = engine.vector_config(&state.hart().csrs);
+            let mut decoded = Vec::new();
             let ended_at_vsetvl = decode::decode_stage(
                 state,
-                &mut self.fetch2_decode,
-                &mut self.decode_rename,
+                fetched,
+                &mut decoded,
                 engine.has_register_renaming(),
                 vector,
             );
             engine.common_mut().vector_config_unresolved = ended_at_vsetvl;
+            self.decode_rename.push(now, decoded);
         }
 
-        if self.fetch2_decode.is_empty() {
-            fetch2::fetch2_stage(state, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
+        if self.fetch2_decode.is_empty()
+            && let Some(mut landed) = self.fetch1_fetch2.ready(now).map(std::mem::take)
+        {
+            let mut decoded = Vec::new();
+            fetch2::fetch2_stage(state, &mut landed, &mut decoded);
+            self.fetch2_decode.push(now, decoded);
         }
 
         if engine.common().trap.stops_fetch() {

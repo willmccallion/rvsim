@@ -21,7 +21,8 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
 use crate::core::pipeline::backend::o3::O3Engine;
 use crate::core::pipeline::engine::{BackendType, Pipeline, PipelineDispatch};
-use crate::core::pipeline::frontend::Frontend;
+use crate::core::pipeline::frontend::{Frontend, STAGE_DELAY};
+use crate::core::pipeline::latches::Latch;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -410,15 +411,15 @@ fn build_pipeline(config: &Config, core: &CoreTopology, pc: u64) -> PipelineDisp
     let l1d = core.cache(PrivateCache::L1D);
     match config.pipeline.backend {
         BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
-            frontend: Frontend::new(config.pipeline.width, pc),
+            frontend: Frontend::new(pc),
             engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
-            rename_output: Vec::with_capacity(config.pipeline.width),
+            rename_output: Latch::new(STAGE_DELAY),
             redirect: None,
         })),
         BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
-            frontend: Frontend::new(config.pipeline.width, pc),
+            frontend: Frontend::new(pc),
             engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
-            rename_output: Vec::with_capacity(config.pipeline.width),
+            rename_output: Latch::new(STAGE_DELAY),
             redirect: None,
         })),
     }

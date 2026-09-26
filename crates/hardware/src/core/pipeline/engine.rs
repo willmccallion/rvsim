@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::core::pipeline::checkpoint::CheckpointTable;
 use crate::core::pipeline::free_list::FreeList;
-use crate::core::pipeline::latches::RenameIssueEntry;
+use crate::core::pipeline::latches::{Latch, RenameIssueEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::prf::PhysRegFile;
@@ -437,8 +437,8 @@ pub struct Pipeline<E: ExecutionEngine> {
     pub frontend: crate::core::pipeline::frontend::Frontend<E>,
     /// Backend execution engine (in-order or out-of-order).
     pub engine: E,
-    /// Buffer for rename stage output, consumed by the engine each cycle.
-    pub rename_output: Vec<RenameIssueEntry>,
+    /// Rename → dispatch latch, consumed by the engine each cycle.
+    pub rename_output: Latch<RenameIssueEntry>,
     /// The PC the backend (squash / commit) redirected fetch to this cycle
     /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
     /// discarded and restarted there after the engine's tick.
@@ -467,7 +467,10 @@ impl<E: ExecutionEngine> Pipeline<E> {
             && self.rename_output.is_empty()
             && !self.engine.common().fetch_in_flight();
         self.engine.common_mut().frontend_empty = frontend_empty;
-        self.engine.tick(state, &mut self.rename_output, &mut self.redirect);
+        // The engine dispatches the bundle, or leaves it when a trap or squash
+        // makes it wrong-path; the redirect below discards the frontend then.
+        let mut dispatch = self.rename_output.take(state.cycle);
+        self.engine.tick(state, &mut dispatch, &mut self.redirect);
 
         if let Some(pc) = self.redirect.take() {
             self.discard_frontend_speculation();
@@ -597,10 +600,10 @@ impl PipelineDispatch {
     pub fn snapshot(&self, width: usize) -> PipelineSnapshot {
         match self {
             Self::InOrder(p) => PipelineSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.clone(),
-                fetch2_decode: p.frontend.fetch2_decode.clone(),
-                decode_rename: p.frontend.decode_rename.clone(),
-                rename_issue: p.rename_output.clone(),
+                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
+                fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
+                decode_rename: p.frontend.decode_rename.entries().to_vec(),
+                rename_issue: p.rename_output.entries().to_vec(),
                 issue_queue: p.engine.issuer.queue_snapshot(),
                 execute_mem1: p.engine.execute_mem1.clone(),
                 mem1_mem2: p.engine.mem1_mem2.clone(),
@@ -611,10 +614,10 @@ impl PipelineDispatch {
                 width,
             },
             Self::OutOfOrder(p) => PipelineSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.clone(),
-                fetch2_decode: p.frontend.fetch2_decode.clone(),
-                decode_rename: p.frontend.decode_rename.clone(),
-                rename_issue: p.rename_output.clone(),
+                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
+                fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
+                decode_rename: p.frontend.decode_rename.entries().to_vec(),
+                rename_issue: p.rename_output.entries().to_vec(),
                 issue_queue: p.engine.issue_queue.queue_snapshot(),
                 execute_mem1: p.engine.execute_mem1.clone(),
                 mem1_mem2: p.engine.mem1_mem2.clone(),
@@ -645,10 +648,15 @@ mod tests {
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
-        let frontend = Frontend::new(config.pipeline.width, state.hart.pc);
+        let frontend = Frontend::new(state.hart.pc);
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let pipeline = Pipeline { frontend, engine, rename_output: Vec::new(), redirect: None };
+        let pipeline = Pipeline {
+            frontend,
+            engine,
+            rename_output: Latch::new(crate::core::pipeline::frontend::STAGE_DELAY),
+            redirect: None,
+        };
         let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
 
         dispatch.tick(&mut state);

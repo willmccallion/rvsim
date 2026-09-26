@@ -56,6 +56,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
     }
 
     drain_fetch_reorder(
+        state.cycle,
         pipeline.engine.common_mut(),
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,

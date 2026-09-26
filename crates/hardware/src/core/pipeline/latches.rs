@@ -16,6 +16,68 @@ use crate::core::units::bru::{Ghr, RasSnapshot};
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 use crate::sim::state::write_log::WriteSeq;
 
+/// A pipeline register between two stages.
+///
+/// It holds one bundle of entries. The producer writes only when the
+/// consumer has emptied it, which is how a stall propagates backwards, and
+/// the bundle becomes visible to the consumer `delay` cycles after it was
+/// written: gem5's `TimeBuffer` with a depth of one bundle.
+#[derive(Clone, Debug)]
+pub struct Latch<T> {
+    entries: Vec<T>,
+    ready_at: u64,
+    delay: u64,
+}
+
+impl<T> Latch<T> {
+    /// An empty latch whose bundles become visible `delay` cycles after
+    /// they are written.
+    #[must_use]
+    pub const fn new(delay: u64) -> Self {
+        Self { entries: Vec::new(), ready_at: 0, delay }
+    }
+
+    /// True when no bundle is held.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Entries held, visible or not.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Adds `entries` to the bundle, visible from `now + delay`.
+    pub fn push(&mut self, now: u64, entries: impl IntoIterator<Item = T>) {
+        self.entries.extend(entries);
+        self.ready_at = now.saturating_add(self.delay);
+    }
+
+    /// The bundle, if the consumer may see it at `now`.
+    #[must_use]
+    pub fn ready(&mut self, now: u64) -> Option<&mut Vec<T>> {
+        (!self.entries.is_empty() && self.ready_at <= now).then_some(&mut self.entries)
+    }
+
+    /// Takes the bundle if the consumer may see it at `now`.
+    pub fn take(&mut self, now: u64) -> Vec<T> {
+        self.ready(now).map(std::mem::take).unwrap_or_default()
+    }
+
+    /// Drops the bundle.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    /// The entries held, for a snapshot.
+    #[must_use]
+    pub fn entries(&self) -> &[T] {
+        &self.entries
+    }
+}
+
 /// Metadata for a vector memory element micro-op flowing through Memory1/Memory2.
 ///
 /// The parent vec mem instruction is identified by the `rob_tag` already
@@ -391,4 +453,47 @@ pub struct Mem2WbEntry {
     pub vec_mem: Option<VecMemElement>,
     /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
     pub observed: Option<WriteSeq>,
+}
+
+#[cfg(test)]
+mod latch_tests {
+    use super::Latch;
+
+    #[test]
+    fn a_bundle_is_visible_after_the_latch_delay() {
+        let mut latch = Latch::new(1);
+        latch.push(10, [1, 2]);
+
+        assert!(latch.ready(10).is_none(), "written this cycle, not visible yet");
+        assert_eq!(latch.ready(11).map(|bundle| bundle.clone()), Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn a_zero_delay_latch_is_visible_the_cycle_it_is_written() {
+        let mut latch = Latch::new(0);
+        latch.push(5, [7]);
+
+        assert_eq!(latch.take(5), vec![7]);
+        assert!(latch.is_empty());
+    }
+
+    #[test]
+    fn the_consumer_may_leave_part_of_the_bundle_for_later() {
+        let mut latch = Latch::new(1);
+        latch.push(0, [1, 2, 3]);
+
+        let _ = latch.ready(1).map(|bundle| bundle.drain(..2));
+
+        assert_eq!(latch.take(1), vec![3]);
+    }
+
+    #[test]
+    fn take_before_the_delay_returns_nothing_and_keeps_the_bundle() {
+        let mut latch = Latch::new(2);
+        latch.push(0, [9]);
+
+        assert!(latch.take(1).is_empty());
+        assert_eq!(latch.len(), 1);
+        assert_eq!(latch.take(2), vec![9]);
+    }
 }

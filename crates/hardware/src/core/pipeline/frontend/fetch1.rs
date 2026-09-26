@@ -34,7 +34,7 @@ use crate::common::constants::{
 use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, RegIdx, Trap, VirtAddr};
 use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
-use crate::core::pipeline::latches::Fetch1Fetch2Entry;
+use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::{BranchPredictor, Ghr, RasSnapshot};
 use crate::isa::abi;
@@ -280,7 +280,7 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
-    latch: &mut Vec<Fetch1Fetch2Entry>,
+    latch: &mut Latch<Fetch1Fetch2Entry>,
     group: OutstandingFetch,
 ) {
     match group.line {
@@ -288,9 +288,10 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
             issue_line_fetch(state, engine, fetch_buffer, line, group);
         }
         _ => {
+            let now = state.cycle;
             let common = engine.common_mut();
             let _ = common.fetch_reorder.insert(group.fetch_seq, group);
-            drain_fetch_reorder(common, fetch_buffer, latch);
+            drain_fetch_reorder(now, common, fetch_buffer, latch);
         }
     }
 }
@@ -336,9 +337,10 @@ fn issue_line_fetch<E: ExecutionEngine>(
 /// Stops at the first gap (an older group still waiting on its line). A
 /// drained group's line becomes the fetch buffer's content.
 pub fn drain_fetch_reorder(
+    now: u64,
     common: &mut BackendCommon,
     fetch_buffer: &mut FetchBuffer,
-    latch: &mut Vec<Fetch1Fetch2Entry>,
+    latch: &mut Latch<Fetch1Fetch2Entry>,
 ) {
     loop {
         let next_seq = common.next_emit_fetch_seq;
@@ -349,7 +351,7 @@ pub fn drain_fetch_reorder(
         if let Some(line) = group.line {
             fetch_buffer.fill(line);
         }
-        latch.extend(group.entries);
+        latch.push(now, group.entries);
     }
 }
 
@@ -364,7 +366,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
-    latch: &mut Vec<Fetch1Fetch2Entry>,
+    latch: &mut Latch<Fetch1Fetch2Entry>,
     fetch_pc: &mut u64,
 ) {
     let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
