@@ -36,7 +36,7 @@ use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{
     DelayedAccess, OutstandingLoad, OutstandingWalk, WalkContinuation,
 };
-use crate::core::pipeline::rob::RobTag;
+use crate::core::pipeline::rob::{RobState, RobTag};
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
@@ -127,8 +127,18 @@ fn process_entry<E: ExecutionEngine>(
     ex: ExMem1Entry,
     translated: Option<TranslationResult>,
 ) -> EntryOutcome {
-    // 1. Trap propagation.
+    // 1. Trap propagation. An entry execute already faulted carries its
+    // trap from here on and performs no access.
     if ex.trap.is_some() {
+        push_passthrough_with_trap(engine, ex);
+        return EntryOutcome::Done;
+    }
+    if let Some(faulted) =
+        engine.rob().find_entry(ex.rob_tag).filter(|e| e.state == RobState::Faulted)
+    {
+        let mut ex = ex;
+        ex.trap.clone_from(&faulted.trap);
+        ex.exception_stage = faulted.exception_stage;
         push_passthrough_with_trap(engine, ex);
         return EntryOutcome::Done;
     }

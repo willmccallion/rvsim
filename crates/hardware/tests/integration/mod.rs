@@ -2,6 +2,7 @@
 
 pub mod csr_ordering;
 pub mod drain;
+pub mod fault_precedence;
 pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
 pub mod fetch_page_crossing;

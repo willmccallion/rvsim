@@ -312,9 +312,13 @@ impl Rob {
         }
     }
 
-    /// Marks an entry as Faulted with a trap.
+    /// Marks an entry as Faulted with a trap. The first fault an
+    /// instruction raises is the one it takes: a later stage cannot replace
+    /// it, since the instruction never really reached that stage.
     pub fn fault(&mut self, tag: RobTag, trap: Trap, stage: ExceptionStage) {
-        if let Some(entry) = self.find_entry_mut(tag) {
+        if let Some(entry) = self.find_entry_mut(tag)
+            && entry.state != RobState::Faulted
+        {
             entry.state = RobState::Faulted;
             entry.trap = Some(trap);
             entry.exception_stage = Some(stage);
