@@ -41,7 +41,7 @@ use crate::isa::abi;
 use crate::isa::decode::{decode_b_type_imm, decode_j_type_imm};
 use crate::isa::rv64i::opcodes;
 use crate::isa::rvc::expand::expand;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::sim::state::memory::TranslateResult;
@@ -133,7 +133,7 @@ impl GroupBuilder {
 /// Returns 0 for addresses outside DRAM. Architecturally, fetching from
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
-fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
+fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
     state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
         // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
         unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
@@ -154,12 +154,12 @@ struct ControlFlowPrediction {
 /// jump asks the BTB, and a call pushes its return address at once. Every
 /// control instruction shifts the global history, a jump as taken.
 fn predict_control_flow(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     pc: u64,
     size: InstSize,
     inst: u32,
 ) -> ControlFlowPrediction {
-    let bp = &mut state.core.branch_predictor;
+    let bp = &mut state.core_mut().branch_predictor;
     let opcode = inst & OPCODE_MASK;
     let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
     let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);
@@ -209,7 +209,7 @@ fn predict_control_flow(
 /// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
 /// has now refilled the L1, and the instruction is fetched again after the
 /// L2's latency.
-fn hold_fetch<E: ExecutionEngine>(state: &CoreCtx<'_>, engine: &mut E, pc: u64, cycles: u64) {
+fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: u64, cycles: u64) {
     let common = engine.common_mut();
     common.fetch_hold_until = state.cycle + cycles;
     common.fetch_resume_pc = Some(pc);
@@ -234,7 +234,7 @@ fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
 /// emits the first PTE read. The group sequence number is reserved now so
 /// the instruction drains after everything fetch1 issued before it.
 fn park_fetch_walk<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
@@ -257,7 +257,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
     common.fetch_walk_pending = true;
 
     let cycle = state.cycle;
-    state.event_queue.schedule(
+    state.events().schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),
@@ -277,7 +277,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
 /// at all) enters the program-order reorder buffer immediately; any other
 /// group costs one line-sized I-cache request and waits for the response.
 pub fn dispatch_fetch_group<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
@@ -296,7 +296,7 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
 }
 
 fn issue_line_fetch<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     line: LineAddr,
@@ -317,7 +317,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     let _ = common.outstanding_fetches.insert(req_id, group);
 
     let cycle = state.cycle;
-    state.event_queue.schedule(
+    state.events().schedule(
         cycle,
         ComponentId::Cache(l1_i_id),
         ComponentId::Pipeline(pipeline_id),
@@ -361,17 +361,17 @@ pub fn drain_fetch_reorder(
 /// ([`BackendCommon::fetch_in_flight`]), so a parked fetch walk or an
 /// unanswered line request never gets a duplicate request for the same PC.
 pub fn fetch1_stage<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
     fetch_pc: &mut u64,
 ) {
     let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
-    let c_enabled = (state.hart.csrs.misa & csr::MISA_EXT_C) != 0;
+    let c_enabled = (state.hart().csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
-    let line_bytes = state.core.l1_i_cache.line_bytes() as u64;
+    let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
     let mut line_end = (current_pc | (line_bytes - 1)) + 1;
     let mut group = GroupBuilder::default();
 
@@ -454,8 +454,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut pred_taken = false;
         let mut pred_target = 0;
         let mut upper_paddr = None;
-        let ghr_snapshot = state.core.branch_predictor.snapshot_history();
-        let ras_snapshot = state.core.branch_predictor.snapshot_ras();
+        let ghr_snapshot = state.core().branch_predictor.snapshot_history();
+        let ras_snapshot = state.core().branch_predictor.snapshot_ras();
 
         let full_inst = if is_compressed {
             expand(half_word)

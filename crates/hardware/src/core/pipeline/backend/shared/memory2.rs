@@ -33,7 +33,7 @@ use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::lsu::Lsu;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::trace_fwd;
 use crate::trace_mem;
 use crate::trace_trap;
@@ -43,7 +43,7 @@ use crate::trace_trap;
 /// Returns the oldest memory-ordering violation observed this cycle (older
 /// `RobTag`, lower index). The caller flushes the pipeline at that tag.
 pub fn memory2_stage(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     store_buffer: &mut StoreBuffer,

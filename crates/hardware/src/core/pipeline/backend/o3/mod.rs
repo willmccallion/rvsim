@@ -480,7 +480,7 @@ impl ExecutionEngine for O3Engine {
             })
             .collect();
 
-        writeback::writeback_stage(state, &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
 
         for (_tag, rd_phys, val) in &wb_wakeups {
             self.prf.write(*rd_phys, *val);
@@ -489,7 +489,7 @@ impl ExecutionEngine for O3Engine {
 
         let wb_before = self.mem2_wb.len();
         let mem_violation = memory2::memory2_stage(
-            state,
+            &mut state.stage(),
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
@@ -541,7 +541,7 @@ impl ExecutionEngine for O3Engine {
         // pending table when the cache is saturated, which surfaces as
         // mailbox-drain backlogs rather than a per-engine `mem1_busy` gate.
         let mut input = std::mem::take(&mut self.execute_mem1);
-        memory1::memory1_stage(state, self, &mut input);
+        memory1::memory1_stage(&mut state.stage(), self, &mut input);
         self.execute_mem1.extend(input);
         let _ = now;
 
@@ -675,7 +675,7 @@ impl ExecutionEngine for O3Engine {
                     let ok = self.issue_queue.dispatch(
                         entry,
                         &self.rob,
-                        state,
+                        &state.stage(),
                         Some(&self.prf),
                         Some(&self.vec_prf),
                         mem_dep,
@@ -694,7 +694,7 @@ impl ExecutionEngine for O3Engine {
                     let ok = self.issue_queue.dispatch(
                         entry,
                         &self.rob,
-                        state,
+                        &state.stage(),
                         Some(&self.prf),
                         Some(&self.vec_prf),
                         mem_dep,
@@ -787,7 +787,8 @@ impl ExecutionEngine for O3Engine {
                     self.fu_pool.acquire(fu_type, now)
                 };
 
-                let (ex_result, redirect) = execute::execute_one(state, entry, &mut self.rob);
+                let (ex_result, redirect) =
+                    execute::execute_one(&mut state.stage(), entry, &mut self.rob);
                 issued_count += 1;
                 if let Some(redirect) = redirect {
                     self.common.request_squash(PendingSquash {
@@ -1046,7 +1047,7 @@ impl ExecutionEngine for O3Engine {
                 let ok = self.issue_queue.dispatch(
                     entry,
                     &self.rob,
-                    state,
+                    &state.stage(),
                     Some(&self.prf),
                     Some(&self.vec_prf),
                     mem_dep,

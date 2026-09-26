@@ -43,7 +43,11 @@ fn check(backend: BackendType, width: usize) {
     config.pipeline.width = width;
     config.system.uart_quiet = true;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
-    ctx.sim.probe_mem_store(PhysAddr::new(HANDLER), u64::from(InstructionBuilder::new().jal(0, 0).build()), 4);
+    ctx.sim.probe_mem_store(
+        PhysAddr::new(HANDLER),
+        u64::from(InstructionBuilder::new().jal(0, 0).build()),
+        4,
+    );
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();

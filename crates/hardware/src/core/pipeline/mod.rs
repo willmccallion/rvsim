@@ -56,9 +56,6 @@ pub mod checkpoint;
 /// Load queue for memory ordering and violation detection.
 pub mod load_queue;
 
-/// Traits for pipeline stage components.
-pub mod traits;
-
 /// Frontend pipeline stages.
 pub mod frontend;
 

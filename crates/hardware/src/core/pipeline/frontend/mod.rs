@@ -22,6 +22,7 @@ pub mod rename;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::frontend::fetch1::FetchBuffer;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IdExEntry, IfIdEntry, RenameIssueEntry};
+use crate::sim::StageCtx;
 use std::marker::PhantomData;
 
 /// The frontend pipeline, generic over the execution engine.
@@ -70,7 +71,7 @@ impl<E: ExecutionEngine> Frontend<E> {
     /// Executes one cycle of all frontend stages (reverse order).
     pub fn tick(
         &mut self,
-        state: &mut crate::sim::CoreCtx<'_>,
+        state: &mut StageCtx<'_>,
         engine: &mut E,
         rename_output: &mut Vec<RenameIssueEntry>,
     ) {
@@ -78,7 +79,7 @@ impl<E: ExecutionEngine> Frontend<E> {
 
         // Gate decode on rename draining to avoid O(n²) regrowth of decode_rename.
         if self.decode_rename.is_empty() && !engine.common().vector_config_unresolved {
-            let vector = engine.vector_config(state);
+            let vector = engine.vector_config(&state.hart().csrs);
             let ended_at_vsetvl = decode::decode_stage(
                 state,
                 &mut self.fetch2_decode,
@@ -97,7 +98,7 @@ impl<E: ExecutionEngine> Frontend<E> {
             return;
         }
         if engine.common().fetch_in_flight() || engine.common().fetch_held(state.cycle) {
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_fetch_wait).inc();
+            state.counter(state.core().stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
         }
         if self.fetch1_fetch2.is_empty() {

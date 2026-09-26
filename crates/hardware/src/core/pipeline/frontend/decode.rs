@@ -18,7 +18,7 @@ use crate::core::units::vpu::types::{Sew, VRegIdx, VectorConfig};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::rv64a::{funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes};
@@ -1370,7 +1370,7 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
 /// produced; a `vsetvl` ends the group, and returns `true`, because what
 /// follows it needs its result.
 pub fn decode_stage(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     input: &mut Vec<IfIdEntry>,
     output: &mut Vec<IdExEntry>,
     has_register_renaming: bool,
@@ -1487,11 +1487,17 @@ pub fn decode_stage(
             bundle_writes.push((d.rd, true));
         }
 
-        let rv1 =
-            if ctrl.rs1_fp { state.hart.regs.read_f(d.rs1) } else { state.hart.regs.read(d.rs1) };
-        let rv2 =
-            if ctrl.rs2_fp { state.hart.regs.read_f(d.rs2) } else { state.hart.regs.read(d.rs2) };
-        let rv3 = if ctrl.rs3_fp { state.hart.regs.read_f(rs3_idx) } else { 0 };
+        let rv1 = if ctrl.rs1_fp {
+            state.hart().regs.read_f(d.rs1)
+        } else {
+            state.hart().regs.read(d.rs1)
+        };
+        let rv2 = if ctrl.rs2_fp {
+            state.hart().regs.read_f(d.rs2)
+        } else {
+            state.hart().regs.read(d.rs2)
+        };
+        let rv3 = if ctrl.rs3_fp { state.hart().regs.read_f(rs3_idx) } else { 0 };
 
         let has_trap = trap.is_some();
 

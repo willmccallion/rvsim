@@ -41,7 +41,7 @@ use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::ElemIdx;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
 use crate::sim::state::memory::TranslateResult;
@@ -67,7 +67,7 @@ enum EntryOutcome {
 /// detection happens at Memory2 once stores have actually resolved their
 /// store-buffer slots.
 pub fn memory1_stage<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
 ) {
@@ -108,7 +108,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
         match process_entry(state, engine, ex, translated) {
             EntryOutcome::Done => {}
             EntryOutcome::Replay(ex) => {
-                state.shared.stats.counter(state.core.stat_paths.lsq.rescheduled_mem_ops).inc();
+                state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
                 engine.common_mut().mem1_replay.push(ex);
             }
             EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
@@ -137,7 +137,7 @@ fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
 /// Processes one entry; `translated` is the translation an access that
 /// waited out the L2 TLB latency already holds.
 fn process_entry<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     ex: ExMem1Entry,
     translated: Option<TranslationResult>,
@@ -256,7 +256,7 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     // 5. S/U-mode access fault on unmapped paddr; M-mode firmware can probe.
-    if state.hart.privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr) {
+    if state.hart().privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr) {
         let trap = if ex.ctrl.mem_write {
             Trap::StoreAccessFault(ex.alu)
         } else {
@@ -328,7 +328,7 @@ fn process_entry<E: ExecutionEngine>(
 
 /// True when `[paddr, paddr + size)` is not plain RAM: a device register,
 /// or the HTIF window a device overlays.
-fn reads_a_device(state: &CoreCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
+fn reads_a_device(state: &StageCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
     state.bus.ram_region_for(paddr.val(), size).is_none()
 }
 
@@ -495,7 +495,7 @@ fn push_resolved_sc<E: ExecutionEngine>(
 /// Pushes an SB-forwarded load into M1→M2 with the forwarded raw value
 /// already in `load_data`.
 fn push_sb_forwarded_load<E: ExecutionEngine>(
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
     engine: &mut E,
     ex: ExMem1Entry,
     paddr: PhysAddr,
@@ -505,7 +505,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
 ) {
     // Forwarded data still takes the load pipeline's time to arrive.
     let latency =
-        if state.core.l1_d_cache.is_enabled() { state.core.l1_d_cache.latency } else { 1 };
+        if state.core().l1_d_cache.is_enabled() { state.core().l1_d_cache.latency } else { 1 };
     let entry = Mem1Mem2Entry {
         rob_tag: ex.rob_tag,
         pc: ex.pc,
@@ -537,7 +537,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
 
 /// Issues a `MemReq` for a load / LR / AMO and parks the entry.
 fn emit_load_req<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     ex: ExMem1Entry,
     paddr: PhysAddr,
@@ -572,7 +572,7 @@ fn emit_load_req<E: ExecutionEngine>(
     };
 
     let target = mmio_or_l1d(state, engine, paddr, access_size);
-    let line_bytes = state.core.l1_d_cache.line_bytes() as u64;
+    let line_bytes = state.core().l1_d_cache.line_bytes() as u64;
     let second_line = (!matches!(target, ComponentId::Bus)
         && unaligned::crosses_cache_line(paddr.val(), ex.ctrl.width.bytes(), line_bytes))
     .then(|| PhysAddr::new((paddr.val() | (line_bytes - 1)) + 1));
@@ -581,7 +581,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let pipeline_id = common.pipeline_id;
 
     let cycle = state.cycle;
-    state.event_queue.schedule(
+    state.events().schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
@@ -592,7 +592,7 @@ fn emit_load_req<E: ExecutionEngine>(
         let common = engine.common_mut();
         let second_id = common.alloc_req_id();
         let _ = common.load_parts.insert(second_id, req_id);
-        state.event_queue.schedule(
+        state.events().schedule(
             cycle,
             target,
             ComponentId::Pipeline(pipeline_id),
@@ -616,7 +616,7 @@ fn emit_load_req<E: ExecutionEngine>(
 
 /// Records the parked walk and issues the PTE `MemReq`.
 fn park_walk<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     engine: &mut E,
     walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
@@ -636,7 +636,7 @@ fn park_walk<E: ExecutionEngine>(
     );
 
     let cycle = state.cycle;
-    state.event_queue.schedule(
+    state.events().schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),
@@ -656,7 +656,7 @@ fn park_walk<E: ExecutionEngine>(
 /// side effect (e.g. an HTIF tohost write that L1D hit would never reach the
 /// device).
 fn mmio_or_l1d<E: ExecutionEngine>(
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
     engine: &E,
     paddr: PhysAddr,
     size: AccessSize,

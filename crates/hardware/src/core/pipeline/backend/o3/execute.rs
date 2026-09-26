@@ -24,7 +24,7 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::trace_branch;
 use crate::trace_csr;
 use crate::trace_execute;
@@ -45,7 +45,7 @@ const JALR_ALIGNMENT_MASK: u64 = !1;
 /// (misprediction, CSR write, MRET/SRET, FENCE.I, a fault), the
 /// [`Redirect`] the engine takes after the redirect latency.
 pub fn execute_one(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
@@ -215,7 +215,7 @@ pub fn execute_one(
 
     // When mstatus.FS == OFF, all FP instructions trap as illegal.
     {
-        let fs = (state.hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
+        let fs = (state.hart().csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
         let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
         if fs == 0 && is_fp {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
@@ -240,7 +240,7 @@ pub fn execute_one(
     }
 
     // Resolve FP rounding mode: instruction-specified or dynamic from fcsr.frm.
-    let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart.csrs.frm as u8));
+    let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart().csrs.frm as u8));
     let (alu_out, fp_flags) =
         compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_f16, id.ctrl.is_rv32, fp_rm);
     trace_execute!(state.config.general.trace_instructions;
@@ -294,12 +294,12 @@ pub fn execute_one(
             "EX: branch resolved"
         );
         if mispredicted {
-            state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
+            state.counter(state.core().stat_paths.bp.spec_mispredicts).inc();
             let repair =
                 BranchRepair { pc: id.pc, taken, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
             redirect = Some(Redirect::mispredict(actual_next_pc, repair));
         } else {
-            state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
+            state.counter(state.core().stat_paths.bp.spec_hits).inc();
         }
     }
 
@@ -324,7 +324,7 @@ pub fn execute_one(
         rob.set_bp_target(id.rob_tag, actual_target);
 
         if is_jalr {
-            state.core.branch_predictor.update_btb(id.pc, actual_target);
+            state.core_mut().branch_predictor.update_btb(id.pc, actual_target);
         }
 
         trace_branch!(state.config.general.trace_instructions;
@@ -340,12 +340,12 @@ pub fn execute_one(
             "EX: jump resolved"
         );
         if mispredicted {
-            state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
+            state.counter(state.core().stat_paths.bp.spec_mispredicts).inc();
             let repair =
                 BranchRepair { pc: id.pc, taken: true, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
             redirect = Some(Redirect::mispredict(actual_target, repair));
         } else {
-            state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
+            state.counter(state.core().stat_paths.bp.spec_hits).inc();
         }
     }
 
@@ -371,7 +371,7 @@ pub fn execute_one(
 
 /// Handle system instructions (MRET, SRET, WFI, SFENCE.VMA, ECALL, CSR).
 fn execute_system(
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
@@ -396,7 +396,7 @@ fn execute_system(
         };
 
     if id.ctrl.system_op == SystemOp::Mret {
-        if state.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
+        if state.hart().privilege != crate::core::arch::mode::PrivilegeMode::Machine {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
                 make_result(0, id.ctrl),
@@ -408,24 +408,25 @@ fn execute_system(
             pc          = %crate::trace::Hex(id.pc),
             rob_tag     = id.rob_tag.0,
             insn        = "MRET",
-            priv_mode   = ?state.hart.privilege,
-            mepc        = %crate::trace::Hex(state.hart.csrs.mepc),
-            mstatus     = %crate::trace::Hex(state.hart.csrs.mstatus),
+            priv_mode   = ?state.hart().privilege,
+            mepc        = %crate::trace::Hex(state.hart().csrs.mepc),
+            mstatus     = %crate::trace::Hex(state.hart().csrs.mstatus),
             "EX: MRET queued (privilege restore deferred to commit)"
         );
         return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Sret {
-        if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
+        if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::User {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
                 make_result(0, id.ctrl),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
-        let tsr = (state.hart.csrs.mstatus >> 22) & 1;
-        if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
+        let tsr = (state.hart().csrs.mstatus >> 22) & 1;
+        if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0
+        {
             trace_trap!(state.trace_trap_enabled(&Trap::IllegalInstruction(id.inst));
                 event   = "illegal",
                 pc      = %crate::trace::Hex(id.pc),
@@ -445,18 +446,18 @@ fn execute_system(
             pc        = %crate::trace::Hex(id.pc),
             rob_tag   = id.rob_tag.0,
             insn      = "SRET",
-            priv_mode = ?state.hart.privilege,
-            sepc      = %crate::trace::Hex(state.hart.csrs.sepc),
-            mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
+            priv_mode = ?state.hart().privilege,
+            sepc      = %crate::trace::Hex(state.hart().csrs.sepc),
+            mstatus   = %crate::trace::Hex(state.hart().csrs.mstatus),
             "EX: SRET queued (privilege restore deferred to commit)"
         );
         return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Wfi {
-        let tw = (state.hart.csrs.mstatus >> 21) & 1;
-        if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
-            || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+        let tw = (state.hart().csrs.mstatus >> 21) & 1;
+        if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::User
+            || (state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
                 && tw != 0)
         {
             trace_trap!(state.trace_trap_enabled(&Trap::IllegalInstruction(id.inst));
@@ -474,8 +475,9 @@ fn execute_system(
     // SFENCE.VMA: do nothing at execute. Operands flow to commit which drains
     // the store buffer first, then performs the TLB flush and pipeline squash.
     if id.ctrl.system_op == SystemOp::SfenceVma {
-        let tvm = (state.hart.csrs.mstatus >> 20) & 1;
-        if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0 {
+        let tvm = (state.hart().csrs.mstatus >> 20) & 1;
+        if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tvm != 0
+        {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
                 ExMem1Entry {
@@ -540,7 +542,7 @@ fn execute_system(
 
     if id.inst == sys_ops::ECALL {
         use crate::core::arch::mode::PrivilegeMode;
-        let trap = match state.hart.privilege {
+        let trap = match state.hart().privilege {
             PrivilegeMode::User => Trap::EnvironmentCallFromUMode,
             PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
             PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
@@ -550,9 +552,9 @@ fn execute_system(
             pc        = %crate::trace::Hex(id.pc),
             rob_tag   = id.rob_tag.0,
             cause     = "ECALL",
-            priv_mode = ?state.hart.privilege,
-            a7        = %crate::trace::Hex(state.hart.regs.read(crate::isa::abi::REG_A7)),
-            a0        = %crate::trace::Hex(state.hart.regs.read(crate::isa::abi::REG_A0)),
+            priv_mode = ?state.hart().privilege,
+            a7        = %crate::trace::Hex(state.hart().regs.read(crate::isa::abi::REG_A7)),
+            a0        = %crate::trace::Hex(state.hart().regs.read(crate::isa::abi::REG_A0)),
             "EX: ECALL"
         );
         rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
@@ -569,15 +571,15 @@ fn execute_system(
 /// Handle CSR operations.
 #[allow(clippy::needless_pass_by_value)]
 fn execute_csr(
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
     id: RenameIssueEntry,
     rob: &mut Rob,
     fwd_a: u64,
     store_data: u64,
 ) -> (ExMem1Entry, Option<Redirect>) {
     if id.ctrl.csr_addr == crate::core::arch::csr::SATP
-        && state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
-        && ((state.hart.csrs.mstatus >> 20) & 1) != 0
+        && state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+        && ((state.hart().csrs.mstatus >> 20) & 1) != 0
     {
         rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         return (
@@ -616,11 +618,11 @@ fn execute_csr(
         };
         if let Some(bit) = counter_bit {
             let mask = 1u64 << bit;
-            let denied = match state.hart.privilege {
-                PrivilegeMode::Supervisor => (state.hart.csrs.mcounteren & mask) == 0,
+            let denied = match state.hart().privilege {
+                PrivilegeMode::Supervisor => (state.hart().csrs.mcounteren & mask) == 0,
                 PrivilegeMode::User => {
-                    (state.hart.csrs.mcounteren & mask) == 0
-                        || (state.hart.csrs.scounteren & mask) == 0
+                    (state.hart().csrs.mcounteren & mask) == 0
+                        || (state.hart().csrs.scounteren & mask) == 0
                 }
                 PrivilegeMode::Machine => false,
             };
@@ -673,7 +675,7 @@ fn execute_csr(
     }
 
     let csr_priv = id.ctrl.csr_addr.privilege_level() as u32;
-    if (state.hart.privilege.to_u8() as u32) < csr_priv {
+    if (state.hart().privilege.to_u8() as u32) < csr_priv {
         rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         return (
             ExMem1Entry {
@@ -1010,7 +1012,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert!(redirect.is_none());
         assert_eq!(result.alu, 10); // rv1 (10) + 0
         assert_eq!(result.rob_tag, tag);
@@ -1078,7 +1080,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (_result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert!(redirect.is_some());
         let entry = rob.find_entry(tag).unwrap();
         assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
@@ -1149,7 +1151,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (_result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert_eq!(redirect.map(|r| r.target), Some(0x1004));
     }
 
@@ -1222,7 +1224,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (_result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert!(redirect.is_some());
         let entry = rob.find_entry(tag).unwrap();
         assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
@@ -1296,7 +1298,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (_result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert_eq!(redirect.map(|r| r.target), Some(0x1008));
         assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
         let entry = rob.find_entry(tag).unwrap();
@@ -1367,7 +1369,7 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
+        let (_result, redirect) = execute_one(&mut state.stage(), issue, &mut rob);
         assert!(redirect.is_some());
 
         let expected_target = (0x2000 + 0x15) & !1;

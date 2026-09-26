@@ -16,7 +16,7 @@ use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg, parse_vtype};
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::trace_rename;
 
 /// Executes the rename stage: allocate ROB/SB entries, capture source tags, mark scoreboard.
@@ -25,7 +25,7 @@ use crate::trace_rename;
 ///
 /// Panics if checkpoint allocation fails after the stall check indicated a slot was available.
 pub fn rename_stage<E: ExecutionEngine>(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     input: &mut Vec<IdExEntry>,
     engine: &mut E,
     rename_output: &mut Vec<RenameIssueEntry>,
@@ -36,10 +36,10 @@ pub fn rename_stage<E: ExecutionEngine>(
     let mut budget = engine.can_accept();
 
     for id in entries {
-        let vector = engine.vector_config(state);
+        let vector = engine.vector_config(&state.hart().csrs);
         if budget == 0 {
             if input.is_empty() {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_dispatch).inc();
+                state.counter(state.core().stat_paths.pipeline.stalls_dispatch).inc();
             }
             input.push(id);
             continue;
@@ -52,7 +52,7 @@ pub fn rename_stage<E: ExecutionEngine>(
                 && engine.checkpoint_count() > 0
                 && engine.checkpoint_table().is_full()
             {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_checkpoint).inc();
+                state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
                 // Set budget=0 so remaining iterations also push back to input.
                 budget = 0;
                 input.push(id);
@@ -272,8 +272,8 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_vtype: vector.vtype,
                 vec_vl: vector.vl,
                 vec_vstart: vector.vstart,
-                vec_vxrm: state.hart.csrs.vxrm,
-                vec_frm: state.hart.csrs.frm,
+                vec_vxrm: state.hart().csrs.vxrm,
+                vec_frm: state.hart().csrs.frm,
             };
 
             trace_rename!(state.config.general.trace_instructions;
@@ -370,8 +370,8 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_vtype: vector.vtype,
                 vec_vl: vector.vl,
                 vec_vstart: vector.vstart,
-                vec_vxrm: state.hart.csrs.vxrm,
-                vec_frm: state.hart.csrs.frm,
+                vec_vxrm: state.hart().csrs.vxrm,
+                vec_frm: state.hart().csrs.frm,
             };
 
             trace_rename!(state.config.general.trace_instructions;

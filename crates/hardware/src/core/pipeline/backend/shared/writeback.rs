@@ -11,12 +11,12 @@ use crate::common::ExceptionStage;
 use crate::core::pipeline::latches::Mem2WbEntry;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::signals::ControlFlow;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::trace_trap;
 use crate::trace_writeback;
 
 /// Executes the Writeback stage: marks ROB entries Completed (or Faulted).
-pub fn writeback_stage(state: &mut CoreCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
+pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
     let entries = std::mem::take(input);
 
     for wb in entries {

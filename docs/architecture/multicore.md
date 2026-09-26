@@ -69,25 +69,35 @@ Simulator
 ### Ownership and the per-core view
 
 Pipeline stages must see "my hart, my core, and the uncore" without being
-able to touch another core. They receive a **view**:
+able to touch another core, and only commit may change architectural
+state. They receive one of two **views**:
 
 ```rust
-pub struct CoreCtx<'a> {
+pub struct CoreCtx<'a> {              // commit, traps, the engine's redirects
     pub hart: &'a mut Hart,
     pub core: &'a mut Core,
     pub shared: &'a mut SharedState,
 }
 impl Deref for CoreCtx<'_> { type Target = SharedState; }
 impl DerefMut for CoreCtx<'_> {}
+
+pub struct StageCtx<'a> {             // fetch, decode, rename, issue, execute, memory, writeback
+    hart: &'a Hart,                   // read-only
+    core: &'a mut Core,               // TLBs, predictor, caches
+    shared: &'a mut SharedState,      // only `counter()` and `events()` are exposed
+}
+impl Deref for StageCtx<'_> { type Target = SharedState; }
 ```
 
-The simulator builds one view per core per tick from disjoint borrows of
-`harts[i]`, `cores[i]` and `shared`. Everything that used to be a method
-on the single-hart state (`translate`, `trap`, `csr_read`, `csr_write`,
-trigger checks, reservation handling) is a method on `CoreCtx`. A stage
-cannot reach another core because no path exists from a view to another
-view. The view derefs to the uncore so `ctx.event_queue`, `ctx.bus`,
-`ctx.config` and `ctx.stats` read naturally.
+The simulator builds one `CoreCtx` per core per tick from disjoint borrows
+of `harts[i]`, `cores[i]` and `shared`; the engine hands each stage a
+`StageCtx` derived from it. Translation, CSR reads and trigger checks are
+methods on both; `trap`, `csr_write`, register writes, `publish_write`
+and reservation handling exist only on `CoreCtx`, so an execute-stage
+write to architectural state does not compile. A stage cannot reach
+another core because no path exists from a view to another view. Both
+views deref to the uncore so `ctx.bus`, `ctx.config` and `ctx.cycle`
+read naturally.
 
 SMT (several harts per core) fits without change: the view's `hart` is the
 hart the pipeline is currently working on behalf of; `Core::hart_ids`
@@ -359,7 +369,8 @@ Each stage is a set of small commits that leaves the tree working, with
 single-core configurations cycle-identical to the previous stage.
 
 1. **Arenas and views.** `SimState` becomes `harts` + `cores` + `shared`;
-   `CoreCtx` replaces the single-hart state in every stage; `Topology`
+   `CoreCtx` (later narrowed to `StageCtx` for every stage but commit)
+   replaces the single-hart state in every stage; `Topology`
    assigns IDs; request IDs carry their pipeline; reservations and
    instruction counts move to where multi-hart semantics need them; the
    simulator ticks `Vec<PipelineDispatch>`.

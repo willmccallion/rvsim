@@ -17,7 +17,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::trace_issue;
 
 use std::collections::VecDeque;
@@ -86,7 +86,7 @@ impl InOrderIssueUnit {
         width: usize,
         rob: &Rob,
         store_buffer: &StoreBuffer,
-        state: &mut CoreCtx<'_>,
+        state: &mut StageCtx<'_>,
         fu_pool: &mut FuPool,
         now: u64,
         pending_squash: Option<PendingSquash>,
@@ -158,11 +158,7 @@ impl InOrderIssueUnit {
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
                 let fu_type = FuType::classify(&entry.ctrl);
                 if !fu_pool.has_free(fu_type, now) {
-                    state
-                        .shared
-                        .stats
-                        .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
-                        .inc();
+                    state.counter(state.core().stat_paths.pipeline.stalls_fu_structural).inc();
                     break;
                 }
                 let complete_cycle = fu_pool.acquire(fu_type, now);
@@ -224,14 +220,14 @@ fn read_operand_by_tag(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
 ) -> Option<u64> {
     if !is_fp && reg.is_zero() {
         return Some(0);
     }
 
     let from_register_file =
-        || Some(if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) });
+        || Some(if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) });
     let Some(tag) = tag else { return from_register_file() };
     // A producer no longer in the ROB has committed its value to the register file.
     rob.find_entry(tag).map_or_else(from_register_file, |entry| entry.result)

@@ -70,11 +70,11 @@ pub trait ExecutionEngine {
     /// architectural CSRs.
     fn vector_config(
         &self,
-        state: &crate::sim::CoreCtx<'_>,
+        csrs: &crate::core::arch::csr::Csrs,
     ) -> crate::core::units::vpu::types::VectorConfig {
-        self.rob().youngest_vec_csr_update().unwrap_or_else(|| {
-            crate::core::units::vpu::types::VectorConfig::from_csrs(&state.hart.csrs)
-        })
+        self.rob()
+            .youngest_vec_csr_update()
+            .unwrap_or_else(|| crate::core::units::vpu::types::VectorConfig::from_csrs(csrs))
     }
 
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
@@ -461,7 +461,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
     pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
-        crate::core::pipeline::mailbox::drain(self, state);
+        crate::core::pipeline::mailbox::drain(self, &mut state.stage());
 
         let frontend_empty = self.frontend.is_empty()
             && self.rename_output.is_empty()
@@ -475,7 +475,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         }
 
         if state.check_exit().is_none() && !state.hart.wfi_waiting {
-            self.frontend.tick(state, &mut self.engine, &mut self.rename_output);
+            self.frontend.tick(&mut state.stage(), &mut self.engine, &mut self.rename_output);
         }
     }
 

@@ -5,11 +5,12 @@
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
 
-use super::CoreCtx;
+use super::{CoreCtx, SharedState};
 use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::core::units::mmu::TranslateOutcome;
 use crate::core::units::mmu::pmp::PmpResult;
 use crate::core::units::mmu::ptw::WalkState;
+use crate::core::{Core, Hart};
 
 /// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
 ///
@@ -31,57 +32,123 @@ pub enum TranslateResult {
     },
 }
 
+/// Begins (or completes) translation of a virtual address.
+pub(super) fn translate(
+    core: &mut Core,
+    hart: &Hart,
+    shared: &SharedState,
+    vaddr: VirtAddr,
+    access: AccessType,
+    size: u64,
+) -> TranslateResult {
+    if shared.direct_mode {
+        let paddr = PhysAddr::new(vaddr.val());
+
+        let is_machine = hart.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
+        let pmp_result = hart.pmp.check(
+            paddr.val(),
+            size,
+            matches!(access, AccessType::Read),
+            matches!(access, AccessType::Write),
+            matches!(access, AccessType::Fetch),
+            is_machine,
+        );
+        if pmp_result != PmpResult::Allow {
+            return TranslateResult::Ready(TranslationResult::fault(
+                fault_for(access, vaddr.val()),
+                0,
+            ));
+        }
+
+        if !shared.bus.is_valid_address(paddr) {
+            return TranslateResult::Ready(TranslationResult::fault(
+                fault_for(access, vaddr.val()),
+                0,
+            ));
+        }
+        return TranslateResult::Ready(TranslationResult::success(paddr, 0));
+    }
+
+    let effective_priv = if access != AccessType::Fetch
+        && (hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
+    {
+        use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
+        use crate::core::arch::mode::PrivilegeMode;
+        let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
+        PrivilegeMode::from_u8(mpp)
+    } else {
+        hart.privilege
+    };
+
+    let outcome =
+        core.mmu.translate_async(vaddr, access, effective_priv, &hart.csrs, Some(&hart.pmp));
+
+    finalize_outcome(hart, shared, outcome, vaddr, access, size, effective_priv)
+}
+
+/// Resumes a walk that was parked waiting on a PTE response.
+pub(super) fn translate_continue(
+    core: &mut Core,
+    hart: &Hart,
+    shared: &SharedState,
+    state: WalkState,
+    raw_pte: u64,
+    bus_transit_cycles: u64,
+) -> TranslateResult {
+    let vaddr = state.vaddr;
+    let access = state.access;
+    let effective_priv = state.privilege;
+    // The walk state carries its own size context only for fault reporting;
+    // PMP needs the access size. Translation post-checks size against PMP
+    // again once the leaf PTE resolves, but the walk itself reads 8 bytes
+    // per PTE which is what `start_walk` / `continue_walk` enforce.
+    let size = 8u64;
+    let outcome =
+        core.mmu.continue_walk(state, raw_pte, &hart.csrs, Some(&hart.pmp), bus_transit_cycles);
+    finalize_outcome(hart, shared, outcome, vaddr, access, size, effective_priv)
+}
+
+/// Applies the post-translation PMP + bus-address checks shared by the
+/// initial translate and walk continuation paths.
+fn finalize_outcome(
+    hart: &Hart,
+    shared: &SharedState,
+    outcome: TranslateOutcome,
+    vaddr: VirtAddr,
+    access: AccessType,
+    size: u64,
+    effective_priv: crate::core::arch::mode::PrivilegeMode,
+) -> TranslateResult {
+    match outcome {
+        TranslateOutcome::Ready(mut result) => {
+            if result.trap.is_none() {
+                let paddr = result.paddr.val();
+                let is_machine = effective_priv == crate::core::arch::mode::PrivilegeMode::Machine;
+                let pmp_result = hart.pmp.check(
+                    paddr,
+                    size,
+                    matches!(access, AccessType::Read),
+                    matches!(access, AccessType::Write),
+                    matches!(access, AccessType::Fetch),
+                    is_machine,
+                );
+                if pmp_result != PmpResult::Allow || !shared.bus.is_valid_address(result.paddr) {
+                    result =
+                        TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
+                }
+            }
+            TranslateResult::Ready(result)
+        }
+        TranslateOutcome::NeedPte { pte_addr, state } => {
+            TranslateResult::NeedPte { pte_addr, state }
+        }
+    }
+}
+
 impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
-        if self.direct_mode {
-            let paddr = PhysAddr::new(vaddr.val());
-
-            let is_machine = self.hart.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
-            let pmp_result = self.hart.pmp.check(
-                paddr.val(),
-                size,
-                matches!(access, AccessType::Read),
-                matches!(access, AccessType::Write),
-                matches!(access, AccessType::Fetch),
-                is_machine,
-            );
-            if pmp_result != PmpResult::Allow {
-                return TranslateResult::Ready(TranslationResult::fault(
-                    fault_for(access, vaddr.val()),
-                    0,
-                ));
-            }
-
-            if !self.bus.is_valid_address(paddr) {
-                return TranslateResult::Ready(TranslationResult::fault(
-                    fault_for(access, vaddr.val()),
-                    0,
-                ));
-            }
-            return TranslateResult::Ready(TranslationResult::success(paddr, 0));
-        }
-
-        let effective_priv = if access != AccessType::Fetch
-            && (self.hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
-        {
-            use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
-            use crate::core::arch::mode::PrivilegeMode;
-            let mpp = ((self.hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
-            PrivilegeMode::from_u8(mpp)
-        } else {
-            self.hart.privilege
-        };
-
-        let outcome = self.core.mmu.translate_async(
-            vaddr,
-            access,
-            effective_priv,
-            &self.hart.csrs,
-            Some(&self.hart.pmp),
-        );
-
-        self.finalize_outcome(outcome, vaddr, access, size, effective_priv)
+        translate(self.core, self.hart, self.shared, vaddr, access, size)
     }
 
     /// Resumes a walk that was parked waiting on a PTE response.
@@ -91,59 +158,7 @@ impl CoreCtx<'_> {
         raw_pte: u64,
         bus_transit_cycles: u64,
     ) -> TranslateResult {
-        let vaddr = state.vaddr;
-        let access = state.access;
-        let effective_priv = state.privilege;
-        // The walk state carries its own size context only for fault reporting;
-        // PMP needs the access size. Translation post-checks size against PMP
-        // again once the leaf PTE resolves, but the walk itself reads 8 bytes
-        // per PTE which is what `start_walk` / `continue_walk` enforce.
-        let size = 8u64;
-        let outcome = self.core.mmu.continue_walk(
-            state,
-            raw_pte,
-            &self.hart.csrs,
-            Some(&self.hart.pmp),
-            bus_transit_cycles,
-        );
-        self.finalize_outcome(outcome, vaddr, access, size, effective_priv)
-    }
-
-    /// Applies the post-translation PMP + bus-address checks shared by the
-    /// initial translate and walk continuation paths.
-    fn finalize_outcome(
-        &self,
-        outcome: TranslateOutcome,
-        vaddr: VirtAddr,
-        access: AccessType,
-        size: u64,
-        effective_priv: crate::core::arch::mode::PrivilegeMode,
-    ) -> TranslateResult {
-        match outcome {
-            TranslateOutcome::Ready(mut result) => {
-                if result.trap.is_none() {
-                    let paddr = result.paddr.val();
-                    let is_machine =
-                        effective_priv == crate::core::arch::mode::PrivilegeMode::Machine;
-                    let pmp_result = self.hart.pmp.check(
-                        paddr,
-                        size,
-                        matches!(access, AccessType::Read),
-                        matches!(access, AccessType::Write),
-                        matches!(access, AccessType::Fetch),
-                        is_machine,
-                    );
-                    if pmp_result != PmpResult::Allow || !self.bus.is_valid_address(result.paddr) {
-                        result =
-                            TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
-                    }
-                }
-                TranslateResult::Ready(result)
-            }
-            TranslateOutcome::NeedPte { pte_addr, state } => {
-                TranslateResult::NeedPte { pte_addr, state }
-            }
-        }
+        translate_continue(self.core, self.hart, self.shared, state, raw_pte, bus_transit_cycles)
     }
 }
 

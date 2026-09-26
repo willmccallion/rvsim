@@ -17,7 +17,7 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
 use crate::core::units::vpu::types::VecPhysReg;
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 
 /// Readiness state of a single source operand.
 ///
@@ -184,7 +184,7 @@ impl IssueQueue {
         &mut self,
         entry: RenameIssueEntry,
         rob: &Rob,
-        state: &CoreCtx<'_>,
+        state: &StageCtx<'_>,
         prf: Option<&PhysRegFile>,
         vec_prf: Option<&VecPhysRegFile>,
         mem_dep: MemDepState,
@@ -625,7 +625,7 @@ fn resolve_operand_prf(
     is_fp: bool,
     phys: PhysReg,
     prf: &PhysRegFile,
-    _state: &CoreCtx<'_>,
+    _state: &StageCtx<'_>,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);
@@ -647,7 +647,7 @@ fn resolve_operand_legacy(
     is_fp: bool,
     tag: Option<RobTag>,
     rob: &Rob,
-    state: &CoreCtx<'_>,
+    state: &StageCtx<'_>,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), None, 0);
@@ -655,7 +655,8 @@ fn resolve_operand_legacy(
 
     tag.map_or_else(
         || {
-            let value = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
+            let value =
+                if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
             OperandState::ready(PhysReg(0), None, value)
         },
         |t| match rob.find_entry(t) {
@@ -666,7 +667,7 @@ fn resolve_operand_legacy(
             None => {
                 // ROB entry already committed — read from register file.
                 let value =
-                    if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
+                    if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
                 OperandState::ready(PhysReg(0), None, value)
             }
         },

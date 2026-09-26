@@ -1,8 +1,120 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
-use super::CoreCtx;
+use super::{CoreCtx, SharedState};
 use crate::common::{CsrAddr, Trap};
+use crate::core::Hart;
 use crate::core::arch::csr;
+
+/// The value a CSR read-modify-write starts from. `mip` reads SEIP as
+/// the OR of the PLIC's line and the software bit, but only the
+/// software bit takes part in a CSRRS/CSRRC (privileged spec §3.1.9):
+/// otherwise clearing another bit while the line is high would set
+/// the software bit and leave SEIP pending for good.
+pub(super) fn read_for_update(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
+    let value = read(hart, shared, addr);
+    if addr.as_u32() != csr::MIP.as_u32() {
+        return value;
+    }
+    let software_seip = if hart.sw_seip { csr::MIP_SEIP } else { 0 };
+    (value & !csr::MIP_SEIP) | software_seip
+}
+
+/// Reads a value from a Control and Status Register (CSR).
+pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
+    let raw = addr.as_u32();
+    match raw {
+        x if x == csr::FFLAGS.as_u32() => hart.csrs.fflags & 0x1F,
+        x if x == csr::FRM.as_u32() => hart.csrs.frm & 0x7,
+        x if x == csr::FCSR.as_u32() => ((hart.csrs.frm & 0x7) << 5) | (hart.csrs.fflags & 0x1F),
+        x if x == csr::MVENDORID.as_u32()
+            || x == csr::MARCHID.as_u32()
+            || x == csr::MIMPID.as_u32() =>
+        {
+            0
+        }
+        x if x == csr::MHARTID.as_u32() => u64::from(hart.hart_id.val()),
+        x if x == csr::MSTATUS.as_u32() => {
+            let val = hart.csrs.mstatus & !csr::MSTATUS_SD;
+            if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY { val | csr::MSTATUS_SD } else { val }
+        }
+        x if x == csr::MEDELEG.as_u32() => hart.csrs.medeleg,
+        x if x == csr::MIDELEG.as_u32() => hart.csrs.mideleg,
+        x if x == csr::MIE.as_u32() => hart.csrs.mie,
+        x if x == csr::MTVEC.as_u32() => hart.csrs.mtvec,
+        x if x == csr::MISA.as_u32() => hart.csrs.misa,
+        x if x == csr::MSCRATCH.as_u32() => hart.csrs.mscratch,
+        x if x == csr::MEPC.as_u32() => hart.csrs.mepc,
+        x if x == csr::MCAUSE.as_u32() => hart.csrs.mcause,
+        x if x == csr::MTVAL.as_u32() => hart.csrs.mtval,
+        x if x == csr::MIP.as_u32() => hart.csrs.mip,
+        x if x == csr::SSTATUS.as_u32() => {
+            let val = hart.csrs.sstatus & !csr::MSTATUS_SD;
+            if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY { val | csr::MSTATUS_SD } else { val }
+        }
+        x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
+        x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
+        x if x == csr::SSCRATCH.as_u32() => hart.csrs.sscratch,
+        x if x == csr::SEPC.as_u32() => hart.csrs.sepc,
+        x if x == csr::SCAUSE.as_u32() => hart.csrs.scause,
+        x if x == csr::STVAL.as_u32() => hart.csrs.stval,
+        x if x == csr::SIP.as_u32() => hart.csrs.mip & hart.csrs.mideleg,
+        x if x == csr::STIMECMP.as_u32() => hart.csrs.stimecmp,
+        x if x == csr::SATP.as_u32() => hart.csrs.satp,
+        x if x == csr::MCOUNTEREN.as_u32() => hart.csrs.mcounteren,
+        x if x == csr::SCOUNTEREN.as_u32() => hart.csrs.scounteren,
+        x if x == csr::MENVCFG.as_u32() => hart.csrs.menvcfg,
+        x if x == csr::SENVCFG.as_u32() => hart.csrs.senvcfg,
+        x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => hart.csrs.mcycle,
+        x if x == csr::TIME.as_u32() => shared.bus.mtime(),
+        x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => hart.csrs.minstret,
+        x if x == csr::MCOUNTINHIBIT.as_u32() => hart.csrs.mcountinhibit,
+        x if x == csr::PMPCFG0.as_u32() => {
+            hart.pmp.get_cfg(0) as u64
+                | ((hart.pmp.get_cfg(1) as u64) << 8)
+                | ((hart.pmp.get_cfg(2) as u64) << 16)
+                | ((hart.pmp.get_cfg(3) as u64) << 24)
+                | ((hart.pmp.get_cfg(4) as u64) << 32)
+                | ((hart.pmp.get_cfg(5) as u64) << 40)
+                | ((hart.pmp.get_cfg(6) as u64) << 48)
+                | ((hart.pmp.get_cfg(7) as u64) << 56)
+        }
+        x if x == csr::PMPCFG2.as_u32() => {
+            hart.pmp.get_cfg(8) as u64
+                | ((hart.pmp.get_cfg(9) as u64) << 8)
+                | ((hart.pmp.get_cfg(10) as u64) << 16)
+                | ((hart.pmp.get_cfg(11) as u64) << 24)
+                | ((hart.pmp.get_cfg(12) as u64) << 32)
+                | ((hart.pmp.get_cfg(13) as u64) << 40)
+                | ((hart.pmp.get_cfg(14) as u64) << 48)
+                | ((hart.pmp.get_cfg(15) as u64) << 56)
+        }
+        x if x >= csr::PMPADDR0.as_u32() && x <= csr::PMPADDR15.as_u32() => {
+            hart.pmp.get_addr((raw - csr::PMPADDR0.as_u32()) as usize)
+        }
+        // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
+        x if x == csr::VSTART.as_u32() => hart.csrs.vstart,
+        x if x == csr::VXSAT.as_u32() => hart.csrs.vxsat & 0x1,
+        x if x == csr::VXRM.as_u32() => hart.csrs.vxrm & 0x3,
+        x if x == csr::VCSR.as_u32() => (hart.csrs.vxsat & 0x1) | ((hart.csrs.vxrm & 0x3) << 1),
+        x if x == csr::VL.as_u32() => hart.csrs.vl,
+        x if x == csr::VTYPE.as_u32() => hart.csrs.vtype,
+        x if x == csr::VLENB.as_u32() => hart.csrs.vlenb,
+        // Sdtrig — trigger CSR reads
+        x if x == csr::TSELECT.as_u32() => hart.csrs.tselect,
+        x if x == csr::TDATA1.as_u32() => {
+            let i = hart.csrs.tselect as usize;
+            hart.csrs.tdata1[i]
+        }
+        x if x == csr::TDATA2.as_u32() => {
+            let i = hart.csrs.tselect as usize;
+            hart.csrs.tdata2[i]
+        }
+        x if x == csr::TDATA3.as_u32() => 0, // not implemented
+        x if x == csr::TINFO.as_u32() => 1 << 2, // mcontrol supported
+        x if x == csr::TCONTROL.as_u32() => hart.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
+        _ => 0,
+    }
+}
 
 impl CoreCtx<'_> {
     /// Returns `true` if the given CSR address corresponds to a CSR that is
@@ -12,129 +124,14 @@ impl CoreCtx<'_> {
         self.hart.is_valid_csr(addr)
     }
 
-    /// The value a CSR read-modify-write starts from. `mip` reads SEIP as
-    /// the OR of the PLIC's line and the software bit, but only the
-    /// software bit takes part in a CSRRS/CSRRC (privileged spec §3.1.9):
-    /// otherwise clearing another bit while the line is high would set
-    /// the software bit and leave SEIP pending for good.
+    /// The value a CSR read-modify-write starts from; see [`read_for_update`].
     pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        let value = self.csr_read(addr);
-        if addr.as_u32() != csr::MIP.as_u32() {
-            return value;
-        }
-        let software_seip = if self.hart.sw_seip { csr::MIP_SEIP } else { 0 };
-        (value & !csr::MIP_SEIP) | software_seip
+        read_for_update(self.hart, self.shared, addr)
     }
 
     /// Reads a value from a Control and Status Register (CSR).
     pub fn csr_read(&self, addr: CsrAddr) -> u64 {
-        let raw = addr.as_u32();
-        match raw {
-            x if x == csr::FFLAGS.as_u32() => self.hart.csrs.fflags & 0x1F,
-            x if x == csr::FRM.as_u32() => self.hart.csrs.frm & 0x7,
-            x if x == csr::FCSR.as_u32() => {
-                ((self.hart.csrs.frm & 0x7) << 5) | (self.hart.csrs.fflags & 0x1F)
-            }
-            x if x == csr::MVENDORID.as_u32()
-                || x == csr::MARCHID.as_u32()
-                || x == csr::MIMPID.as_u32() =>
-            {
-                0
-            }
-            x if x == csr::MHARTID.as_u32() => u64::from(self.hart.hart_id.val()),
-            x if x == csr::MSTATUS.as_u32() => {
-                let val = self.hart.csrs.mstatus & !csr::MSTATUS_SD;
-                if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY {
-                    val | csr::MSTATUS_SD
-                } else {
-                    val
-                }
-            }
-            x if x == csr::MEDELEG.as_u32() => self.hart.csrs.medeleg,
-            x if x == csr::MIDELEG.as_u32() => self.hart.csrs.mideleg,
-            x if x == csr::MIE.as_u32() => self.hart.csrs.mie,
-            x if x == csr::MTVEC.as_u32() => self.hart.csrs.mtvec,
-            x if x == csr::MISA.as_u32() => self.hart.csrs.misa,
-            x if x == csr::MSCRATCH.as_u32() => self.hart.csrs.mscratch,
-            x if x == csr::MEPC.as_u32() => self.hart.csrs.mepc,
-            x if x == csr::MCAUSE.as_u32() => self.hart.csrs.mcause,
-            x if x == csr::MTVAL.as_u32() => self.hart.csrs.mtval,
-            x if x == csr::MIP.as_u32() => self.hart.csrs.mip,
-            x if x == csr::SSTATUS.as_u32() => {
-                let val = self.hart.csrs.sstatus & !csr::MSTATUS_SD;
-                if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY {
-                    val | csr::MSTATUS_SD
-                } else {
-                    val
-                }
-            }
-            x if x == csr::SIE.as_u32() => self.hart.csrs.mie & self.hart.csrs.mideleg,
-            x if x == csr::STVEC.as_u32() => self.hart.csrs.stvec,
-            x if x == csr::SSCRATCH.as_u32() => self.hart.csrs.sscratch,
-            x if x == csr::SEPC.as_u32() => self.hart.csrs.sepc,
-            x if x == csr::SCAUSE.as_u32() => self.hart.csrs.scause,
-            x if x == csr::STVAL.as_u32() => self.hart.csrs.stval,
-            x if x == csr::SIP.as_u32() => self.hart.csrs.mip & self.hart.csrs.mideleg,
-            x if x == csr::STIMECMP.as_u32() => self.hart.csrs.stimecmp,
-            x if x == csr::SATP.as_u32() => self.hart.csrs.satp,
-            x if x == csr::MCOUNTEREN.as_u32() => self.hart.csrs.mcounteren,
-            x if x == csr::SCOUNTEREN.as_u32() => self.hart.csrs.scounteren,
-            x if x == csr::MENVCFG.as_u32() => self.hart.csrs.menvcfg,
-            x if x == csr::SENVCFG.as_u32() => self.hart.csrs.senvcfg,
-            x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle,
-            x if x == csr::TIME.as_u32() => self.bus.mtime(),
-            x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => {
-                self.hart.csrs.minstret
-            }
-            x if x == csr::MCOUNTINHIBIT.as_u32() => self.hart.csrs.mcountinhibit,
-            x if x == csr::PMPCFG0.as_u32() => {
-                self.hart.pmp.get_cfg(0) as u64
-                    | ((self.hart.pmp.get_cfg(1) as u64) << 8)
-                    | ((self.hart.pmp.get_cfg(2) as u64) << 16)
-                    | ((self.hart.pmp.get_cfg(3) as u64) << 24)
-                    | ((self.hart.pmp.get_cfg(4) as u64) << 32)
-                    | ((self.hart.pmp.get_cfg(5) as u64) << 40)
-                    | ((self.hart.pmp.get_cfg(6) as u64) << 48)
-                    | ((self.hart.pmp.get_cfg(7) as u64) << 56)
-            }
-            x if x == csr::PMPCFG2.as_u32() => {
-                self.hart.pmp.get_cfg(8) as u64
-                    | ((self.hart.pmp.get_cfg(9) as u64) << 8)
-                    | ((self.hart.pmp.get_cfg(10) as u64) << 16)
-                    | ((self.hart.pmp.get_cfg(11) as u64) << 24)
-                    | ((self.hart.pmp.get_cfg(12) as u64) << 32)
-                    | ((self.hart.pmp.get_cfg(13) as u64) << 40)
-                    | ((self.hart.pmp.get_cfg(14) as u64) << 48)
-                    | ((self.hart.pmp.get_cfg(15) as u64) << 56)
-            }
-            x if x >= csr::PMPADDR0.as_u32() && x <= csr::PMPADDR15.as_u32() => {
-                self.hart.pmp.get_addr((raw - csr::PMPADDR0.as_u32()) as usize)
-            }
-            // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
-            x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart,
-            x if x == csr::VXSAT.as_u32() => self.hart.csrs.vxsat & 0x1,
-            x if x == csr::VXRM.as_u32() => self.hart.csrs.vxrm & 0x3,
-            x if x == csr::VCSR.as_u32() => {
-                (self.hart.csrs.vxsat & 0x1) | ((self.hart.csrs.vxrm & 0x3) << 1)
-            }
-            x if x == csr::VL.as_u32() => self.hart.csrs.vl,
-            x if x == csr::VTYPE.as_u32() => self.hart.csrs.vtype,
-            x if x == csr::VLENB.as_u32() => self.hart.csrs.vlenb,
-            // Sdtrig — trigger CSR reads
-            x if x == csr::TSELECT.as_u32() => self.hart.csrs.tselect,
-            x if x == csr::TDATA1.as_u32() => {
-                let i = self.hart.csrs.tselect as usize;
-                self.hart.csrs.tdata1[i]
-            }
-            x if x == csr::TDATA2.as_u32() => {
-                let i = self.hart.csrs.tselect as usize;
-                self.hart.csrs.tdata2[i]
-            }
-            x if x == csr::TDATA3.as_u32() => 0, // not implemented
-            x if x == csr::TINFO.as_u32() => 1 << 2, // mcontrol supported
-            x if x == csr::TCONTROL.as_u32() => self.hart.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
-            _ => 0,
-        }
+        read(self.hart, self.shared, addr)
     }
 
     /// Writes a value to a Control and Status Register (CSR).

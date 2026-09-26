@@ -401,10 +401,10 @@ impl ExecutionEngine for InOrderEngine {
         }
 
         self.retire_vec_mem_elements(state);
-        writeback::writeback_stage(state, &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
 
         let _ = memory2::memory2_stage(
-            state,
+            &mut state.stage(),
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
@@ -416,7 +416,7 @@ impl ExecutionEngine for InOrderEngine {
         // and parks parked loads into self.common.outstanding_loads. SB
         // forwards and stores resolve straight into mem1_mem2.
         let mut input = std::mem::take(&mut self.execute_mem1);
-        memory1::memory1_stage(state, self, &mut input);
+        memory1::memory1_stage(&mut state.stage(), self, &mut input);
         // Ops behind an unresolved translation walk go back; ops waiting on
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
@@ -433,7 +433,7 @@ impl ExecutionEngine for InOrderEngine {
                 self.issue_width,
                 &self.rob,
                 &self.store_buffer,
-                state,
+                &mut state.stage(),
                 &mut self.fu_pool,
                 now,
                 self.common.pending_squash,
@@ -447,7 +447,7 @@ impl ExecutionEngine for InOrderEngine {
             for entry in &vec_mem {
                 self.start_vec_mem_op(state, entry);
             }
-            let executed = execute::execute_inorder(state, issued, &mut self.rob);
+            let executed = execute::execute_inorder(&mut state.stage(), issued, &mut self.rob);
             for (tag, redirect) in executed.redirects {
                 let complete_cycle =
                     units.iter().find(|u| u.tag == tag).map_or(now + 1, |u| u.complete_cycle);

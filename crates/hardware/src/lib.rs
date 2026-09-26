@@ -33,4 +33,4 @@ pub use crate::config::Config;
 /// Top-level simulator; owns the `SimState` and pipeline side-by-side.
 pub use crate::sim::simulator::Simulator;
 /// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
-pub use crate::sim::{CoreCtx, SharedState, SimState};
+pub use crate::sim::{CoreCtx, SharedState, SimState, StageCtx};

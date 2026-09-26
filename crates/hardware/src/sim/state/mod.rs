@@ -21,6 +21,9 @@ pub mod reservations;
 /// Trap and exception handling logic.
 pub mod trap;
 
+/// The restricted view every stage but commit works on.
+pub mod views;
+
 /// Record of RAM writes for cross-hart visibility checks.
 pub mod write_log;
 
@@ -54,6 +57,8 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use write_log::{WriteLog, Writer};
+
+pub use views::StageCtx;
 
 /// What the trace macros print once tracing is armed.
 ///
@@ -205,6 +210,13 @@ impl DerefMut for CoreCtx<'_> {
 }
 
 impl CoreCtx<'_> {
+    /// The view a stage other than commit works on: the hart read-only,
+    /// the core and the uncore's stats and event queue mutable.
+    #[inline]
+    pub const fn stage(&mut self) -> StageCtx<'_> {
+        StageCtx::new(self.hart, self.core, self.shared)
+    }
+
     /// Stat paths of the hart this view executes.
     #[inline]
     #[must_use]

@@ -21,7 +21,7 @@ use crate::core::units::vpu::execute::execute_vec_op_on;
 use crate::core::units::vpu::shadow::ShadowVpr;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
-use crate::sim::CoreCtx;
+use crate::sim::StageCtx;
 use crate::{trace_execute, trace_trap};
 
 const FUNCT3_SHIFT: u32 = 12;
@@ -44,10 +44,10 @@ pub struct ExecutedBatch {
 
 /// Executes a vector instruction against a shadow of the architectural
 /// registers and files what it wrote on its ROB entry for commit.
-fn execute_vector(state: &CoreCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) -> Result<u64, Trap> {
-    let csrs = &state.hart.csrs;
+fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) -> Result<u64, Trap> {
+    let csrs = &state.hart().csrs;
     let vector = &state.config.isa.vector;
-    let mut shadow = ShadowVpr::new(state.hart.regs.vpr());
+    let mut shadow = ShadowVpr::new(state.hart().regs.vpr());
     let result = execute_vec_op_on(
         &mut shadow,
         csrs.vtype,
@@ -79,7 +79,7 @@ fn execute_vector(state: &CoreCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) -> 
 /// misprediction, CSR write, MRET/SRET, FENCE.I, a fault); the engine takes
 /// each after the redirect latency.
 pub fn execute_inorder(
-    state: &mut CoreCtx<'_>,
+    state: &mut StageCtx<'_>,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
 ) -> ExecutedBatch {
@@ -203,7 +203,7 @@ pub fn execute_inorder(
         // FENCE is a NOP at execute — handled at commit only.
         if !matches!(id.ctrl.system_op, SystemOp::None | SystemOp::Fence) {
             if id.ctrl.system_op == SystemOp::Mret {
-                if state.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
+                if state.hart().privilege != crate::core::arch::mode::PrivilegeMode::Machine {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -249,7 +249,7 @@ pub fn execute_inorder(
             }
 
             if id.ctrl.system_op == SystemOp::Sret {
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
+                if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::User {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -274,8 +274,8 @@ pub fn execute_inorder(
                     });
                     continue;
                 }
-                let tsr = (state.hart.csrs.mstatus >> 22) & 1;
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                let tsr = (state.hart().csrs.mstatus >> 22) & 1;
+                if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
                     && tsr != 0
                 {
                     rob.fault(
@@ -325,9 +325,10 @@ pub fn execute_inorder(
 
             // WFI is illegal in U-mode, or in S-mode when mstatus.TW=1.
             if id.ctrl.system_op == SystemOp::Wfi {
-                let tw = (state.hart.csrs.mstatus >> 21) & 1;
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
-                    || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                let tw = (state.hart().csrs.mstatus >> 21) & 1;
+                if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::User
+                    || (state.hart().privilege
+                        == crate::core::arch::mode::PrivilegeMode::Supervisor
                         && tw != 0)
                 {
                     rob.fault(
@@ -357,8 +358,8 @@ pub fn execute_inorder(
             }
 
             if id.ctrl.system_op == SystemOp::SfenceVma {
-                let tvm = (state.hart.csrs.mstatus >> 20) & 1;
-                if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                let tvm = (state.hart().csrs.mstatus >> 20) & 1;
+                if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
                     && tvm != 0
                 {
                     rob.fault(
@@ -443,7 +444,7 @@ pub fn execute_inorder(
 
             if id.inst == sys_ops::ECALL {
                 use crate::core::arch::mode::PrivilegeMode;
-                let trap = match state.hart.privilege {
+                let trap = match state.hart().privilege {
                     PrivilegeMode::User => Trap::EnvironmentCallFromUMode,
                     PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
                     PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
@@ -473,8 +474,8 @@ pub fn execute_inorder(
 
             if id.ctrl.csr_op != CsrOp::None {
                 if id.ctrl.csr_addr == crate::core::arch::csr::SATP
-                    && state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
-                    && ((state.hart.csrs.mstatus >> 20) & 1) != 0
+                    && state.hart().privilege == crate::core::arch::mode::PrivilegeMode::Supervisor
+                    && ((state.hart().csrs.mstatus >> 20) & 1) != 0
                 {
                     rob.fault(
                         id.rob_tag,
@@ -515,11 +516,11 @@ pub fn execute_inorder(
                     };
                     if let Some(bit) = counter_bit {
                         let mask = 1u64 << bit;
-                        let denied = match state.hart.privilege {
-                            PrivilegeMode::Supervisor => (state.hart.csrs.mcounteren & mask) == 0,
+                        let denied = match state.hart().privilege {
+                            PrivilegeMode::Supervisor => (state.hart().csrs.mcounteren & mask) == 0,
                             PrivilegeMode::User => {
-                                (state.hart.csrs.mcounteren & mask) == 0
-                                    || (state.hart.csrs.scounteren & mask) == 0
+                                (state.hart().csrs.mcounteren & mask) == 0
+                                    || (state.hart().csrs.scounteren & mask) == 0
                             }
                             PrivilegeMode::Machine => false,
                         };
@@ -581,7 +582,7 @@ pub fn execute_inorder(
                 }
 
                 let csr_priv = id.ctrl.csr_addr.privilege_level() as u32;
-                if (state.hart.privilege.to_u8() as u32) < csr_priv {
+                if (state.hart().privilege.to_u8() as u32) < csr_priv {
                     rob.fault(
                         id.rob_tag,
                         Trap::IllegalInstruction(id.inst),
@@ -702,7 +703,7 @@ pub fn execute_inorder(
 
         // mstatus.FS check is here, not decode, because mstatus writes are deferred to commit.
         {
-            let fs = (state.hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
+            let fs = (state.hart().csrs.mstatus & crate::core::arch::csr::MSTATUS_FS) >> 13;
             let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
             if fs == 0 && is_fp {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
@@ -810,7 +811,7 @@ pub fn execute_inorder(
             continue;
         }
 
-        let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart.csrs.frm as u8));
+        let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart().csrs.frm as u8));
         let (alu_out, fp_flags) =
             compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_f16, id.ctrl.is_rv32, fp_rm);
 
@@ -841,12 +842,12 @@ pub fn execute_inorder(
             );
 
             if mispredicted {
-                state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
+                state.counter(state.core().stat_paths.bp.spec_mispredicts).inc();
                 let repair =
                     BranchRepair { pc: id.pc, taken, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
                 redirects.push((id.rob_tag, Redirect::mispredict(actual_next_pc, repair)));
             } else {
-                state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
+                state.counter(state.core().stat_paths.bp.spec_hits).inc();
             }
         }
 
@@ -872,11 +873,11 @@ pub fn execute_inorder(
             rob.set_bp_target(id.rob_tag, actual_target);
 
             if is_jalr {
-                state.core.branch_predictor.update_btb(id.pc, actual_target);
+                state.core_mut().branch_predictor.update_btb(id.pc, actual_target);
             }
 
             if mispredicted {
-                state.shared.stats.counter(state.core.stat_paths.bp.spec_mispredicts).inc();
+                state.counter(state.core().stat_paths.bp.spec_mispredicts).inc();
                 let repair = BranchRepair {
                     pc: id.pc,
                     taken: true,
@@ -885,7 +886,7 @@ pub fn execute_inorder(
                 };
                 redirects.push((id.rob_tag, Redirect::mispredict(actual_target, repair)));
             } else {
-                state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
+                state.counter(state.core().stat_paths.bp.spec_hits).inc();
             }
         }
 
