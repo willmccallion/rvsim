@@ -44,4 +44,3 @@ pub mod soc;
 /// This module contains tests for binary loading, kernel setup,
 /// and other simulation initialization tasks.
 pub mod sim;
-

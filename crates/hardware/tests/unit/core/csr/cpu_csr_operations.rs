@@ -4,9 +4,9 @@
 //! including side effects like TLB flushes, interrupt inhibition, and
 //! synchronization between MSTATUS and SSTATUS.
 
+use rvsim_core::SimState;
 use rvsim_core::common::CsrAddr;
 use rvsim_core::config::Config;
-use rvsim_core::SimState;
 use rvsim_core::core::arch::csr;
 
 /// Helper function to create a test CPU instance.
@@ -34,7 +34,7 @@ fn test_mhartid_returns_hart_id() {
 
     let mut sys = create_test_cpu();
 
-    let mut state = sys.core_ctx(0);
+    let state = sys.core_ctx(0);
     state.hart.hart_id = HartId::new(7);
     assert_eq!(state.csr_read(csr::MHARTID), 7);
 

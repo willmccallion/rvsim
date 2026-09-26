@@ -9,7 +9,7 @@
 //! - Bare mode bypass
 
 use crate::common::harness::TestContext;
-use rvsim_core::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
+use rvsim_core::common::{AccessType, TranslationResult, Trap, VirtAddr};
 use rvsim_core::core::arch::csr::{self, Csrs};
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
@@ -27,7 +27,7 @@ fn translate_sync(
     access: AccessType,
     privilege: PrivilegeMode,
     csrs: &Csrs,
-    bus: &mut Bus,
+    bus: &Bus,
 ) -> TranslationResult {
     let mut outcome = mmu.translate_async(vaddr, access, privilege, csrs, None);
     loop {
@@ -35,13 +35,10 @@ fn translate_sync(
             TranslateOutcome::Ready(r) => return r,
             TranslateOutcome::NeedPte { pte_addr, state } => {
                 let raw = pte_addr.val();
-                let raw_pte = bus
-                    .ram_region()
-                    .filter(|r| r.contains(raw, 8))
-                    .map_or(0u64, |r| {
-                        // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks.
-                        unsafe { r.ptr(raw).cast::<u64>().read_unaligned() }
-                    });
+                let raw_pte = bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
+                    // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks.
+                    unsafe { r.ptr(raw).cast::<u64>().read_unaligned() }
+                });
                 let cycles = bus.calculate_transit_time(8);
                 outcome = mmu.continue_walk(state, raw_pte, csrs, None, cycles);
             }
@@ -87,7 +84,7 @@ fn setup_mmu() -> (Mmu, Csrs, TestContext) {
 /// Helper to write a PTE to memory via the RAM fast-path pointer.
 /// `vpn` is the index at the given `level` (2, 1, or 0).
 /// `base_ppn` is the PPN of the page table at this level.
-fn write_pte(bus: &mut Bus, base_ppn: u64, vpn_index: u64, pte: u64) {
+fn write_pte(bus: &Bus, base_ppn: u64, vpn_index: u64, pte: u64) {
     let addr = (base_ppn << 12) + (vpn_index * 8);
     let r = bus
         .ram_region()
@@ -103,12 +100,13 @@ fn bare_mode_bypass() {
     csrs.write(csr::SATP, 0); // Mode = 0 (Bare)
 
     let vaddr = VirtAddr::new(0x1234_5678);
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         vaddr,
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
@@ -121,12 +119,13 @@ fn machine_mode_bypass() {
     // SATP is SV39, but privilege is Machine -> should bypass
 
     let vaddr = VirtAddr::new(0x1234_5678);
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         vaddr,
         AccessType::Read,
         PrivilegeMode::Machine,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
@@ -154,7 +153,8 @@ fn sv39_4kb_page_walk() {
     // L0 -> leaf (R/W/X)
     write_pte(bus, l0_table_ppn, l0_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), (target_ppn << 12) | 0x234);
@@ -177,7 +177,8 @@ fn sv39_megapage_walk() {
     // L1 -> leaf (megapage)
     write_pte(bus, l1_table_ppn, l1_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target_ppn << 12);
@@ -196,7 +197,8 @@ fn sv39_gigapage_walk() {
     // L2 -> leaf (gigapage)
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target_ppn << 12);
@@ -209,7 +211,8 @@ fn invalid_pte_causes_fault() {
     let vaddr = VirtAddr::new(0x1000);
 
     // ROOT_PPN + VPN[2] is 0 (invalid) by default in MockMemory
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
@@ -232,7 +235,8 @@ fn pointer_at_level_0_causes_fault() {
     // Level 0 PTE without R/W/X permissions -> pointer, but L0 can't have pointers
     write_pte(bus, l0_ppn, l0_idx, make_pte(ROOT_PPN + 10, 0)); // V=1, others 0
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -252,7 +256,8 @@ fn misaligned_superpage_causes_fault() {
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
     write_pte(bus, l1_ppn, l1_idx, make_pte(misaligned_target_ppn, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -268,7 +273,8 @@ fn write_to_clean_page_sets_dirty() {
     let pte_val = make_pte(target_ppn, R | W | X | A);
     write_pte(bus, ROOT_PPN, l2_idx, pte_val);
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
@@ -289,7 +295,8 @@ fn read_from_unaccessed_page_sets_accessed() {
     let pte_val = make_pte(target_ppn, R | W | X);
     write_pte(bus, ROOT_PPN, l2_idx, pte_val);
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
@@ -309,7 +316,8 @@ fn write_permission_check() {
     // Read-only page
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -324,7 +332,8 @@ fn execute_permission_check() {
     // RW page (NX)
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::InstructionPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -357,12 +366,14 @@ fn supervisor_access_user_page_needs_sum() {
     // Disable SUM
     csrs.write(csr::SSTATUS, 0);
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 
     // Enable SUM
     csrs.write(csr::SSTATUS, 1 << 18);
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 }
 
@@ -378,7 +389,8 @@ fn supervisor_cannot_fetch_user_page() {
     write_pte(bus, ROOT_PPN, l2_idx, make_pte(target_ppn, R | X | U | A | D));
 
     // Even with SUM, Supervisor cannot execute User pages
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Fetch, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::InstructionPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -389,12 +401,13 @@ fn non_canonical_address_faults() {
     // SV39 requires bits 63..39 to sign-extend bit 38; here bit 38=1 but 63..39=0.
     let non_canon = VirtAddr::new(1 << 38);
 
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         non_canon,
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
 
     // Non-canonical address is unmapped in the virtual address space → PageFault
@@ -436,7 +449,8 @@ fn sv48_4kb_page_walk() {
     write_pte(bus, l1_table, l1, make_pte(l0_table, 0));
     write_pte(bus, l0_table, l0, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), (target << 12) | 0x234);
 }
@@ -459,7 +473,8 @@ fn sv48_megapage_walk() {
     write_pte(bus, l2_table, l2, make_pte(l1_table, 0));
     write_pte(bus, l1_table, l1, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target << 12);
 }
@@ -479,7 +494,8 @@ fn sv48_gigapage_walk() {
     write_pte(bus, ROOT_PPN, l3, make_pte(l2_table, 0));
     write_pte(bus, l2_table, l2, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), target << 12);
 }
@@ -499,7 +515,8 @@ fn sv48_terapage_walk() {
 
     write_pte(bus, ROOT_PPN, l3, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     let offset_mask = (1u64 << (12 + 9 * 3)) - 1;
     assert_eq!(res.paddr.val(), (target << 12) | (vaddr.val() & offset_mask));
@@ -524,7 +541,8 @@ fn sv48_misaligned_superpage_causes_fault() {
     write_pte(bus, l2_table, l2, make_pte(l1_table, 0));
     write_pte(bus, l1_table, l1, make_pte(misaligned, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -549,7 +567,8 @@ fn sv48_pointer_at_level_0_causes_fault() {
     // L0 with no R/W/X is a pointer encoding, illegal at the leaf level.
     write_pte(bus, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -559,23 +578,25 @@ fn sv48_non_canonical_address_faults() {
 
     // bit 47 = 1 but bits 63..48 = 0 → non-canonical for Sv48.
     let non_canon_low = VirtAddr::new(1u64 << 47);
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         non_canon_low,
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 
     // bit 47 = 0 but a stray upper bit set → non-canonical.
     let non_canon_hi = VirtAddr::new(1u64 << 50);
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         non_canon_hi,
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
@@ -586,7 +607,8 @@ fn sv48_invalid_pte_causes_fault() {
     let bus = &mut tc.cpu_mut().bus;
     let vaddr = VirtAddr::new(0x1000);
     // Default-zero memory at the root → V=0 at L3 → fault on the first read.
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -614,7 +636,8 @@ fn sv57_4kb_page_walk() {
     write_pte(bus, l1_table, l1, make_pte(l0_table, 0));
     write_pte(bus, l0_table, l0, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), (target << 12) | 0x234);
 }
@@ -634,7 +657,8 @@ fn sv57_petapage_walk() {
 
     write_pte(bus, ROOT_PPN, l4, make_pte(target, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     let offset_mask = (1u64 << (12 + 9 * 4)) - 1;
     assert_eq!(res.paddr.val(), (target << 12) | (vaddr.val() & offset_mask));
@@ -652,7 +676,8 @@ fn sv57_misaligned_superpage_causes_fault() {
     let misaligned = (1u64 << 36) | 0x1;
     write_pte(bus, ROOT_PPN, l4, make_pte(misaligned, R | W | X | A | D));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -679,7 +704,8 @@ fn sv57_pointer_at_level_0_causes_fault() {
     write_pte(bus, l1_table, l1, make_pte(l0_table, 0));
     write_pte(bus, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
 
-    let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
@@ -690,12 +716,13 @@ fn sv57_non_canonical_address_faults() {
     // bit 56 = 1 but bits 63..57 = 0 → non-canonical.
     let non_canon = VirtAddr::new(1u64 << 56);
 
-    let res = translate_sync(&mut mmu, 
+    let res = translate_sync(
+        &mut mmu,
         non_canon,
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &mut tc.cpu_mut().bus,
+        &tc.cpu().bus,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }

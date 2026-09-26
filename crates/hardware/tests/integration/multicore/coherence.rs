@@ -159,7 +159,8 @@ fn check_all_programs(config: &Config, label: &str) {
     let harts = config.system.hart_count;
     let iterations = 60;
 
-    let mut system = MultiHart::with_config(config, &amo_counter::program(harts as i32, iterations));
+    let mut system =
+        MultiHart::with_config(config, &amo_counter::program(harts as i32, iterations));
     let exit = run_audited(&mut system, 6_000_000);
     assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: amo counter");
 
@@ -170,12 +171,18 @@ fn check_all_programs(config: &Config, label: &str) {
     let mut system = MultiHart::with_config(config, &shared_line_stores(harts as i32, iterations));
     let exit = run_audited(&mut system, 6_000_000);
     assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: shared line stores");
-    assert!(fabric_stat(&system, "coherence.ha.snoops_sent") > 0, "{label}: the shared line was snooped");
+    assert!(
+        fabric_stat(&system, "coherence.ha.snoops_sent") > 0,
+        "{label}: the shared line was snooped"
+    );
 
     let mut system = MultiHart::with_config(config, &producer_consumer(harts as i32));
     let exit = run_audited(&mut system, 6_000_000);
     assert_eq!(exit, Some((harts as u64 - 1) * 36), "{label}: producer/consumer");
-    assert!(fabric_stat(&system, "coherence.ha.c2c_transfers") > 0, "{label}: the payload came from the producer's cache");
+    assert!(
+        fabric_stat(&system, "coherence.ha.c2c_transfers") > 0,
+        "{label}: the payload came from the producer's cache"
+    );
 }
 
 #[test]

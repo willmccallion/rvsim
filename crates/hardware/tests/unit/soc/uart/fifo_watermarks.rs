@@ -25,7 +25,7 @@ fn uart_address_range() {
 #[test]
 fn uart_lsr_default_thre_temt() {
     let mut uart = Uart::new(0, true, true);
-    let lsr = (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(5), 1) as u8); // LSR
+    let lsr = crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(5), 1) as u8; // LSR
     // Bits 5 (THRE) and 6 (TEMT) should be set (transmitter ready)
     assert_ne!(lsr & 0x20, 0, "THRE should be set");
     assert_ne!(lsr & 0x40, 0, "TEMT should be set");
@@ -34,59 +34,77 @@ fn uart_lsr_default_thre_temt() {
 #[test]
 fn uart_lsr_no_data_ready() {
     let mut uart = Uart::new(0, true, true);
-    let lsr = (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(5), 1) as u8);
+    let lsr = crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(5), 1) as u8;
     assert_eq!(lsr & 0x01, 0, "No data ready initially");
 }
 
 #[test]
 fn uart_scratch_register() {
     let mut uart = Uart::new(0, true, true);
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(7), (0xAB) as u64, 1); // SCR
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(7), 1) as u8), 0xAB);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(7), 0xAB_u64, 1); // SCR
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(7), 1) as u8),
+        0xAB
+    );
 }
 
 #[test]
 fn uart_lcr_write_and_read() {
     let mut uart = Uart::new(0, true, true);
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), (0x03) as u64, 1); // LCR = 8N1
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(3), 1) as u8), 0x03);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), 0x03_u64, 1); // LCR = 8N1
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(3), 1) as u8),
+        0x03
+    );
 }
 
 #[test]
 fn uart_mcr_write_and_read() {
     let mut uart = Uart::new(0, true, true);
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(4), (0x0B) as u64, 1); // MCR
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(4), 1) as u8), 0x0B);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(4), 0x0B_u64, 1); // MCR
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(4), 1) as u8),
+        0x0B
+    );
 }
 
 #[test]
 fn uart_dlab_mode_divisor() {
     let mut uart = Uart::new(0, true, true);
     // Set DLAB
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), (0x80) as u64, 1);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), 0x80_u64, 1);
     // Write divisor latch low
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(0), (0x01) as u64, 1);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(0), 0x01_u64, 1);
     // Write divisor latch high
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(1), (0x00) as u64, 1);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(1), 0x00_u64, 1);
     // Read back DLL
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(0), 1) as u8), 0x01);
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(0), 1) as u8),
+        0x01
+    );
     // Read back DLM
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(1), 1) as u8), 0x00);
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(1), 1) as u8),
+        0x00
+    );
 }
 
 #[test]
 fn uart_ier_write_and_read() {
     let mut uart = Uart::new(0, true, true);
     // Ensure DLAB is clear
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), (0x00) as u64, 1);
-    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(1), (0x03) as u64, 1); // IER: enable RDA and THRE interrupts
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(1), 1) as u8), 0x03);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(3), 0x00_u64, 1);
+    crate::common::probe::write(&mut uart, rvsim_core::common::PhysAddr::new(1), 0x03_u64, 1); // IER: enable RDA and THRE interrupts
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(1), 1) as u8),
+        0x03
+    );
 }
 
 #[test]
 fn uart_iir_no_interrupt_initially() {
     let mut uart = Uart::new(0, true, true);
-    let iir = (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(2), 1) as u8);
+    let iir = crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(2), 1) as u8;
     // 16550: IIR bit 0 = 1 means "no interrupt pending".
     assert_ne!(iir & 0x01, 0, "No interrupt pending initially");
 }
@@ -100,12 +118,19 @@ fn uart_irq_id() {
 #[test]
 fn uart_msr_returns_zero() {
     let mut uart = Uart::new(0, true, true);
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(6), 1) as u8), 0, "MSR should return 0");
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(6), 1) as u8),
+        0,
+        "MSR should return 0"
+    );
 }
 
 #[test]
 fn uart_unknown_register_returns_zero() {
     let mut uart = Uart::new(0, true, true);
     // Register offset > 7 should return 0
-    assert_eq!((crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(15), 1) as u8), 0);
+    assert_eq!(
+        (crate::common::probe::read(&mut uart, rvsim_core::common::PhysAddr::new(15), 1) as u8),
+        0
+    );
 }

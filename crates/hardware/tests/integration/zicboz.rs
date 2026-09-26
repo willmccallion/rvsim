@@ -19,10 +19,7 @@ const X10: u32 = 10;
 /// Encode a CBO instruction. I-type with the variant-specific 12-bit imm,
 /// rd=x0, funct3=CBO, opcode=MISC-MEM.
 fn cbo(imm: i64, rs1: u32) -> u32 {
-    ((imm as u32 & 0xFFF) << 20)
-        | ((rs1 & 0x1F) << 15)
-        | (i_f3::CBO << 12)
-        | i_op::OP_MISC_MEM
+    ((imm as u32 & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
 }
 
 fn cbo_zero(rs1: u32) -> u32 {
@@ -88,11 +85,7 @@ fn cbo_zero_aligned_zeroes_one_block_only() {
     run_cbo_zero(&mut ctx, data_addr);
 
     for off in (0..CBOZ_BLOCK_SIZE).step_by(8) {
-        assert_eq!(
-            read_u64(&mut ctx, data_addr + off),
-            0,
-            "block must be zeroed at +{off}"
-        );
+        assert_eq!(read_u64(&mut ctx, data_addr + off), 0, "block must be zeroed at +{off}");
     }
     for off in (CBOZ_BLOCK_SIZE..2 * CBOZ_BLOCK_SIZE).step_by(8) {
         let expected = 0xDEAD_BEEF_CAFE_F00Du64.wrapping_add(off);
@@ -138,10 +131,7 @@ fn cbo_zero_ignores_low_address_bits() {
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::new_with_config(&Config::default()).with_memory(RAM_SIZE, RAM_BASE);
-    assert_eq!(
-        ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::core::arch::csr::MENVCFG_CBZE,
-        0
-    );
+    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::core::arch::csr::MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);

@@ -55,10 +55,8 @@ fn fr_fcfs_falls_back_to_the_earliest_ready_request_preferring_hits() {
 
 #[test]
 fn fcfs_always_takes_the_head_of_the_queue() {
-    let candidates = [
-        Candidate { row_hit: false, ready_at: 90 },
-        Candidate { row_hit: true, ready_at: 0 },
-    ];
+    let candidates =
+        [Candidate { row_hit: false, ready_at: 90 }, Candidate { row_hit: true, ready_at: 0 }];
     assert_eq!(Fcfs.pick(&candidates, 10), Some(0));
     assert_eq!(Fcfs.pick(&[], 10), None);
 }

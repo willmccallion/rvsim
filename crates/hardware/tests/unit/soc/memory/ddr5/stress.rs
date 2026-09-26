@@ -48,11 +48,6 @@ fn stress_1024_requests_all_complete() {
     bursts.sort_unstable();
     assert!(!bursts.is_empty());
     for pair in bursts.windows(2) {
-        assert!(
-            pair[1].0 >= pair[0].1,
-            "data bursts overlap: {:?} then {:?}",
-            pair[0],
-            pair[1]
-        );
+        assert!(pair[1].0 >= pair[0].1, "data bursts overlap: {:?} then {:?}", pair[0], pair[1]);
     }
 }

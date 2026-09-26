@@ -13,7 +13,9 @@ use rvsim_core::core::units::cache::Cache;
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind, WriteData};
+use rvsim_core::sim::packet::{
+    AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind, WriteData,
+};
 use rvsim_core::sim::stats::Stats;
 
 const LATENCY: u64 = 2;
@@ -55,7 +57,13 @@ struct Bench {
 
 impl Bench {
     fn new(cache: Cache) -> Self {
-        Self { cache, queue: EventQueue::new(), stats: Stats::new(), config: Config::default(), cycle: 100 }
+        Self {
+            cache,
+            queue: EventQueue::new(),
+            stats: Stats::new(),
+            config: Config::default(),
+            cycle: 100,
+        }
     }
 
     fn deliver(&mut self, packet: Packet, source: ComponentId) {
@@ -71,7 +79,13 @@ impl Bench {
 
     fn request(&mut self, req_id: u64, addr: u64, op: MemOp) {
         self.deliver(
-            Packet::MemReq { req_id: ReqId::new(req_id), paddr: PhysAddr::new(addr), vaddr: None, size: AccessSize::B8, op },
+            Packet::MemReq {
+                req_id: ReqId::new(req_id),
+                paddr: PhysAddr::new(addr),
+                vaddr: None,
+                size: AccessSize::B8,
+                op,
+            },
             PIPELINE,
         );
     }
@@ -99,7 +113,9 @@ impl Bench {
             .into_iter()
             .filter(|e| e.target == DOWNSTREAM)
             .filter_map(|e| match e.packet {
-                Packet::MemReq { req_id, paddr, op, .. } => Some((req_id, paddr.val(), op, e.fire_at)),
+                Packet::MemReq { req_id, paddr, op, .. } => {
+                    Some((req_id, paddr.val(), op, e.fire_at))
+                }
                 _ => None,
             })
             .collect()
@@ -198,7 +214,8 @@ fn a_second_miss_to_the_same_line_joins_the_mshr() {
 
     bench.fill(requests[0].0, 0x1000);
     let events = bench.drain();
-    let answered: Vec<ReqId> = responses_to(&events, PIPELINE).into_iter().map(|(id, _)| id).collect();
+    let answered: Vec<ReqId> =
+        responses_to(&events, PIPELINE).into_iter().map(|(id, _)| id).collect();
     assert_eq!(answered, vec![ReqId::new(1), ReqId::new(2)]);
     assert!(bench.cache.duplicate_lines().is_empty());
 }
@@ -224,7 +241,10 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
     let retried: Vec<u64> = events
         .iter()
         .filter(|e| e.target == DOWNSTREAM)
-        .filter_map(|e| match e.packet { Packet::MemReq { paddr, .. } => Some(paddr.val()), _ => None })
+        .filter_map(|e| match e.packet {
+            Packet::MemReq { paddr, .. } => Some(paddr.val()),
+            _ => None,
+        })
         .collect();
     assert_eq!(retried, vec![0x2000], "the queued miss is fetched once an MSHR frees");
     assert_eq!(bench.cache.blocked_requests(), 0);
@@ -245,11 +265,20 @@ fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
         .iter()
         .filter(|e| e.target == DOWNSTREAM)
         .filter_map(|e| match e.packet {
-            Packet::MemReq { paddr, op: MemOp::Writeback { dirty }, size: AccessSize::Line, .. } => Some((paddr.val(), dirty)),
+            Packet::MemReq {
+                paddr,
+                op: MemOp::Writeback { dirty },
+                size: AccessSize::Line,
+                ..
+            } => Some((paddr.val(), dirty)),
             _ => None,
         })
         .collect();
-    assert_eq!(writebacks, vec![(0x0000, true)], "the dirty LRU victim goes down as a dirty writeback");
+    assert_eq!(
+        writebacks,
+        vec![(0x0000, true)],
+        "the dirty LRU victim goes down as a dirty writeback"
+    );
     assert!(!bench.cache.contains(0x0000));
     assert!(bench.cache.contains(0x0080));
     assert_eq!(bench.stat("test.evictions"), 1);
@@ -261,7 +290,11 @@ fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
     let fetch = bench.downstream_requests();
     bench.fill(fetch[0].0, 0x0180);
     let events = bench.drain();
-    assert!(events.iter().all(|e| !matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { .. }, .. })));
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { .. }, .. }))
+    );
     assert_eq!(bench.stat("test.evictions"), 2);
 }
 
@@ -289,7 +322,13 @@ fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
     assert_eq!(bench.cache.blocked_requests(), 1);
 
     bench.deliver(
-        Packet::MemResp { req_id: writeback_id, line_addr: LineAddr::from_phys(PhysAddr::new(0), 64), data: MemRespData::Small(0), hit_level: HitLevel::Dram, state: MesiState::Exclusive },
+        Packet::MemResp {
+            req_id: writeback_id,
+            line_addr: LineAddr::from_phys(PhysAddr::new(0), 64),
+            data: MemRespData::Small(0),
+            hit_level: HitLevel::Dram,
+            state: MesiState::Exclusive,
+        },
         DOWNSTREAM,
     );
     let events = bench.drain();
@@ -298,7 +337,9 @@ fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
 
 #[test]
 fn inclusive_evictions_back_invalidate_upstream_and_nine_ones_do_not() {
-    for (policy, expect_inval) in [(InclusionPolicy::Inclusive, true), (InclusionPolicy::Nine, false)] {
+    for (policy, expect_inval) in
+        [(InclusionPolicy::Inclusive, true), (InclusionPolicy::Nine, false)]
+    {
         let mut cache = cache_with(&test_config());
         cache.add_upstream(UPSTREAM);
         cache.set_upstream_inclusion(policy);
@@ -312,7 +353,10 @@ fn inclusive_evictions_back_invalidate_upstream_and_nine_ones_do_not() {
         let invals: Vec<u64> = events
             .iter()
             .filter(|e| e.target == UPSTREAM)
-            .filter_map(|e| match e.packet { Packet::CacheInval { line_addr } => Some(line_addr.val()), _ => None })
+            .filter_map(|e| match e.packet {
+                Packet::CacheInval { line_addr } => Some(line_addr.val()),
+                _ => None,
+            })
             .collect();
         assert_eq!(invals, if expect_inval { vec![0x0000] } else { vec![] }, "{policy:?}");
     }
@@ -326,11 +370,19 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
     let mut bench = Bench::new(cache);
     bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
 
-    bench.deliver(Packet::CacheInval { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64) }, DOWNSTREAM);
+    bench.deliver(
+        Packet::CacheInval { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64) },
+        DOWNSTREAM,
+    );
     let events = bench.drain();
     assert!(!bench.cache.contains(0x1000));
-    assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
-    assert!(events.iter().any(|e| e.target == UPSTREAM && matches!(e.packet, Packet::CacheInval { .. })));
+    assert!(events.iter().any(|e| e.target == DOWNSTREAM
+        && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.target == UPSTREAM && matches!(e.packet, Packet::CacheInval { .. }))
+    );
     assert_eq!(bench.stat("test.back_invalidations"), 1);
 }
 
@@ -349,7 +401,11 @@ fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
 
     bench.read(2, 0x1048);
     let addrs: Vec<u64> = bench.downstream_requests().iter().map(|r| r.1).collect();
-    assert_eq!(addrs, vec![0x1080], "the demand miss joins the prefetch MSHR; only its own next line is fetched");
+    assert_eq!(
+        addrs,
+        vec![0x1080],
+        "the demand miss joins the prefetch MSHR; only its own next line is fetched"
+    );
     assert_eq!(bench.stat("test.prefetches.useful"), 1);
     assert_eq!(bench.stat("test.mshr_hits"), 1);
     assert_eq!(bench.stat("test.prefetches.issued"), 2);
@@ -386,12 +442,19 @@ fn a_disabled_cache_forwards_and_routes_the_response_back() {
 fn a_writeback_for_an_absent_line_is_forwarded_and_acked() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.deliver(
-        Packet::MemReq { req_id: ReqId::new(5), paddr: PhysAddr::new(0x3000), vaddr: None, size: AccessSize::Line, op: MemOp::Writeback { dirty: true } },
+        Packet::MemReq {
+            req_id: ReqId::new(5),
+            paddr: PhysAddr::new(0x3000),
+            vaddr: None,
+            size: AccessSize::Line,
+            op: MemOp::Writeback { dirty: true },
+        },
         PIPELINE,
     );
     let events = bench.drain();
     assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(5), bench.cycle + LATENCY)]);
-    assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
+    assert!(events.iter().any(|e| e.target == DOWNSTREAM
+        && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
     assert!(!bench.cache.contains(0x3000), "writebacks do not allocate");
 }
 
@@ -400,7 +463,13 @@ fn a_writeback_for_a_held_line_marks_it_dirty_in_place() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.install(1, 0x0000, MemOp::Read);
     bench.deliver(
-        Packet::MemReq { req_id: ReqId::new(5), paddr: PhysAddr::new(0x0000), vaddr: None, size: AccessSize::Line, op: MemOp::Writeback { dirty: true } },
+        Packet::MemReq {
+            req_id: ReqId::new(5),
+            paddr: PhysAddr::new(0x0000),
+            vaddr: None,
+            size: AccessSize::Line,
+            op: MemOp::Writeback { dirty: true },
+        },
         PIPELINE,
     );
     let events = bench.drain();
@@ -418,7 +487,13 @@ fn exclusive_lower_level_gives_up_its_copy_when_it_fills_the_upper_one() {
     bench.install(1, 0x1000, MemOp::Read);
 
     bench.deliver(
-        Packet::MemReq { req_id: ReqId::new(2), paddr: PhysAddr::new(0x1000), vaddr: None, size: AccessSize::Line, op: MemOp::Read },
+        Packet::MemReq {
+            req_id: ReqId::new(2),
+            paddr: PhysAddr::new(0x1000),
+            vaddr: None,
+            size: AccessSize::Line,
+            op: MemOp::Read,
+        },
         UPSTREAM,
     );
     let events = bench.drain();
@@ -437,7 +512,12 @@ fn exclusive_upper_level_hands_clean_victims_down() {
     let fetch = bench.downstream_requests();
     bench.fill(fetch[0].0, 0x0100);
     let events = bench.drain();
-    assert!(events.iter().any(|e| matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: false }, .. })));
+    assert!(
+        events.iter().any(|e| matches!(
+            e.packet,
+            Packet::MemReq { op: MemOp::Writeback { dirty: false }, .. }
+        ))
+    );
 }
 
 #[test]
@@ -511,11 +591,19 @@ fn fills_install_the_granted_state_and_hits_grant_it_onward() {
     let fetch = bench.downstream_requests();
     bench.fill_with(fetch[0].0, 0x2000, MesiState::Modified);
     let events = bench.drain();
-    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Exclusive], "a read never installs dirtier than clean-exclusive");
+    assert_eq!(
+        granted_states(&events, PIPELINE),
+        vec![MesiState::Exclusive],
+        "a read never installs dirtier than clean-exclusive"
+    );
 
     bench.read(3, 0x1000);
     let events = bench.drain();
-    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Shared], "a hit grants the line's own state");
+    assert_eq!(
+        granted_states(&events, PIPELINE),
+        vec![MesiState::Shared],
+        "a hit grants the line's own state"
+    );
     bench.write(4, 0x2000);
     let events = bench.drain();
     assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Modified]);
@@ -548,7 +636,14 @@ fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
     bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
 
     let txn = ReqId::new(77);
-    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn }, DOWNSTREAM);
+    bench.deliver(
+        Packet::Probe {
+            line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64),
+            kind: ProbeKind::Invalidate,
+            txn,
+        },
+        DOWNSTREAM,
+    );
     let events = bench.drain();
     let order: Vec<&str> = events
         .iter()
@@ -561,7 +656,9 @@ fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
         })
         .collect();
     assert_eq!(order, vec!["writeback", "resp-dirty"]);
-    assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { txn: t, .. } if t == txn)));
+    assert!(
+        events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { txn: t, .. } if t == txn))
+    );
     assert!(!bench.cache.contains(0x1000));
     assert_eq!(bench.stat("test.probes"), 1);
 }
@@ -570,10 +667,20 @@ fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
 fn a_downgrade_probe_leaves_a_shared_copy() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.install(1, 0x1000, MemOp::Read);
-    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Downgrade, txn: ReqId::new(1) }, DOWNSTREAM);
+    bench.deliver(
+        Packet::Probe {
+            line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64),
+            kind: ProbeKind::Downgrade,
+            txn: ReqId::new(1),
+        },
+        DOWNSTREAM,
+    );
     let events = bench.drain();
     assert!(events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { dirty: false, .. })));
-    assert!(events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })), "clean line: no writeback");
+    assert!(
+        events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })),
+        "clean line: no writeback"
+    );
     assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
 }
 
@@ -582,17 +689,29 @@ fn a_probe_that_hits_an_in_flight_fetch_leaves_the_fill_alone() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.read(1, 0x1000);
     let fetch = bench.downstream_requests();
-    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn: ReqId::new(5) }, DOWNSTREAM);
+    bench.deliver(
+        Packet::Probe {
+            line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64),
+            kind: ProbeKind::Invalidate,
+            txn: ReqId::new(5),
+        },
+        DOWNSTREAM,
+    );
     let events = bench.drain();
     assert!(
-        events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { had_copy: false, dirty: false, .. })),
+        events
+            .iter()
+            .any(|e| matches!(e.packet, Packet::ProbeResp { had_copy: false, dirty: false, .. })),
         "answered at once: the line is not here yet"
     );
 
     bench.fill(fetch[0].0, 0x1000);
     let events = bench.drain();
     assert_eq!(responses_to(&events, PIPELINE).len(), 1, "the waiting load still gets its data");
-    assert!(bench.cache.contains(0x1000), "the fill was ordered after the probe, so the line stays");
+    assert!(
+        bench.cache.contains(0x1000),
+        "the fill was ordered after the probe, so the line stays"
+    );
 }
 
 #[test]
@@ -604,22 +723,42 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     let mut bench = Bench::new(cache);
     bench.install(1, 0x1000, MemOp::Read);
 
-    bench.deliver(Packet::Probe { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64), kind: ProbeKind::Invalidate, txn: ReqId::new(9) }, DOWNSTREAM);
+    bench.deliver(
+        Packet::Probe {
+            line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64),
+            kind: ProbeKind::Invalidate,
+            txn: ReqId::new(9),
+        },
+        DOWNSTREAM,
+    );
     let events = bench.drain();
     let forwarded: Vec<ReqId> = events
         .iter()
         .filter(|e| e.target == UPSTREAM || e.target == third)
-        .filter_map(|e| match e.packet { Packet::Probe { txn, .. } => Some(txn), _ => None })
+        .filter_map(|e| match e.packet {
+            Packet::Probe { txn, .. } => Some(txn),
+            _ => None,
+        })
         .collect();
     assert_eq!(forwarded.len(), 2);
-    assert!(events.iter().all(|e| !matches!(e.packet, Packet::ProbeResp { .. })), "not answered yet");
+    assert!(
+        events.iter().all(|e| !matches!(e.packet, Packet::ProbeResp { .. })),
+        "not answered yet"
+    );
 
     let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
-    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[0], had_copy: true, dirty: false }, UPSTREAM);
+    bench.deliver(
+        Packet::ProbeResp { line_addr: line, txn: forwarded[0], had_copy: true, dirty: false },
+        UPSTREAM,
+    );
     assert!(bench.drain().is_empty());
-    bench.deliver(Packet::ProbeResp { line_addr: line, txn: forwarded[1], had_copy: true, dirty: true }, third);
+    bench.deliver(
+        Packet::ProbeResp { line_addr: line, txn: forwarded[1], had_copy: true, dirty: true },
+        third,
+    );
     let events = bench.drain();
-    assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
+    assert!(events.iter().any(|e| e.target == DOWNSTREAM
+        && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
     assert!(!bench.cache.contains(0x1000));
 }
 
@@ -653,7 +792,9 @@ mod coherent {
             .iter()
             .filter(|e| e.target == DOWNSTREAM)
             .filter_map(|e| match e.packet {
-                Packet::Coh(CoherenceMsg::Req { txn, line, kind, .. }) => Some((txn, kind, line.val(), e.fire_at)),
+                Packet::Coh(CoherenceMsg::Req { txn, line, kind, .. }) => {
+                    Some((txn, kind, line.val(), e.fire_at))
+                }
                 _ => None,
             })
             .collect()
@@ -663,7 +804,9 @@ mod coherent {
         events
             .iter()
             .filter_map(|e| match e.packet {
-                Packet::Coh(CoherenceMsg::CompAck { txn, .. }) if e.target == DOWNSTREAM => Some(txn),
+                Packet::Coh(CoherenceMsg::CompAck { txn, .. }) if e.target == DOWNSTREAM => {
+                    Some(txn)
+                }
                 _ => None,
             })
             .collect()
@@ -673,7 +816,11 @@ mod coherent {
         events
             .iter()
             .filter_map(|e| match e.packet {
-                Packet::Coh(CoherenceMsg::SnoopResp { had_copy, dirty, .. }) if e.target == DOWNSTREAM => Some((had_copy, dirty)),
+                Packet::Coh(CoherenceMsg::SnoopResp { had_copy, dirty, .. })
+                    if e.target == DOWNSTREAM =>
+                {
+                    Some((had_copy, dirty))
+                }
                 _ => None,
             })
             .collect()
@@ -683,7 +830,9 @@ mod coherent {
         events
             .iter()
             .filter_map(|e| match e.packet {
-                Packet::Probe { kind, txn, .. } if e.target == UPSTREAM => Some((kind, txn, e.fire_at)),
+                Packet::Probe { kind, txn, .. } if e.target == UPSTREAM => {
+                    Some((kind, txn, e.fire_at))
+                }
                 _ => None,
             })
             .collect()
@@ -701,13 +850,22 @@ mod coherent {
 
         fn snoop(&mut self, addr: u64, kind: SnoopKind) -> ReqId {
             let txn = ReqId::for_fabric(0x55);
-            self.deliver(Packet::Coh(CoherenceMsg::Snoop { txn, line: line(addr), kind, target: CORE }), DOWNSTREAM);
+            self.deliver(
+                Packet::Coh(CoherenceMsg::Snoop { txn, line: line(addr), kind, target: CORE }),
+                DOWNSTREAM,
+            );
             txn
         }
 
         fn line_request(&mut self, req_id: u64, addr: u64, op: MemOp) {
             self.deliver(
-                Packet::MemReq { req_id: ReqId::new(req_id), paddr: PhysAddr::new(addr), vaddr: None, size: AccessSize::Line, op },
+                Packet::MemReq {
+                    req_id: ReqId::new(req_id),
+                    paddr: PhysAddr::new(addr),
+                    vaddr: None,
+                    size: AccessSize::Line,
+                    op,
+                },
                 UPSTREAM,
             );
         }
@@ -730,8 +888,14 @@ mod coherent {
         let events = bench.drain();
         let reqs = requests(&events);
         assert_eq!(reqs.len(), 1);
-        assert_eq!((reqs[0].1, reqs[0].2, reqs[0].3), (ReqKind::ReadShared, 0x1000, bench.cycle + LATENCY));
-        assert!(events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })), "no plain memory request");
+        assert_eq!(
+            (reqs[0].1, reqs[0].2, reqs[0].3),
+            (ReqKind::ReadShared, 0x1000, bench.cycle + LATENCY)
+        );
+        assert!(
+            events.iter().all(|e| !matches!(e.packet, Packet::MemReq { .. })),
+            "no plain memory request"
+        );
 
         bench.complete(reqs[0].0, 0x1000, MesiState::Exclusive, true);
         let events = bench.drain();
@@ -772,7 +936,12 @@ mod coherent {
     #[test]
     fn a_snoop_probes_the_l1s_after_the_lookup_and_answers_with_their_verdict() {
         let mut bench = coherent_l2(true);
-        bench.install_coherent(1, 0x1000, MemOp::Write { data: WriteData::Small(1) }, MesiState::Modified);
+        bench.install_coherent(
+            1,
+            0x1000,
+            MemOp::Write { data: WriteData::Small(1) },
+            MesiState::Modified,
+        );
 
         let txn = bench.snoop(0x1000, SnoopKind::Unique);
         let events = bench.drain();
@@ -781,12 +950,25 @@ mod coherent {
         assert_eq!((sent[0].0, sent[0].2), (ProbeKind::Invalidate, bench.cycle + LATENCY));
         assert!(snoop_responses(&events).is_empty(), "the L1s have not answered yet");
         assert_eq!(bench.state_of(0x1000), None, "our own copy is given up at once");
-        assert!(events.iter().all(|e| !matches!(e.packet, Packet::Coh(CoherenceMsg::Req { .. }))), "no writeback: the data goes with the snoop answer");
+        assert!(
+            events.iter().all(|e| !matches!(e.packet, Packet::Coh(CoherenceMsg::Req { .. }))),
+            "no writeback: the data goes with the snoop answer"
+        );
 
-        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
+        bench.deliver(
+            Packet::ProbeResp {
+                line_addr: line(0x1000),
+                txn: sent[0].1,
+                had_copy: true,
+                dirty: true,
+            },
+            UPSTREAM,
+        );
         let events = bench.drain();
         assert_eq!(snoop_responses(&events), vec![(true, true)]);
-        assert!(events.iter().any(|e| matches!(e.packet, Packet::Coh(CoherenceMsg::SnoopResp { txn: t, .. }) if t == txn)));
+        assert!(events.iter().any(
+            |e| matches!(e.packet, Packet::Coh(CoherenceMsg::SnoopResp { txn: t, .. }) if t == txn)
+        ));
         assert_eq!(bench.stat("test.coherence.snoops"), 1);
         assert_eq!(bench.stat("test.coherence.invalidations"), 1);
     }
@@ -800,7 +982,15 @@ mod coherent {
         let events = bench.drain();
         let sent = probes(&events);
         assert_eq!(sent[0].0, ProbeKind::Downgrade);
-        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        bench.deliver(
+            Packet::ProbeResp {
+                line_addr: line(0x1000),
+                txn: sent[0].1,
+                had_copy: false,
+                dirty: false,
+            },
+            UPSTREAM,
+        );
         let events = bench.drain();
         assert_eq!(snoop_responses(&events), vec![(true, false)]);
         assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
@@ -816,12 +1006,24 @@ mod coherent {
         bench.snoop(0x1000, SnoopKind::Unique);
         let events = bench.drain();
         let sent = probes(&events);
-        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        bench.deliver(
+            Packet::ProbeResp {
+                line_addr: line(0x1000),
+                txn: sent[0].1,
+                had_copy: false,
+                dirty: false,
+            },
+            UPSTREAM,
+        );
         assert_eq!(snoop_responses(&bench.drain()), vec![(false, false)]);
 
         bench.complete(reqs[0].0, 0x1000, MesiState::Exclusive, true);
         let _ = bench.drain();
-        assert_eq!(bench.state_of(0x1000), Some(MesiState::Exclusive), "the fill was ordered after the snoop");
+        assert_eq!(
+            bench.state_of(0x1000),
+            Some(MesiState::Exclusive),
+            "the fill was ordered after the snoop"
+        );
     }
 
     #[test]
@@ -834,7 +1036,15 @@ mod coherent {
 
         bench.snoop(0x1000, SnoopKind::Unique);
         let sent = probes(&bench.drain());
-        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        bench.deliver(
+            Packet::ProbeResp {
+                line_addr: line(0x1000),
+                txn: sent[0].1,
+                had_copy: false,
+                dirty: false,
+            },
+            UPSTREAM,
+        );
         let _ = bench.drain();
         assert_eq!(bench.state_of(0x1000), None);
 
@@ -858,7 +1068,12 @@ mod coherent {
     fn a_dirty_victim_is_written_back_and_a_clean_one_reported() {
         let mut bench = coherent_l2(true);
         // Set 0 has two ways: 0x1000, 0x1080 and 0x1100 all map to it.
-        bench.install_coherent(1, 0x1000, MemOp::Write { data: WriteData::Small(1) }, MesiState::Modified);
+        bench.install_coherent(
+            1,
+            0x1000,
+            MemOp::Write { data: WriteData::Small(1) },
+            MesiState::Modified,
+        );
         bench.install_coherent(2, 0x1080, MemOp::Read, MesiState::Exclusive);
 
         bench.read(3, 0x1100);
@@ -866,7 +1081,10 @@ mod coherent {
         assert_eq!(fetch.len(), 1, "the victim is chosen when the line arrives");
         bench.complete(fetch[0].0, 0x1100, MesiState::Exclusive, true);
         let reqs = requests(&bench.drain());
-        let writeback = reqs.iter().find(|r| matches!(r.1, ReqKind::WriteBack { dirty: true })).expect("dirty victim written back");
+        let writeback = reqs
+            .iter()
+            .find(|r| matches!(r.1, ReqKind::WriteBack { dirty: true }))
+            .expect("dirty victim written back");
         assert_eq!(writeback.2, 0x1000);
         assert!(bench.cache.writebacks().holds(line(0x1000)));
         bench.complete(writeback.0, 0x1000, MesiState::Invalid, false);
@@ -895,7 +1113,9 @@ mod coherent {
         let answered: Vec<_> = events
             .iter()
             .filter_map(|e| match e.packet {
-                Packet::MemResp { req_id, state, .. } if e.target == UPSTREAM => Some((req_id, state)),
+                Packet::MemResp { req_id, state, .. } if e.target == UPSTREAM => {
+                    Some((req_id, state))
+                }
                 _ => None,
             })
             .collect();
@@ -905,12 +1125,23 @@ mod coherent {
         bench.snoop(0x1000, SnoopKind::Unique);
         let sent = probes(&bench.drain());
         assert_eq!(sent.len(), 1, "the L1 is asked");
-        bench.deliver(Packet::ProbeResp { line_addr: line(0x1000), txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
+        bench.deliver(
+            Packet::ProbeResp {
+                line_addr: line(0x1000),
+                txn: sent[0].1,
+                had_copy: true,
+                dirty: true,
+            },
+            UPSTREAM,
+        );
         assert_eq!(snoop_responses(&bench.drain()), vec![(true, true)]);
 
         bench.line_request(2, 0x1000, MemOp::Writeback { dirty: true });
         let reqs = requests(&bench.drain());
-        assert_eq!(reqs.iter().map(|r| r.1).collect::<Vec<_>>(), vec![ReqKind::WriteBack { dirty: true }]);
+        assert_eq!(
+            reqs.iter().map(|r| r.1).collect::<Vec<_>>(),
+            vec![ReqKind::WriteBack { dirty: true }]
+        );
         bench.line_request(3, 0x1040, MemOp::Writeback { dirty: false });
         let reqs = requests(&bench.drain());
         assert_eq!(reqs.iter().map(|r| r.1).collect::<Vec<_>>(), vec![ReqKind::Evict]);
@@ -922,6 +1153,10 @@ mod coherent {
         bench.read(1, 0x80000400);
         let events = bench.drain();
         assert!(requests(&events).is_empty());
-        assert!(events.iter().any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { .. }))
+        );
     }
 }

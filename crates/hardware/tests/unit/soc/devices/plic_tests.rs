@@ -2,8 +2,8 @@
 //!
 //! Tests for the Platform-Level Interrupt Controller device.
 
-use rvsim_core::config::Config;
 use rvsim_core::SimState;
+use rvsim_core::config::Config;
 
 #[test]
 fn test_plic_name() {

@@ -1,6 +1,7 @@
-//! An instruction fetch whose translation needs a page-table walk resumes
-//! at the instruction's real size once the walk returns: a compressed
-//! instruction parked on a walk must not swallow the one after it.
+//! A fetch parked on a page walk resumes at the instruction's real size.
+//!
+//! A compressed instruction whose translation needs a page-table walk must
+//! not swallow the instruction after it once the walk returns.
 
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;

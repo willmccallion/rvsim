@@ -3,9 +3,8 @@
 //! This module contains unit tests for the binary loading functionality,
 //! including loading binaries from disk and setting up kernel boot configurations.
 
-use rvsim_core::common::PhysAddr;
-use rvsim_core::config::Config;
 use rvsim_core::SimState;
+use rvsim_core::config::Config;
 use rvsim_core::core::arch::csr;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::isa::abi;
@@ -116,9 +115,7 @@ fn test_setup_kernel_load_with_dtb_file() {
     // Probe RAM directly via the bus's RamRegion: the bus's Handle defers
     // RAM reads to the memory controller, which is out of reach inside the
     // probe's local event queue. Loader-side data lives in DRAM unconditionally.
-    let loaded_byte = unsafe {
-        state.bus.ram_region().expect("ram region").ptr(dtb_addr).read()
-    };
+    let loaded_byte = unsafe { state.bus.ram_region().expect("ram region").ptr(dtb_addr).read() };
     assert_eq!(loaded_byte, 0xd0);
 }
 

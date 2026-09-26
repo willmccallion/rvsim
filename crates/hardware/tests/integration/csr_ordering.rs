@@ -35,8 +35,16 @@ fn swap_then_read_back(backend: BackendType, width: usize) {
     ctx.run(400);
 
     assert_eq!(ctx.get_reg(T0 as usize), 0, "{backend:?} w{width}: the swap returns the old value");
-    assert_eq!(ctx.get_reg(T1 as usize), 0x123, "{backend:?} w{width}: the read sees the swapped-in value");
-    assert_eq!(ctx.get_reg(T2 as usize), 0x123, "{backend:?} w{width}: the second swap sees it too");
+    assert_eq!(
+        ctx.get_reg(T1 as usize),
+        0x123,
+        "{backend:?} w{width}: the read sees the swapped-in value"
+    );
+    assert_eq!(
+        ctx.get_reg(T2 as usize),
+        0x123,
+        "{backend:?} w{width}: the second swap sees it too"
+    );
 }
 
 #[test]

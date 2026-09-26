@@ -46,8 +46,7 @@ impl QueryResult {
     pub fn by_subject(&self) -> BTreeMap<String, f64> {
         let mut acc = BTreeMap::new();
         for (path, value) in &self.matches {
-            let subject =
-                path.split_once('.').map_or_else(|| path.clone(), |(s, _)| s.to_string());
+            let subject = path.split_once('.').map_or_else(|| path.clone(), |(s, _)| s.to_string());
             *acc.entry(subject).or_insert(0.0) += *value;
         }
         acc
@@ -118,6 +117,7 @@ fn glob_match(pat: &[u8], seg: &[u8]) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
 
@@ -154,10 +154,7 @@ mod tests {
     #[test]
     fn query_result_helpers() {
         let q = QueryResult {
-            matches: vec![
-                ("core0.commit.insts".into(), 10.0),
-                ("core1.commit.insts".into(), 20.0),
-            ],
+            matches: vec![("core0.commit.insts".into(), 10.0), ("core1.commit.insts".into(), 20.0)],
         };
         assert_eq!(q.sum(), 30.0);
         assert_eq!(q.len(), 2);

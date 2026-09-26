@@ -64,14 +64,7 @@ pub fn make_controller_with_clock(config: Ddr5Config, cpu_mhz: u64) -> Ddr5Contr
 ///
 /// `column` addresses within a row are in cache-line units (each column
 /// occupies `1 << 6` bytes).
-pub fn addr_from(
-    cfg: &Ddr5Config,
-    rank: u8,
-    bg: u8,
-    bank: u8,
-    row: u32,
-    column: u32,
-) -> u64 {
+pub fn addr_from(cfg: &Ddr5Config, rank: u8, bg: u8, bank: u8, row: u32, column: u32) -> u64 {
     let line_bits = 6u32;
     let col_bits = u32::from(cfg.column_bits);
     let subch_bits = cfg.subchannels_per_channel.trailing_zeros();

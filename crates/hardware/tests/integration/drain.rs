@@ -47,12 +47,19 @@ fn drain_after(backend: BackendType, cycles: u64) -> u64 {
     ctx.sim.drain();
 
     let hart = &ctx.sim.state.harts[0];
-    assert_eq!(hart.pc, hart.committed_next_pc, "{backend:?} @{cycles}: hart left at its committed PC");
+    assert_eq!(
+        hart.pc, hart.committed_next_pc,
+        "{backend:?} @{cycles}: hart left at its committed PC"
+    );
     for s in 0..committed {
         assert_eq!(slot(&mut ctx, s), MARK, "{backend:?} @{cycles}: committed store {s} is in RAM");
     }
     if committed < STORES {
-        assert_eq!(slot(&mut ctx, committed), 0, "{backend:?} @{cycles}: no uncommitted store reached RAM");
+        assert_eq!(
+            slot(&mut ctx, committed),
+            0,
+            "{backend:?} @{cycles}: no uncommitted store reached RAM"
+        );
     }
     committed - in_ram_before
 }
@@ -70,8 +77,15 @@ fn keeps_running_after_a_drain(backend: BackendType, cycles: u64) {
     ctx.run(200);
 
     let hart = &ctx.sim.state.harts[0];
-    assert!(hart.instructions_retired > retired_at_drain, "{backend:?} @{cycles}: fetch resumed after the drain");
-    assert_eq!(hart.pc, PROGRAM_BASE + 4 * (STORES + 2), "{backend:?} @{cycles}: the program reached its spin");
+    assert!(
+        hart.instructions_retired > retired_at_drain,
+        "{backend:?} @{cycles}: fetch resumed after the drain"
+    );
+    assert_eq!(
+        hart.pc,
+        PROGRAM_BASE + 4 * (STORES + 2),
+        "{backend:?} @{cycles}: the program reached its spin"
+    );
     for s in 0..STORES {
         assert_eq!(slot(&mut ctx, s), MARK, "{backend:?} @{cycles}: every store landed");
     }
@@ -97,7 +111,8 @@ fn a_drain_leaves_the_committed_state_in_ram_on_both_backends() {
 /// buffer drains one, so mid-burst drains find committed stores buffered.
 #[test]
 fn an_inorder_drain_publishes_stores_the_buffer_still_held() {
-    let published_by_drain: u64 = (5..60).map(|cycles| drain_after(BackendType::InOrder, cycles)).sum();
+    let published_by_drain: u64 =
+        (5..60).map(|cycles| drain_after(BackendType::InOrder, cycles)).sum();
 
     assert!(published_by_drain > 0);
 }

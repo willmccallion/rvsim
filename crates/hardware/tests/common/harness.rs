@@ -1,8 +1,8 @@
 use crate::common::mocks::memory::MockMemory;
+use rvsim_core::SimState;
 use rvsim_core::Simulator;
 use rvsim_core::common::{PhysAddr, RegIdx};
 use rvsim_core::config::{Config, MemoryController};
-use rvsim_core::SimState;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 

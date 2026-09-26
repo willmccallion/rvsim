@@ -3,9 +3,9 @@
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
 
+use rvsim_core::SimState;
 use rvsim_core::common::{PhysAddr, RegIdx, Trap};
 use rvsim_core::config::Config;
-use rvsim_core::SimState;
 use rvsim_core::core::arch::mode::PrivilegeMode;
 
 fn create_test_cpu() -> SimState {

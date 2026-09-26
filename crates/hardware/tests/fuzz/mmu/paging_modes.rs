@@ -68,11 +68,7 @@ fn mode_to_satp(mode: u64) -> u64 {
 }
 
 fn modes() -> Vec<(u64, usize)> {
-    vec![
-        (csr::SATP_MODE_SV39, 3),
-        (csr::SATP_MODE_SV48, 4),
-        (csr::SATP_MODE_SV57, 5),
-    ]
+    vec![(csr::SATP_MODE_SV39, 3), (csr::SATP_MODE_SV48, 4), (csr::SATP_MODE_SV57, 5)]
 }
 
 fn build_mmu(satp: u64) -> (Mmu, Csrs, TestContext) {
@@ -100,8 +96,7 @@ fn install_table(
         write_pte(ctx, table_ppn, vpn_i, make_pte(next_ppn, PTE_V));
         table_ppn = next_ppn;
     }
-    let leaf_vpn_i =
-        (va >> (PAGE_SHIFT + VPN_BITS * leaf_level as u32)) & VPN_INDEX_MASK;
+    let leaf_vpn_i = (va >> (PAGE_SHIFT + VPN_BITS * leaf_level as u32)) & VPN_INDEX_MASK;
     write_pte(ctx, table_ppn, leaf_vpn_i, make_pte(leaf_ppn, PTE_PERMS_RW));
 
     let offset_shift = PAGE_SHIFT + VPN_BITS * leaf_level as u32;

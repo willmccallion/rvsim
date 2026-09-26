@@ -17,7 +17,8 @@ use rvsim_core::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiStat
 use rvsim_core::sim::stats::Stats;
 
 const LLC: ComponentId = ComponentId::Cache(CacheId::new(6));
-const AGENTS: [ComponentId; 2] = [ComponentId::Cache(CacheId::new(2)), ComponentId::Cache(CacheId::new(5))];
+const AGENTS: [ComponentId; 2] =
+    [ComponentId::Cache(CacheId::new(2)), ComponentId::Cache(CacheId::new(5))];
 const LLC_LATENCY: u64 = 4;
 const HOP: u64 = 1;
 
@@ -53,8 +54,10 @@ impl Bench {
     fn new(tracking: Box<dyn HomeAgent>) -> Self {
         let stat_paths = CoherenceStatPaths::new();
         let interconnect = Box::new(Crossbar::new(2, 64, HOP, 64, stat_paths.interconnect));
-        let layout = FabricLayout { llc: LLC, agents: AGENTS.to_vec(), line_bytes: 64, txn_capacity: 8 };
-        let fabric = CoherenceFabric::new(Box::new(Mesi), tracking, interconnect, layout, stat_paths);
+        let layout =
+            FabricLayout { llc: LLC, agents: AGENTS.to_vec(), line_bytes: 64, txn_capacity: 8 };
+        let fabric =
+            CoherenceFabric::new(Box::new(Mesi), tracking, interconnect, layout, stat_paths);
         Self {
             fabric,
             queue: EventQueue::new(),
@@ -94,21 +97,30 @@ impl Bench {
     /// A core's request; returns its correlator.
     fn request(&mut self, from: usize, addr: u64, kind: ReqKind) -> ReqId {
         let txn = self.req_id(from);
-        self.handle(Packet::Coh(CoherenceMsg::Req { txn, line: line(addr), kind, requester: core(from) }), AGENTS[from]);
+        self.handle(
+            Packet::Coh(CoherenceMsg::Req { txn, line: line(addr), kind, requester: core(from) }),
+            AGENTS[from],
+        );
         txn
     }
 
     fn answer_snoops(&mut self, from: usize, had_copy: bool, dirty: bool) -> usize {
-        let mine: Vec<CoherenceMsg> = self
-            .unanswered_snoops
-            .iter()
-            .filter(|(c, _)| *c == from)
-            .map(|(_, m)| *m)
-            .collect();
+        let mine: Vec<CoherenceMsg> =
+            self.unanswered_snoops.iter().filter(|(c, _)| *c == from).map(|(_, m)| *m).collect();
         self.unanswered_snoops.retain(|(c, _)| *c != from);
         for msg in &mine {
             let CoherenceMsg::Snoop { txn, line, .. } = *msg else { continue };
-            self.inbox.push((self.cycle + 1, AGENTS[from], Packet::Coh(CoherenceMsg::SnoopResp { txn, line, from: core(from), had_copy, dirty })));
+            self.inbox.push((
+                self.cycle + 1,
+                AGENTS[from],
+                Packet::Coh(CoherenceMsg::SnoopResp {
+                    txn,
+                    line,
+                    from: core(from),
+                    had_copy,
+                    dirty,
+                }),
+            ));
         }
         mine.len()
     }
@@ -116,7 +128,8 @@ impl Bench {
     fn step(&mut self) {
         self.cycle += 1;
         let due: Vec<(u64, ComponentId, Packet)> = {
-            let (due, later): (Vec<_>, Vec<_>) = self.inbox.drain(..).partition(|(at, _, _)| *at <= self.cycle);
+            let (due, later): (Vec<_>, Vec<_>) =
+                self.inbox.drain(..).partition(|(at, _, _)| *at <= self.cycle);
             self.inbox = later;
             due
         };
@@ -147,7 +160,8 @@ impl Bench {
 
     fn on_llc_request(&mut self, packet: Packet) {
         let Packet::MemReq { req_id, paddr, op, .. } = packet else { return };
-        let state = if matches!(op, MemOp::ReadOwn) { MesiState::Modified } else { MesiState::Exclusive };
+        let state =
+            if matches!(op, MemOp::ReadOwn) { MesiState::Modified } else { MesiState::Exclusive };
         self.llc_requests.push((self.cycle, op, paddr.val()));
         let response = Packet::MemResp {
             req_id,
@@ -191,8 +205,12 @@ impl Bench {
         self.to_cores
             .iter()
             .filter_map(|(cycle, _, msg)| match *msg {
-                CoherenceMsg::CompData { txn: t, state, .. } if t == txn => Some((*cycle, state, true)),
-                CoherenceMsg::Comp { txn: t, state, .. } if t == txn => Some((*cycle, state, false)),
+                CoherenceMsg::CompData { txn: t, state, .. } if t == txn => {
+                    Some((*cycle, state, true))
+                }
+                CoherenceMsg::Comp { txn: t, state, .. } if t == txn => {
+                    Some((*cycle, state, false))
+                }
                 _ => None,
             })
             .collect()
@@ -202,7 +220,9 @@ impl Bench {
         self.to_cores
             .iter()
             .filter_map(|(cycle, c, msg)| match *msg {
-                CoherenceMsg::Snoop { kind, line, .. } if *c == index => Some((*cycle, kind, line.val())),
+                CoherenceMsg::Snoop { kind, line, .. } if *c == index => {
+                    Some((*cycle, kind, line.val()))
+                }
                 _ => None,
             })
             .collect()
@@ -213,7 +233,10 @@ impl Bench {
     }
 
     fn llc_reads(&self) -> usize {
-        self.llc_requests.iter().filter(|(_, op, _)| matches!(op, MemOp::Read | MemOp::ReadOwn)).count()
+        self.llc_requests
+            .iter()
+            .filter(|(_, op, _)| matches!(op, MemOp::Read | MemOp::ReadOwn))
+            .count()
     }
 
     fn stat(&self, path: &str) -> u64 {
@@ -364,7 +387,11 @@ fn a_full_filter_set_recalls_its_least_recently_used_line() {
 
     let txn = bench.request(1, 0x0080, ReqKind::ReadShared);
     bench.run(6);
-    assert_eq!(bench.snoops_to(0), vec![(bench.snoops_to(0)[0].0, SnoopKind::Invalid, 0x0000)], "the older line is recalled");
+    assert_eq!(
+        bench.snoops_to(0),
+        vec![(bench.snoops_to(0)[0].0, SnoopKind::Invalid, 0x0000)],
+        "the older line is recalled"
+    );
     bench.answer_snoops(0, true, false);
     bench.run_until_idle();
 
@@ -429,7 +456,13 @@ fn an_uncached_access_crosses_the_fabric_to_the_llc_and_back() {
     let mut bench = Bench::precise();
     let req_id = ReqId::for_cache(CacheId::new(2), 77);
     bench.handle(
-        Packet::MemReq { req_id, paddr: PhysAddr::new(0x80000400), vaddr: None, size: AccessSize::B8, op: MemOp::Read },
+        Packet::MemReq {
+            req_id,
+            paddr: PhysAddr::new(0x80000400),
+            vaddr: None,
+            size: AccessSize::B8,
+            op: MemOp::Read,
+        },
         AGENTS[0],
     );
     bench.run_until_idle();

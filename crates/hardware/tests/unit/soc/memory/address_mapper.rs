@@ -5,9 +5,7 @@
 //! distinguish the strategies (channel-line interleave vs. row-locality).
 
 use rvsim_core::common::PhysAddr;
-use rvsim_core::soc::memory::address::{
-    AddressMapper, AddressMappingKind, CACHE_LINE_OFFSET_BITS,
-};
+use rvsim_core::soc::memory::address::{AddressMapper, AddressMappingKind, CACHE_LINE_OFFSET_BITS};
 
 /// A standard-ish DDR5 topology used by most tests below:
 /// 2 channels, 2 subchannels, 2 ranks, 4 bank groups, 4 banks/group,
@@ -31,11 +29,7 @@ fn assert_roundtrip(kind: AddressMappingKind) {
         let aligned = raw & addressable_mask & !(LINE_BYTES - 1);
         let loc = mapper.decompose(PhysAddr::new(aligned));
         let round = mapper.compose(loc);
-        assert_eq!(
-            round.val(),
-            aligned,
-            "roundtrip failed at aligned={aligned:#x} kind={kind:?}"
-        );
+        assert_eq!(round.val(), aligned, "roundtrip failed at aligned={aligned:#x} kind={kind:?}");
         raw = raw.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
     }
 }

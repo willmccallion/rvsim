@@ -1,8 +1,8 @@
 //! Unit tests for the Zicboz / Zicbom CSR gate helpers.
 
 use rvsim_core::core::arch::csr::{
-    CboInvalAction, MENVCFG_CBCFE, MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, SENVCFG_CBCFE,
-    SENVCFG_CBZE, cbo_inval_action, cbocf_allowed, cboz_allowed,
+    CboInvalAction, MENVCFG_CBCFE, MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, SENVCFG_CBCFE, SENVCFG_CBZE,
+    cbo_inval_action, cbocf_allowed, cboz_allowed,
 };
 use rvsim_core::core::arch::mode::PrivilegeMode;
 
@@ -52,10 +52,7 @@ fn cbocf_user_requires_both_cbcfe_bits() {
 
 #[test]
 fn cbo_inval_machine_mode_always_invalidates() {
-    assert_eq!(
-        cbo_inval_action(0, 0, PrivilegeMode::Machine),
-        CboInvalAction::Invalidate
-    );
+    assert_eq!(cbo_inval_action(0, 0, PrivilegeMode::Machine), CboInvalAction::Invalidate);
 }
 
 #[test]
@@ -64,10 +61,7 @@ fn cbo_inval_supervisor_reads_menvcfg_only() {
         cbo_inval_action(CBIE_ILLEGAL, 0, PrivilegeMode::Supervisor),
         CboInvalAction::Illegal
     );
-    assert_eq!(
-        cbo_inval_action(CBIE_FLUSH, 0, PrivilegeMode::Supervisor),
-        CboInvalAction::Flush
-    );
+    assert_eq!(cbo_inval_action(CBIE_FLUSH, 0, PrivilegeMode::Supervisor), CboInvalAction::Flush);
     assert_eq!(
         cbo_inval_action(CBIE_INVAL, 0, PrivilegeMode::Supervisor),
         CboInvalAction::Invalidate

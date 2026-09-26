@@ -1,6 +1,8 @@
-//! An `mret` commits into supervisor mode: every instruction fetched while
-//! the hart was still in machine mode must be discarded, even when the
-//! branch predictor already steered fetch to the return address. Here the
+//! An `mret` discards every instruction fetched under the old privilege.
+//!
+//! Every instruction fetched while the hart was still in machine mode must
+//! be squashed, even when the branch predictor already steered fetch to
+//! the return address. Here the
 //! BTB has learnt a jump to a supervisor virtual address; after the
 //! handler's `mret` the wrong-path fetch takes that prediction under
 //! machine-mode translation, where the address is not memory at all, and
@@ -105,7 +107,12 @@ fn run(backend: BackendType, width: usize) -> (u64, u64, u64) {
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, CODE_L1_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);
     write_pte(&mut ctx, ROOT_PPN, (TARGET_VA >> 30) & 0x1ff, (TARGET_L1_PPN << 10) | PTE_V);
-    write_pte(&mut ctx, TARGET_L1_PPN, (TARGET_VA >> 21) & 0x1ff, ((TARGET_PA >> 12) << 10) | PTE_LEAF_RWX_AD);
+    write_pte(
+        &mut ctx,
+        TARGET_L1_PPN,
+        (TARGET_VA >> 21) & 0x1ff,
+        ((TARGET_PA >> 12) << 10) | PTE_LEAF_RWX_AD,
+    );
     {
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
@@ -123,8 +130,14 @@ fn run(backend: BackendType, width: usize) -> (u64, u64, u64) {
 
 fn a_predicted_fetch_across_mret_is_discarded(backend: BackendType, width: usize) {
     let (t0, fault, ecalls) = run(backend, width);
-    assert_eq!(fault, 0, "{backend:?} w{width}: a machine-mode fetch of the supervisor target reached commit");
-    assert_eq!(ecalls, 3, "{backend:?} w{width}: the ecall re-executed until the handler skipped it");
+    assert_eq!(
+        fault, 0,
+        "{backend:?} w{width}: a machine-mode fetch of the supervisor target reached commit"
+    );
+    assert_eq!(
+        ecalls, 3,
+        "{backend:?} w{width}: the ecall re-executed until the handler skipped it"
+    );
     assert_eq!(t0, 5, "{backend:?} w{width}: the supervisor code after the ecall ran");
 }
 

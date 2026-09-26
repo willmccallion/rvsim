@@ -17,25 +17,54 @@ fn make_virtio() -> VirtioBlock {
 #[test]
 fn virtio_magic_value() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x00), 4) as u32), 0x7472_6976, "Magic should be 'virt'");
+    assert_eq!(
+        (crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000), 4)
+            as u32),
+        0x7472_6976,
+        "Magic should be 'virt'"
+    );
 }
 
 #[test]
 fn virtio_version() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x04), 4) as u32), 2, "Version should be 2");
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x04),
+            4
+        ) as u32),
+        2,
+        "Version should be 2"
+    );
 }
 
 #[test]
 fn virtio_device_id() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x08), 4) as u32), 2, "Device ID should be 2 (block)");
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x08),
+            4
+        ) as u32),
+        2,
+        "Device ID should be 2 (block)"
+    );
 }
 
 #[test]
 fn virtio_vendor_id() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x0C), 4) as u32), 0x554d_4551, "Vendor ID should be QEMU");
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x0C),
+            4
+        ) as u32),
+        0x554d_4551,
+        "Vendor ID should be QEMU"
+    );
 }
 
 #[test]
@@ -55,58 +84,159 @@ fn virtio_address_range() {
 #[test]
 fn virtio_status_initial_zero() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70), 4) as u32), 0);
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
 fn virtio_status_write_and_read() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70), (0x0F) as u64, 4);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70), 4) as u32), 0x0F);
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70),
+        0x0F_u64,
+        4,
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x70),
+            4
+        ) as u32),
+        0x0F
+    );
 }
 
 #[test]
 fn virtio_queue_num_max() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x34), 4) as u32), 16, "Queue max should be 16");
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x34),
+            4
+        ) as u32),
+        16,
+        "Queue max should be 16"
+    );
 }
 
 #[test]
 fn virtio_queue_num_write_and_read() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x38), (8) as u64, 4);
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), (1) as u64, 4);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), 4) as u32), 1);
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x38),
+        8_u64,
+        4,
+    );
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+        1_u64,
+        4,
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+            4
+        ) as u32),
+        1
+    );
 }
 
 #[test]
 fn virtio_queue_ready() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), (1) as u64, 4);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), 4) as u32), 1);
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), (0) as u64, 4);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44), 4) as u32), 0);
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+        1_u64,
+        4,
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+            4
+        ) as u32),
+        1
+    );
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+        0_u64,
+        4,
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x44),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
 fn virtio_interrupt_status_initial_zero() {
     let mut vio = make_virtio();
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x60), 4) as u32), 0);
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x60),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
 fn virtio_interrupt_ack_clears_bits() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x64), (0x1) as u64, 4); // Ack bit 0
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x60), 4) as u32), 0);
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x64),
+        0x1_u64,
+        4,
+    ); // Ack bit 0
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x60),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
 fn virtio_capacity_empty_disk() {
     let mut vio = make_virtio();
     // No disk loaded → 0 sectors
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x100), 4) as u32), 0);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x104), 4) as u32), 0);
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x100),
+            4
+        ) as u32),
+        0
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x104),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
@@ -114,8 +244,22 @@ fn virtio_capacity_with_disk() {
     let mut vio = make_virtio();
     // Load a 2048-byte disk (4 sectors of 512 bytes)
     vio.load(vec![0; 2048]);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x100), 4) as u32), 4);
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x104), 4) as u32), 0);
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x100),
+            4
+        ) as u32),
+        4
+    );
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x104),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
@@ -133,13 +277,38 @@ fn virtio_tick_no_interrupt_initially() {
 #[test]
 fn virtio_device_features_sel_0() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x14), (0) as u64, 4); // features_sel = 0
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x10), 4) as u32), 0);
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x14),
+        0_u64,
+        4,
+    ); // features_sel = 0
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x10),
+            4
+        ) as u32),
+        0
+    );
 }
 
 #[test]
 fn virtio_device_features_sel_1() {
     let mut vio = make_virtio();
-    crate::common::probe::write(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x14), (1) as u64, 4); // features_sel = 1
-    assert_eq!((crate::common::probe::read(&mut vio, rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x10), 4) as u32), 1, "Feature bit 32 should be set");
+    crate::common::probe::write(
+        &mut vio,
+        rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x14),
+        1_u64,
+        4,
+    ); // features_sel = 1
+    assert_eq!(
+        (crate::common::probe::read(
+            &mut vio,
+            rvsim_core::common::PhysAddr::new(0x1000_1000 + 0x10),
+            4
+        ) as u32),
+        1,
+        "Feature bit 32 should be set"
+    );
 }

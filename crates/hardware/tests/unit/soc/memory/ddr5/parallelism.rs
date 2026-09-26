@@ -32,12 +32,7 @@ fn four_reads_across_bank_groups_serialize_on_data_bus() {
     // Successive bursts strictly forward — no read completes before an
     // earlier one and each is at least BL/2 later.
     for pair in resps.windows(2) {
-        assert!(
-            pair[1] > pair[0],
-            "burst ordering regressed: {:?} then {:?}",
-            pair[0],
-            pair[1]
-        );
+        assert!(pair[1] > pair[0], "burst ordering regressed: {:?} then {:?}", pair[0], pair[1]);
         assert!(
             pair[1] - pair[0] >= t.bl_half,
             "burst spacing {} below BL/2 {}",

@@ -1,8 +1,6 @@
 //! Posted writes and the write-queue drain policy.
 
-use crate::unit::soc::memory::ddr5::common::{
-    Harness, addr_from, read_op, tiny_config, write_op,
-};
+use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config, write_op};
 use rvsim_core::sim::packet::DramCmdKind;
 
 #[test]
@@ -16,7 +14,11 @@ fn write_is_acknowledged_on_admission_before_it_reaches_dram() {
     h.run_until(400);
     let writes = h.commands_of(DramCmdKind::Write);
     assert_eq!(writes.len(), 1);
-    assert!(writes[0].fire_at > ack, "WR command at {} should follow the ack at {ack}", writes[0].fire_at);
+    assert!(
+        writes[0].fire_at > ack,
+        "WR command at {} should follow the ack at {ack}",
+        writes[0].fire_at
+    );
 }
 
 #[test]
@@ -68,7 +70,12 @@ fn read_queue_capacity_delays_admission_until_a_slot_frees() {
     // `b` can only enter the queue once `a`'s column command retired it, so
     // its ACT (and hence RD) comes after `a`'s RD.
     let acts = h.commands_of(DramCmdKind::Activate);
-    assert!(acts[1].fire_at > reads[0].fire_at, "ACT for b at {} before RD for a at {}", acts[1].fire_at, reads[0].fire_at);
+    assert!(
+        acts[1].fire_at > reads[0].fire_at,
+        "ACT for b at {} before RD for a at {}",
+        acts[1].fire_at,
+        reads[0].fire_at
+    );
     assert!(end_b > end_a);
 }
 

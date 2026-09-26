@@ -15,11 +15,11 @@ const FDT_END: u32 = 9;
 struct Node {
     name: String,
     props: BTreeMap<String, Vec<u8>>,
-    children: Vec<Node>,
+    children: Vec<Self>,
 }
 
 impl Node {
-    fn child(&self, name: &str) -> &Node {
+    fn child(&self, name: &str) -> &Self {
         self.children
             .iter()
             .find(|c| c.name == name)
@@ -32,10 +32,7 @@ impl Node {
     }
 
     fn u32_cells(&self, name: &str) -> Vec<u32> {
-        self.props[name]
-            .chunks(4)
-            .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]))
-            .collect()
+        self.props[name].chunks(4).map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]])).collect()
     }
 }
 
@@ -135,7 +132,9 @@ fn every_hart_gets_a_cpu_node_with_its_own_interrupt_controller() {
 fn clint_and_plic_interrupts_extended_name_every_hart() {
     let root = tree_for(3);
     let cpus = root.child("cpus");
-    let intc = |hart: u32| cpus.child(&format!("cpu@{hart}")).child("interrupt-controller").u32_prop("phandle");
+    let intc = |hart: u32| {
+        cpus.child(&format!("cpu@{hart}")).child("interrupt-controller").u32_prop("phandle")
+    };
 
     let clint = soc_child(&root, "clint@").u32_cells("interrupts-extended");
     let plic = soc_child(&root, "interrupt-controller@").u32_cells("interrupts-extended");
@@ -150,8 +149,6 @@ fn clint_and_plic_interrupts_extended_name_every_hart() {
 
 #[test]
 fn phandles_never_collide() {
-    let root = tree_for(5);
-    let mut seen = Vec::new();
     fn collect(node: &Node, seen: &mut Vec<u32>) {
         if let Some(bytes) = node.props.get("phandle") {
             seen.push(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
@@ -160,6 +157,8 @@ fn phandles_never_collide() {
             collect(child, seen);
         }
     }
+    let root = tree_for(5);
+    let mut seen = Vec::new();
     collect(&root, &mut seen);
     let count = seen.len();
     seen.sort_unstable();
