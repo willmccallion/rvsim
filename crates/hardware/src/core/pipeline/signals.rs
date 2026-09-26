@@ -440,6 +440,13 @@ pub enum SystemOp {
     System,
 }
 
+impl SystemOp {
+    /// True for the Zicboz/Zicbom cache-block operations.
+    pub const fn is_cbo(self) -> bool {
+        matches!(self, Self::CboZero | Self::CboInval | Self::CboClean | Self::CboFlush)
+    }
+}
+
 /// CSR (Control and Status Register) operation type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CsrOp {

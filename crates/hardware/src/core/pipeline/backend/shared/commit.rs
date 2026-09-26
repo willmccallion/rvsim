@@ -318,11 +318,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         // CBO ops (Zicboz / Zicbom) drain prior committed stores first so
         // memory ordering against earlier writes matches a normal store and
         // any stale PTE in the SB has settled before we re-translate.
-        if matches!(
-            head.ctrl.system_op,
-            SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
-        ) && store_buffer.has_committed_stores()
-        {
+        if head.ctrl.system_op.is_cbo() && store_buffer.has_committed_stores() {
             break;
         }
 
@@ -677,10 +673,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         // holds rs1 from execute. Resolve the gate + translation here so a
         // fault routes through the standard commit-time trap path and any
         // freshly-committed PTE writes are visible to the walk.
-        if matches!(
-            entry.ctrl.system_op,
-            SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
-        ) {
+        if entry.ctrl.system_op.is_cbo() {
             let rs1 = entry.result.unwrap_or(0);
             if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, rs1, entry.inst) {
                 state.trap(&trap, entry.pc);

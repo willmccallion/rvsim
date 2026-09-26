@@ -839,7 +839,8 @@ impl Rob {
     ///
     /// A FENCE with successor bits `succ.r` / `succ.w` prevents younger
     /// loads/stores (respectively) from issuing until the FENCE has committed.
-    /// Returns `true` if the instruction is blocked by an older fence.
+    /// A CBO takes effect at commit, so it holds back every younger load.
+    /// Returns `true` if the instruction is blocked by an older fence or CBO.
     pub fn has_fence_blocking(&self, tag: RobTag, is_load: bool, is_store: bool) -> bool {
         if self.count == 0 || (!is_load && !is_store) {
             return false;
@@ -850,6 +851,9 @@ impl Rob {
             if entry.valid {
                 if entry.tag == tag {
                     return false;
+                }
+                if is_load && entry.ctrl.system_op.is_cbo() {
+                    return true;
                 }
                 if entry.ctrl.system_op == crate::core::pipeline::signals::SystemOp::Fence {
                     let succ_bits = ((entry.inst >> 20) & 0xF) as u8;

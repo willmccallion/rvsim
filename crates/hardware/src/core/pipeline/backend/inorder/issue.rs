@@ -115,14 +115,8 @@ impl InOrderIssueUnit {
             let waits_for_head = (entry.ctrl.vec_op != VectorOp::None
                 && !entry.ctrl.vec_op.is_config())
                 || (entry.ctrl.system_op != SystemOp::None
-                    && !matches!(
-                        entry.ctrl.system_op,
-                        SystemOp::Fence
-                            | SystemOp::CboZero
-                            | SystemOp::CboInval
-                            | SystemOp::CboClean
-                            | SystemOp::CboFlush
-                    ));
+                    && entry.ctrl.system_op != SystemOp::Fence
+                    && !entry.ctrl.system_op.is_cbo());
             if waits_for_head && !rob.is_head(entry.rob_tag) {
                 break;
             }

@@ -354,13 +354,7 @@ impl IssueQueue {
                     // or squash it.
                     if iq.entry.ctrl.system_op != SystemOp::None
                         && iq.entry.ctrl.system_op != SystemOp::Fence
-                        && !matches!(
-                            iq.entry.ctrl.system_op,
-                            SystemOp::CboZero
-                                | SystemOp::CboInval
-                                | SystemOp::CboClean
-                                | SystemOp::CboFlush
-                        )
+                        && !iq.entry.ctrl.system_op.is_cbo()
                         && !rob.is_head(iq.entry.rob_tag)
                     {
                         continue;

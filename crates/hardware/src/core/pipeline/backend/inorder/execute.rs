@@ -167,7 +167,7 @@ fn execute_system(
             Some((result, Some(refetch_after(id))))
         }
         // CBO ops gate, translate and take effect at commit, which reads the
-        // block address from `alu`.
+        // block address from `alu`; younger loads wait for them in issue.
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
             Some((ExMem1Entry::from_issue(id, id.rv1, 0), None))
         }

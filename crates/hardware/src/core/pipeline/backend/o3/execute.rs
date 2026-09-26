@@ -149,9 +149,9 @@ fn execute_system(
             (result, None)
         }
         // CBO ops gate, translate and take effect at commit, which reads the
-        // block address from `alu`.
+        // block address from `alu`; younger loads wait for them in issue.
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
-            (ExMem1Entry::from_issue(id, id.rv1, 0), Some(refetch_after(id)))
+            (ExMem1Entry::from_issue(id, id.rv1, 0), None)
         }
         _ if is_ecall(id) => faulted(state, rob, id, ecall_trap(state)),
         _ if id.ctrl.csr_op != CsrOp::None => match csr_access(state, id) {

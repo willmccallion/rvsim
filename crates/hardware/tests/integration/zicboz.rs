@@ -199,3 +199,45 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 // in the cache unit tests, where we can drive `CacheSim` directly without
 // the harness's cache-bypass routing (TestContext sets `cache_base =
 // u64::MAX` so loads skip the cache entirely).
+
+/// A load that follows `cbo.zero` to the same block reads zeros: the CBO
+/// takes effect at commit, so the load must not read the block before then.
+fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::core::pipeline::engine::BackendType) {
+    use crate::common::builder::instruction::InstructionBuilder;
+    const X11: u32 = 11;
+    const X12: u32 = 12;
+    let data_addr = RAM_BASE + 0x1000;
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
+    let i = InstructionBuilder::new;
+    let program =
+        [cbo_zero(X10), i().ld(X11, X10, 8).build(), i().addi(X12, 0, 1).build(), JAL_SELF];
+    for (n, inst) in program.iter().enumerate() {
+        ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 4 * n as u64), u64::from(*inst), 4);
+    }
+    ctx.set_reg(X10 as usize, data_addr);
+    ctx.set_reg(X11 as usize, u64::MAX);
+    ctx.sim.set_pc(0, RAM_BASE);
+    ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + 12;
+    ctx.sim.sync_arch_regs();
+
+    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(X12 as usize) == 1);
+
+    assert!(finished.is_some(), "{backend:?}: the program never finished");
+    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0, "{backend:?}: no trap was taken");
+    assert_eq!(ctx.get_reg(X11 as usize), 0, "{backend:?}: the load read the zeroed block");
+}
+
+#[test]
+fn load_after_cbo_zero_reads_zero_in_order() {
+    check_load_after_cbo_zero_reads_zero(rvsim_core::core::pipeline::engine::BackendType::InOrder);
+}
+
+#[test]
+fn load_after_cbo_zero_reads_zero_out_of_order() {
+    check_load_after_cbo_zero_reads_zero(
+        rvsim_core::core::pipeline::engine::BackendType::OutOfOrder,
+    );
+}
