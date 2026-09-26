@@ -302,6 +302,16 @@ impl Rob {
         }
     }
 
+    /// Records an entry's result the cycle its unit produces it, before the
+    /// entry reaches writeback: the bypass a dependent reads from.
+    pub fn forward(&mut self, tag: RobTag, result: u64) {
+        if let Some(entry) = self.find_entry_mut(tag)
+            && entry.state == RobState::Issued
+        {
+            entry.result = Some(result);
+        }
+    }
+
     /// Marks an entry as Faulted with a trap.
     pub fn fault(&mut self, tag: RobTag, trap: Trap, stage: ExceptionStage) {
         if let Some(entry) = self.find_entry_mut(tag) {

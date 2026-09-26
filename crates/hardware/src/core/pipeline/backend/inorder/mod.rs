@@ -27,7 +27,27 @@ use crate::core::units::bru::BranchPredictor;
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 
-use self::issue::InOrderIssueUnit;
+use self::issue::{InOrderIssueUnit, IssuedUnit};
+use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
+use crate::core::pipeline::signals::{ControlFlow, VectorOp};
+
+/// A computed result waiting for its unit's latency to elapse.
+#[derive(Debug)]
+struct PendingResult {
+    complete_cycle: u64,
+    fu_type: FuType,
+    entry: ExMem1Entry,
+}
+
+/// The value a non-memory result forwards: the link address for a jump,
+/// otherwise the ALU output.
+const fn forwarded_value(entry: &ExMem1Entry) -> u64 {
+    if matches!(entry.ctrl.control_flow, ControlFlow::Jump) {
+        entry.pc.wrapping_add(entry.inst_size.as_u64())
+    } else {
+        entry.alu
+    }
+}
 
 /// In-order execution engine.
 #[derive(Debug)]
@@ -40,6 +60,11 @@ pub struct InOrderEngine {
     pub scoreboard: Scoreboard,
     /// FIFO issue unit.
     pub issuer: InOrderIssueUnit,
+    /// Functional units, taken at issue.
+    pub fu_pool: FuPool,
+    /// Results a unit has yet to deliver: forwarded to dependents and sent
+    /// down the memory stages at `complete_cycle`.
+    pending: Vec<PendingResult>,
     /// Pipeline width.
     pub width: usize,
     /// Execute → Memory1 latch.
@@ -60,6 +85,45 @@ pub struct InOrderEngine {
 }
 
 impl InOrderEngine {
+    /// Sends every result whose unit has finished to the memory stages and
+    /// forwards its value so a dependent can issue this cycle.
+    fn deliver_ready_results(&mut self, state: &mut CoreCtx<'_>, now: u64) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            if self.pending[i].complete_cycle > now {
+                i += 1;
+                continue;
+            }
+            let done = self.pending.swap_remove(i);
+            state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
+            self.rob.forward(done.entry.rob_tag, forwarded_value(&done.entry));
+            self.execute_mem1.push(done.entry);
+        }
+    }
+
+    /// Files each executed result: memory ops and vector ops go straight to
+    /// memory1 (their unit is the address generator or the vector unit,
+    /// whose latency is modelled downstream); everything else waits for
+    /// its unit's latency in `pending`.
+    fn hold_results(&mut self, results: Vec<ExMem1Entry>, units: &[IssuedUnit], now: u64) {
+        for entry in results {
+            let is_mem = entry.ctrl.mem_read
+                || entry.ctrl.mem_write
+                || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
+            let unit = units.iter().find(|u| u.tag == entry.rob_tag);
+            match unit {
+                Some(unit) if !is_mem && entry.ctrl.vec_op == VectorOp::None => {
+                    self.pending.push(PendingResult {
+                        complete_cycle: unit.complete_cycle.max(now + 1),
+                        fu_type: unit.fu_type,
+                        entry,
+                    });
+                }
+                _ => self.execute_mem1.push(entry),
+            }
+        }
+    }
+
     /// Creates a new in-order engine from config and routing IDs.
     pub fn new(
         config: &Config,
@@ -73,6 +137,8 @@ impl InOrderEngine {
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
             scoreboard: Scoreboard::new(),
             issuer: InOrderIssueUnit::new(config.pipeline.rob_size),
+            fu_pool: FuPool::new(&config.pipeline.fu_config),
+            pending: Vec::new(),
             width: config.pipeline.width,
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
@@ -93,6 +159,7 @@ impl ExecutionEngine for InOrderEngine {
         redirect_pending: &mut bool,
     ) {
         self.cycle += 1;
+        let now = self.cycle;
 
         let pc_before_commit = state.hart.pc;
 
@@ -162,10 +229,19 @@ impl ExecutionEngine for InOrderEngine {
         // Skip issue+execute when M1 hasn't drained, so we don't overwrite held entries.
         let backpressured = !self.execute_mem1.is_empty();
 
-        let (results, needs_flush) = if backpressured {
-            (Vec::new(), false)
+        self.deliver_ready_results(state, now);
+
+        let (results, units, needs_flush) = if backpressured {
+            (Vec::new(), Vec::new(), false)
         } else {
-            let issued = self.issuer.select(self.width, &self.rob, &self.store_buffer, state);
+            let (issued, units) = self.issuer.select(
+                self.width,
+                &self.rob,
+                &self.store_buffer,
+                state,
+                &mut self.fu_pool,
+                now,
+            );
             if issued.is_empty() && !self.issuer.is_empty() {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
@@ -174,32 +250,37 @@ impl ExecutionEngine for InOrderEngine {
             for e in self.execute_mem1.iter().chain(&self.common.mem1_replay) {
                 inflight_fp_flags |= e.fp_flags;
             }
+            for p in &self.pending {
+                inflight_fp_flags |= p.entry.fp_flags;
+            }
             for e in &self.mem1_mem2 {
                 inflight_fp_flags |= e.fp_flags;
             }
             for e in &self.mem2_wb {
                 inflight_fp_flags |= e.fp_flags;
             }
-            execute::execute_inorder(
+            let (results, needs_flush) = execute::execute_inorder(
                 state,
                 issued,
                 &mut self.rob,
                 inflight_fp_flags,
                 redirect_pending,
-            )
+            );
+            (results, units, needs_flush)
         };
-        self.execute_mem1.extend(results);
+        let keep_tag = results.last().map(|r| r.rob_tag);
+        self.hold_results(results, &units, now);
 
         if needs_flush {
             state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
             state.shared.stats.counter(state.core.stat_paths.pipeline.flushes_total).inc();
             self.issuer.flush();
             rename_output.clear();
-            if let Some(last) = self.execute_mem1.last() {
-                let keep_tag = last.rob_tag;
+            if let Some(keep_tag) = keep_tag {
                 self.rob.flush_after(keep_tag);
                 self.store_buffer.flush_after(keep_tag);
                 self.common.squash_after(keep_tag);
+                self.pending.retain(|p| p.entry.rob_tag.is_older_or_eq(keep_tag));
             }
             self.scoreboard.rebuild_from_rob(&self.rob);
         }
@@ -225,6 +306,7 @@ impl ExecutionEngine for InOrderEngine {
         self.store_buffer.flush_speculative();
         self.scoreboard.flush();
         self.issuer.flush();
+        self.pending.clear();
         self.execute_mem1.clear();
         self.common.mem1_replay.clear();
         self.mem1_mem2.clear();

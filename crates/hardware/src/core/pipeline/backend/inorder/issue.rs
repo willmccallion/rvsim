@@ -3,12 +3,17 @@
 //! For the in-order backend, issue is a FIFO queue. When selecting instructions,
 //! the issue stage reads operand values using the tags captured at rename time:
 //! - If tag is None → read from architectural register file.
-//! - If tag points to a completed ROB entry → bypass the result.
-//! - If the ROB entry is still in-flight → stall (operand not ready).
+//! - If the producing ROB entry has a result (forwarded from its unit or
+//!   written back) → bypass the result.
+//! - If the producer is still executing → stall (operand not ready).
+//!
+//! An instruction also needs a free functional unit of its kind; it takes
+//! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::common::RegIdx;
+use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
-use crate::core::pipeline::rob::{Rob, RobState, RobTag};
+use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::SystemOp;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
@@ -16,6 +21,17 @@ use crate::sim::CoreCtx;
 use crate::trace_issue;
 
 use std::collections::VecDeque;
+
+/// The unit an issued instruction took and when its result is ready.
+#[derive(Clone, Copy, Debug)]
+pub struct IssuedUnit {
+    /// The instruction.
+    pub tag: RobTag,
+    /// The unit it executes on.
+    pub fu_type: FuType,
+    /// Cycle the unit delivers the result.
+    pub complete_cycle: u64,
+}
 
 /// FIFO issue unit for in-order execution.
 #[derive(Debug)]
@@ -59,14 +75,20 @@ impl InOrderIssueUnit {
     /// operands populated.
     ///
     /// In-order: if the head-of-queue is blocked, nothing behind it can issue.
+    ///
+    /// Each issued instruction's unit and the cycle its result is ready are
+    /// returned alongside it; a trapped instruction takes no unit.
     pub fn select(
         &mut self,
         width: usize,
         rob: &Rob,
         store_buffer: &StoreBuffer,
-        state: &CoreCtx<'_>,
-    ) -> Vec<RenameIssueEntry> {
+        state: &mut CoreCtx<'_>,
+        fu_pool: &mut FuPool,
+        now: u64,
+    ) -> (Vec<RenameIssueEntry>, Vec<IssuedUnit>) {
         let mut selected = Vec::with_capacity(width);
+        let mut units = Vec::with_capacity(width);
 
         for _ in 0..width {
             let Some(entry) = self.queue.front() else { break };
@@ -119,7 +141,18 @@ impl InOrderIssueUnit {
             };
 
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
+                let fu_type = FuType::classify(&entry.ctrl);
+                if !fu_pool.has_free(fu_type, now) {
+                    state
+                        .shared
+                        .stats
+                        .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
+                        .inc();
+                    break;
+                }
+                let complete_cycle = fu_pool.acquire(fu_type, now);
                 let Some(mut issued) = self.queue.pop_front() else { break };
+                units.push(IssuedUnit { tag: issued.rob_tag, fu_type, complete_cycle });
                 issued.rv1 = v1;
                 issued.rv2 = v2;
                 issued.rv3 = v3;
@@ -139,7 +172,7 @@ impl InOrderIssueUnit {
             }
         }
 
-        selected
+        (selected, units)
     }
 
     /// Return a snapshot of the current issue queue contents (front = oldest).
@@ -182,18 +215,9 @@ fn read_operand_by_tag(
         return Some(0);
     }
 
-    tag.map_or_else(
-        || {
-            let val = if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) };
-            Some(val)
-        },
-        |t| match rob.find_entry(t) {
-            Some(entry) if entry.state == RobState::Completed => entry.result,
-            Some(_) => None,
-            None => {
-                // ROB entry already committed — value is in the register file.
-                Some(if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) })
-            }
-        },
-    )
+    let from_register_file =
+        || Some(if is_fp { state.hart.regs.read_f(reg) } else { state.hart.regs.read(reg) });
+    let Some(tag) = tag else { return from_register_file() };
+    // A producer no longer in the ROB has committed its value to the register file.
+    rob.find_entry(tag).map_or_else(from_register_file, |entry| entry.result)
 }

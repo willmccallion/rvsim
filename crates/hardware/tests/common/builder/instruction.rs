@@ -79,6 +79,26 @@ impl InstructionBuilder {
         self
     }
 
+    pub fn mul(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.opcode = OP_REG;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.rs2 = rs2;
+        self.funct3 = 0b000;
+        self.funct7 = 0b0000001;
+        self
+    }
+
+    pub fn div(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+        self.opcode = OP_REG;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.rs2 = rs2;
+        self.funct3 = 0b100;
+        self.funct7 = 0b0000001;
+        self
+    }
+
     pub fn sub(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
