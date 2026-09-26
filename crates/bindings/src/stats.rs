@@ -6,7 +6,7 @@
 //! separate dict interface.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDict, PyIterator, PyList};
 use rvsim_core::sim::stats::Stats;
 
 /// Python-facing view over the hierarchical stats tree.
@@ -150,13 +150,8 @@ impl PyQueryResult {
     }
 
     /// Iterate over `(path, value)` tuples.
-    fn __iter__(slf: PyRef<'_, Self>, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<(String, f64)> = slf.matches.clone();
-        let list = PyList::empty(py);
-        for (p, v) in items {
-            list.append((p, v))?;
-        }
-        Ok(list.into())
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyIterator>> {
+        PyList::new(py, &self.matches)?.try_iter()
     }
 
     /// Return `{first_segment: sum}` — folds every matched path onto its
