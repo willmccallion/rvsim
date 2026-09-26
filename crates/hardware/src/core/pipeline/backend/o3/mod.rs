@@ -8,6 +8,7 @@
 pub mod execute;
 pub mod fu_pool;
 pub mod issue_queue;
+mod rename;
 
 use crate::config::Config;
 use crate::core::pipeline::backend::shared::commit::CommitEvent;
@@ -1157,20 +1158,20 @@ impl ExecutionEngine for O3Engine {
         &self.rob
     }
 
-    fn rob_mut(&mut self) -> &mut Rob {
-        &mut self.rob
-    }
-
     fn store_buffer(&self) -> &StoreBuffer {
         &self.store_buffer
     }
 
-    fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
-        &mut self.store_buffer
+    fn vec_store_buffer(&self) -> &VecStoreBuffer {
+        &self.vec_store_buffer
     }
 
-    fn vec_store_buffer_mut(&mut self) -> Option<&mut VecStoreBuffer> {
-        Some(&mut self.vec_store_buffer)
+    fn rename(
+        &mut self,
+        state: &mut crate::sim::StageCtx<'_>,
+        id: crate::core::pipeline::latches::IdExEntry,
+    ) -> crate::core::pipeline::engine::Renamed {
+        self.rename_one(state, id)
     }
 
     fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
@@ -1180,14 +1181,6 @@ impl ExecutionEngine for O3Engine {
             &mut self.store_buffer,
             Some(&mut self.vec_store_buffer),
         );
-    }
-
-    fn scoreboard(&self) -> &Scoreboard {
-        &self.scoreboard
-    }
-
-    fn scoreboard_mut(&mut self) -> &mut Scoreboard {
-        &mut self.scoreboard
     }
 
     fn execute_mem1_mut(&mut self) -> &mut Vec<crate::core::pipeline::latches::ExMem1Entry> {
@@ -1206,60 +1199,12 @@ impl ExecutionEngine for O3Engine {
         &mut self.common
     }
 
-    fn rename_map(&self) -> &RenameMap {
-        &self.rename_map
-    }
-
-    fn rename_map_mut(&mut self) -> &mut RenameMap {
-        &mut self.rename_map
-    }
-
-    fn prf(&self) -> &PhysRegFile {
-        &self.prf
-    }
-
-    fn prf_mut(&mut self) -> &mut PhysRegFile {
-        &mut self.prf
-    }
-
-    fn free_list_mut(&mut self) -> &mut FreeList<PhysReg> {
-        &mut self.free_list
-    }
-
     fn load_queue_mut(&mut self) -> Option<&mut LoadQueue> {
         Some(&mut self.load_queue)
     }
 
-    fn has_prf(&self) -> bool {
-        true
-    }
-
     fn has_register_renaming(&self) -> bool {
         true
-    }
-
-    fn checkpoint_table(&self) -> &CheckpointTable {
-        &self.checkpoints
-    }
-
-    fn checkpoint_table_mut(&mut self) -> &mut CheckpointTable {
-        &mut self.checkpoints
-    }
-
-    fn checkpoint_count(&self) -> usize {
-        self.checkpoints.capacity()
-    }
-
-    fn vec_prf(&self) -> &VecPhysRegFile {
-        &self.vec_prf
-    }
-
-    fn vec_prf_mut(&mut self) -> &mut VecPhysRegFile {
-        &mut self.vec_prf
-    }
-
-    fn vec_free_list_mut(&mut self) -> &mut FreeList<VecPhysReg> {
-        &mut self.vec_free_list
     }
 }
 

@@ -1,27 +1,17 @@
 //! Execution engine traits and pipeline type erasure.
 //!
-//! This module defines the trait hierarchy for pluggable backends:
-//! 1. **`IssueUnit`** — stage-level trait for instruction issue (FIFO vs O3).
-//! 2. **`ExecuteUnit`** — stage-level trait for instruction execution.
-//! 3. **`ExecutionEngine`** — high-level trait covering the entire backend.
-//! 4. **`PipelineDispatch`** — enum dispatch for type-erased pipeline storage.
+//! `ExecutionEngine` is the backend the shared frontend renames into and
+//! the memory stages run inside; `PipelineDispatch` is the enum dispatch
+//! for type-erased pipeline storage.
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::core::pipeline::checkpoint::CheckpointTable;
-use crate::core::pipeline::free_list::FreeList;
-use crate::core::pipeline::latches::{Latch, RenameIssueEntry};
+use crate::core::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
-use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::prf::PhysRegFile;
-use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::snapshot::PipelineSnapshot;
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
-use crate::core::pipeline::vec_prf::VecPhysRegFile;
-use crate::core::units::vpu::types::VecPhysReg;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
 use serde::Deserialize;
@@ -35,6 +25,15 @@ pub enum BackendType {
     InOrder,
     /// Out-of-order pipeline (future).
     OutOfOrder,
+}
+
+/// What renaming one decoded instruction produced.
+#[derive(Debug)]
+pub enum Renamed {
+    /// The instruction has its backend slots; this is what issue sees.
+    Accepted(Box<RenameIssueEntry>),
+    /// A resource was short; the instruction waits in the frontend.
+    Stalled(Box<IdExEntry>),
 }
 
 /// The execution engine trait — implemented by `InOrderEngine` and `O3Engine`.
@@ -56,8 +55,15 @@ pub trait ExecutionEngine {
         redirect: &mut Option<u64>,
     );
 
-    /// How many instructions can the engine accept from rename this cycle?
+    /// How many instructions the engine can rename this cycle: the least
+    /// of its free ROB, buffer and register slots and its rename width.
     fn can_accept(&self) -> usize;
+
+    /// Renames one decoded instruction, allocating its backend slots, and
+    /// returns the entry the issue stage works on, or hands the
+    /// instruction back when a resource `can_accept` does not cover is
+    /// short; the frontend retries it next cycle.
+    fn rename(&mut self, state: &mut crate::sim::StageCtx<'_>, id: IdExEntry) -> Renamed;
 
     /// Flush all speculative state. Committed stores in the store buffer remain.
     fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
@@ -77,62 +83,22 @@ pub trait ExecutionEngine {
             .unwrap_or_else(|| crate::core::units::vpu::types::VectorConfig::from_csrs(csrs))
     }
 
-    /// Access the scoreboard (for rename to mark producers, issue to check readiness).
-    fn scoreboard(&self) -> &Scoreboard;
-    /// Access the scoreboard mutably (for rename to mark producers).
-    fn scoreboard_mut(&mut self) -> &mut Scoreboard;
+    /// Whether the backend renames registers, so decode can skip the
+    /// intra-bundle RAW hazard check.
+    fn has_register_renaming(&self) -> bool;
 
-    /// Access the ROB (for rename to allocate entries, forwarding, etc.).
+    /// The reorder buffer.
     fn rob(&self) -> &Rob;
-    /// Access the ROB mutably (for rename to allocate entries).
-    fn rob_mut(&mut self) -> &mut Rob;
 
-    /// Access the store buffer (for rename to allocate, memory2 for forwarding).
+    /// The scalar store buffer.
     fn store_buffer(&self) -> &StoreBuffer;
-    /// Access the store buffer mutably (for rename to allocate entries).
-    fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
 
-    /// The vector store buffer younger loads forward from. `None` for
-    /// backends without one.
-    fn vec_store_buffer(&self) -> Option<&crate::core::pipeline::vec_store_buffer::VecStoreBuffer> {
-        None
-    }
+    /// The vector store buffer younger loads forward from.
+    fn vec_store_buffer(&self) -> &crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 
-    /// Access the vector store buffer mutably (for rename to reserve
-    /// entries). `None` for backends without one.
-    fn vec_store_buffer_mut(
-        &mut self,
-    ) -> Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer> {
-        None
-    }
-
-    /// Access the speculative rename map (O3 only).
-    fn rename_map(&self) -> &RenameMap {
-        panic!("rename_map only available for O3 backend")
-    }
-    /// Access the speculative rename map mutably (O3 only).
-    fn rename_map_mut(&mut self) -> &mut RenameMap {
-        panic!("rename_map_mut only available for O3 backend")
-    }
-
-    /// Access the physical register file (O3 only).
-    fn prf(&self) -> &PhysRegFile {
-        panic!("prf only available for O3 backend")
-    }
-    /// Access the physical register file mutably (O3 only).
-    fn prf_mut(&mut self) -> &mut PhysRegFile {
-        panic!("prf_mut only available for O3 backend")
-    }
-
-    /// Access the free list (O3 only).
-    fn free_list_mut(&mut self) -> &mut FreeList<PhysReg> {
-        panic!("free_list_mut only available for O3 backend")
-    }
-
-    /// Access the load queue (O3 only). Returns None for in-order backend.
-    fn load_queue_mut(&mut self) -> Option<&mut LoadQueue> {
-        None
-    }
+    /// The load queue, on a backend that tracks loads for ordering
+    /// violations.
+    fn load_queue_mut(&mut self) -> Option<&mut LoadQueue>;
 
     /// Mutable access to the Execute→Memory1 input latch. The mailbox-drain
     /// stage uses this to re-inject `ExMem1Entry` values after a page-table
@@ -153,44 +119,6 @@ pub trait ExecutionEngine {
     /// Mutable access to the shared bookkeeping. Used by the mailbox-drain
     /// stage on `Pipeline<E>` and by memory1 inside `tick`.
     fn common_mut(&mut self) -> &mut BackendCommon;
-
-    /// Returns true if this backend uses physical register renaming.
-    fn has_prf(&self) -> bool {
-        false
-    }
-
-    /// Returns true if this backend resolves intra-bundle RAW hazards via
-    /// register renaming, so decode can skip the bundle-write hazard check.
-    /// Default `false` (in-order); O3 overrides.
-    fn has_register_renaming(&self) -> bool {
-        false
-    }
-
-    /// Access the checkpoint table (O3 only).
-    fn checkpoint_table(&self) -> &CheckpointTable {
-        panic!("checkpoint_table only available for O3 backend")
-    }
-    /// Access the checkpoint table mutably (O3 only).
-    fn checkpoint_table_mut(&mut self) -> &mut CheckpointTable {
-        panic!("checkpoint_table_mut only available for O3 backend")
-    }
-    /// Returns the configured checkpoint count (0 = disabled).
-    fn checkpoint_count(&self) -> usize {
-        0
-    }
-
-    /// Access the vector physical register file (O3 only).
-    fn vec_prf(&self) -> &VecPhysRegFile {
-        panic!("vec_prf only available for O3 backend")
-    }
-    /// Access the vector physical register file mutably (O3 only).
-    fn vec_prf_mut(&mut self) -> &mut VecPhysRegFile {
-        panic!("vec_prf_mut only available for O3 backend")
-    }
-    /// Access the vector free list mutably (O3 only).
-    fn vec_free_list_mut(&mut self) -> &mut FreeList<VecPhysReg> {
-        panic!("vec_free_list_mut only available for O3 backend")
-    }
 }
 
 /// A trap commit has detected and will squash into once the trap latency

@@ -11,6 +11,7 @@
 
 pub mod execute;
 pub mod issue;
+mod rename;
 
 use crate::common::error::ExceptionStage;
 use crate::config::Config;
@@ -505,36 +506,32 @@ impl ExecutionEngine for InOrderEngine {
         );
     }
 
-    fn vec_store_buffer(&self) -> Option<&VecStoreBuffer> {
-        Some(&self.vec_store_buffer)
+    fn vec_store_buffer(&self) -> &VecStoreBuffer {
+        &self.vec_store_buffer
     }
 
-    fn vec_store_buffer_mut(&mut self) -> Option<&mut VecStoreBuffer> {
-        Some(&mut self.vec_store_buffer)
+    fn has_register_renaming(&self) -> bool {
+        false
+    }
+
+    fn load_queue_mut(&mut self) -> Option<&mut crate::core::pipeline::load_queue::LoadQueue> {
+        None
+    }
+
+    fn rename(
+        &mut self,
+        state: &mut crate::sim::StageCtx<'_>,
+        id: crate::core::pipeline::latches::IdExEntry,
+    ) -> crate::core::pipeline::engine::Renamed {
+        self.rename_one(state, id)
     }
 
     fn rob(&self) -> &Rob {
         &self.rob
     }
 
-    fn rob_mut(&mut self) -> &mut Rob {
-        &mut self.rob
-    }
-
     fn store_buffer(&self) -> &StoreBuffer {
         &self.store_buffer
-    }
-
-    fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
-        &mut self.store_buffer
-    }
-
-    fn scoreboard(&self) -> &Scoreboard {
-        &self.scoreboard
-    }
-
-    fn scoreboard_mut(&mut self) -> &mut Scoreboard {
-        &mut self.scoreboard
     }
 
     fn execute_mem1_mut(&mut self) -> &mut Vec<ExMem1Entry> {

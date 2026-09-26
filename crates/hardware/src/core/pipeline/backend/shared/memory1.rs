@@ -308,9 +308,9 @@ fn process_entry<E: ExecutionEngine>(
     // Demand load: try store-buffer forwarding first, from scalar stores
     // and then from vector stores still in their buffer.
     let forwarded = match engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag) {
-        ForwardResult::Miss => engine
-            .vec_store_buffer()
-            .map_or(ForwardResult::Miss, |vsb| vsb.forward_load(paddr, ex.ctrl.width, ex.rob_tag)),
+        ForwardResult::Miss => {
+            engine.vec_store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag)
+        }
         scalar => scalar,
     };
     match forwarded {
