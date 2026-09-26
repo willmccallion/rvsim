@@ -78,6 +78,10 @@ impl Bench {
     }
 
     fn request(&mut self, req_id: u64, addr: u64, op: MemOp) {
+        self.request_from(PIPELINE, req_id, addr, op);
+    }
+
+    fn request_from(&mut self, source: ComponentId, req_id: u64, addr: u64, op: MemOp) {
         self.deliver(
             Packet::MemReq {
                 req_id: ReqId::new(req_id),
@@ -86,7 +90,7 @@ impl Bench {
                 size: AccessSize::B8,
                 op,
             },
-            PIPELINE,
+            source,
         );
     }
 
@@ -146,11 +150,38 @@ impl Bench {
 
     /// Loads `addr` into the cache through a miss and its fill.
     fn install(&mut self, req_id: u64, addr: u64, op: MemOp) {
-        self.request(req_id, addr, op);
+        self.install_from(PIPELINE, req_id, addr, op);
+    }
+
+    /// Installs a line on behalf of `source`, which then holds a copy.
+    fn install_from(&mut self, source: ComponentId, req_id: u64, addr: u64, op: MemOp) {
+        self.request_from(source, req_id, addr, op);
         let requests = self.downstream_requests();
         let (down_id, _, _, _) = requests.into_iter().next().expect("miss forwarded downstream");
         self.fill(down_id, addr);
         let _ = self.drain();
+    }
+
+    /// The probes forwarded to caches above, as `(target, txn)`.
+    fn forwarded_probes(&mut self) -> Vec<(ComponentId, ReqId)> {
+        self.drain()
+            .into_iter()
+            .filter_map(|e| match e.packet {
+                Packet::Probe { txn, .. } if e.target != DOWNSTREAM => Some((e.target, txn)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn probe_from_below(&mut self, addr: u64, txn: u64) {
+        self.deliver(
+            Packet::Probe {
+                line_addr: LineAddr::from_phys(PhysAddr::new(addr), 64),
+                kind: ProbeKind::Invalidate,
+                txn: ReqId::new(txn),
+            },
+            DOWNSTREAM,
+        );
     }
 
     fn stat(&self, path: &str) -> u64 {
@@ -348,8 +379,8 @@ fn inclusive_evictions_back_invalidate_upstream_and_nine_ones_do_not() {
         cache.add_upstream(UPSTREAM);
         cache.set_upstream_inclusion(policy);
         let mut bench = Bench::new(cache);
-        bench.install(1, 0x0000, MemOp::Read);
-        bench.install(2, 0x0080, MemOp::Read);
+        bench.install_from(UPSTREAM, 1, 0x0000, MemOp::Read);
+        bench.install_from(UPSTREAM, 2, 0x0080, MemOp::Read);
         bench.read(3, 0x0100);
         let fetch = bench.downstream_requests();
         bench.fill(fetch[0].0, 0x0100);
@@ -372,7 +403,7 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
     cache.add_upstream(UPSTREAM);
     cache.set_upstream_inclusion(InclusionPolicy::Inclusive);
     let mut bench = Bench::new(cache);
-    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
 
     bench.deliver(
         Packet::CacheInval { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64) },
@@ -725,7 +756,9 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     cache.add_upstream(UPSTREAM);
     cache.add_upstream(third);
     let mut bench = Bench::new(cache);
-    bench.install(1, 0x1000, MemOp::Read);
+    bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
+    bench.request_from(third, 2, 0x1000, MemOp::Read);
+    let _ = bench.drain();
 
     bench.deliver(
         Packet::Probe {
@@ -764,6 +797,52 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
     assert!(!bench.cache.contains(0x1000));
+}
+
+#[test]
+fn a_probe_goes_only_to_the_caches_above_that_were_given_the_line() {
+    let third = ComponentId::Cache(CacheId::new(3));
+    let mut cache = cache_with(&test_config());
+    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(third);
+    let mut bench = Bench::new(cache);
+    bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
+
+    bench.probe_from_below(0x1000, 9);
+
+    let forwarded = bench.forwarded_probes();
+    assert_eq!(forwarded.len(), 1, "only the cache given the line is probed");
+    assert_eq!(forwarded[0].0, UPSTREAM);
+}
+
+#[test]
+fn a_probe_for_a_line_no_cache_above_holds_is_answered_at_once() {
+    let mut cache = cache_with(&test_config());
+    cache.add_upstream(UPSTREAM);
+    let mut bench = Bench::new(cache);
+    bench.install(1, 0x1000, MemOp::Read);
+
+    bench.probe_from_below(0x1000, 9);
+
+    let events = bench.drain();
+    assert!(events.iter().all(|e| !matches!(e.packet, Packet::Probe { .. })), "nothing probed");
+    assert!(events.iter().any(|e| e.target == DOWNSTREAM
+        && matches!(e.packet, Packet::ProbeResp { txn, had_copy: true, .. } if txn == ReqId::new(9))));
+    assert!(!bench.cache.contains(0x1000));
+}
+
+#[test]
+fn a_cache_above_that_evicted_its_copy_is_no_longer_probed() {
+    let mut cache = cache_with(&test_config());
+    cache.add_upstream(UPSTREAM);
+    let mut bench = Bench::new(cache);
+    bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
+    bench.request_from(UPSTREAM, 2, 0x1000, MemOp::Writeback { dirty: false });
+    let _ = bench.drain();
+
+    bench.probe_from_below(0x1000, 9);
+
+    assert!(bench.forwarded_probes().is_empty(), "the copy above is gone");
 }
 
 mod coherent {
@@ -875,8 +954,9 @@ mod coherent {
         }
 
         /// Installs `addr` through a coherence request completed in `state`.
+        /// Installs a line on behalf of the L1 above, which then holds a copy.
         fn install_coherent(&mut self, req_id: u64, addr: u64, op: MemOp, state: MesiState) {
-            self.request(req_id, addr, op);
+            self.request_from(UPSTREAM, req_id, addr, op);
             let reqs = requests(&self.drain());
             assert_eq!(reqs.len(), 1, "one request for the line");
             self.complete(reqs[0].0, addr, state, true);

@@ -43,6 +43,9 @@ use crate::sim::packet::{
 struct CacheLine {
     tag: u64,
     state: MesiState,
+    /// Bit `i` set: `upstream[i]` was given this line and has not told us
+    /// it dropped it. Probes and back-invalidations go only to those.
+    upper: u8,
 }
 
 impl CacheLine {
@@ -102,6 +105,7 @@ struct PendingProbe {
     ours: ReqId,
     origin: ProbeOrigin,
     line: LineAddr,
+    kind: ProbeKind,
     /// Upstream answers still outstanding.
     remaining: usize,
     /// Whether any copy (ours or an upper one) was dirty.
@@ -540,6 +544,7 @@ impl Cache {
                 hit_level,
                 granted,
             );
+            self.note_upper_copy(index, req.source);
             if self.upstream_inclusion == InclusionPolicy::Exclusive
                 && matches!(req.source, ComponentId::Cache(_))
             {
@@ -658,6 +663,12 @@ impl Cache {
             MesiState::Invalid,
         );
         let line = self.line_of(addr);
+        // A clean writeback is an eviction notice. A dirty one may also be
+        // a probed cache keeping a shared copy, so its presence bit stays
+        // until a probe finds it gone.
+        if !dirty {
+            self.forget_upper_copy(addr, req.source);
+        }
         if self.pending_probes.iter().any(|p| p.line == line) {
             self.note_probe_writeback(line, dirty, ctx);
             return;
@@ -818,6 +829,12 @@ impl Cache {
         }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
         let installed = self.fill(&mshr, granted, ctx);
+        if let Some(way) = self.find_way(mshr.line.val()) {
+            let index = self.set_index(mshr.line.val()) * self.ways + way;
+            for target in &mshr.targets {
+                self.note_upper_copy(index, target.source);
+            }
+        }
         // The filled line is read out through the same array access a hit
         // pays before the waiting requests are answered.
         let answered_at = ctx.cycle + self.latency;
@@ -870,7 +887,8 @@ impl Cache {
         } else {
             state
         };
-        self.lines[index] = CacheLine { tag, state };
+        let upper = if self.lines[index].valid() { self.lines[index].upper } else { 0 };
+        self.lines[index] = CacheLine { tag, state, upper };
         self.policy.update(set_index, way);
         state
     }
@@ -886,20 +904,21 @@ impl Cache {
         }
         ctx.stats.counter(self.stat_paths.evictions).inc();
         let line = self.line_of(self.reconstruct_addr(set_index, victim.tag));
+        let holders = self.upper_holders(line);
         self.lines[index].state = MesiState::Invalid;
         if victim.dirty() || self.clean_victims_to_downstream {
             self.write_back(line, victim.dirty(), ctx);
         } else {
             self.notify_evict(line, ctx);
         }
-        self.back_invalidate(line, ctx);
+        self.back_invalidate(line, &holders, ctx);
     }
 
-    fn back_invalidate(&self, line: LineAddr, ctx: &mut HandleCtx<'_>) {
+    fn back_invalidate(&self, line: LineAddr, holders: &[ComponentId], ctx: &mut HandleCtx<'_>) {
         if self.upstream_inclusion != InclusionPolicy::Inclusive {
             return;
         }
-        for &upstream in &self.upstream {
+        for &upstream in holders {
             ctx.scheduler.schedule(
                 ctx.cycle,
                 upstream,
@@ -915,11 +934,53 @@ impl Cache {
         if !self.enabled {
             return;
         }
+        let holders = self.upper_holders(line);
         if let Some(dirty) = self.invalidate_line(line.val()) {
             self.write_back(dirty.line, true, ctx);
         }
         ctx.stats.counter(self.stat_paths.back_invalidations).inc();
-        self.back_invalidate(line, ctx);
+        self.back_invalidate(line, &holders, ctx);
+    }
+
+    /// The bit `source` holds in a line's `upper` mask; zero when it is not
+    /// a cache above this one.
+    fn upstream_bit(&self, source: ComponentId) -> u8 {
+        self.upstream.iter().position(|&up| up == source).map_or(0, |i| 1 << i)
+    }
+
+    /// `source` was given the line in `index`.
+    fn note_upper_copy(&mut self, index: usize, source: ComponentId) {
+        self.lines[index].upper |= self.upstream_bit(source);
+    }
+
+    /// `source` dropped its copy of the line holding `addr`.
+    fn forget_upper_copy(&mut self, addr: u64, source: ComponentId) {
+        if let Some(way) = self.find_way(addr) {
+            let index = self.set_index(addr) * self.ways + way;
+            self.lines[index].upper &= !self.upstream_bit(source);
+        }
+    }
+
+    /// The caches above that may hold `line`: the ones given it while it is
+    /// here; every one when it is not and they need not be inclusive (or
+    /// this cache is disabled and holds nothing); none when they must be.
+    fn upper_holders(&self, line: LineAddr) -> Vec<ComponentId> {
+        if !self.enabled {
+            return self.upstream.clone();
+        }
+        match self.find_way(line.val()) {
+            Some(way) => {
+                let bits = self.lines[self.set_index(line.val()) * self.ways + way].upper;
+                self.upstream
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| bits & (1 << i) != 0)
+                    .map(|(_, &up)| up)
+                    .collect()
+            }
+            None if self.upstream_inclusion == InclusionPolicy::Inclusive => Vec::new(),
+            None => self.upstream.clone(),
+        }
     }
 
     /// A probe from the next level on behalf of a snoop: give up rights to
@@ -965,9 +1026,10 @@ impl Cache {
         // A fetch outstanding for the line was ordered after this probe at
         // the next level, so its fill is authoritative and is left alone.
         let had_copy = self.contains(line.val());
+        let holders = self.upper_holders(line);
         let dirty =
             self.apply_probe(line, kind, write_back_dirty, ctx) || self.writebacks.holds(line);
-        if self.upstream.is_empty() {
+        if holders.is_empty() {
             self.answer(origin, line, had_copy, dirty, ctx);
             return;
         }
@@ -976,13 +1038,14 @@ impl Cache {
             ours,
             origin,
             line,
-            remaining: self.upstream.len(),
+            kind,
+            remaining: holders.len(),
             dirty,
             had_copy,
         });
         // Probes share the response path's delay so they cannot overtake a
         // response already sent to an upper cache.
-        for &upstream in &self.upstream {
+        for &upstream in &holders {
             ctx.scheduler.schedule(
                 ctx.cycle + self.latency,
                 upstream,
@@ -1050,8 +1113,19 @@ impl Cache {
     }
 
     /// An upper cache answered one of our forwarded probes.
-    fn on_probe_resp(&mut self, txn: ReqId, had_copy: bool, dirty: bool, ctx: &mut HandleCtx<'_>) {
+    fn on_probe_resp(
+        &mut self,
+        txn: ReqId,
+        had_copy: bool,
+        dirty: bool,
+        from: ComponentId,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let Some(index) = self.pending_probes.iter().position(|p| p.ours == txn) else { return };
+        let (line, kind) = (self.pending_probes[index].line, self.pending_probes[index].kind);
+        if !had_copy || kind == ProbeKind::Invalidate {
+            self.forget_upper_copy(line.val(), from);
+        }
         let pending = &mut self.pending_probes[index];
         pending.had_copy |= had_copy;
         pending.dirty |= dirty;
@@ -1149,7 +1223,7 @@ impl Handle for Cache {
                 self.on_probe(line_addr, kind, txn, source, ctx);
             }
             Packet::ProbeResp { txn, had_copy, dirty, .. } => {
-                self.on_probe_resp(txn, had_copy, dirty, ctx);
+                self.on_probe_resp(txn, had_copy, dirty, source, ctx);
             }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),

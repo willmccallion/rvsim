@@ -223,7 +223,10 @@ Following CHI terminology, which maps cleanly onto real designs:
 - **Requesting agent (RA):** each core's private cache hierarchy, with the
   L2 as its interface to the fabric. With more than one core the L2 is
   made inclusive of its L1s so that a snoop can be answered from its tags;
-  a disabled L2 still acts as the agent for the L1s above it, and a core
+  each L2 line carries presence bits for the L1s it was handed to, so a
+  snoop probes only those (gem5's snoop filter plays the same role), and
+  one nobody above holds is answered from the L2 alone. A disabled L2
+  still acts as the agent for the L1s above it, and a core
   with no private cache at all takes no part in coherence (its accesses
   cross the fabric as non-snooped memory accesses).
 - **Home agent (HA):** the point of coherence for an address, co-located
@@ -339,8 +342,6 @@ fabric: the L2 talks to the LLC directly and stays cycle-identical.
   from the owner instead of writing back.
 - Directory at scale, hierarchical clusters, token coherence: new
   `HomeAgent` impls; a cluster is a `HomeAgent` that wraps two agents.
-- L1 presence bits in the L2 tags, so a snoop only probes the L1s that
-  may hold the line (today every snoop probes both L1s).
 - Memory consistency experiments: a `ConsistencyModel` gate in the load
   queue, orthogonal to coherence.
 
