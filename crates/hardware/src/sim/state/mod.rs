@@ -25,7 +25,7 @@ pub mod trap;
 pub mod write_log;
 
 use crate::coherence::{self, CoherenceFabric, FabricGeometry};
-use crate::common::{HartId, PhysAddr, RegisterFile};
+use crate::common::{HartId, PhysAddr, RegisterFile, Trap};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
@@ -265,6 +265,13 @@ impl SharedState {
             }
         }
         self.note_write(writer, paddr);
+    }
+
+    /// Whether a trace event about `trap` prints under the current
+    /// [`TraceControl`] settings.
+    #[must_use]
+    pub fn trace_trap_enabled(&self, trap: &Trap) -> bool {
+        self.config.general.trace_instructions && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
     }
 
     /// Records a write that bypassed [`SharedState::publish_write`] (the

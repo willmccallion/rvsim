@@ -48,7 +48,7 @@ pub fn fetch2_stage(
 
     for f1 in entries {
         if let Some(ref trap) = f1.trap {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(trap);
                 event = "propagate",
                 stage = "F2",
                 pc    = %crate::trace::Hex(f1.pc),
@@ -120,7 +120,7 @@ pub fn fetch2_stage(
         };
 
         if let Some(t) = inst_trap {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(&t);
                 event = "decode-trap",
                 stage = "F2",
                 pc    = %crate::trace::Hex(f1.pc),

@@ -121,7 +121,7 @@ impl Simulator {
                 let hart = self.state.topology.cores[core].hart_ids[0];
                 let cycle = self.state.cycle;
                 self.state.config.general.trace_instructions = self.state.trace.applies(Some(hart), cycle);
-                let span = tracing::trace_span!("hart", id = hart.val());
+                let span = tracing::trace_span!(target: "rvsim::hart", "hart", id = hart.val());
                 let _entered = span.enter();
                 let mut ctx = self.state.core_ctx(core);
                 self.pipelines[core].tick(&mut ctx);

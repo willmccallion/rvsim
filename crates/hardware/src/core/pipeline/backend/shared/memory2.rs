@@ -62,7 +62,7 @@ pub fn memory2_stage(
 
     for mem in entries {
         if let Some(ref trap) = mem.trap {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(trap);
                 event   = "propagate",
                 stage   = "M2",
                 pc      = %crate::trace::Hex(mem.pc),

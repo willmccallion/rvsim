@@ -265,3 +265,18 @@ fn test_all_trap_variants() {
         let _ = format!("{}", trap);
     }
 }
+
+#[test]
+fn mcause_code_sets_the_interrupt_bit_only_for_interrupts() {
+    assert_eq!(Trap::EnvironmentCallFromSMode.mcause_code(), 9);
+    assert_eq!(Trap::MachineTimerInterrupt.mcause_code(), (1 << 63) | 7);
+    assert_eq!(Trap::LoadPageFault(0).mcause_code(), 13);
+}
+
+#[test]
+fn only_timer_interrupts_and_ecalls_are_routine() {
+    assert!(Trap::SupervisorTimerInterrupt.is_routine());
+    assert!(Trap::EnvironmentCallFromUMode.is_routine());
+    assert!(!Trap::MachineExternalInterrupt.is_routine());
+    assert!(!Trap::IllegalInstruction(0).is_routine());
+}

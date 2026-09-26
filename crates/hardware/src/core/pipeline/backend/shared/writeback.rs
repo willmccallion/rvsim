@@ -29,7 +29,7 @@ pub fn writeback_stage(state: &mut CoreCtx<'_>, input: &mut Vec<Mem2WbEntry>, ro
                 trap.clone(),
                 wb.exception_stage.unwrap_or(ExceptionStage::Memory),
             );
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(trap);
                 event   = "writeback-fault",
                 pc      = %crate::trace::Hex(wb.pc),
                 rob_tag = wb.rob_tag.0,

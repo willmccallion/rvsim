@@ -58,8 +58,14 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Initialize tracing subscriber if RUST_LOG is set (for trace-* features).
     // Uses env-filter: RUST_LOG=rvsim::fwd=trace,rvsim::mem=trace
     use tracing_subscriber::EnvFilter;
+    let mut filter = EnvFilter::from_default_env();
+    if std::env::var_os("RUST_LOG").is_some_and(|v| !v.is_empty())
+        && let Ok(hart_span) = "rvsim::hart=trace".parse()
+    {
+        filter = filter.add_directive(hart_span);
+    }
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .with_target(true)
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))

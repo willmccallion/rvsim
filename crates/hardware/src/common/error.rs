@@ -113,6 +113,72 @@ impl fmt::Display for Trap {
 }
 
 impl Trap {
+    /// `(is_interrupt, code)` as `mcause` encodes it, without the interrupt bit.
+    #[must_use]
+    pub const fn cause(&self) -> (bool, u64) {
+        use crate::common::constants::CAUSE_INTERRUPT_BIT;
+        use crate::isa::privileged::cause::{exception, interrupt};
+        match *self {
+            Self::InstructionAddressMisaligned(_) => {
+                (false, exception::INSTRUCTION_ADDRESS_MISALIGNED)
+            }
+            Self::InstructionAccessFault(_) => (false, exception::INSTRUCTION_ACCESS_FAULT),
+            Self::IllegalInstruction(_) => (false, exception::ILLEGAL_INSTRUCTION),
+            Self::Breakpoint(_) => (false, exception::BREAKPOINT),
+            Self::LoadAddressMisaligned(_) => (false, exception::LOAD_ADDRESS_MISALIGNED),
+            Self::LoadAccessFault(_) => (false, exception::LOAD_ACCESS_FAULT),
+            Self::StoreAddressMisaligned(_) => (false, exception::STORE_ADDRESS_MISALIGNED),
+            Self::StoreAccessFault(_) => (false, exception::STORE_ACCESS_FAULT),
+            Self::EnvironmentCallFromUMode => (false, exception::ENVIRONMENT_CALL_FROM_U_MODE),
+            Self::EnvironmentCallFromSMode => (false, exception::ENVIRONMENT_CALL_FROM_S_MODE),
+            Self::EnvironmentCallFromMMode => (false, exception::ENVIRONMENT_CALL_FROM_M_MODE),
+            Self::InstructionPageFault(_) => (false, exception::INSTRUCTION_PAGE_FAULT),
+            Self::LoadPageFault(_) => (false, exception::LOAD_PAGE_FAULT),
+            Self::StorePageFault(_) => (false, exception::STORE_PAGE_FAULT),
+            Self::UserSoftwareInterrupt => (true, interrupt::USER_SOFTWARE & !CAUSE_INTERRUPT_BIT),
+            Self::SupervisorSoftwareInterrupt => {
+                (true, interrupt::SUPERVISOR_SOFTWARE & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::MachineSoftwareInterrupt => {
+                (true, interrupt::MACHINE_SOFTWARE & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::SupervisorTimerInterrupt => {
+                (true, interrupt::SUPERVISOR_TIMER & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::MachineTimerInterrupt => (true, interrupt::MACHINE_TIMER & !CAUSE_INTERRUPT_BIT),
+            Self::UserExternalInterrupt => (true, interrupt::USER_EXTERNAL & !CAUSE_INTERRUPT_BIT),
+            Self::SupervisorExternalInterrupt => {
+                (true, interrupt::SUPERVISOR_EXTERNAL & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::MachineExternalInterrupt => {
+                (true, interrupt::MACHINE_EXTERNAL & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::RequestedTrap(c) => (false, c),
+            Self::DoubleFault(_) => (false, exception::HARDWARE_ERROR),
+        }
+    }
+
+    /// The full `mcause` value: the code with the interrupt bit set for interrupts.
+    #[must_use]
+    pub const fn mcause_code(&self) -> u64 {
+        let (is_interrupt, code) = self.cause();
+        if is_interrupt { code | crate::common::constants::CAUSE_INTERRUPT_BIT } else { code }
+    }
+
+    /// Timer interrupts and environment calls: the traps a running OS takes
+    /// constantly, hidden from the trace unless asked for by cause.
+    #[must_use]
+    pub const fn is_routine(&self) -> bool {
+        matches!(
+            self,
+            Self::MachineTimerInterrupt
+                | Self::SupervisorTimerInterrupt
+                | Self::EnvironmentCallFromUMode
+                | Self::EnvironmentCallFromSMode
+                | Self::EnvironmentCallFromMMode
+        )
+    }
+
     /// Returns the exception priority per RISC-V Privileged Spec Table 3.7.
     ///
     /// Lower values indicate higher priority. Synchronous exceptions have

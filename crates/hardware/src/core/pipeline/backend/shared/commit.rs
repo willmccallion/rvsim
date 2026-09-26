@@ -94,7 +94,7 @@ pub fn commit_stage(
         let interrupt = check_interrupts(state);
         if let Some(interrupt_trap) = interrupt {
             state.hart.wfi_waiting = false;
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(&interrupt_trap);
                 event      = "interrupt",
                 epc        = %crate::trace::Hex(epc),
                 cause      = ?interrupt_trap,
@@ -164,7 +164,7 @@ pub fn commit_stage(
                             writeln!(log, "core   0: 0x{:016x} (0x{:08x})", entry.pc, entry.inst);
                     }
                 }
-                trace_trap!(state.config.general.trace_instructions;
+                trace_trap!(state.trace_trap_enabled(the_trap);
                     event     = "sync-exception",
                     pc        = %crate::trace::Hex(entry.pc),
                     rob_tag   = entry.tag.0,

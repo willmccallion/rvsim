@@ -6,7 +6,6 @@ use crate::common::constants::CAUSE_INTERRUPT_BIT;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
-use crate::isa::privileged::cause::{exception, interrupt};
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::trace_trap;
 
@@ -55,56 +54,9 @@ impl CoreCtx<'_> {
             return;
         }
 
-        let (is_interrupt, code) = match *cause {
-            Trap::InstructionAddressMisaligned(_) => {
-                (false, exception::INSTRUCTION_ADDRESS_MISALIGNED)
-            }
-            Trap::InstructionAccessFault(_) => (false, exception::INSTRUCTION_ACCESS_FAULT),
-            Trap::IllegalInstruction(_) => (false, exception::ILLEGAL_INSTRUCTION),
-            Trap::Breakpoint(_) => (false, exception::BREAKPOINT),
-            Trap::LoadAddressMisaligned(_) => (false, exception::LOAD_ADDRESS_MISALIGNED),
-            Trap::LoadAccessFault(_) => (false, exception::LOAD_ACCESS_FAULT),
-            Trap::StoreAddressMisaligned(_) => (false, exception::STORE_ADDRESS_MISALIGNED),
-            Trap::StoreAccessFault(_) => (false, exception::STORE_ACCESS_FAULT),
-            Trap::EnvironmentCallFromUMode => (false, exception::ENVIRONMENT_CALL_FROM_U_MODE),
-            Trap::EnvironmentCallFromSMode => (false, exception::ENVIRONMENT_CALL_FROM_S_MODE),
-            Trap::EnvironmentCallFromMMode => (false, exception::ENVIRONMENT_CALL_FROM_M_MODE),
-            Trap::InstructionPageFault(_) => (false, exception::INSTRUCTION_PAGE_FAULT),
-            Trap::LoadPageFault(_) => (false, exception::LOAD_PAGE_FAULT),
-            Trap::StorePageFault(_) => (false, exception::STORE_PAGE_FAULT),
-            Trap::UserSoftwareInterrupt => (true, interrupt::USER_SOFTWARE & !CAUSE_INTERRUPT_BIT),
-            Trap::SupervisorSoftwareInterrupt => {
-                (true, interrupt::SUPERVISOR_SOFTWARE & !CAUSE_INTERRUPT_BIT)
-            }
-            Trap::MachineSoftwareInterrupt => {
-                (true, interrupt::MACHINE_SOFTWARE & !CAUSE_INTERRUPT_BIT)
-            }
-            Trap::SupervisorTimerInterrupt => {
-                (true, interrupt::SUPERVISOR_TIMER & !CAUSE_INTERRUPT_BIT)
-            }
-            Trap::MachineTimerInterrupt => (true, interrupt::MACHINE_TIMER & !CAUSE_INTERRUPT_BIT),
-            Trap::UserExternalInterrupt => (true, interrupt::USER_EXTERNAL & !CAUSE_INTERRUPT_BIT),
-            Trap::SupervisorExternalInterrupt => {
-                (true, interrupt::SUPERVISOR_EXTERNAL & !CAUSE_INTERRUPT_BIT)
-            }
-            Trap::MachineExternalInterrupt => {
-                (true, interrupt::MACHINE_EXTERNAL & !CAUSE_INTERRUPT_BIT)
-            }
-            Trap::RequestedTrap(c) => (false, c),
-            Trap::DoubleFault(_) => (false, exception::HARDWARE_ERROR),
-        };
-        let cause_code = if is_interrupt { code | CAUSE_INTERRUPT_BIT } else { code };
-        let is_timer =
-            matches!(cause, Trap::MachineTimerInterrupt | Trap::SupervisorTimerInterrupt);
-        let is_ecall = matches!(
-            cause,
-            Trap::EnvironmentCallFromUMode
-                | Trap::EnvironmentCallFromSMode
-                | Trap::EnvironmentCallFromMMode
-        );
-
-        if self.trace.trap_visible(cause_code, is_timer || is_ecall) {
-            trace_trap!(self.config.general.trace_instructions;
+        let (is_interrupt, code) = cause.cause();
+        {
+            trace_trap!(self.trace_trap_enabled(cause);
                 event      = "taken",
                 epc        = %crate::trace::Hex(epc),
                 cause      = ?cause,
@@ -114,8 +66,6 @@ impl CoreCtx<'_> {
                 "trap taken"
             );
         }
-
-
 
         let deleg_mask = if is_interrupt { self.hart.csrs.mideleg } else { self.hart.csrs.medeleg };
         let delegate_to_s =

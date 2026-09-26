@@ -51,7 +51,7 @@ pub fn execute_inorder(
         }
 
         if let Some(trap) = id.trap.clone() {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(&trap);
                 event   = "propagate",
                 stage   = "EX",
                 pc      = %crate::trace::Hex(id.pc),

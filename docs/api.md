@@ -230,10 +230,11 @@ Read memory at a physical address with the given width.
 
 `cpu.trace = True` arms the pipeline trace; events go to stderr through
 the `RUST_LOG` target filter (`RUST_LOG=rvsim::trap=trace,rvsim::fetch=trace`
-and so on), each inside a `hart{id=N}` span. `trace_filter` narrows an
-armed trace to some harts, a `(first, last)` cycle window, and, for the
-trap-taken event, a list of `mcause` values (interrupt bit included);
-without a cause list every trap prints except timer interrupts and ecalls.
+and so on), each inside a `hart{id=N}` span that is enabled whenever
+`RUST_LOG` is set. `trace_filter` narrows an armed trace to some harts, a
+`(first, last)` cycle window, and, for every event that names a trap, a
+list of `mcause` values (interrupt bit included); without a cause list
+every trap prints except timer interrupts and ecalls.
 
 ```python
 cpu.run(limit=19_000_000)

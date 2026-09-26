@@ -462,7 +462,7 @@ fn execute_system(
         }
         let tsr = (state.hart.csrs.mstatus >> 22) & 1;
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(&Trap::IllegalInstruction(id.inst));
                 event   = "illegal",
                 pc      = %crate::trace::Hex(id.pc),
                 rob_tag = id.rob_tag.0,
@@ -491,7 +491,7 @@ fn execute_system(
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User
             || (state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tw != 0)
         {
-            trace_trap!(state.config.general.trace_instructions;
+            trace_trap!(state.trace_trap_enabled(&Trap::IllegalInstruction(id.inst));
                 event   = "illegal",
                 pc      = %crate::trace::Hex(id.pc),
                 insn    = "WFI",
@@ -574,7 +574,7 @@ fn execute_system(
             PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
             PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
         };
-        trace_trap!(state.config.general.trace_instructions;
+        trace_trap!(state.trace_trap_enabled(&trap);
             event     = "take",
             pc        = %crate::trace::Hex(id.pc),
             rob_tag   = id.rob_tag.0,
