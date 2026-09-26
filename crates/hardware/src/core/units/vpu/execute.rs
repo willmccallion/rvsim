@@ -21,7 +21,9 @@ use crate::isa::rvv::encoding as v_enc;
 use crate::sim::CoreCtx;
 
 /// Execute a vector operation against the architectural vector registers.
-/// `vsetvl` is not executed here: the backends record its result on the ROB.
+///
+/// `vsetvl` is not executed here (the backends record its result on the
+/// ROB), nor are loads and stores (element micro-ops in the memory stages).
 ///
 /// # Errors
 ///
@@ -31,8 +33,8 @@ use crate::sim::CoreCtx;
 pub fn execute_vec_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     match id.ctrl.vec_op {
         VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None => Ok(0),
-        op if mem::is_vec_load(op) => execute_vec_load(state, id),
-        op if mem::is_vec_store(op) => execute_vec_store(state, id),
+        // Loads and stores are element micro-ops in the memory stages.
+        op if mem::is_vec_load(op) || mem::is_vec_store(op) => Ok(0),
         op if fpu::is_vec_fp(op) => execute_vec_fp(state, id),
         op if reduction::is_reduction(op) => execute_vec_reduction(state, id),
         op if mask::is_mask_op(op) => execute_vec_mask(state, id),
@@ -314,22 +316,6 @@ fn execute_vec_permute(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result
     state.hart.csrs.vstart = 0;
     mark_vs_dirty(state);
     Ok(result.scalar_result.unwrap_or(0))
-}
-
-/// Execute a vector load operation through the memory subsystem.
-fn execute_vec_load(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    let result = mem::execute_vec_load(state, id)?;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result)
-}
-
-/// Execute a vector store operation through the memory subsystem.
-fn execute_vec_store(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    let result = mem::execute_vec_store(state, id)?;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result)
 }
 
 /// Side effects produced by a deferred vector execution.
