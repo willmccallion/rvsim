@@ -96,7 +96,7 @@ fn write_pte(bus: &Bus, base_ppn: u64, vpn_index: u64, pte: u64) {
 
 #[test]
 fn bare_mode_bypass() {
-    let (mut mmu, mut csrs, mut tc) = setup_mmu();
+    let (mut mmu, mut csrs, tc) = setup_mmu();
     csrs.write(csr::SATP, 0); // Mode = 0 (Bare)
 
     let vaddr = VirtAddr::new(0x1234_5678);
@@ -115,7 +115,7 @@ fn bare_mode_bypass() {
 
 #[test]
 fn machine_mode_bypass() {
-    let (mut mmu, csrs, mut tc) = setup_mmu();
+    let (mut mmu, csrs, tc) = setup_mmu();
     // SATP is SV39, but privilege is Machine -> should bypass
 
     let vaddr = VirtAddr::new(0x1234_5678);
@@ -396,7 +396,7 @@ fn supervisor_cannot_fetch_user_page() {
 
 #[test]
 fn non_canonical_address_faults() {
-    let (mut mmu, csrs, mut tc) = setup_mmu();
+    let (mut mmu, csrs, tc) = setup_mmu();
 
     // SV39 requires bits 63..39 to sign-extend bit 38; here bit 38=1 but 63..39=0.
     let non_canon = VirtAddr::new(1 << 38);
@@ -574,7 +574,7 @@ fn sv48_pointer_at_level_0_causes_fault() {
 
 #[test]
 fn sv48_non_canonical_address_faults() {
-    let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
+    let (mut mmu, csrs, tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
 
     // bit 47 = 1 but bits 63..48 = 0 → non-canonical for Sv48.
     let non_canon_low = VirtAddr::new(1u64 << 47);
@@ -711,7 +711,7 @@ fn sv57_pointer_at_level_0_causes_fault() {
 
 #[test]
 fn sv57_non_canonical_address_faults() {
-    let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
+    let (mut mmu, csrs, tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
 
     // bit 56 = 1 but bits 63..57 = 0 → non-canonical.
     let non_canon = VirtAddr::new(1u64 << 56);

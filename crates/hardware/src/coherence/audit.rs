@@ -87,7 +87,7 @@ pub fn audit(state: &SimState) -> Vec<Violation> {
                             "core {} L1D holds {l1_state:?} while its L2 holds {l2_state:?}",
                             core.core_id.val()
                         ),
-                    })
+                    });
                 }
                 Some(_) => {}
             }

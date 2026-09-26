@@ -209,7 +209,7 @@ impl CoherenceFabric {
             match (to, msg) {
                 (Node::Home, msg) => self.on_home_message(msg, ctx),
                 (Node::Core(_), CoherenceMsg::NoSnpData { txn, .. }) => {
-                    self.deliver_parked_response(txn, ctx)
+                    self.deliver_parked_response(txn, ctx);
                 }
                 (Node::Core(core), msg) => {
                     let agent = self.agents[core.as_index()];
@@ -246,7 +246,7 @@ impl CoherenceFabric {
         match msg {
             CoherenceMsg::Req { .. } => self.admit(Waiting { msg, arrived: ctx.cycle }, ctx),
             CoherenceMsg::SnoopResp { txn, from, had_copy, dirty, .. } => {
-                self.on_snoop_resp(txn, from, had_copy, dirty, ctx)
+                self.on_snoop_resp(txn, from, had_copy, dirty, ctx);
             }
             CoherenceMsg::CompAck { txn, .. } => self.on_comp_ack(txn, ctx),
             CoherenceMsg::NoSnp { txn, .. } => self.forward_parked_request(txn, ctx),
@@ -444,7 +444,7 @@ impl CoherenceFabric {
         match snoop_kind {
             SnoopKind::Shared if had_copy => self.tracking.on_downgrade(txn.line, from),
             SnoopKind::Shared | SnoopKind::Unique | SnoopKind::Invalid => {
-                self.tracking.on_release(txn.line, from)
+                self.tracking.on_release(txn.line, from);
             }
         }
         let Some(t) = self.txn_mut(id) else { return };

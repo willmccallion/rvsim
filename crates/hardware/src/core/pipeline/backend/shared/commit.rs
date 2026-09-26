@@ -1056,7 +1056,7 @@ fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &crate::core::pipeli
             | AluOp::FCvtHD
             | AluOp::FMvToX
             | AluOp::FMvToF => {
-                state.shared.stats.counter(state.core.stat_paths.commit.fp_arith).inc()
+                state.shared.stats.counter(state.core.stat_paths.commit.fp_arith).inc();
             }
             AluOp::FDiv | AluOp::FSqrt => {
                 state.shared.stats.counter(state.core.stat_paths.commit.fp_div_sqrt).inc();
@@ -1174,7 +1174,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
         | VectorOp::VWRedSum => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_int).inc()
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_int).inc();
         }
         VectorOp::VFAdd
         | VectorOp::VFSub
@@ -1246,7 +1246,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
         | VectorOp::VFWRedUSum => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_fp).inc()
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_fp).inc();
         }
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
@@ -1307,7 +1307,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VSm4K
         | VectorOp::VGhsh
         | VectorOp::VGmul => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_misc).inc()
+            state.shared.stats.counter(state.core.stat_paths.commit.vec_misc).inc();
         }
     }
 }

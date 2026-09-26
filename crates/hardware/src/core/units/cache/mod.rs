@@ -1140,10 +1140,10 @@ impl Handle for Cache {
                 self.on_response(req_id, line_addr, data, hit_level, state, ctx);
             }
             Packet::Probe { line_addr, kind, txn } => {
-                self.on_probe(line_addr, kind, txn, source, ctx)
+                self.on_probe(line_addr, kind, txn, source, ctx);
             }
             Packet::ProbeResp { txn, had_copy, dirty, .. } => {
-                self.on_probe_resp(txn, had_copy, dirty, ctx)
+                self.on_probe_resp(txn, had_copy, dirty, ctx);
             }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
