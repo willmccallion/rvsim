@@ -29,18 +29,11 @@ pub fn execute_one(
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
     if let Some(trap) = id.trap.clone() {
-        let (result, redirect) = propagate_trap(state, rob, id, trap);
-        return (result, Some(redirect));
+        return (propagate_trap(state, id, trap), None);
     }
 
-    // The breakpoint travels with the entry and faults the ROB at writeback.
     if state.check_execute_trigger(id.pc) {
-        let result = ExMem1Entry {
-            trap: Some(Trap::Breakpoint(id.pc)),
-            exception_stage: Some(ExceptionStage::Execute),
-            ..ExMem1Entry::from_issue(id, 0, 0)
-        };
-        return (result, None);
+        return faulted(state, id, Trap::Breakpoint(id.pc));
     }
 
     trace_execute!(state.config.general.trace_instructions;
@@ -79,7 +72,7 @@ pub fn execute_one(
     }
 
     if fp_disabled(state, id) {
-        return faulted(state, rob, id, Trap::IllegalInstruction(id.inst));
+        return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 
     let (alu_out, fp_flags) = evaluate(state, id, op_a, op_b);
@@ -98,12 +91,10 @@ const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
 
 fn faulted(
     state: &StageCtx<'_>,
-    rob: &mut Rob,
     id: &RenameIssueEntry,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    let (result, redirect) = fault(state, rob, id, trap, ExceptionStage::Execute);
-    (result, Some(redirect))
+    (fault(state, id, trap, ExceptionStage::Execute), None)
 }
 
 /// Executes a system instruction; `None` for everything else, FENCE
@@ -114,7 +105,7 @@ fn execute_system(
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     if let Some(trap) = privileged_op_fault(state, id) {
-        return Some(faulted(state, rob, id, trap));
+        return Some(faulted(state, id, trap));
     }
     let executed = match id.ctrl.system_op {
         SystemOp::None | SystemOp::Fence => return None,
@@ -154,7 +145,7 @@ fn execute_system(
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
             (ExMem1Entry::from_issue(id, id.rv1, 0), None)
         }
-        SystemOp::Ecall => faulted(state, rob, id, ecall_trap(state)),
+        SystemOp::Ecall => faulted(state, id, ecall_trap(state)),
         SystemOp::Csr => match csr_access(state, id) {
             // Only CSR writes need a flush; pure reads stay serialized at issue time.
             Ok(access) => {
@@ -164,7 +155,7 @@ fn execute_system(
                 });
                 (ExMem1Entry::from_issue(id, access.old, id.rv2), redirect)
             }
-            Err(trap) => faulted(state, rob, id, trap),
+            Err(trap) => faulted(state, id, trap),
         },
     };
     Some(executed)
@@ -249,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_trap_propagation() {
+    fn propagated_trap_travels_with_the_result() {
         let config = Config::default();
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
@@ -310,11 +301,12 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert!(redirect.is_some());
+        let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
+
+        assert!(redirect.is_none());
+        assert!(result.trap.is_some());
         let entry = rob.find_entry(tag).unwrap();
-        assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
-        assert!(entry.trap.is_some());
+        assert_ne!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
     }
 
     #[test]
@@ -386,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_fp_trap_when_fs_zero() {
+    fn fp_op_with_fs_off_carries_an_illegal_instruction_trap() {
         let config = Config::default();
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
@@ -454,10 +446,10 @@ mod tests {
             vec_frm: 0,
         };
 
-        let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert!(redirect.is_some());
-        let entry = rob.find_entry(tag).unwrap();
-        assert_eq!(entry.state, crate::core::pipeline::rob::RobState::Faulted);
+        let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
+
+        assert!(redirect.is_none());
+        assert_eq!(result.trap, Some(Trap::IllegalInstruction(issue.inst)));
     }
 
     #[test]

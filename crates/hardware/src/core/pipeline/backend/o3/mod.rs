@@ -574,6 +574,10 @@ impl ExecutionEngine for O3Engine {
                         || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
                     {
                         self.execute_mem1.push(entry);
+                    } else if let Some(trap) = entry.trap {
+                        let stage =
+                            entry.exception_stage.unwrap_or(crate::common::ExceptionStage::Execute);
+                        self.rob.fault(entry.rob_tag, trap, stage);
                     } else {
                         let val = if entry.ctrl.control_flow == ControlFlow::Jump {
                             entry.pc.wrapping_add(entry.inst_size.as_u64())

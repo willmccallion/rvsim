@@ -5,6 +5,7 @@ pub mod bus_occupancy;
 pub mod csr_head_execution;
 pub mod csr_ordering;
 pub mod drain;
+pub mod execute_trigger;
 pub mod fault_precedence;
 pub mod fetch_buffer;
 pub mod fetch_inflight_limit;

@@ -59,12 +59,10 @@ const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
 
 fn faulted(
     state: &StageCtx<'_>,
-    rob: &mut Rob,
     id: &RenameIssueEntry,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    let (result, redirect) = fault(state, rob, id, trap, ExceptionStage::Execute);
-    (result, Some(redirect))
+    (fault(state, id, trap, ExceptionStage::Execute), None)
 }
 
 fn execute_one(
@@ -73,8 +71,7 @@ fn execute_one(
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
     if let Some(trap) = id.trap.clone() {
-        let (result, redirect) = propagate_trap(state, rob, id, trap);
-        return (result, Some(redirect));
+        return (propagate_trap(state, id, trap), None);
     }
 
     trace_execute!(state.config.general.trace_instructions;
@@ -92,7 +89,7 @@ fn execute_one(
     );
 
     if state.check_execute_trigger(id.pc) {
-        return faulted(state, rob, id, Trap::Breakpoint(id.pc));
+        return faulted(state, id, Trap::Breakpoint(id.pc));
     }
 
     if let Some(executed) = execute_system(state, id, rob) {
@@ -100,7 +97,7 @@ fn execute_one(
     }
 
     if fp_disabled(state, id) {
-        return faulted(state, rob, id, Trap::IllegalInstruction(id.inst));
+        return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 
     if id.ctrl.vec_op.is_config() {
@@ -116,7 +113,7 @@ fn execute_one(
                 rob.complete(id.rob_tag, scalar);
                 (ExMem1Entry::from_issue(id, scalar, 0), Some(refetch_after(id)))
             }
-            Err(trap) => faulted(state, rob, id, trap),
+            Err(trap) => faulted(state, id, trap),
         };
     }
 
@@ -138,7 +135,7 @@ fn execute_system(
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     if let Some(trap) = privileged_op_fault(state, id) {
-        return Some(faulted(state, rob, id, trap));
+        return Some(faulted(state, id, trap));
     }
     match id.ctrl.system_op {
         SystemOp::None | SystemOp::Fence => None,
@@ -166,7 +163,7 @@ fn execute_system(
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
             Some((ExMem1Entry::from_issue(id, id.rv1, 0), None))
         }
-        SystemOp::Ecall => Some(faulted(state, rob, id, ecall_trap(state))),
+        SystemOp::Ecall => Some(faulted(state, id, ecall_trap(state))),
         SystemOp::Csr => Some(match csr_access(state, id) {
             Ok(access) => {
                 if let Some(update) = access.update {
@@ -174,7 +171,7 @@ fn execute_system(
                 }
                 (ExMem1Entry::from_issue(id, access.old, id.rv2), Some(refetch_after(id)))
             }
-            Err(trap) => faulted(state, rob, id, trap),
+            Err(trap) => faulted(state, id, trap),
         }),
     }
 }

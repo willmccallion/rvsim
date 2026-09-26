@@ -10,7 +10,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp};
-use crate::core::pipeline::squash::{BranchRepair, Redirect, SquashCause};
+use crate::core::pipeline::squash::{BranchRepair, Redirect};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
@@ -47,14 +47,15 @@ pub const fn operands(id: &RenameIssueEntry) -> (u64, u64) {
     (op_a, op_b)
 }
 
-/// Records `trap` on `id`'s ROB entry and squashes everything after it.
+/// The result of an instruction that raised `trap` in `stage`. The trap
+/// travels with it: writeback records it on the ROB entry and commit takes
+/// it, flushing everything younger, as a real core does.
 pub fn fault(
     state: &StageCtx<'_>,
-    rob: &mut Rob,
     id: &RenameIssueEntry,
     trap: Trap,
     stage: ExceptionStage,
-) -> (ExMem1Entry, Redirect) {
+) -> ExMem1Entry {
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
         stage   = ?stage,
@@ -63,18 +64,17 @@ pub fn fault(
         trap    = ?trap,
         "EX: instruction faulted"
     );
-    rob.fault(id.rob_tag, trap, stage);
-    (ExMem1Entry::from_issue(id, 0, 0), Redirect::to(next_pc(id), SquashCause::System))
+    ExMem1Entry {
+        trap: Some(trap),
+        exception_stage: Some(stage),
+        ..ExMem1Entry::from_issue(id, 0, 0)
+    }
 }
 
-/// Faults an instruction that arrived carrying a trap from an earlier stage.
-pub fn propagate_trap(
-    state: &StageCtx<'_>,
-    rob: &mut Rob,
-    id: &RenameIssueEntry,
-    trap: Trap,
-) -> (ExMem1Entry, Redirect) {
-    fault(state, rob, id, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute))
+/// The result of an instruction that arrived carrying a trap from an
+/// earlier stage.
+pub fn propagate_trap(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
+    fault(state, id, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute))
 }
 
 /// True when `id` touches the FP registers while `mstatus.FS` is Off.
