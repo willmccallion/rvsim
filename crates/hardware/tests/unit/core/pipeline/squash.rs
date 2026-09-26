@@ -15,6 +15,7 @@ fn in_flight_load(tag: u32) -> OutstandingLoad {
         paddr: PhysAddr::new(0x8000_0000),
         vaddr: VirtAddr::new(0x8000_0000),
         pte_update: None,
+        side_effecting: false,
     }
 }
 

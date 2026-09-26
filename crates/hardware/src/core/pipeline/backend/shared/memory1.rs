@@ -33,6 +33,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{OutstandingLoad, OutstandingWalk, WalkContinuation};
+use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
@@ -214,10 +215,20 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
         rd_phys: ex.rd_phys,
         alu: ex.alu,
         vaddr: VirtAddr::new(0),
+        if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+            return EntryOutcome::Replay(ex);
+        }
         paddr: PhysAddr::new(0),
         store_data: ex.store_data,
         load_data: 0,
         sb_forwarded: false,
+    // A device read has side effects, so it waits until nothing older can
+    // still fault, redirect or be interrupted: the load must be the oldest
+    // instruction in the machine.
+    if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+        return EntryOutcome::Replay(ex);
+    }
+
         ctrl: ex.ctrl,
         trap: None,
         exception_stage: None,
@@ -232,6 +243,17 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
 
 /// Forwards an entry that already carries a trap from an earlier stage.
 fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
+/// True when `[paddr, paddr + size)` is not plain RAM: a device register,
+/// or the HTIF window a device overlays.
+fn reads_a_device(state: &CoreCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
+    state.bus.ram_region_for(paddr.val(), size).is_none()
+}
+
+/// True when `tag` is the oldest instruction in the ROB.
+fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
+    engine.rob().peek_head().is_some_and(|head| head.tag == tag)
+}
+
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         rob_tag: ex.rob_tag,
         pc: ex.pc,
@@ -443,7 +465,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let _ = engine
         .common_mut()
         .outstanding_loads
-        .insert(req_id, OutstandingLoad { entry: ex, paddr, vaddr, pte_update });
+        .insert(req_id, OutstandingLoad { entry: ex, paddr, vaddr, pte_update, side_effecting });
 }
 
 /// Records the parked walk and issues the PTE `MemReq`.
@@ -469,6 +491,7 @@ fn park_walk<E: ExecutionEngine>(
 
     let cycle = state.cycle;
     state.event_queue.schedule(
+    let side_effecting = matches!(target, ComponentId::Bus);
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),

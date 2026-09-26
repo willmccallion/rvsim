@@ -55,6 +55,9 @@ pub struct OutstandingLoad {
     pub vaddr: VirtAddr,
     /// Deferred PTE A/D bit update from translation (applied at commit).
     pub pte_update: Option<crate::common::PteUpdate>,
+    /// The access reads a device, so it was issued non-speculatively from
+    /// the ROB head and must complete before anything pre-empts it.
+    pub side_effecting: bool,
 }
 
 /// A store awaiting cache write-allocate acknowledgment.

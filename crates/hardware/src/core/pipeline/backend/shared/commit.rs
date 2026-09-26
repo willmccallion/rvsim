@@ -91,7 +91,7 @@ pub fn commit_stage(
             state.hart.committed_next_pc
         };
 
-        let interrupt = check_interrupts(state);
+        let interrupt = check_interrupts(state).filter(|_| !device_access_in_flight(common, rob));
         if let Some(interrupt_trap) = interrupt {
             state.hart.wfi_waiting = false;
             trace_trap!(state.trace_trap_enabled(&interrupt_trap);
@@ -657,6 +657,15 @@ fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Optio
         }
     };
     Some(raw)
+}
+
+/// True when the ROB head has a device read outstanding. Such a read was
+/// issued non-speculatively and has already had its side effect, so the
+/// instruction must retire before an interrupt can pre-empt it.
+fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
+    rob.peek_head().is_some_and(|head| {
+        common.outstanding_loads.values().any(|l| l.side_effecting && l.entry.rob_tag == head.tag)
+    })
 }
 
 /// True when `[paddr, paddr + width)` is RAM with no MMIO overlay, i.e. a
