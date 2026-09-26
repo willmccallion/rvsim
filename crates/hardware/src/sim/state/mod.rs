@@ -437,7 +437,11 @@ impl SimState {
         }
 
         let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
-        let rtc = GoldfishRtc::new(0x101000);
+        let rtc = GoldfishRtc::new(
+            0x101000,
+            config.system.rtc_epoch_seconds.saturating_mul(1_000_000_000),
+            config.system.cpu_clock_mhz,
+        );
 
         bus.add_device(Box::new(uart));
         bus.add_device(Box::new(disk));

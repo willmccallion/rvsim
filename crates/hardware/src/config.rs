@@ -57,6 +57,10 @@ mod defaults {
     /// Divides the simulation cycle counter to produce the machine timer value.
     pub const CLINT_DIVIDER: u64 = 10;
 
+    /// Wall-clock time the RTC reports at cycle zero: 2026-01-01T00:00:00Z,
+    /// so every run reads the same clock.
+    pub const RTC_EPOCH_SECONDS: u64 = 1_767_225_600;
+
     /// Core clock in MHz. Fixes the ratio between simulator cycles and
     /// wall-clock time for components with their own clock domain (the DDR5
     /// controller runs at the DRAM command clock). Independent of the CLINT
@@ -598,6 +602,11 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_cpu_clock_mhz")]
     pub cpu_clock_mhz: u64,
 
+    /// Wall-clock time the RTC reports at cycle zero, in seconds since the
+    /// Unix epoch; see [`defaults::RTC_EPOCH_SECONDS`].
+    #[serde(default = "SystemConfig::default_rtc_epoch_seconds")]
+    pub rtc_epoch_seconds: u64,
+
     /// When true, UART output goes to stderr (for visibility when run from Python).
     #[serde(default)]
     pub uart_to_stderr: bool,
@@ -668,6 +677,10 @@ impl SystemConfig {
         defaults::CPU_CLOCK_MHZ
     }
 
+    const fn default_rtc_epoch_seconds() -> u64 {
+        defaults::RTC_EPOCH_SECONDS
+    }
+
     /// Returns the default hart count (1).
     const fn default_hart_count() -> usize {
         1
@@ -687,6 +700,7 @@ impl Default for SystemConfig {
             bus_latency: defaults::BUS_LATENCY,
             clint_divider: defaults::CLINT_DIVIDER,
             cpu_clock_mhz: defaults::CPU_CLOCK_MHZ,
+            rtc_epoch_seconds: defaults::RTC_EPOCH_SECONDS,
             uart_to_stderr: false,
             uart_quiet: false,
             tohost_addr: 0,

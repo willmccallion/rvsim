@@ -280,6 +280,7 @@ These parameters control the SoC memory map and device configuration. You normal
 | `bus_latency` | `int` | `4` | Bus transaction latency in cycles |
 | `clint_divider` | `int` | `10` | Timer tick divider (mtime increments every N cycles) |
 | `cpu_clock_mhz` | `int` | `2400` | Core clock, used to convert between simulator cycles and the DDR5 command clock |
+| `rtc_epoch_seconds` | `int` | `1767225600` | Wall-clock time the RTC reports at cycle zero (2026-01-01), advanced by simulated time so runs are reproducible |
 | `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
 
 ---
