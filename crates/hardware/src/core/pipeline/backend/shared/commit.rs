@@ -199,6 +199,10 @@ pub fn commit_stage(
                     mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
                     "CM: synchronous exception at commit"
                 );
+                // Elements a vector load returned before the faulting one.
+                if let Some(writes) = &entry.vec_writes {
+                    writes.apply(state.hart.regs.vpr_mut());
+                }
                 if let Some(vstart) = entry.fault_vstart {
                     state.hart.csrs.vstart = vstart;
                 }
@@ -367,6 +371,15 @@ pub fn commit_stage(
                 is_fp    = false,
                 "CM: integer register write"
             );
+        }
+
+        if let Some(writes) = &entry.vec_writes {
+            writes.apply(state.hart.regs.vpr_mut());
+            state.hart.csrs.mstatus =
+                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.sstatus =
+                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.vstart = 0;
         }
 
         if entry.vec_dst_count > 0 {

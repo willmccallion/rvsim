@@ -6,6 +6,7 @@
 use crate::core::units::vpu::types::{ElemIdx, LmulGroup, Sew, VRegIdx, Vlen};
 
 /// Architectural vector register file: 32 registers, each VLEN bits wide.
+#[derive(Clone)]
 pub struct Vpr {
     /// Contiguous storage: 32 * `vlen.bytes()` bytes.
     data: Vec<u8>,

@@ -17,6 +17,7 @@ use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
+use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
 use crate::core::units::vpu::types::VecPhysReg;
 use crate::core::units::vpu::types::VectorConfig;
 
@@ -169,6 +170,9 @@ pub struct RobEntry {
     pub vec_dst_count: u8,
     /// Deferred vxsat (fixed-point saturation) flag from vector execution (applied at commit).
     pub vxsat: bool,
+    /// Vector register writes a backend without vector renaming holds
+    /// back for commit; `Some` marks the entry as an executed vector op.
+    pub vec_writes: Option<Box<VectorWrites>>,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -295,6 +299,7 @@ impl Rob {
             vec_old_phys_dst: [VecPhysReg::ZERO; 8],
             vec_dst_count: 0,
             vxsat: false,
+            vec_writes: None,
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -440,6 +445,20 @@ impl Rob {
     pub fn set_fp_flags(&mut self, tag: RobTag, fp_flags: u8) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.fp_flags |= fp_flags;
+        }
+    }
+
+    /// Records the registers a vector instruction wrote, for commit to land.
+    pub fn set_vec_writes(&mut self, tag: RobTag, writes: VectorWrites) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vec_writes = Some(Box::new(writes));
+        }
+    }
+
+    /// Records one element a vector load returned, for commit to land.
+    pub fn push_vec_element_write(&mut self, tag: RobTag, write: ElementWrite) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vec_writes.get_or_insert_with(Box::default).elements.push(write);
         }
     }
 

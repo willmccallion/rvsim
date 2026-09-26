@@ -3,11 +3,9 @@
 //! Bridges the pipeline (which carries scalar values in latches) to the VPU
 //! execution modules (which operate on the architectural VPR or `VecPrfView`).
 //!
-//! Two execution paths:
-//! - **In-order / serializing:** `execute_vec_op()` — writes results to arch VPR
-//!   and applies CSR side effects immediately (used by in-order backend and vsetvl).
-//! - **O3 / deferred:** `execute_vec_op_on()` — writes results to `&mut impl VectorRegFile`
-//!   (typically a `VecPrfView`) and returns side effects for commit-time application.
+//! `execute_vec_op_on()` writes results to a `&mut impl VectorRegFile` (a
+//! `VecPrfView` on the O3 backend, a `ShadowVpr` on the in-order one) and
+//! returns the side effects for commit-time application.
 
 use crate::common::Trap;
 use crate::core::pipeline::latches::RenameIssueEntry;
@@ -18,69 +16,6 @@ use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{Vlmul, Vxrm, parse_vtype_with_elen};
 use crate::core::units::vpu::{crypto, fpu, mask, mem, permute, reduction};
 use crate::isa::rvv::encoding as v_enc;
-use crate::sim::CoreCtx;
-
-/// Execute a vector operation against the architectural vector registers.
-///
-/// `vsetvl` is not executed here (the backends record its result on the
-/// ROB), nor are loads and stores (element micro-ops in the memory stages).
-///
-/// # Errors
-///
-/// Returns `Trap::IllegalInstruction` if vtype.vill is set and a vector
-/// operation that depends on vtype is attempted. Returns memory traps from
-/// vector load/store operations.
-pub fn execute_vec_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    match id.ctrl.vec_op {
-        VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None => Ok(0),
-        // Loads and stores are element micro-ops in the memory stages.
-        op if mem::is_vec_load(op) || mem::is_vec_store(op) => Ok(0),
-        op if fpu::is_vec_fp(op) => execute_vec_fp(state, id),
-        op if reduction::is_reduction(op) => execute_vec_reduction(state, id),
-        op if mask::is_mask_op(op) => execute_vec_mask(state, id),
-        op if permute::is_permute(op) => execute_vec_permute(state, id),
-        op if crypto::is_crypto(op) => execute_vec_crypto(state, id),
-        _ => execute_vec_arith(state, id),
-    }
-}
-
-/// Execute a vector crypto instruction (Zvkn*/Zvks*/Zvkg).
-fn execute_vec_crypto(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-    let vstart = state.hart.csrs.vstart as usize;
-    let vl = state.hart.csrs.vl as usize;
-    crypto::execute_crypto(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        id.ctrl.vs1,
-        vstart,
-        vl,
-        id.inst,
-        id.ctrl.vec_broadcast_vs2,
-    );
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(0)
-}
-
-/// Build the common execution context from CPU state.
-fn build_ctx(state: &CoreCtx<'_>) -> VecExecCtx {
-    let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
-    VecExecCtx {
-        sew: vtype.vsew,
-        vl: state.hart.csrs.vl as usize,
-        vstart: state.hart.csrs.vstart as usize,
-        vma: vtype.vma,
-        vta: vtype.vta,
-        vlmul: vtype.vlmul,
-        vm: true, // overridden per-instruction
-        vxrm: Vxrm::from_bits(state.hart.csrs.vxrm as u8),
-        frm: RoundingMode::from_bits(state.hart.csrs.frm as u8).unwrap_or(RoundingMode::Rne),
-        zvfh: state.config.isa.vector.zvfh,
-    }
-}
 
 /// Build operand1 from pipeline latch data based on source encoding.
 ///
@@ -128,14 +63,6 @@ const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
         }
         VecSrcEncoding::None => VecOperand::Scalar(0),
     }
-}
-
-/// Mark `mstatus.VS` and `sstatus.VS` as dirty.
-const fn mark_vs_dirty(state: &mut CoreCtx<'_>) {
-    state.hart.csrs.mstatus = (state.hart.csrs.mstatus & !crate::core::arch::csr::MSTATUS_VS)
-        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
-    state.hart.csrs.sstatus = (state.hart.csrs.sstatus & !crate::core::arch::csr::MSTATUS_VS)
-        | crate::core::arch::csr::MSTATUS_VS_DIRTY;
 }
 
 /// Check vill and return `IllegalInstruction` trap if set.
@@ -191,131 +118,6 @@ const fn check_widening_lmul(inst: u32, op: VectorOp, vlmul: Vlmul) -> Result<()
         return Err(Trap::IllegalInstruction(inst));
     }
     Ok(())
-}
-
-/// Execute a vector integer arithmetic operation on the VPR.
-fn execute_vec_arith(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-    let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
-    check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
-    let mut ctx = build_ctx(state);
-    ctx.vm = id.ctrl.vm;
-    let operand1 = build_operand1(id);
-
-    let result = vec_execute(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        operand1,
-        vtype.vsew,
-        ctx.vl,
-        ctx.vstart,
-        vtype.vma,
-        vtype.vta,
-        vtype.vlmul,
-        id.ctrl.vm,
-        ctx.vxrm,
-    );
-
-    if result.vxsat {
-        state.hart.csrs.vxsat = 1;
-    }
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result.scalar_result.unwrap_or(0))
-}
-
-/// Execute a vector floating-point operation.
-fn execute_vec_fp(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-    let vtype = parse_vtype_with_elen(state.hart.csrs.vtype, state.config.isa.vector.elen);
-    check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
-
-    let mut ctx = build_ctx(state);
-    ctx.vm = id.ctrl.vm;
-    let operand1 = build_operand1(id);
-
-    let result = fpu::vec_fp_execute(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        operand1,
-        &ctx,
-    );
-
-    state.hart.csrs.fflags |= result.fp_flags.bits() as u64;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result.scalar_result.unwrap_or(0))
-}
-
-/// Execute a vector reduction operation.
-fn execute_vec_reduction(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-
-    let mut ctx = build_ctx(state);
-    ctx.vm = id.ctrl.vm;
-
-    let operand1 = VecOperand::Vector(id.ctrl.vs1);
-    let result = reduction::vec_reduce(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        &operand1,
-        &ctx,
-    );
-
-    state.hart.csrs.fflags |= result.fp_flags.bits() as u64;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result.scalar_result.unwrap_or(0))
-}
-
-/// Execute a vector mask operation.
-fn execute_vec_mask(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-
-    let mut ctx = build_ctx(state);
-    ctx.vm = id.ctrl.vm;
-    let operand1 = build_operand1(id);
-
-    let result = mask::vec_mask_execute(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        &operand1,
-        &ctx,
-    );
-
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result.scalar_result.unwrap_or(0))
-}
-
-/// Execute a vector permutation operation.
-fn execute_vec_permute(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
-    check_vill(id.inst, state.hart.csrs.vtype, state.config.isa.vector.elen)?;
-
-    let mut ctx = build_ctx(state);
-    ctx.vm = id.ctrl.vm;
-    let operand1 = build_operand1(id);
-
-    let result = permute::vec_permute_execute(
-        id.ctrl.vec_op,
-        state.hart.regs.vpr_mut(),
-        id.ctrl.vd,
-        id.ctrl.vs2,
-        &operand1,
-        &ctx,
-    );
-
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    Ok(result.scalar_result.unwrap_or(0))
 }
 
 /// Side effects produced by a deferred vector execution.
@@ -390,7 +192,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
             id.ctrl.vec_op,
             VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None
         ),
-        "execute_vec_op_on called with vsetvl/None — use execute_vec_op instead"
+        "execute_vec_op_on called with vsetvl/None"
     );
     debug_assert!(
         !mem::is_vec_load(id.ctrl.vec_op) && !mem::is_vec_store(id.ctrl.vec_op),

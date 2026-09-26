@@ -23,6 +23,8 @@ pub mod reduction;
 
 pub mod regfile;
 
+pub mod shadow;
+
 pub mod lane_model;
 
 pub mod chaining;

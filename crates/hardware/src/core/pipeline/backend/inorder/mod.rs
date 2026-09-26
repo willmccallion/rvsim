@@ -31,6 +31,7 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+use crate::core::units::vpu::shadow::ElementWrite;
 use crate::core::units::vpu::types::{ElemIdx, VRegIdx, VecPhysReg, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
@@ -291,9 +292,9 @@ impl InOrderEngine {
     }
 
     /// Retires the element micro-ops that reached writeback: a load's
-    /// element data goes to the architectural register, and the
+    /// element data is filed on its ROB entry for commit to land, and the
     /// instruction completes with its last element.
-    fn retire_vec_mem_elements(&mut self, state: &mut CoreCtx<'_>) {
+    fn retire_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
         let entries = std::mem::take(&mut self.mem2_wb);
         for wb in entries {
             let Some(element) = wb.vec_mem.as_ref() else {
@@ -304,9 +305,13 @@ impl InOrderEngine {
             if retired.write_data {
                 let vlen_bits = state.hart.regs.vpr().vlen().bits();
                 let elems_per_reg = (vlen_bits / (element.eew.bytes() * 8)).max(1);
-                let reg = VRegIdx::new(element.vd_phys.as_u16() as u8);
-                let local = ElemIdx::new(element.elem_idx.as_usize() % elems_per_reg);
-                state.hart.regs.vpr_mut().write_element(reg, local, element.eew, wb.load_data);
+                let write = ElementWrite {
+                    reg: VRegIdx::new(element.vd_phys.as_u16() as u8),
+                    index: ElemIdx::new(element.elem_idx.as_usize() % elems_per_reg),
+                    eew: element.eew,
+                    data: wb.load_data,
+                };
+                self.rob.push_vec_element_write(wb.rob_tag, write);
             }
             if retired.completed {
                 self.vec_mem_inflight.retain(|m| m.rob_tag != wb.rob_tag);

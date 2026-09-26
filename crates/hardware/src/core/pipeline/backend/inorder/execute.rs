@@ -17,6 +17,8 @@ use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
+use crate::core::units::vpu::execute::execute_vec_op_on;
+use crate::core::units::vpu::shadow::ShadowVpr;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
 use crate::sim::CoreCtx;
@@ -33,6 +35,33 @@ pub struct ExecutedBatch {
     pub results: Vec<ExMem1Entry>,
     /// The redirect each squashing instruction asked for, by ROB tag.
     pub redirects: Vec<(RobTag, Redirect)>,
+}
+
+/// Executes a vector instruction against a shadow of the architectural
+/// registers and files what it wrote on its ROB entry for commit.
+fn execute_vector(state: &CoreCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) -> Result<u64, Trap> {
+    let csrs = &state.hart.csrs;
+    let vector = &state.config.isa.vector;
+    let mut shadow = ShadowVpr::new(state.hart.regs.vpr());
+    let result = execute_vec_op_on(
+        &mut shadow,
+        csrs.vtype,
+        csrs.vl,
+        csrs.vstart,
+        csrs.vxrm,
+        csrs.frm,
+        vector.elen,
+        vector.zvfh,
+        id,
+    )?;
+    rob.set_vec_writes(id.rob_tag, shadow.into_writes());
+    if result.fp_flags != 0 {
+        rob.set_fp_flags(id.rob_tag, result.fp_flags);
+    }
+    if result.vxsat {
+        rob.set_vxsat(id.rob_tag, true);
+    }
+    Ok(result.scalar_result)
 }
 
 /// Executes instructions in the in-order backend.
@@ -712,9 +741,9 @@ pub fn execute_inorder(
             continue;
         }
 
-        // Vector ops execute against the VPR directly, so what follows one is refetched.
+        // A vector op's registers are read at issue, so what follows one is refetched.
         if id.ctrl.vec_op != VectorOp::None {
-            match crate::core::units::vpu::execute::execute_vec_op(state, &id) {
+            match execute_vector(state, &id, rob) {
                 Ok(alu_out) => {
                     redirects.push((
                         id.rob_tag,
