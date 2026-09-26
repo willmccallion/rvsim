@@ -42,7 +42,9 @@ Priority-based interrupt controller with:
 
 Every cycle the bus ticks each device once, feeds the active sources into
 the PLIC, and samples one set of lines per hart (`mtip`, `msip`, `meip`,
-`seip`) that the hart folds into its `mip` before its pipeline ticks.
+`seip`) that the hart folds into its `mip` before its pipeline ticks. A
+change in the PLIC's pending, enable or threshold state reaches the lines
+and the claim registers three cycles later, as in gem5's PLIC.
 
 ### UART (16550A)
 
@@ -52,6 +54,8 @@ Serial port compatible with the NS16550A register interface:
 - Interrupt enable register (IER) with receive data available and transmit holding register empty interrupts
 - Line status register (LSR) with data ready and transmitter empty bits
 - FIFO control register (FCR)
+- Output leaves as it is written; the transmit-empty and receive-data
+  interrupts rise 225 ns after their cause, as in gem5's `Uart8250`
 
 UART output can be directed to stdout (default), stderr (`uart_to_stderr=True`), or suppressed entirely (`uart_quiet=True`).
 

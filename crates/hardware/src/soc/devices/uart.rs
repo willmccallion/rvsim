@@ -2,7 +2,8 @@
 //!
 //! Implements a 16550-compatible UART device for serial communication.
 //! Handles standard registers (RBR, THR, IER, IIR, LCR, LSR) and integrates
-//! with stdin/stdout for console I/O.
+//! with stdin/stdout for console I/O. Output leaves at once; the transmit
+//! and receive interrupts rise 225 ns after their cause, as in gem5.
 
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::ComponentId;
@@ -66,6 +67,10 @@ const LCR_DLAB: u8 = 0x80;
 /// Interrupt Enable Register: Receiver Data Available interrupt enable.
 const IER_RDA: u8 = 0x01;
 
+/// Time from an interrupt's cause to the line rising (gem5's `Uart8250`
+/// schedules both its interrupts this far ahead).
+const INTERRUPT_DELAY_NS: u64 = 225;
+
 /// Interrupt Enable Register: Transmitter Holding Register Empty interrupt enable.
 const IER_THRE: u8 = 0x02;
 
@@ -94,8 +99,18 @@ pub struct Uart {
     div: u16,
     /// Internal tick counter for polling stdin.
     tick_count: u8,
+    /// Cycles since reset.
+    cycle: u64,
+    /// Cycles between an interrupt's cause and the line rising.
+    interrupt_delay: u64,
+    /// The cycle the transmit-empty interrupt rises, once scheduled.
+    tx_interrupt_at: Option<u64>,
+    /// The cycle the receive-data interrupt rises, once scheduled.
+    rx_interrupt_at: Option<u64>,
     /// Transmitter Holding Register Empty Interrupt Pending.
     thre_ip: bool,
+    /// Received data has been announced by the receive interrupt.
+    rx_ready: bool,
     /// When true, output goes to stderr (for visibility when run from Python).
     to_stderr: bool,
     /// When true, all output is suppressed (for scripting / benchmarks).
@@ -108,7 +123,8 @@ pub struct Uart {
 
 impl Uart {
     /// Creates a new UART device, spawning a background thread to read stdin.
-    pub fn new(base_addr: u64, to_stderr: bool, quiet: bool) -> Self {
+    /// `cpu_clock_mhz` sizes the interrupt delay in cycles.
+    pub fn new(base_addr: u64, to_stderr: bool, quiet: bool, cpu_clock_mhz: u64) -> Self {
         let (tx, rx) = channel();
 
         let _ = thread::spawn(move || {
@@ -130,7 +146,12 @@ impl Uart {
             scr: 0,
             div: 0,
             tick_count: 0,
+            cycle: 0,
+            interrupt_delay: INTERRUPT_DELAY_NS * cpu_clock_mhz / 1000,
+            tx_interrupt_at: None,
+            rx_interrupt_at: None,
             thre_ip: true,
+            rx_ready: false,
             to_stderr,
             quiet,
             panic_match_state: 0,
@@ -138,18 +159,41 @@ impl Uart {
         }
     }
 
-    /// Polls the stdin receiver and populates the RX queue.
+    /// Polls the stdin receiver and populates the RX queue; newly arrived
+    /// data raises the receive interrupt after the delay.
     fn check_stdin(&mut self) {
-        if let Ok(rx) = self.rx_receiver.lock() {
-            while let Ok(byte) = rx.try_recv() {
-                self.rx_queue.push_back(byte);
-            }
+        let Ok(rx) = self.rx_receiver.lock() else { return };
+        let mut arrived = false;
+        while let Ok(byte) = rx.try_recv() {
+            self.rx_queue.push_back(byte);
+            arrived = true;
+        }
+        if arrived && !self.rx_ready && self.rx_interrupt_at.is_none() {
+            self.rx_interrupt_at = Some(self.cycle + self.interrupt_delay);
+        }
+    }
+
+    /// Schedules the transmit-empty interrupt for after the delay.
+    const fn schedule_tx_interrupt(&mut self) {
+        self.thre_ip = false;
+        self.tx_interrupt_at = Some(self.cycle + self.interrupt_delay);
+    }
+
+    /// Raises the interrupts whose delay has elapsed.
+    fn raise_due_interrupts(&mut self) {
+        if self.tx_interrupt_at.is_some_and(|at| at <= self.cycle) {
+            self.tx_interrupt_at = None;
+            self.thre_ip = true;
+        }
+        if self.rx_interrupt_at.is_some_and(|at| at <= self.cycle) {
+            self.rx_interrupt_at = None;
+            self.rx_ready = true;
         }
     }
 
     /// Calculates the Interrupt Identity Register (IIR) value (highest priority pending interrupt).
     fn update_interrupts(&self) -> u8 {
-        if (self.ier & IER_RDA) != 0 && !self.rx_queue.is_empty() {
+        if (self.ier & IER_RDA) != 0 && self.rx_ready && !self.rx_queue.is_empty() {
             return IIR_RDA;
         }
 
@@ -195,10 +239,13 @@ impl Uart {
     /// Reads Receiver Buffer Register (RBR) or Divisor Latch Low (DLL) based on DLAB.
     fn read_rbr_or_dll(&mut self) -> u8 {
         if self.dlab_set() {
-            (self.div & 0xFF) as u8
-        } else {
-            self.rx_queue.pop_front().unwrap_or(0)
+            return (self.div & 0xFF) as u8;
         }
+        let byte = self.rx_queue.pop_front().unwrap_or(0);
+        if self.rx_queue.is_empty() {
+            self.rx_ready = false;
+        }
+        byte
     }
 
     /// Reads Interrupt Enable Register (IER) or Divisor Latch High (DLM) based on DLAB.
@@ -243,7 +290,7 @@ impl Uart {
                 }
             }
 
-            self.thre_ip = true;
+            self.schedule_tx_interrupt();
         }
     }
 
@@ -254,7 +301,7 @@ impl Uart {
         } else {
             self.ier = val;
             if (self.ier & IER_THRE) != 0 {
-                self.thre_ip = true;
+                self.schedule_tx_interrupt();
             }
         }
     }
@@ -325,10 +372,12 @@ impl Device for Uart {
     }
 
     fn tick(&mut self) -> bool {
+        self.cycle += 1;
         self.tick_count = self.tick_count.wrapping_add(1);
         if self.tick_count == 0 {
             self.check_stdin();
         }
+        self.raise_due_interrupts();
 
         let iir = self.update_interrupts();
         (iir & IIR_NO_INTERRUPT) == 0

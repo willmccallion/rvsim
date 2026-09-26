@@ -14,12 +14,16 @@ const UART_IER: u64 = 0x1000_0001;
 const UART_SOURCE: u64 = 10;
 const HART0_S_CONTEXT: u64 = 1;
 const T0: u32 = 5;
+const T1: u32 = 6;
 
-/// Clears STIP in `mip` with a CSRRC, then spins.
+/// Waits for SEIP to show in `mip`, clears STIP with a CSRRC, then spins.
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().addi(T0, 0, MIP_STIP as i32).build(),
+        i().csrrs(T1, MIP.as_u32(), 0).build(),
+        i().andi(T1, T1, MIP_SEIP as i32).build(),
+        i().beq(T1, 0, -8).build(),
         i().csrrc(0, MIP.as_u32(), T0).build(),
         i().jal(0, 0).build(),
     ]
@@ -39,9 +43,9 @@ fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
     );
     ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0b10, 1);
 
-    ctx.run(100);
+    ctx.run(800);
     assert_ne!(ctx.sim.state.harts[0].csrs.mip & MIP_SEIP, 0, "the line is high");
-    assert!(ctx.sim.state.harts[0].instructions_retired >= 2, "the CSRRC ran");
+    assert_eq!(ctx.sim.state.harts[0].pc, PROGRAM_BASE + 20, "the CSRRC ran and the spin began");
 
     ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0, 1);
     ctx.run(20);

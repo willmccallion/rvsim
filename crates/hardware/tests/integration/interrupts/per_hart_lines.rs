@@ -8,11 +8,14 @@ use rvsim_core::core::arch::csr::{MIP_MEIP, MIP_MSIP, MIP_MTIP};
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
 
+/// Two harts spinning on a `jal 0` at the reset address, so the cycle loop keeps running.
 fn two_hart_sim() -> Simulator {
     let mut config = Config::default();
     config.system.hart_count = 2;
     config.system.uart_quiet = true;
-    Simulator::build(&config, "")
+    let mut sim = Simulator::build(&config, "");
+    sim.probe_mem_store(PhysAddr::new(config.system.ram_base), 0x0000_006F, 4);
+    sim
 }
 
 #[test]
@@ -47,7 +50,8 @@ fn plic_context_of_second_hart_drives_its_external_line_only() {
     sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 0x2000 + 2 * 0x80), 1 << 10, 4);
     sim.probe_mem_store(PhysAddr::new(0x1000_0000 + 1), 0b10, 1);
 
-    for _ in 0..4 {
+    // The UART raises its line 225 ns (540 cycles) on, the PLIC 3 cycles later.
+    for _ in 0..560 {
         sim.tick().unwrap();
     }
 

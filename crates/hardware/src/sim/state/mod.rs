@@ -424,6 +424,7 @@ impl SimState {
             config.system.uart_base,
             config.system.uart_to_stderr,
             config.system.uart_quiet,
+            config.system.cpu_clock_mhz,
         );
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
         let plic = Plic::new(0x0c00_0000, hart_count);

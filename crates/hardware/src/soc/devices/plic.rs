@@ -11,6 +11,8 @@
 //! * `0x002000 + 0x80·context`: Interrupt Enables
 //! * `0x200000 + 0x1000·context`: Priority Threshold and Claim/Complete
 
+use std::collections::VecDeque;
+
 use crate::common::{HartId, LineAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -66,9 +68,16 @@ pub struct Plic {
     enables: Vec<Vec<u32>>,
     /// Priority thresholds per context.
     thresholds: Vec<u32>,
-    /// Claim/Complete registers per context.
+    /// Claim/Complete registers per context, as the harts see them.
     claims: Vec<u32>,
+    /// Claim values computed in the last few cycles, still on their way
+    /// to the harts.
+    updates: VecDeque<Vec<u32>>,
 }
+
+/// Cycles from a change in pending, enable or threshold state to the
+/// harts' lines and claim registers reflecting it (gem5's PLIC).
+const UPDATE_DELAY_CYCLES: usize = 3;
 
 impl Plic {
     /// Creates a PLIC with two contexts for each of `hart_count` harts.
@@ -81,6 +90,7 @@ impl Plic {
             enables: vec![vec![0u32; ENABLE_WORDS_PER_CONTEXT]; contexts],
             thresholds: vec![0; contexts],
             claims: vec![0; contexts],
+            updates: VecDeque::new(),
         }
     }
 
@@ -97,10 +107,16 @@ impl Plic {
     }
 
     /// Recomputes every context's claim register from the pending, enable
-    /// and threshold state. Call once per cycle after [`Plic::update_irqs`].
+    /// and threshold state; the harts see the result after
+    /// [`UPDATE_DELAY_CYCLES`]. Call once per cycle after
+    /// [`Plic::update_irqs`].
     pub fn check_interrupts(&mut self) {
-        for ctx in 0..self.context_count() {
-            self.claims[ctx] = self.calc_max_id(ctx);
+        let computed = (0..self.context_count()).map(|ctx| self.calc_max_id(ctx)).collect();
+        self.updates.push_back(computed);
+        if self.updates.len() > UPDATE_DELAY_CYCLES
+            && let Some(visible) = self.updates.pop_front()
+        {
+            self.claims = visible;
         }
     }
 

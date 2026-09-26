@@ -7,6 +7,14 @@ use rvsim_core::common::HartId;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::plic::Plic;
 
+/// Recomputes the PLIC's outputs and lets them reach the harts: a change
+/// becomes visible three cycles after it is computed.
+fn settle(plic: &mut Plic) {
+    for _ in 0..4 {
+        plic.check_interrupts();
+    }
+}
+
 #[test]
 fn plic_name() {
     let plic = Plic::new(0xC00_0000, 1);
@@ -61,7 +69,7 @@ fn plic_enable_and_check_interrupt() {
     // Update pending: source 1 active
     plic.update_irqs(1 << 1);
 
-    plic.check_interrupts();
+    settle(&mut plic);
     let meip = plic.hart_lines(HartId::new(0)).meip;
     assert!(meip, "Machine external interrupt should be pending");
 }
@@ -79,7 +87,7 @@ fn plic_threshold_filters_low_priority() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 5_u64, 4); // Threshold = 5
 
     plic.update_irqs(1 << 1);
-    plic.check_interrupts();
+    settle(&mut plic);
     let meip = plic.hart_lines(HartId::new(0)).meip;
     assert!(!meip, "Priority 2 should be filtered by threshold 5");
 }
@@ -97,7 +105,7 @@ fn plic_threshold_zero_allows_all() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4); // Threshold = 0
 
     plic.update_irqs(1 << 1);
-    plic.check_interrupts();
+    settle(&mut plic);
     let meip = plic.hart_lines(HartId::new(0)).meip;
     assert!(meip, "Threshold 0 should allow priority 1");
 }
@@ -117,7 +125,7 @@ fn plic_claim_returns_highest_priority_id() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4);
 
     plic.update_irqs((1 << 1) | (1 << 2));
-    plic.check_interrupts();
+    settle(&mut plic);
 
     // Claim register for ctx 0 at 0x200004
     let claim =
@@ -139,7 +147,7 @@ fn plic_claim_clears_pending() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4);
 
     plic.update_irqs(1 << 1);
-    plic.check_interrupts();
+    settle(&mut plic);
 
     let claim =
         crate::common::probe::read(&mut plic, rvsim_core::common::PhysAddr::new(0x200004), 4)
@@ -164,7 +172,7 @@ fn plic_complete_clears_claim() {
     );
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4);
     plic.update_irqs(1 << 1);
-    plic.check_interrupts();
+    settle(&mut plic);
 
     let _claim =
         crate::common::probe::read(&mut plic, rvsim_core::common::PhysAddr::new(0x200004), 4)
@@ -174,7 +182,7 @@ fn plic_complete_clears_claim() {
 
     // After completion, no pending interrupts
     plic.update_irqs(0);
-    plic.check_interrupts();
+    settle(&mut plic);
     let meip = plic.hart_lines(HartId::new(0)).meip;
     assert!(!meip, "No interrupts after complete and clear");
 }
@@ -192,7 +200,7 @@ fn plic_no_pending_no_interrupt() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4);
 
     plic.update_irqs(0);
-    plic.check_interrupts();
+    settle(&mut plic);
     let lines = plic.hart_lines(HartId::new(0));
     let (meip, seip) = (lines.meip, lines.seip);
     assert!(!meip);
@@ -208,7 +216,7 @@ fn plic_disabled_source_no_interrupt() {
     crate::common::probe::write(&mut plic, rvsim_core::common::PhysAddr::new(0x200000), 0_u64, 4);
 
     plic.update_irqs(1 << 1);
-    plic.check_interrupts();
+    settle(&mut plic);
     let meip = plic.hart_lines(HartId::new(0)).meip;
     assert!(!meip, "Disabled source should not trigger");
 }
