@@ -28,5 +28,6 @@ pub mod tlb_latency;
 pub mod trap_latency;
 pub mod vector_config;
 pub mod vector_pipeline;
+pub mod wfi_wake;
 pub mod xret_squash;
 pub mod zicboz;

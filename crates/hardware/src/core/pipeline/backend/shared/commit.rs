@@ -78,7 +78,6 @@ pub fn commit_stage(
     mut vec_prf: Option<&mut VecPhysRegFile>,
     mut vec_free_list: Option<&mut FreeList<VecPhysReg>>,
     mut vec_store_buffer: Option<&mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer>,
-    redirect_pending: &mut bool,
 ) -> Option<CommitEvent> {
     let mut event: Option<CommitEvent> = None;
 
@@ -94,13 +93,7 @@ pub fn commit_stage(
 
     // Always check, even with empty ROB (timer firing during a stall).
     {
-        let epc = if state.hart.wfi_waiting {
-            state.hart.wfi_pc
-        } else if let Some(head) = rob.peek_head() {
-            head.pc
-        } else {
-            state.hart.committed_next_pc
-        };
+        let epc = rob.peek_head().map_or(state.hart.pc, |head| head.pc);
 
         let interrupt = check_interrupts(state).filter(|_| !device_access_in_flight(common, rob));
         if let Some(interrupt_trap) = interrupt {
@@ -125,17 +118,16 @@ pub fn commit_stage(
             }
         } else if state.hart.wfi_waiting {
             common.trap = TrapProgress::None;
-            // Block commit while WFI is active so wrong-path post-WFI ops can't retire.
+            // Commit stops while the WFI waits; what was fetched behind it is
+            // refetched when it wakes.
             let pending = state.hart.csrs.mip;
             let enabled = state.hart.csrs.mie;
+            state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
             if (pending & enabled) != 0 {
                 state.hart.wfi_waiting = false;
-                state.hart.pc = state.hart.wfi_pc;
-                *redirect_pending = true;
-            } else {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
+                return Some(CommitEvent::SquashAfter(state.hart.pc));
             }
-            state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+            state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
             return event;
         } else {
             common.trap = TrapProgress::None;
@@ -252,8 +244,9 @@ pub fn commit_stage(
         let Some(entry) = rob.commit_head() else { break };
         retired_count += 1;
 
-        // For taken branches/jumps, committed_next_pc must be the target so interrupt EPC is correct.
-        state.hart.committed_next_pc = match entry.ctrl.control_flow {
+        // The architectural PC advances to the retired instruction's successor:
+        // a taken branch's target, so an interrupt's EPC is right.
+        state.hart.pc = match entry.ctrl.control_flow {
             ControlFlow::Jump => {
                 entry.bp_target.unwrap_or_else(|| entry.pc.wrapping_add(entry.inst_size.as_u64()))
             }
@@ -461,7 +454,13 @@ pub fn commit_stage(
             }
             // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
             if !csr_update.applied {
+                let pc_before = state.hart.pc;
                 state.csr_write(csr_update.addr, csr_update.new_val);
+                // A write that trapped (the simulator panic CSR) moved the PC to a handler.
+                if state.hart.pc != pc_before {
+                    event = Some(CommitEvent::SquashAfter(state.hart.pc));
+                    break;
+                }
             }
             trace_csr!(state.config.general.trace_instructions;
                 op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
@@ -473,7 +472,7 @@ pub fn commit_stage(
                 deferred = !csr_update.applied,
                 "CM: CSR write applied at commit"
             );
-            // SATP redirect: post-execute fetches used old tables; reset state.hart.pc to next inst.
+            // SATP redirect: post-execute fetches used old tables; refetch from the next instruction.
             if csr_update.addr == csr::SATP {
                 let _ = state.core.l1_i_cache.invalidate_all();
                 let dirty = state.core.l1_d_cache.flush();
@@ -486,7 +485,6 @@ pub fn commit_stage(
 
         if entry.ctrl.system_op == SystemOp::Mret {
             state.do_mret();
-            state.hart.committed_next_pc = state.hart.pc;
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "MRET",
@@ -502,7 +500,6 @@ pub fn commit_stage(
         }
         if entry.ctrl.system_op == SystemOp::Sret {
             state.do_sret();
-            state.hart.committed_next_pc = state.hart.pc;
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "SRET",
@@ -520,13 +517,11 @@ pub fn commit_stage(
         if entry.ctrl.system_op == SystemOp::Wfi {
             if state.hart.csrs.mie != 0 || state.hart.csrs.mip != 0 {
                 state.hart.wfi_waiting = true;
-                state.hart.wfi_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             } else {
                 // Nothing enabled or pending — treat as NOP to avoid OpenSBI early-boot deadlock.
                 event =
                     Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
-            state.hart.committed_next_pc = entry.pc.wrapping_add(entry.inst_size.as_u64());
             break;
         }
 
@@ -636,6 +631,7 @@ pub fn commit_stage(
             let rs1 = entry.result.unwrap_or(0);
             if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, rs1, entry.inst) {
                 state.trap(&trap, entry.pc);
+                event = Some(CommitEvent::SquashAfter(state.hart.pc));
                 break;
             }
         }
@@ -1551,7 +1547,6 @@ mod tests {
             .unwrap();
         rob.complete(tag, 42);
 
-        let mut redirect = false;
         let mut common = BackendCommon::default();
         let trap = commit_stage(
             &mut state,
@@ -1568,7 +1563,6 @@ mod tests {
             None,
             None,
             None,
-            &mut redirect,
         );
         assert!(trap.is_none());
         assert_eq!(state.hart.regs.read(RegIdx::new(1)), 42);

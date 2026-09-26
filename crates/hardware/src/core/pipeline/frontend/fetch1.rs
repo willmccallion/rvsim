@@ -354,8 +354,8 @@ pub fn drain_fetch_reorder(
 }
 
 /// Executes the Fetch1 stage: forms up to `pipeline.width` instructions
-/// from one cache line into a fetch group, advancing the architectural PC
-/// by the predicted next-PC.
+/// from one cache line into a fetch group, advancing `fetch_pc` to the
+/// predicted next PC.
 ///
 /// The caller runs this only while no fetch is in flight
 /// ([`BackendCommon::fetch_in_flight`]), so a parked fetch walk or an
@@ -365,8 +365,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Vec<Fetch1Fetch2Entry>,
+    fetch_pc: &mut u64,
 ) {
-    let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(state.hart.pc);
+    let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
     let c_enabled = (state.hart.csrs.misa & csr::MISA_EXT_C) != 0;
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
@@ -572,5 +573,5 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     if let Some(group) = group.finish() {
         dispatch_fetch_group(state, engine, fetch_buffer, latch, group);
     }
-    state.hart.pc = current_pc;
+    *fetch_pc = current_pc;
 }

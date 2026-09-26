@@ -24,7 +24,8 @@ pub struct Hart {
     pub hart_id: HartId,
     /// General Purpose and Floating Point Registers.
     pub regs: RegisterFile,
-    /// Program Counter.
+    /// The architectural program counter: the next instruction to retire.
+    /// Fetch runs ahead of it on the pipeline's own fetch PC.
     pub pc: u64,
     /// Control and Status Registers.
     pub csrs: Csrs,
@@ -34,14 +35,6 @@ pub struct Hart {
     pub pmp: Pmp,
     /// True when the hart has executed `WFI` and is waiting for an interrupt.
     pub wfi_waiting: bool,
-    /// PC at which `WFI` was entered.
-    pub wfi_pc: u64,
-    /// PC the next committed instruction should start at.
-    ///
-    /// Updated after every commit to `entry.pc + entry.inst_size`. Used as
-    /// the EPC for interrupts when the ROB is empty, because `pc` is the
-    /// fetch PC and may be far ahead of the commit point.
-    pub committed_next_pc: u64,
     /// Software-written SEIP bit. The `mip` SEIP bit is the OR of this and
     /// the PLIC hardware signal, so the software component is tracked here.
     pub sw_seip: bool,
@@ -80,8 +73,6 @@ impl Hart {
             privilege: init.privilege,
             pmp: init.pmp,
             wfi_waiting: false,
-            wfi_pc: 0,
-            committed_next_pc: 0,
             sw_seip: false,
             instructions_retired: 0,
         }

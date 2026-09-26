@@ -60,7 +60,6 @@ fn run(backend: BackendType) -> u64 {
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
         hart.pc = CODE_VA + 0xFFE;
-        hart.committed_next_pc = CODE_VA + 0xFFE;
     }
     ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();

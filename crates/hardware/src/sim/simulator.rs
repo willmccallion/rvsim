@@ -54,8 +54,12 @@ impl Simulator {
     /// PC).
     pub fn new(state: SimState) -> Self {
         let config = &state.config;
-        let pipelines =
-            state.topology.cores.iter().map(|core| build_pipeline(config, core)).collect();
+        let pipelines = state
+            .topology
+            .cores
+            .iter()
+            .map(|core| build_pipeline(config, core, state.harts[core.hart_ids[0].as_index()].pc))
+            .collect();
         let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
         Self { state, pipelines, prev_privileges }
     }
@@ -90,18 +94,30 @@ impl Simulator {
         self.pipelines.len()
     }
 
-    /// Synchronize every hart's architectural register file into its O3
-    /// PRF.
+    /// Synchronize every hart's architectural state into its pipeline:
+    /// the register file into the O3 PRF, and the PC into fetch.
     ///
-    /// Must be called after all register initialization (loader setup, etc.)
-    /// but before the first pipeline tick. For the in-order backend this is a no-op.
+    /// Must be called after all register and PC initialization (loader
+    /// setup, etc.) but before the first pipeline tick.
     pub fn sync_arch_regs(&mut self) {
         for core in 0..self.pipelines.len() {
+            let pc = self.state.harts[self.state.topology.cores[core].hart_ids[0].as_index()].pc;
+            self.pipelines[core].restart_fetch_at(pc);
             if let PipelineDispatch::OutOfOrder(p) = &mut self.pipelines[core] {
                 let ctx = self.state.core_ctx(core);
                 p.engine.sync_arch_regs(&ctx);
             }
         }
+    }
+
+    /// Points `hart` at `pc`: its architectural PC, and its fetch PC after
+    /// everything its pipeline had in flight is dropped.
+    pub fn set_pc(&mut self, hart: usize, pc: u64) {
+        self.state.harts[hart].pc = pc;
+        let hart_id = self.state.harts[hart].hart_id;
+        let Some(core) = self.state.topology.core_of_hart(hart_id) else { return };
+        let mut ctx = self.state.core_ctx(core.as_index());
+        self.pipelines[core.as_index()].flush(&mut ctx);
     }
 
     /// Advances the simulator by one clock cycle.
@@ -389,21 +405,21 @@ impl Simulator {
 }
 
 /// Builds the pipeline for one core from the configured backend.
-fn build_pipeline(config: &Config, core: &CoreTopology) -> PipelineDispatch {
+fn build_pipeline(config: &Config, core: &CoreTopology, pc: u64) -> PipelineDispatch {
     let l1i = core.cache(PrivateCache::L1I);
     let l1d = core.cache(PrivateCache::L1D);
     match config.pipeline.backend {
         BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
-            frontend: Frontend::new(config.pipeline.width),
+            frontend: Frontend::new(config.pipeline.width, pc),
             engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
             rename_output: Vec::with_capacity(config.pipeline.width),
-            redirect_pending: false,
+            redirect: None,
         })),
         BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
-            frontend: Frontend::new(config.pipeline.width),
+            frontend: Frontend::new(config.pipeline.width, pc),
             engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
             rename_output: Vec::with_capacity(config.pipeline.width),
-            redirect_pending: false,
+            redirect: None,
         })),
     }
 }

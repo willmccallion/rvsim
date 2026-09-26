@@ -129,7 +129,7 @@ impl InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         squash: PendingSquash,
-        redirect_pending: &mut bool,
+        redirect: &mut Option<u64>,
     ) {
         let paths = &state.core.stat_paths.pipeline;
         state.shared.stats.counter(paths.stalls_control).inc();
@@ -164,10 +164,7 @@ impl InOrderEngine {
         self.mem2_wb.retain(|e| survives(e.rob_tag));
         self.scoreboard.rebuild_from_rob(&self.rob);
 
-        if let Some(target) = squash.redirect.target {
-            state.hart.pc = target;
-            *redirect_pending = true;
-        }
+        *redirect = Some(squash.redirect.target);
         if let Some(repair) = squash.redirect.repair {
             repair.apply(&mut state.core.branch_predictor);
         }
@@ -360,17 +357,15 @@ impl ExecutionEngine for InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
-        redirect_pending: &mut bool,
+        redirect: &mut Option<u64>,
     ) {
         self.cycle += 1;
         let now = self.cycle;
 
         if let Some(squash) = self.common.take_due_squash(now) {
-            self.apply_squash(state, squash, redirect_pending);
+            self.apply_squash(state, squash, redirect);
             rename_output.clear();
         }
-
-        let pc_before_commit = state.hart.pc;
 
         let commit_event = commit::commit_stage(
             state,
@@ -387,32 +382,22 @@ impl ExecutionEngine for InOrderEngine {
             None,
             None,
             Some(&mut self.vec_store_buffer),
-            redirect_pending,
         );
 
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
                 self.flush(state);
-                *redirect_pending = true;
                 state.trap(&trap, pc);
-                state.hart.committed_next_pc = state.hart.pc;
+                *redirect = Some(state.hart.pc);
                 return;
             }
             Some(CommitEvent::ReExecute(pc) | CommitEvent::SquashAfter(pc)) => {
                 self.flush(state);
-                *redirect_pending = true;
                 state.hart.pc = pc;
-                state.hart.committed_next_pc = pc;
+                *redirect = Some(pc);
                 return;
             }
             None => {}
-        }
-
-        // MRET/SRET changed the PC; flush so post-redirect stale fetches don't proceed.
-        if state.hart.pc != pc_before_commit {
-            self.flush(state);
-            rename_output.clear();
-            return;
         }
 
         self.retire_vec_mem_elements(state);

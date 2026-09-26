@@ -31,6 +31,11 @@ use crate::trace_execute;
 use crate::trace_trap;
 
 const FUNCT3_SHIFT: u32 = 12;
+
+/// The instruction after `id` in program order.
+const fn next_pc(id: &RenameIssueEntry) -> u64 {
+    id.pc.wrapping_add(id.inst_size.as_u64())
+}
 const FUNCT3_MASK: u32 = 0x7;
 const JALR_ALIGNMENT_MASK: u64 = !1;
 
@@ -70,7 +75,7 @@ pub fn execute_one(
             sfence_vma: None,
             vec_mem: None,
         };
-        return (result, Some(Redirect::squash_younger(SquashCause::System)));
+        return (result, Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if state.check_execute_trigger(id.pc) {
@@ -230,7 +235,7 @@ pub fn execute_one(
                 sfence_vma: None,
                 vec_mem: None,
             };
-            return (result, Some(Redirect::squash_younger(SquashCause::System)));
+            return (result, Some(Redirect::to(next_pc(&id), SquashCause::System)));
         }
     }
 
@@ -393,7 +398,10 @@ fn execute_system(
     if id.ctrl.system_op == SystemOp::Mret {
         if state.hart.privilege != crate::core::arch::mode::PrivilegeMode::Machine {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+            return (
+                make_result(0, id.ctrl),
+                Some(Redirect::to(next_pc(&id), SquashCause::System)),
+            );
         }
         trace_trap!(state.config.general.trace_instructions;
             event       = "return",
@@ -405,13 +413,16 @@ fn execute_system(
             mstatus     = %crate::trace::Hex(state.hart.csrs.mstatus),
             "EX: MRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Sret {
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::User {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+            return (
+                make_result(0, id.ctrl),
+                Some(Redirect::to(next_pc(&id), SquashCause::System)),
+            );
         }
         let tsr = (state.hart.csrs.mstatus >> 22) & 1;
         if state.hart.privilege == crate::core::arch::mode::PrivilegeMode::Supervisor && tsr != 0 {
@@ -424,7 +435,10 @@ fn execute_system(
                 "EX: SRET -> IllegalInstruction (TSR)"
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+            return (
+                make_result(0, id.ctrl),
+                Some(Redirect::to(next_pc(&id), SquashCause::System)),
+            );
         }
         trace_trap!(state.config.general.trace_instructions;
             event     = "return",
@@ -436,7 +450,7 @@ fn execute_system(
             mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
             "EX: SRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if id.ctrl.system_op == SystemOp::Wfi {
@@ -454,7 +468,7 @@ fn execute_system(
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         }
-        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     // SFENCE.VMA: do nothing at execute. Operands flow to commit which drains
@@ -480,7 +494,7 @@ fn execute_system(
                     sfence_vma: None,
                     vec_mem: None,
                 },
-                Some(Redirect::squash_younger(SquashCause::System)),
+                Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
 
@@ -518,7 +532,10 @@ fn execute_system(
         id.ctrl.system_op,
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
     ) {
-        return (make_result(fwd_a, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+        return (
+            make_result(fwd_a, id.ctrl),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
+        );
     }
 
     if id.inst == sys_ops::ECALL {
@@ -539,14 +556,14 @@ fn execute_system(
             "EX: ECALL"
         );
         rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-        return (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)));
+        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if id.ctrl.csr_op != CsrOp::None {
         return execute_csr(state, id, rob, fwd_a, store_data);
     }
 
-    (make_result(0, id.ctrl), Some(Redirect::squash_younger(SquashCause::System)))
+    (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)))
 }
 
 /// Handle CSR operations.
@@ -580,7 +597,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            Some(Redirect::squash_younger(SquashCause::System)),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
 
@@ -626,7 +643,7 @@ fn execute_csr(
                         sfence_vma: None,
                         vec_mem: None,
                     },
-                    Some(Redirect::squash_younger(SquashCause::System)),
+                    Some(Redirect::to(next_pc(&id), SquashCause::System)),
                 );
             }
         }
@@ -651,7 +668,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            Some(Redirect::squash_younger(SquashCause::System)),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
 
@@ -675,7 +692,7 @@ fn execute_csr(
                 sfence_vma: None,
                 vec_mem: None,
             },
-            Some(Redirect::squash_younger(SquashCause::System)),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
 
@@ -706,7 +723,7 @@ fn execute_csr(
                     sfence_vma: None,
                     vec_mem: None,
                 },
-                Some(Redirect::squash_younger(SquashCause::System)),
+                Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
     }
@@ -1133,7 +1150,7 @@ mod tests {
         };
 
         let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(Some(0x1004)));
+        assert_eq!(redirect.map(|r| r.target), Some(0x1004));
     }
 
     #[test]
@@ -1280,7 +1297,7 @@ mod tests {
         };
 
         let (_result, redirect) = execute_one(&mut state, issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(Some(0x1008)));
+        assert_eq!(redirect.map(|r| r.target), Some(0x1008));
         assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
         let entry = rob.find_entry(tag).unwrap();
         assert!(entry.bp_outcome.mispredicted);
@@ -1354,6 +1371,6 @@ mod tests {
         assert!(redirect.is_some());
 
         let expected_target = (0x2000 + 0x15) & !1;
-        assert_eq!(redirect.map(|r| r.target), Some(Some(expected_target)));
+        assert_eq!(redirect.map(|r| r.target), Some(expected_target));
     }
 }

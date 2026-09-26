@@ -46,13 +46,14 @@ pub enum BackendType {
 pub trait ExecutionEngine {
     /// Run one cycle of all backend stages (reverse order internally).
     ///
-    /// `redirect_pending` is set to `true` by the engine when an instruction
-    /// flushes the frontend (branch misprediction, trap, FENCE.I, MRET/SRET).
+    /// The engine sets `redirect` to the PC fetch restarts from when an
+    /// instruction squashes the frontend (branch misprediction, trap,
+    /// FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
         state: &mut crate::sim::CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
-        redirect_pending: &mut bool,
+        redirect: &mut Option<u64>,
     );
 
     /// How many instructions can the engine accept from rename this cycle?
@@ -438,10 +439,10 @@ pub struct Pipeline<E: ExecutionEngine> {
     pub engine: E,
     /// Buffer for rename stage output, consumed by the engine each cycle.
     pub rename_output: Vec<RenameIssueEntry>,
-    /// Set by the backend (execute / commit) when a PC redirect occurs
-    /// (branch misprediction, trap, FENCE.I, MRET/SRET). Read at the top
-    /// of `tick` to decide whether to flush the frontend, then cleared.
-    pub redirect_pending: bool,
+    /// The PC the backend (squash / commit) redirected fetch to this cycle
+    /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
+    /// discarded and restarted there after the engine's tick.
+    pub redirect: Option<u64>,
 }
 
 impl<E: ExecutionEngine> Pipeline<E> {
@@ -460,21 +461,17 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
     pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
-        let pc_before = state.hart.pc;
-
         crate::core::pipeline::mailbox::drain(self, state);
 
         let frontend_empty = self.frontend.is_empty()
             && self.rename_output.is_empty()
             && !self.engine.common().fetch_in_flight();
         self.engine.common_mut().frontend_empty = frontend_empty;
-        self.engine.tick(state, &mut self.rename_output, &mut self.redirect_pending);
+        self.engine.tick(state, &mut self.rename_output, &mut self.redirect);
 
-        // PC compare catches commit-stage redirects (MRET/SRET) that bypass execute's flush path.
-        let needs_frontend_flush = self.redirect_pending || state.hart.pc != pc_before;
-        self.redirect_pending = false;
-        if needs_frontend_flush {
+        if let Some(pc) = self.redirect.take() {
             self.discard_frontend_speculation();
+            self.frontend.fetch_pc = pc;
         }
 
         if state.check_exit().is_none() && !state.hart.wfi_waiting {
@@ -507,16 +504,18 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.next_emit_fetch_seq = common.next_fetch_seq;
     }
 
-    /// Flush the pipeline, write its committed stores to memory and leave
-    /// the hart at its committed PC.
+    /// Flush the pipeline and write its committed stores to memory; fetch
+    /// restarts at the hart's architectural PC.
     pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         self.flush(state);
         self.engine.drain_committed_stores(state);
-        state.hart.pc = state.hart.committed_next_pc;
     }
 
-    /// Flush the entire pipeline.
+    /// Flush the entire pipeline; fetch restarts at the hart's
+    /// architectural PC.
     pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+        self.frontend.fetch_pc = state.hart.pc;
+        self.redirect = None;
         self.discard_frontend_speculation();
         let common = self.engine.common_mut();
         common.mailbox.clear();
@@ -557,6 +556,24 @@ impl PipelineDispatch {
         match self {
             Self::InOrder(p) => p.deliver(source, packet),
             Self::OutOfOrder(p) => p.deliver(source, packet),
+        }
+    }
+
+    /// The PC fetch continues from.
+    #[must_use]
+    pub const fn fetch_pc(&self) -> u64 {
+        match self {
+            Self::InOrder(p) => p.frontend.fetch_pc,
+            Self::OutOfOrder(p) => p.frontend.fetch_pc,
+        }
+    }
+
+    /// Points fetch at `pc` without disturbing anything in flight; for
+    /// initialisation, after the hart's architectural PC has been set.
+    pub const fn restart_fetch_at(&mut self, pc: u64) {
+        match self {
+            Self::InOrder(p) => p.frontend.fetch_pc = pc,
+            Self::OutOfOrder(p) => p.frontend.fetch_pc = pc,
         }
     }
 
@@ -628,11 +645,10 @@ mod tests {
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
-        let frontend = Frontend::new(config.pipeline.width);
+        let frontend = Frontend::new(config.pipeline.width, state.hart.pc);
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let pipeline =
-            Pipeline { frontend, engine, rename_output: Vec::new(), redirect_pending: false };
+        let pipeline = Pipeline { frontend, engine, rename_output: Vec::new(), redirect: None };
         let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
 
         dispatch.tick(&mut state);

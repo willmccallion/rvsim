@@ -56,7 +56,7 @@ fn run_program(config: &Config, program: &[u32], cycles: u64) -> TestContext {
         let addr = RAM_BASE + (i as u64) * 4;
         ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), 4);
     }
-    ctx.cpu_mut().harts[0].pc = RAM_BASE;
+    ctx.sim.set_pc(0, RAM_BASE);
     ctx.run(cycles);
     ctx
 }

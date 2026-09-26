@@ -171,7 +171,7 @@ Run until the program exits or `limit` cycles.
 
 #### `run_until(pc=None, privilege=None)`
 
-Run until the PC matches the given address or the privilege level matches the given string (`"M"`, `"S"`, or `"U"`).
+Run until the architectural PC (the next instruction to retire) equals the given address or the privilege level matches the given string (`"M"`, `"S"`, or `"U"`).
 
 #### `save(path: str)`
 
@@ -184,6 +184,8 @@ Restore from a checkpoint.
 ### State Inspection
 
 #### `pc -> int`
+
+The architectural PC: the next instruction to retire. Fetch runs ahead of it. Writing it discards everything the pipeline had in flight and restarts fetch there.
 
 Current program counter.
 

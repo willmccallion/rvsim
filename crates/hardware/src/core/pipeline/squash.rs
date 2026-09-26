@@ -50,12 +50,15 @@ impl BranchRepair {
 }
 
 /// What execute decided about the instructions younger than one it ran.
+///
+/// They are dropped and fetch resumes at `target`. An instruction that
+/// only needs its successors refetched (an xRET, a fault, a CSR write)
+/// targets its own successor; what commit then does with it (a trap, a
+/// return) redirects fetch again.
 #[derive(Clone, Copy, Debug)]
 pub struct Redirect {
-    /// Where fetch resumes. `None` squashes the younger instructions but
-    /// leaves the fetch PC alone; commit will redirect when the
-    /// instruction retires (an xRET, a fault).
-    pub target: Option<u64>,
+    /// Where fetch resumes.
+    pub target: u64,
     /// Why.
     pub cause: SquashCause,
     /// Predictor repair for a mispredicted branch.
@@ -66,20 +69,14 @@ impl Redirect {
     /// Resume fetch at `target` once the younger instructions are gone.
     #[must_use]
     pub const fn to(target: u64, cause: SquashCause) -> Self {
-        Self { target: Some(target), cause, repair: None }
-    }
-
-    /// Drop the younger instructions and keep fetching where fetch is.
-    #[must_use]
-    pub const fn squash_younger(cause: SquashCause) -> Self {
-        Self { target: None, cause, repair: None }
+        Self { target, cause, repair: None }
     }
 
     /// A mispredicted branch: resume at its real target and repair the
     /// predictor.
     #[must_use]
     pub const fn mispredict(target: u64, repair: BranchRepair) -> Self {
-        Self { target: Some(target), cause: SquashCause::Branch, repair: Some(repair) }
+        Self { target, cause: SquashCause::Branch, repair: Some(repair) }
     }
 }
 
@@ -127,7 +124,7 @@ mod tests {
     fn pending(keep_tag: Option<u32>) -> PendingSquash {
         PendingSquash {
             keep_tag: keep_tag.map(RobTag),
-            redirect: Redirect::squash_younger(SquashCause::System),
+            redirect: Redirect::to(0, SquashCause::System),
             apply_at: 0,
         }
     }

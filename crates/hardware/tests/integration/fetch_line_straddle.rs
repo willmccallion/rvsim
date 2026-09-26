@@ -50,7 +50,6 @@ fn warm_iteration_cycles(backend: BackendType, program: &[u16]) -> u64 {
         tc.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 2 * i as u64), u64::from(*half), 2);
     }
     tc.sim.state.harts[0].pc = RAM_BASE;
-    tc.sim.state.harts[0].committed_next_pc = RAM_BASE;
     tc.sim.sync_arch_regs();
 
     let mut cycles = 0;

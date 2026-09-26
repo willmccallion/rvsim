@@ -433,7 +433,7 @@ impl Rob {
 
     /// Sets just the branch target for a jump (no direction predictor training).
     ///
-    /// Used for unconditional jumps so `committed_next_pc` can use the target
+    /// Used for unconditional jumps so the architectural PC advances to the target
     /// without triggering `update_branch` at commit time.
     pub fn set_bp_target(&mut self, tag: RobTag, target: u64) {
         if let Some(entry) = self.find_entry_mut(tag) {

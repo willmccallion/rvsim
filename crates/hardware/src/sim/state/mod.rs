@@ -586,16 +586,14 @@ impl SimState {
         let harts: Vec<Hart> = (0..hart_count)
             .map(|index| {
                 let hart_id = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
-                let mut hart = Hart::new(HartInit {
+                Hart::new(HartInit {
                     hart_id,
                     regs: fresh_regs(hart_id),
                     pc: config.general.start_pc,
                     csrs: csrs.clone(),
                     privilege,
                     pmp: Pmp::new(),
-                });
-                hart.committed_next_pc = config.general.start_pc;
-                hart
+                })
             })
             .collect();
 

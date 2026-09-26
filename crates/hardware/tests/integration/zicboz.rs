@@ -65,7 +65,7 @@ fn run_cbo(ctx: &mut TestContext, inst: u32, addr_in_x10: u64) {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + i * 4), u64::from(NOP), 4);
     }
     ctx.set_reg(X10 as usize, addr_in_x10);
-    ctx.cpu_mut().harts[0].pc = RAM_BASE;
+    ctx.sim.set_pc(0, RAM_BASE);
     ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
     ctx.run(1000);
 }

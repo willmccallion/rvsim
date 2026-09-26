@@ -47,10 +47,10 @@ fn drain_after(backend: BackendType, cycles: u64) -> u64 {
 
     ctx.sim.drain();
 
-    let hart = &ctx.sim.state.harts[0];
     assert_eq!(
-        hart.pc, hart.committed_next_pc,
-        "{backend:?} @{cycles}: hart left at its committed PC"
+        ctx.sim.pipelines[0].fetch_pc(),
+        ctx.sim.state.harts[0].pc,
+        "{backend:?} @{cycles}: fetch restarts at the committed PC"
     );
     for s in 0..committed {
         assert_eq!(slot(&mut ctx, s), MARK, "{backend:?} @{cycles}: committed store {s} is in RAM");

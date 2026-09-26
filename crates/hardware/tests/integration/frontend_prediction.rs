@@ -38,7 +38,6 @@ fn mispredicts_running(backend: BackendType, program: &[u16], retired: u64) -> f
         ctx.sim.probe_mem_store(PhysAddr::new(PROGRAM_BASE + 2 * i as u64), u64::from(*half), 2);
     }
     ctx.sim.state.harts[0].pc = PROGRAM_BASE;
-    ctx.sim.state.harts[0].committed_next_pc = PROGRAM_BASE;
     ctx.sim.sync_arch_regs();
 
     ctx.run(600);

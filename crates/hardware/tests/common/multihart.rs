@@ -31,7 +31,6 @@ impl MultiHart {
         }
         for hart in &mut sim.state.harts {
             hart.pc = PROGRAM_BASE;
-            hart.committed_next_pc = PROGRAM_BASE;
         }
         sim.sync_arch_regs();
         Self { sim }
@@ -64,7 +63,6 @@ impl MultiHart {
         }
         for hart in &mut sim.state.harts {
             hart.pc = PROGRAM_BASE;
-            hart.committed_next_pc = PROGRAM_BASE;
         }
         sim.sync_arch_regs();
         Self { sim }

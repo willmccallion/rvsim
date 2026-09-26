@@ -174,7 +174,7 @@ impl PySimulator {
         let mut sim = Simulator::new(cpu);
 
         if let Some(entry) = elf_entry {
-            sim.state.harts[0].pc = entry;
+            sim.set_pc(0, entry);
         }
 
         if tohost_addr.is_some() {
@@ -194,7 +194,8 @@ impl PySimulator {
         Ok(Self { inner: sim })
     }
 
-    /// Program counter (read/write).
+    /// The architectural PC (the next instruction to retire). Writing it
+    /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self) -> u64 {
         self.inner.state.harts[0].pc
@@ -202,7 +203,7 @@ impl PySimulator {
 
     #[setter]
     fn set_pc(&mut self, value: u64) {
-        self.inner.state.harts[0].pc = value;
+        self.inner.set_pc(0, value);
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
@@ -748,7 +749,6 @@ fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
     let _ = h.insert("pc".into(), serde_json::Value::from(hart.pc));
     let _ = h.insert("privilege".into(), serde_json::Value::from(hart.privilege.to_u8()));
     let _ = h.insert("wfi_waiting".into(), serde_json::Value::from(hart.wfi_waiting));
-    let _ = h.insert("wfi_pc".into(), serde_json::Value::from(hart.wfi_pc));
     let _ = h.insert("sw_seip".into(), serde_json::Value::from(hart.sw_seip));
     let _ =
         h.insert("instructions_retired".into(), serde_json::Value::from(hart.instructions_retired));
@@ -803,10 +803,8 @@ fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
 /// Restores one hart's architectural state from checkpoint JSON.
 fn hart_from_json(hart: &mut rvsim_core::core::Hart, saved: &serde_json::Value) {
     hart.pc = saved["pc"].as_u64().unwrap_or(0);
-    hart.committed_next_pc = hart.pc;
     hart.privilege = PrivilegeMode::from_u8(saved["privilege"].as_u64().unwrap_or(3) as u8);
     hart.wfi_waiting = saved["wfi_waiting"].as_bool().unwrap_or(false);
-    hart.wfi_pc = saved["wfi_pc"].as_u64().unwrap_or(0);
     hart.sw_seip = saved["sw_seip"].as_bool().unwrap_or(false);
     hart.instructions_retired = saved["instructions_retired"].as_u64().unwrap_or(0);
     if let Some(gprs) = saved["gpr"].as_array() {

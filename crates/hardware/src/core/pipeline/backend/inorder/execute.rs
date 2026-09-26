@@ -25,6 +25,11 @@ use crate::sim::CoreCtx;
 use crate::{trace_execute, trace_trap};
 
 const FUNCT3_SHIFT: u32 = 12;
+
+/// The instruction after `id` in program order.
+const fn next_pc(id: &RenameIssueEntry) -> u64 {
+    id.pc.wrapping_add(id.inst_size.as_u64())
+}
 const FUNCT3_MASK: u32 = 0x7;
 const JALR_ALIGNMENT_MASK: u64 = !1;
 
@@ -108,7 +113,7 @@ pub fn execute_inorder(
                 sfence_vma: None,
                 vec_mem: None,
             });
-            redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+            redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
             continue;
         }
 
@@ -153,7 +158,7 @@ pub fn execute_inorder(
                 sfence_vma: None,
                 vec_mem: None,
             });
-            redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+            redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
             continue;
         }
 
@@ -204,7 +209,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -223,7 +228,7 @@ pub fn execute_inorder(
                     });
                     continue;
                 }
-                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -250,7 +255,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -278,7 +283,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -298,7 +303,7 @@ pub fn execute_inorder(
                     continue;
                 }
 
-                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -331,7 +336,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                 }
-                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,
@@ -361,7 +366,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -445,7 +450,7 @@ pub fn execute_inorder(
                 };
 
                 rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
 
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
@@ -476,7 +481,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -524,8 +529,10 @@ pub fn execute_inorder(
                                 Trap::IllegalInstruction(id.inst),
                                 ExceptionStage::Execute,
                             );
-                            redirects
-                                .push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                            redirects.push((
+                                id.rob_tag,
+                                Redirect::to(next_pc(&id), SquashCause::System),
+                            ));
                             results.push(ExMem1Entry {
                                 rob_tag: id.rob_tag,
                                 pc: id.pc,
@@ -553,7 +560,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -580,7 +587,7 @@ pub fn execute_inorder(
                         Trap::IllegalInstruction(id.inst),
                         ExceptionStage::Execute,
                     );
-                    redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                    redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                     results.push(ExMem1Entry {
                         rob_tag: id.rob_tag,
                         pc: id.pc,
@@ -614,7 +621,8 @@ pub fn execute_inorder(
                             Trap::IllegalInstruction(id.inst),
                             ExceptionStage::Execute,
                         );
-                        redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                        redirects
+                            .push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                         results.push(ExMem1Entry {
                             rob_tag: id.rob_tag,
                             pc: id.pc,
@@ -698,7 +706,7 @@ pub fn execute_inorder(
             let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
             if fs == 0 && is_fp {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-                redirects.push((id.rob_tag, Redirect::squash_younger(SquashCause::System)));
+                redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
                 results.push(ExMem1Entry {
                     rob_tag: id.rob_tag,
                     pc: id.pc,

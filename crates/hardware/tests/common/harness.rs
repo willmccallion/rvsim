@@ -64,7 +64,7 @@ impl TestContext {
             let offset = addr + (i as u64) * 4;
             self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), 4);
         }
-        self.sim.state.harts[0].pc = addr;
+        self.sim.set_pc(0, addr);
         self
     }
 

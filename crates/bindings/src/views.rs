@@ -148,7 +148,8 @@ impl Hart {
         self.index
     }
 
-    /// Program counter (read/write).
+    /// The architectural PC (the next instruction to retire). Writing it
+    /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self, py: Python<'_>) -> u64 {
         self.cpu.borrow(py).inner.state.harts[self.index].pc
@@ -156,7 +157,7 @@ impl Hart {
 
     #[setter]
     fn set_pc(&self, py: Python<'_>, value: u64) {
-        self.cpu.borrow_mut(py).inner.state.harts[self.index].pc = value;
+        self.cpu.borrow_mut(py).inner.set_pc(self.index, value);
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"``.

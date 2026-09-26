@@ -29,6 +29,10 @@ use std::marker::PhantomData;
 /// Same frontend code works with `InOrderEngine` and `O3Engine`.
 #[derive(Debug)]
 pub struct Frontend<E: ExecutionEngine> {
+    /// Where fetch continues: the next PC fetch1 forms a group from. It
+    /// runs ahead of the hart's architectural PC and is reset by every
+    /// redirect.
+    pub fetch_pc: u64,
     /// Fetch1 → Fetch2 latch (populated by the mailbox-drain stage when
     /// fetch `MemResp` packets arrive, or directly on a fetch-buffer hit).
     pub fetch1_fetch2: Vec<Fetch1Fetch2Entry>,
@@ -48,9 +52,11 @@ pub struct Frontend<E: ExecutionEngine> {
 }
 
 impl<E: ExecutionEngine> Frontend<E> {
-    /// Creates a new frontend with the given pipeline width.
-    pub fn new(width: usize) -> Self {
+    /// Creates a new frontend with the given pipeline width, fetching from
+    /// `pc`.
+    pub fn new(width: usize, pc: u64) -> Self {
         Self {
+            fetch_pc: pc,
             fetch1_fetch2: Vec::with_capacity(width),
             fetch_buffer: FetchBuffer::default(),
             fetch2_decode: Vec::with_capacity(width),
@@ -95,7 +101,13 @@ impl<E: ExecutionEngine> Frontend<E> {
             return;
         }
         if self.fetch1_fetch2.is_empty() {
-            fetch1::fetch1_stage(state, engine, &mut self.fetch_buffer, &mut self.fetch1_fetch2);
+            fetch1::fetch1_stage(
+                state,
+                engine,
+                &mut self.fetch_buffer,
+                &mut self.fetch1_fetch2,
+                &mut self.fetch_pc,
+            );
         }
     }
 
