@@ -60,6 +60,8 @@ classic cache:
   whole-line write from above (a drained write-combining line, or a
   cache-maintenance writeback) merges into a held line or is forwarded
   without allocating.
+- A **fill** answers every request the MSHR gathered after the cache's
+  access latency: the line is read out of the array like a hit.
 - A fill that evicts a **dirty victim** puts it in the **writeback buffer**
   and sends it to the next level; the entry is freed when that level
   acknowledges. Dirty lines leaving the last cache reach the memory

@@ -184,7 +184,11 @@ fn miss_sends_one_line_request_and_the_fill_answers_the_requester() {
 
     bench.fill(down_id, 0x1000);
     let events = bench.drain();
-    assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(7), bench.cycle)]);
+    assert_eq!(
+        responses_to(&events, PIPELINE),
+        vec![(ReqId::new(7), bench.cycle + LATENCY)],
+        "the fill is read out through the array like a hit"
+    );
     assert!(bench.cache.contains(0x1008));
     assert_eq!(bench.stat("test.misses"), 1);
     assert_eq!(bench.stat("test.fills"), 1);
@@ -237,7 +241,7 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
 
     bench.fill(first[0].0, 0x1000);
     let events = bench.drain();
-    assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(1), bench.cycle)]);
+    assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(1), bench.cycle + LATENCY)]);
     let retried: Vec<u64> = events
         .iter()
         .filter(|e| e.target == DOWNSTREAM)

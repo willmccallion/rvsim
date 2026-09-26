@@ -815,13 +815,16 @@ impl Cache {
         }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
         let installed = self.fill(&mshr, granted, ctx);
+        // The filled line is read out through the same array access a hit
+        // pays before the waiting requests are answered.
+        let answered_at = ctx.cycle + self.latency;
         for target in &mshr.targets {
             self.respond(
                 ctx,
                 target.source,
                 target.req_id,
                 target.paddr,
-                ctx.cycle,
+                answered_at,
                 hit_level,
                 installed,
             );
