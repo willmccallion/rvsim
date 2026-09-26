@@ -7,6 +7,7 @@ pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
 pub mod fetch_page_crossing;
 pub mod fetch_walk;
+pub mod frontend_prediction;
 pub mod inorder_units;
 pub mod interrupts;
 pub mod line_crossing;

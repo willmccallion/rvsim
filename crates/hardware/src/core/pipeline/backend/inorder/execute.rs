@@ -14,7 +14,6 @@ use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
-use crate::isa::abi;
 use crate::isa::privileged::opcodes as sys_ops;
 use crate::isa::rv64i::{funct3, opcodes};
 use crate::sim::CoreCtx;
@@ -795,8 +794,6 @@ pub fn execute_inorder(
         if id.ctrl.control_flow == ControlFlow::Jump {
             use crate::common::constants::OPCODE_MASK;
             let is_jalr = (id.inst & OPCODE_MASK) == opcodes::OP_JALR;
-            let rd_link = id.rd == abi::REG_RA || id.rd == abi::REG_T0;
-            let rs1_link = is_jalr && (id.rs1 == abi::REG_RA || id.rs1 == abi::REG_T0);
 
             let actual_target = if is_jalr {
                 (fwd_a.wrapping_add(id.imm as u64)) & JALR_ALIGNMENT_MASK
@@ -815,8 +812,7 @@ pub fn execute_inorder(
             // Record target for committed_next_pc but skip bp_update: jumps don't train direction.
             rob.set_bp_target(id.rob_tag, actual_target);
 
-            // Skip for calls — on_call already updates the BTB.
-            if !rd_link {
+            if is_jalr {
                 state.core.branch_predictor.update_btb(id.pc, actual_target);
             }
 
@@ -829,17 +825,6 @@ pub fn execute_inorder(
                 flush_remaining = true;
             } else {
                 state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
-            }
-
-            // RAS management per RISC-V Table 2.1: x1 (ra) and x5 (t0) are link registers.
-            let ret_addr = id.pc.wrapping_add(id.inst_size.as_u64());
-            if rd_link && rs1_link && id.rd != id.rs1 {
-                state.core.branch_predictor.on_return();
-                state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
-            } else if rd_link {
-                state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
-            } else if rs1_link {
-                state.core.branch_predictor.on_return();
             }
         }
 

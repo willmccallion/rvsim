@@ -350,8 +350,7 @@ pub fn execute_one(
         // Record target for committed_next_pc but skip bp_update: jumps don't train direction.
         rob.set_bp_target(id.rob_tag, actual_target);
 
-        // Skip for calls — on_call already updates the BTB.
-        if !rd_link {
+        if is_jalr {
             state.core.branch_predictor.update_btb(id.pc, actual_target);
         }
 
@@ -376,17 +375,6 @@ pub fn execute_one(
             needs_flush = true;
         } else {
             state.shared.stats.counter(state.core.stat_paths.bp.spec_hits).inc();
-        }
-
-        // RAS management per RISC-V Table 2.1: x1 (ra) and x5 (t0) are link registers.
-        let ret_addr = id.pc.wrapping_add(id.inst_size.as_u64());
-        if rd_link && rs1_link && id.rd != id.rs1 {
-            state.core.branch_predictor.on_return();
-            state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
-        } else if rd_link {
-            state.core.branch_predictor.on_call(id.pc, ret_addr, actual_target);
-        } else if rs1_link {
-            state.core.branch_predictor.on_return();
         }
     }
 
@@ -990,6 +978,7 @@ mod tests {
     use crate::config::Config;
     use crate::core::pipeline::signals::ControlSignals;
     use crate::core::units::bru::Ghr;
+    use crate::core::units::bru::RasSnapshot;
 
     #[test]
     fn test_execute_one_normal() {
@@ -1037,7 +1026,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -1106,7 +1095,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -1178,7 +1167,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -1254,7 +1243,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -1329,7 +1318,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0, // Predicted NOT taken
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -1402,7 +1391,7 @@ mod tests {
             pred_taken: true,
             pred_target: 0, // Predicted incorrectly
             ghr_snapshot: Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],

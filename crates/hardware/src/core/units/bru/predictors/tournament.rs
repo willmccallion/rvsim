@@ -5,6 +5,7 @@
 //! This allows the predictor to adapt to different types of branch behaviors.
 
 use crate::config::TournamentConfig;
+use crate::core::units::bru::ras::RasSnapshot;
 use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
 
 /// Tournament Predictor structure.
@@ -158,20 +159,12 @@ impl BranchPredictor for TournamentPredictor {
         self.btb.lookup(pc)
     }
 
-    /// Handles a function call by pushing the return address to the RAS.
-    fn on_call(&mut self, pc: u64, ret_addr: u64, target: u64) {
+    fn push_return(&mut self, ret_addr: u64) {
         self.ras.push(ret_addr);
-        self.btb.update(pc, target);
     }
 
-    /// Predicts the return address using the RAS.
-    fn predict_return(&self) -> Option<u64> {
-        self.ras.top()
-    }
-
-    /// Handles a function return by popping from the RAS.
-    fn on_return(&mut self) {
-        let _ = self.ras.pop();
+    fn pop_return(&mut self) -> Option<u64> {
+        self.ras.pop()
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {
@@ -186,12 +179,12 @@ impl BranchPredictor for TournamentPredictor {
         self.ghr = ghr.val();
     }
 
-    fn snapshot_ras(&self) -> usize {
-        self.ras.snapshot_ptr()
+    fn snapshot_ras(&self) -> RasSnapshot {
+        self.ras.snapshot()
     }
 
-    fn restore_ras(&mut self, ptr: usize) {
-        self.ras.restore_ptr(ptr);
+    fn restore_ras(&mut self, snapshot: RasSnapshot) {
+        self.ras.restore(snapshot);
     }
 
     fn update_btb(&mut self, pc: u64, target: u64) {

@@ -36,9 +36,11 @@ use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::Fetch1Fetch2Entry;
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
-use crate::core::units::bru::{BranchPredictor, Ghr};
+use crate::core::units::bru::{BranchPredictor, Ghr, RasSnapshot};
 use crate::isa::abi;
+use crate::isa::decode::{decode_b_type_imm, decode_j_type_imm};
 use crate::isa::rv64i::opcodes;
+use crate::isa::rvc::expand::expand;
 use crate::sim::CoreCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
@@ -129,6 +131,69 @@ fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
     })
 }
 
+/// What fetch predicts for one instruction: where it goes next, whether
+/// fetch stops after it, and the kind of control flow for the trace.
+struct ControlFlowPrediction {
+    target: Option<u64>,
+    stop: bool,
+    kind: Option<&'static str>,
+}
+
+/// Predicts an instruction's control flow from its encoding, the way a
+/// predecoded fetch line lets a real front end: a direct branch or jump
+/// takes its target from the immediate, a return pops the RAS, an indirect
+/// jump asks the BTB, and a call pushes its return address at once.
+fn predict_control_flow(
+    state: &mut CoreCtx<'_>,
+    pc: u64,
+    size: InstSize,
+    inst: u32,
+) -> ControlFlowPrediction {
+    let bp = &mut state.core.branch_predictor;
+    let opcode = inst & OPCODE_MASK;
+    let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
+    let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);
+    let rd_link = rd == abi::REG_RA || rd == abi::REG_T0;
+    let rs1_link = rs1 == abi::REG_RA || rs1 == abi::REG_T0;
+    let return_address = pc.wrapping_add(size.as_u64());
+    match opcode {
+        opcodes::OP_BRANCH => {
+            let (taken, btb_target) = bp.predict_branch(pc);
+            bp.speculate(pc, taken);
+            let target = taken.then(|| {
+                btb_target.unwrap_or_else(|| pc.wrapping_add(decode_b_type_imm(inst) as u64))
+            });
+            ControlFlowPrediction { target, stop: taken, kind: Some("branch") }
+        }
+        opcodes::OP_JAL => {
+            if rd_link {
+                bp.push_return(return_address);
+            }
+            ControlFlowPrediction {
+                target: Some(pc.wrapping_add(decode_j_type_imm(inst) as u64)),
+                stop: true,
+                kind: Some(if rd_link { "call" } else { "jump" }),
+            }
+        }
+        opcodes::OP_JALR => {
+            let is_return = rs1_link && (!rd_link || rd != rs1);
+            let target = if is_return { bp.pop_return() } else { bp.predict_btb(pc) };
+            if rd_link {
+                bp.push_return(return_address);
+            }
+            let kind = if is_return {
+                "return"
+            } else if rd_link {
+                "indirect-call"
+            } else {
+                "indirect"
+            };
+            ControlFlowPrediction { target, stop: true, kind: Some(kind) }
+        }
+        _ => ControlFlowPrediction { target: None, stop: false, kind: None },
+    }
+}
+
 /// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
 /// has now refilled the L1, and the instruction is fetched again after the
 /// L2's latency.
@@ -149,7 +214,7 @@ fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
         trap: Some(trap),
         exception_stage: Some(ExceptionStage::Fetch),
         ghr_snapshot: Ghr::default(),
-        ras_snapshot: 0,
+        ras_snapshot: RasSnapshot::default(),
     }
 }
 
@@ -331,7 +396,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     trap: None,
                     exception_stage: None,
                     ghr_snapshot: Ghr::default(),
-                    ras_snapshot: 0,
+                    ras_snapshot: RasSnapshot::default(),
                 };
                 park_fetch_walk(state, engine, walk_state, pte_addr, pending, FetchWalkHalf::Lower);
                 // Fetch holds here until the translation returns: the
@@ -360,33 +425,12 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut next_pc_calc = current_pc.wrapping_add(step.as_u64());
         let mut pred_taken = false;
         let mut pred_target = 0;
-        let mut stop_fetch = false;
         let mut upper_paddr = None;
         let ghr_snapshot = state.core.branch_predictor.snapshot_history();
         let ras_snapshot = state.core.branch_predictor.snapshot_ras();
 
-        if is_compressed {
-            let quadrant = half_word & 0x3;
-            let funct3_c = (half_word >> 13) & 0x7;
-            if quadrant == 0x01 && (funct3_c == 0b110 || funct3_c == 0b111) {
-                let (taken, target) = state.core.branch_predictor.predict_branch(current_pc);
-                state.core.branch_predictor.speculate(current_pc, taken);
-                if taken && let Some(tgt) = target {
-                    next_pc_calc = tgt;
-                    pred_taken = true;
-                    pred_target = tgt;
-                    stop_fetch = true;
-                }
-                trace_branch!(state.config.general.trace_instructions;
-                    event       = "predict",
-                    pc          = %crate::trace::Hex(current_pc),
-                    paddr       = %crate::trace::Hex(phys_addr),
-                    bp_type     = "compressed-branch",
-                    pred_taken  = taken,
-                    pred_target = %crate::trace::Hex(target.unwrap_or(0)),
-                    "F1: compressed branch prediction"
-                );
-            }
+        let full_inst = if is_compressed {
+            expand(half_word)
         } else {
             let upper_va = current_pc.wrapping_add(2);
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
@@ -444,74 +488,27 @@ pub fn fetch1_stage<E: ExecutionEngine>(
 
             let upper_raw = upper_phys.val();
             let upper_half = read_inst_half(state, upper_raw);
-            let full_inst = (upper_half as u32) << 16 | (half_word as u32);
-            let opcode = full_inst & OPCODE_MASK;
-            let rd = RegIdx::new(((full_inst >> RD_SHIFT) & RD_MASK) as u8);
-            let rs1 = RegIdx::new(((full_inst >> RS1_SHIFT) & RS1_MASK) as u8);
+            (upper_half as u32) << 16 | (half_word as u32)
+        };
 
-            if opcode == opcodes::OP_BRANCH {
-                let (taken, target) = state.core.branch_predictor.predict_branch(current_pc);
-                state.core.branch_predictor.speculate(current_pc, taken);
-                if taken && let Some(tgt) = target {
-                    next_pc_calc = tgt;
-                    pred_taken = true;
-                    pred_target = tgt;
-                    stop_fetch = true;
-                }
-                trace_branch!(state.config.general.trace_instructions;
-                    event       = "predict",
-                    pc          = %crate::trace::Hex(current_pc),
-                    paddr       = %crate::trace::Hex(phys_addr),
-                    inst        = %crate::trace::Hex32(full_inst),
-                    bp_type     = "branch",
-                    pred_taken  = taken,
-                    pred_target = %crate::trace::Hex(target.unwrap_or(0)),
-                    "F1: branch prediction"
-                );
-            } else if opcode == opcodes::OP_JAL {
-                if let Some(tgt) = state.core.branch_predictor.predict_btb(current_pc) {
-                    next_pc_calc = tgt;
-                    pred_taken = true;
-                    pred_target = tgt;
-                    stop_fetch = true;
-                }
-                trace_branch!(state.config.general.trace_instructions;
-                    event       = "predict",
-                    pc          = %crate::trace::Hex(current_pc),
-                    paddr       = %crate::trace::Hex(phys_addr),
-                    inst        = %crate::trace::Hex32(full_inst),
-                    bp_type     = "JAL/BTB",
-                    pred_taken  = pred_taken,
-                    pred_target = %crate::trace::Hex(pred_target),
-                    "F1: JAL prediction"
-                );
-            } else if opcode == opcodes::OP_JALR {
-                let rd_link = rd == abi::REG_RA || rd == abi::REG_T0;
-                let rs1_link = rs1 == abi::REG_RA || rs1 == abi::REG_T0;
-                let use_ras = rs1_link && (!rd_link || rd != rs1);
-                if use_ras {
-                    if let Some(tgt) = state.core.branch_predictor.predict_return() {
-                        next_pc_calc = tgt;
-                        pred_taken = true;
-                        pred_target = tgt;
-                    }
-                } else if let Some(tgt) = state.core.branch_predictor.predict_btb(current_pc) {
-                    next_pc_calc = tgt;
-                    pred_taken = true;
-                    pred_target = tgt;
-                }
-                stop_fetch = true;
-                trace_branch!(state.config.general.trace_instructions;
-                    event       = "predict",
-                    pc          = %crate::trace::Hex(current_pc),
-                    paddr       = %crate::trace::Hex(phys_addr),
-                    inst        = %crate::trace::Hex32(full_inst),
-                    bp_type     = if use_ras { "JALR/RAS" } else { "JALR/BTB" },
-                    pred_taken  = pred_taken,
-                    pred_target = %crate::trace::Hex(pred_target),
-                    "F1: JALR prediction"
-                );
-            }
+        let prediction = predict_control_flow(state, current_pc, step, full_inst);
+        if let Some(target) = prediction.target {
+            next_pc_calc = target;
+            pred_taken = true;
+            pred_target = target;
+        }
+        let stop_fetch = prediction.stop;
+        if let Some(kind) = prediction.kind {
+            trace_branch!(state.config.general.trace_instructions;
+                event       = "predict",
+                pc          = %crate::trace::Hex(current_pc),
+                paddr       = %crate::trace::Hex(phys_addr),
+                inst        = %crate::trace::Hex32(full_inst),
+                bp_type     = kind,
+                pred_taken,
+                pred_target = %crate::trace::Hex(pred_target),
+                "F1: control-flow prediction"
+            );
         }
 
         trace_fetch!(state.config.general.trace_instructions;

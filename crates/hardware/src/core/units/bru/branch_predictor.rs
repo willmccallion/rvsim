@@ -5,6 +5,8 @@
 //! predicting conditional branches, indirect jumps (via BTB), and function
 //! returns (via RAS).
 
+use super::ras::RasSnapshot;
+
 /// Maximum number of u64 words in a GHR. 16 × 64 = 1024 bits.
 /// This is a capacity bound — the effective history length comes from config.
 const GHR_MAX_WORDS: usize = 16;
@@ -141,14 +143,11 @@ pub trait BranchPredictor {
     /// Predicts the target address for a jump instruction using the BTB.
     fn predict_btb(&self, pc: u64) -> Option<u64>;
 
-    /// Records a function call for return address prediction.
-    fn on_call(&mut self, pc: u64, ret_addr: u64, target: u64);
+    /// Pushes the return address of a call the moment it is fetched.
+    fn push_return(&mut self, ret_addr: u64);
 
-    /// Predicts the return address for a return instruction.
-    fn predict_return(&self) -> Option<u64>;
-
-    /// Records a function return for return address prediction.
-    fn on_return(&mut self);
+    /// Pops the predicted target of a return the moment it is fetched.
+    fn pop_return(&mut self) -> Option<u64>;
 
     /// Speculatively updates the GHR with a predicted branch outcome.
     ///
@@ -171,13 +170,13 @@ pub trait BranchPredictor {
     /// the predictor trains on the correct history state.
     fn repair_history(&mut self, _ghr: &Ghr) {}
 
-    /// Returns a snapshot of the RAS pointer for speculative checkpointing.
-    fn snapshot_ras(&self) -> usize {
-        0
+    /// Captures the RAS state fetched pushes and pops are undone to.
+    fn snapshot_ras(&self) -> RasSnapshot {
+        RasSnapshot::default()
     }
 
-    /// Restores the RAS pointer to a previously captured snapshot.
-    fn restore_ras(&mut self, _ptr: usize) {}
+    /// Undoes the RAS pushes and pops since `snapshot` was taken.
+    fn restore_ras(&mut self, _snapshot: RasSnapshot) {}
 
     /// Updates only the BTB with a jump target (no direction training).
     ///
@@ -205,11 +204,10 @@ mod tests {
         fn predict_btb(&self, _pc: u64) -> Option<u64> {
             None
         }
-        fn on_call(&mut self, _pc: u64, _ret_addr: u64, _target: u64) {}
-        fn predict_return(&self) -> Option<u64> {
+        fn push_return(&mut self, _ret_addr: u64) {}
+        fn pop_return(&mut self) -> Option<u64> {
             None
         }
-        fn on_return(&mut self) {}
     }
 
     #[test]
@@ -218,8 +216,8 @@ mod tests {
         predictor.speculate(0x1000, true);
         assert_eq!(predictor.snapshot_history(), Ghr::default());
         predictor.repair_history(&Ghr::new(42));
-        assert_eq!(predictor.snapshot_ras(), 0);
-        predictor.restore_ras(5);
+        assert_eq!(predictor.snapshot_ras(), RasSnapshot::default());
+        predictor.restore_ras(RasSnapshot::default());
     }
 
     #[test]

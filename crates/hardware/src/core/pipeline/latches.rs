@@ -12,7 +12,7 @@ use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
-use crate::core::units::bru::Ghr;
+use crate::core::units::bru::{Ghr, RasSnapshot};
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 use crate::sim::state::write_log::WriteSeq;
 
@@ -56,7 +56,7 @@ pub struct IfIdEntry {
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: usize,
+    pub ras_snapshot: RasSnapshot,
 }
 
 /// Entry in the ID/EX pipeline latch (Decode to Execute stage).
@@ -100,7 +100,7 @@ pub struct IdExEntry {
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: usize,
+    pub ras_snapshot: RasSnapshot,
 }
 
 /// Entry in the EX/MEM pipeline latch (Execute to Memory stage).
@@ -177,7 +177,7 @@ pub struct Fetch1Fetch2Entry {
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: usize,
+    pub ras_snapshot: RasSnapshot,
 }
 
 /// Entry from Rename -> Issue (also used as Issue -> Execute input).
@@ -237,7 +237,7 @@ pub struct RenameIssueEntry {
     /// GHR snapshot captured at prediction time for speculative history repair.
     pub ghr_snapshot: Ghr,
     /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: usize,
+    pub ras_snapshot: RasSnapshot,
     /// Physical vector registers for vs1 LMUL group (O3 backend).
     pub vs1_phys: [VecPhysReg; 8],
     /// Physical vector registers for vs2 LMUL group (O3 backend).

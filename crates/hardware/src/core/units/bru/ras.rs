@@ -4,6 +4,16 @@
 //! as a hardware stack that pushes addresses on function calls and pops them
 //! on returns to predict the execution flow.
 
+/// The stack pointer and the entry under it, captured at fetch.
+///
+/// Enough to undo every push and pop fetched after it, since a wrong-path
+/// push may have overwritten the entry a wrong-path pop exposed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RasSnapshot {
+    ptr: usize,
+    top: u64,
+}
+
 /// Return Address Stack structure.
 #[derive(Debug)]
 pub struct Ras {
@@ -64,17 +74,16 @@ impl Ras {
         if self.ptr == 0 { None } else { Some(self.stack[self.ptr - 1]) }
     }
 
-    /// Snapshots the current stack pointer for speculative checkpointing.
-    ///
-    /// Used at fetch time so the RAS can be restored on misprediction.
-    pub const fn snapshot_ptr(&self) -> usize {
-        self.ptr
+    /// Captures the state a later misprediction restores to.
+    pub fn snapshot(&self) -> RasSnapshot {
+        RasSnapshot { ptr: self.ptr, top: if self.ptr == 0 { 0 } else { self.stack[self.ptr - 1] } }
     }
 
-    /// Restores the stack pointer to a previously captured snapshot.
-    ///
-    /// Called on misprediction to undo speculative push/pop operations.
-    pub const fn restore_ptr(&mut self, ptr: usize) {
-        self.ptr = ptr;
+    /// Undoes every push and pop since `snapshot` was taken.
+    pub fn restore(&mut self, snapshot: RasSnapshot) {
+        self.ptr = snapshot.ptr;
+        if self.ptr > 0 {
+            self.stack[self.ptr - 1] = snapshot.top;
+        }
     }
 }

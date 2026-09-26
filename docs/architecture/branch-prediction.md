@@ -12,7 +12,12 @@ Set-associative cache (default: 4096 entries, 4-way) that maps branch PCs to the
 
 ### Return Address Stack (RAS)
 
-Circular buffer (default: 32 entries) for call/return prediction.
+Circular buffer (default: 32 entries) for call/return prediction. Fetch
+pushes a call's return address and pops a return's target the moment the
+instruction is fetched, so a return fetched right behind its call is
+predicted; every fetched instruction carries a snapshot of the stack
+that a misprediction restores, including the entry a wrong-path push
+overwrote.
 
 Per RISC-V spec Table 2.1, both **x1 (ra)** and **x5 (t0)** are recognized as link registers:
 
@@ -25,7 +30,11 @@ Per RISC-V spec Table 2.1, both **x1 (ra)** and **x5 (t0)** are recognized as li
 | `jalr rd, rs1, offset` | Yes | Yes, rd = rs1 | **Push** (call through link register) |
 | `jalr rd, rs1, offset` | Yes | No | **Push** (indirect call) |
 
-The RAS supports speculative recovery: on a branch misprediction, the RAS pointer is restored from the per-instruction snapshot.
+Direct control flow does not need the BTB: fetch takes a `jal` target,
+and a conditional branch's target on a BTB miss, from the instruction's
+immediate, as a predecoded fetch line lets a real front end. Compressed
+control flow (`c.j`, `c.jr`, `c.jalr`, `c.beqz`, `c.bnez`) is predicted
+exactly like its 32-bit expansion.
 
 ### Global History Register (GHR)
 

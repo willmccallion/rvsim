@@ -719,7 +719,7 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             ghr_snapshot: crate::core::units::bru::Ghr::default(),
-            ras_snapshot: 0,
+            ras_snapshot: crate::core::units::bru::RasSnapshot::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],

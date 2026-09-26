@@ -317,40 +317,50 @@ fn all_predictors_use_btb() {
     assert_eq!(tournament.predict_btb(pc), Some(target));
 }
 
-/// All predictors correctly push/pop the RAS via on_call/on_return/predict_return.
+/// Every predictor pops the return address a call pushed, then nothing.
 #[test]
 fn all_predictors_use_ras() {
-    let call_pc = 0x1000;
     let ret_addr = 0x1004;
-    let call_target = 0x2000;
 
     let mut static_bp = StaticPredictor::new(64, 4, 8);
-    static_bp.on_call(call_pc, ret_addr, call_target);
-    assert_eq!(static_bp.predict_return(), Some(ret_addr));
-    static_bp.on_return();
-    assert_eq!(static_bp.predict_return(), None);
+    static_bp.push_return(ret_addr);
+    assert_eq!(static_bp.pop_return(), Some(ret_addr));
+    assert_eq!(static_bp.pop_return(), None);
 
     let mut gshare = GSharePredictor::new(64, 4, 8);
-    gshare.on_call(call_pc, ret_addr, call_target);
-    assert_eq!(gshare.predict_return(), Some(ret_addr));
-    gshare.on_return();
-    assert_eq!(gshare.predict_return(), None);
+    gshare.push_return(ret_addr);
+    assert_eq!(gshare.pop_return(), Some(ret_addr));
+    assert_eq!(gshare.pop_return(), None);
 
     let mut perceptron = default_perceptron();
-    perceptron.on_call(call_pc, ret_addr, call_target);
-    assert_eq!(perceptron.predict_return(), Some(ret_addr));
-    perceptron.on_return();
-    assert_eq!(perceptron.predict_return(), None);
+    perceptron.push_return(ret_addr);
+    assert_eq!(perceptron.pop_return(), Some(ret_addr));
+    assert_eq!(perceptron.pop_return(), None);
 
     let mut tage = default_tage();
-    tage.on_call(call_pc, ret_addr, call_target);
-    assert_eq!(tage.predict_return(), Some(ret_addr));
-    tage.on_return();
-    assert_eq!(tage.predict_return(), None);
+    tage.push_return(ret_addr);
+    assert_eq!(tage.pop_return(), Some(ret_addr));
+    assert_eq!(tage.pop_return(), None);
 
     let mut tournament = default_tournament();
-    tournament.on_call(call_pc, ret_addr, call_target);
-    assert_eq!(tournament.predict_return(), Some(ret_addr));
-    tournament.on_return();
-    assert_eq!(tournament.predict_return(), None);
+    tournament.push_return(ret_addr);
+    assert_eq!(tournament.pop_return(), Some(ret_addr));
+    assert_eq!(tournament.pop_return(), None);
+}
+
+/// A snapshot restores the entry a wrong-path push overwrote after a
+/// wrong-path pop.
+#[test]
+fn a_ras_snapshot_undoes_a_pop_followed_by_a_push() {
+    let mut bp = StaticPredictor::new(64, 4, 8);
+    bp.push_return(0x1000);
+    bp.push_return(0x2000);
+    let snapshot = bp.snapshot_ras();
+
+    assert_eq!(bp.pop_return(), Some(0x2000));
+    bp.push_return(0x3000);
+    bp.restore_ras(snapshot);
+
+    assert_eq!(bp.pop_return(), Some(0x2000));
+    assert_eq!(bp.pop_return(), Some(0x1000));
 }

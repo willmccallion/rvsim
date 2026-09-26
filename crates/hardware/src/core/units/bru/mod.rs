@@ -6,6 +6,7 @@
 //! stack (RAS).
 
 pub use self::branch_predictor::{BranchPredictor, Ghr};
+pub use self::ras::RasSnapshot;
 
 pub mod branch_predictor;
 
@@ -122,38 +123,26 @@ impl BranchPredictor for BranchPredictorWrapper {
     }
 
     #[inline(always)]
-    fn on_call(&mut self, pc: u64, ret_addr: u64, target: u64) {
+    fn push_return(&mut self, ret_addr: u64) {
         match self {
-            Self::Static(bp) => bp.on_call(pc, ret_addr, target),
-            Self::GShare(bp) => bp.on_call(pc, ret_addr, target),
-            Self::Tournament(bp) => bp.on_call(pc, ret_addr, target),
-            Self::Tage(bp) => bp.on_call(pc, ret_addr, target),
-            Self::Perceptron(bp) => bp.on_call(pc, ret_addr, target),
-            Self::ScLTage(bp) => bp.on_call(pc, ret_addr, target),
+            Self::Static(bp) => bp.push_return(ret_addr),
+            Self::GShare(bp) => bp.push_return(ret_addr),
+            Self::Tournament(bp) => bp.push_return(ret_addr),
+            Self::Tage(bp) => bp.push_return(ret_addr),
+            Self::Perceptron(bp) => bp.push_return(ret_addr),
+            Self::ScLTage(bp) => bp.push_return(ret_addr),
         }
     }
 
     #[inline(always)]
-    fn predict_return(&self) -> Option<u64> {
+    fn pop_return(&mut self) -> Option<u64> {
         match self {
-            Self::Static(bp) => bp.predict_return(),
-            Self::GShare(bp) => bp.predict_return(),
-            Self::Tournament(bp) => bp.predict_return(),
-            Self::Tage(bp) => bp.predict_return(),
-            Self::Perceptron(bp) => bp.predict_return(),
-            Self::ScLTage(bp) => bp.predict_return(),
-        }
-    }
-
-    #[inline(always)]
-    fn on_return(&mut self) {
-        match self {
-            Self::Static(bp) => bp.on_return(),
-            Self::GShare(bp) => bp.on_return(),
-            Self::Tournament(bp) => bp.on_return(),
-            Self::Tage(bp) => bp.on_return(),
-            Self::Perceptron(bp) => bp.on_return(),
-            Self::ScLTage(bp) => bp.on_return(),
+            Self::Static(bp) => bp.pop_return(),
+            Self::GShare(bp) => bp.pop_return(),
+            Self::Tournament(bp) => bp.pop_return(),
+            Self::Tage(bp) => bp.pop_return(),
+            Self::Perceptron(bp) => bp.pop_return(),
+            Self::ScLTage(bp) => bp.pop_return(),
         }
     }
 
@@ -194,7 +183,7 @@ impl BranchPredictor for BranchPredictorWrapper {
     }
 
     #[inline(always)]
-    fn snapshot_ras(&self) -> usize {
+    fn snapshot_ras(&self) -> RasSnapshot {
         match self {
             Self::Static(bp) => bp.snapshot_ras(),
             Self::GShare(bp) => bp.snapshot_ras(),
@@ -206,14 +195,14 @@ impl BranchPredictor for BranchPredictorWrapper {
     }
 
     #[inline(always)]
-    fn restore_ras(&mut self, ptr: usize) {
+    fn restore_ras(&mut self, snapshot: RasSnapshot) {
         match self {
-            Self::Static(bp) => bp.restore_ras(ptr),
-            Self::GShare(bp) => bp.restore_ras(ptr),
-            Self::Tournament(bp) => bp.restore_ras(ptr),
-            Self::Tage(bp) => bp.restore_ras(ptr),
-            Self::Perceptron(bp) => bp.restore_ras(ptr),
-            Self::ScLTage(bp) => bp.restore_ras(ptr),
+            Self::Static(bp) => bp.restore_ras(snapshot),
+            Self::GShare(bp) => bp.restore_ras(snapshot),
+            Self::Tournament(bp) => bp.restore_ras(snapshot),
+            Self::Tage(bp) => bp.restore_ras(snapshot),
+            Self::Perceptron(bp) => bp.restore_ras(snapshot),
+            Self::ScLTage(bp) => bp.restore_ras(snapshot),
         }
     }
 

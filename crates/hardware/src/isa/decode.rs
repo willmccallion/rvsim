@@ -195,7 +195,7 @@ const fn decode_s_type_imm(inst: u32) -> i64 {
 ///
 /// B-Type format: `imm[12] | imm[10:5] | rs2 | rs1 | funct3 | imm[4:1] | imm[11] | opcode`
 /// Used for Conditional Branch instructions. The immediate represents an even offset.
-const fn decode_b_type_imm(inst: u32) -> i64 {
+pub(crate) const fn decode_b_type_imm(inst: u32) -> i64 {
     let bit_11 = (inst >> B_IMM_11_SHIFT) & B_IMM_11_MASK;
     let bits_4_1 = (inst >> B_IMM_4_1_SHIFT) & B_IMM_4_1_MASK;
     let bits_10_5 = (inst >> B_IMM_10_5_SHIFT) & B_IMM_10_5_MASK;
@@ -220,7 +220,7 @@ const fn decode_u_type_imm(inst: u32) -> i64 {
 ///
 /// J-Type format: `imm[20] | imm[10:1] | imm[11] | imm[19:12] | rd | opcode`
 /// Used for JAL (Unconditional Jump).
-const fn decode_j_type_imm(inst: u32) -> i64 {
+pub(crate) const fn decode_j_type_imm(inst: u32) -> i64 {
     let bits_19_12 = (inst >> J_IMM_19_12_SHIFT) & J_IMM_19_12_MASK;
     let bit_11 = (inst >> J_IMM_11_SHIFT) & J_IMM_11_MASK;
     let bits_10_1 = (inst >> J_IMM_10_1_SHIFT) & J_IMM_10_1_MASK;
