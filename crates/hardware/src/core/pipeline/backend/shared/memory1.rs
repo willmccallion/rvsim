@@ -215,8 +215,18 @@ fn process_entry<E: ExecutionEngine>(
         if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag) {
             return EntryOutcome::Replay(ex);
         }
+        if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+            return EntryOutcome::Replay(ex);
+        }
         emit_load_req(state, engine, ex, paddr, vaddr, pte_update, true);
         return EntryOutcome::Done;
+    }
+
+    // A device read has side effects, so it waits until nothing older can
+    // still fault, redirect or be interrupted: the load must be the oldest
+    // instruction in the machine.
+    if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+        return EntryOutcome::Replay(ex);
     }
 
     // Demand load: try store-buffer forwarding first.
@@ -233,6 +243,17 @@ fn process_entry<E: ExecutionEngine>(
     }
 }
 
+/// True when `[paddr, paddr + size)` is not plain RAM: a device register,
+/// or the HTIF window a device overlays.
+fn reads_a_device(state: &CoreCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
+    state.bus.ram_region_for(paddr.val(), size).is_none()
+}
+
+/// True when `tag` is the oldest instruction in the ROB.
+fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
+    engine.rob().peek_head().is_some_and(|head| head.tag == tag)
+}
+
 /// Pushes an ALU/non-memory entry directly into the M1→M2 latch.
 fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
@@ -244,20 +265,10 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
         rd_phys: ex.rd_phys,
         alu: ex.alu,
         vaddr: VirtAddr::new(0),
-        if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
-            return EntryOutcome::Replay(ex);
-        }
         paddr: PhysAddr::new(0),
         store_data: ex.store_data,
         load_data: 0,
         sb_forwarded: false,
-    // A device read has side effects, so it waits until nothing older can
-    // still fault, redirect or be interrupted: the load must be the oldest
-    // instruction in the machine.
-    if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
-        return EntryOutcome::Replay(ex);
-    }
-
         ctrl: ex.ctrl,
         trap: None,
         exception_stage: None,
@@ -272,17 +283,6 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
 
 /// Forwards an entry that already carries a trap from an earlier stage.
 fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
-/// True when `[paddr, paddr + size)` is not plain RAM: a device register,
-/// or the HTIF window a device overlays.
-fn reads_a_device(state: &CoreCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
-    state.bus.ram_region_for(paddr.val(), size).is_none()
-}
-
-/// True when `tag` is the oldest instruction in the ROB.
-fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
-    engine.rob().peek_head().is_some_and(|head| head.tag == tag)
-}
-
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         rob_tag: ex.rob_tag,
         pc: ex.pc,
@@ -491,6 +491,7 @@ fn emit_load_req<E: ExecutionEngine>(
         Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: access_size, op },
     );
 
+    let side_effecting = matches!(target, ComponentId::Bus);
     let _ = engine
         .common_mut()
         .outstanding_loads
@@ -520,7 +521,6 @@ fn park_walk<E: ExecutionEngine>(
 
     let cycle = state.cycle;
     state.event_queue.schedule(
-    let side_effecting = matches!(target, ComponentId::Bus);
         cycle,
         ComponentId::Cache(l1_d_id),
         ComponentId::Pipeline(pipeline_id),

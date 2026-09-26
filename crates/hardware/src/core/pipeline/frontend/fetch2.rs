@@ -8,19 +8,18 @@
 //!   always reside in DRAM; MMIO fetches return 0, which the decoder
 //!   surfaces as an illegal-instruction trap).
 //! - If the instruction is compressed, runs RVC expansion.
-//! - If the instruction is 32-bit and crosses a page boundary, asks the
-//!   MMU to translate the upper half-word; a TLB miss here surfaces as
-//!   the deferred page-crossing fault.
+//! - If the instruction is 32-bit, reads its upper half-word at the
+//!   physical address fetch1 translated (its own page, or the next page
+//!   when the instruction straddles one).
 
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
 use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
-use crate::common::{AccessType, ExceptionStage, InstSize, Trap, VirtAddr};
+use crate::common::{ExceptionStage, InstSize, PhysAddr, Trap};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::isa::rvc::expand::expand;
 use crate::sim::CoreCtx;
-use crate::sim::state::memory::TranslateResult;
 use crate::{trace_fetch, trace_trap};
 
 /// Reads a 16-bit instruction half-word from the RAM fast-path pointer.
@@ -82,41 +81,10 @@ pub fn fetch2_stage(
                 (expanded, InstSize::Compressed, None)
             }
         } else {
-            let upper_va = f1.pc.wrapping_add(2);
-            // Re-translate the upper half-word: a fine-grained PMP boundary can
-            // split a 4-byte instruction. The walk is rare here (TLB has been
-            // warmed by Fetch1's translate), so synchronous handling — if the
-            // walk is needed, surface a `Trap::InstructionPageFault` so the
-            // op flushes through commit and the next fetch1 retries with the
-            // hot TLB.
-            let upper = match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
-                TranslateResult::Ready(r) => r,
-                TranslateResult::NeedPte { .. } => {
-                    // Walks during F2 are not modelled async (rare path);
-                    // surface as a page fault and let the trap commit + the
-                    // restart re-issue the fetch with the warmed TLB.
-                    output.push(IfIdEntry {
-                        pc: f1.pc,
-                        inst: 0,
-                        inst_size: InstSize::Standard,
-                        pred_taken: f1.pred_taken,
-                        pred_target: f1.pred_target,
-                        trap: Some(Trap::InstructionPageFault(upper_va)),
-                        exception_stage: Some(ExceptionStage::Fetch),
-                        ghr_snapshot: f1.ghr_snapshot,
-                        ras_snapshot: f1.ras_snapshot,
-                    });
-                    break;
-                }
-            };
-
-            if let Some(t) = upper.trap {
-                (0, InstSize::Standard, Some(t))
-            } else {
-                let upper_half = read_inst_half(state, upper.paddr.val());
-                let full_inst = (upper_half as u32) << 16 | (half_word as u32);
-                (full_inst, InstSize::Standard, None)
-            }
+            let upper_paddr = f1.upper_paddr.unwrap_or_else(|| PhysAddr::new(phys_addr + 2));
+            let upper_half = read_inst_half(state, upper_paddr.val());
+            let full_inst = (upper_half as u32) << 16 | (half_word as u32);
+            (full_inst, InstSize::Standard, None)
         };
 
         if let Some(t) = inst_trap {

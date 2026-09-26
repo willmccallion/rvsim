@@ -129,21 +129,12 @@ fn read_inst_half(state: &CoreCtx<'_>, paddr: u64) -> u16 {
     })
 }
 
-/// Size of the instruction whose first half-word is at `paddr`.
-pub(crate) fn inst_size_at(state: &CoreCtx<'_>, paddr: PhysAddr) -> InstSize {
-    let half_word = read_inst_half(state, paddr.val());
-    if (half_word & COMPRESSED_INSTRUCTION_MASK) == COMPRESSED_INSTRUCTION_VALUE {
-        InstSize::Standard
-    } else {
-        InstSize::Compressed
-    }
-}
-
 /// A latch entry for an instruction that faulted before it could be fetched.
 fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
         pc,
         paddr: PhysAddr::new(0),
+        upper_paddr: None,
         pred_taken: false,
         pred_target: 0,
         trap: Some(trap),
@@ -321,6 +312,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 let pending = Fetch1Fetch2Entry {
                     pc: current_pc,
                     paddr: PhysAddr::new(0),
+                    upper_paddr: None,
                     pred_taken: false,
                     pred_target: 0,
                     trap: None,
@@ -356,6 +348,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut pred_taken = false;
         let mut pred_target = 0;
         let mut stop_fetch = false;
+        let mut upper_paddr = None;
         let ghr_snapshot = state.core.branch_predictor.snapshot_history();
         let ras_snapshot = state.core.branch_predictor.snapshot_ras();
 
@@ -387,27 +380,15 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             let upper_phys = if crosses_page {
                 match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
                     TranslateResult::Ready(r) => {
-                        if r.trap.is_some() {
+                        if let Some(trap) = r.trap {
                             trace_fetch!(state.config.general.trace_instructions;
                                 pc           = %crate::trace::Hex(current_pc),
                                 paddr        = %crate::trace::Hex(phys_addr),
+                                trap         = ?trap,
                                 crosses_page = true,
-                                "F1: page-crossing fault deferred to F2"
+                                "F1: fetch trap on the upper half-word"
                             );
-                            // Fetch the instruction normally — the upper-half
-                            // fault is surfaced when fetch2 re-translates.
-                            let entry = Fetch1Fetch2Entry {
-                                pc: current_pc,
-                                paddr,
-                                pred_taken: false,
-                                pred_target: 0,
-                                trap: None,
-                                exception_stage: None,
-                                ghr_snapshot: Ghr::default(),
-                                ras_snapshot,
-                            };
-                            group.push(engine.common_mut(), entry, Some(line));
-                            current_pc = next_pc_calc;
+                            group.push(engine.common_mut(), fault_entry(current_pc, trap), None);
                             break;
                         }
                         r.paddr
@@ -416,6 +397,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                         let pending = Fetch1Fetch2Entry {
                             pc: current_pc,
                             paddr,
+                            upper_paddr: None,
                             pred_taken: false,
                             pred_target: 0,
                             trap: None,
@@ -441,6 +423,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             } else {
                 PhysAddr::new(phys_addr + 2)
             };
+            upper_paddr = crosses_page.then_some(upper_phys);
 
             let upper_raw = upper_phys.val();
             let upper_half = read_inst_half(state, upper_raw);
@@ -526,6 +509,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let entry = Fetch1Fetch2Entry {
             pc: current_pc,
             paddr,
+            upper_paddr,
             pred_taken,
             pred_target,
             trap: None,

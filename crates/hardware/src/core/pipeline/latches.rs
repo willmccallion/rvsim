@@ -163,6 +163,9 @@ pub struct Fetch1Fetch2Entry {
     pub pc: u64,
     /// Physical address after I-TLB lookup.
     pub paddr: PhysAddr,
+    /// Physical address of the upper half-word when a 32-bit instruction
+    /// crosses a page; `None` when it lies within `paddr`'s page.
+    pub upper_paddr: Option<PhysAddr>,
     /// Whether the branch predictor predicted taken.
     pub pred_taken: bool,
     /// Predicted target address.
