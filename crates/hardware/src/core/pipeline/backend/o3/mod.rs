@@ -39,7 +39,8 @@ use crate::sim::CoreCtx;
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::IssueQueue;
 
-/// A result that has been computed but not yet written back (pending due to latency).
+/// A result a functional unit is still producing. Its dependents wake, and
+/// its ROB entry completes, when `complete_cycle` arrives.
 #[derive(Debug)]
 pub struct PendingResult {
     /// The execute-stage result entry.
@@ -48,8 +49,6 @@ pub struct PendingResult {
     pub complete_cycle: u64,
     /// Functional unit type (for stats).
     pub fu_type: FuType,
-    /// Whether the result has already been written to PRF (speculative wakeup).
-    pub speculative_written: bool,
 }
 
 /// Out-of-order execution engine.
@@ -565,8 +564,7 @@ impl ExecutionEngine for O3Engine {
                         || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
                     {
                         self.execute_mem1.push(entry);
-                    } else if !pr.speculative_written {
-                        // Non-pipelined non-mem (IntDiv, FpDivSqrt, system): write PRF + wakeup now.
+                    } else {
                         let val = if entry.ctrl.control_flow == ControlFlow::Jump {
                             entry.pc.wrapping_add(entry.inst_size.as_u64())
                         } else {
@@ -582,8 +580,6 @@ impl ExecutionEngine for O3Engine {
                         self.rob.complete(entry.rob_tag, val);
                         self.prf.write(entry.rd_phys, val);
                         self.issue_queue.wakeup_phys(entry.rd_phys, val);
-                    } else {
-                        // Pipelined non-mem already retired at issue; commit retires from ROB.
                     }
                 } else {
                     i += 1;
@@ -740,7 +736,7 @@ impl ExecutionEngine for O3Engine {
                 let saved_entry =
                     if is_vec_non_mem || is_vec_mem_op { Some(entry.clone()) } else { None };
 
-                let (complete_cycle, is_pipelined) = if is_vec_non_mem {
+                let complete_cycle = if is_vec_non_mem {
                     use crate::core::pipeline::signals::VectorOp;
                     use crate::core::units::vpu::lane_model;
                     use crate::core::units::vpu::reduction;
@@ -778,16 +774,11 @@ impl ExecutionEngine for O3Engine {
                     } else {
                         lane_model::compute_vec_latency(vl, lanes, startup, pipelined)
                     };
-                    let cc = self.fu_pool.acquire_with_latency(fu_type, now, latency);
-                    (cc, pipelined)
-                } else if is_vec_mem_op {
-                    // VecMem FU is 1 cycle (address gen); micro-op latency comes from Memory1/2.
-                    let cc = self.fu_pool.acquire(fu_type, now);
-                    (cc, true)
+                    self.fu_pool.acquire_with_latency(fu_type, now, latency)
                 } else {
-                    let cc = self.fu_pool.acquire(fu_type, now);
-                    let p = self.fu_pool.is_pipelined(fu_type);
-                    (cc, p)
+                    // A vector memory op's unit is the address generator;
+                    // its elements pay their latency in memory1 and memory2.
+                    self.fu_pool.acquire(fu_type, now)
                 };
 
                 let (ex_result, flush) =
@@ -899,7 +890,6 @@ impl ExecutionEngine for O3Engine {
                             entry: scalar_result_entry,
                             complete_cycle,
                             fu_type,
-                            speculative_written: false,
                         });
                     }
 
@@ -1024,31 +1014,6 @@ impl ExecutionEngine for O3Engine {
                     continue;
                 }
 
-                let is_mem = ex_result.ctrl.mem_read
-                    || ex_result.ctrl.mem_write
-                    || ex_result.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
-
-                // Pipelined non-mem: wake dependents immediately so they can issue next cycle.
-                let speculative_written = if !is_mem && is_pipelined && ex_result.trap.is_none() {
-                    let val = if ex_result.ctrl.control_flow == ControlFlow::Jump {
-                        ex_result.pc.wrapping_add(ex_result.inst_size.as_u64())
-                    } else {
-                        ex_result.alu
-                    };
-                    if ex_result.fp_flags != 0 {
-                        self.rob.set_fp_flags(ex_result.rob_tag, ex_result.fp_flags);
-                    }
-                    if let Some(info) = ex_result.sfence_vma {
-                        self.rob.set_sfence_vma(ex_result.rob_tag, info);
-                    }
-                    self.rob.complete(ex_result.rob_tag, val);
-                    self.prf.write(ex_result.rd_phys, val);
-                    self.issue_queue.wakeup_phys(ex_result.rd_phys, val);
-                    true
-                } else {
-                    false
-                };
-
                 // Speculative load wakeup assuming L1D hit (only if MSHRs are configured).
                 let is_load = ex_result.ctrl.mem_read && !ex_result.ctrl.mem_write;
                 if is_load && ex_result.trap.is_none() && state.config.cache.l1_d.mshr_count > 0 {
@@ -1060,7 +1025,6 @@ impl ExecutionEngine for O3Engine {
                     entry: ex_result,
                     complete_cycle,
                     fu_type,
-                    speculative_written,
                 });
 
                 if flush {

@@ -78,6 +78,21 @@ impl TestContext {
         self.sim.state.harts[0].regs.read(RegIdx::new(reg as u8))
     }
 
+    /// Ticks until `done` holds and returns the cycle it first held, or
+    /// `None` if it never held within `max_cycles`.
+    pub fn run_until(&mut self, max_cycles: u64, done: impl Fn(&Self) -> bool) -> Option<u64> {
+        for _ in 0..max_cycles {
+            if done(self) {
+                return Some(self.sim.state.cycle);
+            }
+            if let Err(e) = self.sim.tick() {
+                eprintln!("CPU tick error: {}", e);
+                return None;
+            }
+        }
+        None
+    }
+
     /// Run the CPU for a specific number of cycles.
     pub fn run(&mut self, cycles: u64) {
         for _ in 0..cycles {
