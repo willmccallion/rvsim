@@ -67,6 +67,12 @@ pub struct InOrderEngine {
     pending: Vec<PendingResult>,
     /// Pipeline width.
     pub width: usize,
+    /// Instructions renamed and dispatched per cycle.
+    rename_width: usize,
+    /// Instructions issued per cycle.
+    issue_width: usize,
+    /// Instructions retired per cycle.
+    commit_width: usize,
     /// Execute → Memory1 latch.
     pub execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 → Memory2 latch.
@@ -140,6 +146,9 @@ impl InOrderEngine {
             fu_pool: FuPool::new(&config.pipeline.fu_config),
             pending: Vec::new(),
             width: config.pipeline.width,
+            rename_width: config.pipeline.rename_width(),
+            issue_width: config.pipeline.issue_width(),
+            commit_width: config.pipeline.commit_width(),
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
@@ -171,7 +180,7 @@ impl ExecutionEngine for InOrderEngine {
             &mut self.scoreboard,
             &mut self.committed_rename_map,
             &mut self.free_list,
-            self.width,
+            self.commit_width,
             None,
             None,
             None,
@@ -235,7 +244,7 @@ impl ExecutionEngine for InOrderEngine {
             (Vec::new(), Vec::new(), false)
         } else {
             let (issued, units) = self.issuer.select(
-                self.width,
+                self.issue_width,
                 &self.rob,
                 &self.store_buffer,
                 state,
@@ -282,7 +291,7 @@ impl ExecutionEngine for InOrderEngine {
         let rob_free = self.rob.free_slots();
         let sb_free = self.store_buffer.free_slots();
         let issue_free = self.issuer.available_slots();
-        rob_free.min(sb_free).min(issue_free).min(self.width)
+        rob_free.min(sb_free).min(issue_free).min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {

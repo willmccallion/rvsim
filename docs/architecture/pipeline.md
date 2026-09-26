@@ -37,7 +37,7 @@ flowchart LR
 
 ### Stage Details
 
-**Fetch1** — Sends the PC to the I-TLB and I-cache in parallel. On an I-TLB miss, the hardware page table walker is invoked. The branch predictor is consulted here: BTB for targets, RAS for returns, and the selected predictor (GShare/TAGE/etc.) for direction. Up to `width` instructions are fetched per cycle.
+**Fetch1** — Sends the PC to the I-TLB and I-cache in parallel. On an I-TLB miss, the hardware page table walker is invoked. The branch predictor is consulted here: BTB for targets, RAS for returns, and the selected predictor (GShare/TAGE/etc.) for direction. Up to `fetch_width` instructions are fetched per cycle; every stage has its own width (`decode_width`, `rename_width`, `issue_width`, `commit_width`), each defaulting to `width`.
 
 **Fetch2 / Decode** — Decodes fetched instructions, expands compressed (RVC) 16-bit instructions to their 32-bit equivalents, and generates control signals for the backend. Detects illegal instructions and raises decode-time exceptions.
 

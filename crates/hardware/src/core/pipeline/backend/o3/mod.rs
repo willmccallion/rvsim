@@ -78,6 +78,12 @@ pub struct O3Engine {
     pub pending_results: Vec<PendingResult>,
     /// Pipeline width (max instructions issued/committed per cycle).
     pub width: usize,
+    /// Instructions renamed and dispatched per cycle.
+    rename_width: usize,
+    /// Instructions issued per cycle.
+    issue_width: usize,
+    /// Instructions retired per cycle.
+    commit_width: usize,
     /// Maximum loads issued per cycle.
     pub load_ports: usize,
     /// Maximum stores issued per cycle.
@@ -182,6 +188,9 @@ impl O3Engine {
             fu_pool,
             pending_results: Vec::new(),
             width: config.pipeline.width,
+            rename_width: config.pipeline.rename_width(),
+            issue_width: config.pipeline.issue_width(),
+            commit_width: config.pipeline.commit_width(),
             load_ports: config.pipeline.load_ports,
             store_ports: config.pipeline.store_ports,
             execute_mem1: Vec::with_capacity(config.pipeline.width),
@@ -326,7 +335,7 @@ impl ExecutionEngine for O3Engine {
             &mut self.scoreboard,
             &mut self.committed_rename_map,
             &mut self.free_list,
-            self.width,
+            self.commit_width,
             Some(&mut self.load_queue),
             Some(&mut self.prf),
             Some(&mut self.checkpoints),
@@ -689,7 +698,7 @@ impl ExecutionEngine for O3Engine {
 
         {
             let issued = self.issue_queue.select(
-                self.width,
+                self.issue_width,
                 &self.store_buffer,
                 &self.rob,
                 self.load_ports,
@@ -1310,7 +1319,7 @@ impl ExecutionEngine for O3Engine {
             .min(iq_free)
             .min(prf_free)
             .min(vec_prf_free)
-            .min(self.width)
+            .min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {

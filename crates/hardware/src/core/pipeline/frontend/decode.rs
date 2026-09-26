@@ -1380,7 +1380,7 @@ pub fn decode_stage(
     let mut ended_at_vsetvl = false;
     let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(state.config.pipeline.width);
 
-    for if_entry in input.iter() {
+    for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
             output.push(IdExEntry {
                 pc: if_entry.pc,

@@ -1115,6 +1115,26 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_trap_latency")]
     pub trap_latency: u64,
 
+    /// Instructions fetched per cycle; `width` when unset.
+    #[serde(default)]
+    pub fetch_width: Option<usize>,
+
+    /// Instructions decoded per cycle; `width` when unset.
+    #[serde(default)]
+    pub decode_width: Option<usize>,
+
+    /// Instructions renamed and dispatched per cycle; `width` when unset.
+    #[serde(default)]
+    pub rename_width: Option<usize>,
+
+    /// Instructions issued to execute per cycle; `width` when unset.
+    #[serde(default)]
+    pub issue_width: Option<usize>,
+
+    /// Instructions retired per cycle; `width` when unset.
+    #[serde(default)]
+    pub commit_width: Option<usize>,
+
     /// Branch predictor type
     #[serde(default)]
     pub branch_predictor: BranchPredictor,
@@ -1237,6 +1257,43 @@ pub struct PipelineConfig {
 }
 
 impl PipelineConfig {
+    /// Instructions fetched per cycle.
+    #[must_use]
+    pub const fn fetch_width(&self) -> usize {
+        Self::stage_width(self.fetch_width, self.width)
+    }
+
+    /// Instructions decoded per cycle.
+    #[must_use]
+    pub const fn decode_width(&self) -> usize {
+        Self::stage_width(self.decode_width, self.width)
+    }
+
+    /// Instructions renamed and dispatched per cycle.
+    #[must_use]
+    pub const fn rename_width(&self) -> usize {
+        Self::stage_width(self.rename_width, self.width)
+    }
+
+    /// Instructions issued to execute per cycle.
+    #[must_use]
+    pub const fn issue_width(&self) -> usize {
+        Self::stage_width(self.issue_width, self.width)
+    }
+
+    /// Instructions retired per cycle.
+    #[must_use]
+    pub const fn commit_width(&self) -> usize {
+        Self::stage_width(self.commit_width, self.width)
+    }
+
+    const fn stage_width(configured: Option<usize>, width: usize) -> usize {
+        match configured {
+            Some(stage) => stage,
+            None => width,
+        }
+    }
+
     /// Returns the default pipeline width (instructions per cycle).
     const fn default_width() -> usize {
         defaults::PIPELINE_WIDTH
@@ -1332,6 +1389,11 @@ impl Default for PipelineConfig {
         Self {
             width: defaults::PIPELINE_WIDTH,
             trap_latency: defaults::TRAP_LATENCY,
+            fetch_width: None,
+            decode_width: None,
+            rename_width: None,
+            issue_width: None,
+            commit_width: None,
             branch_predictor: BranchPredictor::default(),
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,

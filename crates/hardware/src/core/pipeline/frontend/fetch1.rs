@@ -374,7 +374,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     let mut line_end = (current_pc | (line_bytes - 1)) + 1;
     let mut group = GroupBuilder::default();
 
-    for _ in 0..state.config.pipeline.width {
+    for _ in 0..state.config.pipeline.fetch_width() {
         if current_pc + 2 > line_end {
             break;
         }

@@ -30,7 +30,8 @@ wide = base.replace(width=8)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `width` | `int` | `4` | Fetch/decode/rename/retire width (instructions per cycle) |
+| `width` | `int` | `4` | Instructions per cycle for every stage that has no width of its own |
+| `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths, as gem5's `fetchWidth` … `commitWidth` |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
 | `backend` | `Backend.*` | `OutOfOrder()` | Pipeline backend: `Backend.InOrder()` or `Backend.OutOfOrder(...)` |
 | `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Branch predictor type |

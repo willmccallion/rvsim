@@ -68,6 +68,11 @@ class Config:
         self,
         # Pipeline
         width: int = 4,
+        fetch_width: Optional[int] = None,
+        decode_width: Optional[int] = None,
+        rename_width: Optional[int] = None,
+        issue_width: Optional[int] = None,
+        commit_width: Optional[int] = None,
         trap_latency: int = 13,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
         backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
@@ -122,6 +127,11 @@ class Config:
     ):
         # Pipeline
         self.width = width
+        self.fetch_width = fetch_width
+        self.decode_width = decode_width
+        self.rename_width = rename_width
+        self.issue_width = issue_width
+        self.commit_width = commit_width
         self.trap_latency = trap_latency
         self.branch_predictor = branch_predictor
         self.backend = backend if backend is not None else Backend.InOrder()
@@ -194,6 +204,11 @@ class Config:
         # Collect all current field values
         fields = dict(
             width=self.width,
+            fetch_width=self.fetch_width,
+            decode_width=self.decode_width,
+            rename_width=self.rename_width,
+            issue_width=self.issue_width,
+            commit_width=self.commit_width,
             trap_latency=self.trap_latency,
             branch_predictor=self.branch_predictor,
             backend=self.backend,
@@ -791,6 +806,11 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
 
     pipeline = {
         "width": cfg.width,
+        "fetch_width": cfg.fetch_width,
+        "decode_width": cfg.decode_width,
+        "rename_width": cfg.rename_width,
+        "issue_width": cfg.issue_width,
+        "commit_width": cfg.commit_width,
         "trap_latency": cfg.trap_latency,
         "branch_predictor": _bp_name(bp),
         "btb_size": cfg.btb_size,
