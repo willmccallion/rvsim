@@ -110,6 +110,15 @@ impl GroupBuilder {
         self.entries.push(entry);
     }
 
+    /// A group that fetches `line` and carries no instruction: the line an
+    /// instruction straddling into the next one needs first.
+    const fn request_line(&mut self, common: &mut BackendCommon, line: LineAddr) {
+        if self.fetch_seq.is_none() {
+            self.fetch_seq = Some(common.alloc_fetch_seq());
+        }
+        self.line = Some(line);
+    }
+
     fn finish(self) -> Option<OutstandingFetch> {
         self.fetch_seq.map(|fetch_seq| OutstandingFetch {
             fetch_seq,
@@ -359,7 +368,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     let align_mask: u64 = if c_enabled { 1 } else { 3 };
 
     let line_bytes = state.core.l1_i_cache.line_bytes() as u64;
-    let line_end = (current_pc | (line_bytes - 1)) + 1;
+    let mut line_end = (current_pc | (line_bytes - 1)) + 1;
     let mut group = GroupBuilder::default();
 
     for _ in 0..state.config.pipeline.width {
@@ -416,11 +425,26 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         }
 
         let phys_addr = paddr.val();
-        let line = LineAddr::from_phys(paddr, line_bytes);
+        let mut line = LineAddr::from_phys(paddr, line_bytes);
         let half_word = read_inst_half(state, phys_addr);
         let is_compressed =
             (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
         let step = if is_compressed { InstSize::Compressed } else { InstSize::Standard };
+
+        // A 32-bit instruction whose upper half lies in the next line
+        // completes only when that line arrives: it heads a group that
+        // fetches the next line, once this line is in the fetch buffer.
+        let straddles_line = !is_compressed && current_pc.wrapping_add(4) > line_end;
+        if straddles_line {
+            if !group.entries.is_empty() {
+                break;
+            }
+            if !fetch_buffer.holds(line) {
+                group.request_line(engine.common_mut(), line);
+                break;
+            }
+            line_end += line_bytes;
+        }
 
         let mut next_pc_calc = current_pc.wrapping_add(step.as_u64());
         let mut pred_taken = false;
@@ -485,6 +509,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 PhysAddr::new(phys_addr + 2)
             };
             upper_paddr = crosses_page.then_some(upper_phys);
+            if straddles_line {
+                line = LineAddr::from_phys(upper_phys, line_bytes);
+            }
 
             let upper_raw = upper_phys.val();
             let upper_half = read_inst_half(state, upper_raw);

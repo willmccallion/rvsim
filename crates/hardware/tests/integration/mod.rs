@@ -7,6 +7,7 @@ pub mod drain;
 pub mod fault_precedence;
 pub mod fetch_buffer;
 pub mod fetch_inflight_limit;
+pub mod fetch_line_straddle;
 pub mod fetch_page_crossing;
 pub mod fetch_walk;
 pub mod fill_latency;
