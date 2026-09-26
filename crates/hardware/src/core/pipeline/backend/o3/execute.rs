@@ -747,17 +747,6 @@ fn execute_csr(
         }
     }
 
-    // CSR read of fflags/fcsr must see deferred fp_flags from older completed insts.
-    {
-        use crate::core::arch::csr as csr_addrs;
-        if id.ctrl.csr_addr == csr_addrs::FFLAGS
-            || id.ctrl.csr_addr == csr_addrs::FCSR
-            || id.ctrl.csr_addr == csr_addrs::FRM
-        {
-            let acc = rob.drain_fp_flags_before(id.rob_tag);
-            state.hart.csrs.fflags |= acc as u64;
-        }
-    }
     let old = state.csr_read(id.ctrl.csr_addr);
     let src = match id.ctrl.csr_op {
         CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => id.rs1.as_usize() as u64 & 0x1f,

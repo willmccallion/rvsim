@@ -428,7 +428,11 @@ impl IssueQueue {
                     if !mem_ready {
                         continue;
                     }
-                    // FENCE / CBO* have their own granular checks below; system/CSR otherwise serialize.
+                    // FENCE / CBO* have their own granular checks below. Every
+                    // other system instruction reads or writes architectural
+                    // state, so it executes only once it is the oldest
+                    // instruction: nothing older can still change that state
+                    // or squash it.
                     if iq.entry.ctrl.system_op != SystemOp::None
                         && iq.entry.ctrl.system_op != SystemOp::Fence
                         && !matches!(
@@ -438,7 +442,7 @@ impl IssueQueue {
                                 | SystemOp::CboClean
                                 | SystemOp::CboFlush
                         )
-                        && !rob.all_before_completed(iq.entry.rob_tag)
+                        && !rob.is_head(iq.entry.rob_tag)
                     {
                         continue;
                     }

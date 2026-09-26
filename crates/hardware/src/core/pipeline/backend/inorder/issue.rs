@@ -100,8 +100,19 @@ impl InOrderIssueUnit {
                 continue;
             }
 
-            // System/CSR instructions serialize: wait for all older to complete.
-            if entry.ctrl.system_op != SystemOp::None && !rob.all_before_completed(entry.rob_tag) {
+            // A system instruction reads or writes architectural state, so
+            // it executes only as the oldest instruction; FENCE and the CBOs
+            // have their own checks below.
+            let waits_for_head = entry.ctrl.system_op != SystemOp::None
+                && !matches!(
+                    entry.ctrl.system_op,
+                    SystemOp::Fence
+                        | SystemOp::CboZero
+                        | SystemOp::CboInval
+                        | SystemOp::CboClean
+                        | SystemOp::CboFlush
+                );
+            if waits_for_head && !rob.is_head(entry.rob_tag) {
                 break;
             }
 

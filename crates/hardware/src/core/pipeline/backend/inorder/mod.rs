@@ -245,27 +245,8 @@ impl ExecutionEngine for InOrderEngine {
             if issued.is_empty() && !self.issuer.is_empty() {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
-            // Aggregate in-flight fp_flags so CSR reads of fflags see older FP results.
-            let mut inflight_fp_flags: u8 = 0;
-            for e in self.execute_mem1.iter().chain(&self.common.mem1_replay) {
-                inflight_fp_flags |= e.fp_flags;
-            }
-            for p in &self.pending {
-                inflight_fp_flags |= p.entry.fp_flags;
-            }
-            for e in &self.mem1_mem2 {
-                inflight_fp_flags |= e.fp_flags;
-            }
-            for e in &self.mem2_wb {
-                inflight_fp_flags |= e.fp_flags;
-            }
-            let (results, needs_flush) = execute::execute_inorder(
-                state,
-                issued,
-                &mut self.rob,
-                inflight_fp_flags,
-                redirect_pending,
-            );
+            let (results, needs_flush) =
+                execute::execute_inorder(state, issued, &mut self.rob, redirect_pending);
             (results, units, needs_flush)
         };
         let keep_tag = results.last().map(|r| r.rob_tag);

@@ -36,13 +36,10 @@ pub fn execute_inorder(
     state: &mut CoreCtx<'_>,
     entries: Vec<RenameIssueEntry>,
     rob: &mut Rob,
-    inflight_fp_flags: u8,
     redirect_pending: &mut bool,
 ) -> (Vec<ExMem1Entry>, bool) {
     let mut results = Vec::with_capacity(entries.len());
     let mut flush_remaining = false;
-    // Tracks batch FP flags so a later CSR read of fflags in the same cycle sees them.
-    let mut batch_fp_flags: u8 = 0;
 
     for id in entries {
         if flush_remaining {
@@ -599,17 +596,6 @@ pub fn execute_inorder(
                     }
                 }
 
-                // Drain deferred fp_flags so CSR reads of fflags/fcsr/frm see them.
-                {
-                    use crate::core::arch::csr as csr_addrs;
-                    if id.ctrl.csr_addr == csr_addrs::FFLAGS
-                        || id.ctrl.csr_addr == csr_addrs::FCSR
-                        || id.ctrl.csr_addr == csr_addrs::FRM
-                    {
-                        let acc = rob.drain_fp_flags_before(id.rob_tag);
-                        state.hart.csrs.fflags |= (acc | inflight_fp_flags | batch_fp_flags) as u64;
-                    }
-                }
                 let old = state.csr_read(id.ctrl.csr_addr);
                 let src = match id.ctrl.csr_op {
                     CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => id.rs1.as_usize() as u64 & 0x1f,
@@ -748,8 +734,6 @@ pub fn execute_inorder(
         let fp_rm = id.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart.csrs.frm as u8));
         let (alu_out, fp_flags) =
             compute_alu(id.ctrl.alu, op_a, op_b, op_c, id.ctrl.is_f16, id.ctrl.is_rv32, fp_rm);
-
-        batch_fp_flags |= fp_flags;
 
         if id.ctrl.control_flow == ControlFlow::Branch {
             let taken = match (id.inst >> FUNCT3_SHIFT) & FUNCT3_MASK {

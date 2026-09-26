@@ -325,6 +325,13 @@ impl Rob {
         }
     }
 
+    /// True when `tag` is the oldest instruction in the ROB, so everything
+    /// before it has committed.
+    #[must_use]
+    pub fn is_head(&self, tag: RobTag) -> bool {
+        self.peek_head().is_some_and(|head| head.tag == tag)
+    }
+
     /// Sets the CSR update for a given entry.
     pub fn set_csr_update(&mut self, tag: RobTag, update: CsrUpdate) {
         if let Some(entry) = self.find_entry_mut(tag) {
@@ -381,28 +388,6 @@ impl Rob {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.vxsat |= val;
         }
-    }
-
-    /// Collect and clear accumulated `fp_flags` from all entries older than `before_tag`.
-    ///
-    /// Used before CSR reads of `fflags`/`fcsr`: since `fp_flags` are deferred to
-    /// commit, a serializing CSR instruction must see the flags from all older
-    /// (completed) instructions.
-    pub fn drain_fp_flags_before(&mut self, before_tag: RobTag) -> u8 {
-        let mut acc: u8 = 0;
-        if self.count == 0 {
-            return 0;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &mut self.entries[idx];
-            if entry.valid && entry.tag.is_older_than(before_tag) {
-                acc |= entry.fp_flags;
-                entry.fp_flags = 0;
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        acc
     }
 
     /// Sets the deferred PTE A/D update for a given entry (applied at commit).
@@ -1102,19 +1087,6 @@ mod tests {
         // Both loads and stores are blocked
         assert!(rob.has_fence_blocking(t_load, true, false));
         assert!(rob.has_fence_blocking(t_store, false, true));
-    }
-
-    #[test]
-    fn test_fp_flags() {
-        let mut rob = Rob::new(4);
-        let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
-        let t2 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
-
-        rob.set_fp_flags(t1, 0x1);
-        rob.set_fp_flags(t2, 0x2);
-
-        assert_eq!(rob.drain_fp_flags_before(t2), 0x1);
-        assert_eq!(rob.drain_fp_flags_before(RobTag(t2.0 + 1)), 0x2);
     }
 
     #[test]
