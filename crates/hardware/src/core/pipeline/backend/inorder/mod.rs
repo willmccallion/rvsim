@@ -421,7 +421,7 @@ impl ExecutionEngine for InOrderEngine {
             for entry in &vec_mem {
                 self.start_vec_mem_op(state, entry);
             }
-            let executed = execute::execute_inorder(&mut state.stage(), issued, &mut self.rob);
+            let executed = execute::execute_inorder(&mut state.stage(), &issued, &mut self.rob);
             for (tag, redirect) in executed.redirects {
                 let complete_cycle =
                     units.iter().find(|u| u.tag == tag).map_or(now + 1, |u| u.complete_cycle);

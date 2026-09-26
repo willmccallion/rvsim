@@ -739,9 +739,6 @@ impl ExecutionEngine for O3Engine {
                     None
                 };
 
-                let saved_entry =
-                    if is_vec_non_mem || is_vec_mem_op { Some(entry.clone()) } else { None };
-
                 let complete_cycle = if is_vec_non_mem {
                     use crate::core::pipeline::signals::VectorOp;
                     use crate::core::units::vpu::lane_model;
@@ -788,7 +785,7 @@ impl ExecutionEngine for O3Engine {
                 };
 
                 let (ex_result, redirect) =
-                    execute::execute_one(&mut state.stage(), entry, &mut self.rob);
+                    execute::execute_one(&mut state.stage(), &entry, &mut self.rob);
                 issued_count += 1;
                 if let Some(redirect) = redirect {
                     self.common.request_squash(PendingSquash {
@@ -801,10 +798,7 @@ impl ExecutionEngine for O3Engine {
                     self.common.vector_config_unresolved = false;
                 }
 
-                if is_vec_non_mem
-                    && ex_result.trap.is_none()
-                    && let Some(saved) = saved_entry.as_ref()
-                {
+                if is_vec_non_mem && ex_result.trap.is_none() {
                     use crate::core::units::vpu::execute::execute_vec_op_on;
                     use crate::core::units::vpu::lane_model;
 
@@ -815,18 +809,18 @@ impl ExecutionEngine for O3Engine {
                     }
 
                     {
-                        let base = saved.ctrl.vs2.as_u8() as usize;
-                        for i in 0..saved.vec_src2_count as usize {
+                        let base = entry.ctrl.vs2.as_u8() as usize;
+                        for i in 0..entry.vec_src2_count as usize {
                             if base + i < 32 {
-                                mapping[base + i] = saved.vs2_phys[i];
+                                mapping[base + i] = entry.vs2_phys[i];
                             }
                         }
                     }
                     {
-                        let base = saved.ctrl.vs1.as_u8() as usize;
-                        for i in 0..saved.vec_src1_count as usize {
+                        let base = entry.ctrl.vs1.as_u8() as usize;
+                        for i in 0..entry.vec_src1_count as usize {
                             if base + i < 32 {
-                                mapping[base + i] = saved.vs1_phys[i];
+                                mapping[base + i] = entry.vs1_phys[i];
                             }
                         }
                     }
@@ -835,15 +829,15 @@ impl ExecutionEngine for O3Engine {
                         for i in 0..vd_cnt as usize {
                             if base + i < 32 {
                                 // Pre-copy old vd so tail/mask-undisturbed reads see correct baseline.
-                                if i < saved.vec_src3_count as usize {
-                                    self.vec_prf.copy_reg(vd_phys_arr[i], saved.vs3_phys[i]);
+                                if i < entry.vec_src3_count as usize {
+                                    self.vec_prf.copy_reg(vd_phys_arr[i], entry.vs3_phys[i]);
                                 }
                                 mapping[base + i] = vd_phys_arr[i];
                             }
                         }
                     }
-                    if !saved.mask_phys.is_zero() {
-                        mapping[0] = saved.mask_phys;
+                    if !entry.mask_phys.is_zero() {
+                        mapping[0] = entry.mask_phys;
                     }
 
                     // Use dispatch-time CSR snapshot so in-flight vsetvl can't corrupt vtype/vl.
@@ -851,14 +845,14 @@ impl ExecutionEngine for O3Engine {
                         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
                         execute_vec_op_on(
                             &mut view,
-                            saved.vec_vtype,
-                            saved.vec_vl,
-                            saved.vec_vstart,
-                            saved.vec_vxrm,
-                            saved.vec_frm,
+                            entry.vec_vtype,
+                            entry.vec_vl,
+                            entry.vec_vstart,
+                            entry.vec_vxrm,
+                            entry.vec_frm,
                             state.config.isa.vector.elen,
                             state.config.isa.vector.zvfh,
-                            saved,
+                            &entry,
                         )
                     };
 
@@ -909,21 +903,18 @@ impl ExecutionEngine for O3Engine {
                     continue;
                 }
 
-                if is_vec_mem_op
-                    && ex_result.trap.is_none()
-                    && let Some(saved) = saved_entry.as_ref()
-                {
+                if is_vec_mem_op && ex_result.trap.is_none() {
                     let vec_op = ex_result.ctrl.vec_op;
                     let is_store = is_vec_store(vec_op);
                     let vd_count = vec_dst_info.map_or(0u8, |(_, c, _)| c);
                     let vd_phys_arr = vec_dst_info.map_or([VecPhysReg::ZERO; 8], |(p, _, _)| p);
 
                     // Reject illegal EMUL (>8) before generate_element_addrs_vrf would panic.
-                    let vtype = crate::core::units::vpu::types::parse_vtype(saved.vec_vtype);
+                    let vtype = crate::core::units::vpu::types::parse_vtype(entry.vec_vtype);
                     if let Err(trap) = crate::core::units::vpu::mem::check_vec_mem_emul(
                         ex_result.inst,
                         vec_op,
-                        &saved.ctrl,
+                        &entry.ctrl,
                         &vtype,
                     ) {
                         self.rob.fault(
@@ -939,23 +930,23 @@ impl ExecutionEngine for O3Engine {
                         mapping[i as usize] = self.rename_map.get_vec(VRegIdx::new(i));
                     }
                     {
-                        let base = saved.ctrl.vs2.as_u8() as usize;
-                        for i in 0..saved.vec_src2_count as usize {
+                        let base = entry.ctrl.vs2.as_u8() as usize;
+                        for i in 0..entry.vec_src2_count as usize {
                             if base + i < 32 {
-                                mapping[base + i] = saved.vs2_phys[i];
+                                mapping[base + i] = entry.vs2_phys[i];
                             }
                         }
                     }
                     {
-                        let base = saved.ctrl.vd.as_u8() as usize;
-                        for i in 0..saved.vec_src3_count as usize {
+                        let base = entry.ctrl.vd.as_u8() as usize;
+                        for i in 0..entry.vec_src3_count as usize {
                             if base + i < 32 {
-                                mapping[base + i] = saved.vs3_phys[i];
+                                mapping[base + i] = entry.vs3_phys[i];
                             }
                         }
                     }
-                    if !saved.mask_phys.is_zero() {
-                        mapping[0] = saved.mask_phys;
+                    if !entry.mask_phys.is_zero() {
+                        mapping[0] = entry.mask_phys;
                     }
                     let micro_ops = {
                         let view = VecPrfView::new(&mut self.vec_prf, mapping);
@@ -963,10 +954,10 @@ impl ExecutionEngine for O3Engine {
                             &view,
                             ex_result.alu,
                             ex_result.store_data as i64,
-                            &saved.ctrl,
-                            saved.vec_vtype,
-                            saved.vec_vl as usize,
-                            saved.vec_vstart as usize,
+                            &entry.ctrl,
+                            entry.vec_vtype,
+                            entry.vec_vl as usize,
+                            entry.vec_vstart as usize,
                             vec_op,
                             &vd_phys_arr,
                             vd_count,
@@ -975,9 +966,9 @@ impl ExecutionEngine for O3Engine {
 
                     // Pre-copy old vd so tail / mask-undisturbed elements observe prior values.
                     if !is_store && let Some((vd_phys_arr_pre, vd_cnt_pre, _)) = vec_dst_info {
-                        let copy_count = (vd_cnt_pre as usize).min(saved.vec_src3_count as usize);
+                        let copy_count = (vd_cnt_pre as usize).min(entry.vec_src3_count as usize);
                         for (i, &dst) in vd_phys_arr_pre.iter().enumerate().take(copy_count) {
-                            self.vec_prf.copy_reg(dst, saved.vs3_phys[i]);
+                            self.vec_prf.copy_reg(dst, entry.vs3_phys[i]);
                         }
                     }
 
