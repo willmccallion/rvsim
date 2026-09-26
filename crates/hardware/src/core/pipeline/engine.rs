@@ -185,6 +185,40 @@ pub trait ExecutionEngine {
     }
 }
 
+/// A trap commit has detected and will squash into once the trap latency
+/// has elapsed. Nothing retires in between.
+#[derive(Debug, Clone)]
+pub struct PendingTrap {
+    /// The exception, or the interrupt as it was when detected; an
+    /// interrupt is re-evaluated when taken.
+    pub trap: crate::common::error::Trap,
+    /// The PC the trap reports.
+    pub epc: u64,
+    /// The cycle the pipeline squashes into the handler.
+    pub taken_at: u64,
+}
+
+/// Where commit is on the way to taking a trap.
+#[derive(Debug, Default, Clone)]
+pub enum TrapProgress {
+    /// No trap detected.
+    #[default]
+    None,
+    /// An enabled interrupt is pending: fetch stops so that everything
+    /// already fetched retires before it is taken.
+    DrainingForInterrupt,
+    /// A detected trap waiting out the trap latency.
+    Pending(PendingTrap),
+}
+
+impl TrapProgress {
+    /// True while fetch stops for an interrupt.
+    #[must_use]
+    pub const fn stops_fetch(&self) -> bool {
+        matches!(self, Self::DrainingForInterrupt)
+    }
+}
+
 /// State shared by every backend engine: in-flight memory bookkeeping and
 /// the routing IDs needed to emit `MemReq` packets and match `MemResp`
 /// packets to parked operations.
@@ -227,6 +261,11 @@ pub struct BackendCommon {
     /// Decode has passed a `vsetvl` that has not executed yet. Younger
     /// instructions are decoded under its result, so decode waits for it.
     pub vector_config_unresolved: bool,
+    /// A trap on its way to being taken.
+    pub trap: TrapProgress,
+    /// No instruction is between fetch and rename this cycle, so the ROB
+    /// holds everything in flight.
+    pub frontend_empty: bool,
     /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
     /// A group can complete ahead of an older one (a fetch-buffer hit, or
     /// a fetch walk that finishes while the previous line is still
@@ -372,6 +411,10 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
         crate::core::pipeline::mailbox::drain(self, state);
 
+        let frontend_empty = self.frontend.is_empty()
+            && self.rename_output.is_empty()
+            && !self.engine.common().fetch_in_flight();
+        self.engine.common_mut().frontend_empty = frontend_empty;
         self.engine.tick(state, &mut self.rename_output, &mut self.redirect_pending);
 
         // PC compare catches commit-stage redirects (MRET/SRET) that bypass execute's flush path.
@@ -432,6 +475,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.mem1_delayed.clear();
         common.forwarded_loads.clear();
         common.coherence_violation = None;
+        common.trap = TrapProgress::None;
         self.engine.flush(state);
     }
 }

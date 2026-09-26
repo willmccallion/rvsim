@@ -17,7 +17,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::pipeline::backend::shared::memory2;
 use crate::core::pipeline::checkpoint::CheckpointTable;
-use crate::core::pipeline::engine::BackendCommon;
+use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::outstanding::OutstandingStore;
@@ -82,6 +82,16 @@ pub fn commit_stage(
 ) -> Option<CommitEvent> {
     let mut event: Option<CommitEvent> = None;
 
+    if let TrapProgress::Pending(pending) = &common.trap {
+        state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        if state.cycle < pending.taken_at {
+            return None;
+        }
+        let pending = pending.clone();
+        common.trap = TrapProgress::None;
+        return take_pending_trap(state, pending);
+    }
+
     // Always check, even with empty ROB (timer firing during a stall).
     {
         let epc = if state.hart.wfi_waiting {
@@ -94,19 +104,27 @@ pub fn commit_stage(
 
         let interrupt = check_interrupts(state).filter(|_| !device_access_in_flight(common, rob));
         if let Some(interrupt_trap) = interrupt {
-            state.hart.wfi_waiting = false;
-            trace_trap!(state.trace_trap_enabled(&interrupt_trap);
-                event      = "interrupt",
-                epc        = %crate::trace::Hex(epc),
-                cause      = ?interrupt_trap,
-                mip        = %crate::trace::Hex(state.hart.csrs.mip),
-                mie        = %crate::trace::Hex(state.hart.csrs.mie),
-                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
-                priv_mode  = ?state.hart.privilege,
-                "CM: interrupt detected — flushing pipeline"
-            );
-            event = Some(CommitEvent::Trap(interrupt_trap, epc));
+            // Fetch stops and everything already fetched retires first
+            // (gem5 waits for its instruction list to empty); a WFI's
+            // successors are wrong-path and are not waited for.
+            common.trap = TrapProgress::DrainingForInterrupt;
+            let drained = state.hart.wfi_waiting || (rob.is_empty() && common.frontend_empty);
+            if drained {
+                trace_trap!(state.trace_trap_enabled(&interrupt_trap);
+                    event      = "interrupt",
+                    epc        = %crate::trace::Hex(epc),
+                    cause      = ?interrupt_trap,
+                    mip        = %crate::trace::Hex(state.hart.csrs.mip),
+                    mie        = %crate::trace::Hex(state.hart.csrs.mie),
+                    mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                    priv_mode  = ?state.hart.privilege,
+                    "CM: interrupt detected — pipeline drained"
+                );
+                state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+                return schedule_trap(state, common, interrupt_trap, epc);
+            }
         } else if state.hart.wfi_waiting {
+            common.trap = TrapProgress::None;
             // Block commit while WFI is active so wrong-path post-WFI ops can't retire.
             let pending = state.hart.csrs.mip;
             let enabled = state.hart.csrs.mie;
@@ -119,6 +137,8 @@ pub fn commit_stage(
             }
             state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
             return event;
+        } else {
+            common.trap = TrapProgress::None;
         }
     }
 
@@ -185,7 +205,7 @@ pub fn commit_stage(
                         }
                     }
                 }
-                event = Some(CommitEvent::Trap(the_trap.clone(), entry.pc));
+                event = schedule_trap(state, common, the_trap.clone(), entry.pc);
             }
             break;
         }
@@ -668,6 +688,33 @@ fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Optio
         }
     };
     Some(raw)
+}
+
+/// Takes `trap` now when there is no trap latency, else parks it for
+/// commit to take once the latency has elapsed.
+fn schedule_trap(
+    state: &CoreCtx<'_>,
+    common: &mut BackendCommon,
+    trap: Trap,
+    epc: u64,
+) -> Option<CommitEvent> {
+    let latency = state.config.pipeline.trap_latency;
+    if latency == 0 {
+        return Some(CommitEvent::Trap(trap, epc));
+    }
+    common.trap = TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.cycle + latency });
+    None
+}
+
+/// Takes a parked trap. An interrupt is what is pending and enabled now,
+/// which may differ from what was detected, or be nothing at all.
+fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<CommitEvent> {
+    let (is_interrupt, _) = pending.trap.cause();
+    let trap = if is_interrupt { check_interrupts(state)? } else { pending.trap };
+    if is_interrupt {
+        state.hart.wfi_waiting = false;
+    }
+    Some(CommitEvent::Trap(trap, pending.epc))
 }
 
 /// True when the ROB head has a device read outstanding. Such a read was

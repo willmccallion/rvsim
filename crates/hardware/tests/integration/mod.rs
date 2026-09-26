@@ -20,6 +20,7 @@ pub mod mmio_loads;
 pub mod multicore;
 pub mod page_crossing;
 pub mod tlb_latency;
+pub mod trap_latency;
 pub mod vector_config;
 pub mod vector_pipeline;
 pub mod xret_squash;

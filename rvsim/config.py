@@ -68,6 +68,7 @@ class Config:
         self,
         # Pipeline
         width: int = 4,
+        trap_latency: int = 13,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
         backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
         mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.Blind(),
@@ -121,6 +122,7 @@ class Config:
     ):
         # Pipeline
         self.width = width
+        self.trap_latency = trap_latency
         self.branch_predictor = branch_predictor
         self.backend = backend if backend is not None else Backend.InOrder()
         self.mem_dep_predictor = mem_dep_predictor
@@ -192,6 +194,7 @@ class Config:
         # Collect all current field values
         fields = dict(
             width=self.width,
+            trap_latency=self.trap_latency,
             branch_predictor=self.branch_predictor,
             backend=self.backend,
             btb_size=self.btb_size,
@@ -786,6 +789,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
 
     pipeline = {
         "width": cfg.width,
+        "trap_latency": cfg.trap_latency,
         "branch_predictor": _bp_name(bp),
         "btb_size": cfg.btb_size,
         "btb_ways": cfg.btb_ways,

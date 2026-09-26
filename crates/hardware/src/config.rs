@@ -192,6 +192,9 @@ mod defaults {
     /// Default checkpoint count for O(1) branch recovery (32 slots).
     /// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
     pub const CHECKPOINT_COUNT: usize = 32;
+    /// Cycles from commit detecting a trap to the squash into its handler
+    /// (gem5's O3 `trapLatency`).
+    pub const TRAP_LATENCY: u64 = 13;
 
     /// Default Physical Register File GPR size (256 entries).
     pub const PRF_GPR_SIZE: usize = 256;
@@ -1082,6 +1085,11 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_width")]
     pub width: usize,
 
+    /// Cycles between commit detecting a trap or interrupt and the pipeline
+    /// squashing into its handler.
+    #[serde(default = "PipelineConfig::default_trap_latency")]
+    pub trap_latency: u64,
+
     /// Branch predictor type
     #[serde(default)]
     pub branch_predictor: BranchPredictor,
@@ -1269,6 +1277,10 @@ impl PipelineConfig {
         defaults::CHECKPOINT_COUNT
     }
 
+    const fn default_trap_latency() -> u64 {
+        defaults::TRAP_LATENCY
+    }
+
     /// Returns the default VLEN.
     const fn default_vlen() -> usize {
         128
@@ -1294,6 +1306,7 @@ impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             width: defaults::PIPELINE_WIDTH,
+            trap_latency: defaults::TRAP_LATENCY,
             branch_predictor: BranchPredictor::default(),
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,

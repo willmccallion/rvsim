@@ -87,6 +87,9 @@ impl<E: ExecutionEngine> Frontend<E> {
             fetch2::fetch2_stage(state, &mut self.fetch1_fetch2, &mut self.fetch2_decode);
         }
 
+        if engine.common().trap.stops_fetch() {
+            return;
+        }
         if engine.common().fetch_in_flight() || engine.common().fetch_held(state.cycle) {
             state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
@@ -94,6 +97,13 @@ impl<E: ExecutionEngine> Frontend<E> {
         if self.fetch1_fetch2.is_empty() {
             fetch1::fetch1_stage(state, engine, &mut self.fetch_buffer, &mut self.fetch1_fetch2);
         }
+    }
+
+    /// True when no instruction sits in any latch between fetch and rename.
+    pub const fn is_empty(&self) -> bool {
+        self.fetch1_fetch2.is_empty()
+            && self.fetch2_decode.is_empty()
+            && self.decode_rename.is_empty()
     }
 
     /// Flushes all frontend latches.

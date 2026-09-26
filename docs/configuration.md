@@ -31,6 +31,7 @@ wide = base.replace(width=8)
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `width` | `int` | `4` | Fetch/decode/rename/retire width (instructions per cycle) |
+| `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
 | `backend` | `Backend.*` | `OutOfOrder()` | Pipeline backend: `Backend.InOrder()` or `Backend.OutOfOrder(...)` |
 | `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Branch predictor type |
 | `btb_size` | `int` | `4096` | Branch target buffer entries |
