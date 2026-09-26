@@ -103,7 +103,7 @@ The relationship between adjacent levels is configurable:
 The store buffer sits between the pipeline and L1D, holding stores that have executed but not yet committed.
 
 - **Store-to-load forwarding** — when a load address matches a pending store in the buffer, the data is forwarded directly without accessing L1D. Supports full and partial overlap detection.
-- **Speculative draining** — stores can begin draining to L1D before commit, improving throughput
+- **Commit-time draining** — a store is written to L1D only after it commits, one per cycle from the head of the buffer; until then it exists only for forwarding
 - **Write-combining buffer (WCB)** — optional buffer that coalesces multiple stores to the same cache line before draining, reducing L1D write port pressure
 
 ## Hardware Prefetching
