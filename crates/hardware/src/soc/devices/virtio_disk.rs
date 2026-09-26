@@ -334,6 +334,14 @@ impl VirtioBlock {
                 continue;
             }
             let phases = self.plan_request(head_idx, ring_offset);
+            tracing::trace!(
+                target: "rvsim::dma",
+                cycle = ctx.cycle,
+                head_idx,
+                avail_idx,
+                transfers = ?phases.iter().map(Vec::len).collect::<Vec<_>>(),
+                "virtio: request started"
+            );
             self.job = Some(DmaJob { head_idx, phases, outstanding: Vec::new() });
             self.issue_phase(ctx);
         }
@@ -348,12 +356,17 @@ impl VirtioBlock {
                 let head_idx = job.head_idx;
                 self.job = None;
                 self.complete_request(head_idx);
+                tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, head_idx, "virtio: request completed");
                 return;
             };
             if phase.is_empty() {
                 continue;
             }
-            let ComponentId::Device(device) = ctx.self_id else { return };
+            let ComponentId::Device(device) = ctx.self_id else {
+                tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, self_id = ?ctx.self_id, "virtio: no device id, DMA not issued");
+                return;
+            };
+            tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, transfers = phase.len(), "virtio: phase issued");
             for access in phase {
                 let req_id = ReqId::for_device(device, self.next_dma_seq);
                 self.next_dma_seq = self.next_dma_seq.wrapping_add(1);
@@ -382,8 +395,12 @@ impl VirtioBlock {
 
     /// Notes a DMA transfer's completion and moves on when its phase is done.
     fn on_dma_response(&mut self, req_id: ReqId, ctx: &mut HandleCtx<'_>) {
-        let Some(job) = self.job.as_mut() else { return };
+        let Some(job) = self.job.as_mut() else {
+            tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, ?req_id, "virtio: response with no request in flight");
+            return;
+        };
         job.outstanding.retain(|pending| *pending != req_id);
+        tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, outstanding = job.outstanding.len(), "virtio: transfer returned");
         if job.outstanding.is_empty() {
             self.issue_phase(ctx);
             self.start_next_request(ctx);
@@ -646,6 +663,7 @@ impl Handle for VirtioBlock {
                 },
             );
             if notified {
+                tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, busy = self.job.is_some(), "virtio: notified");
                 self.start_next_request(ctx);
             }
         }
