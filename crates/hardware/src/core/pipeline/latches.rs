@@ -416,6 +416,29 @@ pub struct Mem1Mem2Entry {
     pub observed: Option<WriteSeq>,
 }
 
+impl ExMem1Entry {
+    /// The result of executing `id`: `alu` and `store_data` for memory1,
+    /// with no trap, FP flags or deferred side effects.
+    pub const fn from_issue(id: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
+        Self {
+            rob_tag: id.rob_tag,
+            pc: id.pc,
+            inst: id.inst,
+            inst_size: id.inst_size,
+            rd: id.rd,
+            rd_phys: id.rd_phys,
+            alu,
+            store_data,
+            ctrl: id.ctrl,
+            trap: None,
+            exception_stage: None,
+            fp_flags: 0,
+            sfence_vma: None,
+            vec_mem: None,
+        }
+    }
+}
+
 impl Mem1Mem2Entry {
     /// Carries `ex`, its trap included, into memory2 at `vaddr`/`paddr`
     /// with nothing loaded yet.

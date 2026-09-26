@@ -6,7 +6,6 @@
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
-use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{
@@ -97,22 +96,7 @@ pub fn execute_inorder(
                 "EX: trap propagated from earlier stage"
             );
             rob.fault(id.rob_tag, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute));
-            results.push(ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: PhysReg::default(),
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            });
+            results.push(ExMem1Entry::from_issue(&id, 0, 0));
             redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
             continue;
         }
@@ -142,22 +126,7 @@ pub fn execute_inorder(
                 crate::common::Trap::Breakpoint(id.pc),
                 crate::common::error::ExceptionStage::Execute,
             );
-            results.push(ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: PhysReg::default(),
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            });
+            results.push(ExMem1Entry::from_issue(&id, 0, 0));
             redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
             continue;
         }
@@ -181,22 +150,7 @@ pub fn execute_inorder(
                 Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System),
             ));
 
-            results.push(ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: PhysReg::default(),
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            });
+            results.push(ExMem1Entry::from_issue(&id, 0, 0));
             continue;
         }
 
@@ -210,41 +164,11 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
                 redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 continue;
             }
 
@@ -256,22 +180,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
                 let tsr = (state.hart().csrs.mstatus >> 22) & 1;
@@ -284,42 +193,12 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
 
                 redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 continue;
             }
 
@@ -338,22 +217,7 @@ pub fn execute_inorder(
                     );
                 }
                 redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 continue;
             }
 
@@ -368,22 +232,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
 
@@ -394,25 +243,13 @@ pub fn execute_inorder(
                 ));
 
                 results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
                     sfence_vma: Some(crate::common::SfenceVmaInfo {
                         rs1_idx: id.rs1,
                         rs2_idx: id.rs2,
                         rs1_val: fwd_a,
                         rs2_val: fwd_b,
                     }),
-                    vec_mem: None,
+                    ..ExMem1Entry::from_issue(&id, 0, store_data)
                 });
                 continue;
             }
@@ -423,22 +260,7 @@ pub fn execute_inorder(
             ) {
                 // CBO ops gate / translate / take effect at commit. Forward
                 // rs1 (the block VA) through the alu field for commit to use.
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: fwd_a,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, fwd_a, 0));
                 continue;
             }
 
@@ -453,22 +275,7 @@ pub fn execute_inorder(
                 rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
                 redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
 
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 continue;
             }
 
@@ -483,22 +290,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
 
@@ -534,22 +326,7 @@ pub fn execute_inorder(
                                 id.rob_tag,
                                 Redirect::to(next_pc(&id), SquashCause::System),
                             ));
-                            results.push(ExMem1Entry {
-                                rob_tag: id.rob_tag,
-                                pc: id.pc,
-                                inst: id.inst,
-                                inst_size: id.inst_size,
-                                rd: id.rd,
-                                alu: 0,
-                                store_data: 0,
-                                ctrl: id.ctrl,
-                                trap: None,
-                                exception_stage: None,
-                                rd_phys: PhysReg::default(),
-                                fp_flags: 0,
-                                sfence_vma: None,
-                                vec_mem: None,
-                            });
+                            results.push(ExMem1Entry::from_issue(&id, 0, 0));
                             continue;
                         }
                     }
@@ -562,22 +339,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
 
@@ -589,22 +351,7 @@ pub fn execute_inorder(
                         ExceptionStage::Execute,
                     );
                     redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                     continue;
                 }
 
@@ -624,22 +371,7 @@ pub fn execute_inorder(
                         );
                         redirects
                             .push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                        results.push(ExMem1Entry {
-                            rob_tag: id.rob_tag,
-                            pc: id.pc,
-                            inst: id.inst,
-                            inst_size: id.inst_size,
-                            rd: id.rd,
-                            alu: 0,
-                            store_data: 0,
-                            ctrl: id.ctrl,
-                            trap: None,
-                            exception_stage: None,
-                            rd_phys: PhysReg::default(),
-                            fp_flags: 0,
-                            sfence_vma: None,
-                            vec_mem: None,
-                        });
+                        results.push(ExMem1Entry::from_issue(&id, 0, 0));
                         continue;
                     }
                 }
@@ -681,22 +413,7 @@ pub fn execute_inorder(
                     Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System),
                 ));
 
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: old,
-                    store_data,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, old, store_data));
                 continue;
             }
         }
@@ -708,22 +425,7 @@ pub fn execute_inorder(
             if fs == 0 && is_fp {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
                 redirects.push((id.rob_tag, Redirect::to(next_pc(&id), SquashCause::System)));
-                results.push(ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: PhysReg::default(),
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                });
+                results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 continue;
             }
         }
@@ -731,22 +433,7 @@ pub fn execute_inorder(
         if id.ctrl.vec_op.is_config() {
             let vl = set_vector_config(state, &id, id.rv1, id.rv2, rob);
             rob.complete(id.rob_tag, vl);
-            results.push(ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: vl,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: PhysReg::default(),
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            });
+            results.push(ExMem1Entry::from_issue(&id, vl, 0));
             continue;
         }
 
@@ -763,22 +450,7 @@ pub fn execute_inorder(
                     ));
 
                     rob.complete(id.rob_tag, alu_out);
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: alu_out,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, alu_out, 0));
                 }
                 Err(trap) => {
                     redirects.push((
@@ -790,22 +462,7 @@ pub fn execute_inorder(
                     ));
 
                     rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-                    results.push(ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: PhysReg::default(),
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    });
+                    results.push(ExMem1Entry::from_issue(&id, 0, 0));
                 }
             }
             continue;
@@ -890,22 +547,7 @@ pub fn execute_inorder(
             }
         }
 
-        results.push(ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: alu_out,
-            store_data,
-            ctrl: id.ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: PhysReg::default(),
-            fp_flags,
-            sfence_vma: None,
-            vec_mem: None,
-        });
+        results.push(ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(&id, alu_out, store_data) });
     }
 
     ExecutedBatch { results, redirects }

@@ -24,7 +24,6 @@ use crate::core::pipeline::backend::shared::vec_mem::{
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
-use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::squash::{PendingSquash, SquashCause};
@@ -235,22 +234,7 @@ impl InOrderEngine {
             self.rob.complete(entry.rob_tag, 0);
             return;
         }
-        let parent = ExMem1Entry {
-            rob_tag: entry.rob_tag,
-            pc: entry.pc,
-            inst: entry.inst,
-            inst_size: entry.inst_size,
-            rd: entry.rd,
-            rd_phys: PhysReg::default(),
-            alu: entry.rv1,
-            store_data: entry.rv2,
-            ctrl: entry.ctrl,
-            trap: None,
-            exception_stage: None,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        };
+        let parent = ExMem1Entry::from_issue(entry, entry.rv1, entry.rv2);
         let total = addresses.len();
         let micro_ops = micro_ops_for(&parent, addresses, is_store);
         if is_store {

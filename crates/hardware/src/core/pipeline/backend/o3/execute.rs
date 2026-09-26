@@ -59,41 +59,15 @@ pub fn execute_one(
             "EX: trap propagated from earlier stage"
         );
         rob.fault(id.rob_tag, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute));
-        let result = ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: 0,
-            store_data: 0,
-            ctrl: id.ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        };
+        let result = ExMem1Entry::from_issue(&id, 0, 0);
         return (result, Some(Redirect::to(next_pc(&id), SquashCause::System)));
     }
 
     if state.check_execute_trigger(id.pc) {
         let result = ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: 0,
-            store_data: 0,
-            ctrl: id.ctrl,
             trap: Some(crate::common::Trap::Breakpoint(id.pc)),
             exception_stage: Some(crate::common::error::ExceptionStage::Execute),
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
+            ..ExMem1Entry::from_issue(&id, 0, 0)
         };
         return (result, None);
     }
@@ -140,42 +114,12 @@ pub fn execute_one(
     if id.ctrl.vec_op != VectorOp::None {
         if id.ctrl.vec_op.is_config() {
             let vl = set_vector_config(state, &id, fwd_a, fwd_b, rob);
-            let result = ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: vl,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            };
+            let result = ExMem1Entry::from_issue(&id, vl, 0);
             return (result, None);
         }
 
         // Non-vsetvl vector ops are executed in O3Engine::tick() where VecPrfView is available.
-        let result = ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: op_a,
-            store_data: fwd_b,
-            ctrl: id.ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        };
+        let result = ExMem1Entry::from_issue(&id, op_a, fwd_b);
         return (result, None);
     }
 
@@ -189,22 +133,7 @@ pub fn execute_one(
             "EX: FENCE.I — pipeline flush, I-cache invalidation deferred to commit"
         );
 
-        let result = ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: 0,
-            store_data: 0,
-            ctrl: id.ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        };
+        let result = ExMem1Entry::from_issue(&id, 0, 0);
         return (result, Some(Redirect::to(next_pc, SquashCause::System)));
     }
 
@@ -219,22 +148,7 @@ pub fn execute_one(
         let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
         if fs == 0 && is_fp {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
-            let result = ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            };
+            let result = ExMem1Entry::from_issue(&id, 0, 0);
             return (result, Some(Redirect::to(next_pc(&id), SquashCause::System)));
         }
     }
@@ -349,22 +263,7 @@ pub fn execute_one(
         }
     }
 
-    let result = ExMem1Entry {
-        rob_tag: id.rob_tag,
-        pc: id.pc,
-        inst: id.inst,
-        inst_size: id.inst_size,
-        rd: id.rd,
-        alu: alu_out,
-        store_data,
-        ctrl: id.ctrl,
-        trap: None,
-        exception_stage: None,
-        rd_phys: id.rd_phys,
-        fp_flags,
-        sfence_vma: None,
-        vec_mem: None,
-    };
+    let result = ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(&id, alu_out, store_data) };
 
     (result, redirect)
 }
@@ -377,29 +276,11 @@ fn execute_system(
     fwd_a: u64,
     store_data: u64,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    let make_result =
-        |alu: u64, ctrl: crate::core::pipeline::signals::ControlSignals| ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu,
-            store_data: 0,
-            ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        };
-
     if id.ctrl.system_op == SystemOp::Mret {
         if state.hart().privilege != crate::core::arch::mode::PrivilegeMode::Machine {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
-                make_result(0, id.ctrl),
+                ExMem1Entry::from_issue(&id, 0, 0),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
@@ -413,14 +294,17 @@ fn execute_system(
             mstatus     = %crate::trace::Hex(state.hart().csrs.mstatus),
             "EX: MRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
+        return (
+            ExMem1Entry::from_issue(&id, 0, 0),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
+        );
     }
 
     if id.ctrl.system_op == SystemOp::Sret {
         if state.hart().privilege == crate::core::arch::mode::PrivilegeMode::User {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
-                make_result(0, id.ctrl),
+                ExMem1Entry::from_issue(&id, 0, 0),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
@@ -437,7 +321,7 @@ fn execute_system(
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
-                make_result(0, id.ctrl),
+                ExMem1Entry::from_issue(&id, 0, 0),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
@@ -451,7 +335,10 @@ fn execute_system(
             mstatus   = %crate::trace::Hex(state.hart().csrs.mstatus),
             "EX: SRET queued (privilege restore deferred to commit)"
         );
-        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
+        return (
+            ExMem1Entry::from_issue(&id, 0, 0),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
+        );
     }
 
     if id.ctrl.system_op == SystemOp::Wfi {
@@ -469,7 +356,10 @@ fn execute_system(
             );
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         }
-        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
+        return (
+            ExMem1Entry::from_issue(&id, 0, 0),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
+        );
     }
 
     // SFENCE.VMA: do nothing at execute. Operands flow to commit which drains
@@ -480,47 +370,20 @@ fn execute_system(
         {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
-                ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: id.rd_phys,
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                },
+                ExMem1Entry::from_issue(&id, 0, store_data),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
 
         return (
             ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
                 sfence_vma: Some(SfenceVmaInfo {
                     rs1_idx: id.rs1,
                     rs2_idx: id.rs2,
                     rs1_val: fwd_a,
                     rs2_val: store_data,
                 }),
-                vec_mem: None,
+                ..ExMem1Entry::from_issue(&id, 0, store_data)
             },
             None,
         );
@@ -535,7 +398,7 @@ fn execute_system(
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush
     ) {
         return (
-            make_result(fwd_a, id.ctrl),
+            ExMem1Entry::from_issue(&id, fwd_a, 0),
             Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
@@ -558,14 +421,17 @@ fn execute_system(
             "EX: ECALL"
         );
         rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-        return (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)));
+        return (
+            ExMem1Entry::from_issue(&id, 0, 0),
+            Some(Redirect::to(next_pc(&id), SquashCause::System)),
+        );
     }
 
     if id.ctrl.csr_op != CsrOp::None {
         return execute_csr(state, id, rob, fwd_a, store_data);
     }
 
-    (make_result(0, id.ctrl), Some(Redirect::to(next_pc(&id), SquashCause::System)))
+    (ExMem1Entry::from_issue(&id, 0, 0), Some(Redirect::to(next_pc(&id), SquashCause::System)))
 }
 
 /// Handle CSR operations.
@@ -583,22 +449,7 @@ fn execute_csr(
     {
         rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         return (
-            ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            },
+            ExMem1Entry::from_issue(&id, 0, 0),
             Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
@@ -629,22 +480,7 @@ fn execute_csr(
             if denied {
                 rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
                 return (
-                    ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: id.rd_phys,
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    },
+                    ExMem1Entry::from_issue(&id, 0, 0),
                     Some(Redirect::to(next_pc(&id), SquashCause::System)),
                 );
             }
@@ -654,22 +490,7 @@ fn execute_csr(
     if !state.is_valid_csr(id.ctrl.csr_addr) {
         rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         return (
-            ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            },
+            ExMem1Entry::from_issue(&id, 0, 0),
             Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
@@ -678,22 +499,7 @@ fn execute_csr(
     if (state.hart().privilege.to_u8() as u32) < csr_priv {
         rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
         return (
-            ExMem1Entry {
-                rob_tag: id.rob_tag,
-                pc: id.pc,
-                inst: id.inst,
-                inst_size: id.inst_size,
-                rd: id.rd,
-                alu: 0,
-                store_data: 0,
-                ctrl: id.ctrl,
-                trap: None,
-                exception_stage: None,
-                rd_phys: id.rd_phys,
-                fp_flags: 0,
-                sfence_vma: None,
-                vec_mem: None,
-            },
+            ExMem1Entry::from_issue(&id, 0, 0),
             Some(Redirect::to(next_pc(&id), SquashCause::System)),
         );
     }
@@ -709,22 +515,7 @@ fn execute_csr(
         if would_write {
             rob.fault(id.rob_tag, Trap::IllegalInstruction(id.inst), ExceptionStage::Execute);
             return (
-                ExMem1Entry {
-                    rob_tag: id.rob_tag,
-                    pc: id.pc,
-                    inst: id.inst,
-                    inst_size: id.inst_size,
-                    rd: id.rd,
-                    alu: 0,
-                    store_data: 0,
-                    ctrl: id.ctrl,
-                    trap: None,
-                    exception_stage: None,
-                    rd_phys: id.rd_phys,
-                    fp_flags: 0,
-                    sfence_vma: None,
-                    vec_mem: None,
-                },
+                ExMem1Entry::from_issue(&id, 0, 0),
                 Some(Redirect::to(next_pc(&id), SquashCause::System)),
             );
         }
@@ -772,25 +563,7 @@ fn execute_csr(
     let redirect = would_write
         .then(|| Redirect::to(id.pc.wrapping_add(id.inst_size.as_u64()), SquashCause::System));
 
-    (
-        ExMem1Entry {
-            rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
-            alu: old,
-            store_data,
-            ctrl: id.ctrl,
-            trap: None,
-            exception_stage: None,
-            rd_phys: id.rd_phys,
-            fp_flags: 0,
-            sfence_vma: None,
-            vec_mem: None,
-        },
-        redirect,
-    )
+    (ExMem1Entry::from_issue(&id, old, store_data), redirect)
 }
 
 /// Compute ALU/FPU result and return (result, `fp_flags`).
