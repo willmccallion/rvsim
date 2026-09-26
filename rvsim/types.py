@@ -337,8 +337,13 @@ class MemoryController:
     """Namespace for memory controller configurations."""
 
     class Simple:
+        """Fixed-latency controller serialised on ``bandwidth_gib_s``."""
+
+        def __init__(self, bandwidth_gib_s: float = 12.8):
+            self.bandwidth_gib_s = bandwidth_gib_s
+
         def __repr__(self) -> str:
-            return "MemoryController.Simple()"
+            return f"MemoryController.Simple(bandwidth_gib_s={self.bandwidth_gib_s})"
 
     class DRAM:
         def __init__(

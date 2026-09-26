@@ -127,7 +127,9 @@ A shared **prefetch deduplication filter** prevents redundant requests across le
 Three memory controllers are available; all sit behind the L3 (or the last
 enabled cache level) and the system bus.
 
-**Simple controller** — every access takes `row_miss_latency` cycles.
+**Simple controller** — every access takes `row_miss_latency` cycles once
+the controller is free: each request busies it for the time its bytes take
+at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 
 **DRAM controller** — models row-buffer aware timing:
 

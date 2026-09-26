@@ -32,6 +32,8 @@ fn cycles_to_finish(bus_width: u64) -> u64 {
     config.pipeline.backend = BackendType::OutOfOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
+    // Memory must not serialise the fills.
+    config.memory.simple_bandwidth_gib_s = 1e6;
     config.system.bus_width = bus_width;
     config.system.uart_quiet = true;
     let program = program();

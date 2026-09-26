@@ -1,11 +1,13 @@
 //! Memory controllers: own a backing DRAM buffer and respond to `MemReq`
 //! packets with `MemResp` after a model-determined latency.
 //!
-//! `SimpleController` is a fixed-latency model. `DramController` tracks per-bank
+//! `SimpleController` is a fixed-latency model serialised on a bandwidth
+//! (gem5's `SimpleMemory`). `DramController` tracks per-bank
 //! row buffers, tRRD between activations, and periodic refresh. Both read /
 //! write the underlying [`DramBuffer`] directly so the response carries actual
 //! data.
 
+use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::common::{LineAddr, PhysAddr};
@@ -47,19 +49,51 @@ struct BankState {
     busy_until: u64,
 }
 
-/// Fixed-latency memory controller backed by a [`DramBuffer`].
+/// The rate at which the simple controller moves data (gem5's
+/// `SimpleMemory.bandwidth`): each request keeps it busy for the time its
+/// bytes take, and requests that arrive while it is busy wait their turn.
+#[derive(Clone, Copy, Debug)]
+pub struct Bandwidth {
+    bytes_per_second: NonZeroU64,
+    clock_hz: u64,
+}
+
+impl Bandwidth {
+    /// `bytes_per_second` at a core clock of `clock_hz`.
+    #[must_use]
+    pub const fn new(bytes_per_second: NonZeroU64, clock_hz: u64) -> Self {
+        Self { bytes_per_second, clock_hz }
+    }
+
+    /// Cycles the controller is busy moving `bytes`, at least one.
+    fn occupancy(self, bytes: u64) -> u64 {
+        let ticks = u128::from(bytes) * u128::from(self.clock_hz);
+        let per_second = u128::from(self.bytes_per_second.get());
+        u64::try_from(ticks.div_ceil(per_second)).unwrap_or(u64::MAX).max(1)
+    }
+}
+
+/// Fixed-latency memory controller backed by a [`DramBuffer`], serialised
+/// on its bandwidth.
 #[derive(Debug)]
 pub struct SimpleController {
     buffer: Arc<DramBuffer>,
     base: PhysAddr,
     latency: u64,
+    bandwidth: Bandwidth,
+    busy_until: u64,
 }
 
 impl SimpleController {
     /// Creates a simple controller. `base` is the physical address at which the
     /// buffer's first byte is mapped.
-    pub const fn new(buffer: Arc<DramBuffer>, base: PhysAddr, latency: u64) -> Self {
-        Self { buffer, base, latency }
+    pub const fn new(
+        buffer: Arc<DramBuffer>,
+        base: PhysAddr,
+        latency: u64,
+        bandwidth: Bandwidth,
+    ) -> Self {
+        Self { buffer, base, latency, bandwidth, busy_until: 0 }
     }
 
     /// Returns a clone of the underlying DRAM buffer handle.
@@ -72,8 +106,10 @@ impl Handle for SimpleController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let data = service_request(&self.buffer, self.base, paddr, size, &op);
+            let started = ctx.cycle.max(self.busy_until);
+            self.busy_until = started + self.bandwidth.occupancy(size.bytes() as u64);
             ctx.scheduler.schedule(
-                ctx.cycle + self.latency,
+                started + self.latency,
                 source,
                 ctx.self_id,
                 Packet::MemResp {

@@ -31,6 +31,8 @@ fn cycles_to_finish(l1d_latency: u64) -> u64 {
     config.pipeline.backend = BackendType::InOrder;
     config.pipeline.width = 1;
     config.cache.l1_d.enabled = true;
+    // Memory must not serialise the fills.
+    config.memory.simple_bandwidth_gib_s = 1e6;
     config.cache.l1_d.latency = l1d_latency;
     config.system.uart_quiet = true;
     let program = program();

@@ -727,6 +727,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "paging_mode_max": cfg.paging_mode_max,
         "misaligned_access_trap": cfg.misaligned_access_trap,
     }
+    if isinstance(mc, MemoryController.Simple):
+        memory["simple_bandwidth_gib_s"] = mc.bandwidth_gib_s
     # Always emit DRAM timing keys (Rust expects them)
     if isinstance(mc, MemoryController.DRAM):
         memory["t_cas"] = mc.t_cas

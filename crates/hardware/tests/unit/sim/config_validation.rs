@@ -26,3 +26,13 @@ fn btb_whose_set_count_is_not_a_power_of_two_is_rejected() {
 
     assert!(matches!(err, ConfigError::BtbSets { size: 12288, ways: 8, sets: 1536 }), "{err}");
 }
+
+#[test]
+fn a_simple_controller_bandwidth_that_is_not_positive_is_rejected() {
+    let mut config = Config::default();
+    config.memory.simple_bandwidth_gib_s = 0.0;
+
+    let err = config.validate().unwrap_err();
+
+    assert!(matches!(err, ConfigError::SimpleBandwidth), "{err}");
+}

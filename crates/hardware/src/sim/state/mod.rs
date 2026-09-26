@@ -45,7 +45,7 @@ use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBl
 use crate::soc::interconnect::Bus;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
-    DramConfig, DramController, MemoryController, SimpleController,
+    Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
 use reservations::ReservationSet;
@@ -471,11 +471,18 @@ impl SimState {
                     t_rfc: config.memory.t_rfc,
                 },
             )),
-            MemControllerType::Simple => Box::new(SimpleController::new(
-                ram_buffer.clone(),
-                PhysAddr::new(ram_base),
-                config.memory.row_miss_latency,
-            )),
+            MemControllerType::Simple => {
+                let bytes_per_second = config
+                    .memory
+                    .simple_bandwidth_bytes_per_second()
+                    .unwrap_or(std::num::NonZeroU64::MAX);
+                Box::new(SimpleController::new(
+                    ram_buffer.clone(),
+                    PhysAddr::new(ram_base),
+                    config.memory.row_miss_latency,
+                    Bandwidth::new(bytes_per_second, config.system.cpu_clock_mhz * 1_000_000),
+                ))
+            }
             MemControllerType::Ddr5 => Box::new(Ddr5Controller::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),

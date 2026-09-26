@@ -88,6 +88,10 @@ mod defaults {
     /// currently open in the row buffer.
     pub const ROW_MISS_LATENCY: u64 = 120;
 
+    /// Bandwidth of the Simple memory controller in GiB/s (gem5's
+    /// `SimpleMemory` default).
+    pub const SIMPLE_BANDWIDTH_GIB_S: f64 = 12.8;
+
     /// Number of DRAM banks per rank (default 8, typical DDR3/DDR4).
     pub const NUM_BANKS: usize = 8;
 
@@ -746,6 +750,11 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_row_miss")]
     pub row_miss_latency: u64,
 
+    /// Bandwidth of the Simple controller in GiB/s; requests are
+    /// serialised on it, each busying the controller for its bytes' time.
+    #[serde(default = "MemoryConfig::default_simple_bandwidth_gib_s")]
+    pub simple_bandwidth_gib_s: f64,
+
     /// Number of DRAM banks per rank
     #[serde(default = "MemoryConfig::default_num_banks")]
     pub num_banks: usize,
@@ -833,6 +842,17 @@ where
 }
 
 impl MemoryConfig {
+    /// The Simple controller's bandwidth in bytes per second; `None` when
+    /// it is not positive.
+    #[must_use]
+    pub fn simple_bandwidth_bytes_per_second(&self) -> Option<std::num::NonZeroU64> {
+        let gib_s = self.simple_bandwidth_gib_s;
+        if !(gib_s.is_finite() && gib_s > 0.0) {
+            return None;
+        }
+        std::num::NonZeroU64::new((gib_s * f64::from(1u32 << 30)) as u64)
+    }
+
     /// Returns the default RAM size in bytes.
     const fn default_ram_size() -> usize {
         defaults::RAM_SIZE
@@ -856,6 +876,10 @@ impl MemoryConfig {
     /// Returns the default row buffer miss penalty in DRAM cycles.
     const fn default_row_miss() -> u64 {
         defaults::ROW_MISS_LATENCY
+    }
+
+    const fn default_simple_bandwidth_gib_s() -> f64 {
+        defaults::SIMPLE_BANDWIDTH_GIB_S
     }
 
     /// Returns the default number of DRAM banks.
@@ -933,6 +957,7 @@ impl Default for MemoryConfig {
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,
             row_miss_latency: defaults::ROW_MISS_LATENCY,
+            simple_bandwidth_gib_s: defaults::SIMPLE_BANDWIDTH_GIB_S,
             num_banks: defaults::NUM_BANKS,
             t_rrd: defaults::T_RRD,
             row_size_bytes: defaults::ROW_SIZE_BYTES,
@@ -1838,6 +1863,9 @@ pub enum ConfigError {
     /// More harts than the coherence structures can track.
     #[error("hart_count {0} exceeds the 64 cores a coherence sharer set can hold")]
     TooManyHarts(usize),
+    /// The Simple controller's bandwidth must be positive.
+    #[error("simple_bandwidth_gib_s must be a positive number")]
+    SimpleBandwidth,
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -1868,6 +1896,9 @@ impl Config {
         let sets = (self.pipeline.btb_size / ways).max(1);
         if !sets.is_power_of_two() {
             return Err(ConfigError::BtbSets { size: self.pipeline.btb_size, ways, sets });
+        }
+        if self.memory.simple_bandwidth_bytes_per_second().is_none() {
+            return Err(ConfigError::SimpleBandwidth);
         }
         Ok(())
     }

@@ -226,7 +226,9 @@ Cache.Exclusive()   # L1 eviction swaps line into L2
 ### Memory Controller
 
 ```python
-MemoryController.Simple()     # Fixed latency (default)
+MemoryController.Simple(      # Fixed latency (default), serialised on a
+    bandwidth_gib_s=12.8,     # bandwidth: each request busies the controller
+)                             # for its bytes' time
 MemoryController.DRAM(        # Row-buffer aware timing
     t_cas=14,                 # Column access strobe latency
     t_ras=14,                 # Row access strobe latency
