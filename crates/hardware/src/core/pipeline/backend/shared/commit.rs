@@ -399,6 +399,16 @@ pub fn commit_stage(
             state.hart.csrs.vxsat = 1;
         }
 
+        if let Some(vector) = entry.vec_csr_update {
+            state.hart.csrs.vtype = vector.vtype;
+            state.hart.csrs.vl = vector.vl;
+            state.hart.csrs.vstart = 0;
+            state.hart.csrs.mstatus =
+                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.hart.csrs.sstatus =
+                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+        }
+
         if let Some(csr_update) = entry.csr_update {
             // SATP write: drain SB so PTW reads up-to-date PTEs after translation mode change.
             if csr_update.addr == csr::SATP {

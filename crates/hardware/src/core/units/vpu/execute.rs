@@ -16,13 +16,12 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{Vlmul, Vxrm, parse_vtype_with_elen};
-use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::core::units::vpu::{crypto, fpu, mask, mem, permute, reduction};
 use crate::isa::rvv::encoding as v_enc;
 use crate::sim::CoreCtx;
 
-/// Execute a vector operation. Returns the scalar result (for vsetvl family)
-/// or 0 for arithmetic/memory ops.
+/// Execute a vector operation against the architectural vector registers.
+/// `vsetvl` is not executed here: the backends record its result on the ROB.
 ///
 /// # Errors
 ///
@@ -31,10 +30,7 @@ use crate::sim::CoreCtx;
 /// vector load/store operations.
 pub fn execute_vec_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<u64, Trap> {
     match id.ctrl.vec_op {
-        VectorOp::Vsetvli => Ok(execute_vsetvl_op(state, id)),
-        VectorOp::Vsetivli => Ok(execute_vsetivli_op(state, id)),
-        VectorOp::Vsetvl => Ok(execute_vsetvl_rs2_op(state, id)),
-        VectorOp::None => Ok(0),
+        VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None => Ok(0),
         op if mem::is_vec_load(op) => execute_vec_load(state, id),
         op if mem::is_vec_store(op) => execute_vec_store(state, id),
         op if fpu::is_vec_fp(op) => execute_vec_fp(state, id),
@@ -65,60 +61,6 @@ fn execute_vec_crypto(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> Result<
     state.hart.csrs.vstart = 0;
     mark_vs_dirty(state);
     Ok(0)
-}
-
-/// Execute `vsetvli`: AVL from rs1, vtype from immediate.
-fn execute_vsetvl_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
-    let avl = id.rv1;
-    let requested_vtype = v_enc::zimm_vsetvli(id.inst);
-    let rd_is_zero = id.rd.is_zero();
-    let rs1_is_zero = id.rs1.is_zero();
-    let vlen = state.hart.regs.vpr().vlen();
-    let current_vl = state.hart.csrs.vl;
-
-    let (new_vl, new_vtype) =
-        execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
-    state.hart.csrs.vl = new_vl;
-    state.hart.csrs.vtype = new_vtype;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    new_vl
-}
-
-/// Execute `vsetivli`: AVL from uimm, vtype from immediate.
-fn execute_vsetivli_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
-    let avl = v_enc::uimm_vsetivli(id.inst);
-    let requested_vtype = v_enc::zimm_vsetivli(id.inst);
-    let rd_is_zero = id.rd.is_zero();
-    let vlen = state.hart.regs.vpr().vlen();
-    let current_vl = state.hart.csrs.vl;
-
-    // vsetivli: rs1_is_zero is always false (uimm provides AVL)
-    let (new_vl, new_vtype) =
-        execute_vsetvl(avl, requested_vtype, rd_is_zero, false, vlen, current_vl);
-    state.hart.csrs.vl = new_vl;
-    state.hart.csrs.vtype = new_vtype;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    new_vl
-}
-
-/// Execute `vsetvl`: AVL from rs1, vtype from rs2.
-fn execute_vsetvl_rs2_op(state: &mut CoreCtx<'_>, id: &RenameIssueEntry) -> u64 {
-    let avl = id.rv1;
-    let requested_vtype = id.rv2;
-    let rd_is_zero = id.rd.is_zero();
-    let rs1_is_zero = id.rs1.is_zero();
-    let vlen = state.hart.regs.vpr().vlen();
-    let current_vl = state.hart.csrs.vl;
-
-    let (new_vl, new_vtype) =
-        execute_vsetvl(avl, requested_vtype, rd_is_zero, rs1_is_zero, vlen, current_vl);
-    state.hart.csrs.vl = new_vl;
-    state.hart.csrs.vtype = new_vtype;
-    state.hart.csrs.vstart = 0;
-    mark_vs_dirty(state);
-    new_vl
 }
 
 /// Build the common execution context from CPU state.

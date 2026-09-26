@@ -36,6 +36,7 @@ pub fn rename_stage<E: ExecutionEngine>(
     let mut budget = engine.can_accept();
 
     for id in entries {
+        let vector = engine.vector_config(state);
         if budget == 0 {
             if input.is_empty() {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_dispatch).inc();
@@ -76,7 +77,7 @@ pub fn rename_stage<E: ExecutionEngine>(
             // operand_groups doesn't have EEW/SEW for vec mem; override grp.vd / grp.vs2 here.
             let is_mem = is_vec_load(id.ctrl.vec_op) || is_vec_store(id.ctrl.vec_op);
             if is_mem {
-                let vtype = parse_vtype(state.hart.csrs.vtype);
+                let vtype = parse_vtype(vector.vtype);
                 if !vtype.vill {
                     grp.vd = vec_mem_dst_count(
                         id.ctrl.vec_op,
@@ -220,15 +221,8 @@ pub fn rename_stage<E: ExecutionEngine>(
             if is_branch_or_jump && engine.checkpoint_count() > 0 {
                 let map_snapshot = engine.rename_map().clone();
 
-                let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(
-                    rob_tag,
-                    &map_snapshot,
-                    state.hart.csrs.vtype,
-                    state.hart.csrs.vl,
-                    state.hart.csrs.frm,
-                    state.hart.csrs.vxrm,
-                    state.hart.csrs.vstart,
-                ) else {
+                let Some(ckpt_id) = engine.checkpoint_table_mut().allocate(rob_tag, &map_snapshot)
+                else {
                     unreachable!("checkpoint table full after stall check");
                 };
 
@@ -275,9 +269,9 @@ pub fn rename_stage<E: ExecutionEngine>(
                     VecPhysReg::ZERO
                 },
                 // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
-                vec_vtype: state.hart.csrs.vtype,
-                vec_vl: state.hart.csrs.vl,
-                vec_vstart: state.hart.csrs.vstart,
+                vec_vtype: vector.vtype,
+                vec_vl: vector.vl,
+                vec_vstart: vector.vstart,
                 vec_vxrm: state.hart.csrs.vxrm,
                 vec_frm: state.hart.csrs.frm,
             };
@@ -367,9 +361,9 @@ pub fn rename_stage<E: ExecutionEngine>(
                 vec_src2_count: 0,
                 vec_src3_count: 0,
                 mask_phys: VecPhysReg::ZERO,
-                vec_vtype: state.hart.csrs.vtype,
-                vec_vl: state.hart.csrs.vl,
-                vec_vstart: state.hart.csrs.vstart,
+                vec_vtype: vector.vtype,
+                vec_vl: vector.vl,
+                vec_vstart: vector.vstart,
                 vec_vxrm: state.hart.csrs.vxrm,
                 vec_frm: state.hart.csrs.frm,
             };

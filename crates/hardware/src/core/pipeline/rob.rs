@@ -18,6 +18,7 @@ use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::bru::Ghr;
 use crate::core::units::vpu::types::VecPhysReg;
+use crate::core::units::vpu::types::VectorConfig;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
 ///
@@ -124,6 +125,8 @@ pub struct RobEntry {
     pub exception_stage: Option<ExceptionStage>,
     /// Deferred CSR write, if this is a CSR instruction.
     pub csr_update: Option<CsrUpdate>,
+    /// The vector configuration a `vsetvl` sets, written to the CSRs at commit.
+    pub vec_csr_update: Option<VectorConfig>,
     /// Whether this entry is valid (occupied).
     pub valid: bool,
     /// Physical register allocated for rd at rename (O3 backend).
@@ -178,6 +181,8 @@ pub struct Rob {
     next_tag: u32,
     /// O(1) tag → slot index lookup.
     tag_index: HashMap<RobTag, usize>,
+    /// Valid entries carrying a `vec_csr_update`.
+    vec_config_updates: usize,
 }
 
 impl Rob {
@@ -192,6 +197,7 @@ impl Rob {
             count: 0,
             next_tag: 1,
             tag_index: HashMap::with_capacity(capacity),
+            vec_config_updates: 0,
         }
     }
 
@@ -263,6 +269,7 @@ impl Rob {
             trap: None,
             exception_stage: None,
             csr_update: None,
+            vec_csr_update: None,
             valid: true,
             phys_dst,
             old_phys_dst,
@@ -330,6 +337,36 @@ impl Rob {
     #[must_use]
     pub fn is_head(&self, tag: RobTag) -> bool {
         self.peek_head().is_some_and(|head| head.tag == tag)
+    }
+
+    /// Records the vector configuration a `vsetvl` establishes.
+    pub fn set_vec_csr_update(&mut self, tag: RobTag, config: VectorConfig) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            let first_update = entry.vec_csr_update.is_none();
+            entry.vec_csr_update = Some(config);
+            if first_update {
+                self.vec_config_updates += 1;
+            }
+        }
+    }
+
+    /// The configuration the youngest executed, uncommitted `vsetvl` set:
+    /// what instructions younger than it run under.
+    #[must_use]
+    pub fn youngest_vec_csr_update(&self) -> Option<VectorConfig> {
+        if self.vec_config_updates == 0 {
+            return None;
+        }
+        let len = self.entries.len();
+        let mut idx = (self.tail + len - 1) % len;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.vec_csr_update.is_some() {
+                return entry.vec_csr_update;
+            }
+            idx = (idx + len - 1) % len;
+        }
+        None
     }
 
     /// Sets the CSR update for a given entry.
@@ -472,6 +509,9 @@ impl Rob {
 
         let committed = self.entries[self.head].clone();
         let _ = self.tag_index.remove(&committed.tag);
+        if committed.vec_csr_update.is_some() {
+            self.vec_config_updates -= 1;
+        }
         self.entries[self.head].valid = false;
         self.head = (self.head + 1) % self.entries.len();
         self.count -= 1;
@@ -487,6 +527,7 @@ impl Rob {
         self.head = 0;
         self.tail = 0;
         self.count = 0;
+        self.vec_config_updates = 0;
     }
 
     /// Flushes all entries allocated *after* the given tag (exclusive).
@@ -520,6 +561,9 @@ impl Rob {
         let mut remove_idx = keep_idx;
         while remove_idx != self.tail {
             let _ = self.tag_index.remove(&self.entries[remove_idx].tag);
+            if self.entries[remove_idx].vec_csr_update.is_some() {
+                self.vec_config_updates -= 1;
+            }
             self.entries[remove_idx].valid = false;
             remove_idx = (remove_idx + 1) % self.entries.len();
         }
@@ -713,39 +757,6 @@ impl Rob {
             idx = (idx + 1) % self.entries.len();
         }
         true
-    }
-
-    /// Returns true if any ROB entry older than `tag` is a vsetvl* still in
-    /// the `Issued` state.
-    ///
-    /// Used to gate vector-op issue: a younger vec op may not dispatch while
-    /// an older vsetvl is still executing, because the rename-time vtype
-    /// snapshot would predate the vsetvl's CSR update and the op would run
-    /// against a stale SEW/LMUL.
-    pub fn has_pending_vsetvl_before(&self, tag: RobTag) -> bool {
-        use crate::core::pipeline::signals::VectorOp;
-        if self.count == 0 {
-            return false;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return false;
-                }
-                if entry.state == RobState::Issued
-                    && matches!(
-                        entry.ctrl.vec_op,
-                        VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl
-                    )
-                {
-                    return true;
-                }
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        false
     }
 
     /// Returns true if all older ROB entries matching a FENCE's predecessor

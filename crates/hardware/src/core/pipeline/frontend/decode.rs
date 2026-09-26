@@ -14,7 +14,7 @@ use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
     VecSrcEncoding, VectorOp,
 };
-use crate::core::units::vpu::types::{Sew, VRegIdx};
+use crate::core::units::vpu::types::{Sew, VRegIdx, VectorConfig};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::privileged::opcodes as sys_ops;
@@ -637,7 +637,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
         },
         v_opcodes::OP_V => {
             if d.funct3 == v_funct3::OPCFG {
-                // vsetvl family: all write scalar rd and are serializing.
+                // vsetvl family: all write scalar rd.
                 let bit31 = (inst >> 31) & 1;
                 let bit30 = (inst >> 30) & 1;
 
@@ -655,7 +655,6 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
                     c.reg_write = true;
                     c.b_src = OpBSrc::Reg2;
                 }
-                c.system_op = SystemOp::System;
 
                 // Store decoded vector register indices for downstream
                 c.vd = VRegIdx::new(v_enc::vd(inst));
@@ -1366,14 +1365,19 @@ const fn decode_vec_store(inst: u32, funct3: u32, c: &mut ControlSignals) -> Res
 /// Executes the decode stage.
 ///
 /// Consumes Fetch2->Decode entries (`IfIdEntry`) and produces
-/// Decode->Rename entries (`IdExEntry`).
+/// Decode->Rename entries (`IdExEntry`). Vector instructions are decoded
+/// under `vector`, the configuration the youngest `vsetvl` ahead of them
+/// produced; a `vsetvl` ends the group, and returns `true`, because what
+/// follows it needs its result.
 pub fn decode_stage(
     state: &mut CoreCtx<'_>,
     input: &mut Vec<IfIdEntry>,
     output: &mut Vec<IdExEntry>,
     has_register_renaming: bool,
-) {
+    vector: VectorConfig,
+) -> bool {
     let mut consumed_count = 0;
+    let mut ended_at_vsetvl = false;
     let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(state.config.pipeline.width);
 
     for if_entry in input.iter() {
@@ -1399,11 +1403,8 @@ pub fn decode_stage(
             Err(t) => (ControlSignals::default(), Some(t), Some(ExceptionStage::Decode)),
         };
 
-        // vsetvl is serializing, so vtype is up-to-date at decode for non-vsetvl vec ops.
-        if ctrl.vec_op != VectorOp::None
-            && !matches!(ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl)
-        {
-            let vtype = crate::core::units::vpu::types::parse_vtype(state.hart.csrs.vtype);
+        if ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config() {
+            let vtype = crate::core::units::vpu::types::parse_vtype(vector.vtype);
             if !vtype.vill {
                 let lmul = vtype.vlmul.group_regs().regs();
                 ctrl.vec_lmul_regs = lmul;
@@ -1520,7 +1521,12 @@ pub fn decode_stage(
         if has_trap {
             break;
         }
+        if ctrl.vec_op.is_config() {
+            ended_at_vsetvl = true;
+            break;
+        }
     }
 
     let _ = input.drain(..consumed_count);
+    ended_at_vsetvl
 }

@@ -10,9 +10,12 @@
 
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
-use crate::core::pipeline::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp};
+use crate::core::pipeline::signals::{
+    AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
+};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
@@ -129,56 +132,26 @@ pub fn execute_one(
     let op_c = fwd_c;
 
     // Intercept vector ops before the system-instruction handler.
-    if id.ctrl.vec_op != crate::core::pipeline::signals::VectorOp::None {
-        use crate::core::pipeline::signals::VectorOp;
-
-        // vsetvl family serializes: modifies CSR state that affects decode.
-        if matches!(id.ctrl.vec_op, VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl) {
-            match crate::core::units::vpu::execute::execute_vec_op(state, &id) {
-                Ok(scalar_result) => {
-                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                    *redirect_pending = true;
-                    let result = ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: scalar_result,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: id.rd_phys,
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    };
-                    return (result, true);
-                }
-                Err(trap) => {
-                    rob.fault(id.rob_tag, trap, ExceptionStage::Execute);
-                    state.hart.pc = id.pc.wrapping_add(id.inst_size.as_u64());
-                    *redirect_pending = true;
-                    let result = ExMem1Entry {
-                        rob_tag: id.rob_tag,
-                        pc: id.pc,
-                        inst: id.inst,
-                        inst_size: id.inst_size,
-                        rd: id.rd,
-                        alu: 0,
-                        store_data: 0,
-                        ctrl: id.ctrl,
-                        trap: None,
-                        exception_stage: None,
-                        rd_phys: id.rd_phys,
-                        fp_flags: 0,
-                        sfence_vma: None,
-                        vec_mem: None,
-                    };
-                    return (result, true);
-                }
-            }
+    if id.ctrl.vec_op != VectorOp::None {
+        if id.ctrl.vec_op.is_config() {
+            let vl = set_vector_config(state, &id, fwd_a, fwd_b, rob);
+            let result = ExMem1Entry {
+                rob_tag: id.rob_tag,
+                pc: id.pc,
+                inst: id.inst,
+                inst_size: id.inst_size,
+                rd: id.rd,
+                alu: vl,
+                store_data: 0,
+                ctrl: id.ctrl,
+                trap: None,
+                exception_stage: None,
+                rd_phys: id.rd_phys,
+                fp_flags: 0,
+                sfence_vma: None,
+                vec_mem: None,
+            };
+            return (result, false);
         }
 
         // Non-vsetvl vector ops are executed in O3Engine::tick() where VecPrfView is available.

@@ -63,6 +63,18 @@ pub trait ExecutionEngine {
     /// Write every committed store still buffered to memory.
     fn drain_committed_stores(&mut self, state: &mut crate::sim::CoreCtx<'_>);
 
+    /// The vector configuration an instruction decoded now runs under: the
+    /// result of the youngest executed `vsetvl` still in the ROB, else the
+    /// architectural CSRs.
+    fn vector_config(
+        &self,
+        state: &crate::sim::CoreCtx<'_>,
+    ) -> crate::core::units::vpu::types::VectorConfig {
+        self.rob().youngest_vec_csr_update().unwrap_or_else(|| {
+            crate::core::units::vpu::types::VectorConfig::from_csrs(&state.hart.csrs)
+        })
+    }
+
     /// Access the scoreboard (for rename to mark producers, issue to check readiness).
     fn scoreboard(&self) -> &Scoreboard;
     /// Access the scoreboard mutably (for rename to mark producers).
@@ -212,6 +224,9 @@ pub struct BackendCommon {
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
     /// Fetch waits until this cycle for an L2 ITLB hit's latency.
     pub fetch_hold_until: u64,
+    /// Decode has passed a `vsetvl` that has not executed yet. Younger
+    /// instructions are decoded under its result, so decode waits for it.
+    pub vector_config_unresolved: bool,
     /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
     /// A group can complete ahead of an older one (a fetch-buffer hit, or
     /// a fetch walk that finishes while the previous line is still
@@ -390,6 +405,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.fetch_walk_pending = false;
         common.fetch_resume_pc = None;
         common.fetch_hold_until = 0;
+        common.vector_config_unresolved = false;
         // Straggler responses for pre-flush fetches are dropped rather than
         // entering the post-flush fetch stream.
         common.next_emit_fetch_seq = common.next_fetch_seq;

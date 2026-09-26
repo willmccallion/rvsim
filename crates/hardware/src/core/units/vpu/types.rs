@@ -969,3 +969,24 @@ mod tests {
         assert_eq!(encoded, 1u64 << 63);
     }
 }
+
+/// The vector configuration a `vsetvl` establishes: what the front end
+/// snapshots for the vector instructions it renames, and what commit
+/// writes to the `vtype`, `vl` and `vstart` CSRs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VectorConfig {
+    /// `vtype`.
+    pub vtype: u64,
+    /// `vl`.
+    pub vl: u64,
+    /// `vstart`.
+    pub vstart: u64,
+}
+
+impl VectorConfig {
+    /// The configuration the architectural CSRs hold.
+    #[must_use]
+    pub const fn from_csrs(csrs: &crate::core::arch::csr::Csrs) -> Self {
+        Self { vtype: csrs.vtype, vl: csrs.vl, vstart: csrs.vstart }
+    }
+}

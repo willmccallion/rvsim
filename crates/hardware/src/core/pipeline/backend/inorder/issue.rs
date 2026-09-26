@@ -14,9 +14,8 @@ use crate::common::RegIdx;
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::SystemOp;
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
-use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::sim::CoreCtx;
 use crate::trace_issue;
 
@@ -103,15 +102,19 @@ impl InOrderIssueUnit {
             // A system instruction reads or writes architectural state, so
             // it executes only as the oldest instruction; FENCE and the CBOs
             // have their own checks below.
-            let waits_for_head = entry.ctrl.system_op != SystemOp::None
-                && !matches!(
-                    entry.ctrl.system_op,
-                    SystemOp::Fence
-                        | SystemOp::CboZero
-                        | SystemOp::CboInval
-                        | SystemOp::CboClean
-                        | SystemOp::CboFlush
-                );
+            // A vector instruction writes the vector register file at
+            // execute here, so it waits for the head as well.
+            let waits_for_head = (entry.ctrl.vec_op != VectorOp::None
+                && !entry.ctrl.vec_op.is_config())
+                || (entry.ctrl.system_op != SystemOp::None
+                    && !matches!(
+                        entry.ctrl.system_op,
+                        SystemOp::Fence
+                            | SystemOp::CboZero
+                            | SystemOp::CboInval
+                            | SystemOp::CboClean
+                            | SystemOp::CboFlush
+                    ));
             if waits_for_head && !rob.is_head(entry.rob_tag) {
                 break;
             }
@@ -133,13 +136,6 @@ impl InOrderIssueUnit {
 
             // Loads need older store addresses resolved or forwarding can miss an overlap.
             if entry.ctrl.mem_read && store_buffer.has_unresolved_store_before(entry.rob_tag) {
-                break;
-            }
-
-            // Vec mem ops bypass the store buffer; serialize them to keep memory consistent.
-            if (is_vec_load(entry.ctrl.vec_op) || is_vec_store(entry.ctrl.vec_op))
-                && !rob.all_before_completed(entry.rob_tag)
-            {
                 break;
             }
 

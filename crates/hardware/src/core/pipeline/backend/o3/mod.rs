@@ -23,7 +23,7 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{ControlFlow, VectorOp};
+use crate::core::pipeline::signals::ControlFlow;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_prf::VecPrfView;
@@ -745,12 +745,9 @@ impl ExecutionEngine for O3Engine {
                 }
 
                 // vsetvl* run synchronously in execute_one; exclude from deferred VecPrfView.
-                let is_vec_non_mem = fu_type.is_vector()
-                    && fu_type != FuType::VecMem
-                    && !matches!(
-                        entry.ctrl.vec_op,
-                        VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl
-                    );
+                let is_vec_config = entry.ctrl.vec_op.is_config();
+                let is_vec_non_mem =
+                    fu_type.is_vector() && fu_type != FuType::VecMem && !is_vec_config;
                 let is_vec_mem_op = fu_type == FuType::VecMem;
 
                 // For vec mem ops, override vd group from vec_mem_dst_count (nf × EMUL_data).
@@ -835,6 +832,9 @@ impl ExecutionEngine for O3Engine {
                 let (ex_result, flush) =
                     execute::execute_one(state, entry, &mut self.rob, redirect_pending);
                 issued_count += 1;
+                if is_vec_config {
+                    self.common.vector_config_unresolved = false;
+                }
 
                 if is_vec_non_mem
                     && ex_result.trap.is_none()
@@ -1222,11 +1222,6 @@ impl ExecutionEngine for O3Engine {
             if self.checkpoints.capacity() > 0 {
                 if let Some(ckpt) = self.checkpoints.find_by_tag(keep_tag) {
                     self.rename_map = ckpt.rename_map.clone();
-                    state.hart.csrs.vtype = ckpt.vtype;
-                    state.hart.csrs.vl = ckpt.vl;
-                    state.hart.csrs.frm = ckpt.frm;
-                    state.hart.csrs.vxrm = ckpt.vxrm;
-                    state.hart.csrs.vstart = ckpt.vstart;
                     self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
                 } else {
                     self.rebuild_rename_map();

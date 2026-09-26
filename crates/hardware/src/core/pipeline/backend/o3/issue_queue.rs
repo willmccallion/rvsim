@@ -238,12 +238,8 @@ impl IssueQueue {
         }
 
         // Track v0 mask register dependency for masked vector ops (vm=0).
-        let needs_mask = !entry.ctrl.vm
-            && entry.ctrl.vec_op != VectorOp::None
-            && !matches!(
-                entry.ctrl.vec_op,
-                VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl
-            );
+        let needs_mask =
+            !entry.ctrl.vm && entry.ctrl.vec_op != VectorOp::None && !entry.ctrl.vec_op.is_config();
         let mask_phys = if needs_mask { entry.mask_phys } else { VecPhysReg::ZERO };
         let mask_ready = !needs_mask || vec_prf.is_none_or(|vprf| vprf.is_ready(mask_phys));
 
@@ -455,16 +451,6 @@ impl IssueQueue {
                         {
                             continue;
                         }
-                    }
-                    // Wait for older vsetvl: rename's vtype/vl snapshot is stale until it executes.
-                    if iq.entry.ctrl.vec_op != VectorOp::None
-                        && !matches!(
-                            iq.entry.ctrl.vec_op,
-                            VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl
-                        )
-                        && rob.has_pending_vsetvl_before(iq.entry.rob_tag)
-                    {
-                        continue;
                     }
                     if iq.entry.ctrl.system_op == SystemOp::Fence {
                         let pred_bits = ((iq.entry.inst >> 24) & 0xF) as u8;

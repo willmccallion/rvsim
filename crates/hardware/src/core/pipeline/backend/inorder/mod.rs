@@ -250,6 +250,9 @@ impl ExecutionEngine for InOrderEngine {
             (results, units, needs_flush)
         };
         let keep_tag = results.last().map(|r| r.rob_tag);
+        if results.iter().any(|r| r.ctrl.vec_op.is_config()) {
+            self.common.vector_config_unresolved = false;
+        }
         self.hold_results(results, &units, now);
 
         if needs_flush {

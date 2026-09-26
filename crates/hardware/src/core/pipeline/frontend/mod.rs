@@ -71,13 +71,16 @@ impl<E: ExecutionEngine> Frontend<E> {
         rename::rename_stage(state, &mut self.decode_rename, engine, rename_output);
 
         // Gate decode on rename draining to avoid O(n²) regrowth of decode_rename.
-        if self.decode_rename.is_empty() {
-            decode::decode_stage(
+        if self.decode_rename.is_empty() && !engine.common().vector_config_unresolved {
+            let vector = engine.vector_config(state);
+            let ended_at_vsetvl = decode::decode_stage(
                 state,
                 &mut self.fetch2_decode,
                 &mut self.decode_rename,
                 engine.has_register_renaming(),
+                vector,
             );
+            engine.common_mut().vector_config_unresolved = ended_at_vsetvl;
         }
 
         if self.fetch2_decode.is_empty() {

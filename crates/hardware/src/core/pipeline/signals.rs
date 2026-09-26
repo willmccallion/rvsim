@@ -1071,6 +1071,13 @@ pub struct VecOperandGroups {
 }
 
 impl VectorOp {
+    /// `vsetvli`, `vsetivli` or `vsetvl`: writes `vtype` and `vl` instead of
+    /// a vector register.
+    #[must_use]
+    pub const fn is_config(self) -> bool {
+        matches!(self, Self::Vsetvli | Self::Vsetivli | Self::Vsetvl)
+    }
+
     /// Compute the vector register group size for each operand given the base
     /// LMUL (1, 2, 4, or 8) and the source encoding.
     ///

@@ -4,6 +4,7 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
@@ -678,7 +679,29 @@ pub fn execute_inorder(
             }
         }
 
-        // Vector ops serialize; execute against the VPR directly and flush after.
+        if id.ctrl.vec_op.is_config() {
+            let vl = set_vector_config(state, &id, id.rv1, id.rv2, rob);
+            rob.complete(id.rob_tag, vl);
+            results.push(ExMem1Entry {
+                rob_tag: id.rob_tag,
+                pc: id.pc,
+                inst: id.inst,
+                inst_size: id.inst_size,
+                rd: id.rd,
+                alu: vl,
+                store_data: 0,
+                ctrl: id.ctrl,
+                trap: None,
+                exception_stage: None,
+                rd_phys: PhysReg::default(),
+                fp_flags: 0,
+                sfence_vma: None,
+                vec_mem: None,
+            });
+            continue;
+        }
+
+        // Vector ops execute against the VPR directly, so what follows one is refetched.
         if id.ctrl.vec_op != VectorOp::None {
             match crate::core::units::vpu::execute::execute_vec_op(state, &id) {
                 Ok(alu_out) => {
