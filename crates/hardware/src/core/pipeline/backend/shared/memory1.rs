@@ -150,6 +150,35 @@ fn process_entry<E: ExecutionEngine>(
         }
     };
 
+    // 4b. A misaligned access that spills into the next page translates
+    // that page as well; the two halves must then be physically adjacent
+    // for the single-request data path, otherwise the access is left to
+    // the misaligned trap handler like a real split-unaware LSU.
+    if let Some(second_va) = unaligned::second_page_start(ex.alu, size) {
+        match state.translate(VirtAddr::new(second_va), access_type, 1) {
+            TranslateResult::Ready(r) => {
+                if let Some(trap) = r.trap {
+                    push_trap(engine, ex, trap, ExceptionStage::Memory);
+                    return EntryOutcome::Done;
+                }
+                let first_page_bytes = second_va.wrapping_sub(ex.alu);
+                if r.paddr.val() != paddr.val().wrapping_add(first_page_bytes) {
+                    let trap = if ex.ctrl.mem_write {
+                        unaligned::store_misaligned_trap(ex.alu)
+                    } else {
+                        unaligned::load_misaligned_trap(ex.alu)
+                    };
+                    push_trap(engine, ex, trap, ExceptionStage::Memory);
+                    return EntryOutcome::Done;
+                }
+            }
+            TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+                park_walk(state, engine, walk_state, pte_addr, ex);
+                return EntryOutcome::ParkedWalk;
+            }
+        }
+    }
+
     // 5. S/U-mode access fault on unmapped paddr; M-mode firmware can probe.
     if state.hart.privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr) {
         let trap = if ex.ctrl.mem_write {

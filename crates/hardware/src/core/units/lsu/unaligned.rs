@@ -8,6 +8,7 @@
 //! - Latency calculation for unaligned accesses
 //! - Support for byte-granular split access
 
+use crate::common::constants::{PAGE_OFFSET_MASK, PAGE_SHIFT};
 use crate::common::error::Trap;
 
 /// Checks whether a memory access at `addr` with `size` bytes is naturally aligned.
@@ -162,5 +163,17 @@ where
     for i in 0..size {
         let byte = ((val >> (i * 8)) & 0xFF) as u8;
         write_byte(addr + i, byte);
+    }
+}
+
+/// The start of the second page an access of `size` bytes at `addr`
+/// spills into, if it crosses a page boundary.
+#[must_use]
+pub const fn second_page_start(addr: u64, size: u64) -> Option<u64> {
+    let last = addr.wrapping_add(size.saturating_sub(1));
+    if size > 1 && (last >> PAGE_SHIFT) != (addr >> PAGE_SHIFT) {
+        Some(last & !PAGE_OFFSET_MASK)
+    } else {
+        None
     }
 }
