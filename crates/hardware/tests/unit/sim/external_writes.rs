@@ -1,6 +1,7 @@
-//! Tests for writes that reach RAM without passing through a hart's
-//! store path (DMA, host probes) and must still be visible to the
-//! reservation set and the write log.
+//! Writes that reach RAM without passing through a hart's store path.
+//!
+//! DMA and host probes must still be visible to the reservation set and
+//! the write log.
 
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::Config;

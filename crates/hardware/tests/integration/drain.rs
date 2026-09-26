@@ -1,6 +1,7 @@
-//! Draining a pipeline must leave the architectural state self-contained:
-//! the hart at its committed PC and every committed store in RAM, whether
-//! it was still sitting in a store buffer or not.
+//! A drained pipeline leaves a self-contained architectural state.
+//!
+//! The hart sits at its committed PC and every committed store is in RAM,
+//! whether it was still sitting in a store buffer or not.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
