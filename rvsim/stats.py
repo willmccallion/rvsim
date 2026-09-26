@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import re
 import sys
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence
 
 __all__ = ["Stats", "Table"]
 
@@ -33,6 +33,22 @@ class Stats(dict):
 
     def __init__(self, data: Dict[str, Any]):
         super().__init__(data)
+
+    @classmethod
+    def from_core(cls, core: Any) -> Stats:
+        """Flatten the native stats object into path-keyed entries.
+
+        Every registered path (``core0.cache.l1d.hits``, ``system.retired_insts``)
+        becomes a key, and the run-level ``cycles``, ``instructions_retired``
+        and ``ipc`` are added under their short names.
+        """
+        data: Dict[str, Any] = {
+            path: core.get(path) for path in core.query("**").paths()
+        }
+        data["cycles"] = core.cycles
+        data["instructions_retired"] = core.instructions_retired
+        data["ipc"] = core.ipc
+        return cls(data)
 
     def query(self, pattern: str) -> Stats:
         """Search for statistics matching *pattern* (case-insensitive regex or substring)."""

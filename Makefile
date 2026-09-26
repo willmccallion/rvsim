@@ -34,7 +34,7 @@ endif
 
 # ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
-.PHONY: check test test-coverage clippy fmt fmt-check lint prerelease
+.PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: arch-test arch-test-multi
 .PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
@@ -134,6 +134,10 @@ check:
 test:
 	@printf "$(GREEN)Running Rust tests…$(RESET)\n"
 	$(CARGO) test --workspace
+
+test-python: python
+	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
+	.venv/bin/python -m unittest discover -s testing/python
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"

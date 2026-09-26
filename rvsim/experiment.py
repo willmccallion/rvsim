@@ -17,7 +17,7 @@ __all__ = ["Environment", "Result"]
 from .config import Config, _config_to_dict
 from .stats import Stats, _compare_flat, _compare_matrix
 
-from ._core import Simulator
+from .objects import Simulator
 
 
 @dataclass
@@ -69,7 +69,7 @@ class Environment:
                 raise RuntimeError(
                     "CPU run completed without exit code (should not happen without limit)"
                 )
-            stats = cpu.stats
+            stats = Stats.from_core(cpu.stats)
         except Exception as e:
             err_msg = str(e)
             if not quiet:
@@ -83,7 +83,7 @@ class Environment:
         wall = time.perf_counter() - t0
         return Result(
             exit_code=int(exit_code) if exit_code is not None else -1,
-            stats=Stats(stats),
+            stats=stats,
             wall_time_sec=wall,
             binary=self.binary,
         )
