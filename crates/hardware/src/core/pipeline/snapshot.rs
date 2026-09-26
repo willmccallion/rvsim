@@ -33,12 +33,6 @@ pub struct PipelineSnapshot {
     pub mem1_mem2: Vec<Mem1Mem2Entry>,
     /// Memory2 → Writeback latch.
     pub mem2_wb: Vec<Mem2WbEntry>,
-    /// Number of active frontend fetch1 stall cycles remaining.
-    pub fetch1_stall: u64,
-    /// Number of active frontend fetch2 stall cycles remaining.
-    pub fetch2_stall: u64,
-    /// Number of active memory1 stall cycles remaining.
-    pub mem1_stall: u64,
     /// Pipeline width (superscalar degree).
     pub width: usize,
 }

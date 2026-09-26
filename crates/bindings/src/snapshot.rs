@@ -46,11 +46,6 @@ fn cell(asm: &str) -> String {
     trunc(asm, COL_W)
 }
 
-/// Empty / stalled cell.
-fn empty_cell(stall: u64) -> String {
-    if stall > 0 { trunc(&format!("~{stall}"), COL_W) } else { "─".to_string() }
-}
-
 fn render_inner(snap: &PipelineSnapshot) -> String {
     let w = snap.width;
 
@@ -58,91 +53,66 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     struct StageCol {
         hdr: &'static str,
         cells: Vec<Option<String>>,
-        stall: u64,
     }
 
     let mut cols: Vec<StageCol> = Vec::new();
 
     macro_rules! stage {
-        ($hdr:expr, $entries:expr, $cell_fn:expr, $stall:expr) => {{
+        ($hdr:expr, $entries:expr, $cell_fn:expr) => {{
             let mut cells: Vec<Option<String>> = vec![None; w];
             for (i, e) in $entries.iter().enumerate() {
                 if i < w {
                     cells[i] = Some($cell_fn(e));
                 }
             }
-            cols.push(StageCol { hdr: $hdr, cells, stall: $stall });
+            cols.push(StageCol { hdr: $hdr, cells });
         }};
     }
 
     stage!(
         "F1",
         snap.fetch1_fetch2,
-        |e: &rvsim_core::core::pipeline::latches::Fetch1Fetch2Entry| { format!("{:#010x}", e.pc) },
-        snap.fetch1_stall
+        |e: &rvsim_core::core::pipeline::latches::Fetch1Fetch2Entry| { format!("{:#010x}", e.pc) }
     );
 
-    stage!(
-        "F2",
-        snap.fetch2_decode,
-        |e: &rvsim_core::core::pipeline::latches::IfIdEntry| { cell(&disassemble(e.inst)) },
-        snap.fetch2_stall
-    );
+    stage!("F2", snap.fetch2_decode, |e: &rvsim_core::core::pipeline::latches::IfIdEntry| {
+        cell(&disassemble(e.inst))
+    });
 
-    stage!(
-        "DE",
-        snap.decode_rename,
-        |e: &rvsim_core::core::pipeline::latches::IdExEntry| { cell(&disassemble(e.inst)) },
-        0u64
-    );
+    stage!("DE", snap.decode_rename, |e: &rvsim_core::core::pipeline::latches::IdExEntry| {
+        cell(&disassemble(e.inst))
+    });
 
-    stage!(
-        "RN",
-        snap.rename_issue,
-        |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| { cell(&disassemble(e.inst)) },
-        0u64
-    );
+    stage!("RN", snap.rename_issue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
+        cell(&disassemble(e.inst))
+    });
 
-    stage!(
-        "IS",
-        snap.issue_queue,
-        |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
-            let asm = disassemble(e.inst);
-            let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
-            if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
-        },
-        0u64
-    );
+    stage!("IS", snap.issue_queue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
+        let asm = disassemble(e.inst);
+        let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
+        if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
+    });
 
-    stage!(
-        "EX",
-        snap.execute_mem1,
-        |e: &rvsim_core::core::pipeline::latches::ExMem1Entry| { cell(&disassemble(e.inst)) },
-        0u64
-    );
+    stage!("EX", snap.execute_mem1, |e: &rvsim_core::core::pipeline::latches::ExMem1Entry| {
+        cell(&disassemble(e.inst))
+    });
 
-    stage!(
-        "M1",
-        snap.mem1_mem2,
-        |e: &rvsim_core::core::pipeline::latches::Mem1Mem2Entry| { cell(&disassemble(e.inst)) },
-        snap.mem1_stall
-    );
+    stage!("M1", snap.mem1_mem2, |e: &rvsim_core::core::pipeline::latches::Mem1Mem2Entry| {
+        cell(&disassemble(e.inst))
+    });
 
-    stage!(
-        "M2",
-        snap.mem2_wb,
-        |e: &rvsim_core::core::pipeline::latches::Mem2WbEntry| { cell(&disassemble(e.inst)) },
-        0u64
-    );
+    stage!("M2", snap.mem2_wb, |e: &rvsim_core::core::pipeline::latches::Mem2WbEntry| {
+        cell(&disassemble(e.inst))
+    });
 
     // WB and CM have no outbound latch to inspect — both show empty.
     {
         let cells = vec![None; w];
-        cols.push(StageCol { hdr: "WB", cells, stall: 0 });
+        cols.push(StageCol { hdr: "WB", cells });
     }
     {
         let cells = vec![None; w];
-        cols.push(StageCol { hdr: "CM", cells, stall: 0 });
+        cols.push(StageCol { hdr: "CM", cells });
     }
 
     let hdr_cells: Vec<String> = cols.iter().map(|c| format!("{:^COL_W$}", c.hdr)).collect();
@@ -156,7 +126,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
             .map(|c| {
                 let s = c.cells[slot]
                     .as_ref()
-                    .map_or_else(|| empty_cell(c.stall), std::clone::Clone::clone);
+                    .map_or_else(|| "─".to_string(), std::clone::Clone::clone);
                 format!("{s:<COL_W$}")
             })
             .collect();
@@ -175,36 +145,15 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
             notes.push(format!("{}←{:#x}", reg_name(e.rd), v));
         }
     }
-    let mut stall_notes: Vec<String> = Vec::new();
-    if snap.fetch1_stall > 0 {
-        stall_notes.push(format!("F1={}", snap.fetch1_stall));
-    }
-    if snap.fetch2_stall > 0 {
-        stall_notes.push(format!("F2={}", snap.fetch2_stall));
-    }
-    if snap.mem1_stall > 0 {
-        stall_notes.push(format!("M1={}", snap.mem1_stall));
-    }
 
     let mut out: Vec<String> = Vec::new();
     out.push(rule.clone());
     out.push(hdr_line);
     out.push(rule.clone());
     out.extend(rows);
-    if !notes.is_empty() || !stall_notes.is_empty() {
-        use std::fmt::Write as _;
-        let mut ann = String::new();
-        if !notes.is_empty() {
-            let _ = write!(ann, "  fwd: {}", notes.join("  "));
-        }
-        if !stall_notes.is_empty() {
-            if !ann.is_empty() {
-                ann.push_str("  ");
-            }
-            let _ = write!(ann, "stall: {}", stall_notes.join(" "));
-        }
+    if !notes.is_empty() {
         out.push(rule.clone());
-        out.push(ann);
+        out.push(format!("  fwd: {}", notes.join("  ")));
     }
     out.push(rule);
     out.join("\n")
@@ -225,9 +174,6 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 /// - ``execute_mem1`` / ``mem1_mem2``: ``rd``, ``alu``, ``store_data``, ``rob_tag``
 /// - ``mem1_mem2``: also ``vaddr``, ``paddr``
 /// - ``mem2_wb``: ``rd``, ``alu``, ``load_data``, ``rob_tag``
-///
-/// Stall counters ``fetch1_stall``, ``fetch2_stall``, ``mem1_stall`` give
-/// remaining hold cycles on the respective stages.
 #[pyclass(name = "PipelineSnapshot", subclass)]
 pub struct PyPipelineSnapshot {
     inner: PipelineSnapshot,
@@ -427,24 +373,6 @@ impl PyPipelineSnapshot {
             })
             .collect::<PyResult<_>>()?;
         Ok(PyList::new(py, items)?.unbind())
-    }
-
-    /// Fetch1 stall cycles remaining (I-TLB latency).
-    #[getter]
-    const fn fetch1_stall(&self) -> u64 {
-        self.inner.fetch1_stall
-    }
-
-    /// Fetch2 stall cycles remaining (I-cache latency).
-    #[getter]
-    const fn fetch2_stall(&self) -> u64 {
-        self.inner.fetch2_stall
-    }
-
-    /// Memory1 stall cycles remaining (D-TLB / D-cache latency).
-    #[getter]
-    const fn mem1_stall(&self) -> u64 {
-        self.inner.mem1_stall
     }
 
     /// Return the pipeline diagram as a string.

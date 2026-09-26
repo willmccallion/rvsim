@@ -52,12 +52,6 @@ pub struct Frontend<E: ExecutionEngine> {
     pub fetch2_decode: Latch<IfIdEntry>,
     /// Decode → Rename latch.
     pub decode_rename: Latch<IdExEntry>,
-    /// Retained for snapshot compatibility; the packet model no longer
-    /// uses it (fetch latency arrives through `MemResp` arrival cycle).
-    pub fetch1_stall: u64,
-    /// Retained for snapshot compatibility; the packet model no longer
-    /// uses it (cache-miss penalty arrives through `MemResp` arrival cycle).
-    pub fetch2_stall: u64,
     _marker: PhantomData<E>,
 }
 
@@ -70,8 +64,6 @@ impl<E: ExecutionEngine> Frontend<E> {
             fetch_buffer: FetchBuffer::default(),
             fetch2_decode: Latch::new(STAGE_DELAY),
             decode_rename: Latch::new(STAGE_DELAY),
-            fetch1_stall: 0,
-            fetch2_stall: 0,
             _marker: PhantomData,
         }
     }
@@ -148,7 +140,5 @@ impl<E: ExecutionEngine> Frontend<E> {
         self.fetch1_fetch2.clear();
         self.fetch2_decode.clear();
         self.decode_rename.clear();
-        self.fetch1_stall = 0;
-        self.fetch2_stall = 0;
     }
 }

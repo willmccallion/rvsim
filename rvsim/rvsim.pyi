@@ -20,9 +20,6 @@ class PipelineSnapshot:
     execute_mem1: List[Dict[str, Any]]
     mem1_mem2: List[Dict[str, Any]]
     mem2_wb: List[Dict[str, Any]]
-    fetch1_stall: int
-    fetch2_stall: int
-    mem1_stall: int
 
     def render(self) -> str:
         """Return the pipeline diagram as a string."""
