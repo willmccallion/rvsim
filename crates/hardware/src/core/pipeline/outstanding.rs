@@ -128,3 +128,13 @@ pub enum WalkContinuation {
     /// memory1 re-runs with the (now TLB-resident) translation.
     LoadStore(ExMem1Entry),
 }
+
+/// A load answered from the store buffer: its data is known at once, but
+/// it reaches memory2 only after the L1D hit latency, like any other load.
+#[derive(Clone, Debug)]
+pub struct ForwardedLoad {
+    /// Cycle the data would have come back from the cache.
+    pub ready_cycle: u64,
+    /// The completed memory1 entry.
+    pub entry: crate::core::pipeline::latches::Mem1Mem2Entry,
+}

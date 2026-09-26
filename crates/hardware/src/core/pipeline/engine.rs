@@ -205,6 +205,8 @@ pub struct BackendCommon {
     pub mem1_replay: Vec<crate::core::pipeline::latches::ExMem1Entry>,
     /// Memory ops waiting out an L2 TLB hit's latency.
     pub mem1_delayed: Vec<crate::core::pipeline::outstanding::DelayedAccess>,
+    /// Loads forwarded from the store buffer, waiting out the L1D latency.
+    pub forwarded_loads: Vec<crate::core::pipeline::outstanding::ForwardedLoad>,
     /// Secondary request of a line-straddling load, mapped to the request
     /// its [`OutstandingLoad`] is filed under.
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
@@ -262,6 +264,7 @@ impl BackendCommon {
         });
         self.mem1_replay.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
         self.mem1_delayed.retain(|access| access.entry.rob_tag.is_older_or_eq(keep_tag));
+        self.forwarded_loads.retain(|load| load.entry.rob_tag.is_older_or_eq(keep_tag));
         let loads = &self.outstanding_loads;
         self.load_parts.retain(|_, primary| loads.contains_key(primary));
         if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
@@ -411,6 +414,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.load_parts.clear();
         common.mem1_replay.clear();
         common.mem1_delayed.clear();
+        common.forwarded_loads.clear();
         common.coherence_violation = None;
         self.engine.flush(state);
     }

@@ -34,7 +34,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{
-    DelayedAccess, OutstandingLoad, OutstandingWalk, WalkContinuation,
+    DelayedAccess, ForwardedLoad, OutstandingLoad, OutstandingWalk, WalkContinuation,
 };
 use crate::core::pipeline::rob::{RobState, RobTag};
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
@@ -72,6 +72,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
     input: &mut Vec<ExMem1Entry>,
 ) {
     let now = state.cycle;
+    release_forwarded_loads(engine, now);
     let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
     entries.append(input);
     let delayed = &mut engine.common_mut().mem1_delayed;
@@ -117,6 +118,20 @@ pub fn memory1_stage<E: ExecutionEngine>(
             }
         }
     }
+}
+
+/// Moves forwarded loads whose L1D latency has elapsed into the M1→M2 latch.
+fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
+    let mut ready = Vec::new();
+    engine.common_mut().forwarded_loads.retain(|load| {
+        if load.ready_cycle <= now {
+            ready.push(load.entry.clone());
+            false
+        } else {
+            true
+        }
+    });
+    engine.mem1_mem2_mut().extend(ready);
 }
 
 /// Processes one entry; `translated` is the translation an access that
@@ -293,7 +308,7 @@ fn process_entry<E: ExecutionEngine>(
     // Demand load: try store-buffer forwarding first.
     match engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag) {
         ForwardResult::Hit(raw_val) => {
-            push_sb_forwarded_load(engine, ex, paddr, vaddr, pte_update, raw_val);
+            push_sb_forwarded_load(state, engine, ex, paddr, vaddr, pte_update, raw_val);
             EntryOutcome::Done
         }
         ForwardResult::Stall => EntryOutcome::Replay(ex),
@@ -471,6 +486,7 @@ fn push_resolved_sc<E: ExecutionEngine>(
 /// Pushes an SB-forwarded load into M1→M2 with the forwarded raw value
 /// already in `load_data`.
 fn push_sb_forwarded_load<E: ExecutionEngine>(
+    state: &CoreCtx<'_>,
     engine: &mut E,
     ex: ExMem1Entry,
     paddr: PhysAddr,
@@ -478,7 +494,10 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
     pte_update: Option<PteUpdate>,
     raw_val: u64,
 ) {
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
+    // Forwarded data still takes the load pipeline's time to arrive.
+    let latency =
+        if state.core.l1_d_cache.is_enabled() { state.core.l1_d_cache.latency } else { 1 };
+    let entry = Mem1Mem2Entry {
         rob_tag: ex.rob_tag,
         pc: ex.pc,
         inst: ex.inst,
@@ -500,7 +519,11 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
         sfence_vma: ex.sfence_vma,
         vec_mem: ex.vec_mem,
         observed: None,
-    });
+    };
+    engine
+        .common_mut()
+        .forwarded_loads
+        .push(ForwardedLoad { ready_cycle: state.cycle + latency.max(1), entry });
 }
 
 /// Issues a `MemReq` for a load / LR / AMO and parks the entry.
