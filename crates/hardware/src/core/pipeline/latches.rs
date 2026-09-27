@@ -7,7 +7,7 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
-use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
+use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{InstSeq, InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
@@ -395,8 +395,8 @@ pub struct Mem1Mem2Entry {
     /// Cycle at which this entry's memory operation completes (O3 per-op latency).
     /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
     pub complete_cycle: u64,
-    /// Deferred PTE A/D bit update from address translation (applied at commit).
-    pub pte_update: Option<PteUpdate>,
+    /// The D-bit updates the access applies when it retires.
+    pub dirty_updates: DirtyUpdates,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (flows through from `ExMem1Entry`).
@@ -452,7 +452,7 @@ impl Mem1Mem2Entry {
             exception_stage: ex.exception_stage,
             fp_flags: ex.fp_flags,
             complete_cycle: 0,
-            pte_update: None,
+            dirty_updates: DirtyUpdates::NONE,
             sfence_vma: ex.sfence_vma,
             vec_mem: ex.vec_mem,
             observed: None,
@@ -487,8 +487,8 @@ pub struct Mem2WbEntry {
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: u8,
-    /// Deferred PTE A/D bit update from address translation (applied at commit).
-    pub pte_update: Option<PteUpdate>,
+    /// The D-bit updates the access applies when it retires.
+    pub dirty_updates: DirtyUpdates,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.

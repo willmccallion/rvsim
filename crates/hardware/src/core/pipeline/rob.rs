@@ -11,7 +11,7 @@
 use crate::sim::state::write_log::WriteSeq;
 use std::collections::HashMap;
 
-use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
+use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{CsrAddr, InstSeq, InstSize, RegIdx};
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
@@ -148,8 +148,8 @@ pub struct RobEntry {
     pub bp_outcome: BpOutcome,
     /// Where a taken branch or a jump goes; `None` for not-taken.
     pub bp_target: Option<u64>,
-    /// Deferred PTE A/D bit update from address translation (applied at commit).
-    pub pte_update: Option<PteUpdate>,
+    /// The D-bit updates the access applies when it retires.
+    pub dirty_updates: DirtyUpdates,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.
@@ -287,7 +287,7 @@ impl Rob {
             bp_update: false,
             bp_outcome: BpOutcome::default(),
             bp_target: None,
-            pte_update: None,
+            dirty_updates: DirtyUpdates::NONE,
             sfence_vma: None,
             lr_sc: None,
             observed: None,
@@ -457,10 +457,10 @@ impl Rob {
         }
     }
 
-    /// Sets the deferred PTE A/D update for a given entry (applied at commit).
-    pub fn set_pte_update(&mut self, tag: RobTag, update: PteUpdate) {
+    /// Files the D-bit updates an entry applies when it retires.
+    pub fn set_dirty_updates(&mut self, tag: RobTag, updates: DirtyUpdates) {
         if let Some(entry) = self.find_entry_mut(tag) {
-            entry.pte_update = Some(update);
+            entry.dirty_updates = updates;
         }
     }
 

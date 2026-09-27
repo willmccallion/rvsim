@@ -16,3 +16,9 @@ lives in the frontend while `Hart.pc` is the architectural PC.
 **Consequences.** A register or CSR write from a stage does not compile;
 compile-fail doctests on `StageCtx` prove it. CSR reads and translation are
 free functions both views share.
+
+The one memory write a stage makes is the page-table walker's A-bit update
+(`StageCtx::set_pte_accessed`): the privileged spec lets it happen
+speculatively, so it belongs to the walk. The D bit a store sets must be
+exact and is written at commit, after rechecking the PTE the store was
+translated with.

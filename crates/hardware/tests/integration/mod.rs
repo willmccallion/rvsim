@@ -4,6 +4,7 @@ pub mod amo_cache_access;
 pub mod btb_training;
 pub mod bus_occupancy;
 pub mod cbo_translation;
+pub mod hardware_ad_bits;
 pub mod csr_head_execution;
 pub mod csr_ordering;
 pub mod drain;

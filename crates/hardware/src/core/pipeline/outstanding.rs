@@ -8,7 +8,7 @@
 //! work the original stage couldn't (apply sign extension, complete the
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
-use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::common::{LineAddr, PhysAddr, TranslationResult, VirtAddr};
 use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::units::mmu::ptw::WalkState;
@@ -52,8 +52,8 @@ pub struct OutstandingLoad {
     /// Pre-translation virtual address (kept for the load queue's address
     /// field and for trace output).
     pub vaddr: VirtAddr,
-    /// Deferred PTE A/D bit update from translation (applied at commit).
-    pub pte_update: Option<crate::common::PteUpdate>,
+    /// The D-bit updates the access applies when it retires (an AMO's).
+    pub dirty_updates: crate::common::DirtyUpdates,
     /// The access reads a device, so it was issued non-speculatively from
     /// the ROB head and must complete before anything pre-empts it.
     pub side_effecting: bool,
@@ -62,16 +62,26 @@ pub struct OutstandingLoad {
     pub parts_outstanding: u8,
 }
 
-/// A memory access whose translation hit the L2 TLB: it proceeds once the
-/// L2 TLB's latency has elapsed, with the translation it already has.
+/// A memory access that already holds translations, from an L2 TLB hit or a
+/// completed page-table walk: it proceeds at `ready_cycle` with them.
 #[derive(Clone, Debug)]
 pub struct DelayedAccess {
     /// Cycle at which the access may continue.
     pub ready_cycle: u64,
     /// The access.
     pub entry: ExMem1Entry,
-    /// Its translation, latency already paid.
-    pub translation: crate::common::TranslationResult,
+    /// Its translations so far, latency already paid.
+    pub translations: PageTranslations,
+}
+
+/// The translations a memory access has obtained so far: its first page's
+/// and, for an access that crosses into the next page, that page's.
+#[derive(Clone, Debug, Default)]
+pub struct PageTranslations {
+    /// The page holding the access's first byte.
+    pub first: Option<TranslationResult>,
+    /// The next page, for an access that crosses into it.
+    pub second: Option<TranslationResult>,
 }
 
 /// A store awaiting cache write-allocate acknowledgment.
@@ -119,10 +129,15 @@ pub enum WalkContinuation {
         /// The instruction whose translation is outstanding.
         entry: Fetch1Fetch2Entry,
     },
-    /// A demand load or store waiting on its translation. The
-    /// `ExMem1Entry` is re-injected into the Execute→Memory1 latch so
-    /// memory1 re-runs with the (now TLB-resident) translation.
-    LoadStore(ExMem1Entry),
+    /// A load or store waiting on the translation of one of its pages.
+    /// When the walk completes, memory1 continues the access with the
+    /// walk's result and whatever it had translated before.
+    LoadStore {
+        /// The access.
+        entry: ExMem1Entry,
+        /// The translations it obtained before this walk.
+        translations: Box<PageTranslations>,
+    },
 }
 
 /// A load answered from the store buffer: its data is known at once, but

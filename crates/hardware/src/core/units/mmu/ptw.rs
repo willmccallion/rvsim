@@ -8,7 +8,8 @@
 //! or returns the next PTE to read.
 
 use crate::common::{
-    AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, TranslationResult, Trap, VPN_MASK, VirtAddr, Vpn,
+    AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, PteUpdate, TranslationResult, Trap, VPN_MASK,
+    VirtAddr, Vpn,
 };
 use crate::core::arch::csr::{
     Csrs, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK,
@@ -112,11 +113,6 @@ impl PageTableEntry {
     /// Returns a new instance with the Accessed (A) bit set.
     const fn with_accessed(self) -> Self {
         Self(self.0 | PTE_ACCESSED_BIT)
-    }
-
-    /// Returns a new instance with the Dirty (D) bit set.
-    const fn with_dirty(self) -> Self {
-        Self(self.0 | PTE_DIRTY_BIT)
     }
 }
 
@@ -272,20 +268,10 @@ pub fn continue_walk(
         }
     }
 
-    let (new_pte, updated) = update_access_bits(pte, state.access);
-
-    let pte_update = if updated {
+    let (accessed_update, dirty_update) = access_bit_updates(&state, pte);
+    if accessed_update.is_some() || dirty_update.is_some() {
         state.cycles += PTE_UPDATE_CYCLES;
-        let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
-        let vpn_i = (state.vaddr.val() >> vpn_shift) & VPN_ENTRY_MASK;
-        let pte_addr = (state.ppn_raw << PAGE_SHIFT) + (vpn_i * PTE_SIZE);
-        Some(crate::common::error::PteUpdate {
-            pte_addr: PhysAddr::new(pte_addr),
-            pte_value: new_pte.raw(),
-        })
-    } else {
-        None
-    };
+    }
 
     let final_ppn = pte.ppn();
     let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
@@ -303,16 +289,13 @@ pub fn continue_walk(
     }
     mmu.l2_tlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid);
 
-    let result = pte_update.map_or_else(
-        || TranslationResult::success(PhysAddr::new(final_paddr), state.cycles),
-        |update| {
-            TranslationResult::success_with_pte_update(
-                PhysAddr::new(final_paddr),
-                state.cycles,
-                update,
-            )
-        },
-    );
+    let result = TranslationResult {
+        paddr: PhysAddr::new(final_paddr),
+        cycles: state.cycles,
+        trap: None,
+        dirty_update,
+        accessed_update,
+    };
     WalkStep::Done(result)
 }
 
@@ -379,19 +362,24 @@ fn check_permissions(
     Ok(())
 }
 
-/// Updates the Accessed (A) and Dirty (D) bits of a PTE.
-///
-/// Returns a tuple containing the potentially modified PTE and a boolean
-/// indicating if a write-back to memory is required.
-fn update_access_bits(pte: PageTableEntry, access: AccessType) -> (PageTableEntry, bool) {
-    let need_accessed = !pte.is_accessed();
-    let need_dirty = access == AccessType::Write && !pte.is_dirty();
-    let updated = need_accessed || need_dirty;
-
-    let new_pte = if need_accessed { pte.with_accessed() } else { pte };
-    let new_pte = if need_dirty { new_pte.with_dirty() } else { new_pte };
-
-    (new_pte, updated)
+/// The hardware A/D updates the access that walked to leaf `pte` needs:
+/// setting A, which the walker does at once, and setting D for a store,
+/// which waits until the store retires.
+fn access_bit_updates(state: &WalkState, pte: PageTableEntry) -> (Option<PteUpdate>, Option<PteUpdate>) {
+    let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
+    let vpn_i = (state.vaddr.val() >> vpn_shift) & VPN_ENTRY_MASK;
+    let pte_addr = PhysAddr::new((state.ppn_raw << PAGE_SHIFT) + (vpn_i * PTE_SIZE));
+    let accessed = (!pte.is_accessed()).then_some(PteUpdate {
+        pte_addr,
+        walked_pte: pte.raw(),
+        set_bits: PTE_ACCESSED_BIT,
+    });
+    let dirty = (state.access == AccessType::Write && !pte.is_dirty()).then_some(PteUpdate {
+        pte_addr,
+        walked_pte: pte.with_accessed().raw(),
+        set_bits: PTE_ACCESSED_BIT | PTE_DIRTY_BIT,
+    });
+    (accessed, dirty)
 }
 
 /// Constructs the appropriate Trap for a failed page access.

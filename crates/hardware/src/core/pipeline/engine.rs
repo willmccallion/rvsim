@@ -207,7 +207,7 @@ pub struct BackendCommon {
     /// execute→memory1 latch so a blocked op never back-pressures issue:
     /// the store it waits on may sit behind an older, not-yet-issued load.
     pub mem1_replay: Vec<crate::core::pipeline::latches::ExMem1Entry>,
-    /// Memory ops waiting out an L2 TLB hit's latency.
+    /// Memory ops continuing with translations they already hold.
     pub mem1_delayed: Vec<crate::core::pipeline::outstanding::DelayedAccess>,
     /// Loads forwarded from the store buffer, waiting out the L1D latency.
     pub forwarded_loads: Vec<crate::core::pipeline::outstanding::ForwardedLoad>,
@@ -281,7 +281,7 @@ impl BackendCommon {
         }
         self.outstanding_loads.retain(|_, load| load.entry.rob_tag.is_older_or_eq(keep_tag));
         self.outstanding_walks.retain(|_, walk| match &walk.continuation {
-            crate::core::pipeline::outstanding::WalkContinuation::LoadStore(entry) => {
+            crate::core::pipeline::outstanding::WalkContinuation::LoadStore { entry, .. } => {
                 entry.rob_tag.is_older_or_eq(keep_tag)
             }
             crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,

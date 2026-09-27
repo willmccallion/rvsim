@@ -4,13 +4,17 @@
 //! micro-architecture (TLBs, predictor, caches), counts stats and
 //! schedules packets. It cannot write a register, a CSR, the PC or
 //! memory: those belong to commit, which works on the full
-//! [`CoreCtx`](super::CoreCtx).
+//! [`CoreCtx`](super::CoreCtx). The one memory write it makes is the
+//! page-table walker's A-bit update, which the spec lets happen
+//! speculatively.
 
 use std::ops::Deref;
 
 use super::memory::TranslateResult;
+use super::write_log::Writer;
 use super::{SharedState, csr, memory};
-use crate::common::{AccessType, CsrAddr, VirtAddr};
+use crate::common::{AccessType, CsrAddr, PteUpdate, VirtAddr};
+use crate::core::pipeline::signals::MemWidth;
 use crate::core::units::mmu::ptw::WalkState;
 use crate::core::{CoreUnits, Hart};
 use crate::sim::events::EventQueue;
@@ -118,6 +122,20 @@ impl<'a> StageCtx<'a> {
             raw_pte,
             bus_transit_cycles,
         )
+    }
+
+    /// Sets the A bit of a leaf PTE for the page-table walker, if the PTE
+    /// still holds the value the walk checked. Returns the PTE written, or
+    /// `None` when nothing was.
+    pub fn set_pte_accessed(&mut self, update: &PteUpdate) -> Option<u64> {
+        let addr = update.pte_addr.val();
+        let region = self.shared.bus.ram_region_for(addr, 8)?;
+        // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
+        let current = unsafe { region.ptr(addr).cast::<u64>().read_unaligned() };
+        let written = update.applied_to(current).filter(|&pte| pte != current)?;
+        let writer = Writer::Hart(self.hart.hart_id);
+        self.shared.publish_write(writer, update.pte_addr, written, MemWidth::Double);
+        Some(written)
     }
 
     /// Reads a CSR.

@@ -278,9 +278,8 @@ fn write_to_clean_page_sets_dirty() {
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
-    // A/D bit updates are deferred to commit via PteUpdate
-    let upd = res.pte_update.expect("Should produce a PteUpdate for dirty bit");
-    assert_eq!(upd.pte_value & D, D, "Dirty bit should be set in deferred update");
+    let upd = res.dirty_update.expect("a store to a clean page sets D when it retires");
+    assert_eq!(upd.set_bits, A | D);
 }
 
 #[test]
@@ -300,9 +299,9 @@ fn read_from_unaccessed_page_sets_accessed() {
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
 
-    // A/D bit updates are deferred to commit via PteUpdate
-    let upd = res.pte_update.expect("Should produce a PteUpdate for accessed bit");
-    assert_eq!(upd.pte_value & A, A, "Accessed bit should be set in deferred update");
+    let upd = res.accessed_update.expect("the walker sets A on an unaccessed page");
+    assert_eq!(upd.set_bits, A);
+    assert!(res.dirty_update.is_none(), "a load never sets D");
 }
 
 #[test]

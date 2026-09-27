@@ -18,18 +18,21 @@
 //!    sign-extension, AMO RMW, and SB ordering checks.
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
-use crate::common::{ExceptionStage, PhysAddr};
+use crate::common::constants::PAGE_SHIFT;
+use crate::common::{ExceptionStage, PhysAddr, PteUpdate, TranslationResult};
 use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
-    OutstandingFetch, OutstandingLoad, OutstandingWalk, WalkContinuation,
+    DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk,
+    WalkContinuation,
 };
+use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet};
+use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData};
 use crate::sim::state::memory::TranslateResult;
 use crate::sim::state::write_log::WriteLog;
 
@@ -113,7 +116,7 @@ fn complete_load<E: ExecutionEngine>(
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         load_data: load_raw,
         complete_cycle: cycle,
-        pte_update: load.pte_update,
+        dirty_updates: load.dirty_updates,
         observed,
         ..Mem1Mem2Entry::from_execute(entry, load.vaddr, paddr)
     });
@@ -128,10 +131,14 @@ fn complete_walk<E: ExecutionEngine>(
 ) {
     let raw_pte = read_pte_bytes(state, walk.pte_addr);
     let bus_transit = state.bus.calculate_transit_time(8);
+    let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
     let outcome = state.translate_continue(walk.state, raw_pte, bus_transit);
     match outcome {
         TranslateResult::Ready(result) => {
-            dispatch_walk_continuation(pipeline, state, walk.continuation, result);
+            if let Some(update) = result.accessed_update {
+                set_accessed_bit(pipeline, state, &update);
+            }
+            dispatch_walk_continuation(pipeline, state, walk.continuation, walked_page, result);
         }
         TranslateResult::NeedPte { pte_addr, state: walk_state } => {
             let common = pipeline.engine.common_mut();
@@ -150,7 +157,8 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
     state: &mut StageCtx<'_>,
     continuation: WalkContinuation,
-    result: crate::common::TranslationResult,
+    walked_page: u64,
+    result: TranslationResult,
 ) {
     match continuation {
         WalkContinuation::Fetch { fetch_seq, mut entry } => {
@@ -181,7 +189,25 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 OutstandingFetch { fetch_seq, line: None, entries: vec![entry] },
             );
         }
-        WalkContinuation::LoadStore(mut entry) => {
+        WalkContinuation::LoadStore { mut entry, mut translations } => {
+            if result.trap.is_none() {
+                // Memory1 continues with the walk's own translation: it
+                // carries the D-bit update a store applies at commit, which
+                // translating again through the TLB would lose.
+                let translation =
+                    Some(TranslationResult { cycles: 0, accessed_update: None, ..result });
+                if walked_page == entry.alu >> PAGE_SHIFT {
+                    translations.first = translation;
+                } else {
+                    translations.second = translation;
+                }
+                pipeline.engine.common_mut().mem1_delayed.push(DelayedAccess {
+                    ready_cycle: state.cycle,
+                    entry,
+                    translations: *translations,
+                });
+                return;
+            }
             if let Some(trap) = result.trap {
                 let op = entry.ctrl.system_op;
                 let trap = if op.is_cbo() {
@@ -189,19 +215,44 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 } else {
                     trap
                 };
-                // Walker returned a page fault (e.g. software A/D unset).
                 // Stamp the trap on the entry so memory1 propagates it to
-                // memory2 / writeback rather than re-translating and
-                // re-walking forever.
+                // memory2 / writeback rather than walking again.
                 entry.trap = Some(trap);
                 entry.exception_stage = Some(ExceptionStage::Memory);
             }
-            // Re-inject into Execute→Memory1 so the next memory1 tick runs
-            // with the TLB now warm (success path) or surfaces the trap
-            // through the normal stage transitions (fault path).
             pipeline.engine.execute_mem1_mut().push(entry);
         }
     }
+}
+
+/// Sets the A bit the walk found clear and sends the PTE write to the L1D,
+/// as the walker's own store.
+fn set_accessed_bit<E: ExecutionEngine>(
+    pipeline: &mut Pipeline<E>,
+    state: &mut StageCtx<'_>,
+    update: &PteUpdate,
+) {
+    let Some(pte) = state.set_pte_accessed(update) else { return };
+    let common = pipeline.engine.common_mut();
+    let req_id = common.alloc_req_id();
+    let _ = common.outstanding_stores.insert(
+        req_id,
+        OutstandingStore { rob_tag: RobTag::default(), paddr: update.pte_addr },
+    );
+    let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
+    let cycle = state.cycle;
+    state.events().schedule(
+        cycle,
+        ComponentId::Cache(l1_d_id),
+        ComponentId::Pipeline(pipeline_id),
+        Packet::MemReq {
+            req_id,
+            paddr: update.pte_addr,
+            vaddr: None,
+            size: AccessSize::B8,
+            op: MemOp::Write { data: WriteData::Small(pte) },
+        },
+    );
 }
 
 /// Reads a 64-bit PTE from the RAM fast path. RISC-V doesn't permit page

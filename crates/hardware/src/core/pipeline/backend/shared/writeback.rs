@@ -53,8 +53,8 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
         if wb.fp_flags != 0 {
             rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
         }
-        if let Some(pte_upd) = wb.pte_update {
-            rob.set_pte_update(wb.rob_tag, pte_upd);
+        if !wb.dirty_updates.is_empty() {
+            rob.set_dirty_updates(wb.rob_tag, wb.dirty_updates);
         }
         if let Some(sfence_info) = wb.sfence_vma {
             rob.set_sfence_vma(wb.rob_tag, sfence_info);

@@ -11,7 +11,7 @@ use crate::common::constants::{
     DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
 };
 use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
-use crate::common::{Asid, LrScRecord, PhysAddr, RegIdx, SfenceVmaInfo, Trap, Vpn};
+use crate::common::{Asid, LrScRecord, PhysAddr, PteUpdate, RegIdx, SfenceVmaInfo, Trap, Vpn};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
@@ -314,6 +314,20 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             break;
         }
 
+        // Setting D must recheck the PTE the store was translated with.
+        if head.state == RobState::Completed
+            && head.dirty_updates.iter().any(|update| updated_pte(state, update).is_none())
+        {
+            trace_trap!(state.config.general.trace_instructions;
+                event   = "pte-changed-reexecute",
+                pc      = %crate::trace::Hex(head.pc),
+                rob_tag = head.tag.0,
+                "CM: store's PTE changed since its walk — re-executing"
+            );
+            event = Some(CommitEvent::ReExecute(head.pc));
+            break;
+        }
+
         // SFENCE.VMA must wait for committed stores to reach RAM so PTW sees current PTEs.
         if head.ctrl.system_op == SystemOp::SfenceVma && store_buffer.has_committed_stores() {
             break;
@@ -471,14 +485,10 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             }
         }
 
-        if let Some(pte_upd) = entry.pte_update {
-            write_store_to_memory(
-                state,
-                common,
-                pte_upd.pte_addr,
-                pte_upd.pte_value,
-                MemWidth::Double,
-            );
+        for update in entry.dirty_updates.iter() {
+            if let Some(pte) = updated_pte(state, update) {
+                write_store_to_memory(state, common, update.pte_addr, pte, MemWidth::Double);
+            }
         }
 
         // Apply fp_flags before CSR writes to keep execute-time CSR reads of fflags consistent.
@@ -728,6 +738,13 @@ fn observed_value_is_stale(
             head.result != Some(current)
         }
     }
+}
+
+/// The PTE a hardware A/D update writes, or `None` when the PTE has changed
+/// since the walk that produced it.
+fn updated_pte(state: &CoreCtx<'_>, update: &PteUpdate) -> Option<u64> {
+    read_ram_word(state, update.pte_addr, MemWidth::Double)
+        .and_then(|current| update.applied_to(current))
 }
 
 /// The word at `paddr` as it is in RAM right now; `None` outside pure RAM.
