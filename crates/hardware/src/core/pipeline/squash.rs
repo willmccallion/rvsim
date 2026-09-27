@@ -8,8 +8,9 @@
 //! passed, the way gem5's squash travels from execute through commit to
 //! fetch. Until then commit retires nothing younger than the instruction.
 
+use crate::common::InstSeq;
 use crate::core::pipeline::rob::RobTag;
-use crate::core::units::bru::{BranchPredictor, Ghr, RasSnapshot};
+use crate::core::units::bru::BranchPredictorWrapper;
 
 /// Why an instruction squashed what followed it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,28 +35,23 @@ impl SquashCause {
     }
 }
 
-/// The predictor state a mispredicted branch restores when its squash is
-/// taken: the global history as fetched, with the real outcome pushed,
-/// and the return-address stack as it was before the branch.
+/// A control instruction that resolved against its prediction: the
+/// predictor squashes what it predicted after it and rewrites its own
+/// history update with the real outcome.
 #[derive(Clone, Copy, Debug)]
 pub struct BranchRepair {
-    /// The branch.
-    pub pc: u64,
+    /// The instruction.
+    pub seq: InstSeq,
     /// Its real direction (always taken for a jump).
     pub taken: bool,
-    /// Global history captured when the branch was fetched.
-    pub ghr: Ghr,
-    /// Return-address stack captured when the branch was fetched.
-    pub ras: RasSnapshot,
+    /// Where it goes when taken.
+    pub target: u64,
 }
 
 impl BranchRepair {
-    /// Restores the predictor to this branch's fetch-time state and
-    /// records its real outcome.
-    pub fn apply(&self, predictor: &mut impl BranchPredictor) {
-        predictor.repair_history(&self.ghr);
-        predictor.speculate(self.pc, self.taken);
-        predictor.restore_ras(self.ras);
+    /// Repairs the predictor for this misprediction.
+    pub fn apply(&self, predictor: &mut BranchPredictorWrapper) {
+        predictor.mispredict(self.seq, self.taken, self.target);
     }
 }
 

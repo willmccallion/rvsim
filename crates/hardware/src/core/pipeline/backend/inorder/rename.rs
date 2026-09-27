@@ -28,6 +28,7 @@ impl InOrderEngine {
             id.ctrl,
             PhysReg(0),
             PhysReg(0),
+            id.seq,
         ) else {
             return Renamed::Stalled(Box::new(id));
         };
@@ -75,8 +76,7 @@ impl InOrderEngine {
             exception_stage: id.exception_stage,
             pred_taken: id.pred_taken,
             pred_target: id.pred_target,
-            ghr_snapshot: id.ghr_snapshot,
-            ras_snapshot: id.ras_snapshot,
+            seq: id.seq,
             vs1_phys: [VecPhysReg::ZERO; 8],
             vs2_phys: [VecPhysReg::ZERO; 8],
             vs3_phys: [VecPhysReg::ZERO; 8],

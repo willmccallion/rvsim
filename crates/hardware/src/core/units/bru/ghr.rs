@@ -1,11 +1,4 @@
-//! Branch Predictor Interface.
-//!
-//! This module defines the `BranchPredictor` trait that all branch prediction
-//! implementations must adhere to. It provides a common interface for
-//! predicting conditional branches, indirect jumps (via BTB), and function
-//! returns (via RAS).
-
-use super::ras::RasSnapshot;
+//! Global history register.
 
 /// Maximum number of u64 words in a GHR. 16 × 64 = 1024 bits.
 /// This is a capacity bound — the effective history length comes from config.
@@ -38,17 +31,6 @@ impl Default for Ghr {
 }
 
 impl Ghr {
-    /// Creates a new GHR from a u64 value (64-bit history).
-    ///
-    /// Backward-compatible constructor for predictors that only use 64 bits
-    /// of history (`GShare`, Tournament, Perceptron).
-    #[inline]
-    pub const fn new(val: u64) -> Self {
-        let mut bits = [0u64; GHR_MAX_WORDS];
-        bits[0] = val;
-        Self { bits, len: 64 }
-    }
-
     /// Creates a zero-initialized GHR with the given effective history length.
     ///
     /// # Panics
@@ -121,115 +103,9 @@ impl Ghr {
     }
 }
 
-/// Trait for branch prediction algorithms.
-///
-/// Defines the interface that all branch prediction implementations
-/// must provide for predicting branch directions, targets, and managing
-/// return address prediction.
-pub trait BranchPredictor {
-    /// Predicts whether a branch instruction will be taken and its target address.
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>);
-
-    /// Updates the branch predictor with actual branch outcome.
-    ///
-    /// Called at commit time to train the predictor with the actual
-    /// taken/not-taken decision and target address. The `ghr_snapshot`
-    /// is the GHR captured at fetch time — predictors that use history
-    /// for indexing must use this snapshot (not their live GHR) to
-    /// ensure they train the same table entries that were consulted
-    /// during prediction.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr);
-
-    /// Predicts the target address for a jump instruction using the BTB.
-    fn predict_btb(&self, pc: u64) -> Option<u64>;
-
-    /// Pushes the return address of a call the moment it is fetched.
-    fn push_return(&mut self, ret_addr: u64);
-
-    /// Pops the predicted target of a return the moment it is fetched.
-    fn pop_return(&mut self) -> Option<u64>;
-
-    /// Speculatively updates the GHR with a predicted branch outcome.
-    ///
-    /// Called at fetch time after `predict_branch` to keep the GHR
-    /// up-to-date for subsequent predictions before resolution.
-    fn speculate(&mut self, _pc: u64, _taken: bool) {}
-
-    /// Returns a snapshot of the current GHR for later repair.
-    ///
-    /// Called at fetch time before `speculate` so the snapshot can be
-    /// carried through the pipeline and used at resolution to restore
-    /// the GHR to the correct state.
-    fn snapshot_history(&self) -> Ghr {
-        Ghr::default()
-    }
-
-    /// Restores the GHR to a previously captured snapshot.
-    ///
-    /// Called at resolution time (execute) before `update_branch` so
-    /// the predictor trains on the correct history state.
-    fn repair_history(&mut self, _ghr: &Ghr) {}
-
-    /// Captures the RAS state fetched pushes and pops are undone to.
-    fn snapshot_ras(&self) -> RasSnapshot {
-        RasSnapshot::default()
-    }
-
-    /// Undoes the RAS pushes and pops since `snapshot` was taken.
-    fn restore_ras(&mut self, _snapshot: RasSnapshot) {}
-
-    /// Updates only the BTB with a jump target (no direction training).
-    ///
-    /// Called at execute time for unconditional jumps (JAL/JALR) so the BTB
-    /// learns the target without polluting direction predictor state.
-    fn update_btb(&mut self, _pc: u64, _target: u64) {}
-
-    /// Resets speculative GHR to the committed GHR state.
-    ///
-    /// Called on full pipeline flushes (trap, MRET/SRET, FENCE.I) where the
-    /// speculative history may contain wrong-path branch outcomes.
-    fn repair_to_committed(&mut self) {}
-
-    /// Records a committed jump in the committed history: fetch shifted the
-    /// speculative history as taken for it, so training that indexes by the
-    /// committed history stays in step with the prediction it trains.
-    fn retire_jump(&mut self) {}
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct DummyPredictor;
-    impl BranchPredictor for DummyPredictor {
-        fn predict_branch(&self, _pc: u64) -> (bool, Option<u64>) {
-            (false, None)
-        }
-        fn update_branch(&mut self, _pc: u64, _taken: bool, _target: Option<u64>, _ghr: &Ghr) {}
-        fn predict_btb(&self, _pc: u64) -> Option<u64> {
-            None
-        }
-        fn push_return(&mut self, _ret_addr: u64) {}
-        fn pop_return(&mut self) -> Option<u64> {
-            None
-        }
-    }
-
-    #[test]
-    fn test_branch_predictor_defaults() {
-        let mut predictor = DummyPredictor;
-        predictor.speculate(0x1000, true);
-        assert_eq!(predictor.snapshot_history(), Ghr::default());
-        predictor.repair_history(&Ghr::new(42));
-        assert_eq!(predictor.snapshot_ras(), RasSnapshot::default());
-        predictor.restore_ras(RasSnapshot::default());
-    }
-
-    #[test]
-    fn test_ghr_new_and_val() {
-        let ghr = Ghr::new(0xDEAD_BEEF);
-        assert_eq!(ghr.val(), 0xDEAD_BEEF);
-    }
 
     #[test]
     fn test_ghr_with_len() {

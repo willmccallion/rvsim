@@ -267,15 +267,6 @@ impl GeoBankSet {
 
         (indices, tags)
     }
-
-    /// Copies committed CSRs to speculative CSRs. `O(num_banks)`.
-    /// Used in `repair_to_committed()` to avoid expensive `recompute_all()`.
-    pub const fn copy_committed_to_spec(&mut self) {
-        self.idx_csr = self.committed_idx_csr;
-        self.idx_csr2 = self.committed_idx_csr2;
-        self.tag_csr = self.committed_tag_csr;
-        self.tag_csr2 = self.committed_tag_csr2;
-    }
 }
 
 #[cfg(test)]

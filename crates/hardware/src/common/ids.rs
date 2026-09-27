@@ -1,4 +1,4 @@
-//! Hart and core identifier newtypes.
+//! Hart, core and instruction-sequence identifier newtypes.
 //!
 //! `HartId` is a RISC-V hardware thread (what `mhartid` reads); `CoreId` is a
 //! physical core that hosts one or more harts via SMT.
@@ -56,5 +56,33 @@ impl CoreId {
     #[inline(always)]
     pub const fn as_index(self) -> usize {
         self.0 as usize
+    }
+}
+
+/// An instruction's place in fetch order, gem5's `InstSeqNum`.
+///
+/// Fetch numbers every instruction it forms, counting up and never reusing
+/// a number, so an older instruction always has the smaller one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct InstSeq(u64);
+
+impl InstSeq {
+    /// Creates an `InstSeq` from a raw count.
+    #[inline(always)]
+    pub const fn new(val: u64) -> Self {
+        Self(val)
+    }
+
+    /// Returns the raw count.
+    #[inline(always)]
+    pub const fn val(self) -> u64 {
+        self.0
+    }
+
+    /// The number fetch gives the instruction after this one.
+    #[inline(always)]
+    #[must_use]
+    pub const fn next(self) -> Self {
+        Self(self.0 + 1)
     }
 }

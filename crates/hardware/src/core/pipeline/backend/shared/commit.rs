@@ -30,7 +30,6 @@ use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, Sys
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::core::units::bru::BranchPredictor;
 use crate::core::units::cache::DirtyLine;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
@@ -234,6 +233,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     }
 
     let mut retired_count: usize = 0;
+    let mut youngest_retired = None;
     let rob_empty_at_start = rob.peek_head().is_none();
     for _ in 0..width {
         let Some(head) = rob.peek_head() else { break };
@@ -330,6 +330,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         let Some(entry) = rob.commit_head() else { break };
         retired_count += 1;
+        youngest_retired = Some(entry.seq);
 
         // The architectural PC advances to the retired instruction's successor:
         // a taken branch's target, so an interrupt's EPC is right.
@@ -383,24 +384,15 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         state.stats.counter(hart_paths.retired_insts).inc();
         update_instruction_stats(state, &entry);
 
-        if entry.ctrl.control_flow == ControlFlow::Jump {
-            state.core.branch_predictor.retire_jump();
-        }
         if entry.bp_update {
-            state.core.branch_predictor.update_branch(
-                entry.bp_pc,
-                entry.bp_outcome.taken,
-                entry.bp_target,
-                &entry.bp_ghr_snapshot,
-            );
             trace_branch!(state.config.general.trace_instructions;
-                event         = "update",
-                pc            = %crate::trace::Hex(entry.bp_pc),
+                event         = "retire",
+                pc            = %crate::trace::Hex(entry.pc),
                 rob_tag       = entry.tag.0,
                 actual_taken  = entry.bp_outcome.taken,
                 actual_target = %crate::trace::Hex(entry.bp_target.unwrap_or(0)),
                 mispredicted  = entry.bp_outcome.mispredicted,
-                "CM: branch predictor updated at commit"
+                "CM: branch retired"
             );
             if entry.bp_outcome.mispredicted {
                 state.shared.stats.counter(state.core.stat_paths.bp.committed_mispredicts).inc();
@@ -694,6 +686,9 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         state.hart.regs.write(RegIdx::new(0), 0);
     }
 
+    if let Some(seq) = youngest_retired {
+        common.note_committed(seq, &mut state.core.branch_predictor);
+    }
     if retired_count == 0 && rob_empty_at_start {
         state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_rob_empty).inc();
     }
@@ -1607,6 +1602,7 @@ mod tests {
                 ctrl,
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
         assert!(store_buffer.allocate(amo, MemWidth::Double));
@@ -1673,6 +1669,7 @@ mod tests {
                 ctrl,
                 crate::core::pipeline::prf::PhysReg(1),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
         rob.complete(tag, 42);

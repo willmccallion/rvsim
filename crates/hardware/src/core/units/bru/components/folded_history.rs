@@ -49,8 +49,8 @@ impl FoldedHistory {
 
     /// Recomputes the CSR from scratch using word-level XOR-folding.
     ///
-    /// Used after `repair_history()` (misprediction recovery) and in
-    /// `update_branch()` to reconstruct CSRs from a snapshot GHR.
+    /// Used to rebuild the CSRs from a squashed prediction's recorded GHR
+    /// and to index with a recorded GHR at commit.
     ///
     /// Algorithm: for each 64-bit GHR word, XOR-fold it into `fold_width` bits,
     /// rotate by `(word_idx * 64) % fold_width` to correct alignment, then XOR

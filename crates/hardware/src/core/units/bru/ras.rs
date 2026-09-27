@@ -1,89 +1,80 @@
-//! Return Address Stack (RAS).
+//! Return Address Stack (RAS), after gem5's `ReturnAddrStack`.
 //!
-//! The RAS is a specialized predictor for function return addresses. It operates
-//! as a hardware stack that pushes addresses on function calls and pops them
-//! on returns to predict the execution flow.
+//! A circular stack: a push past capacity overwrites the oldest entry and a
+//! pop past the bottom wraps to it. Each prediction keeps a [`RasHistory`]
+//! of what it did, which a squash undoes youngest first.
 
-/// The stack pointer and the entry under it, captured at fetch.
-///
-/// Enough to undo every push and pop fetched after it, since a wrong-path
-/// push may have overwritten the entry a wrong-path pop exposed.
+/// The stack operations one prediction performed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RasSnapshot {
-    ptr: usize,
-    top: u64,
+pub struct RasHistory {
+    pushed: bool,
+    popped: Option<PoppedEntry>,
+}
+
+/// Where the top of stack was before a pop, and what it held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PoppedEntry {
+    tos: usize,
+    entry: Option<u64>,
 }
 
 /// Return Address Stack structure.
 #[derive(Debug)]
 pub struct Ras {
-    /// The stack storage.
-    stack: Vec<u64>,
-    /// Current stack pointer index.
-    ptr: usize,
-    /// Maximum capacity of the stack.
-    capacity: usize,
+    /// The entries; `None` until first written.
+    stack: Vec<Option<u64>>,
+    /// Index of the top of stack.
+    tos: usize,
 }
 
 impl Ras {
-    /// Creates a new Return Address Stack with the specified capacity.
+    /// Creates a Return Address Stack with `capacity` entries.
     pub fn new(capacity: usize) -> Self {
-        Self { stack: vec![0; capacity], ptr: 0, capacity }
+        Self { stack: vec![None; capacity], tos: 0 }
     }
 
-    /// Pushes a return address onto the stack.
-    ///
-    /// If the stack is full, the last entry is overwritten to maintain the
-    /// most recent call history.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The return address to push.
-    pub fn push(&mut self, addr: u64) {
-        if self.ptr < self.capacity {
-            self.stack[self.ptr] = addr;
-            self.ptr += 1;
-        } else {
-            self.stack[self.capacity - 1] = addr;
+    /// Pushes a call's return address, recording the push in `history`.
+    pub fn push(&mut self, addr: u64, history: &mut RasHistory) {
+        if self.stack.is_empty() {
+            return;
         }
+        self.tos = self.above(self.tos);
+        self.stack[self.tos] = Some(addr);
+        history.pushed = true;
     }
 
-    /// Pops a return address from the stack.
-    ///
-    /// # Returns
-    ///
-    /// The popped return address, or `None` if the stack is empty.
-    pub fn pop(&mut self) -> Option<u64> {
-        if self.ptr == 0 {
-            None
-        } else {
-            self.ptr -= 1;
-            Some(self.stack[self.ptr])
+    /// Pops a return's predicted target, recording the pop in `history`.
+    pub fn pop(&mut self, history: &mut RasHistory) -> Option<u64> {
+        let entry = self.top();
+        if self.stack.is_empty() {
+            return entry;
         }
+        history.popped = Some(PoppedEntry { tos: self.tos, entry });
+        self.tos = self.below(self.tos);
+        entry
     }
 
-    /// Peeks at the top of the stack without removing the entry.
-    ///
-    /// Used to predict the target of a return instruction without modifying
-    /// the stack state until the instruction is committed.
-    ///
-    /// # Returns
-    ///
-    /// The return address at the top of the stack, or `None` if empty.
+    /// The address a return would predict now.
     pub fn top(&self) -> Option<u64> {
-        if self.ptr == 0 { None } else { Some(self.stack[self.ptr - 1]) }
+        self.stack.get(self.tos).copied().flatten()
     }
 
-    /// Captures the state a later misprediction restores to.
-    pub fn snapshot(&self) -> RasSnapshot {
-        RasSnapshot { ptr: self.ptr, top: if self.ptr == 0 { 0 } else { self.stack[self.ptr - 1] } }
-    }
-
-    /// Undoes every push and pop since `snapshot` was taken.
-    pub fn restore(&mut self, snapshot: RasSnapshot) {
-        self.ptr = snapshot.ptr;
-        if self.ptr > 0 {
-            self.stack[self.ptr - 1] = snapshot.top;
+    /// Undoes the operations a squashed prediction performed.
+    pub fn squash(&mut self, history: RasHistory) {
+        if history.pushed {
+            self.tos = self.below(self.tos);
         }
+        if let Some(popped) = history.popped {
+            self.tos = popped.tos;
+            self.stack[self.tos] = popped.entry;
+        }
+    }
+
+    const fn above(&self, index: usize) -> usize {
+        if index + 1 == self.stack.len() { 0 } else { index + 1 }
+    }
+
+    const fn below(&self, index: usize) -> usize {
+        if index == 0 { self.stack.len() - 1 } else { index - 1 }
     }
 }

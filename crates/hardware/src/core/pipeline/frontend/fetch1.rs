@@ -26,17 +26,17 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::InstSize;
 use crate::common::constants::{
     COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, OPCODE_MASK, RD_MASK, RD_SHIFT,
     RS1_MASK, RS1_SHIFT,
 };
 use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, RegIdx, Trap, VirtAddr};
+use crate::common::{InstSeq, InstSize};
 use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
-use crate::core::units::bru::{BranchPredictor, Ghr, RasSnapshot};
+use crate::core::units::bru::ControlInst;
 use crate::isa::abi;
 use crate::isa::decode::{decode_b_type_imm, decode_j_type_imm};
 use crate::isa::rv64i::opcodes;
@@ -141,59 +141,45 @@ struct ControlFlowPrediction {
 /// Predicts an instruction's control flow from its encoding, the way a
 /// predecoded fetch line lets a real front end: a direct branch or jump
 /// takes its target from the immediate, a return pops the RAS, an indirect
-/// jump asks the BTB, and a call pushes its return address at once. Every
-/// control instruction shifts the global history, a jump as taken.
+/// jump asks the BTB, and a call pushes its return address at once.
 fn predict_control_flow(
     state: &mut StageCtx<'_>,
+    seq: InstSeq,
     pc: u64,
     size: InstSize,
     inst: u32,
 ) -> ControlFlowPrediction {
-    let bp = &mut state.core_mut().branch_predictor;
     let opcode = inst & OPCODE_MASK;
     let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
     let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);
     let rd_link = rd == abi::REG_RA || rd == abi::REG_T0;
     let rs1_link = rs1 == abi::REG_RA || rs1 == abi::REG_T0;
-    let return_address = pc.wrapping_add(size.as_u64());
-    match opcode {
+    let link = rd_link.then(|| pc.wrapping_add(size.as_u64()));
+    let (control, kind) = match opcode {
         opcodes::OP_BRANCH => {
-            let (taken, btb_target) = bp.predict_branch(pc);
-            bp.speculate(pc, taken);
-            let target = taken.then(|| {
-                btb_target.unwrap_or_else(|| pc.wrapping_add(decode_b_type_imm(inst) as u64))
-            });
-            ControlFlowPrediction { target, stop: taken, kind: Some("branch") }
+            let target = pc.wrapping_add(decode_b_type_imm(inst) as u64);
+            (ControlInst::Branch { target }, "branch")
         }
         opcodes::OP_JAL => {
-            bp.speculate(pc, true);
-            if rd_link {
-                bp.push_return(return_address);
-            }
-            ControlFlowPrediction {
-                target: Some(pc.wrapping_add(decode_j_type_imm(inst) as u64)),
-                stop: true,
-                kind: Some(if rd_link { "call" } else { "jump" }),
-            }
+            let target = pc.wrapping_add(decode_j_type_imm(inst) as u64);
+            (ControlInst::Jump { target, link }, if rd_link { "call" } else { "jump" })
         }
         opcodes::OP_JALR => {
-            bp.speculate(pc, true);
-            let is_return = rs1_link && (!rd_link || rd != rs1);
-            let target = if is_return { bp.pop_return() } else { bp.predict_btb(pc) };
-            if rd_link {
-                bp.push_return(return_address);
-            }
-            let kind = if is_return {
+            let returns = rs1_link && (!rd_link || rd != rs1);
+            let kind = if returns {
                 "return"
             } else if rd_link {
                 "indirect-call"
             } else {
                 "indirect"
             };
-            ControlFlowPrediction { target, stop: true, kind: Some(kind) }
+            (ControlInst::IndirectJump { returns, link }, kind)
         }
-        _ => ControlFlowPrediction { target: None, stop: false, kind: None },
-    }
+        _ => return ControlFlowPrediction { target: None, stop: false, kind: None },
+    };
+    let target = state.core_mut().branch_predictor.predict(seq, pc, control);
+    let stop = target.is_some() || !matches!(control, ControlInst::Branch { .. });
+    ControlFlowPrediction { target, stop, kind: Some(kind) }
 }
 
 /// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
@@ -206,7 +192,7 @@ fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: u64,
 }
 
 /// A latch entry for an instruction that faulted before it could be fetched.
-fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
+const fn fault_entry(seq: InstSeq, pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
         pc,
         paddr: PhysAddr::new(0),
@@ -215,8 +201,7 @@ fn fault_entry(pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
         pred_target: 0,
         trap: Some(trap),
         exception_stage: Some(ExceptionStage::Fetch),
-        ghr_snapshot: Ghr::default(),
-        ras_snapshot: RasSnapshot::default(),
+        seq,
     }
 }
 
@@ -399,8 +384,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     pred_target: 0,
                     trap: None,
                     exception_stage: None,
-                    ghr_snapshot: Ghr::default(),
-                    ras_snapshot: RasSnapshot::default(),
+                    seq: engine.common_mut().alloc_inst_seq(),
                 };
                 park_fetch_walk(state, engine, walk_state, pte_addr, pending);
                 // Fetch holds here until the translation returns: the
@@ -415,7 +399,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 trap        = ?trap_cause,
                 "F1: fetch trap"
             );
-            group.push(engine.common_mut(), fault_entry(current_pc, trap_cause), None);
+            let seq = engine.common_mut().alloc_inst_seq();
+            group.push(engine.common_mut(), fault_entry(seq, current_pc, trap_cause), None);
             break;
         }
 
@@ -445,8 +430,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut pred_taken = false;
         let mut pred_target = 0;
         let mut upper_paddr = None;
-        let ghr_snapshot = state.core().branch_predictor.snapshot_history();
-        let ras_snapshot = state.core().branch_predictor.snapshot_ras();
+        let seq = engine.common_mut().alloc_inst_seq();
 
         let full_inst = if is_compressed {
             expand(half_word)
@@ -468,7 +452,11 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                                 crosses_page = true,
                                 "F1: fetch trap on the upper half-word"
                             );
-                            group.push(engine.common_mut(), fault_entry(current_pc, trap), None);
+                            group.push(
+                                engine.common_mut(),
+                                fault_entry(seq, current_pc, trap),
+                                None,
+                            );
                             break;
                         }
                         r.paddr
@@ -482,8 +470,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                             pred_target: 0,
                             trap: None,
                             exception_stage: None,
-                            ghr_snapshot,
-                            ras_snapshot,
+                            seq,
                         };
                         park_fetch_walk(state, engine, walk_state, pte_addr, pending);
                         // As for the lower half: fetch holds until the
@@ -504,7 +491,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             (upper_half as u32) << 16 | (half_word as u32)
         };
 
-        let prediction = predict_control_flow(state, current_pc, step, full_inst);
+        let prediction = predict_control_flow(state, seq, current_pc, step, full_inst);
         if let Some(target) = prediction.target {
             next_pc_calc = target;
             pred_taken = true;
@@ -541,8 +528,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             pred_target,
             trap: None,
             exception_stage: None,
-            ghr_snapshot,
-            ras_snapshot,
+            seq,
         };
         group.push(engine.common_mut(), entry, Some(line));
 

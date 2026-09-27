@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::common::InstSeq;
 use crate::config::Config;
 use crate::core::pipeline::backend::inorder::InOrderEngine;
 use crate::core::pipeline::backend::o3::O3Engine;
@@ -16,6 +17,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::snapshot::PipelineSnapshot;
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::units::bru::BranchPredictorWrapper;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
 use crate::sim::topology::{CoreTopology, PrivateCache};
@@ -210,6 +212,11 @@ pub struct BackendCommon {
     /// The squash execute asked for that has not been taken yet. Commit
     /// retires nothing it will remove.
     pub pending_squash: Option<PendingSquash>,
+    /// The number fetch gives the next instruction it forms.
+    pub next_inst_seq: InstSeq,
+    /// The youngest instruction commit has retired that the branch
+    /// predictor has not been told of yet.
+    pub predictor_done: Option<InstSeq>,
     /// No instruction is between fetch and rename this cycle, so the ROB
     /// holds everything in flight.
     pub frontend_empty: bool,
@@ -294,6 +301,57 @@ impl BackendCommon {
         self.forwarded_loads.clear();
         self.load_parts.clear();
         self.coherence_violation = None;
+    }
+
+    /// Numbers the next instruction fetch forms.
+    pub const fn alloc_inst_seq(&mut self) -> InstSeq {
+        let seq = self.next_inst_seq;
+        self.next_inst_seq = seq.next();
+        seq
+    }
+
+    /// Records `seq` as the youngest instruction commit has retired. The
+    /// predictor trains up to it at once unless a squash is waiting, which
+    /// may still correct a prediction commit has passed and so reaches the
+    /// predictor first, as gem5's fetch takes a squash before a commit.
+    pub fn note_committed(&mut self, seq: InstSeq, predictor: &mut BranchPredictorWrapper) {
+        self.predictor_done = Some(seq);
+        self.release_committed(predictor);
+    }
+
+    /// Undoes the predictions `squash` removes. `keep_seq` is the number of
+    /// the instruction it keeps, when that is still in the window.
+    pub fn squash_predictions(
+        &mut self,
+        predictor: &mut BranchPredictorWrapper,
+        squash: &PendingSquash,
+        keep_seq: Option<InstSeq>,
+    ) {
+        match (squash.redirect.repair, keep_seq) {
+            (Some(repair), _) => repair.apply(predictor),
+            (None, Some(keep)) => predictor.squash_after(keep),
+            (None, None) => {
+                self.release_committed(predictor);
+                predictor.squash_all();
+            }
+        }
+        self.release_committed(predictor);
+    }
+
+    /// Squashes every prediction commit has not retired.
+    pub fn flush_predictions(&mut self, predictor: &mut BranchPredictorWrapper) {
+        if let Some(done) = self.predictor_done.take() {
+            predictor.commit(done);
+        }
+        predictor.squash_all();
+    }
+
+    fn release_committed(&mut self, predictor: &mut BranchPredictorWrapper) {
+        if self.pending_squash.is_none()
+            && let Some(done) = self.predictor_done.take()
+        {
+            predictor.commit(done);
+        }
     }
 
     /// Files a squash, keeping whichever of it and the pending one takes

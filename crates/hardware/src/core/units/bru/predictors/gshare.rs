@@ -14,8 +14,7 @@
 //! - **Best Case:** Correlated branches where outcome depends on recent history
 //! - **Worst Case:** Uncorrelated branches or history length too short/long for pattern
 
-use crate::core::units::bru::ras::RasSnapshot;
-use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// Size of the Pattern History Table (2^12 entries).
 const TABLE_BITS: usize = 12;
@@ -27,26 +26,31 @@ const TABLE_SIZE: usize = 1 << TABLE_BITS;
 pub struct GSharePredictor {
     /// Global history as fetched, which predictions use.
     ghr: u64,
-    /// Global history through the last committed branch.
-    commit_ghr: u64,
     /// Pattern History Table containing 2-bit saturating counters.
     pht: Vec<u8>,
-    /// Branch Target Buffer.
-    btb: Btb,
-    /// Return Address Stack.
-    ras: Ras,
+}
+
+/// The global history a `GShare` prediction was made with.
+#[derive(Clone, Copy, Debug)]
+pub struct GShareHistory {
+    ghr: u64,
+}
+
+impl Default for GSharePredictor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GSharePredictor {
     /// Creates a new `GShare` Predictor.
-    pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
-        Self {
-            ghr: 0,
-            commit_ghr: 0,
-            pht: vec![1; TABLE_SIZE],
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
-        }
+    pub fn new() -> Self {
+        Self { ghr: 0, pht: vec![1; TABLE_SIZE] }
+    }
+
+    /// The speculative global history, newest outcome in bit 0.
+    pub const fn history(&self) -> u64 {
+        self.ghr
     }
 
     /// The Pattern History Table index for `pc` under global history `ghr`:
@@ -62,81 +66,41 @@ impl GSharePredictor {
     }
 }
 
-impl BranchPredictor for GSharePredictor {
-    /// Predicts branch direction and target.
-    ///
-    /// Returns true if the 2-bit counter at the hashed index is 2 or 3 (Taken).
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let idx = Self::index(pc, self.ghr);
-        let counter = self.pht[idx];
-        let taken = counter >= 2;
+impl DirectionPredictor for GSharePredictor {
+    type History = GShareHistory;
 
-        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
+    /// Predicts taken when the 2-bit counter at the hashed index is 2 or 3.
+    fn lookup(&self, pc: u64) -> (bool, GShareHistory) {
+        let taken = self.pht[Self::index(pc, self.ghr)] >= 2;
+        (taken, GShareHistory { ghr: self.ghr })
     }
 
-    /// Updates the predictor with the actual branch outcome.
-    ///
-    /// Trains the 2-bit counter the prediction read, found from the history
-    /// the branch was predicted with.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
-        let idx = Self::index(pc, ghr_snapshot.val());
-        let counter = self.pht[idx];
-
-        if taken && counter < 3 {
-            self.pht[idx] += 1;
-        } else if !taken && counter > 0 {
-            self.pht[idx] -= 1;
-        }
-
-        self.commit_ghr = Self::shifted(ghr_snapshot.val(), taken);
-
-        if let Some(tgt) = target {
-            self.btb.update(pc, tgt);
-        }
+    fn unconditional(&self, _pc: u64) -> GShareHistory {
+        GShareHistory { ghr: self.ghr }
     }
 
-    /// Predicts the target of a jump instruction using the BTB.
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        self.btb.lookup(pc)
-    }
-
-    fn push_return(&mut self, ret_addr: u64) {
-        self.ras.push(ret_addr);
-    }
-
-    fn pop_return(&mut self) -> Option<u64> {
-        self.ras.pop()
-    }
-
-    fn speculate(&mut self, _pc: u64, taken: bool) {
+    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &GShareHistory) {
         self.ghr = Self::shifted(self.ghr, taken);
     }
 
-    fn snapshot_history(&self) -> Ghr {
-        Ghr::new(self.ghr)
+    fn squash(&mut self, history: &GShareHistory) {
+        self.ghr = history.ghr;
     }
 
-    fn repair_history(&mut self, ghr: &Ghr) {
-        self.ghr = ghr.val();
+    fn correct(&mut self, _pc: u64, taken: bool, history: &GShareHistory) {
+        self.ghr = Self::shifted(history.ghr, taken);
     }
 
-    fn snapshot_ras(&self) -> RasSnapshot {
-        self.ras.snapshot()
-    }
-
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        self.ras.restore(snapshot);
-    }
-
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
-    }
-
-    fn repair_to_committed(&mut self) {
-        self.ghr = self.commit_ghr;
-    }
-
-    fn retire_jump(&mut self) {
-        self.commit_ghr = Self::shifted(self.commit_ghr, true);
+    /// Trains the 2-bit counter the prediction read.
+    fn commit(&mut self, pc: u64, retired: Retired, history: &GShareHistory) {
+        if retired.class != BranchClass::Conditional {
+            return;
+        }
+        let counter = &mut self.pht[Self::index(pc, history.ghr)];
+        if retired.taken && *counter < 3 {
+            *counter += 1;
+        } else if !retired.taken && *counter > 0 {
+            *counter -= 1;
+        }
     }
 }

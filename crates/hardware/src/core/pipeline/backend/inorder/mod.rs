@@ -30,7 +30,6 @@ use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::squash::{PendingSquash, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::core::units::bru::BranchPredictor;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::core::units::vpu::shadow::ElementWrite;
 use crate::core::units::vpu::types::{ElemIdx, VRegIdx, VecPhysReg, parse_vtype};
@@ -140,6 +139,7 @@ impl InOrderEngine {
         // Everything in the issue queue is younger than any executed instruction.
         self.issuer.flush();
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
         if let Some(keep_tag) = keep_tag {
             self.rob.flush_after(keep_tag);
             self.store_buffer.flush_after(keep_tag);
@@ -162,9 +162,7 @@ impl InOrderEngine {
         self.scoreboard.rebuild_from_rob(&self.rob);
 
         *redirect = Some(squash.redirect.target);
-        if let Some(repair) = squash.redirect.repair {
-            repair.apply(&mut state.core.branch_predictor);
-        }
+        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq);
     }
 
     /// Files each executed result: memory ops and vector ops go straight to
@@ -473,7 +471,7 @@ impl ExecutionEngine for InOrderEngine {
         self.common.pending_squash = None;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
-        state.core.branch_predictor.repair_to_committed();
+        self.common.flush_predictions(&mut state.core.branch_predictor);
     }
 
     fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {

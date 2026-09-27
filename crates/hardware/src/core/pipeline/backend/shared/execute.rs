@@ -13,7 +13,6 @@ use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
 use crate::core::units::alu::Alu;
-use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::fpu::is_vec_fp;
@@ -294,10 +293,8 @@ pub fn resolve_branch(
 
     rob.set_bp_update(
         id.rob_tag,
-        id.pc,
         BpOutcome { taken, mispredicted },
         taken.then_some(actual_target),
-        id.ghr_snapshot,
     );
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
@@ -310,7 +307,7 @@ pub fn resolve_branch(
         mispredicted,
         "EX: branch resolved"
     );
-    let repair = BranchRepair { pc: id.pc, taken, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
+    let repair = BranchRepair { seq: id.seq, taken, target: actual_target };
     count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_next_pc, repair))
 }
 
@@ -349,8 +346,7 @@ pub fn resolve_jump(
         mispredicted,
         "EX: jump resolved"
     );
-    let repair =
-        BranchRepair { pc: id.pc, taken: true, ghr: id.ghr_snapshot, ras: id.ras_snapshot };
+    let repair = BranchRepair { seq: id.seq, taken: true, target: actual_target };
     count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_target, repair))
 }
 

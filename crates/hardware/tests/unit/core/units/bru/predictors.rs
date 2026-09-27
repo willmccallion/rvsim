@@ -1,366 +1,240 @@
-//! Branch Predictor Direction Tests.
+//! Branch predictor direction tests.
 //!
-//! Verifies the direction prediction and training logic for all five
-//! branch predictor implementations: Static, GShare, Perceptron, TAGE,
-//! and Tournament. The BTB and RAS are tested separately in btb.rs and
-//! ras.rs — this file focuses on predict_branch / update_branch semantics.
-//!
-//! Reference: Phase 2 — Pipeline Logic & Hazards.
+//! Each predictor sits in a `BranchPredUnit` and is driven the way the
+//! pipeline drives it: a prediction, a correction when it was wrong, and a
+//! commit.
 
+use rvsim_core::common::InstSeq;
 use rvsim_core::config::{PerceptronConfig, TageConfig, TournamentConfig};
 use rvsim_core::core::units::bru::predictors::gshare::GSharePredictor;
 use rvsim_core::core::units::bru::predictors::perceptron::PerceptronPredictor;
 use rvsim_core::core::units::bru::predictors::static_bp::StaticPredictor;
 use rvsim_core::core::units::bru::predictors::tage::TagePredictor;
 use rvsim_core::core::units::bru::predictors::tournament::TournamentPredictor;
-use rvsim_core::core::units::bru::{BranchPredictor, Ghr};
+use rvsim_core::core::units::bru::{BranchPredUnit, ControlInst, DirectionPredictor};
 
-fn default_tage() -> TagePredictor {
-    let config = TageConfig {
+const PC: u64 = 0x1000;
+const TARGET: u64 = 0x2000;
+
+/// A prediction unit and the next sequence number fetch would give out.
+struct Driver<P: DirectionPredictor> {
+    unit: BranchPredUnit<P>,
+    next_seq: u64,
+}
+
+impl<P: DirectionPredictor> Driver<P> {
+    fn new(direction: P) -> Self {
+        Self { unit: BranchPredUnit::new(direction, 64, 4, 8), next_seq: 0 }
+    }
+
+    fn predict(&mut self, pc: u64, inst: ControlInst) -> (InstSeq, Option<u64>) {
+        let seq = InstSeq::new(self.next_seq);
+        self.next_seq += 1;
+        (seq, self.unit.predict(seq, pc, inst))
+    }
+
+    /// Predicts, corrects and commits one conditional branch; returns
+    /// whether it was predicted taken.
+    fn run_branch(&mut self, pc: u64, taken: bool) -> bool {
+        let (seq, target) = self.predict(pc, ControlInst::Branch { target: TARGET });
+        let predicted = target.is_some();
+        if predicted != taken {
+            self.unit.mispredict(seq, taken, TARGET);
+        }
+        self.unit.commit(seq);
+        predicted
+    }
+
+    fn train(&mut self, pc: u64, taken: bool, n: usize) {
+        for _ in 0..n {
+            let _ = self.run_branch(pc, taken);
+        }
+    }
+
+    /// The direction the next prediction of `pc` takes, then squashed.
+    fn predicts_taken(&mut self, pc: u64) -> bool {
+        let (_, target) = self.predict(pc, ControlInst::Branch { target: TARGET });
+        self.unit.squash_all();
+        target.is_some()
+    }
+}
+
+fn tage() -> TagePredictor {
+    TagePredictor::new(&TageConfig {
         num_banks: 4,
         table_size: 2048,
         loop_table_size: 256,
         reset_interval: 256_000,
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],
-    };
-    TagePredictor::new(&config, 64, 4, 8)
+    })
 }
 
-fn default_perceptron() -> PerceptronPredictor {
-    PerceptronPredictor::new(
-        &PerceptronConfig {
-            history_length: 8,
-            table_bits: 6, // 64 entries
-        },
-        64,
-        4,
-        8,
-    )
+fn perceptron() -> PerceptronPredictor {
+    PerceptronPredictor::new(&PerceptronConfig { history_length: 8, table_bits: 6 })
 }
 
-fn default_tournament() -> TournamentPredictor {
-    TournamentPredictor::new(
-        &TournamentConfig {
-            global_size_bits: 6, // 64 entries
-            local_hist_bits: 6,
-            local_pred_bits: 6,
-        },
-        64,
-        4,
-        8,
-    )
+fn tournament() -> TournamentPredictor {
+    TournamentPredictor::new(&TournamentConfig {
+        global_size_bits: 6,
+        local_hist_bits: 6,
+        local_pred_bits: 6,
+    })
 }
 
-/// Train a predictor by feeding `n` iterations of the same branch outcome.
-fn train<P: BranchPredictor>(bp: &mut P, pc: u64, taken: bool, target: u64, n: usize) {
-    let tgt = if taken { Some(target) } else { None };
-    for _ in 0..n {
-        let snapshot = bp.snapshot_history();
-        bp.update_branch(pc, taken, tgt, &snapshot);
-    }
-}
-
-/// Static predictor always predicts not-taken.
 #[test]
-fn static_always_not_taken() {
-    let bp = StaticPredictor::new(64, 4, 8);
-    let (taken, target) = bp.predict_branch(0x1000);
-    assert!(!taken, "Static should always predict not-taken");
-    assert_eq!(target, None);
+fn static_predicts_not_taken() {
+    assert!(!Driver::new(StaticPredictor::new()).predicts_taken(PC));
 }
 
-/// Static predictor stays not-taken even after taken training.
 #[test]
 fn static_ignores_training() {
-    let mut bp = StaticPredictor::new(64, 4, 8);
-    train(&mut bp, 0x1000, true, 0x2000, 100);
-    let (taken, _) = bp.predict_branch(0x1000);
-    assert!(!taken, "Static should still predict not-taken after training");
+    let mut bp = Driver::new(StaticPredictor::new());
+    bp.train(PC, true, 100);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// Static predictor still updates BTB (used for unconditional jumps).
 #[test]
-fn static_updates_btb() {
-    let mut bp = StaticPredictor::new(64, 4, 8);
-    bp.update_branch(0x1000, true, Some(0x2000), &Ghr::default());
-    assert_eq!(bp.predict_btb(0x1000), Some(0x2000));
+fn gshare_starts_weakly_not_taken() {
+    assert!(!Driver::new(GSharePredictor::new()).predicts_taken(PC));
 }
 
-/// GShare initial prediction — counters initialized to 1 (weakly not-taken).
-#[test]
-fn gshare_initial_not_taken() {
-    let bp = GSharePredictor::new(64, 4, 8);
-    let (taken, _) = bp.predict_branch(0x1000);
-    assert!(!taken, "Initial counter=1 → not taken (< 2)");
-}
-
-/// GShare learns taken after repeated taken updates.
-/// The GHR shift-register means each training step may hit a different PHT
-/// entry until the GHR saturates (all 1s for all-taken, after ~12 steps
-/// with TABLE_BITS=12). After saturation, further training reinforces the
-/// same entry. We use 20 steps to ensure convergence.
 #[test]
 fn gshare_learns_taken() {
-    let mut bp = GSharePredictor::new(64, 4, 8);
-    let pc = 0x1000;
-    train(&mut bp, pc, true, 0x2000, 20);
-
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(taken, "GShare should learn taken after training");
+    let mut bp = Driver::new(GSharePredictor::new());
+    bp.train(PC, true, 20);
+    assert!(bp.predicts_taken(PC));
 }
 
-/// GShare learns not-taken after repeated not-taken updates.
 #[test]
-fn gshare_learns_not_taken() {
-    let mut bp = GSharePredictor::new(64, 4, 8);
-    let pc = 0x1000;
-
-    // First push counters up to taken...
-    train(&mut bp, pc, true, 0x2000, 10);
-    // ...then train not-taken extensively.
-    train(&mut bp, pc, false, 0x2000, 20);
-
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(!taken, "GShare should learn not-taken after training");
+fn gshare_learns_not_taken_after_taken() {
+    let mut bp = Driver::new(GSharePredictor::new());
+    bp.train(PC, true, 10);
+    bp.train(PC, false, 20);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// GShare uses GHR XOR PC for indexing — different histories produce different predictions.
 #[test]
-fn gshare_context_sensitive() {
-    let mut bp = GSharePredictor::new(256, 4, 8);
-    let pc = 0x1000;
-
-    // Create two different history contexts by feeding different branches.
-    // Context A: branch at pc=0x100 taken, then predict pc=0x1000.
-    let snap = bp.snapshot_history();
-    bp.update_branch(0x100, true, Some(0x200), &snap);
-    let (pred_a, _) = bp.predict_branch(pc);
-
-    // Context B: branch at pc=0x100 not-taken, then predict pc=0x1000.
-    let mut bp2 = GSharePredictor::new(256, 4, 8);
-    let snap2 = bp2.snapshot_history();
-    bp2.update_branch(0x100, false, None, &snap2);
-    let (pred_b, _) = bp2.predict_branch(pc);
-
-    // Predictions may or may not differ; the test exercises the code path.
-    let _ = (pred_a, pred_b);
+fn perceptron_starts_taken_with_zero_weights() {
+    assert!(Driver::new(perceptron()).predicts_taken(PC));
 }
 
-/// Perceptron initial prediction — all weights zero, output = 0 → taken (>= 0).
-#[test]
-fn perceptron_initial_prediction() {
-    let bp = default_perceptron();
-    let (taken, _) = bp.predict_branch(0x1000);
-    assert!(taken, "Initial weights=0, output=0 → taken (>= 0)");
-}
-
-/// Perceptron learns taken after consistent taken training.
-#[test]
-fn perceptron_learns_taken() {
-    let mut bp = default_perceptron();
-    let pc = 0x1000;
-    train(&mut bp, pc, true, 0x2000, 50);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(taken, "Perceptron should learn taken");
-}
-
-/// Perceptron learns not-taken after consistent not-taken training.
 #[test]
 fn perceptron_learns_not_taken() {
-    let mut bp = default_perceptron();
-    let pc = 0x1000;
-    train(&mut bp, pc, false, 0x2000, 100);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(!taken, "Perceptron should learn not-taken");
+    let mut bp = Driver::new(perceptron());
+    bp.train(PC, false, 100);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// Perceptron can flip direction with retraining.
 #[test]
 fn perceptron_retrains() {
-    let mut bp = default_perceptron();
-    let pc = 0x1000;
+    let mut bp = Driver::new(perceptron());
+    bp.train(PC, true, 50);
+    let first = bp.predicts_taken(PC);
+    bp.train(PC, false, 100);
 
-    train(&mut bp, pc, true, 0x2000, 50);
-    let (t1, _) = bp.predict_branch(pc);
-
-    train(&mut bp, pc, false, 0x2000, 100);
-    let (t2, _) = bp.predict_branch(pc);
-
-    assert!(t1, "Should have learned taken first");
-    assert!(!t2, "Should retrain to not-taken");
+    assert!(first);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// TAGE initial prediction comes from base predictor (counters = 0 → taken).
 #[test]
-fn tage_initial_prediction() {
-    let bp = default_tage();
-    let (taken, _) = bp.predict_branch(0x1000);
-    // Base predictor starts at 0, and 0 >= 0 → taken.
-    assert!(taken, "Base predictor counter=0 → taken");
+fn tage_starts_taken_from_its_base_predictor() {
+    assert!(Driver::new(tage()).predicts_taken(PC));
 }
 
-/// TAGE learns taken on a single branch after training.
-#[test]
-fn tage_learns_taken() {
-    let mut bp = default_tage();
-    let pc = 0x1000;
-    train(&mut bp, pc, true, 0x2000, 20);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(taken);
-}
-
-/// TAGE learns not-taken after enough not-taken training.
 #[test]
 fn tage_learns_not_taken() {
-    let mut bp = default_tage();
-    let pc = 0x1000;
-    train(&mut bp, pc, false, 0x2000, 40);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(!taken, "TAGE should learn not-taken");
+    let mut bp = Driver::new(tage());
+    bp.train(PC, false, 40);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// TAGE allocates entries in longer-history banks on misprediction.
-/// After training not-taken, then switching to taken, the predictor should
-/// eventually adapt (showing allocation works).
 #[test]
-fn tage_adapts_to_pattern_change() {
-    let mut bp = default_tage();
-    let pc = 0x1000;
+fn tage_adapts_to_a_pattern_change() {
+    let mut bp = Driver::new(tage());
+    bp.train(PC, false, 30);
+    let first = bp.predicts_taken(PC);
+    bp.train(PC, true, 60);
 
-    // Train not-taken.
-    train(&mut bp, pc, false, 0x2000, 30);
-    let (t1, _) = bp.predict_branch(pc);
-    assert!(!t1, "Should predict not-taken after training");
-
-    // Switch to taken.
-    train(&mut bp, pc, true, 0x2000, 60);
-    let (t2, _) = bp.predict_branch(pc);
-    assert!(t2, "Should adapt to taken after retraining");
+    assert!(!first);
+    assert!(bp.predicts_taken(PC));
 }
 
-/// Tournament initial prediction — choice counter starts at 1 → local,
-/// local PHT starts at 1 → not-taken (< 2).
 #[test]
-fn tournament_initial_not_taken() {
-    let bp = default_tournament();
-    let (taken, _) = bp.predict_branch(0x1000);
-    assert!(!taken, "Initial local counter=1 → not taken");
+fn tournament_starts_weakly_not_taken() {
+    assert!(!Driver::new(tournament()).predicts_taken(PC));
 }
 
-/// Tournament learns taken after training.
 #[test]
 fn tournament_learns_taken() {
-    let mut bp = default_tournament();
-    let pc = 0x1000;
-    train(&mut bp, pc, true, 0x2000, 20);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(taken, "Tournament should learn taken");
+    let mut bp = Driver::new(tournament());
+    bp.train(PC, true, 20);
+    assert!(bp.predicts_taken(PC));
 }
 
-/// Tournament learns not-taken.
 #[test]
-fn tournament_learns_not_taken() {
-    let mut bp = default_tournament();
-    let pc = 0x1000;
-    // First train taken to move counters up...
-    train(&mut bp, pc, true, 0x2000, 10);
-    // ...then extensively train not-taken.
-    train(&mut bp, pc, false, 0x2000, 30);
-    let (taken, _) = bp.predict_branch(pc);
-    assert!(!taken, "Tournament should learn not-taken");
+fn tournament_learns_not_taken_after_taken() {
+    let mut bp = Driver::new(tournament());
+    bp.train(PC, true, 10);
+    bp.train(PC, false, 30);
+    assert!(!bp.predicts_taken(PC));
 }
 
-/// Tournament adapts when global outperforms local.
-#[test]
-fn tournament_adapts_choice() {
-    let mut bp = default_tournament();
-    let pc = 0x1000;
+/// An indirect jump at a branch's address finds the target the branch
+/// taught the BTB when it committed taken.
+fn committed_taken_branch_trains_the_btb<P: DirectionPredictor>(direction: P) {
+    let mut bp = Driver::new(direction);
+    let _ = bp.run_branch(PC, true);
 
-    // Alternating pattern benefits global correlation; train heavily.
-    for i in 0..50 {
-        let taken = i % 2 == 0;
-        let tgt = if taken { Some(0x2000) } else { None };
-        let snap = bp.snapshot_history();
-        bp.update_branch(pc, taken, tgt, &snap);
+    let (_, target) = bp.predict(PC, ControlInst::IndirectJump { returns: false, link: None });
+
+    assert_eq!(target, Some(TARGET));
+}
+
+#[test]
+fn every_predictor_trains_the_btb_on_a_taken_branch() {
+    committed_taken_branch_trains_the_btb(StaticPredictor::new());
+    committed_taken_branch_trains_the_btb(GSharePredictor::new());
+    committed_taken_branch_trains_the_btb(perceptron());
+    committed_taken_branch_trains_the_btb(tage());
+    committed_taken_branch_trains_the_btb(tournament());
+}
+
+#[test]
+fn a_return_predicts_the_address_its_call_pushed() {
+    let mut bp = Driver::new(StaticPredictor::new());
+    let _ = bp.predict(PC, ControlInst::Jump { target: TARGET, link: Some(PC + 4) });
+
+    let (_, target) = bp.predict(TARGET, ControlInst::IndirectJump { returns: true, link: None });
+
+    assert_eq!(target, Some(PC + 4));
+}
+
+#[test]
+fn squashing_a_return_and_a_call_restores_the_entry_the_call_overwrote() {
+    let mut bp = Driver::new(StaticPredictor::new());
+    let _ = bp.predict(0x100, ControlInst::Jump { target: TARGET, link: Some(0x1000) });
+    let (kept, _) = bp.predict(0x200, ControlInst::Jump { target: TARGET, link: Some(0x2000) });
+    let ret = ControlInst::IndirectJump { returns: true, link: None };
+    let _ = bp.predict(0x300, ret);
+    let _ = bp.predict(0x400, ControlInst::Jump { target: TARGET, link: Some(0x3000) });
+
+    bp.unit.squash_after(kept);
+
+    assert_eq!(bp.predict(0x500, ret).1, Some(0x2000));
+    assert_eq!(bp.predict(0x600, ret).1, Some(0x1000));
+}
+
+#[test]
+fn squashing_every_prediction_restores_the_global_history() {
+    let mut bp = Driver::new(GSharePredictor::new());
+    bp.train(PC, true, 3);
+    let committed = bp.unit.direction().history();
+    for _ in 0..5 {
+        let _ = bp.predict(PC, ControlInst::Jump { target: TARGET, link: None });
     }
 
-    // The predictor should not crash and should produce a valid prediction.
-    let (taken, _) = bp.predict_branch(pc);
-    let _ = taken; // No assertion on direction — just verifying correctness of logic.
-}
+    bp.unit.squash_all();
 
-/// All predictors update and read the BTB correctly.
-#[test]
-fn all_predictors_use_btb() {
-    let pc = 0x1000;
-    let target = 0x2000;
-
-    let mut static_bp = StaticPredictor::new(64, 4, 8);
-    static_bp.update_branch(pc, true, Some(target), &Ghr::default());
-    assert_eq!(static_bp.predict_btb(pc), Some(target));
-
-    let mut gshare = GSharePredictor::new(64, 4, 8);
-    gshare.update_branch(pc, true, Some(target), &Ghr::default());
-    assert_eq!(gshare.predict_btb(pc), Some(target));
-
-    let mut perceptron = default_perceptron();
-    perceptron.update_branch(pc, true, Some(target), &Ghr::default());
-    assert_eq!(perceptron.predict_btb(pc), Some(target));
-
-    let mut tage = default_tage();
-    tage.update_branch(pc, true, Some(target), &Ghr::default());
-    assert_eq!(tage.predict_btb(pc), Some(target));
-
-    let mut tournament = default_tournament();
-    tournament.update_branch(pc, true, Some(target), &Ghr::default());
-    assert_eq!(tournament.predict_btb(pc), Some(target));
-}
-
-/// Every predictor pops the return address a call pushed, then nothing.
-#[test]
-fn all_predictors_use_ras() {
-    let ret_addr = 0x1004;
-
-    let mut static_bp = StaticPredictor::new(64, 4, 8);
-    static_bp.push_return(ret_addr);
-    assert_eq!(static_bp.pop_return(), Some(ret_addr));
-    assert_eq!(static_bp.pop_return(), None);
-
-    let mut gshare = GSharePredictor::new(64, 4, 8);
-    gshare.push_return(ret_addr);
-    assert_eq!(gshare.pop_return(), Some(ret_addr));
-    assert_eq!(gshare.pop_return(), None);
-
-    let mut perceptron = default_perceptron();
-    perceptron.push_return(ret_addr);
-    assert_eq!(perceptron.pop_return(), Some(ret_addr));
-    assert_eq!(perceptron.pop_return(), None);
-
-    let mut tage = default_tage();
-    tage.push_return(ret_addr);
-    assert_eq!(tage.pop_return(), Some(ret_addr));
-    assert_eq!(tage.pop_return(), None);
-
-    let mut tournament = default_tournament();
-    tournament.push_return(ret_addr);
-    assert_eq!(tournament.pop_return(), Some(ret_addr));
-    assert_eq!(tournament.pop_return(), None);
-}
-
-/// A snapshot restores the entry a wrong-path push overwrote after a
-/// wrong-path pop.
-#[test]
-fn a_ras_snapshot_undoes_a_pop_followed_by_a_push() {
-    let mut bp = StaticPredictor::new(64, 4, 8);
-    bp.push_return(0x1000);
-    bp.push_return(0x2000);
-    let snapshot = bp.snapshot_ras();
-
-    assert_eq!(bp.pop_return(), Some(0x2000));
-    bp.push_return(0x3000);
-    bp.restore_ras(snapshot);
-
-    assert_eq!(bp.pop_return(), Some(0x2000));
-    assert_eq!(bp.pop_return(), Some(0x1000));
+    assert_eq!(bp.unit.direction().history(), committed);
 }

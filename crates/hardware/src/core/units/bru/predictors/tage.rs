@@ -6,101 +6,80 @@
 //! composed predictor only.
 
 use crate::config::TageConfig;
-use crate::core::units::bru::ras::RasSnapshot;
-use crate::core::units::bru::{
-    BranchPredictor, Ghr, btb::Btb, components::tage_core::TageCore, ras::Ras,
-};
+use crate::core::units::bru::Ghr;
+use crate::core::units::bru::components::tage_core::TageCore;
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// TAGE Predictor structure.
 #[derive(Debug)]
 pub struct TagePredictor {
-    btb: Btb,
-    ras: Ras,
     spec_ghr: Ghr,
     commit_ghr: Ghr,
     tage: TageCore,
 }
 
+/// The speculative global history a TAGE prediction was made with.
+#[derive(Clone, Copy, Debug)]
+pub struct TageHistory {
+    ghr: Ghr,
+}
+
 impl TagePredictor {
     /// Creates a new TAGE Predictor based on configuration.
-    pub fn new(config: &TageConfig, btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
+    pub fn new(config: &TageConfig) -> Self {
         let tage = TageCore::new(config);
         let max_hist = tage.max_history();
 
-        Self {
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
-            spec_ghr: Ghr::with_len(max_hist),
-            commit_ghr: Ghr::with_len(max_hist),
-            tage,
-        }
-    }
-}
-
-impl BranchPredictor for TagePredictor {
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let meta = self.tage.predict(pc);
-        (meta.pred_taken, self.btb.lookup(pc))
+        Self { spec_ghr: Ghr::with_len(max_hist), commit_ghr: Ghr::with_len(max_hist), tage }
     }
 
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
-        // Use committed GHR (actual outcomes) for training, matching Seznec's
-        // CBP functional model where the GHR only contains verified outcomes.
-        let _result = self.tage.update(pc, taken, &self.commit_ghr);
-        self.tage.commit_advance(taken, &self.commit_ghr);
-        self.commit_ghr.push(taken);
-
-        if let Some(tgt) = target {
-            self.btb.update(pc, tgt);
-        }
-    }
-
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        self.btb.lookup(pc)
-    }
-
-    fn push_return(&mut self, ret_addr: u64) {
-        self.ras.push(ret_addr);
-    }
-
-    fn pop_return(&mut self) -> Option<u64> {
-        self.ras.pop()
-    }
-
-    fn speculate(&mut self, _pc: u64, taken: bool) {
+    fn push_speculative(&mut self, taken: bool) {
         self.tage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
     }
 
-    fn snapshot_history(&self) -> Ghr {
-        self.spec_ghr
+    fn push_committed(&mut self, taken: bool) {
+        self.tage.commit_advance(taken, &self.commit_ghr);
+        self.commit_ghr.push(taken);
+    }
+}
+
+impl DirectionPredictor for TagePredictor {
+    type History = TageHistory;
+
+    fn lookup(&self, pc: u64) -> (bool, TageHistory) {
+        (self.tage.predict(pc).pred_taken, TageHistory { ghr: self.spec_ghr })
     }
 
-    fn repair_history(&mut self, ghr: &Ghr) {
-        self.spec_ghr = *ghr;
+    fn unconditional(&self, _pc: u64) -> TageHistory {
+        TageHistory { ghr: self.spec_ghr }
+    }
+
+    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &TageHistory) {
+        self.push_speculative(taken);
+    }
+
+    fn squash(&mut self, history: &TageHistory) {
+        self.spec_ghr = history.ghr;
+    }
+
+    fn squash_done(&mut self) {
         self.tage.repair(&self.spec_ghr);
     }
 
-    fn snapshot_ras(&self) -> RasSnapshot {
-        self.ras.snapshot()
+    fn correct(&mut self, _pc: u64, taken: bool, history: &TageHistory) {
+        self.spec_ghr = history.ghr;
+        self.tage.repair(&self.spec_ghr);
+        self.push_speculative(taken);
     }
 
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        self.ras.restore(snapshot);
-    }
-
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
-    }
-
-    fn repair_to_committed(&mut self) {
-        self.spec_ghr = self.commit_ghr;
-        self.tage.repair_to_committed_csrs();
-    }
-
-    fn retire_jump(&mut self) {
-        self.tage.commit_advance(true, &self.commit_ghr);
-        self.commit_ghr.push(true);
+    /// Trains with the committed history, as Seznec's CBP functional model
+    /// does, then shifts the outcome into it.
+    fn commit(&mut self, pc: u64, retired: Retired, _history: &TageHistory) {
+        if retired.class == BranchClass::Conditional {
+            let _result = self.tage.update(pc, retired.taken, &self.commit_ghr);
+        }
+        self.push_committed(retired.taken);
     }
 }
 
@@ -120,36 +99,25 @@ mod tests {
     }
 
     #[test]
-    fn test_spec_index_matches_snapshot_index() {
-        let config = test_config();
-        let mut tage = TagePredictor::new(&config, 64, 4, 8);
-        let pc: u64 = 0x8000_1234;
-
-        for i in 0u64..50 {
-            let taken = i % 3 != 0;
-            tage.speculate(pc.wrapping_add(i * 4), taken);
-        }
-
-        let (_taken, _target) = tage.predict_branch(pc);
-    }
-
-    #[test]
-    fn test_repair_history_restores_state() {
-        let config = test_config();
-        let mut tage = TagePredictor::new(&config, 64, 4, 8);
-        let pc: u64 = 0x8000_1000;
-
+    fn squashing_younger_predictions_restores_the_history_they_shifted() {
+        let mut tage = TagePredictor::new(&test_config());
         for i in 0u64..20 {
-            tage.speculate(pc.wrapping_add(i * 4), i % 2 == 0);
+            let (_, history) = tage.lookup(0x8000_1000 + i * 4);
+            tage.update_histories(0, i % 2 == 0, &history);
         }
-        let snapshot = tage.snapshot_history();
+        let before = tage.spec_ghr;
 
-        for _ in 0u64..30 {
-            tage.speculate(0x2000, true);
+        let mut squashed = Vec::new();
+        for _ in 0..30 {
+            let (_, history) = tage.lookup(0x2000);
+            tage.update_histories(0x2000, true, &history);
+            squashed.push(history);
         }
+        for history in squashed.iter().rev() {
+            tage.squash(history);
+        }
+        tage.squash_done();
 
-        tage.repair_history(&snapshot);
-        let restored = tage.snapshot_history();
-        assert_eq!(snapshot, restored);
+        assert_eq!(tage.spec_ghr, before);
     }
 }

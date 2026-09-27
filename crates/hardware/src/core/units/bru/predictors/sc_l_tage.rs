@@ -9,38 +9,19 @@
 //! 1. TAGE base -> (direction, `TageScMeta`)
 //! 2. Loop predictor override -> if confident, use loop prediction
 //! 3. SC correction -> may flip direction if confident base is wrong
-//! 4. Target: ITTAGE for indirect branches, BTB otherwise
-
-use std::cell::Cell;
+//! 4. Target: ITTAGE for indirect branches, the unit's BTB otherwise
 
 use crate::config::{IttageConfig, ScConfig, TageConfig};
-use crate::core::units::bru::ras::RasSnapshot;
-use crate::core::units::bru::{
-    BranchPredictor, Ghr,
-    btb::Btb,
-    components::{
-        ittage::Ittage, loop_predictor::LoopPredictor, sc_types::ScSum,
-        stat_corrector::StatCorrector, tage_core::TageCore,
-    },
-    ras::Ras,
+use crate::core::units::bru::Ghr;
+use crate::core::units::bru::components::{
+    ittage::Ittage, loop_predictor::LoopPredictor, sc_types::ScSum, sc_types::TageScMeta,
+    stat_corrector::StatCorrector, tage_core::TageCore,
 };
-
-/// Number of entries in the predict-time SC metadata cache.
-const SC_CACHE_SIZE: usize = 64;
-const SC_CACHE_MASK: usize = SC_CACHE_SIZE - 1;
-
-/// Cached predict-time SC metadata for a single PC.
-#[derive(Clone, Copy, Debug, Default)]
-struct ScCacheEntry {
-    pc: u64,
-    meta: Option<(crate::core::units::bru::components::sc_types::TageScMeta, ScSum)>,
-}
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// SC-L-TAGE + ITTAGE composed predictor.
 #[derive(Debug)]
 pub struct ScLTagePredictor {
-    btb: Btb,
-    ras: Ras,
     spec_ghr: Ghr,
     commit_ghr: Ghr,
 
@@ -50,9 +31,16 @@ pub struct ScLTagePredictor {
     loop_pred: LoopPredictor,
     sc: StatCorrector,
     ittage: Ittage,
+}
 
-    /// Direct-mapped cache of predict-time SC metadata.
-    sc_cache: Vec<Cell<ScCacheEntry>>,
+/// What an SC-L-TAGE prediction was made with.
+#[derive(Clone, Copy, Debug)]
+pub struct ScLTageHistory {
+    /// The speculative global history before the prediction.
+    ghr: Ghr,
+    /// The TAGE metadata and SC sum the statistical corrector decided
+    /// with; `None` when the loop predictor overrode it or for a jump.
+    sc: Option<(TageScMeta, ScSum)>,
 }
 
 impl ScLTagePredictor {
@@ -61,123 +49,99 @@ impl ScLTagePredictor {
         tage_config: &TageConfig,
         sc_config: &ScConfig,
         ittage_config: &IttageConfig,
-        btb_size: usize,
-        btb_ways: usize,
-        ras_size: usize,
     ) -> Self {
         let tage = TageCore::new(tage_config);
         let max_hist = tage.max_history();
 
         Self {
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
             spec_ghr: Ghr::with_len(max_hist),
             commit_ghr: Ghr::with_len(max_hist),
             tage,
             loop_pred: LoopPredictor::new(tage_config.loop_table_size),
             sc: StatCorrector::new(sc_config),
             ittage: Ittage::new(ittage_config),
-            sc_cache: vec![Cell::new(ScCacheEntry::default()); SC_CACHE_SIZE],
         }
     }
-}
 
-impl BranchPredictor for ScLTagePredictor {
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let meta = self.tage.predict(pc);
-
-        if let Some(loop_taken) = self.loop_pred.predict(pc) {
-            return (loop_taken, if loop_taken { self.btb.lookup(pc) } else { None });
-        }
-
-        let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
-
-        let cache_idx = (pc >> 2) as usize & SC_CACHE_MASK;
-        self.sc_cache[cache_idx].set(ScCacheEntry { pc, meta: Some((meta, sc_sum)) });
-
-        (sc_taken, if sc_taken { self.btb.lookup(pc) } else { None })
-    }
-
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
-        self.loop_pred.update(pc, taken);
-
-        // Must happen BEFORE commit_advance so CSRs match current commit_ghr.
-        let result = self.tage.update(pc, taken, &self.commit_ghr);
-        let meta = result.meta;
-
-        let cache_idx = (pc >> 2) as usize & SC_CACHE_MASK;
-        let cached = self.sc_cache[cache_idx].get();
-        let (sc_meta, sc_sum) = if let Some((m, s)) = cached.meta.filter(|_| cached.pc == pc) {
-            (m, s)
-        } else {
-            let (_p, s) = self.sc.predict(pc, &self.commit_ghr, &meta);
-            (meta, s)
-        };
-        self.sc.update(pc, &self.commit_ghr, taken, &sc_meta, sc_sum);
-
-        if let Some(tgt) = target {
-            self.ittage.update(pc, tgt, ghr_snapshot);
-            self.btb.update(pc, tgt);
-        }
-
-        // Must happen AFTER update() reads CSRs, but BEFORE commit_ghr.push():
-        // FoldedHistory::update() needs ghr.bit(hist_length - 1) before shift.
-        self.tage.commit_advance(taken, &self.commit_ghr);
-        self.ittage.commit_advance(taken, &self.commit_ghr);
-
-        self.commit_ghr.push(taken);
-    }
-
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        self.ittage.predict(pc).or_else(|| self.btb.lookup(pc))
-    }
-
-    fn push_return(&mut self, ret_addr: u64) {
-        self.ras.push(ret_addr);
-    }
-
-    fn pop_return(&mut self) -> Option<u64> {
-        self.ras.pop()
-    }
-
-    fn speculate(&mut self, _pc: u64, taken: bool) {
+    fn push_speculative(&mut self, taken: bool) {
         self.tage.speculate(taken, &self.spec_ghr);
         self.ittage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
     }
 
-    fn snapshot_history(&self) -> Ghr {
-        self.spec_ghr
-    }
-
-    fn repair_history(&mut self, ghr: &Ghr) {
-        self.spec_ghr = *ghr;
+    fn repair_speculative(&mut self) {
         self.tage.repair(&self.spec_ghr);
-        self.ittage.repair_history(ghr);
+        self.ittage.repair_history(&self.spec_ghr);
     }
 
-    fn snapshot_ras(&self) -> RasSnapshot {
-        self.ras.snapshot()
+    /// Advances the committed history. Must follow every read of the
+    /// committed CSRs for this instruction: the folded histories need the
+    /// bit about to be shifted out.
+    fn push_committed(&mut self, taken: bool) {
+        self.tage.commit_advance(taken, &self.commit_ghr);
+        self.ittage.commit_advance(taken, &self.commit_ghr);
+        self.commit_ghr.push(taken);
     }
 
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        self.ras.restore(snapshot);
+    fn train_direction(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
+        self.loop_pred.update(pc, taken);
+        let meta = self.tage.update(pc, taken, &self.commit_ghr).meta;
+        let (sc_meta, sc_sum) = history.sc.unwrap_or_else(|| {
+            let (_taken, sum) = self.sc.predict(pc, &self.commit_ghr, &meta);
+            (meta, sum)
+        });
+        self.sc.update(pc, &self.commit_ghr, taken, &sc_meta, sc_sum);
+    }
+}
+
+impl DirectionPredictor for ScLTagePredictor {
+    type History = ScLTageHistory;
+
+    fn lookup(&self, pc: u64) -> (bool, ScLTageHistory) {
+        let meta = self.tage.predict(pc);
+        if let Some(loop_taken) = self.loop_pred.predict(pc) {
+            return (loop_taken, ScLTageHistory { ghr: self.spec_ghr, sc: None });
+        }
+        let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
+        (sc_taken, ScLTageHistory { ghr: self.spec_ghr, sc: Some((meta, sc_sum)) })
     }
 
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
+    fn unconditional(&self, _pc: u64) -> ScLTageHistory {
+        ScLTageHistory { ghr: self.spec_ghr, sc: None }
     }
 
-    fn repair_to_committed(&mut self) {
-        self.spec_ghr = self.commit_ghr;
-        self.tage.repair_to_committed_csrs();
-        self.ittage.repair_to_committed_csrs();
+    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &ScLTageHistory) {
+        self.push_speculative(taken);
     }
 
-    fn retire_jump(&mut self) {
-        self.tage.commit_advance(true, &self.commit_ghr);
-        self.ittage.commit_advance(true, &self.commit_ghr);
-        self.commit_ghr.push(true);
+    fn squash(&mut self, history: &ScLTageHistory) {
+        self.spec_ghr = history.ghr;
+    }
+
+    fn squash_done(&mut self) {
+        self.repair_speculative();
+    }
+
+    fn correct(&mut self, _pc: u64, taken: bool, history: &ScLTageHistory) {
+        self.spec_ghr = history.ghr;
+        self.repair_speculative();
+        self.push_speculative(taken);
+    }
+
+    fn commit(&mut self, pc: u64, retired: Retired, history: &ScLTageHistory) {
+        if retired.class == BranchClass::Conditional {
+            self.train_direction(pc, retired.taken, history);
+        }
+        if retired.class == BranchClass::Conditional
+            && let Some(target) = retired.target
+        {
+            self.ittage.update(pc, target, &history.ghr);
+        }
+        self.push_committed(retired.taken);
+    }
+
+    fn indirect_target(&self, pc: u64) -> Option<u64> {
+        self.ittage.predict(pc)
     }
 }
 
@@ -219,66 +183,52 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_sc_l_tage_basic_prediction() {
-        let pred = ScLTagePredictor::new(
-            &test_tage_config(),
-            &test_sc_config(),
-            &test_ittage_config(),
-            64,
-            4,
-            8,
-        );
+    fn predictor() -> ScLTagePredictor {
+        ScLTagePredictor::new(&test_tage_config(), &test_sc_config(), &test_ittage_config())
+    }
 
-        let (taken, _target) = pred.predict_branch(0x8000_1000);
+    #[test]
+    fn an_untrained_branch_is_predicted_taken() {
+        let (taken, _) = predictor().lookup(0x8000_1000);
         assert!(taken, "Base counter 0 should predict taken (>= 0)");
     }
 
     #[test]
-    fn test_sc_l_tage_speculate_and_repair() {
-        let mut pred = ScLTagePredictor::new(
-            &test_tage_config(),
-            &test_sc_config(),
-            &test_ittage_config(),
-            64,
-            4,
-            8,
-        );
-
+    fn squashing_younger_predictions_restores_the_history_they_shifted() {
+        let mut pred = predictor();
         for i in 0u64..20 {
-            pred.speculate(0x1000 + i * 4, i % 2 == 0);
+            let history = pred.unconditional(0x1000 + i * 4);
+            pred.update_histories(0x1000 + i * 4, i % 2 == 0, &history);
         }
-        let snapshot = pred.snapshot_history();
-
+        let before = pred.spec_ghr;
+        let mut squashed = Vec::new();
         for _ in 0..10 {
-            pred.speculate(0x2000, true);
+            let (_, history) = pred.lookup(0x2000);
+            pred.update_histories(0x2000, true, &history);
+            squashed.push(history);
         }
 
-        pred.repair_history(&snapshot);
-        let restored = pred.snapshot_history();
-        assert_eq!(snapshot, restored);
+        for history in squashed.iter().rev() {
+            pred.squash(history);
+        }
+        pred.squash_done();
+
+        assert_eq!(pred.spec_ghr, before);
     }
 
     #[test]
-    fn test_sc_l_tage_ittage_indirect() {
-        let mut pred = ScLTagePredictor::new(
-            &test_tage_config(),
-            &test_sc_config(),
-            &test_ittage_config(),
-            64,
-            4,
-            8,
-        );
-
+    fn a_committed_taken_branch_teaches_ittage_its_target() {
+        let mut pred = predictor();
         let pc = 0x8000_2000u64;
         let target = 0x8000_5000u64;
+        let (_, history) = pred.lookup(pc);
 
-        assert_eq!(pred.predict_btb(pc), None);
+        pred.commit(
+            pc,
+            Retired { class: BranchClass::Conditional, taken: true, target: Some(target) },
+            &history,
+        );
 
-        let snapshot = pred.snapshot_history();
-        pred.update_branch(pc, true, Some(target), &snapshot);
-
-        let btb_result = pred.predict_btb(pc);
-        assert_eq!(btb_result, Some(target));
+        assert_eq!(pred.indirect_target(pc), Some(target));
     }
 }

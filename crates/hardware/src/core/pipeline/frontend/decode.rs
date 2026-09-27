@@ -1520,8 +1520,7 @@ pub fn decode_stage(
             exception_stage: ex_stage,
             pred_taken: if_entry.pred_taken,
             pred_target: if_entry.pred_target,
-            ghr_snapshot: if_entry.ghr_snapshot,
-            ras_snapshot: if_entry.ras_snapshot,
+            seq: if_entry.seq,
         });
 
         consumed_count += 1;

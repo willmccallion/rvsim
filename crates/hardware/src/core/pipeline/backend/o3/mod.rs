@@ -33,7 +33,6 @@ use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_prf::VecPrfView;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::core::units::bru::BranchPredictor;
 use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
 use crate::core::units::vpu::mem::{generate_element_addrs_vrf, is_vec_store};
@@ -273,6 +272,7 @@ impl O3Engine {
 
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
         let squashed = if let Some(keep_tag) = keep_tag {
             for entry in self.rob.iter_after(keep_tag) {
                 self.free_list.reclaim(entry.phys_dst);
@@ -345,9 +345,7 @@ impl O3Engine {
         }
 
         *redirect = Some(squash.redirect.target);
-        if let Some(repair) = squash.redirect.repair {
-            repair.apply(&mut state.core.branch_predictor);
-        }
+        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq);
     }
 
     /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.
@@ -1141,7 +1139,7 @@ impl ExecutionEngine for O3Engine {
         self.common.pending_squash = None;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
-        state.core.branch_predictor.repair_to_committed();
+        self.common.flush_predictions(&mut state.core.branch_predictor);
 
         // Conservation invariant: every phys reg is either free or held by the committed map.
         debug_assert_eq!(

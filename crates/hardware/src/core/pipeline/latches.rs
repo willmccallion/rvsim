@@ -8,11 +8,10 @@
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
 use crate::common::error::{ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, Trap};
-use crate::common::{InstSize, PhysAddr, RegIdx, VirtAddr};
+use crate::common::{InstSeq, InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
-use crate::core::units::bru::{Ghr, RasSnapshot};
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 use crate::sim::state::write_log::WriteSeq;
 
@@ -115,10 +114,8 @@ pub struct IfIdEntry {
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was first detected.
     pub exception_stage: Option<ExceptionStage>,
-    /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: Ghr,
-    /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: RasSnapshot,
+    /// The instruction's place in fetch order.
+    pub seq: InstSeq,
 }
 
 /// Entry in the ID/EX pipeline latch (Decode to Execute stage).
@@ -159,10 +156,8 @@ pub struct IdExEntry {
     pub pred_taken: bool,
     /// Predicted target address for branch/jump instructions.
     pub pred_target: u64,
-    /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: Ghr,
-    /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: RasSnapshot,
+    /// The instruction's place in fetch order.
+    pub seq: InstSeq,
 }
 
 /// Entry in the EX/MEM pipeline latch (Execute to Memory stage).
@@ -236,10 +231,8 @@ pub struct Fetch1Fetch2Entry {
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was detected.
     pub exception_stage: Option<ExceptionStage>,
-    /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: Ghr,
-    /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: RasSnapshot,
+    /// The instruction's place in fetch order.
+    pub seq: InstSeq,
 }
 
 /// Entry from Rename -> Issue (also used as Issue -> Execute input).
@@ -296,10 +289,8 @@ pub struct RenameIssueEntry {
     pub pred_taken: bool,
     /// Branch prediction target.
     pub pred_target: u64,
-    /// GHR snapshot captured at prediction time for speculative history repair.
-    pub ghr_snapshot: Ghr,
-    /// RAS pointer snapshot captured at prediction time for speculative recovery.
-    pub ras_snapshot: RasSnapshot,
+    /// The instruction's place in fetch order.
+    pub seq: InstSeq,
     /// Physical vector registers for vs1 LMUL group (O3 backend).
     pub vs1_phys: [VecPhysReg; 8],
     /// Physical vector registers for vs2 LMUL group (O3 backend).

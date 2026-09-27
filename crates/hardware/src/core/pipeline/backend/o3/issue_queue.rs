@@ -600,8 +600,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: crate::core::units::bru::Ghr::default(),
-            ras_snapshot: crate::core::units::bru::RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -882,6 +881,7 @@ mod tests {
                 ctrl,
                 PhysReg(0),
                 PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap()
         };

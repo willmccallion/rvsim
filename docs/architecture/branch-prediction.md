@@ -2,6 +2,27 @@
 
 rvsim implements six pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 to steer the instruction stream speculatively.
 
+## Prediction Unit
+
+Each direction predictor sits in a prediction unit with the BTB and the RAS,
+modelled on gem5's `BPredUnit`. Fetch numbers every instruction it forms
+(gem5's `InstSeqNum`) and asks the unit to predict each control instruction.
+The unit keeps one record per prediction, oldest first: what the direction
+predictor read, the histories before it, and the stack operations it did.
+
+- **Commit** reports the youngest instruction it retired, and the predictor
+  trains on every record up to it with what that prediction read.
+- **A misprediction** squashes the records younger than the branch and
+  rewrites the branch's own history update with its real outcome.
+- **Every other squash** (a CSR access, a memory-order or coherence replay,
+  a trap) undoes the records younger than the instruction it keeps,
+  youngest first, restoring the speculative histories and the RAS
+  exactly. A squash of the whole window undoes all of them.
+
+A commit notice waits while a squash is pending: that squash may correct a
+prediction commit has already passed, and the correction must reach the
+predictor first, as gem5's fetch takes a squash before a commit notice.
+
 ## Shared Infrastructure
 
 All predictors share these components:
@@ -12,12 +33,12 @@ Set-associative cache (default: 4096 entries, 4-way) that maps branch PCs to the
 
 ### Return Address Stack (RAS)
 
-Circular buffer (default: 32 entries) for call/return prediction. Fetch
-pushes a call's return address and pops a return's target the moment the
-instruction is fetched, so a return fetched right behind its call is
-predicted; every fetched instruction carries a snapshot of the stack
-that a misprediction restores, including the entry a wrong-path push
-overwrote.
+Circular stack (default: 32 entries) for call/return prediction, after
+gem5's `ReturnAddrStack`: a push past capacity overwrites the oldest entry.
+Fetch pushes a call's return address and pops a return's target the moment
+the instruction is fetched, so a return fetched right behind its call is
+predicted. Each prediction records its push and pop, including the entry a
+pop exposed, and a squash undoes them youngest first.
 
 Per RISC-V spec Table 2.1, both **x1 (ra)** and **x5 (t0)** are recognized as link registers:
 
@@ -38,9 +59,9 @@ exactly like its 32-bit expansion.
 
 ### Global History Register (GHR)
 
-Arbitrary-length bit vector recording the direction (taken/not-taken) of recent branches. The GHR is speculatively updated during Fetch1 and repaired on misprediction from per-instruction snapshots.
+Arbitrary-length bit vector recording the direction (taken/not-taken) of recent branches. The GHR is speculatively updated during Fetch1 and restored on a squash from the records of the squashed predictions.
 
-Every control instruction shifts the GHR at fetch: a conditional branch with its predicted direction, a jump, call or return as taken (as gem5's predictors do), so a branch reached through a jump sees a different path from one reached without. The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
+Every control instruction shifts the GHR at fetch with its predicted direction, as gem5's predictors do: a jump, call or return counts as taken unless fetch had no target for it. A branch reached through a jump sees a different path from one reached without. The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
 
 ## Predictors
 

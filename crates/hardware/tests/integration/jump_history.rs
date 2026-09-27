@@ -6,7 +6,7 @@ use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::config::Config;
 use rvsim_core::core::pipeline::engine::BackendType;
-use rvsim_core::core::units::bru::BranchPredictor;
+use rvsim_core::core::units::bru::BranchPredictorWrapper;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 
@@ -21,7 +21,11 @@ fn history_after_a_jump_loop(backend: BackendType) -> bool {
     ctx.run(100);
 
     assert!(ctx.sim.state.harts[0].instructions_retired > 4, "{backend:?}: the loop ran");
-    ctx.sim.state.cores[0].units.branch_predictor.snapshot_history().bit(0)
+    let BranchPredictorWrapper::GShare(unit) = &ctx.sim.state.cores[0].units.branch_predictor
+    else {
+        panic!("{backend:?}: configured for GShare");
+    };
+    unit.direction().history() & 1 == 1
 }
 
 #[test]

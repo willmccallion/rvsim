@@ -133,6 +133,7 @@ impl O3Engine {
             id.ctrl,
             rd_phys,
             old_phys_dst,
+            id.seq,
         ) else {
             if needs_dst {
                 self.free_list.reclaim(rd_phys);
@@ -211,8 +212,7 @@ impl O3Engine {
             exception_stage: id.exception_stage,
             pred_taken: id.pred_taken,
             pred_target: id.pred_target,
-            ghr_snapshot: id.ghr_snapshot,
-            ras_snapshot: id.ras_snapshot,
+            seq: id.seq,
             vs1_phys,
             vs2_phys,
             vs3_phys,

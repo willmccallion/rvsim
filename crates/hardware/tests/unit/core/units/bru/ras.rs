@@ -1,149 +1,89 @@
-//! Return Address Stack (RAS) Tests.
-//!
-//! Verifies push/pop/top semantics, overflow behaviour, underflow safety,
-//! and correct LIFO ordering for return address prediction.
+//! Return Address Stack (RAS) tests: LIFO order, the circular overflow and
+//! underflow of gem5's stack, and undoing squashed operations.
 
-use rvsim_core::core::units::bru::ras::Ras;
+use rvsim_core::core::units::bru::ras::{Ras, RasHistory};
 
-#[test]
-fn push_pop_single() {
-    let mut ras = Ras::new(8);
-    ras.push(0x1000);
-    assert_eq!(ras.pop(), Some(0x1000));
+fn push(ras: &mut Ras, addr: u64) -> RasHistory {
+    let mut history = RasHistory::default();
+    ras.push(addr, &mut history);
+    history
+}
+
+fn pop(ras: &mut Ras) -> Option<u64> {
+    ras.pop(&mut RasHistory::default())
 }
 
 #[test]
-fn push_pop_lifo_order() {
+fn pops_come_out_in_reverse_push_order() {
     let mut ras = Ras::new(8);
-    ras.push(0xA);
-    ras.push(0xB);
-    ras.push(0xC);
-    assert_eq!(ras.pop(), Some(0xC), "Most recent push comes out first");
-    assert_eq!(ras.pop(), Some(0xB));
-    assert_eq!(ras.pop(), Some(0xA));
+    let _ = push(&mut ras, 0xA);
+    let _ = push(&mut ras, 0xB);
+    let _ = push(&mut ras, 0xC);
+
+    assert_eq!(pop(&mut ras), Some(0xC));
+    assert_eq!(pop(&mut ras), Some(0xB));
+    assert_eq!(pop(&mut ras), Some(0xA));
 }
 
 #[test]
-fn push_pop_interleaved() {
+fn top_reads_without_popping() {
     let mut ras = Ras::new(8);
-    ras.push(0x100);
-    ras.push(0x200);
-    assert_eq!(ras.pop(), Some(0x200));
-    ras.push(0x300);
-    assert_eq!(ras.pop(), Some(0x300));
-    assert_eq!(ras.pop(), Some(0x100));
-}
+    let _ = push(&mut ras, 0xAAAA);
 
-#[test]
-fn top_returns_without_removing() {
-    let mut ras = Ras::new(8);
-    ras.push(0xAAAA);
     assert_eq!(ras.top(), Some(0xAAAA));
-    assert_eq!(ras.top(), Some(0xAAAA), "top() must not consume the entry");
-    assert_eq!(ras.pop(), Some(0xAAAA), "pop() should still return the value");
+    assert_eq!(pop(&mut ras), Some(0xAAAA));
 }
 
 #[test]
-fn top_on_empty_returns_none() {
-    let ras = Ras::new(8);
-    assert_eq!(ras.top(), None);
+fn a_pop_of_a_never_written_entry_predicts_nothing() {
+    let mut ras = Ras::new(4);
+    assert_eq!(pop(&mut ras), None);
 }
 
 #[test]
-fn pop_empty_returns_none() {
+fn a_push_past_capacity_overwrites_the_oldest_entry() {
+    let mut ras = Ras::new(2);
+    let _ = push(&mut ras, 0x1);
+    let _ = push(&mut ras, 0x2);
+    let _ = push(&mut ras, 0x3);
+
+    assert_eq!(pop(&mut ras), Some(0x3));
+    assert_eq!(pop(&mut ras), Some(0x2));
+    assert_eq!(pop(&mut ras), Some(0x3), "the stack wraps to the slot 0x3 overwrote");
+}
+
+#[test]
+fn a_zero_capacity_stack_predicts_nothing() {
+    let mut ras = Ras::new(0);
+    let history = push(&mut ras, 0x1000);
+
+    assert_eq!(pop(&mut ras), None);
+    ras.squash(history);
+}
+
+#[test]
+fn squashing_a_push_restores_the_previous_top() {
     let mut ras = Ras::new(8);
-    assert_eq!(ras.pop(), None, "Popping empty RAS must return None");
+    let _ = push(&mut ras, 0x1000);
+    let history = push(&mut ras, 0x2000);
+
+    ras.squash(history);
+
+    assert_eq!(ras.top(), Some(0x1000));
 }
 
 #[test]
-fn pop_beyond_pushes_returns_none() {
+fn squashing_a_pop_then_a_push_restores_the_overwritten_entry() {
     let mut ras = Ras::new(8);
-    ras.push(0x1);
-    assert_eq!(ras.pop(), Some(0x1));
-    assert_eq!(ras.pop(), None, "No more entries");
-    assert_eq!(ras.pop(), None, "Still empty");
-}
+    let _ = push(&mut ras, 0x1000);
+    let _ = push(&mut ras, 0x2000);
+    let mut popped = RasHistory::default();
+    assert_eq!(ras.pop(&mut popped), Some(0x2000));
+    let pushed = push(&mut ras, 0x3000);
 
-#[test]
-fn multiple_pop_on_empty() {
-    let mut ras = Ras::new(4);
-    for _ in 0..10 {
-        assert_eq!(ras.pop(), None);
-    }
-}
+    ras.squash(pushed);
+    ras.squash(popped);
 
-#[test]
-fn overflow_overwrites_top() {
-    // With capacity 4, pushing 5 entries should overwrite the last slot.
-    let mut ras = Ras::new(4);
-    ras.push(0xA);
-    ras.push(0xB);
-    ras.push(0xC);
-    ras.push(0xD); // fills to capacity
-    ras.push(0xE); // overflow: overwrites top (slot capacity-1)
-
-    assert_eq!(ras.pop(), Some(0xE), "Overflow overwrites top entry");
-}
-
-#[test]
-fn capacity_1_always_holds_latest() {
-    let mut ras = Ras::new(1);
-    ras.push(0x100);
-    assert_eq!(ras.top(), Some(0x100));
-    ras.push(0x200); // overflow with capacity=1
-    // After overflow, pointer stays at capacity, so pop decrements to get the overwritten value
-    assert_eq!(ras.pop(), Some(0x200));
-}
-
-#[test]
-fn nested_calls() {
-    // main→A→B→C, returns unwind C→B→A→main.
-    let mut ras = Ras::new(16);
-
-    ras.push(0x1004); // main→A return addr
-    ras.push(0x2008); // A→B return addr
-    ras.push(0x300C); // B→C return addr
-
-    assert_eq!(ras.pop(), Some(0x300C), "Return from C to B");
-    assert_eq!(ras.pop(), Some(0x2008), "Return from B to A");
-    assert_eq!(ras.pop(), Some(0x1004), "Return from A to main");
-}
-
-#[test]
-fn recursive_calls() {
-    let mut ras = Ras::new(8);
-    // Recursive function pushes the same return address multiple times
-    for i in 0..5 {
-        ras.push(0x4000 + i * 4);
-    }
-    for i in (0..5).rev() {
-        assert_eq!(ras.pop(), Some(0x4000 + i * 4));
-    }
-}
-
-#[test]
-fn push_pop_at_exactly_capacity() {
-    let cap = 4;
-    let mut ras = Ras::new(cap);
-    for i in 0..cap {
-        ras.push(i as u64);
-    }
-    for i in (0..cap).rev() {
-        assert_eq!(ras.pop(), Some(i as u64));
-    }
-    assert_eq!(ras.pop(), None);
-}
-
-#[test]
-fn push_zero_address() {
-    let mut ras = Ras::new(4);
-    ras.push(0);
-    assert_eq!(ras.pop(), Some(0), "Zero is a valid return address");
-}
-
-#[test]
-fn push_max_address() {
-    let mut ras = Ras::new(4);
-    ras.push(u64::MAX);
-    assert_eq!(ras.pop(), Some(u64::MAX));
+    assert_eq!(pop(&mut ras), Some(0x2000));
+    assert_eq!(pop(&mut ras), Some(0x1000));
 }

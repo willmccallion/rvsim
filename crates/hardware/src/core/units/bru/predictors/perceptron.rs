@@ -5,8 +5,7 @@
 //! prediction is the dot product of the weights and the history vector.
 
 use crate::config::PerceptronConfig;
-use crate::core::units::bru::ras::RasSnapshot;
-use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// Coefficient used to calculate the training threshold.
 const THETA_COEFF: f64 = 1.93;
@@ -18,8 +17,6 @@ const THETA_BIAS: f64 = 14.0;
 pub struct PerceptronPredictor {
     /// Global history as fetched, which predictions use.
     ghr: u64,
-    /// Global history through the last committed branch.
-    commit_ghr: u64,
     /// Table of weights (flattened).
     table: Vec<i8>,
     /// Length of the history vector.
@@ -30,20 +27,17 @@ pub struct PerceptronPredictor {
     row_size: usize,
     /// Training threshold (theta).
     threshold: i32,
-    /// Branch Target Buffer.
-    btb: Btb,
-    /// Return Address Stack.
-    ras: Ras,
+}
+
+/// The global history a perceptron prediction was made with.
+#[derive(Clone, Copy, Debug)]
+pub struct PerceptronHistory {
+    ghr: u64,
 }
 
 impl PerceptronPredictor {
     /// Creates a new Perceptron Predictor based on configuration.
-    pub fn new(
-        config: &PerceptronConfig,
-        btb_size: usize,
-        btb_ways: usize,
-        ras_size: usize,
-    ) -> Self {
+    pub fn new(config: &PerceptronConfig) -> Self {
         let table_entries = 1 << config.table_bits;
         let hist_len = config.history_length;
         let threshold = THETA_COEFF.mul_add(hist_len as f64, THETA_BIAS) as i32;
@@ -51,14 +45,11 @@ impl PerceptronPredictor {
 
         Self {
             ghr: 0,
-            commit_ghr: 0,
             table: vec![0; table_entries * row_size],
             history_length: hist_len,
             table_mask: table_entries - 1,
             row_size,
             threshold,
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
         }
     }
 
@@ -98,28 +89,43 @@ const fn clamp_weight(v: i32) -> i8 {
     }
 }
 
-impl BranchPredictor for PerceptronPredictor {
-    /// Predicts branch direction and target.
-    ///
-    /// Predicts taken if the perceptron output (dot product) is non-negative.
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let idx = self.index(pc, self.ghr);
-        let y = self.output(idx, self.ghr);
-        let taken = y >= 0;
-        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
+impl DirectionPredictor for PerceptronPredictor {
+    type History = PerceptronHistory;
+
+    /// Predicts taken when the perceptron output (dot product) is non-negative.
+    fn lookup(&self, pc: u64) -> (bool, PerceptronHistory) {
+        let y = self.output(self.index(pc, self.ghr), self.ghr);
+        (y >= 0, PerceptronHistory { ghr: self.ghr })
     }
 
-    /// Updates the predictor weights based on the actual outcome.
-    ///
-    /// Trains the perceptron if a misprediction occurred or if the confidence
-    /// (magnitude of the output) was below the training threshold.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
-        let ghr = ghr_snapshot.val();
+    fn unconditional(&self, _pc: u64) -> PerceptronHistory {
+        PerceptronHistory { ghr: self.ghr }
+    }
+
+    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &PerceptronHistory) {
+        self.ghr = self.shifted(self.ghr, taken);
+    }
+
+    fn squash(&mut self, history: &PerceptronHistory) {
+        self.ghr = history.ghr;
+    }
+
+    fn correct(&mut self, _pc: u64, taken: bool, history: &PerceptronHistory) {
+        self.ghr = self.shifted(history.ghr, taken);
+    }
+
+    /// Trains the weights when the prediction was wrong or its confidence
+    /// (the output's magnitude) was below the training threshold.
+    fn commit(&mut self, pc: u64, retired: Retired, history: &PerceptronHistory) {
+        if retired.class != BranchClass::Conditional {
+            return;
+        }
+        let ghr = history.ghr;
         let idx = self.index(pc, ghr);
         let y = self.output(idx, ghr);
-        let t = if taken { 1 } else { -1 };
+        let t = if retired.taken { 1 } else { -1 };
 
-        if y.abs() <= self.threshold || (y >= 0) != taken {
+        if y.abs() <= self.threshold || (y >= 0) != retired.taken {
             let base = idx * self.row_size;
 
             let v = self.table[base] as i32 + t;
@@ -132,56 +138,5 @@ impl BranchPredictor for PerceptronPredictor {
                 self.table[w_idx] = clamp_weight(v);
             }
         }
-
-        self.commit_ghr = self.shifted(ghr, taken);
-
-        if let Some(tgt) = target {
-            self.btb.update(pc, tgt);
-        }
-    }
-
-    /// Predicts the target of a jump instruction using the BTB.
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        self.btb.lookup(pc)
-    }
-
-    fn push_return(&mut self, ret_addr: u64) {
-        self.ras.push(ret_addr);
-    }
-
-    fn pop_return(&mut self) -> Option<u64> {
-        self.ras.pop()
-    }
-
-    fn speculate(&mut self, _pc: u64, taken: bool) {
-        self.ghr = self.shifted(self.ghr, taken);
-    }
-
-    fn snapshot_history(&self) -> Ghr {
-        Ghr::new(self.ghr)
-    }
-
-    fn repair_history(&mut self, ghr: &Ghr) {
-        self.ghr = ghr.val();
-    }
-
-    fn snapshot_ras(&self) -> RasSnapshot {
-        self.ras.snapshot()
-    }
-
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        self.ras.restore(snapshot);
-    }
-
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
-    }
-
-    fn repair_to_committed(&mut self) {
-        self.ghr = self.commit_ghr;
-    }
-
-    fn retire_jump(&mut self) {
-        self.commit_ghr = self.shifted(self.commit_ghr, true);
     }
 }

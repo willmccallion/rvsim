@@ -168,8 +168,6 @@ mod tests {
     use crate::common::{InstSize, RegIdx};
     use crate::config::Config;
     use crate::core::pipeline::signals::{ControlSignals, OpBSrc};
-    use crate::core::units::bru::Ghr;
-    use crate::core::units::bru::RasSnapshot;
 
     #[test]
     fn test_execute_one_normal() {
@@ -188,6 +186,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -216,8 +215,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -256,6 +254,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -284,8 +283,7 @@ mod tests {
             exception_stage: Some(ExceptionStage::Decode),
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -326,6 +324,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -356,8 +355,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -396,6 +394,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -429,8 +428,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0,
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -469,6 +467,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -503,8 +502,7 @@ mod tests {
             exception_stage: None,
             pred_taken: false,
             pred_target: 0, // Predicted NOT taken
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
@@ -544,6 +542,7 @@ mod tests {
                 ControlSignals::default(),
                 crate::core::pipeline::prf::PhysReg(0),
                 crate::core::pipeline::prf::PhysReg(0),
+                crate::common::InstSeq::default(),
             )
             .unwrap();
 
@@ -574,8 +573,7 @@ mod tests {
             exception_stage: None,
             pred_taken: true,
             pred_target: 0, // Predicted incorrectly
-            ghr_snapshot: Ghr::default(),
-            ras_snapshot: RasSnapshot::default(),
+            seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
             vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],

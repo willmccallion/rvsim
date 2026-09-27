@@ -322,7 +322,7 @@ impl TageCore {
         self.geo_banks.update_csrs(taken, ghr);
     }
 
-    /// Recomputes speculative CSRs from a GHR snapshot (misprediction recovery).
+    /// Recomputes speculative CSRs from a recorded GHR after a squash.
     pub fn repair(&mut self, ghr: &Ghr) {
         self.geo_banks.recompute_all(ghr);
     }
@@ -332,11 +332,6 @@ impl TageCore {
     #[inline]
     pub fn commit_advance(&mut self, taken: bool, ghr: &Ghr) {
         self.geo_banks.update_committed_csrs(taken, ghr);
-    }
-
-    /// Copies committed CSRs to speculative CSRs (full pipeline flush recovery).
-    pub const fn repair_to_committed_csrs(&mut self) {
-        self.geo_banks.copy_committed_to_spec();
     }
 }
 

@@ -3,242 +3,124 @@
 //! This module contains various branch prediction algorithms including
 //! static prediction, gshare, perceptron, TAGE, tournament, and SC-L-TAGE
 //! predictors, along with branch target buffer (BTB) and return address
-//! stack (RAS).
+//! stack (RAS), composed into a prediction unit.
 
-pub use self::branch_predictor::{BranchPredictor, Ghr};
-pub use self::ras::RasSnapshot;
-
-pub mod branch_predictor;
+pub use self::direction::{BranchClass, DirectionPredictor, Retired};
+pub use self::ghr::Ghr;
+pub use self::unit::{BranchPredUnit, ControlInst};
 
 pub mod btb;
 
-pub mod ras;
-
 pub mod components;
 
+pub mod direction;
+
+pub mod ghr;
+
 pub mod predictors;
+
+pub mod ras;
+
+pub mod unit;
 
 use self::predictors::{
     gshare::GSharePredictor, perceptron::PerceptronPredictor, sc_l_tage::ScLTagePredictor,
     static_bp::StaticPredictor, tage::TagePredictor, tournament::TournamentPredictor,
 };
+use crate::common::InstSeq;
 use crate::config::{BranchPredictor as BpType, Config};
 
-/// Enum wrapper for static dispatch of Branch Predictors.
-/// This avoids vtable lookups in the critical fetch loop.
+/// The configured prediction unit, dispatched statically so the fetch
+/// loop makes no virtual calls.
 #[derive(Debug)]
 pub enum BranchPredictorWrapper {
     /// Static (always not-taken) predictor.
-    Static(StaticPredictor),
+    Static(BranchPredUnit<StaticPredictor>),
     /// Global history (gshare) predictor.
-    GShare(GSharePredictor),
+    GShare(BranchPredUnit<GSharePredictor>),
     /// Tournament predictor combining local and global histories.
-    Tournament(TournamentPredictor),
+    Tournament(BranchPredUnit<TournamentPredictor>),
     /// TAGE predictor with geometric history lengths.
-    Tage(Box<TagePredictor>),
+    Tage(Box<BranchPredUnit<TagePredictor>>),
     /// Perceptron-based neural predictor.
-    Perceptron(PerceptronPredictor),
+    Perceptron(BranchPredUnit<PerceptronPredictor>),
     /// SC-L-TAGE + ITTAGE composed predictor.
-    ScLTage(Box<ScLTagePredictor>),
+    ScLTage(Box<BranchPredUnit<ScLTagePredictor>>),
+}
+
+/// A prediction unit around `direction` with the configured BTB and RAS.
+fn unit_for<P: DirectionPredictor>(config: &Config, direction: P) -> BranchPredUnit<P> {
+    let pipeline = &config.pipeline;
+    BranchPredUnit::new(direction, pipeline.btb_size, pipeline.btb_ways, pipeline.ras_size)
+}
+
+/// Runs `$call` on whichever unit `$wrapper` holds.
+macro_rules! dispatch {
+    ($wrapper:expr, $unit:ident => $call:expr) => {
+        match $wrapper {
+            BranchPredictorWrapper::Static($unit) => $call,
+            BranchPredictorWrapper::GShare($unit) => $call,
+            BranchPredictorWrapper::Tournament($unit) => $call,
+            BranchPredictorWrapper::Tage($unit) => $call,
+            BranchPredictorWrapper::Perceptron($unit) => $call,
+            BranchPredictorWrapper::ScLTage($unit) => $call,
+        }
+    };
 }
 
 impl BranchPredictorWrapper {
-    /// Creates a new branch predictor wrapper based on configuration.
-    ///
-    /// Selects the appropriate branch prediction algorithm and initializes
-    /// it with the configured BTB and RAS sizes.
+    /// Creates the unit for the configured predictor, with the configured
+    /// BTB and RAS.
     pub fn new(config: &Config) -> Self {
-        let btb_size = config.pipeline.btb_size;
-        let btb_ways = config.pipeline.btb_ways;
-        let ras_size = config.pipeline.ras_size;
+        let pipeline = &config.pipeline;
 
-        match config.pipeline.branch_predictor {
-            BpType::Static => Self::Static(StaticPredictor::new(btb_size, btb_ways, ras_size)),
-            BpType::GShare => Self::GShare(GSharePredictor::new(btb_size, btb_ways, ras_size)),
-            BpType::Tournament => Self::Tournament(TournamentPredictor::new(
-                &config.pipeline.tournament,
-                btb_size,
-                btb_ways,
-                ras_size,
-            )),
-            BpType::Tage => Self::Tage(Box::new(TagePredictor::new(
-                &config.pipeline.tage,
-                btb_size,
-                btb_ways,
-                ras_size,
-            ))),
-            BpType::Perceptron => Self::Perceptron(PerceptronPredictor::new(
-                &config.pipeline.perceptron,
-                btb_size,
-                btb_ways,
-                ras_size,
-            )),
-            BpType::ScLTage => Self::ScLTage(Box::new(ScLTagePredictor::new(
-                &config.pipeline.tage,
-                &config.pipeline.sc,
-                &config.pipeline.ittage,
-                btb_size,
-                btb_ways,
-                ras_size,
+        match pipeline.branch_predictor {
+            BpType::Static => Self::Static(unit_for(config, StaticPredictor::new())),
+            BpType::GShare => Self::GShare(unit_for(config, GSharePredictor::new())),
+            BpType::Tournament => {
+                Self::Tournament(unit_for(config, TournamentPredictor::new(&pipeline.tournament)))
+            }
+            BpType::Tage => {
+                Self::Tage(Box::new(unit_for(config, TagePredictor::new(&pipeline.tage))))
+            }
+            BpType::Perceptron => {
+                Self::Perceptron(unit_for(config, PerceptronPredictor::new(&pipeline.perceptron)))
+            }
+            BpType::ScLTage => Self::ScLTage(Box::new(unit_for(
+                config,
+                ScLTagePredictor::new(&pipeline.tage, &pipeline.sc, &pipeline.ittage),
             ))),
         }
     }
-}
 
-impl BranchPredictor for BranchPredictorWrapper {
+    /// See [`BranchPredUnit::predict`].
     #[inline(always)]
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        match self {
-            Self::Static(bp) => bp.predict_branch(pc),
-            Self::GShare(bp) => bp.predict_branch(pc),
-            Self::Tournament(bp) => bp.predict_branch(pc),
-            Self::Tage(bp) => bp.predict_branch(pc),
-            Self::Perceptron(bp) => bp.predict_branch(pc),
-            Self::ScLTage(bp) => bp.predict_branch(pc),
-        }
+    pub fn predict(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+        dispatch!(self, unit => unit.predict(seq, pc, inst))
     }
 
-    #[inline(always)]
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
-        match self {
-            Self::Static(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-            Self::GShare(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-            Self::Tournament(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-            Self::Tage(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-            Self::Perceptron(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-            Self::ScLTage(bp) => bp.update_branch(pc, taken, target, ghr_snapshot),
-        }
+    /// See [`BranchPredUnit::squash_after`].
+    pub fn squash_after(&mut self, keep: InstSeq) {
+        dispatch!(self, unit => unit.squash_after(keep));
     }
 
-    #[inline(always)]
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        match self {
-            Self::Static(bp) => bp.predict_btb(pc),
-            Self::GShare(bp) => bp.predict_btb(pc),
-            Self::Tournament(bp) => bp.predict_btb(pc),
-            Self::Tage(bp) => bp.predict_btb(pc),
-            Self::Perceptron(bp) => bp.predict_btb(pc),
-            Self::ScLTage(bp) => bp.predict_btb(pc),
-        }
+    /// See [`BranchPredUnit::squash_all`].
+    pub fn squash_all(&mut self) {
+        dispatch!(self, unit => unit.squash_all());
     }
 
-    #[inline(always)]
-    fn push_return(&mut self, ret_addr: u64) {
-        match self {
-            Self::Static(bp) => bp.push_return(ret_addr),
-            Self::GShare(bp) => bp.push_return(ret_addr),
-            Self::Tournament(bp) => bp.push_return(ret_addr),
-            Self::Tage(bp) => bp.push_return(ret_addr),
-            Self::Perceptron(bp) => bp.push_return(ret_addr),
-            Self::ScLTage(bp) => bp.push_return(ret_addr),
-        }
+    /// See [`BranchPredUnit::mispredict`].
+    pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: u64) {
+        dispatch!(self, unit => unit.mispredict(seq, taken, target));
     }
 
-    #[inline(always)]
-    fn pop_return(&mut self) -> Option<u64> {
-        match self {
-            Self::Static(bp) => bp.pop_return(),
-            Self::GShare(bp) => bp.pop_return(),
-            Self::Tournament(bp) => bp.pop_return(),
-            Self::Tage(bp) => bp.pop_return(),
-            Self::Perceptron(bp) => bp.pop_return(),
-            Self::ScLTage(bp) => bp.pop_return(),
-        }
+    /// See [`BranchPredUnit::commit`].
+    pub fn commit(&mut self, done: InstSeq) {
+        dispatch!(self, unit => unit.commit(done));
     }
 
-    #[inline(always)]
-    fn speculate(&mut self, pc: u64, taken: bool) {
-        match self {
-            Self::Static(bp) => bp.speculate(pc, taken),
-            Self::GShare(bp) => bp.speculate(pc, taken),
-            Self::Tournament(bp) => bp.speculate(pc, taken),
-            Self::Tage(bp) => bp.speculate(pc, taken),
-            Self::Perceptron(bp) => bp.speculate(pc, taken),
-            Self::ScLTage(bp) => bp.speculate(pc, taken),
-        }
-    }
-
-    #[inline(always)]
-    fn snapshot_history(&self) -> Ghr {
-        match self {
-            Self::Static(bp) => bp.snapshot_history(),
-            Self::GShare(bp) => bp.snapshot_history(),
-            Self::Tournament(bp) => bp.snapshot_history(),
-            Self::Tage(bp) => bp.snapshot_history(),
-            Self::Perceptron(bp) => bp.snapshot_history(),
-            Self::ScLTage(bp) => bp.snapshot_history(),
-        }
-    }
-
-    #[inline(always)]
-    fn repair_history(&mut self, ghr: &Ghr) {
-        match self {
-            Self::Static(bp) => bp.repair_history(ghr),
-            Self::GShare(bp) => bp.repair_history(ghr),
-            Self::Tournament(bp) => bp.repair_history(ghr),
-            Self::Tage(bp) => bp.repair_history(ghr),
-            Self::Perceptron(bp) => bp.repair_history(ghr),
-            Self::ScLTage(bp) => bp.repair_history(ghr),
-        }
-    }
-
-    #[inline(always)]
-    fn snapshot_ras(&self) -> RasSnapshot {
-        match self {
-            Self::Static(bp) => bp.snapshot_ras(),
-            Self::GShare(bp) => bp.snapshot_ras(),
-            Self::Tournament(bp) => bp.snapshot_ras(),
-            Self::Tage(bp) => bp.snapshot_ras(),
-            Self::Perceptron(bp) => bp.snapshot_ras(),
-            Self::ScLTage(bp) => bp.snapshot_ras(),
-        }
-    }
-
-    #[inline(always)]
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        match self {
-            Self::Static(bp) => bp.restore_ras(snapshot),
-            Self::GShare(bp) => bp.restore_ras(snapshot),
-            Self::Tournament(bp) => bp.restore_ras(snapshot),
-            Self::Tage(bp) => bp.restore_ras(snapshot),
-            Self::Perceptron(bp) => bp.restore_ras(snapshot),
-            Self::ScLTage(bp) => bp.restore_ras(snapshot),
-        }
-    }
-
-    #[inline(always)]
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        match self {
-            Self::Static(bp) => bp.update_btb(pc, target),
-            Self::GShare(bp) => bp.update_btb(pc, target),
-            Self::Tournament(bp) => bp.update_btb(pc, target),
-            Self::Tage(bp) => bp.update_btb(pc, target),
-            Self::Perceptron(bp) => bp.update_btb(pc, target),
-            Self::ScLTage(bp) => bp.update_btb(pc, target),
-        }
-    }
-
-    #[inline(always)]
-    fn repair_to_committed(&mut self) {
-        match self {
-            Self::Static(bp) => bp.repair_to_committed(),
-            Self::GShare(bp) => bp.repair_to_committed(),
-            Self::Tournament(bp) => bp.repair_to_committed(),
-            Self::Tage(bp) => bp.repair_to_committed(),
-            Self::Perceptron(bp) => bp.repair_to_committed(),
-            Self::ScLTage(bp) => bp.repair_to_committed(),
-        }
-    }
-
-    #[inline(always)]
-    fn retire_jump(&mut self) {
-        match self {
-            Self::Static(bp) => bp.retire_jump(),
-            Self::GShare(bp) => bp.retire_jump(),
-            Self::Tournament(bp) => bp.retire_jump(),
-            Self::Tage(bp) => bp.retire_jump(),
-            Self::Perceptron(bp) => bp.retire_jump(),
-            Self::ScLTage(bp) => bp.retire_jump(),
-        }
+    /// See [`BranchPredUnit::update_btb`].
+    pub fn update_btb(&mut self, pc: u64, target: u64) {
+        dispatch!(self, unit => unit.update_btb(pc, target));
     }
 }

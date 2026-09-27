@@ -5,20 +5,13 @@
 //! This allows the predictor to adapt to different types of branch behaviors.
 
 use crate::config::TournamentConfig;
-use crate::core::units::bru::ras::RasSnapshot;
-use crate::core::units::bru::{BranchPredictor, Ghr, btb::Btb, ras::Ras};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// Tournament Predictor structure.
 #[derive(Debug)]
 pub struct TournamentPredictor {
-    /// Branch Target Buffer.
-    btb: Btb,
-    /// Return Address Stack.
-    ras: Ras,
     /// Global history as fetched, which predictions use.
     ghr: u64,
-    /// Global history through the last committed branch.
-    commit_ghr: u64,
 
     /// Global Pattern History Table (2-bit counters).
     global_pht: Vec<u8>,
@@ -40,23 +33,21 @@ pub struct TournamentPredictor {
     choice_pht: Vec<u8>,
 }
 
+/// The global history a tournament prediction was made with.
+#[derive(Clone, Copy, Debug)]
+pub struct TournamentHistory {
+    ghr: u64,
+}
+
 impl TournamentPredictor {
     /// Creates a new Tournament Predictor based on the provided configuration.
-    pub fn new(
-        config: &TournamentConfig,
-        btb_size: usize,
-        btb_ways: usize,
-        ras_size: usize,
-    ) -> Self {
+    pub fn new(config: &TournamentConfig) -> Self {
         let global_size = 1 << config.global_size_bits;
         let local_hist_size = 1 << config.local_hist_bits;
         let local_pred_size = 1 << config.local_pred_bits;
 
         Self {
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
             ghr: 0,
-            commit_ghr: 0,
 
             global_pht: vec![1; global_size],
             global_mask: global_size - 1,
@@ -69,6 +60,14 @@ impl TournamentPredictor {
 
             choice_pht: vec![1; global_size],
         }
+    }
+
+    const fn global_index(&self, pc: u64, ghr: u64) -> usize {
+        ((ghr ^ pc) as usize) & self.global_mask
+    }
+
+    const fn shifted(&self, ghr: u64, taken: bool) -> u64 {
+        ((ghr << 1) | (taken as u64)) & (self.global_mask as u64)
     }
 
     /// Retrieves the prediction from the Global component.
@@ -85,31 +84,46 @@ impl TournamentPredictor {
     }
 }
 
-impl BranchPredictor for TournamentPredictor {
-    /// Predicts branch direction and target.
-    ///
+impl DirectionPredictor for TournamentPredictor {
+    type History = TournamentHistory;
+
     /// Queries both Global and Local predictors and uses the Choice PHT to
     /// decide which prediction to use.
-    fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let g_idx = ((self.ghr ^ pc) as usize) & self.global_mask;
-
+    fn lookup(&self, pc: u64) -> (bool, TournamentHistory) {
+        let g_idx = self.global_index(pc, self.ghr);
         let global_taken = self.get_global_prediction(g_idx);
         let local_taken = self.get_local_prediction(pc);
-
         let use_global = self.choice_pht[g_idx] >= 2;
         let taken = if use_global { global_taken } else { local_taken };
-
-        if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
+        (taken, TournamentHistory { ghr: self.ghr })
     }
 
-    /// Updates the predictor with the actual branch outcome.
-    ///
+    fn unconditional(&self, _pc: u64) -> TournamentHistory {
+        TournamentHistory { ghr: self.ghr }
+    }
+
+    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &TournamentHistory) {
+        self.ghr = self.shifted(self.ghr, taken);
+    }
+
+    fn squash(&mut self, history: &TournamentHistory) {
+        self.ghr = history.ghr;
+    }
+
+    fn correct(&mut self, _pc: u64, taken: bool, history: &TournamentHistory) {
+        self.ghr = self.shifted(history.ghr, taken);
+    }
+
     /// Updates the Choice PHT based on which predictor was correct, then
     /// the Global and Local tables and the local history. The global
     /// entries are the ones the prediction read, found from the history
     /// the branch was predicted with.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
-        let g_idx = ((ghr_snapshot.val() ^ pc) as usize) & self.global_mask;
+    fn commit(&mut self, pc: u64, retired: Retired, history: &TournamentHistory) {
+        if retired.class != BranchClass::Conditional {
+            return;
+        }
+        let taken = retired.taken;
+        let g_idx = self.global_index(pc, history.ghr);
 
         let global_pred = self.get_global_prediction(g_idx);
         let local_pred = self.get_local_prediction(pc);
@@ -136,7 +150,6 @@ impl BranchPredictor for TournamentPredictor {
         } else if *g_cnt > 0 {
             *g_cnt -= 1;
         }
-        self.commit_ghr = ((ghr_snapshot.val() << 1) | (taken as u64)) & (self.global_mask as u64);
 
         let lh_idx = (pc as usize) & self.local_hist_mask;
         let pattern = self.local_history_table[lh_idx];
@@ -153,54 +166,5 @@ impl BranchPredictor for TournamentPredictor {
 
         self.local_history_table[lh_idx] =
             ((pattern << 1) | (taken as u16)) & (self.local_pred_mask as u16);
-
-        if let Some(tgt) = target {
-            self.btb.update(pc, tgt);
-        }
-    }
-
-    /// Predicts the target of a jump instruction using the BTB.
-    fn predict_btb(&self, pc: u64) -> Option<u64> {
-        self.btb.lookup(pc)
-    }
-
-    fn push_return(&mut self, ret_addr: u64) {
-        self.ras.push(ret_addr);
-    }
-
-    fn pop_return(&mut self) -> Option<u64> {
-        self.ras.pop()
-    }
-
-    fn speculate(&mut self, _pc: u64, taken: bool) {
-        self.ghr = ((self.ghr << 1) | (taken as u64)) & (self.global_mask as u64);
-    }
-
-    fn snapshot_history(&self) -> Ghr {
-        Ghr::new(self.ghr)
-    }
-
-    fn repair_history(&mut self, ghr: &Ghr) {
-        self.ghr = ghr.val();
-    }
-
-    fn snapshot_ras(&self) -> RasSnapshot {
-        self.ras.snapshot()
-    }
-
-    fn restore_ras(&mut self, snapshot: RasSnapshot) {
-        self.ras.restore(snapshot);
-    }
-
-    fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
-    }
-
-    fn repair_to_committed(&mut self) {
-        self.ghr = self.commit_ghr;
-    }
-
-    fn retire_jump(&mut self) {
-        self.commit_ghr = ((self.commit_ghr << 1) | 1) & (self.global_mask as u64);
     }
 }
