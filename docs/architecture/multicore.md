@@ -51,19 +51,20 @@ makes the schedule trivially deterministic.
 Simulator
 ├── state: SimState                    system state, owned once
 │   ├── harts:  Vec<Hart>              architectural state per hardware thread
-│   ├── cores:  Vec<Core>              private micro-architecture per core
-│   │                                  (L1I, L1D, L2, MSHRs, WCB, predictor)
+│   ├── cores:  Vec<Core>              one per core, indexed by CoreId
+│   │   ├── units: CoreUnits           L1I, L1D, L2, MMU, WCB, predictor
+│   │   └── pipeline: PipelineDispatch the in-order or O3 pipeline
 │   └── shared: SharedState            the uncore
 │       ├── topology: Topology         every component ID, derived from config
-│       ├── clock: u64                 master cycle counter
+│       ├── cycle: u64                 master cycle counter
 │       ├── event_queue: EventQueue    single ordered queue for all components
 │       ├── bus: Bus                   MMIO devices, RAM fast path, interrupt lines
-│       ├── llc: Cache                 shared last-level cache
-│       ├── mem_controllers: Vec<Box<dyn MemoryController>>
+│       ├── l3_cache: Cache            shared last-level cache
+│       ├── mem_controller: Box<dyn MemoryController>
 │       ├── reservations: ReservationSet   LR/SC reservations, one per hart
-│       ├── config, stats, exit signal, per-hart debug bookkeeping
-├── pipelines: Vec<PipelineDispatch>   one per core, indexed by CoreId
-└── coherence: CoherenceFabric         home agent + transport (absent for one core)
+│       ├── write_log: Option<WriteLog>    cross-hart write ordering (multi-hart only)
+│       ├── coherence: Option<CoherenceFabric>   home agent + transport (absent for one core)
+│       └── config, stats, exit signal, per-hart debug bookkeeping
 ```
 
 ### Ownership and the per-core view
@@ -75,7 +76,7 @@ state. They receive one of two **views**:
 ```rust
 pub struct CoreCtx<'a> {              // commit, traps, the engine's redirects
     pub hart: &'a mut Hart,
-    pub core: &'a mut Core,
+    pub core: &'a mut CoreUnits,
     pub shared: &'a mut SharedState,
 }
 impl Deref for CoreCtx<'_> { type Target = SharedState; }
@@ -83,14 +84,15 @@ impl DerefMut for CoreCtx<'_> {}
 
 pub struct StageCtx<'a> {             // fetch, decode, rename, issue, execute, memory, writeback
     hart: &'a Hart,                   // read-only
-    core: &'a mut Core,               // TLBs, predictor, caches
+    core: &'a mut CoreUnits,          // TLBs, predictor, caches
     shared: &'a mut SharedState,      // only `counter()` and `events()` are exposed
 }
 impl Deref for StageCtx<'_> { type Target = SharedState; }
 ```
 
 The simulator builds one `CoreCtx` per core per tick from disjoint borrows
-of `harts[i]`, `cores[i]` and `shared`; the engine hands each stage a
+of `harts[i]`, `cores[i].units` and `shared`, alongside `cores[i].pipeline`
+(`SimState::pipeline_ctx`); the engine hands each stage a
 `StageCtx` derived from it. Translation, CSR reads and trigger checks are
 methods on both; `trap`, `csr_write`, register writes, `publish_write`
 and reservation handling exist only on `CoreCtx`, so an execute-stage
