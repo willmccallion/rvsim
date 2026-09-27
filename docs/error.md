@@ -54,10 +54,16 @@ Across these 14 programs:
 
 ## Known causes
 
-- **Compute-bound kernels run 40-70% slow.** Not yet root-caused. Compiled at
-  -O0, they are chains of loads and stores through the stack. The leading
-  suspect is stage timing: gem5's O3 has two cycles from rename to IEW and
-  one from issue to execute, which rvsim does not match.
+- **Compute-bound kernels run 40-70% slow, by design.** Compiled at -O0,
+  each iteration stores a variable and loads it back, so store-to-load
+  forwarding sets the pace. In `alu_int_mul` rvsim takes 10 cycles per
+  iteration: 5 for the forwarded load from issue to result, 3 for the
+  multiply and 2 for the store to resolve and wake the next load. gem5
+  completes a forwarded load in the cycle it executes, a placeholder its
+  source marks `@todo`; rvsim forwards at the L1D hit latency through the
+  load pipeline, closer to the 4-5 cycles real cores take. Stage timing is
+  not the cause: rename to issue, issue to execute and execute to commit
+  match gem5's O3 defaults cycle for cycle.
 - **Branch predictors still train more slowly than gem5's.** The kernels
   without data-dependent branches mispredict 25-42 times where gem5
   mispredicts 15-29. The predictor now
