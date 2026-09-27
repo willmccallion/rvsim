@@ -432,6 +432,16 @@ pub const SSTATUS_VISIBLE: u64 = SSTATUS_WRITABLE | MSTATUS_UXL;
 /// Set when FS, VS, or XS is Dirty.
 pub const MSTATUS_SD: u64 = 1 << 63;
 
+/// `status` as `mstatus` or `sstatus` reads: SD set exactly when FS or VS
+/// is Dirty.
+#[must_use]
+pub const fn with_state_dirty(status: u64) -> u64 {
+    let val = status & !MSTATUS_SD;
+    let fs_dirty = val & MSTATUS_FS == MSTATUS_FS_DIRTY;
+    let vs_dirty = val & MSTATUS_VS == MSTATUS_VS_DIRTY;
+    if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
+}
+
 /// `MPRV` (Modify `PRiVilege`) bit in `mstatus` register (bit 17).
 /// When set, loads/stores use the privilege in MPP instead of current privilege.
 pub const MSTATUS_MPRV: u64 = 1 << 17;
@@ -731,12 +741,7 @@ impl Csrs {
             x if x == FFLAGS.as_u32() => self.fflags & 0x1F,
             x if x == FRM.as_u32() => self.frm & 0x7,
             x if x == FCSR.as_u32() => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
-            x if x == MSTATUS.as_u32() => {
-                let val = self.mstatus & !MSTATUS_SD;
-                let fs_dirty = val & MSTATUS_FS == MSTATUS_FS_DIRTY;
-                let vs_dirty = val & MSTATUS_VS == MSTATUS_VS_DIRTY;
-                if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
-            }
+            x if x == MSTATUS.as_u32() => with_state_dirty(self.mstatus),
             x if x == MISA.as_u32() => self.misa,
             x if x == MEDELEG.as_u32() => self.medeleg,
             x if x == MIDELEG.as_u32() => self.mideleg,
@@ -747,12 +752,7 @@ impl Csrs {
             x if x == MCAUSE.as_u32() => self.mcause,
             x if x == MTVAL.as_u32() => self.mtval,
             x if x == MIP.as_u32() => self.mip,
-            x if x == SSTATUS.as_u32() => {
-                let val = self.sstatus & !MSTATUS_SD;
-                let fs_dirty = val & MSTATUS_FS == MSTATUS_FS_DIRTY;
-                let vs_dirty = val & MSTATUS_VS == MSTATUS_VS_DIRTY;
-                if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
-            }
+            x if x == SSTATUS.as_u32() => with_state_dirty(self.sstatus),
             x if x == SIE.as_u32() => self.sie,
             x if x == STVEC.as_u32() => self.stvec,
             x if x == SSCRATCH.as_u32() => self.sscratch,

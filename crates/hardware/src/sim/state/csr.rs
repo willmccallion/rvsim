@@ -33,10 +33,7 @@ pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
             0
         }
         x if x == csr::MHARTID.as_u32() => u64::from(hart.hart_id.val()),
-        x if x == csr::MSTATUS.as_u32() => {
-            let val = hart.csrs.mstatus & !csr::MSTATUS_SD;
-            if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY { val | csr::MSTATUS_SD } else { val }
-        }
+        x if x == csr::MSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.mstatus),
         x if x == csr::MEDELEG.as_u32() => hart.csrs.medeleg,
         x if x == csr::MIDELEG.as_u32() => hart.csrs.mideleg,
         x if x == csr::MIE.as_u32() => hart.csrs.mie,
@@ -47,12 +44,7 @@ pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
         x if x == csr::MCAUSE.as_u32() => hart.csrs.mcause,
         x if x == csr::MTVAL.as_u32() => hart.csrs.mtval,
         x if x == csr::MIP.as_u32() => hart.csrs.mip,
-        x if x == csr::SSTATUS.as_u32() => {
-            let val = hart.csrs.sstatus & !csr::MSTATUS_SD;
-            let fs_dirty = val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY;
-            let vs_dirty = val & csr::MSTATUS_VS == csr::MSTATUS_VS_DIRTY;
-            if fs_dirty || vs_dirty { val | csr::MSTATUS_SD } else { val }
-        }
+        x if x == csr::SSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.sstatus),
         x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
         x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
         x if x == csr::SSCRATCH.as_u32() => hart.csrs.sscratch,
@@ -386,6 +378,17 @@ mod tests {
 
         let sstatus = state.csr_read(csr::SSTATUS);
         assert_eq!(sstatus, mstatus & (csr::MSTATUS_SD | csr::SSTATUS_VISIBLE));
+    }
+
+    #[test]
+    fn mstatus_reads_sd_when_only_the_vector_state_is_dirty() {
+        let config = Config::default();
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
+
+        state.csr_write(csr::MSTATUS, csr::MSTATUS_VS_DIRTY);
+
+        assert_ne!(state.csr_read(csr::MSTATUS) & csr::MSTATUS_SD, 0);
     }
 
     #[test]
