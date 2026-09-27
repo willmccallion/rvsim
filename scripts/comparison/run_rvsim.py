@@ -85,13 +85,15 @@ def run(binaries: list[Path]) -> dict:
         print(f"  rvsim: {name}...", end=" ", flush=True)
         result = Environment(binary=str(binary), config=config).run(quiet=True)
         s = result.stats
+        accuracy = s.get("core0.bp.committed.accuracy")
         results[name] = {
-            "ipc":     s.get("ipc"),
-            "cycles":  s.get("sim_cycles"),
-            "insts":   s.get("sim_insts"),
-            "bp_acc":  s.get("bp_committed_accuracy"),
-            "l1d_miss_rate": s.get("l1d_miss_rate"),
-            "l2_miss_rate":  s.get("l2_miss_rate"),
+            "ipc": s.get("ipc"),
+            "cycles": s.get("cycles"),
+            "insts": s.get("instructions_retired"),
+            "mispreds": s.get("core0.bp.committed.mispredicts"),
+            "bp_acc": None if accuracy is None else accuracy * 100,
+            "l1d_miss_rate": s.get("core0.cache.l1d.miss_rate"),
+            "l2_miss_rate": s.get("core0.cache.l2.miss_rate"),
         }
         print(f"IPC={results[name]['ipc']:.4f}")
     return results

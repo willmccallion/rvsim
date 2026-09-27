@@ -25,12 +25,21 @@ python scripts/comparison/compare.py
 
 ## Config
 
-Both simulators use a P550-equivalent config:
+Both simulators use a P550-like config:
 - 3-wide OOO, ROB=72, IQ=32
 - 32KB L1i/L1d, 256KB L2
 - Tournament branch predictor
 
-Edit `config.py` in each script to change the machine model.
+The machine models are defined in `run_rvsim.py` (`p550_config`) and
+`gem5_single.py`. They do not match exactly: gem5 keeps its default
+functional-unit latencies (e.g. `FP_ALU` 2 cycles where rvsim uses 5), has
+two FP ALUs, runs in syscall-emulation mode on DDR3-1600, and uses the
+classic cache hierarchy's default latencies. Compare kernels that are
+bound by the same resources on both.
+
+`make compare-gem5` runs rvsim, runs gem5 when `gem5.opt` is on `PATH` (or
+`GEM5_BIN` is set), and prints the table; without gem5 it compares with the
+stored `results/gem5.json`.
 
 ## Notes
 

@@ -40,7 +40,7 @@ def main():
     all_names = sorted(set(rv) | set(g5))
 
     col = 14
-    print(f"\n{'Binary':<{col}} {'rvsim IPC':>10} {'gem5 IPC':>10} {'IPC diff':>9}  {'rvsim BP%':>10} {'gem5 BP%':>9}  {'rvsim cycles':>14} {'gem5 cycles':>13} {'cycle diff':>10}")
+    print(f"\n{'Binary':<{col}} {'rvsim IPC':>10} {'gem5 IPC':>10} {'IPC diff':>9}  {'rvsim misp':>10} {'gem5 misp':>9}  {'rvsim cycles':>14} {'gem5 cycles':>13} {'cycle diff':>10}")
     print("-" * 115)
 
     for name in all_names:
@@ -51,16 +51,16 @@ def main():
         g5_ipc  = g.get("ipc")
         rv_cyc  = r.get("cycles")
         g5_cyc  = g.get("cycles")
-        rv_bp   = r.get("bp_acc")
-        g5_bp   = g.get("bp_acc")
+        rv_misp = r.get("mispreds")
+        g5_misp = g.get("mispreds")
 
         print(
             f"{name:<{col}}"
             f" {fmt(rv_ipc, '10.4f')}"
             f" {fmt(g5_ipc, '10.4f')}"
             f" {pct_diff(rv_ipc, g5_ipc):>9}"
-            f"  {fmt(rv_bp, '9.2f')}%"
-            f" {fmt(g5_bp, '8.2f')}%"
+            f"  {fmt(rv_misp, '10,.0f')}"
+            f" {fmt(g5_misp, '9,')}"
             f"  {fmt(rv_cyc, '14,')}"
             f" {fmt(g5_cyc, '13,')}"
             f" {pct_diff(rv_cyc, g5_cyc):>10}"

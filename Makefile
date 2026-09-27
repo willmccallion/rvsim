@@ -35,6 +35,7 @@ endif
 # ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
+.PHONY: compare-gem5
 .PHONY: arch-test arch-test-multi
 .PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
@@ -75,6 +76,7 @@ help:
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Smoke EVERY suite (single pipeline, ~2 min)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Wipe testing/builds/ (forces full rebuild)\n" "make clean-testing"
+	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot SMP Linux: 4 O3 cores, snoop filter, mesh, DDR5 (HARTS=N)\n" "make run-linux"
@@ -138,6 +140,20 @@ test:
 test-python: python
 	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
 	.venv/bin/python -m unittest discover -s testing/python
+
+# Runs gem5 only when it is available; otherwise compares with the stored
+# scripts/comparison/results/gem5.json.
+GEM5_BIN ?= $(shell command -v gem5.opt)
+compare-gem5: python
+	@printf "$(GREEN)Running rvsim on the comparison set…$(RESET)\n"
+	$(PYTHON) scripts/comparison/run_rvsim.py
+	@if [ -n "$(GEM5_BIN)" ]; then \
+		printf "$(GREEN)Running gem5…$(RESET)\n"; \
+		GEM5_BIN="$(GEM5_BIN)" $(PYTHON) scripts/comparison/run_gem5.py; \
+	else \
+		printf "$(BOLD)gem5.opt not found; comparing with the stored gem5 results.$(RESET)\n"; \
+	fi
+	$(PYTHON) scripts/comparison/compare.py
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"
