@@ -8,6 +8,7 @@ dict that the Rust backend expects.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Dict, Optional
 
 __all__ = ["Config"]
@@ -203,56 +204,11 @@ class Config:
             wide = base.replace(width=8)
             ooo  = base.replace(backend=Backend.OutOfOrder(rob_size=128))
         """
-        # Collect all current field values
-        fields = dict(
-            width=self.width,
-            fetch_width=self.fetch_width,
-            decode_width=self.decode_width,
-            rename_width=self.rename_width,
-            issue_width=self.issue_width,
-            commit_width=self.commit_width,
-            trap_latency=self.trap_latency,
-            redirect_latency=self.redirect_latency,
-            branch_predictor=self.branch_predictor,
-            backend=self.backend,
-            btb_size=self.btb_size,
-            btb_ways=self.btb_ways,
-            ras_size=self.ras_size,
-            l1i=self.l1i,
-            l1d=self.l1d,
-            l2=self.l2,
-            l3=self.l3,
-            inclusion_policy=self.inclusion_policy,
-            wcb_entries=self.wcb_entries,
-            ram_size=self.ram_size,
-            memory_controller=self.memory_controller,
-            tlb_size=self.tlb_size,
-            l2_tlb_size=self.l2_tlb_size,
-            l2_tlb_ways=self.l2_tlb_ways,
-            l2_tlb_latency=self.l2_tlb_latency,
-            software_ad_bits=self.software_ad_bits,
-            paging_mode_max=self.paging_mode_max,
-            misaligned_access_trap=self.misaligned_access_trap,
-            vlen=self.vlen,
-            num_vec_lanes=self.num_vec_lanes,
-            trace=self.trace,
-            initial_sp=self.initial_sp,
-            ram_base=self.ram_base,
-            uart_base=self.uart_base,
-            disk_base=self.disk_base,
-            clint_base=self.clint_base,
-            syscon_base=self.syscon_base,
-            kernel_offset=self.kernel_offset,
-            bus_width=self.bus_width,
-            bus_latency=self.bus_latency,
-            clint_divider=self.clint_divider,
-            cpu_clock_mhz=self.cpu_clock_mhz,
-            rtc_epoch_seconds=self.rtc_epoch_seconds,
-            uart_to_stderr=self.uart_to_stderr,
-            uart_quiet=self.uart_quiet,
-            hart_count=self.hart_count,
-            coherence=self.coherence,
-        )
+        fields = {
+            name: getattr(self, name)
+            for name in inspect.signature(Config.__init__).parameters
+            if name != "self"
+        }
         unknown = set(kwargs) - set(fields)
         if unknown:
             raise TypeError(f"Config.replace() got unexpected fields: {unknown}")
