@@ -321,6 +321,12 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         if head.ctrl.system_op.is_cbo() && store_buffer.has_committed_stores() {
             break;
         }
+        // An `rl` atomic's write is published at commit; older stores go first.
+        if head.ctrl.release
+            && (store_buffer.has_committed_stores() || vec_store_buffer.has_committed_stores())
+        {
+            break;
+        }
 
         let Some(entry) = rob.commit_head() else { break };
         retired_count += 1;
@@ -1559,6 +1565,83 @@ mod tests {
         state.hart.privilege = PrivilegeMode::Supervisor;
 
         assert_eq!(check_interrupts(&state), Some(Trap::SupervisorExternalInterrupt));
+    }
+
+    /// Commits one cycle with an older store committed but not yet drained
+    /// and an AMO at the ROB head; returns whether the AMO retired.
+    fn amo_retires_behind_an_undrained_store(release: bool) -> bool {
+        let config = Config::default();
+        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut state = sys.core_ctx(0);
+        let mut rob = Rob::new(4);
+        let mut store_buffer = StoreBuffer::new(4);
+        let mut vec_store_buffer = VecStoreBuffer::new(
+            4,
+            crate::core::pipeline::vec_store_buffer::VecStoreForwarding::Off,
+        );
+        let mut scoreboard = Scoreboard::new();
+        let older = RobTag(900);
+        assert!(store_buffer.allocate(older, MemWidth::Double));
+        store_buffer.resolve(
+            older,
+            crate::common::VirtAddr::new(0x8000_1000),
+            PhysAddr::new(0x8000_1000),
+            1,
+        );
+        store_buffer.mark_committed(older);
+        let ctrl = crate::core::pipeline::signals::ControlSignals {
+            atomic_op: AtomicOp::Swap,
+            release,
+            mem_read: true,
+            mem_write: true,
+            width: MemWidth::Double,
+            ..Default::default()
+        };
+        let amo = rob
+            .allocate(
+                0x1000,
+                0,
+                InstSize::Standard,
+                RegIdx::new(0),
+                false,
+                ctrl,
+                crate::core::pipeline::prf::PhysReg(0),
+                crate::core::pipeline::prf::PhysReg(0),
+            )
+            .unwrap();
+        assert!(store_buffer.allocate(amo, MemWidth::Double));
+        store_buffer.resolve(
+            amo,
+            crate::common::VirtAddr::new(0x8000_2000),
+            PhysAddr::new(0x8000_2000),
+            1,
+        );
+        rob.complete(amo, 0);
+
+        let mut common = BackendCommon::default();
+        let event = commit_stage(
+            &mut state,
+            CommitResources {
+                common: &mut common,
+                rob: &mut rob,
+                store_buffer: &mut store_buffer,
+                vec_store_buffer: &mut vec_store_buffer,
+                width: 1,
+                registers: CommitRegisters::Scoreboard(&mut scoreboard),
+            },
+        );
+        assert!(event.is_none());
+        rob.is_empty()
+    }
+
+    #[test]
+    fn a_release_atomic_waits_for_older_stores_to_drain() {
+        assert!(!amo_retires_behind_an_undrained_store(true));
+    }
+
+    #[test]
+    fn an_atomic_without_release_does_not_wait_for_older_stores() {
+        assert!(amo_retires_behind_an_undrained_store(false));
     }
 
     #[test]

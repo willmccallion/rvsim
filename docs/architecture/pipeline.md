@@ -53,7 +53,7 @@ flowchart LR
 
 **Writeback** — Selects the final result (ALU output, load data, or jump link address), writes it to the physical register file, and marks the ROB entry as completed. Broadcasts the physical register tag for wakeup.
 
-**Commit** — In-order retirement from the head of the ROB. Handles CSR write serialization, FENCE store-drain semantics, SFENCE.VMA deferred TLB flush, MRET/SRET privilege return, and LR/SC reservation validation.
+**Commit** — In-order retirement from the head of the ROB. Handles CSR write serialization, FENCE store-drain semantics, SFENCE.VMA deferred TLB flush, MRET/SRET privilege return, and LR/SC reservation validation. An atomic with the `rl` bit waits here until every older store has drained to memory, since its own write is published when it commits.
 
 ### Design Choices
 

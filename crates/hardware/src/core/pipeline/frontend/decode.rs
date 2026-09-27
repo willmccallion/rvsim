@@ -22,7 +22,7 @@ use crate::sim::StageCtx;
 
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::rv64a::{
-    AQ as AMO_AQ, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,
+    AQ as AMO_AQ, RL as AMO_RL, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,
 };
 use crate::isa::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
 use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
@@ -381,6 +381,7 @@ fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals,
             c.a_src = OpASrc::Reg1;
             c.b_src = OpBSrc::Zero;
             c.acquire = inst & AMO_AQ != 0;
+            c.release = inst & AMO_RL != 0;
             c.mem_read = true;
             c.mem_write = c.atomic_op != AtomicOp::Lr;
             c.reg_write = true;

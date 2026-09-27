@@ -134,6 +134,11 @@ impl VecStoreBuffer {
         self.entries.iter().filter(|e| e.valid).count()
     }
 
+    /// True while a committed store still has lines to write to memory.
+    pub fn has_committed_stores(&self) -> bool {
+        self.entries.iter().any(|e| e.valid && e.committed)
+    }
+
     /// Returns true if there are no in-flight entries.
     #[inline]
     pub fn is_empty(&self) -> bool {

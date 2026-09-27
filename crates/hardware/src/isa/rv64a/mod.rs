@@ -14,3 +14,6 @@ pub mod opcodes;
 
 /// The `aq` (acquire) ordering bit of an AMO, LR or SC instruction.
 pub const AQ: u32 = 1 << 26;
+
+/// The `rl` (release) ordering bit of an AMO, LR or SC instruction.
+pub const RL: u32 = 1 << 25;

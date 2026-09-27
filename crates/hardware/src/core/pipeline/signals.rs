@@ -542,6 +542,9 @@ pub struct ControlSignals {
     pub atomic_op: AtomicOp,
     /// An atomic with the `aq` bit: no younger load may perform before it.
     pub acquire: bool,
+    /// An atomic with the `rl` bit: every older access, stores included,
+    /// must be performed before it is.
+    pub release: bool,
     /// Vector operation type.
     pub vec_op: VectorOp,
     /// Vector destination register.
