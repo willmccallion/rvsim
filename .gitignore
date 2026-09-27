@@ -31,3 +31,6 @@ testing/vector/results/
 .nix-toolchain-bin/
 .direnv/
 .claude/
+
+# Local copy of the RISC-V ISA manual (clone of riscv/riscv-isa-manual)
+/docs/spec/
