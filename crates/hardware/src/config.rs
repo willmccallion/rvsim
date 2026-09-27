@@ -1371,6 +1371,12 @@ impl PipelineConfig {
     }
 
     /// Returns the default number of load ports.
+    /// Vector execution lanes: `num_vec_lanes`, or one per 64 bits of VLEN.
+    #[must_use]
+    pub fn vector_lanes(&self) -> usize {
+        self.num_vec_lanes.unwrap_or_else(|| (self.vlen / 64).max(1))
+    }
+
     const fn default_load_ports() -> usize {
         defaults::LOAD_PORTS
     }

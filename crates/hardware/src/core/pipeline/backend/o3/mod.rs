@@ -181,9 +181,7 @@ impl O3Engine {
             },
             vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, 32),
             vec_pending: Vec::new(),
-            num_vec_lanes: NumLanes::new(
-                config.pipeline.num_vec_lanes.unwrap_or_else(|| (config.pipeline.vlen / 64).max(1)),
-            ),
+            num_vec_lanes: NumLanes::new(config.pipeline.vector_lanes()),
             vec_mem_pending: std::collections::VecDeque::new(),
             vec_mem_inflight: Vec::new(),
             vec_store_buffer: VecStoreBuffer::new(
@@ -761,43 +759,12 @@ impl ExecutionEngine for O3Engine {
                 };
 
                 let complete_cycle = if is_vec_non_mem {
-                    use crate::core::pipeline::signals::VectorOp;
-                    use crate::core::units::vpu::lane_model;
-                    use crate::core::units::vpu::reduction;
-
-                    let vl = entry.vec_vl as usize;
-                    let startup = self.fu_pool.startup_latency(fu_type);
-                    let pipelined = self.fu_pool.is_pipelined(fu_type);
-                    let vec_op = entry.ctrl.vec_op;
-
-                    let lanes = self.num_vec_lanes.as_usize();
-
-                    let latency = if reduction::is_reduction(vec_op) {
-                        // Ordered FP reductions are sequential; others use the tree model.
-                        let is_ordered =
-                            matches!(vec_op, VectorOp::VFRedOSum | VectorOp::VFWRedOSum);
-                        lane_model::compute_reduction_latency(vl, lanes, startup, is_ordered)
-                    } else if fu_type == FuType::VecPermute {
-                        let groups = (vl.div_ceil(lanes)) as u64;
-                        let base_latency = match vec_op {
-                            VectorOp::VRgather | VectorOp::VRgatherEi16
-                                if entry.ctrl.vec_src_encoding
-                                    == crate::core::pipeline::signals::VecSrcEncoding::VV =>
-                            {
-                                startup + groups.saturating_mul(2).saturating_sub(1)
-                            }
-                            VectorOp::VRgather | VectorOp::VRgatherEi16 => {
-                                startup + groups.saturating_sub(1)
-                            }
-                            VectorOp::VCompress => {
-                                startup + groups.saturating_mul(2).saturating_sub(1)
-                            }
-                            _ => lane_model::compute_vec_latency(vl, lanes, startup, pipelined),
-                        };
-                        base_latency.max(1)
-                    } else {
-                        lane_model::compute_vec_latency(vl, lanes, startup, pipelined)
-                    };
+                    let latency = self.fu_pool.vector_op_latency(
+                        fu_type,
+                        &entry.ctrl,
+                        entry.vec_vl as usize,
+                        self.num_vec_lanes.as_usize(),
+                    );
                     self.fu_pool.acquire_with_latency(unit, now, latency)
                 } else {
                     // A vector memory op's unit is the address generator;

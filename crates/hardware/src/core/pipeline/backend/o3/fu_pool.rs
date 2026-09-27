@@ -544,6 +544,44 @@ impl FuPool {
         self.units.iter().find(|u| u.fu_type == fu_type).is_none_or(|u| u.is_pipelined)
     }
 
+    /// Cycles a vector arithmetic op on `fu_type` takes for `vl` elements
+    /// across `lanes` lanes until its whole result is ready.
+    #[must_use]
+    pub fn vector_op_latency(
+        &self,
+        fu_type: FuType,
+        ctrl: &ControlSignals,
+        vl: usize,
+        lanes: usize,
+    ) -> u64 {
+        use crate::core::pipeline::signals::VecSrcEncoding;
+        use crate::core::units::vpu::{lane_model, reduction};
+
+        let startup = self.startup_latency(fu_type);
+        let pipelined = self.is_pipelined(fu_type);
+        let vec_op = ctrl.vec_op;
+        if reduction::is_reduction(vec_op) {
+            // Ordered FP reductions are sequential; others use the tree model.
+            let is_ordered = matches!(vec_op, VectorOp::VFRedOSum | VectorOp::VFWRedOSum);
+            return lane_model::compute_reduction_latency(vl, lanes, startup, is_ordered);
+        }
+        if fu_type != FuType::VecPermute {
+            return lane_model::compute_vec_latency(vl, lanes, startup, pipelined);
+        }
+        let groups = vl.div_ceil(lanes) as u64;
+        let latency = match vec_op {
+            VectorOp::VRgather | VectorOp::VRgatherEi16
+                if ctrl.vec_src_encoding == VecSrcEncoding::VV =>
+            {
+                startup + groups.saturating_mul(2).saturating_sub(1)
+            }
+            VectorOp::VRgather | VectorOp::VRgatherEi16 => startup + groups.saturating_sub(1),
+            VectorOp::VCompress => startup + groups.saturating_mul(2).saturating_sub(1),
+            _ => lane_model::compute_vec_latency(vl, lanes, startup, pipelined),
+        };
+        latency.max(1)
+    }
+
     /// Returns the startup latency (pipeline depth) for the given FU type.
     /// This is the per-unit latency configured at pool creation time.
     #[must_use]
