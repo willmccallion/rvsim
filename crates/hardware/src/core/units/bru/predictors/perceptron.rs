@@ -29,10 +29,13 @@ pub struct PerceptronPredictor {
     threshold: i32,
 }
 
-/// The global history a perceptron prediction was made with.
+/// What a perceptron prediction was made with.
 #[derive(Clone, Copy, Debug)]
 pub struct PerceptronHistory {
     ghr: u64,
+    /// The perceptron's output; training compares its magnitude with the
+    /// threshold, as the hardware carries it from prediction to update.
+    output: i32,
 }
 
 impl PerceptronPredictor {
@@ -94,12 +97,12 @@ impl DirectionPredictor for PerceptronPredictor {
 
     /// Predicts taken when the perceptron output (dot product) is non-negative.
     fn lookup(&self, pc: u64) -> (bool, PerceptronHistory) {
-        let y = self.output(self.index(pc, self.ghr), self.ghr);
-        (y >= 0, PerceptronHistory { ghr: self.ghr })
+        let output = self.output(self.index(pc, self.ghr), self.ghr);
+        (output >= 0, PerceptronHistory { ghr: self.ghr, output })
     }
 
     fn unconditional(&self, _pc: u64) -> PerceptronHistory {
-        PerceptronHistory { ghr: self.ghr }
+        PerceptronHistory { ghr: self.ghr, output: 0 }
     }
 
     fn update_histories(&mut self, _pc: u64, taken: bool, _history: &PerceptronHistory) {
@@ -122,7 +125,7 @@ impl DirectionPredictor for PerceptronPredictor {
         }
         let ghr = history.ghr;
         let idx = self.index(pc, ghr);
-        let y = self.output(idx, ghr);
+        let y = history.output;
         let t = if retired.taken { 1 } else { -1 };
 
         if y.abs() <= self.threshold || (y >= 0) != retired.taken {
@@ -138,5 +141,32 @@ impl DirectionPredictor for PerceptronPredictor {
                 self.table[w_idx] = clamp_weight(v);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::units::bru::direction::BranchClass;
+
+    #[test]
+    fn training_uses_the_output_the_prediction_read() {
+        let mut bp =
+            PerceptronPredictor::new(&PerceptronConfig { history_length: 8, table_bits: 6 });
+        let pc = 0x1000;
+        let (_, history) = bp.lookup(pc);
+        let base = bp.index(pc, 0) * bp.row_size;
+        bp.table[base] = 50;
+        for weight in &mut bp.table[base + 1..base + bp.row_size] {
+            *weight = -10;
+        }
+
+        bp.commit(
+            pc,
+            Retired { class: BranchClass::Conditional, taken: true, indirect_target: None },
+            &history,
+        );
+
+        assert_eq!(bp.table[base], 51, "a zero output is under the threshold, so it trains");
     }
 }
