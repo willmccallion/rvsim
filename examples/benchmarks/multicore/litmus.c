@@ -17,6 +17,19 @@ static smp_barrier_t barrier;
 static uint64_t mp_forbidden, mp_early, sb_both_zero, corr_forbidden, corr_stale;
 static uint64_t mp_ra_forbidden, lb_ra_forbidden;
 
+// Straight-line stores, one per cache line, that commit faster than the
+// store buffer drains, so it is backed up when the release commits.
+static volatile uint64_t backlog[16 * 8] __attribute__((aligned(64)));
+#define BACKLOG_STORE(i) backlog[(i) * 8] = t;
+#define BACKLOG_STORES(v)                                                                          \
+  do {                                                                                             \
+    uint64_t t = (v);                                                                              \
+    BACKLOG_STORE(0) BACKLOG_STORE(1) BACKLOG_STORE(2) BACKLOG_STORE(3) BACKLOG_STORE(4)           \
+    BACKLOG_STORE(5) BACKLOG_STORE(6) BACKLOG_STORE(7) BACKLOG_STORE(8) BACKLOG_STORE(9)           \
+    BACKLOG_STORE(10) BACKLOG_STORE(11) BACKLOG_STORE(12) BACKLOG_STORE(13) BACKLOG_STORE(14)      \
+    BACKLOG_STORE(15)                                                                              \
+  } while (0)
+
 // Store `val` with release semantics: every earlier access is performed first.
 static inline void store_release(volatile uint64_t *addr, uint64_t val) {
   asm volatile("amoswap.d.rl zero, %1, (%0)" : : "r"(addr), "r"(val) : "memory");
@@ -68,6 +81,7 @@ int smp_main(unsigned long hart, unsigned long harts) {
     }
     smp_barrier(&barrier, harts);
     if (hart == 0) {
+      BACKLOG_STORES(t);
       x = 1;
       store_release(&y, 1);
     } else if (hart == 1) {
