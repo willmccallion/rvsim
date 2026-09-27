@@ -666,6 +666,63 @@ fn a_write_to_a_shared_line_is_a_permission_miss() {
 }
 
 #[test]
+fn a_write_joining_a_read_miss_waits_for_ownership_when_the_fill_is_shared() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    bench.write(2, 0x1008);
+    let fetch = bench.downstream_requests();
+
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Shared);
+    let events = bench.drain();
+    let answered: Vec<ReqId> =
+        responses_to(&events, PIPELINE).into_iter().map(|(id, _)| id).collect();
+    let upgrades: Vec<MemOp> = events
+        .iter()
+        .filter(|e| e.target == DOWNSTREAM)
+        .filter_map(|e| match &e.packet {
+            Packet::MemReq { op, .. } => Some(op.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(answered, vec![ReqId::new(1)], "only the read is served by a shared fill");
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
+    assert!(matches!(upgrades.as_slice(), [MemOp::ReadOwn]), "ownership is requested next");
+}
+
+#[test]
+fn a_write_joining_a_read_miss_is_served_once_ownership_arrives() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    bench.write(2, 0x1008);
+    let fetch = bench.downstream_requests();
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Shared);
+    let upgrade = bench.downstream_requests();
+
+    bench.fill_with(upgrade[0].0, 0x1000, MesiState::Modified);
+    let events = bench.drain();
+
+    assert_eq!(responses_to(&events, PIPELINE).len(), 1);
+    assert_eq!(granted_states(&events, PIPELINE), vec![MesiState::Modified]);
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+}
+
+#[test]
+fn a_write_joining_a_read_miss_is_served_by_an_exclusive_fill() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x1000);
+    bench.write(2, 0x1008);
+    let fetch = bench.downstream_requests();
+
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Exclusive);
+    let events = bench.drain();
+
+    assert!(events.iter().all(|e| e.target != DOWNSTREAM), "no second fetch");
+    assert_eq!(responses_to(&events, PIPELINE).len(), 2);
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+}
+
+#[test]
 fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
     let mut bench = Bench::new(cache_with(&test_config()));
     bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });

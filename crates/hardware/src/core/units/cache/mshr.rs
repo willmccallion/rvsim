@@ -36,7 +36,12 @@ pub struct Mshr {
     pub req_id: ReqId,
     /// Requests waiting for the line, in arrival order.
     pub targets: Vec<MshrTarget>,
-    /// True when any target writes, so the fill installs the line dirty.
+    /// Requests the fill may not serve: writes that joined after a request
+    /// without write permission was sent, and everything that arrived after
+    /// them (gem5's deferred targets). Served once the line is writable.
+    pub deferred: Vec<MshrTarget>,
+    /// True when the downstream request asked for write permission, so the
+    /// fill installs the line dirty.
     pub write: bool,
     /// True when the fetch was started by the prefetcher rather than a
     /// demand request.
@@ -136,6 +141,7 @@ mod tests {
             line: LineAddr::from_phys(PhysAddr::new(line), 64),
             req_id: ReqId::new(req),
             targets: Vec::new(),
+            deferred: Vec::new(),
             write: false,
             prefetch: false,
             issued_at: 0,

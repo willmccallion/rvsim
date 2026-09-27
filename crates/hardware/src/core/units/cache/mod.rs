@@ -567,11 +567,14 @@ impl Cache {
         };
         if let Some(mshr) = self.mshrs.find_line_mut(line) {
             ctx.stats.counter(self.stat_paths.mshr_hits).inc();
-            if mshr.prefetch && mshr.targets.is_empty() {
+            if mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty() {
                 ctx.stats.counter(self.stat_paths.prefetches_useful).inc();
             }
-            mshr.write |= is_write;
-            mshr.targets.push(target);
+            if (is_write && !mshr.write) || !mshr.deferred.is_empty() {
+                mshr.deferred.push(target);
+            } else {
+                mshr.targets.push(target);
+            }
         } else {
             let fetch_op = match target.op {
                 MemOp::Fetch => MemOp::Fetch,
@@ -603,6 +606,7 @@ impl Cache {
             line,
             req_id,
             targets,
+            deferred: Vec::new(),
             write,
             prefetch,
             issued_at: ctx.cycle,
@@ -849,7 +853,45 @@ impl Cache {
                 installed,
             );
         }
+        self.serve_deferred(mshr.line, mshr.deferred, installed, hit_level, ctx);
         self.retry_blocked(ctx);
+    }
+
+    /// Serves the targets a fill without write permission had to hold back:
+    /// at once when the line arrived writable anyway, otherwise by fetching
+    /// ownership of it first. The fill just freed an MSHR for that fetch.
+    fn serve_deferred(
+        &mut self,
+        line: LineAddr,
+        deferred: Vec<MshrTarget>,
+        installed: MesiState,
+        hit_level: HitLevel,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        if deferred.is_empty() {
+            return;
+        }
+        let writable = matches!(installed, MesiState::Exclusive | MesiState::Modified);
+        let Some(way) = self.find_way(line.val()).filter(|_| writable) else {
+            let vaddr = deferred.first().and_then(|t| t.vaddr);
+            self.start_fetch(line, deferred, true, false, MemOp::ReadOwn, vaddr, ctx);
+            return;
+        };
+        let index = self.set_index(line.val()) * self.ways + way;
+        self.lines[index].state = MesiState::Modified;
+        let answered_at = ctx.cycle + self.latency;
+        for target in &deferred {
+            self.note_upper_copy(index, target.source);
+            self.respond(
+                ctx,
+                target.source,
+                target.req_id,
+                target.paddr,
+                answered_at,
+                hit_level,
+                MesiState::Modified,
+            );
+        }
     }
 
     /// Installs a fetched line in the state the next level granted (a
