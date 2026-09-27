@@ -233,3 +233,48 @@ fn vid_v_does_not_check_vs2_alignment() {
     let mcause = ctx.cpu().harts[0].csrs.mcause;
     assert_eq!(mcause, 0, "vid.v with vs2_field=1 must not trap (mcause={:#x})", mcause);
 }
+
+/// Encode a masked-off (`vm = 1`) vector-vector op.
+const fn vv(funct6: u32, funct3: u32, vd: u32, vs2: u32, vs1: u32) -> u32 {
+    (funct6 << 26) | (1 << 25) | (vs2 << 20) | (vs1 << 15) | (funct3 << 12) | (vd << 7) | 0x57
+}
+
+const OPIVV: u32 = 0b000;
+const OPMVV: u32 = 0b010;
+const VADD: u32 = 0b00_0000;
+const VDIV: u32 = 0b10_0001;
+const A0: u32 = 10;
+
+/// Cycles until `a0` is set after four dependent `op`s on v1 at e32, m1,
+/// vl = 4, on the in-order backend.
+fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
+    let program: Vec<u32> = std::iter::empty()
+        .chain([addi(5, 0, 4), vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0))])
+        .chain(std::iter::repeat_n(vv(funct6, funct3, 1, 1, 2), 4))
+        .chain([addi(A0, 0, 1), 0x0000_006F])
+        .collect();
+    let mut ctx =
+        TestContext::new_with_config(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
+    for (i, inst) in program.iter().enumerate() {
+        ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + (i as u64) * 4), u64::from(*inst), 4);
+    }
+    ctx.sim.set_pc(0, RAM_BASE);
+    for cycle in 1..=2_000 {
+        ctx.run(1);
+        if ctx.get_reg(A0 as usize) == 1 {
+            return cycle;
+        }
+    }
+    panic!("the program did not finish");
+}
+
+/// A vector divide's result is ready only after its unit's lane-model
+/// latency: `ceil(vl / lanes)` groups of the 20-cycle divider, so 40 cycles
+/// at VLEN 128 with two lanes, where a vector add takes two.
+#[test]
+fn an_inorder_vector_op_waits_out_its_unit_latency() {
+    let divides = cycles_through_four(VDIV, OPMVV);
+    let adds = cycles_through_four(VADD, OPIVV);
+
+    assert!(divides >= adds + 4 * 38, "four divides took {divides} cycles, four adds {adds}");
+}

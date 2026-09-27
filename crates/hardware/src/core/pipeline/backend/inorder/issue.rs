@@ -17,6 +17,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::sim::StageCtx;
 use crate::trace_issue;
 
@@ -109,9 +110,8 @@ impl InOrderIssueUnit {
 
             // A system instruction reads or writes architectural state, so
             // it executes only as the oldest instruction; FENCE and the CBOs
-            // have their own checks below.
-            // A vector instruction writes the vector register file at
-            // execute here, so it waits for the head as well.
+            // have their own checks below. A vector instruction reads the
+            // architectural vector registers, so it waits for the head too.
             let waits_for_head = (entry.ctrl.vec_op != VectorOp::None
                 && !entry.ctrl.vec_op.is_config())
                 || (entry.ctrl.system_op != SystemOp::None
@@ -154,7 +154,19 @@ impl InOrderIssueUnit {
                     state.counter(state.core().stat_paths.pipeline.stalls_fu_structural).inc();
                     break;
                 };
-                let complete_cycle = fu_pool.acquire(unit, now);
+                let complete_cycle = if is_vector_arithmetic(entry.ctrl.vec_op) {
+                    // A vector op issues only as the oldest instruction, so
+                    // the architectural vl is the one it executes under.
+                    let latency = fu_pool.vector_op_latency(
+                        fu_type,
+                        &entry.ctrl,
+                        state.hart().csrs.vl as usize,
+                        state.config.pipeline.vector_lanes(),
+                    );
+                    fu_pool.acquire_with_latency(unit, now, latency)
+                } else {
+                    fu_pool.acquire(unit, now)
+                };
                 let Some(mut issued) = self.queue.pop_front() else { break };
                 units.push(IssuedUnit { tag: issued.rob_tag, fu_type, complete_cycle });
                 issued.rv1 = v1;
@@ -203,6 +215,12 @@ impl InOrderIssueUnit {
     pub fn flush(&mut self) {
         self.queue.clear();
     }
+}
+
+/// A vector op that computes in a vector unit rather than setting the
+/// configuration or moving memory.
+const fn is_vector_arithmetic(op: VectorOp) -> bool {
+    !matches!(op, VectorOp::None) && !op.is_config() && !is_vec_load(op) && !is_vec_store(op)
 }
 
 /// Read a single operand value using the tag captured at rename time.

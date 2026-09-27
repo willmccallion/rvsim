@@ -106,13 +106,11 @@ fn execute_one(
         return (ExMem1Entry::from_issue(id, vl, 0), None);
     }
 
-    // A vector op's registers are read at issue, so what follows one is refetched.
+    // A vector op's registers are read at issue, so what follows one is
+    // refetched. Its result is ready when its unit finishes, like any other.
     if id.ctrl.vec_op != VectorOp::None {
         return match execute_vector(state, id, rob) {
-            Ok(scalar) => {
-                rob.complete(id.rob_tag, scalar);
-                (ExMem1Entry::from_issue(id, scalar, 0), Some(refetch_after(id)))
-            }
+            Ok(scalar) => (ExMem1Entry::from_issue(id, scalar, 0), Some(refetch_after(id))),
             Err(trap) => faulted(state, id, trap),
         };
     }

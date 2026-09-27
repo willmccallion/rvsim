@@ -38,7 +38,7 @@ use crate::sim::components::{CacheId, PipelineId};
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
-use crate::core::pipeline::signals::{ControlFlow, VectorOp};
+use crate::core::pipeline::signals::ControlFlow;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]
@@ -166,10 +166,10 @@ impl InOrderEngine {
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
 
-    /// Files each executed result: memory ops and vector ops go straight to
-    /// memory1 (their unit is the address generator or the vector unit,
-    /// whose latency is modelled downstream); everything else waits for
-    /// its unit's latency in `pending`.
+    /// Files each executed result: memory ops and `vsetvl` go straight to
+    /// memory1 (a memory op's unit is the address generator, whose latency
+    /// is modelled downstream); everything else, vector arithmetic included,
+    /// waits for its unit's latency in `pending`.
     fn hold_results(&mut self, results: Vec<ExMem1Entry>, units: &[IssuedUnit], now: u64) {
         for entry in results {
             let is_mem = entry.ctrl.mem_read
@@ -177,7 +177,7 @@ impl InOrderEngine {
                 || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
             let unit = units.iter().find(|u| u.tag == entry.rob_tag);
             match unit {
-                Some(unit) if !is_mem && entry.ctrl.vec_op == VectorOp::None => {
+                Some(unit) if !is_mem && !entry.ctrl.vec_op.is_config() => {
                     self.pending.push(PendingResult {
                         complete_cycle: unit.complete_cycle.max(now + 1),
                         fu_type: unit.fu_type,
