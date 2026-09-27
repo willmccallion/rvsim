@@ -10,7 +10,9 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
-use crate::core::pipeline::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{
+    AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
+};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
 use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;
@@ -266,16 +268,49 @@ pub fn evaluate(state: &StageCtx<'_>, id: &RenameIssueEntry, op_a: u64, op_b: u6
     compute_alu(id.ctrl.alu, op_a, op_b, id.rv3, id.ctrl.is_f16, id.ctrl.is_rv32, fp_rm)
 }
 
-/// Resolves a conditional branch against its prediction, files the outcome
-/// for the predictor to learn from at commit, and returns the redirect a
-/// misprediction needs.
-pub fn resolve_branch(
+/// Resolves a branch or jump to the redirect a misprediction needs.
+///
+/// A sequential instruction resolves to nothing.
+///
+/// # Errors
+///
+/// The instruction-address-misaligned trap a taken branch or jump raises
+/// when its target is not IALIGN-aligned.
+pub fn resolve_control_flow(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
     id: &RenameIssueEntry,
     op_a: u64,
     op_b: u64,
-) -> Option<Redirect> {
+) -> Result<Option<Redirect>, Trap> {
+    match id.ctrl.control_flow {
+        ControlFlow::Branch => resolve_branch(state, rob, id, op_a, op_b),
+        ControlFlow::Jump => resolve_jump(state, rob, id),
+        ControlFlow::Sequential => Ok(None),
+    }
+}
+
+/// Taken branch and jump targets must be four-byte aligned without the C
+/// extension (IALIGN=32) and two-byte aligned with it.
+const fn check_target_alignment(state: &StageCtx<'_>, target: u64) -> Result<(), Trap> {
+    let c_enabled = state.hart().csrs.misa & csr::MISA_EXT_C != 0;
+    let align_mask = if c_enabled { 0b01 } else { 0b11 };
+    if target & align_mask == 0 {
+        return Ok(());
+    }
+    Err(Trap::InstructionAddressMisaligned(target))
+}
+
+/// Resolves a conditional branch against its prediction, files the outcome
+/// for the predictor to learn from at commit, and returns the redirect a
+/// misprediction needs.
+fn resolve_branch(
+    state: &mut StageCtx<'_>,
+    rob: &mut Rob,
+    id: &RenameIssueEntry,
+    op_a: u64,
+    op_b: u64,
+) -> Result<Option<Redirect>, Trap> {
     let taken = match (id.inst >> FUNCT3_SHIFT) & FUNCT3_MASK {
         funct3::BEQ => op_a == op_b,
         funct3::BNE => op_a != op_b,
@@ -289,6 +324,9 @@ pub fn resolve_branch(
     let fallthrough = next_pc(id);
     let predicted_next_pc = if id.pred_taken { id.pred_target } else { fallthrough };
     let actual_next_pc = if taken { actual_target } else { fallthrough };
+    if taken {
+        check_target_alignment(state, actual_target)?;
+    }
     let mispredicted = predicted_next_pc != actual_next_pc;
 
     rob.set_bp_update(
@@ -308,16 +346,16 @@ pub fn resolve_branch(
         "EX: branch resolved"
     );
     let repair = BranchRepair { seq: id.seq, taken, target: actual_target };
-    count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_next_pc, repair))
+    Ok(count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_next_pc, repair)))
 }
 
 /// Resolves a JAL or JALR against its predicted target and returns the
 /// redirect a misprediction needs. Jumps do not train the direction tables.
-pub fn resolve_jump(
+fn resolve_jump(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
     id: &RenameIssueEntry,
-) -> Option<Redirect> {
+) -> Result<Option<Redirect>, Trap> {
     use crate::common::constants::OPCODE_MASK;
     let is_jalr = (id.inst & OPCODE_MASK) == opcodes::OP_JALR;
     let actual_target = if is_jalr {
@@ -325,6 +363,7 @@ pub fn resolve_jump(
     } else {
         id.pc.wrapping_add(id.imm as u64)
     };
+    check_target_alignment(state, actual_target)?;
     let predicted_target = if id.pred_taken { id.pred_target } else { next_pc(id) };
     let mispredicted = actual_target != predicted_target;
 
@@ -344,7 +383,7 @@ pub fn resolve_jump(
         "EX: jump resolved"
     );
     let repair = BranchRepair { seq: id.seq, taken: true, target: actual_target };
-    count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_target, repair))
+    Ok(count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_target, repair)))
 }
 
 /// Counts a resolved prediction and passes `mispredicted` through.

@@ -8,12 +8,12 @@ use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::backend::shared::execute::{
     csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
-    propagate_trap, resolve_branch, resolve_jump, unit_disabled,
+    propagate_trap, resolve_control_flow, unit_disabled,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::{ControlFlow, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::core::units::vpu::execute::execute_vec_op_on;
 use crate::core::units::vpu::shadow::ShadowVpr;
@@ -118,10 +118,9 @@ fn execute_one(
 
     let (op_a, op_b) = operands(id);
     let (alu_out, fp_flags) = evaluate(state, id, op_a, op_b);
-    let redirect = match id.ctrl.control_flow {
-        ControlFlow::Branch => resolve_branch(state, rob, id, op_a, op_b),
-        ControlFlow::Jump => resolve_jump(state, rob, id),
-        ControlFlow::Sequential => None,
+    let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
+        Ok(redirect) => redirect,
+        Err(trap) => return faulted(state, id, trap),
     };
     (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.rv2) }, redirect)
 }
