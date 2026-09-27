@@ -364,8 +364,10 @@ def main() -> None:
     if args.json and exit_code is not None:
         import json
 
+        from .stats import Stats
+
         with open(args.json, "w") as f:
-            json.dump(dict(sim.stats), f, indent=2)
+            json.dump(Stats.from_core(sim.stats), f, indent=2)
 
     sys.exit(exit_code if exit_code is not None else 1)
 
