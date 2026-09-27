@@ -1082,6 +1082,17 @@ fn emit_store_write_packet_to(
     );
 }
 
+/// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
+/// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit, mideleg bit)`.
+const INTERRUPT_PRIORITY: [(u64, u64, u64); 6] = [
+    (csr::MIP_MEIP, csr::MIE_MEIP, 1 << DELEG_MEIP_BIT),
+    (csr::MIP_MSIP, csr::MIE_MSIP, 1 << DELEG_MSIP_BIT),
+    (csr::MIP_MTIP, csr::MIE_MTIE, 1 << DELEG_MTIP_BIT),
+    (csr::MIP_SEIP, csr::MIE_SEIP, 1 << DELEG_SEIP_BIT),
+    (csr::MIP_SSIP, csr::MIE_SSIP, 1 << DELEG_SSIP_BIT),
+    (csr::MIP_STIP, csr::MIE_STIE, 1 << DELEG_STIP_BIT),
+];
+
 /// Checks for pending interrupts. Returns the trap if one should be taken.
 fn check_interrupts(state: &CoreCtx<'_>) -> Option<Trap> {
     let mip = state.hart.csrs.mip;
@@ -1116,12 +1127,15 @@ fn check_interrupts(state: &CoreCtx<'_>) -> Option<Trap> {
         None
     };
 
-    check(csr::MIP_MEIP, csr::MIE_MEIP, 1 << DELEG_MEIP_BIT)
-        .or_else(|| check(csr::MIP_MSIP, csr::MIE_MSIP, 1 << DELEG_MSIP_BIT))
-        .or_else(|| check(csr::MIP_MTIP, csr::MIE_MTIE, 1 << DELEG_MTIP_BIT))
-        .or_else(|| check(csr::MIP_SEIP, csr::MIE_SEIP, 1 << DELEG_SEIP_BIT))
-        .or_else(|| check(csr::MIP_SSIP, csr::MIE_SSIP, 1 << DELEG_SSIP_BIT))
-        .or_else(|| check(csr::MIP_STIP, csr::MIE_STIE, 1 << DELEG_STIP_BIT))
+    // Interrupts destined for M-mode are taken before any destined for S-mode.
+    [false, true].into_iter().find_map(|to_supervisor| {
+        INTERRUPT_PRIORITY
+            .iter()
+            .filter(|&&(_, _, deleg_bit)| {
+                (state.hart.csrs.mideleg & deleg_bit != 0) == to_supervisor
+            })
+            .find_map(|&(bit, enable_bit, deleg_bit)| check(bit, enable_bit, deleg_bit))
+    })
 }
 
 /// Updates instruction statistics based on the committed entry.
