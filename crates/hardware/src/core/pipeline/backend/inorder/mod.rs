@@ -162,7 +162,8 @@ impl InOrderEngine {
         self.scoreboard.rebuild_from_rob(&self.rob);
 
         *redirect = Some(squash.redirect.target);
-        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq);
+        let now = state.cycle;
+        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
 
     /// Files each executed result: memory ops and vector ops go straight to

@@ -345,7 +345,8 @@ impl O3Engine {
         }
 
         *redirect = Some(squash.redirect.target);
-        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq);
+        let now = state.cycle;
+        self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
 
     /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.

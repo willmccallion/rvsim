@@ -4,7 +4,7 @@
 //! the memory stages run inside; `PipelineDispatch` is the enum dispatch
 //! for type-erased pipeline storage.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::common::InstSeq;
 use crate::config::Config;
@@ -165,6 +165,18 @@ impl TrapProgress {
     }
 }
 
+/// Cycles from commit retiring an instruction to the branch predictor
+/// training on it: gem5's `commitToFetchDelay`.
+const COMMIT_TO_PREDICTOR_DELAY: u64 = 1;
+
+/// The youngest instruction commit retired in one cycle, sent to the
+/// branch predictor.
+#[derive(Clone, Copy, Debug)]
+pub struct CommitNotice {
+    seq: InstSeq,
+    sent_at: u64,
+}
+
 /// State shared by every backend engine: in-flight memory bookkeeping and
 /// the routing IDs needed to emit `MemReq` packets and match `MemResp`
 /// packets to parked operations.
@@ -214,9 +226,9 @@ pub struct BackendCommon {
     pub pending_squash: Option<PendingSquash>,
     /// The number fetch gives the next instruction it forms.
     pub next_inst_seq: InstSeq,
-    /// The youngest instruction commit has retired that the branch
-    /// predictor has not been told of yet.
-    pub predictor_done: Option<InstSeq>,
+    /// The youngest instruction commit retired in each recent cycle, on its
+    /// way to the branch predictor.
+    pub commit_notices: VecDeque<CommitNotice>,
     /// No instruction is between fetch and rename this cycle, so the ROB
     /// holds everything in flight.
     pub frontend_empty: bool,
@@ -310,13 +322,29 @@ impl BackendCommon {
         seq
     }
 
-    /// Records `seq` as the youngest instruction commit has retired. The
-    /// predictor trains up to it at once unless a squash is waiting, which
-    /// may still correct a prediction commit has passed and so reaches the
-    /// predictor first, as gem5's fetch takes a squash before a commit.
-    pub fn note_committed(&mut self, seq: InstSeq, predictor: &mut BranchPredictorWrapper) {
-        self.predictor_done = Some(seq);
-        self.release_committed(predictor);
+    /// Records `seq` as the youngest instruction commit retired at `now`.
+    pub fn note_committed(&mut self, seq: InstSeq, now: u64) {
+        self.commit_notices.push_back(CommitNotice { seq, sent_at: now });
+    }
+
+    /// Trains the predictor on the commits whose notice has arrived by
+    /// `now`. None arrives while a squash is waiting: that squash may still
+    /// correct a prediction commit has passed, and gem5's fetch takes a
+    /// squash before a commit notice.
+    pub fn deliver_commit_notices(&mut self, predictor: &mut BranchPredictorWrapper, now: u64) {
+        if self.pending_squash.is_some() {
+            return;
+        }
+        let mut done = None;
+        while let Some(notice) = self
+            .commit_notices
+            .pop_front_if(|notice| notice.sent_at + COMMIT_TO_PREDICTOR_DELAY <= now)
+        {
+            done = Some(notice.seq);
+        }
+        if let Some(done) = done {
+            predictor.commit(done);
+        }
     }
 
     /// Undoes the predictions `squash` removes. `keep_seq` is the number of
@@ -326,32 +354,31 @@ impl BackendCommon {
         predictor: &mut BranchPredictorWrapper,
         squash: &PendingSquash,
         keep_seq: Option<InstSeq>,
+        now: u64,
     ) {
         match (squash.redirect.repair, keep_seq) {
             (Some(repair), _) => repair.apply(predictor),
             (None, Some(keep)) => predictor.squash_after(keep),
             (None, None) => {
-                self.release_committed(predictor);
+                self.deliver_all_commit_notices(predictor);
                 predictor.squash_all();
             }
         }
-        self.release_committed(predictor);
+        self.deliver_commit_notices(predictor, now);
     }
 
-    /// Squashes every prediction commit has not retired.
+    /// Squashes every prediction commit has not retired, training first on
+    /// every one it has.
     pub fn flush_predictions(&mut self, predictor: &mut BranchPredictorWrapper) {
-        if let Some(done) = self.predictor_done.take() {
-            predictor.commit(done);
-        }
+        self.deliver_all_commit_notices(predictor);
         predictor.squash_all();
     }
 
-    fn release_committed(&mut self, predictor: &mut BranchPredictorWrapper) {
-        if self.pending_squash.is_none()
-            && let Some(done) = self.predictor_done.take()
-        {
-            predictor.commit(done);
+    fn deliver_all_commit_notices(&mut self, predictor: &mut BranchPredictorWrapper) {
+        if let Some(notice) = self.commit_notices.back() {
+            predictor.commit(notice.seq);
         }
+        self.commit_notices.clear();
     }
 
     /// Files a squash, keeping whichever of it and the pending one takes
@@ -656,6 +683,34 @@ mod tests {
             redirect: crate::core::pipeline::squash::Redirect::to(target, cause),
             apply_at: 10,
         }
+    }
+
+    #[test]
+    fn a_commit_reaches_the_predictor_a_cycle_later() {
+        let mut predictor =
+            crate::core::units::bru::BranchPredictorWrapper::new(&crate::config::Config::default());
+        let mut common = BackendCommon::default();
+        common.note_committed(InstSeq::new(4), 10);
+
+        common.deliver_commit_notices(&mut predictor, 10);
+        let pending_at_commit = common.commit_notices.len();
+        common.deliver_commit_notices(&mut predictor, 11);
+
+        assert_eq!((pending_at_commit, common.commit_notices.len()), (1, 0));
+    }
+
+    #[test]
+    fn a_waiting_squash_holds_commit_notices_back() {
+        use crate::core::pipeline::squash::SquashCause;
+        let mut predictor =
+            crate::core::units::bru::BranchPredictorWrapper::new(&crate::config::Config::default());
+        let mut common = BackendCommon::default();
+        common.note_committed(InstSeq::new(4), 10);
+        common.request_squash(squash(5, SquashCause::Branch, 0x2000));
+
+        common.deliver_commit_notices(&mut predictor, 20);
+
+        assert_eq!(common.commit_notices.len(), 1);
     }
 
     #[test]

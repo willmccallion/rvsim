@@ -173,6 +173,8 @@ impl CommitRegisters<'_> {
 pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option<CommitEvent> {
     let CommitResources { common, rob, store_buffer, vec_store_buffer, width, mut registers } = res;
     let mut event: Option<CommitEvent> = None;
+    let now = state.cycle;
+    common.deliver_commit_notices(&mut state.core.branch_predictor, now);
 
     if let TrapProgress::Pending(pending) = &common.trap {
         state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
@@ -677,7 +679,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     }
 
     if let Some(seq) = youngest_retired {
-        common.note_committed(seq, &mut state.core.branch_predictor);
+        common.note_committed(seq, state.cycle);
     }
     if retired_count == 0 && rob_empty_at_start {
         state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_rob_empty).inc();

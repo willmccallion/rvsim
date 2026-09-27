@@ -19,9 +19,11 @@ predictor read, the histories before it, and the stack operations it did.
   youngest first, restoring the speculative histories and the RAS
   exactly. A squash of the whole window undoes all of them.
 
-A commit notice waits while a squash is pending: that squash may correct a
-prediction commit has already passed, and the correction must reach the
-predictor first, as gem5's fetch takes a squash before a commit notice.
+A commit notice reaches the predictor the cycle after commit sends it
+(gem5's `commitToFetchDelay` of 1), and waits while a squash is pending:
+that squash may correct a prediction commit has already passed, and the
+correction must reach the predictor first, as gem5's fetch takes a squash
+before a commit notice.
 
 ## Shared Infrastructure
 
