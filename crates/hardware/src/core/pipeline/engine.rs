@@ -98,6 +98,9 @@ pub trait ExecutionEngine {
     /// The scalar store buffer.
     fn store_buffer(&self) -> &StoreBuffer;
 
+    /// The scalar store buffer, for memory1 to resolve stores into.
+    fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
+
     /// The vector store buffer younger loads forward from.
     fn vec_store_buffer(&self) -> &crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 

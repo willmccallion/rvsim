@@ -177,41 +177,28 @@ pub fn memory2_stage(
                 lq.fill_data(mem.rob_tag, elem, load_data, mem.observed);
             }
         } else if mem.ctrl.mem_write {
-            // Scalar store: resolve the store buffer slot and check the load
-            // queue for ordering violations.
-            if mem.vec_mem.as_ref().is_some_and(|v| v.is_store) {
+            // A scalar store resolved in memory1; a vector store element
+            // resolves here and checks the load queue for ordering violations.
+            if mem.vec_mem.is_some() {
                 if let Some(vsb) = vec_store_buffer.as_deref_mut() {
                     vsb.resolve_element(mem.rob_tag, mem.paddr, mem.store_data, mem.ctrl.width);
                 }
-            } else {
-                store_buffer.resolve(mem.rob_tag, mem.vaddr, mem.paddr, mem.store_data);
+                if let Some(ref lq) = load_queue
+                    && let Some(violating_tag) =
+                        lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
+                {
+                    trace_fwd!(state.config.general.trace_instructions;
+                        event           = "violation",
+                        store_pc        = %crate::trace::Hex(mem.pc),
+                        store_tag       = mem.rob_tag.0,
+                        paddr           = %crate::trace::Hex(mem.paddr.val()),
+                        width           = ?mem.ctrl.width,
+                        violation_flush = violating_tag.0,
+                        "M2: memory ordering VIOLATION — younger load executed with stale data"
+                    );
+                    merge_violation(&mut violation, (violating_tag, mem.pc));
+                }
             }
-            if let Some(ref lq) = load_queue
-                && let Some(violating_tag) =
-                    lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
-            {
-                trace_fwd!(state.config.general.trace_instructions;
-                    event           = "violation",
-                    store_pc        = %crate::trace::Hex(mem.pc),
-                    store_tag       = mem.rob_tag.0,
-                    paddr           = %crate::trace::Hex(mem.paddr.val()),
-                    width           = ?mem.ctrl.width,
-                    violation_flush = violating_tag.0,
-                    "M2: memory ordering VIOLATION — younger load executed with stale data"
-                );
-                merge_violation(&mut violation, (violating_tag, mem.pc));
-            }
-            trace_mem!(state.config.general.trace_instructions;
-                stage      = "M2",
-                rob_tag    = mem.rob_tag.0,
-                pc         = %crate::trace::Hex(mem.pc),
-                op         = "store-resolve",
-                paddr      = %crate::trace::Hex(mem.paddr.val()),
-                vaddr      = %crate::trace::Hex(mem.vaddr.val()),
-                width      = ?mem.ctrl.width,
-                store_data = %crate::trace::Hex(mem.store_data),
-                "M2: store resolved into store buffer (write deferred to commit)"
-            );
         } else {
             trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",

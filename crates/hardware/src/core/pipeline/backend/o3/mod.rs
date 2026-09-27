@@ -27,7 +27,7 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::signals::{AtomicOp, ControlFlow};
 use crate::core::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
@@ -503,13 +503,33 @@ impl ExecutionEngine for O3Engine {
             Some(&mut self.vec_store_buffer),
         );
 
+        // Stores that resolve in memory2: store-conditionals, AMOs, vectors.
         for entry in &self.mem2_wb[wb_before..] {
             if entry.ctrl.mem_write
+                && (entry.ctrl.atomic_op != AtomicOp::None || entry.vec_mem.is_some())
                 && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
             {
                 self.issue_queue.wakeup_mem_dep(&[store_tag]);
             }
         }
+
+        // Packet-based memory1 always accepts work and parks loads in
+        // `common.outstanding_loads`. Backpressure comes from the L1D's
+        // pending table when the cache is saturated, which surfaces as
+        // mailbox-drain backlogs rather than a per-engine `mem1_busy` gate.
+        let mut input = std::mem::take(&mut self.execute_mem1);
+        let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
+        self.execute_mem1.extend(input);
+        for store_tag in resolved.resolved_stores {
+            if let Some(tag) = self.mdp.store_resolved(store_tag) {
+                self.issue_queue.wakeup_mem_dep(&[tag]);
+            }
+        }
+        let mem_violation = match (mem_violation, resolved.violation) {
+            (Some(m2), Some(m1)) if m1.0.is_older_than(m2.0) => Some(m1),
+            (Some(m2), _) => Some(m2),
+            (None, m1) => m1,
+        };
 
         let squash = match (mem_violation, self.common.coherence_violation.take()) {
             (Some((tag, _)), Some(coherence_tag)) if coherence_tag.is_older_than(tag) => {
@@ -542,13 +562,6 @@ impl ExecutionEngine for O3Engine {
             });
         }
 
-        // Packet-based memory1 always accepts work and parks loads in
-        // `common.outstanding_loads`. Backpressure comes from the L1D's
-        // pending table when the cache is saturated, which surfaces as
-        // mailbox-drain backlogs rather than a per-engine `mem1_busy` gate.
-        let mut input = std::mem::take(&mut self.execute_mem1);
-        memory1::memory1_stage(&mut state.stage(), self, &mut input);
-        self.execute_mem1.extend(input);
         let _ = now;
 
         // Backpressure only while memory1 holds ops behind an unresolved
@@ -1153,6 +1166,10 @@ impl ExecutionEngine for O3Engine {
 
     fn store_buffer(&self) -> &StoreBuffer {
         &self.store_buffer
+    }
+
+    fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
+        &mut self.store_buffer
     }
 
     fn vec_store_buffer(&self) -> &VecStoreBuffer {

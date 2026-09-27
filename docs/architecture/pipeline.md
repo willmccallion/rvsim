@@ -47,9 +47,9 @@ flowchart LR
 
 **Execute** — Instructions execute on their assigned functional unit. A result is written to the physical register file, its dependents woken and its ROB entry completed when the unit's latency has elapsed (ALU 1 cycle, multiply 3 pipelined, divide 35 non-pipelined by default). Branches resolve here; a misprediction, xRET, WFI or FENCE.I produces a `Redirect` that the pipeline takes `redirect_latency` cycles after the result completes, as gem5's squash travels from IEW through commit to fetch. Until it is taken, commit retires nothing the squash will remove and issue keeps executing wrong-path work. A fault raised here (illegal instruction, ECALL, a debug trigger, or a trap carried from fetch or decode) does not redirect: it travels with the instruction, writeback records it on the ROB entry, and commit takes it and flushes everything younger once.
 
-**Memory1** — Translates virtual addresses through the D-TLB, probes L1D cache tags. On a hit, the data is available for Memory2. On a miss with MSHRs, the load is parked in an MSHR and the pipeline continues. On a miss without MSHRs, the access blocks until the line arrives.
+**Memory1** — Translates the address through the D-TLB, walking the page table on a miss. A load then forwards from the store buffer when an older store covers it, taking the L1D hit latency, or sends a request to the L1D and continues when the response arrives. A store writes its address and data into its store-buffer slot here and checks the load queue for younger loads that already read the location (a memory-order violation, which squashes from the load and trains the store-set predictor).
 
-**Memory2** — Reads L1D cache data. Performs store-to-load forwarding from the store buffer (full and partial overlap). Handles NaN-boxing for FP loads, LR/SC reservation checks, and AMO read-modify-write.
+**Memory2** — Finalises a load's value (sign or zero extension, NaN-boxing for FP loads), performs the AMO read-modify-write and records LR/SC reservations. Store-conditionals, AMOs and vector store elements resolve into their buffers here, where their data is final.
 
 **Writeback** — Selects the final result (ALU output, load data, or jump link address), writes it to the physical register file, and marks the ROB entry as completed. Broadcasts the physical register tag for wakeup.
 
@@ -138,8 +138,8 @@ The following stages are identical between both backends:
 | Rename | **Different** | O3: PRF rename maps. In-order: scoreboard tags. |
 | Issue | **Different** | O3: CAM wakeup/select. In-order: FIFO blocking. |
 | Execute | **Different** | O3: multiple FUs in parallel. In-order: one instruction. |
-| Memory1 | Yes | Same D-TLB, L1D probe, MSHR allocation |
-| Memory2 | Yes | Same L1D data, STB forwarding, LR/SC |
+| Memory1 | Yes | Same D-TLB, forwarding, L1D request, store resolution |
+| Memory2 | Yes | Same load finalisation, AMO and LR/SC |
 | Writeback | Yes | Same result selection, ROB completion |
 | Commit | Yes | Same CSR serialization, FENCE semantics |
 

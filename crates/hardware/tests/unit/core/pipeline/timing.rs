@@ -5,7 +5,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::{BranchPredictor, Config};
+use rvsim_core::config::{BranchPredictor, Config, MemDepPredictor};
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const BASE_ADDR: u64 = 0x8000_0000;
@@ -154,4 +154,41 @@ fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
     for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
         let _ = cycles_to_reach_target(&redirect_config(backend, 4, 12));
     }
+}
+
+/// A store to one address, a load from another that the blind
+/// memory-dependence predictor makes wait for the store's address, and
+/// the load's dependent. `with_store = false` puts a `nop` in the store's
+/// place.
+fn load_behind_store(with_store: bool) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let first = if with_store { i().sd(10, 0, 0).build() } else { i().nop().build() };
+    let mut program = vec![
+        i().auipc(10, 0).build(),
+        i().addi(10, 10, 0x400).build(),
+        first,
+        i().ld(6, 10, 8).build(),
+        i().addi(7, 6, 1).build(),
+    ];
+    program.extend(done_marker());
+    program
+}
+
+/// Cycles a load waits because an older store's address is unknown.
+fn store_visibility_delay(backend: BackendType) -> u64 {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.mem_dep_predictor = MemDepPredictor::Blind;
+    cycles_to_finish(&config, &load_behind_store(true))
+        - cycles_to_finish(&config, &load_behind_store(false))
+}
+
+#[test]
+fn inorder_load_behind_a_store_is_not_delayed_by_it() {
+    assert_eq!(store_visibility_delay(BackendType::InOrder), 0);
+}
+
+#[test]
+fn o3_load_behind_a_store_waits_one_cycle_for_its_translation() {
+    assert_eq!(store_visibility_delay(BackendType::OutOfOrder), 1);
 }

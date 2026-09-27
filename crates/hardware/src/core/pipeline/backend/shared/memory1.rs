@@ -45,6 +45,7 @@ use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
 use crate::sim::state::memory::TranslateResult;
+use crate::{trace_fwd, trace_mem};
 
 /// Outcome of processing a single `ExMem1Entry`.
 enum EntryOutcome {
@@ -63,14 +64,28 @@ enum EntryOutcome {
     Delayed(DelayedAccess),
 }
 
-/// Executes the Memory1 stage. Returns immediately; ordering-violation
-/// detection happens at Memory2 once stores have actually resolved their
-/// store-buffer slots.
+/// What memory1 resolved this cycle, for the engine to act on.
+#[derive(Debug, Default)]
+pub struct Memory1Outcome {
+    /// Stores whose address and data entered the store buffer, in order.
+    pub resolved_stores: Vec<RobTag>,
+    /// The oldest younger load a resolving store found had already read
+    /// the location, and that store's PC.
+    pub violation: Option<(RobTag, u64)>,
+}
+
+/// Executes the Memory1 stage.
+///
+/// A plain store resolves its store-buffer slot here, once translated, and
+/// checks the load queue for younger loads that already read the location;
+/// store-conditionals, AMOs and vector stores resolve in memory2, where their
+/// data is final.
 pub fn memory1_stage<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     input: &mut Vec<ExMem1Entry>,
-) {
+) -> Memory1Outcome {
+    let mut outcome = Memory1Outcome::default();
     let now = state.cycle;
     release_forwarded_loads(engine, now);
     let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
@@ -105,7 +120,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
             .iter()
             .position(|(tag, e, _)| *tag == ex.rob_tag && *e == elem)
             .map(|i| translations.swap_remove(i).2);
-        match process_entry(state, engine, ex, translated) {
+        match process_entry(state, engine, ex, translated, &mut outcome) {
             EntryOutcome::Done => {}
             EntryOutcome::Replay(ex) => {
                 state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
@@ -114,10 +129,11 @@ pub fn memory1_stage<E: ExecutionEngine>(
             EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
             EntryOutcome::ParkedWalk => {
                 input.extend(iter);
-                return;
+                return outcome;
             }
         }
     }
+    outcome
 }
 
 /// Moves forwarded loads whose L1D latency has elapsed into the M1→M2 latch.
@@ -141,6 +157,7 @@ fn process_entry<E: ExecutionEngine>(
     engine: &mut E,
     ex: ExMem1Entry,
     translated: Option<TranslationResult>,
+    resolved: &mut Memory1Outcome,
 ) -> EntryOutcome {
     // 1. Trap propagation. An entry execute already faulted carries its
     // trap from here on and performs no access.
@@ -278,6 +295,9 @@ fn process_entry<E: ExecutionEngine>(
     let vaddr = VirtAddr::new(ex.alu);
 
     if ex.ctrl.mem_write && !is_atomic {
+        if ex.vec_mem.is_none() {
+            resolve_store(state, engine, &ex, paddr, vaddr, resolved);
+        }
         push_resolved_store(engine, ex, paddr, vaddr, pte_update);
         return EntryOutcome::Done;
     }
@@ -366,9 +386,48 @@ fn push_trap<E: ExecutionEngine>(
     });
 }
 
+/// Writes a translated scalar store's address and data into its
+/// store-buffer slot, so younger loads can forward from it, and records
+/// the oldest younger load that already read the location.
+fn resolve_store<E: ExecutionEngine>(
+    state: &StageCtx<'_>,
+    engine: &mut E,
+    ex: &ExMem1Entry,
+    paddr: PhysAddr,
+    vaddr: VirtAddr,
+    outcome: &mut Memory1Outcome,
+) {
+    engine.store_buffer_mut().resolve(ex.rob_tag, vaddr, paddr, ex.store_data);
+    outcome.resolved_stores.push(ex.rob_tag);
+    let violator = engine
+        .load_queue_mut()
+        .and_then(|lq| lq.check_ordering_violation(paddr, ex.ctrl.width, ex.rob_tag));
+    if let Some(load) = violator
+        && outcome.violation.is_none_or(|(oldest, _)| load.is_older_than(oldest))
+    {
+        trace_fwd!(state.config.general.trace_instructions;
+            event           = "violation",
+            store_pc        = %crate::trace::Hex(ex.pc),
+            store_tag       = ex.rob_tag.0,
+            paddr           = %crate::trace::Hex(paddr.val()),
+            violation_flush = load.0,
+            "M1: memory ordering violation, a younger load already read this location"
+        );
+        outcome.violation = Some((load, ex.pc));
+    }
+    trace_mem!(state.config.general.trace_instructions;
+        stage      = "M1",
+        rob_tag    = ex.rob_tag.0,
+        pc         = %crate::trace::Hex(ex.pc),
+        op         = "store-resolve",
+        paddr      = %crate::trace::Hex(paddr.val()),
+        store_data = %crate::trace::Hex(ex.store_data),
+        "M1: store resolved into store buffer (write deferred to commit)"
+    );
+}
+
 /// Pushes a translated store or store-conditional into the M1→M2 latch.
-/// Memory2 resolves the store buffer slot and checks the load queue for
-/// ordering violations.
+/// A store-conditional resolves its store-buffer slot in memory2.
 fn push_resolved_store<E: ExecutionEngine>(
     engine: &mut E,
     ex: ExMem1Entry,

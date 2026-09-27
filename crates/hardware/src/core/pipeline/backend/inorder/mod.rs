@@ -396,7 +396,7 @@ impl ExecutionEngine for InOrderEngine {
         // and parks parked loads into self.common.outstanding_loads. SB
         // forwards and stores resolve straight into mem1_mem2.
         let mut input = std::mem::take(&mut self.execute_mem1);
-        memory1::memory1_stage(&mut state.stage(), self, &mut input);
+        let _ = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         // Ops behind an unresolved translation walk go back; ops waiting on
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
@@ -511,6 +511,10 @@ impl ExecutionEngine for InOrderEngine {
 
     fn store_buffer(&self) -> &StoreBuffer {
         &self.store_buffer
+    }
+
+    fn store_buffer_mut(&mut self) -> &mut StoreBuffer {
+        &mut self.store_buffer
     }
 
     fn execute_mem1_mut(&mut self) -> &mut Vec<ExMem1Entry> {
