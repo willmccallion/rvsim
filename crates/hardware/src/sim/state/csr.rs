@@ -208,7 +208,9 @@ impl CoreCtx<'_> {
                 // MISA is WARL: writes are silently ignored (extensions are hardwired).
             }
             x if x == csr::MSCRATCH.as_u32() => self.hart.csrs.mscratch = val,
-            x if x == csr::MEPC.as_u32() => self.hart.csrs.mepc = val & !1,
+            x if x == csr::MEPC.as_u32() => {
+                self.hart.csrs.mepc = val & !csr::ialign_low_bits(self.hart.csrs.misa);
+            }
             x if x == csr::MCAUSE.as_u32() => self.hart.csrs.mcause = val,
             x if x == csr::MTVAL.as_u32() => self.hart.csrs.mtval = val,
             x if x == csr::MIP.as_u32() => {
@@ -231,7 +233,9 @@ impl CoreCtx<'_> {
                 self.hart.csrs.stvec = if mode >= 2 { val & !3 } else { val };
             }
             x if x == csr::SSCRATCH.as_u32() => self.hart.csrs.sscratch = val,
-            x if x == csr::SEPC.as_u32() => self.hart.csrs.sepc = val & !1,
+            x if x == csr::SEPC.as_u32() => {
+                self.hart.csrs.sepc = val & !csr::ialign_low_bits(self.hart.csrs.misa);
+            }
             x if x == csr::SCAUSE.as_u32() => self.hart.csrs.scause = val,
             x if x == csr::STVAL.as_u32() => self.hart.csrs.stval = val,
             x if x == csr::SIP.as_u32() => {

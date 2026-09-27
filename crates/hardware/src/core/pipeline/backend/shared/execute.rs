@@ -293,9 +293,7 @@ pub fn resolve_control_flow(
 /// Taken branch and jump targets must be four-byte aligned without the C
 /// extension (IALIGN=32) and two-byte aligned with it.
 const fn check_target_alignment(state: &StageCtx<'_>, target: u64) -> Result<(), Trap> {
-    let c_enabled = state.hart().csrs.misa & csr::MISA_EXT_C != 0;
-    let align_mask = if c_enabled { 0b01 } else { 0b11 };
-    if target & align_mask == 0 {
+    if target & csr::ialign_low_bits(state.hart().csrs.misa) == 0 {
         return Ok(());
     }
     Err(Trap::InstructionAddressMisaligned(target))

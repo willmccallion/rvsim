@@ -591,6 +591,13 @@ pub const MISA_XLEN_128: u64 = 3 << 62;
 /// Default `mstatus` value for RV64 architecture.
 pub const MSTATUS_DEFAULT_RV64: u64 = 0xa000_00000;
 
+/// The low PC bits IALIGN keeps clear: bit 0 with the C extension
+/// (IALIGN=16), bits 1:0 without it (IALIGN=32).
+#[must_use]
+pub const fn ialign_low_bits(misa: u64) -> u64 {
+    if misa & MISA_EXT_C != 0 { 0b01 } else { 0b11 }
+}
+
 /// Default `misa` value for RV64IMAFDC architecture.
 pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_112D;
 

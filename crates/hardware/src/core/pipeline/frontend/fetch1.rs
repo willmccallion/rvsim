@@ -344,8 +344,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     fetch_pc: &mut u64,
 ) {
     let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
-    let c_enabled = (state.hart().csrs.misa & csr::MISA_EXT_C) != 0;
-    let align_mask: u64 = if c_enabled { 1 } else { 3 };
+    let align_mask = csr::ialign_low_bits(state.hart().csrs.misa);
 
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
     let mut line_end = (current_pc | (line_bytes - 1)) + 1;

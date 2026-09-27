@@ -108,6 +108,35 @@ fn test_csr_read_write_mepc() {
     assert_eq!(state.csr_read(csr::MEPC), 0x8000_0000);
 }
 
+/// A hart built without the C extension, so IALIGN=32.
+fn create_test_cpu_without_c() -> SimState {
+    let mut config = Config::default();
+    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
+    SimState::build(&config, "")
+}
+
+#[test]
+fn with_c_an_xepc_keeps_bit_one() {
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MEPC, 0x8000_0003);
+    state.csr_write(csr::SEPC, 0x8000_0003);
+
+    assert_eq!((state.csr_read(csr::MEPC), state.csr_read(csr::SEPC)), (0x8000_0002, 0x8000_0002));
+}
+
+#[test]
+fn without_c_an_xepc_has_its_two_low_bits_clear() {
+    let mut sys = create_test_cpu_without_c();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MEPC, 0x8000_0003);
+    state.csr_write(csr::SEPC, 0x8000_0003);
+
+    assert_eq!((state.csr_read(csr::MEPC), state.csr_read(csr::SEPC)), (0x8000_0000, 0x8000_0000));
+}
+
 #[test]
 fn test_csr_read_write_mcause() {
     let mut sys = create_test_cpu();
