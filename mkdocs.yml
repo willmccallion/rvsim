@@ -69,6 +69,16 @@ nav:
     - ISA: architecture/isa.md
     - SoC Devices: architecture/soc.md
     - Stats & Observability: architecture/stats.md
+    - Multi-core: architecture/multicore.md
+    - Design Decisions:
+      - architecture/decisions/index.md
+      - 1. Cycle-identical refactors: architecture/decisions/0001-refactors-are-cycle-identical.md
+      - 2. Redirect latency: architecture/decisions/0002-redirects-take-a-configurable-latency.md
+      - 3. Read-only hart in stages: architecture/decisions/0003-stages-see-the-hart-read-only.md
+      - 4. Latch delays: architecture/decisions/0004-latches-carry-an-explicit-delay.md
+      - 5. Faults at commit: architecture/decisions/0005-faults-are-taken-at-commit.md
+      - 6. Serialization: architecture/decisions/0006-serialization-follows-the-cpu-model.md
+      - 7. Core owns its pipeline: architecture/decisions/0007-a-core-owns-its-pipeline.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md
     - Linux Boot: examples/linux-boot.md
