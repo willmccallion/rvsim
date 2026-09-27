@@ -41,8 +41,14 @@ DEFAULT_BINARIES = [
 
 
 def p550_config() -> Config:
+    """The machine `gem5_single.py` builds, with gem5's defaults filled in.
+
+    Each value matches the gem5 parameter noted beside it; the README lists
+    the structural differences no rvsim setting can express.
+    """
     return Config(
         width=3,
+        cpu_clock_mhz=1400,  # SimpleBoard clk_freq
         backend=Backend.OutOfOrder(
             rob_size=72,
             issue_queue_size=32,
@@ -50,18 +56,18 @@ def p550_config() -> Config:
             store_buffer_size=16,
             prf_gpr_size=128,
             prf_fpr_size=96,
-            load_ports=1,
-            store_ports=1,
+            load_ports=1,  # ReadPort(count=1)
+            store_ports=1,  # WritePort(count=1)
             fu_config=Fu([
                 Fu.IntAlu(count=3, latency=1),
-                Fu.IntMul(count=1, latency=3),
-                Fu.IntDiv(count=1, latency=12),
-                Fu.FpAdd(count=1, latency=5),
-                Fu.FpMul(count=1, latency=5),
-                Fu.FpFma(count=1, latency=5),
-                Fu.FpDivSqrt(count=1, latency=15),
-                Fu.Branch(count=1, latency=1),
-                Fu.Mem(count=1, latency=1),
+                Fu.IntMul(count=1, latency=3),  # IntMultDiv: IntMult
+                Fu.IntDiv(count=1, latency=20),  # IntMultDiv: IntDiv, unpipelined
+                Fu.FpAdd(count=2, latency=2),  # FP_ALU
+                Fu.FpMul(count=2, latency=4),  # FP_MultDiv: FloatMult
+                Fu.FpFma(count=2, latency=5),  # FP_MultDiv: FloatMultAcc
+                Fu.FpDivSqrt(count=2, latency=12),  # FP_MultDiv: FloatDiv
+                Fu.Branch(count=3, latency=1),  # branches issue to the IntALUs
+                Fu.Mem(count=2, latency=1),  # one ReadPort plus one WritePort
             ]),
         ),
         branch_predictor=BranchPredictor.Tournament(
@@ -69,11 +75,12 @@ def p550_config() -> Config:
             local_hist_bits=11,
             local_pred_bits=11,
         ),
-        btb_size=32,
+        btb_size=4096,  # SimpleBTB: 4096 entries, direct-mapped
+        btb_ways=1,
         ras_size=16,
-        l1i=Cache(size="32KB", line="64B", ways=8, latency=1),
-        l1d=Cache(size="32KB", line="64B", ways=8, latency=3, mshr_count=8),
-        l2=Cache(size="256KB", line="64B", ways=8, latency=10),
+        l1i=Cache(size="32KB", line="64B", ways=8, latency=1, mshr_count=16, write_buffers=8),
+        l1d=Cache(size="32KB", line="64B", ways=8, latency=1, mshr_count=16, write_buffers=8),
+        l2=Cache(size="256KB", line="64B", ways=16, latency=10, mshr_count=20, write_buffers=8),
     )
 
 
