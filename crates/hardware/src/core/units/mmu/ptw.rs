@@ -40,6 +40,10 @@ const VPN_BITS_PER_LEVEL: u64 = 9;
 const VPN_ENTRY_MASK: u64 = 0x1FF;
 /// Size of a Page Table Entry in bytes.
 const PTE_SIZE: u64 = 8;
+/// Bits 63-54, reserved for Svnapot, Svpbmt and future extensions.
+const PTE_RESERVED_BITS: u64 = u64::MAX << 54;
+/// D, A and U, reserved in a pointer PTE.
+const PTE_POINTER_RESERVED_BITS: u64 = PTE_DIRTY_BIT | PTE_ACCESSED_BIT | PTE_USER_BIT;
 /// Cycles required to update a PTE's accessed/dirty bits in memory.
 const PTE_UPDATE_CYCLES: u64 = 10;
 
@@ -108,6 +112,14 @@ impl PageTableEntry {
     /// In SV39, an entry is a pointer if it is Valid but has R=0, W=0, and X=0.
     const fn is_pointer(self) -> bool {
         !self.can_read() && !self.can_write() && !self.can_exec()
+    }
+
+    /// True when the PTE sets a bit the spec reserves: bits 63-54 (this
+    /// hart implements neither Svnapot nor Svpbmt), or D, A or U in a
+    /// pointer to the next level.
+    const fn has_reserved_bits(self) -> bool {
+        self.0 & PTE_RESERVED_BITS != 0
+            || (self.is_pointer() && self.0 & PTE_POINTER_RESERVED_BITS != 0)
     }
 
     /// Returns a new instance with the Accessed (A) bit set.
@@ -210,6 +222,13 @@ pub fn continue_walk(
     let pte = PageTableEntry::new(raw_pte);
 
     if !pte.is_valid() {
+        return WalkStep::Done(TranslationResult::fault(
+            page_fault(state.vaddr.val(), state.access),
+            state.cycles,
+        ));
+    }
+
+    if pte.has_reserved_bits() {
         return WalkStep::Done(TranslationResult::fault(
             page_fault(state.vaddr.val(), state.access),
             state.cycles,

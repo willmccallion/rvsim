@@ -725,3 +725,47 @@ fn sv57_non_canonical_address_faults() {
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
+
+/// Walks a load of 0x4000_0000 through a root pointer with `pointer_extra`
+/// set to a 2 MiB leaf with `leaf_extra` set.
+fn walk_with(pointer_extra: u64, leaf_extra: u64) -> TranslationResult {
+    let (mut mmu, csrs, mut tc) = setup_mmu();
+    let bus = &mut tc.cpu_mut().bus;
+    let vaddr = VirtAddr::new(0x4000_0000);
+    let l1_ppn = ROOT_PPN + 1;
+    let leaf_ppn = ROOT_PPN + 0x200;
+    write_pte(bus, ROOT_PPN, (0x4000_0000 >> 30) & 0x1FF, make_pte(l1_ppn, 0) | pointer_extra);
+    write_pte(bus, l1_ppn, 0, make_pte(leaf_ppn, R | W | X | A | D) | leaf_extra);
+
+    translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, bus)
+}
+
+#[test]
+fn a_walk_through_clean_ptes_succeeds() {
+    assert!(walk_with(0, 0).trap.is_none());
+}
+
+#[test]
+fn a_leaf_with_a_reserved_high_bit_set_raises_a_page_fault() {
+    for bit in [54, 60, 61, 62, 63] {
+        let res = walk_with(0, 1 << bit);
+
+        assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "bit {bit}: {:?}", res.trap);
+    }
+}
+
+#[test]
+fn a_pointer_with_a_reserved_high_bit_set_raises_a_page_fault() {
+    let res = walk_with(1 << 54, 0);
+
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+}
+
+#[test]
+fn a_pointer_with_d_a_or_u_set_raises_a_page_fault() {
+    for bit in [D, A, U] {
+        let res = walk_with(bit, 0);
+
+        assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "{bit:#x}: {:?}", res.trap);
+    }
+}
