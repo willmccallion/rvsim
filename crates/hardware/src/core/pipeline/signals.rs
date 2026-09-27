@@ -576,6 +576,20 @@ pub struct ControlSignals {
     pub vec_broadcast_vs2: bool,
 }
 
+impl ControlSignals {
+    /// True for anything that reads memory: a scalar load, LR, an AMO, or a
+    /// vector load, which decodes without `mem_read`.
+    pub const fn reads_memory(&self) -> bool {
+        self.mem_read || crate::core::units::vpu::mem::is_vec_load(self.vec_op)
+    }
+
+    /// True for anything that writes memory: a scalar store, SC, an AMO, or
+    /// a vector store, which decodes without `mem_write`.
+    pub const fn writes_memory(&self) -> bool {
+        self.mem_write || crate::core::units::vpu::mem::is_vec_store(self.vec_op)
+    }
+}
+
 /// Vector operation type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VectorOp {

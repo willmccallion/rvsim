@@ -822,8 +822,8 @@ impl Rob {
                     return true;
                 }
                 if entry.state == RobState::Issued {
-                    let dominated =
-                        (pred_r && entry.ctrl.mem_read) || (pred_w && entry.ctrl.mem_write);
+                    let dominated = (pred_r && entry.ctrl.reads_memory())
+                        || (pred_w && entry.ctrl.writes_memory());
                     if dominated {
                         return false;
                     }
@@ -1149,6 +1149,25 @@ mod tests {
         assert!(!rob.has_fence_blocking(t_store, false, true));
         rob.complete(t_amo, 0);
         assert!(!rob.has_fence_blocking(t_load, true, false));
+    }
+
+    #[test]
+    fn a_fence_waits_for_an_older_vector_store() {
+        let mut rob = Rob::new(8);
+        let vector_store = ControlSignals {
+            vec_op: crate::core::pipeline::signals::VectorOp::VStoreUnit,
+            ..Default::default()
+        };
+        let fence_ctrl = ControlSignals {
+            system_op: crate::core::pipeline::signals::SystemOp::Fence,
+            ..Default::default()
+        };
+        let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
+        let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0001), fence_ctrl).unwrap();
+
+        assert!(!rob.fence_pred_satisfied(t_fence, false, true));
+        rob.complete(t_store, 0);
+        assert!(rob.fence_pred_satisfied(t_fence, false, true));
     }
 
     #[test]

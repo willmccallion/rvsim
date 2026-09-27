@@ -130,9 +130,8 @@ impl InOrderIssueUnit {
                 }
             }
 
-            if (entry.ctrl.mem_read || entry.ctrl.mem_write)
-                && rob.has_fence_blocking(entry.rob_tag, entry.ctrl.mem_read, entry.ctrl.mem_write)
-            {
+            let (reads, writes) = (entry.ctrl.reads_memory(), entry.ctrl.writes_memory());
+            if (reads || writes) && rob.has_fence_blocking(entry.rob_tag, reads, writes) {
                 break;
             }
 

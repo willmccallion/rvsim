@@ -377,12 +377,9 @@ impl IssueQueue {
                             continue;
                         }
                     }
-                    if (iq.entry.ctrl.mem_read || iq.entry.ctrl.mem_write)
-                        && rob.has_fence_blocking(
-                            iq.entry.rob_tag,
-                            iq.entry.ctrl.mem_read,
-                            iq.entry.ctrl.mem_write,
-                        )
+                    let reads = iq.entry.ctrl.reads_memory();
+                    let writes = iq.entry.ctrl.writes_memory();
+                    if (reads || writes) && rob.has_fence_blocking(iq.entry.rob_tag, reads, writes)
                     {
                         continue;
                     }
@@ -571,7 +568,7 @@ fn resolve_operand_legacy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::InstSize;
+    use crate::common::{InstSize, RegIdx};
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
@@ -859,6 +856,58 @@ mod tests {
         assert_eq!(snap[0].rob_tag.0, 1);
         assert_eq!(snap[1].rob_tag.0, 3);
         assert_eq!(snap[2].rob_tag.0, 5);
+    }
+
+    #[test]
+    fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
+        let mut rob = Rob::new(8);
+        let acquire = ControlSignals {
+            atomic_op: crate::core::pipeline::signals::AtomicOp::Swap,
+            acquire: true,
+            mem_read: true,
+            mem_write: true,
+            ..Default::default()
+        };
+        let vector_load = ControlSignals {
+            vec_op: crate::core::pipeline::signals::VectorOp::VLoadUnit,
+            ..Default::default()
+        };
+        let alloc = |rob: &mut Rob, ctrl| {
+            rob.allocate(
+                0,
+                0,
+                InstSize::Standard,
+                RegIdx::new(0),
+                false,
+                ctrl,
+                PhysReg(0),
+                PhysReg(0),
+            )
+            .unwrap()
+        };
+        let amo_tag = alloc(&mut rob, acquire);
+        let load_tag = alloc(&mut rob, vector_load);
+        let mut iq = IssueQueue::new(4);
+        let mut entry = make_entry(load_tag.0);
+        entry.ctrl = vector_load;
+        iq.slots[0] = Some(IssueQueueEntry {
+            entry,
+            src1: ready_operand(0),
+            src2: ready_operand(0),
+            src3: ready_operand(0),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
+            mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
+        });
+        iq.count = 1;
+
+        assert!(iq.select(4, &StoreBuffer::new(4), &rob, 2, 1).is_empty());
+        rob.complete(amo_tag, 0);
+        assert_eq!(iq.select(4, &StoreBuffer::new(4), &rob, 2, 1).len(), 1);
     }
 
     #[test]
