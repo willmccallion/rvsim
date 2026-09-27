@@ -1,7 +1,7 @@
 # Error against gem5
 
 How far rvsim's cycle counts are from gem5's O3 CPU on the same programs.
-Measured 2026-09-26 at commit `92b21f0` with `make compare-gem5`.
+Measured 2026-09-27 at commit `056c862` with `make compare-gem5`.
 
 ## Method
 
@@ -20,26 +20,25 @@ program. A positive error means rvsim is slower than gem5.
 
 | Benchmark | gem5 cycles | rvsim cycles | Error | gem5 IPC | rvsim IPC | gem5 mispredicts | rvsim mispredicts |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `alu_int_mul` | 60,522 | 102,468 | +69.3% | 2.15 | 1.27 | 16 | 27 |
-| `alu_int_div` | 71,637 | 112,745 | +57.4% | 2.23 | 1.42 | 16 | 27 |
-| `alu_fp_add` | 54,756 | 92,796 | +69.5% | 2.56 | 1.51 | 15 | 27 |
-| `pipe_load_use` | 30,601 | 42,515 | +38.9% | 2.29 | 1.65 | 16 | 27 |
-| `pipe_raw_hazard` | 65,585 | 102,530 | +56.3% | 1.68 | 1.08 | 16 | 27 |
-| `bp_always_taken` | 60,523 | 102,445 | +69.3% | 2.15 | 1.27 | 15 | 27 |
-| `bp_never_taken` | 60,521 | 92,536 | +52.9% | 1.82 | 1.19 | 15 | 28 |
-| `bp_pattern_alt` | 60,636 | 227,494 | +275.2% | 2.39 | 0.64 | 22 | 5,025 |
-| `bp_random` | 197,586 | 272,771 | +38.1% | 1.44 | 1.05 | 4,988 | 5,022 |
-| `cache_linear_read` | 714,761 | 1,137,719 | +59.2% | 1.19 | 0.75 | 29 | 31 |
-| `cache_strided_read` | 447,923 | 361,051 | -19.4% | 1.08 | 1.34 | 29 | 31 |
-| `cache_thrash_assoc` | 371,953 | 295,659 | -20.5% | 1.25 | 1.57 | 29 | 31 |
-| `cache_write_heavy` | 260,964 | 273,461 | +4.8% | 1.70 | 1.62 | 4,145 | 4,136 |
-| `mem_rand_walk` | 692,367 | 602,441 | -13.0% | 0.76 | 0.88 | 27 | 23 |
+| `alu_int_mul` | 60,522 | 102,553 | +69.4% | 2.15 | 1.27 | 16 | 34 |
+| `alu_int_div` | 71,637 | 112,837 | +57.5% | 2.23 | 1.42 | 16 | 34 |
+| `alu_fp_add` | 54,756 | 92,891 | +69.6% | 2.56 | 1.51 | 15 | 34 |
+| `pipe_load_use` | 30,601 | 42,593 | +39.2% | 2.29 | 1.65 | 16 | 34 |
+| `pipe_raw_hazard` | 65,585 | 102,616 | +56.5% | 1.68 | 1.08 | 16 | 34 |
+| `bp_always_taken` | 60,523 | 102,528 | +69.4% | 2.15 | 1.27 | 15 | 34 |
+| `bp_never_taken` | 60,521 | 92,521 | +52.9% | 1.82 | 1.19 | 15 | 25 |
+| `bp_pattern_alt` | 60,636 | 92,860 | +53.1% | 2.39 | 1.57 | 22 | 42 |
+| `bp_random` | 197,586 | 272,114 | +37.7% | 1.44 | 1.05 | 4,988 | 5,004 |
+| `cache_linear_read` | 714,761 | 1,137,725 | +59.2% | 1.19 | 0.75 | 29 | 39 |
+| `cache_strided_read` | 447,923 | 361,047 | -19.4% | 1.08 | 1.34 | 29 | 39 |
+| `cache_thrash_assoc` | 371,953 | 295,658 | -20.5% | 1.25 | 1.57 | 29 | 39 |
+| `cache_write_heavy` | 260,964 | 273,639 | +4.9% | 1.70 | 1.62 | 4,145 | 4,155 |
+| `mem_rand_walk` | 692,367 | 602,435 | -13.0% | 0.76 | 0.88 | 27 | 34 |
 
 Across these 14 programs:
 
-- **Mean absolute error:** 60.3%.
-- **Median absolute error:** 54.6%.
-- **Mean absolute error without `bp_pattern_alt`:** 43.7%.
+- **Mean absolute error:** 44.5%.
+- **Median absolute error:** 53.0%.
 
 ## Caveats
 
@@ -59,12 +58,11 @@ Across these 14 programs:
   -O0, they are chains of loads and stores through the stack. The leading
   suspect is stage timing: gem5's O3 has two cycles from rename to IEW and
   one from issue to execute, which rvsim does not match.
-- **`bp_pattern_alt` mispredicts about 5,000 times against gem5's 22.**
-  rvsim's Tournament predictor still indexes the global and choice tables
-  with PC XOR history, where gem5 uses history alone. It also trains the
-  choice table from predictions it recomputes at commit, and keeps no
-  per-branch local history that squashes restore. Rebuilding it on gem5's
-  per-branch history record is in progress.
+- **Branch predictors still train more slowly than gem5's.** The kernels
+  without data-dependent branches mispredict 25-42 times where gem5
+  mispredicts 15-29. The predictor now
+  follows gem5's `TournamentBP` and its per-branch history, so the gap is
+  not yet root-caused.
 - **Cache-bound kernels run 13-20% fast.** Not yet root-caused. rvsim has no
   `L2XBar` between the L1s and the L2, and its DRAM model differs; both make
   its misses cheaper.
