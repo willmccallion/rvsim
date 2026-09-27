@@ -25,8 +25,10 @@ const TABLE_SIZE: usize = 1 << TABLE_BITS;
 /// `GShare` Predictor structure.
 #[derive(Debug)]
 pub struct GSharePredictor {
-    /// Global History Register storing recent branch outcomes.
+    /// Global history as fetched, which predictions use.
     ghr: u64,
+    /// Global history through the last committed branch.
+    commit_ghr: u64,
     /// Pattern History Table containing 2-bit saturating counters.
     pht: Vec<u8>,
     /// Branch Target Buffer.
@@ -40,19 +42,23 @@ impl GSharePredictor {
     pub fn new(btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
         Self {
             ghr: 0,
+            commit_ghr: 0,
             pht: vec![1; TABLE_SIZE],
             btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
         }
     }
 
-    /// Calculates the index into the Pattern History Table.
-    ///
-    /// Computes the XOR of the PC (shifted) and the Global History Register.
-    const fn index(&self, pc: u64) -> usize {
+    /// The Pattern History Table index for `pc` under global history `ghr`:
+    /// the XOR of the two.
+    const fn index(pc: u64, ghr: u64) -> usize {
         let pc_part = (pc >> 2) & ((TABLE_SIZE as u64) - 1);
-        let ghr_part = self.ghr & ((TABLE_SIZE as u64) - 1);
+        let ghr_part = ghr & ((TABLE_SIZE as u64) - 1);
         (pc_part ^ ghr_part) as usize
+    }
+
+    const fn shifted(ghr: u64, taken: bool) -> u64 {
+        ((ghr << 1) | taken as u64) & ((TABLE_SIZE as u64) - 1)
     }
 }
 
@@ -61,7 +67,7 @@ impl BranchPredictor for GSharePredictor {
     ///
     /// Returns true if the 2-bit counter at the hashed index is 2 or 3 (Taken).
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let idx = self.index(pc);
+        let idx = Self::index(pc, self.ghr);
         let counter = self.pht[idx];
         let taken = counter >= 2;
 
@@ -70,10 +76,10 @@ impl BranchPredictor for GSharePredictor {
 
     /// Updates the predictor with the actual branch outcome.
     ///
-    /// Updates the 2-bit saturating counter in the PHT and shifts the new
-    /// outcome into the Global History Register.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
-        let idx = self.index(pc);
+    /// Trains the 2-bit counter the prediction read, found from the history
+    /// the branch was predicted with.
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
+        let idx = Self::index(pc, ghr_snapshot.val());
         let counter = self.pht[idx];
 
         if taken && counter < 3 {
@@ -82,7 +88,7 @@ impl BranchPredictor for GSharePredictor {
             self.pht[idx] -= 1;
         }
 
-        self.ghr = ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((TABLE_SIZE as u64) - 1);
+        self.commit_ghr = Self::shifted(ghr_snapshot.val(), taken);
 
         if let Some(tgt) = target {
             self.btb.update(pc, tgt);
@@ -103,7 +109,7 @@ impl BranchPredictor for GSharePredictor {
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {
-        self.ghr = ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((TABLE_SIZE as u64) - 1);
+        self.ghr = Self::shifted(self.ghr, taken);
     }
 
     fn snapshot_history(&self) -> Ghr {
@@ -124,5 +130,9 @@ impl BranchPredictor for GSharePredictor {
 
     fn update_btb(&mut self, pc: u64, target: u64) {
         self.btb.update(pc, target);
+    }
+
+    fn repair_to_committed(&mut self) {
+        self.ghr = self.commit_ghr;
     }
 }

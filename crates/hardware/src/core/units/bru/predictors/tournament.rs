@@ -15,8 +15,10 @@ pub struct TournamentPredictor {
     btb: Btb,
     /// Return Address Stack.
     ras: Ras,
-    /// Global History Register.
+    /// Global history as fetched, which predictions use.
     ghr: u64,
+    /// Global history through the last committed branch.
+    commit_ghr: u64,
 
     /// Global Pattern History Table (2-bit counters).
     global_pht: Vec<u8>,
@@ -54,6 +56,7 @@ impl TournamentPredictor {
             btb: Btb::new(btb_size, btb_ways),
             ras: Ras::new(ras_size),
             ghr: 0,
+            commit_ghr: 0,
 
             global_pht: vec![1; global_size],
             global_mask: global_size - 1,
@@ -102,9 +105,11 @@ impl BranchPredictor for TournamentPredictor {
     /// Updates the predictor with the actual branch outcome.
     ///
     /// Updates the Choice PHT based on which predictor was correct, then
-    /// updates both the Global and Local predictor tables and histories.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
-        let g_idx = ((self.ghr ^ pc) as usize) & self.global_mask;
+    /// the Global and Local tables and the local history. The global
+    /// entries are the ones the prediction read, found from the history
+    /// the branch was predicted with.
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
+        let g_idx = ((ghr_snapshot.val() ^ pc) as usize) & self.global_mask;
 
         let global_pred = self.get_global_prediction(g_idx);
         let local_pred = self.get_local_prediction(pc);
@@ -131,7 +136,7 @@ impl BranchPredictor for TournamentPredictor {
         } else if *g_cnt > 0 {
             *g_cnt -= 1;
         }
-        self.ghr = ((self.ghr << 1) | (taken as u64)) & (self.global_mask as u64);
+        self.commit_ghr = ((ghr_snapshot.val() << 1) | (taken as u64)) & (self.global_mask as u64);
 
         let lh_idx = (pc as usize) & self.local_hist_mask;
         let pattern = self.local_history_table[lh_idx];
@@ -189,5 +194,9 @@ impl BranchPredictor for TournamentPredictor {
 
     fn update_btb(&mut self, pc: u64, target: u64) {
         self.btb.update(pc, target);
+    }
+
+    fn repair_to_committed(&mut self) {
+        self.ghr = self.commit_ghr;
     }
 }

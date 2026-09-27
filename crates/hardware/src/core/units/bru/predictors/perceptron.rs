@@ -16,8 +16,10 @@ const THETA_BIAS: f64 = 14.0;
 /// Perceptron Predictor structure.
 #[derive(Debug)]
 pub struct PerceptronPredictor {
-    /// Global History Register.
+    /// Global history as fetched, which predictions use.
     ghr: u64,
+    /// Global history through the last committed branch.
+    commit_ghr: u64,
     /// Table of weights (flattened).
     table: Vec<i8>,
     /// Length of the history vector.
@@ -49,6 +51,7 @@ impl PerceptronPredictor {
 
         Self {
             ghr: 0,
+            commit_ghr: 0,
             table: vec![0; table_entries * row_size],
             history_length: hist_len,
             table_mask: table_entries - 1,
@@ -59,22 +62,25 @@ impl PerceptronPredictor {
         }
     }
 
-    /// Calculates the index into the weight table using PC and GHR hash.
-    const fn index(&self, pc: u64) -> usize {
+    /// The weight row for `pc` under global history `ghr`.
+    const fn index(&self, pc: u64, ghr: u64) -> usize {
         let pc_idx = (pc >> 2) as usize & self.table_mask;
-        let hist_idx = (self.ghr as usize) & self.table_mask;
+        let hist_idx = (ghr as usize) & self.table_mask;
         pc_idx ^ hist_idx
     }
 
-    /// Computes the perceptron output (dot product) for a given row.
-    ///
-    /// Sums the bias weight and the product of history bits and weights.
-    fn output(&self, row_idx: usize) -> i32 {
+    const fn shifted(&self, ghr: u64, taken: bool) -> u64 {
+        ((ghr << 1) | taken as u64) & ((1u64 << self.history_length) - 1)
+    }
+
+    /// The perceptron output for a row: the bias weight plus each history
+    /// weight times the matching bit of `ghr` as +1 or -1.
+    fn output(&self, row_idx: usize, ghr: u64) -> i32 {
         let base = row_idx * self.row_size;
         let mut y = self.table[base] as i32;
 
         for i in 0..self.history_length {
-            let bit = if (self.ghr >> i) & 1 != 0 { 1 } else { -1 };
+            let bit = if (ghr >> i) & 1 != 0 { 1 } else { -1 };
             y += (self.table[base + 1 + i] as i32) * bit;
         }
         y
@@ -97,8 +103,8 @@ impl BranchPredictor for PerceptronPredictor {
     ///
     /// Predicts taken if the perceptron output (dot product) is non-negative.
     fn predict_branch(&self, pc: u64) -> (bool, Option<u64>) {
-        let idx = self.index(pc);
-        let y = self.output(idx);
+        let idx = self.index(pc, self.ghr);
+        let y = self.output(idx, self.ghr);
         let taken = y >= 0;
         if taken { (true, self.btb.lookup(pc)) } else { (false, None) }
     }
@@ -107,9 +113,10 @@ impl BranchPredictor for PerceptronPredictor {
     ///
     /// Trains the perceptron if a misprediction occurred or if the confidence
     /// (magnitude of the output) was below the training threshold.
-    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, _ghr_snapshot: &Ghr) {
-        let idx = self.index(pc);
-        let y = self.output(idx);
+    fn update_branch(&mut self, pc: u64, taken: bool, target: Option<u64>, ghr_snapshot: &Ghr) {
+        let ghr = ghr_snapshot.val();
+        let idx = self.index(pc, ghr);
+        let y = self.output(idx, ghr);
         let t = if taken { 1 } else { -1 };
 
         if y.abs() <= self.threshold || (y >= 0) != taken {
@@ -119,15 +126,14 @@ impl BranchPredictor for PerceptronPredictor {
             self.table[base] = clamp_weight(v);
 
             for i in 0..self.history_length {
-                let x = if (self.ghr >> i) & 1 != 0 { 1 } else { -1 };
+                let x = if (ghr >> i) & 1 != 0 { 1 } else { -1 };
                 let w_idx = base + 1 + i;
                 let v = self.table[w_idx] as i32 + t * x;
                 self.table[w_idx] = clamp_weight(v);
             }
         }
 
-        self.ghr =
-            ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((1u64 << self.history_length) - 1);
+        self.commit_ghr = self.shifted(ghr, taken);
 
         if let Some(tgt) = target {
             self.btb.update(pc, tgt);
@@ -148,8 +154,7 @@ impl BranchPredictor for PerceptronPredictor {
     }
 
     fn speculate(&mut self, _pc: u64, taken: bool) {
-        self.ghr =
-            ((self.ghr << 1) | if taken { 1 } else { 0 }) & ((1u64 << self.history_length) - 1);
+        self.ghr = self.shifted(self.ghr, taken);
     }
 
     fn snapshot_history(&self) -> Ghr {
@@ -170,5 +175,9 @@ impl BranchPredictor for PerceptronPredictor {
 
     fn update_btb(&mut self, pc: u64, target: u64) {
         self.btb.update(pc, target);
+    }
+
+    fn repair_to_committed(&mut self) {
+        self.ghr = self.commit_ghr;
     }
 }
