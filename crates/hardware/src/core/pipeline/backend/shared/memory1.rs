@@ -30,7 +30,6 @@
 
 use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
@@ -294,18 +293,7 @@ fn process_entry<E: ExecutionEngine>(
     }
     let dirty_updates = DirtyUpdates::of(first.dirty_update, second_dirty_update);
 
-    // 5. S/U-mode access fault on unmapped paddr; M-mode firmware can probe.
-    if state.hart().privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr) {
-        let trap = if ex.ctrl.mem_write {
-            Trap::StoreAccessFault(ex.alu)
-        } else {
-            Trap::LoadAccessFault(ex.alu)
-        };
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
-        return EntryOutcome::Done;
-    }
-
-    // 6. Load-queue address fill (O3).
+    // 5. Load-queue address fill (O3).
     if ex.ctrl.mem_read
         && let Some(lq) = engine.load_queue_mut()
     {
@@ -313,7 +301,7 @@ fn process_entry<E: ExecutionEngine>(
         lq.fill_address(ex.rob_tag, elem, VirtAddr::new(ex.alu), paddr);
     }
 
-    // 7. Operation dispatch.
+    // 6. Operation dispatch.
     let vaddr = VirtAddr::new(ex.alu);
 
     if ex.ctrl.mem_write && !is_atomic {
@@ -421,9 +409,7 @@ fn translate_cbo<E: ExecutionEngine>(
     };
 
     let is_ram = state.bus.ram_region_for(paddr.val(), CBOZ_BLOCK_SIZE).is_some();
-    let unmapped =
-        state.hart().privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr);
-    if unmapped || (effect != cbo::CboEffect::Zero && !is_ram) {
+    if effect != cbo::CboEffect::Zero && !is_ram {
         push_trap(engine, ex, Trap::StoreAccessFault(tval), ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
