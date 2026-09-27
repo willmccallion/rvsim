@@ -421,6 +421,13 @@ pub const MSTATUS_VS_CLEAN: u64 = 2 << 9;
 /// Vector state: dirty (vector state has been modified).
 pub const MSTATUS_VS_DIRTY: u64 = 3 << 9;
 
+/// Fields of `mstatus` that `sstatus` exposes and lets software write.
+pub const SSTATUS_WRITABLE: u64 =
+    MSTATUS_SIE | MSTATUS_SPIE | MSTATUS_SPP | MSTATUS_VS | MSTATUS_FS | MSTATUS_SUM | MSTATUS_MXR;
+
+/// Fields of `mstatus` visible through `sstatus`.
+pub const SSTATUS_VISIBLE: u64 = SSTATUS_WRITABLE | MSTATUS_UXL;
+
 /// SD (State Dirty) summary bit in `mstatus`/`sstatus` (bit 63 for RV64).
 /// Set when FS, VS, or XS is Dirty.
 pub const MSTATUS_SD: u64 = 1 << 63;

@@ -49,7 +49,9 @@ pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
         x if x == csr::MIP.as_u32() => hart.csrs.mip,
         x if x == csr::SSTATUS.as_u32() => {
             let val = hart.csrs.sstatus & !csr::MSTATUS_SD;
-            if val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY { val | csr::MSTATUS_SD } else { val }
+            let fs_dirty = val & csr::MSTATUS_FS == csr::MSTATUS_FS_DIRTY;
+            let vs_dirty = val & csr::MSTATUS_VS == csr::MSTATUS_VS_DIRTY;
+            if fs_dirty || vs_dirty { val | csr::MSTATUS_SD } else { val }
         }
         x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
         x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
@@ -171,6 +173,7 @@ impl CoreCtx<'_> {
                     | csr::MSTATUS_MPIE
                     | csr::MSTATUS_SPP
                     | csr::MSTATUS_MPP
+                    | csr::MSTATUS_VS
                     | csr::MSTATUS_FS
                     | csr::MSTATUS_MPRV
                     | csr::MSTATUS_SUM
@@ -190,14 +193,7 @@ impl CoreCtx<'_> {
                     self.hart.csrs.mstatus &= !csr::MSTATUS_MPP;
                 }
 
-                let mask = csr::MSTATUS_SIE
-                    | csr::MSTATUS_SPIE
-                    | csr::MSTATUS_SPP
-                    | csr::MSTATUS_FS
-                    | csr::MSTATUS_SUM
-                    | csr::MSTATUS_MXR
-                    | csr::MSTATUS_UXL;
-                self.hart.csrs.sstatus = self.hart.csrs.mstatus & mask;
+                self.hart.csrs.sstatus = self.hart.csrs.mstatus & csr::SSTATUS_VISIBLE;
             }
             x if x == csr::MEDELEG.as_u32() => {
                 // Bit 11 (ecall from M-mode) cannot be delegated
@@ -238,18 +234,9 @@ impl CoreCtx<'_> {
                 self.hart.sw_seip = (val & csr::MIP_SEIP) != 0;
             }
             x if x == csr::SSTATUS.as_u32() => {
-                // UXL is read-only in sstatus (always reflects mstatus UXL)
-                let writable_mask = csr::MSTATUS_SIE
-                    | csr::MSTATUS_SPIE
-                    | csr::MSTATUS_SPP
-                    | csr::MSTATUS_FS
-                    | csr::MSTATUS_SUM
-                    | csr::MSTATUS_MXR;
-                let read_mask = writable_mask | csr::MSTATUS_UXL;
-
-                self.hart.csrs.mstatus =
-                    (self.hart.csrs.mstatus & !writable_mask) | (val & writable_mask);
-                self.hart.csrs.sstatus = self.hart.csrs.mstatus & read_mask;
+                self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::SSTATUS_WRITABLE)
+                    | (val & csr::SSTATUS_WRITABLE);
+                self.hart.csrs.sstatus = self.hart.csrs.mstatus & csr::SSTATUS_VISIBLE;
             }
             x if x == csr::SIE.as_u32() => {
                 let mask = self.hart.csrs.mideleg;
@@ -398,18 +385,7 @@ mod tests {
         assert_ne!(mstatus, 0xFFFF_FFFF_FFFF_FFFF);
 
         let sstatus = state.csr_read(csr::SSTATUS);
-        assert_eq!(
-            sstatus,
-            mstatus
-                & (csr::MSTATUS_SD
-                    | csr::MSTATUS_SIE
-                    | csr::MSTATUS_SPIE
-                    | csr::MSTATUS_SPP
-                    | csr::MSTATUS_FS
-                    | csr::MSTATUS_SUM
-                    | csr::MSTATUS_MXR
-                    | csr::MSTATUS_UXL)
-        );
+        assert_eq!(sstatus, mstatus & (csr::MSTATUS_SD | csr::SSTATUS_VISIBLE));
     }
 
     #[test]

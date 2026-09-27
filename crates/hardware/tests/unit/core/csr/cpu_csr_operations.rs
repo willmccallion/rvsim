@@ -437,17 +437,34 @@ fn test_csr_unknown_write_ignored() {
 }
 
 #[test]
-fn test_csr_mstatus_write() {
+fn mstatus_write_turns_the_vector_unit_on() {
     let mut sys = create_test_cpu();
-    let state = sys.core_ctx(0);
-    // Verify basic MSTATUS write doesn't panic
-    let _ = state;
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MSTATUS, 0);
+    state.csr_write(csr::MSTATUS, csr::MSTATUS_VS_INIT);
+
+    assert_eq!(state.csr_read(csr::MSTATUS) & csr::MSTATUS_VS, csr::MSTATUS_VS_INIT);
+    assert_eq!(state.csr_read(csr::SSTATUS) & csr::MSTATUS_VS, csr::MSTATUS_VS_INIT);
 }
 
 #[test]
-fn test_csr_sstatus_write() {
+fn sstatus_write_turns_the_vector_unit_on() {
     let mut sys = create_test_cpu();
-    let state = sys.core_ctx(0);
-    // Verify basic SSTATUS write doesn't panic
-    let _ = state;
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MSTATUS, 0);
+    state.csr_write(csr::SSTATUS, csr::MSTATUS_VS_INIT);
+
+    assert_eq!(state.csr_read(csr::MSTATUS) & csr::MSTATUS_VS, csr::MSTATUS_VS_INIT);
+}
+
+#[test]
+fn sstatus_reports_dirty_vector_state_in_sd() {
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::SSTATUS, csr::MSTATUS_VS_DIRTY);
+
+    assert_ne!(state.csr_read(csr::SSTATUS) & csr::MSTATUS_SD, 0);
 }
