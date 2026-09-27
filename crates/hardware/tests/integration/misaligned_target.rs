@@ -10,8 +10,6 @@ use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::core::pipeline::engine::BackendType;
 
-/// RV64 with I, M, A, F, D, S and U: no C, so IALIGN=32.
-const MISA_RV64IMAFDSU: u64 = 0x8000_0000_0014_1129;
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
 const TRAP_PARK: u64 = RAM_BASE + 0x800;
@@ -33,7 +31,7 @@ struct Outcome {
 fn run(backend: BackendType, program: &[u32]) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.misa_override = Some(format!("{MISA_RV64IMAFDSU:x}"));
+    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 4 * n as u64), u64::from(*inst), 4);

@@ -827,6 +827,15 @@ pub struct MemoryConfig {
     pub paging_mode_max: crate::core::arch::csr::PagingMode,
 }
 
+fn deserialize_misa<'de, D>(deserializer: D) -> Result<Option<crate::core::arch::csr::Misa>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|isa| isa.parse().map_err(serde::de::Error::custom))
+        .transpose()
+}
+
 fn deserialize_paging_mode<'de, D>(
     deserializer: D,
 ) -> Result<crate::core::arch::csr::PagingMode, D::Error>
@@ -1165,9 +1174,10 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_ras_size")]
     pub ras_size: usize,
 
-    /// MISA register override (e.g., "RV64IMAFDC")
-    #[serde(default)]
-    pub misa_override: Option<String>,
+    /// `misa` from an ISA string such as `"RV64IMAFDC"`, instead of the
+    /// default RV64IMAFDC.
+    #[serde(default, deserialize_with = "deserialize_misa")]
+    pub misa_override: Option<crate::core::arch::csr::Misa>,
 
     /// TAGE predictor configuration
     #[serde(default)]

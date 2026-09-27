@@ -30,3 +30,4 @@ pub mod cpu_csr_operations;
 
 /// Unit tests for the Zicboz / Zicbom CSR gate helpers.
 pub mod cbo_gates;
+pub mod misa_string;

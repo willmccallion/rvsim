@@ -739,7 +739,19 @@ fn test_misa_override_option() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.pipeline.misa_override, Some("RV64IMAFDC".to_string()));
+    assert_eq!(
+        config.pipeline.misa_override.map(rvsim_core::core::arch::csr::Misa::bits),
+        Some(rvsim_core::core::arch::csr::MISA_DEFAULT_RV64IMAFDC)
+    );
+}
+
+#[test]
+fn an_unparsable_misa_override_is_a_config_error() {
+    let json = r#"{ "pipeline": { "misa_override": "RV64IXYZ" } }"#;
+
+    let error = serde_json::from_str::<Config>(json).map(|_| ()).unwrap_err().to_string();
+
+    assert!(error.contains("RV64IXYZ"), "error names the bad string: {error}");
 }
 
 #[test]

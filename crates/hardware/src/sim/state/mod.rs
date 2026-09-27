@@ -428,9 +428,7 @@ impl SimState {
     /// write the harness termination value when triggered.
     pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
         use crate::core::arch::csr::{
-            MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
-            MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_XLEN_64, MSTATUS_DEFAULT_RV64,
-            MSTATUS_FS_INIT, MSTATUS_VS_INIT,
+            MISA_DEFAULT_RV64IMAFDC, MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT, Misa,
         };
         use crate::isa::abi;
 
@@ -531,23 +529,8 @@ impl SimState {
         bus.attach_ram(MemCtrlId::new(0), ram_region);
 
         // --- Hart architectural state ----------------------------------
-        let configured_misa = config.pipeline.misa_override.as_ref().map_or_else(
-            || {
-                MISA_XLEN_64
-                    | MISA_EXT_A
-                    | MISA_EXT_C
-                    | MISA_EXT_D
-                    | MISA_EXT_F
-                    | MISA_EXT_I
-                    | MISA_EXT_M
-                    | MISA_EXT_S
-                    | MISA_EXT_U
-            },
-            |override_str| {
-                let s = override_str.trim_start_matches("0x");
-                u64::from_str_radix(s, 16).unwrap_or(MISA_DEFAULT_RV64IMAFDC)
-            },
-        );
+        let configured_misa =
+            config.pipeline.misa_override.map_or(MISA_DEFAULT_RV64IMAFDC, Misa::bits);
 
         let direct_mode = config.general.direct_mode;
 
