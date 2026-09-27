@@ -66,7 +66,7 @@ flowchart LR
 1. **System/CSR instructions** issue only from the head of the ROB, once everything older has retired (`rob.is_head`)
 2. **FENCE** instructions wait for older operations matching the predecessor bits (`fence_pred_satisfied`)
 3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits, loads by any older uncommitted CBO, which takes effect at commit, and loads by any older atomic with the `aq` bit until it completes (`has_fence_blocking`)
-4. **Loads** wait for all older stores to resolve their addresses (`has_unresolved_store_before`)
+4. **Loads** wait for the older stores the memory-dependence predictor links them to (below); under `Blind`, and always on the in-order backend, that is every older store with an unresolved address (`has_unresolved_store_before`)
 
 **Reorder buffer** — circular buffer with O(1) tag lookup via HashMap. Supports partial flush after branch misprediction (preserves older in-flight work).
 
@@ -74,17 +74,17 @@ flowchart LR
 
 **Memory dependence prediction.** The Memory Dependence Unit (MDU) determines at dispatch time whether a load can speculatively bypass unresolved older stores. Two predictors are available:
 
-- **Blind** (default) — conservative, loads always wait for all older stores to resolve their addresses before issuing. Safe but limits memory-level parallelism.
-- **Store Set** (Chrysos & Emer, ISCA 1998) — learns load-store dependencies from ordering violations. Each load/store PC is mapped to a *store set ID* via the SSIT (Store Set ID Table). When a load and store share a set, the load waits only for that specific store. Independent loads bypass freely.
+- **Blind** — conservative, loads always wait for all older stores to resolve their addresses before issuing. Safe but limits memory-level parallelism.
+- **Store Set** (Chrysos & Emer, ISCA 1998; the default, and gem5 O3's only predictor) — learns load-store dependencies from ordering violations. Each load/store PC is mapped to a *store set ID* via the SSIT (Store Set ID Table). When a load and store share a set, the load waits only for that specific store. Independent loads bypass freely.
 
 The MDU uses two structures:
 
 | Structure | Size | Purpose | Lifetime |
 |-----------|------|---------|----------|
-| **SSIT** | 2048 entries | Maps `(PC >> 2) % size` → store set ID | Persistent (periodically cleared) |
-| **LFST** | 256 entries | Maps store set ID → most recent dispatched store's ROB tag | Cleared on pipeline flush |
+| **SSIT** | 1024 entries | Maps `(PC >> 2) % size` → store set ID | Persistent (periodically cleared) |
+| **LFST** | 1024 entries | Maps store set ID → most recent dispatched store's ROB tag | Cleared on pipeline flush |
 
-On a memory ordering violation (detected at commit), the MDU trains the SSIT to associate the violating load and store PCs into the same store set. Store-store chains are also supported: when multiple stores share a set, each waits for its predecessor. The SSIT is periodically cleared (default: every 100K cycles) to prevent stale dependencies from permanently throttling parallelism.
+On a memory ordering violation, the MDU trains the SSIT to put the violating load and store PCs in the same store set: a new set is numbered from the load's PC, and when both already have sets the lower-numbered one wins, as in gem5. Store-store chains are also supported: when multiple stores share a set, each waits for its predecessor. Both tables are wiped every 250,000 dispatched loads and stores (gem5's `store_set_clear_period`) so stale dependencies do not throttle a program forever.
 
 ---
 

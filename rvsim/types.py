@@ -250,7 +250,7 @@ class MemDepPredictor:
             return "MemDepPredictor.Blind()"
 
     class StoreSet:
-        def __init__(self, ssit_size: int = 2048, lfst_size: int = 256):
+        def __init__(self, ssit_size: int = 1024, lfst_size: int = 1024):
             self.ssit_size = ssit_size
             self.lfst_size = lfst_size
 

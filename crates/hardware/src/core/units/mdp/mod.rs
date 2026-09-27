@@ -11,8 +11,6 @@ pub use self::mem_dep_unit::{MemDepState, MemDepUnit};
 
 mod mem_dep_predictor;
 
-mod blind;
-
 mod store_set;
 
 mod types;

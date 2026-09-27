@@ -403,13 +403,13 @@ pub enum MemDepPredictor {
     /// Blind (conservative) predictor.
     ///
     /// Loads always wait for all older stores to resolve. No speculation,
-    /// no violations. This is the default.
-    #[default]
+    /// no violations.
     Blind,
-    /// Store-set predictor (Chrysos & Emer 1998).
+    /// Store-set predictor (Chrysos & Emer 1998), gem5 O3's only predictor.
     ///
     /// Learns load-store dependencies from ordering violations and allows
-    /// loads predicted independent to bypass unresolved stores.
+    /// loads predicted independent to bypass unresolved stores. The default.
+    #[default]
     StoreSet,
 }
 
@@ -1759,10 +1759,10 @@ pub struct StoreSetConfig {
     #[serde(default = "StoreSetConfig::default_lfst_size")]
     pub lfst_size: usize,
 
-    /// Cycles between full SSIT clears (0 = never). Periodically wiping the
-    /// SSIT prevents stale learned dependencies from persisting forever.
-    #[serde(default = "StoreSetConfig::default_ssit_clear_interval")]
-    pub ssit_clear_interval: u64,
+    /// Loads and stores dispatched between wipes of both tables (0 = never),
+    /// so stale learned dependencies do not throttle a program forever.
+    #[serde(default = "StoreSetConfig::default_clear_period")]
+    pub clear_period: u64,
 }
 
 impl Default for StoreSetConfig {
@@ -1770,25 +1770,25 @@ impl Default for StoreSetConfig {
         Self {
             ssit_size: Self::default_ssit_size(),
             lfst_size: Self::default_lfst_size(),
-            ssit_clear_interval: Self::default_ssit_clear_interval(),
+            clear_period: Self::default_clear_period(),
         }
     }
 }
 
 impl StoreSetConfig {
-    /// Returns the default SSIT size.
+    /// gem5 O3's `SSITSize`.
     const fn default_ssit_size() -> usize {
-        2048
+        1024
     }
 
-    /// Returns the default LFST size.
+    /// gem5 O3's `LFSTSize`.
     const fn default_lfst_size() -> usize {
-        256
+        1024
     }
 
-    /// Returns the default SSIT clear interval (0 = never).
-    const fn default_ssit_clear_interval() -> u64 {
-        100_000
+    /// gem5 O3's `store_set_clear_period`.
+    const fn default_clear_period() -> u64 {
+        250_000
     }
 }
 

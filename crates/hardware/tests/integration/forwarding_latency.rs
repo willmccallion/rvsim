@@ -2,7 +2,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::Config;
+use rvsim_core::config::{Config, MemDepPredictor};
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
@@ -36,6 +36,9 @@ fn cycles_to_finish(backend: BackendType, l1d_latency: u64) -> u64 {
     config.pipeline.width = 2;
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.latency = l1d_latency;
+    // Every load waits for its store, so no load speculates past one and
+    // replays: the measurement is the forwarding latency alone.
+    config.pipeline.mem_dep_predictor = MemDepPredictor::Blind;
     config.system.uart_quiet = true;
     let program = program();
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);

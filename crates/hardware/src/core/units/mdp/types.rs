@@ -1,7 +1,7 @@
 //! Newtypes for the store-set memory dependence predictor.
 
 /// Store Set ID — indexes into the LFST.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StoreSetId(pub u16);
 
 /// Index into the SSIT table. Derived from PC.

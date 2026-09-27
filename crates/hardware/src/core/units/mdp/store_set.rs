@@ -8,7 +8,9 @@
 //! # Structures
 //!
 //! - **SSIT** (Store Set ID Table): maps PC → store set ID. Indexed by
-//!   `(pc >> 2) % ssit_size`. Persistent across flushes, periodically cleared.
+//!   `(pc >> 2) % ssit_size`. Persistent across flushes; both tables are
+//!   wiped every `clear_period` memory instructions, as gem5's
+//!   `StoreSet::checkClear` does.
 //! - **LFST** (Last Fetched Store Table): maps store set ID → most recent
 //!   dispatched store's [`RobTag`]. Transient — cleared on full flush.
 //!   LFST entries persist until overwritten by a newer store dispatch
@@ -28,14 +30,10 @@ pub struct StoreSetPredictor {
     ssit: Vec<Option<StoreSetId>>,
     /// Maps store set ID → most recent dispatched store tag.
     lfst: Vec<Option<RobTag>>,
-    /// Next free store set ID for allocation.
-    next_set_id: u16,
-    /// Maximum number of store sets (= `lfst.len()`).
-    max_sets: u16,
-    /// Cycle counter for periodic SSIT clear.
-    tick_counter: u64,
-    /// Cycles between full SSIT clears (0 = never).
-    ssit_clear_interval: u64,
+    /// Memory instructions seen since the tables were last wiped.
+    mem_ops: u64,
+    /// Memory instructions between wipes (0 = never).
+    clear_period: u64,
 }
 
 impl StoreSetPredictor {
@@ -44,11 +42,15 @@ impl StoreSetPredictor {
         Self {
             ssit: vec![None; config.ssit_size],
             lfst: vec![None; config.lfst_size],
-            next_set_id: 0,
-            max_sets: config.lfst_size as u16,
-            tick_counter: 0,
-            ssit_clear_interval: config.ssit_clear_interval,
+            mem_ops: 0,
+            clear_period: config.clear_period,
         }
+    }
+
+    /// The set a new load/store pair starts, derived from the load's PC as
+    /// gem5's `calcSSID` does.
+    const fn new_set_id(&self, load_pc: u64) -> StoreSetId {
+        StoreSetId(((load_pc ^ (load_pc >> 10)) % self.lfst.len() as u64) as u16)
     }
 
     /// Hash a PC into an SSIT index.
@@ -83,8 +85,7 @@ impl MemDepPredictor for StoreSetPredictor {
 
         match (load_set, store_set) {
             (None, None) => {
-                let id = StoreSetId(self.next_set_id);
-                self.next_set_id = (self.next_set_id + 1) % self.max_sets;
+                let id = self.new_set_id(load_pc);
                 self.ssit[load_idx.0 as usize] = Some(id);
                 self.ssit[store_idx.0 as usize] = Some(id);
             }
@@ -95,7 +96,10 @@ impl MemDepPredictor for StoreSetPredictor {
                 self.ssit[store_idx.0 as usize] = Some(lid);
             }
             (Some(lid), Some(sid)) => {
-                if lid != sid {
+                // The lower-numbered set wins, as in gem5.
+                if sid > lid {
+                    self.ssit[store_idx.0 as usize] = Some(lid);
+                } else {
                     self.ssit[load_idx.0 as usize] = Some(sid);
                 }
             }
@@ -131,12 +135,12 @@ impl MemDepPredictor for StoreSetPredictor {
         }
     }
 
-    fn tick(&mut self) {
-        self.tick_counter += 1;
-        if self.ssit_clear_interval > 0
-            && self.tick_counter.is_multiple_of(self.ssit_clear_interval)
-        {
+    fn note_mem_op(&mut self) {
+        self.mem_ops += 1;
+        if self.clear_period > 0 && self.mem_ops > self.clear_period {
+            self.mem_ops = 0;
             self.ssit.fill(None);
+            self.lfst.fill(None);
         }
     }
 }
@@ -147,11 +151,7 @@ mod tests {
     use crate::config::StoreSetConfig;
 
     fn test_predictor() -> StoreSetPredictor {
-        StoreSetPredictor::new(&StoreSetConfig {
-            ssit_size: 64,
-            lfst_size: 16,
-            ssit_clear_interval: 0,
-        })
+        StoreSetPredictor::new(&StoreSetConfig { ssit_size: 64, lfst_size: 16, clear_period: 0 })
     }
 
     #[test]
@@ -292,26 +292,55 @@ mod tests {
     }
 
     #[test]
-    fn test_periodic_ssit_clear() {
+    fn tables_are_wiped_after_the_clear_period_of_memory_ops() {
         let mut p = StoreSetPredictor::new(&StoreSetConfig {
             ssit_size: 64,
             lfst_size: 16,
-            ssit_clear_interval: 100,
+            clear_period: 100,
         });
         let load_pc = 0x1000;
         let store_pc = 0x2000;
-
         p.train(load_pc, store_pc);
         p.register_store(store_pc, RobTag(5));
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(5)));
 
-        // Tick 100 times — SSIT cleared.
         for _ in 0..100 {
-            p.tick();
+            p.note_mem_op();
         }
+        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(5)));
+        p.note_mem_op();
 
-        // SSIT cleared — predict returns NoDep (even though LFST still has entry,
-        // the SSIT no longer maps the PC to a set).
         assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::NoDep);
+        p.register_store(store_pc, RobTag(11));
+        assert_eq!(p.predict(load_pc, RobTag(12), false), MemPrediction::NoDep);
+    }
+
+    #[test]
+    fn a_new_set_is_numbered_from_the_load_pc() {
+        let mut p = test_predictor();
+        let load_pc: u64 = 0x1234_5678;
+
+        p.train(load_pc, 0x2000);
+
+        let expected = StoreSetId(((load_pc ^ (load_pc >> 10)) % 16) as u16);
+        assert_eq!(p.ssit[p.ssit_index(load_pc).0 as usize], Some(expected));
+        assert_eq!(p.ssit[p.ssit_index(0x2000).0 as usize], Some(expected));
+    }
+
+    #[test]
+    fn merging_two_sets_keeps_the_lower_id() {
+        let mut p = test_predictor();
+        let (load_a, store_a) = (0x1004, 0x2004);
+        let (load_b, store_b) = (0x1010, 0x2010);
+        p.train(load_a, store_a);
+        p.train(load_b, store_b);
+        let set_a = p.ssit[p.ssit_index(load_a).0 as usize].unwrap();
+        let set_b = p.ssit[p.ssit_index(load_b).0 as usize].unwrap();
+        assert_ne!(set_a, set_b);
+
+        p.train(load_a, store_b);
+
+        let lower = set_a.min(set_b);
+        assert_eq!(p.ssit[p.ssit_index(load_a).0 as usize], Some(lower));
+        assert_eq!(p.ssit[p.ssit_index(store_b).0 as usize], Some(lower));
     }
 }

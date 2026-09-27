@@ -375,7 +375,6 @@ impl ExecutionEngine for O3Engine {
         redirect: &mut Option<u64>,
     ) {
         self.cycle += 1;
-        self.mdp.tick();
         let now = self.cycle;
 
         // Squash recovery: ROB read ports are busy with reclaim / rename rebuild.

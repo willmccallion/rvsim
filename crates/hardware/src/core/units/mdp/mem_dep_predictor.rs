@@ -56,8 +56,8 @@ pub trait MemDepPredictor {
     /// Partial flush — clear LFST entries newer than `keep_tag`.
     fn flush_after(&mut self, keep_tag: RobTag);
 
-    /// Per-cycle tick (periodic SSIT clear).
-    fn tick(&mut self);
+    /// Counts one dispatched load or store toward the periodic table wipe.
+    fn note_mem_op(&mut self);
 }
 
 #[cfg(test)]
@@ -74,7 +74,7 @@ mod tests {
         fn rebuild_lfst_entry(&mut self, _store_pc: u64, _rob_tag: RobTag) {}
         fn flush(&mut self) {}
         fn flush_after(&mut self, _keep_tag: RobTag) {}
-        fn tick(&mut self) {}
+        fn note_mem_op(&mut self) {}
     }
 
     #[test]
@@ -86,7 +86,7 @@ mod tests {
         predictor.rebuild_lfst_entry(0x2000, RobTag(1));
         predictor.flush();
         predictor.flush_after(RobTag(5));
-        predictor.tick();
+        predictor.note_mem_op();
     }
 
     #[test]

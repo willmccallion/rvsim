@@ -78,7 +78,7 @@ class Config:
         redirect_latency: Optional[int] = None,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
         backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
-        mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.Blind(),
+        mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.StoreSet(),
         btb_size: int = 4096,
         btb_ways: int = 4,
         ras_size: int = 32,

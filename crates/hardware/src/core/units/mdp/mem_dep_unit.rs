@@ -106,6 +106,7 @@ impl MemDepUnit {
                 if !is_load && !is_store {
                     return MemDepState::None;
                 }
+                predictor.note_mem_op();
                 if is_atomic {
                     // LR/SC/AMO: serialize against older stores, do not
                     // train or chain through the store set.
@@ -204,13 +205,6 @@ impl MemDepUnit {
         }
     }
 
-    /// Per-cycle tick.
-    pub fn tick(&mut self) {
-        if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
-            predictor.tick();
-        }
-    }
-
     /// Returns a snapshot of predictor statistics.
     pub fn stats(&self) -> MdpStats {
         self.stats.clone()
@@ -231,8 +225,7 @@ mod tests {
     fn store_set_config() -> Config {
         let mut c = Config::default();
         c.pipeline.mem_dep_predictor = MdpType::StoreSet;
-        c.pipeline.store_set =
-            StoreSetConfig { ssit_size: 64, lfst_size: 16, ssit_clear_interval: 0 };
+        c.pipeline.store_set = StoreSetConfig { ssit_size: 64, lfst_size: 16, clear_period: 0 };
         c
     }
 

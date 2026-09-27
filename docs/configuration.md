@@ -136,18 +136,18 @@ BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
 Controls how loads decide whether they can bypass unresolved older stores.
 
 ```python
-MemDepPredictor.Blind()           # Conservative: loads wait for all older stores (default)
-MemDepPredictor.StoreSet(         # Store-set predictor (Chrysos & Emer 1998)
-    ssit_size=2048,               # Store Set ID Table entries
-    lfst_size=256,                # Last Fetched Store Table entries
+MemDepPredictor.Blind()           # Conservative: loads wait for all older stores
+MemDepPredictor.StoreSet(         # Store-set predictor (Chrysos & Emer 1998), default
+    ssit_size=1024,               # Store Set ID Table entries
+    lfst_size=1024,               # Last Fetched Store Table entries
 )
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `mem_dep_predictor` | `MemDepPredictor.*` | `Blind()` | Memory dependence predictor type |
-| `ssit_size` | `int` | `2048` | SSIT entries (StoreSet only) — maps PC → store set ID |
-| `lfst_size` | `int` | `256` | LFST entries (StoreSet only) — maps store set ID → last dispatched store |
+| `mem_dep_predictor` | `MemDepPredictor.*` | `StoreSet()` | Memory dependence predictor type |
+| `ssit_size` | `int` | `1024` | SSIT entries (StoreSet only) — maps PC → store set ID |
+| `lfst_size` | `int` | `1024` | LFST entries (StoreSet only) — maps store set ID → last dispatched store |
 
 ---
 
