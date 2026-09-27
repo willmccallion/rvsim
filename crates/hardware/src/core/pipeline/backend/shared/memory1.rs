@@ -31,6 +31,7 @@
 use crate::common::TranslationResult;
 use crate::common::{AccessType, ExceptionStage, PhysAddr, PteUpdate, Trap, VirtAddr};
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{
@@ -41,6 +42,7 @@ use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::ElemIdx;
+use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
@@ -173,6 +175,10 @@ fn process_entry<E: ExecutionEngine>(
         ex.exception_stage = faulted.exception_stage;
         push_passthrough_with_trap(engine, ex);
         return EntryOutcome::Done;
+    }
+
+    if ex.ctrl.system_op.is_cbo() {
+        return translate_cbo(state, engine, ex, translated);
     }
 
     let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
@@ -344,6 +350,73 @@ fn process_entry<E: ExecutionEngine>(
             EntryOutcome::Done
         }
     }
+}
+
+/// Translates a cache-block operation's block and passes its physical
+/// address on as the entry's result for commit, which performs it there.
+/// A fault is reported as the store fault the CBO raises.
+fn translate_cbo<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    mut ex: ExMem1Entry,
+    translated: Option<TranslationResult>,
+) -> EntryOutcome {
+    let hart = state.hart();
+    let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.inst) {
+        Ok(effect) => effect,
+        Err(trap) => {
+            push_trap(engine, ex, trap, ExceptionStage::Memory);
+            return EntryOutcome::Done;
+        }
+    };
+    let rs1 = ex.alu;
+    let block = cbo::block_address(rs1);
+    let tval = cbo::fault_address(ex.ctrl.system_op, rs1);
+    if state.check_store_trigger(block) {
+        let trap = Trap::Breakpoint(ex.pc);
+        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        return EntryOutcome::Done;
+    }
+
+    let outcome = translated.map_or_else(
+        || state.translate(VirtAddr::new(block), effect.access(), CBOZ_BLOCK_SIZE),
+        TranslateResult::Ready,
+    );
+    let (paddr, pte_update) = match outcome {
+        TranslateResult::Ready(r) => {
+            if let Some(trap) = r.trap {
+                push_trap(engine, ex, cbo::as_store_fault(trap, tval), ExceptionStage::Memory);
+                return EntryOutcome::Done;
+            }
+            if r.cycles > 0 {
+                return EntryOutcome::Delayed(DelayedAccess {
+                    ready_cycle: state.cycle + r.cycles,
+                    entry: ex,
+                    translation: TranslationResult { cycles: 0, ..r },
+                });
+            }
+            (r.paddr, r.pte_update)
+        }
+        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+            park_walk(state, engine, walk_state, pte_addr, ex);
+            return EntryOutcome::ParkedWalk;
+        }
+    };
+
+    let is_ram = state.bus.ram_region_for(paddr.val(), CBOZ_BLOCK_SIZE).is_some();
+    let unmapped =
+        state.hart().privilege != PrivilegeMode::Machine && !state.bus.is_valid_address(paddr);
+    if unmapped || (effect != cbo::CboEffect::Zero && !is_ram) {
+        push_trap(engine, ex, Trap::StoreAccessFault(tval), ExceptionStage::Memory);
+        return EntryOutcome::Done;
+    }
+
+    let vaddr = VirtAddr::new(block);
+    ex.alu = paddr.val();
+    engine
+        .mem1_mem2_mut()
+        .push(Mem1Mem2Entry { pte_update, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) });
+    EntryOutcome::Done
 }
 
 /// True when `[paddr, paddr + size)` is not plain RAM: a device register,

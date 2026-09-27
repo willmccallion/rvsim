@@ -16,6 +16,7 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::arch::vpr::Vpr;
+use crate::core::pipeline::backend::shared::cbo::{self, CboEffect};
 use crate::core::pipeline::backend::shared::memory2;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
@@ -662,13 +663,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             break;
         }
 
-        // CBO ops (Zicboz / Zicbom): SB is empty (stall above). entry.result
-        // holds rs1 from execute. Resolve the gate + translation here so a
-        // fault routes through the standard commit-time trap path and any
-        // freshly-committed PTE writes are visible to the walk.
+        // A CBO (Zicboz / Zicbom) runs on the block memory1 translated, its
+        // result, once the store buffer has drained (stall above).
         if entry.ctrl.system_op.is_cbo() {
-            let rs1 = entry.result.unwrap_or(0);
-            if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, rs1, entry.inst) {
+            let block = PhysAddr::new(entry.result.unwrap_or(0));
+            if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, block, entry.inst) {
                 state.trap(&trap, entry.pc);
                 event = Some(CommitEvent::SquashAfter(state.hart.pc));
                 break;
@@ -910,89 +909,35 @@ fn write_back_lines(state: &mut CoreCtx<'_>, common: &mut BackendCommon, lines: 
     }
 }
 
-/// Writes a store's data to the correct memory target (RAM fast-path or bus).
-/// Resolves and applies a CBO instruction at commit. Returns `Some(trap)` if
-/// the instruction must trap; `None` if it completed successfully. Caller
-/// must have drained the store buffer first so prior committed stores are
-/// visible to the page-table walk and observable by other agents before
-/// this op's side effect.
+/// Performs a CBO on `block`, the physical block memory1 translated, or
+/// returns the illegal-instruction trap its gate raises.
 fn commit_cbo(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     op: SystemOp,
-    rs1: u64,
+    block: PhysAddr,
     inst: u32,
 ) -> Option<Trap> {
-    use crate::common::{AccessType, VirtAddr};
-    use crate::core::arch::csr::{CboInvalAction, cbo_inval_action, cbocf_allowed, cboz_allowed};
-    use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
-
-    let (effective_op, access) = match op {
-        SystemOp::CboZero => {
-            if !cboz_allowed(state.hart.csrs.menvcfg, state.hart.csrs.senvcfg, state.hart.privilege)
-            {
-                return Some(Trap::IllegalInstruction(inst));
-            }
-            (SystemOp::CboZero, AccessType::Write)
-        }
-        SystemOp::CboInval => match cbo_inval_action(
-            state.hart.csrs.menvcfg,
-            state.hart.csrs.senvcfg,
-            state.hart.privilege,
-        ) {
-            CboInvalAction::Illegal => return Some(Trap::IllegalInstruction(inst)),
-            CboInvalAction::Flush => (SystemOp::CboFlush, AccessType::Read),
-            CboInvalAction::Invalidate => (SystemOp::CboInval, AccessType::Write),
-        },
-        SystemOp::CboClean | SystemOp::CboFlush => {
-            if !cbocf_allowed(
-                state.hart.csrs.menvcfg,
-                state.hart.csrs.senvcfg,
-                state.hart.privilege,
-            ) {
-                return Some(Trap::IllegalInstruction(inst));
-            }
-            (op, AccessType::Read)
-        }
-        _ => return None,
+    let effect = match cbo::gate(&state.hart.csrs, state.hart.privilege, op, inst) {
+        Ok(effect) => effect,
+        Err(trap) => return Some(trap),
     };
-
-    let aligned_va = rs1 & !(CBOZ_BLOCK_SIZE - 1);
-    let translate_result = state.translate(VirtAddr::new(aligned_va), access, CBOZ_BLOCK_SIZE);
-    let result = match translate_result {
-        crate::sim::state::memory::TranslateResult::Ready(r) => r,
-        crate::sim::state::memory::TranslateResult::NeedPte { .. } => {
-            // Commit-time walks are not yet pipelined for CBO; surface as
-            // a page fault so the trap commits and the next attempt warms
-            // the TLB via a regular load.
-            return Some(match access {
-                AccessType::Read => Trap::LoadPageFault(aligned_va),
-                AccessType::Write => Trap::StorePageFault(aligned_va),
-                AccessType::Fetch => Trap::InstructionPageFault(aligned_va),
-            });
-        }
-    };
-    if let Some(trap) = result.trap {
-        return Some(trap);
-    }
-    let paddr = result.paddr.val();
-
-    match effective_op {
-        SystemOp::CboZero => cboz_write(state, common, paddr),
-        SystemOp::CboInval => {
+    let paddr = block.val();
+    match effect {
+        CboEffect::Zero => cboz_write(state, common, paddr),
+        CboEffect::Invalidate => {
             let _ = state.core.l1_d_cache.invalidate_line(paddr);
         }
-        SystemOp::CboFlush => {
+        CboEffect::Flush => {
             if let Some(dirty) = state.core.l1_d_cache.invalidate_line(paddr) {
                 write_back_lines(state, common, &[dirty]);
             }
         }
-        SystemOp::CboClean => {
+        CboEffect::Clean => {
             if let Some(dirty) = state.core.l1_d_cache.clean_line(paddr) {
                 write_back_lines(state, common, &[dirty]);
             }
         }
-        _ => {}
     }
     None
 }

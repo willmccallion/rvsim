@@ -65,7 +65,7 @@ flowchart LR
 
 1. **System/CSR instructions** issue only from the head of the ROB, once everything older has retired (`rob.is_head`)
 2. **FENCE** instructions wait for older operations matching the predecessor bits (`fence_pred_satisfied`)
-3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits, loads by any older uncommitted CBO, which takes effect at commit, and loads by any older atomic with the `aq` bit until it completes (`has_fence_blocking`)
+3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits, loads by any older uncommitted CBO, which translates its block in memory1 like a store (a fault is a store fault, taken at commit) and takes effect at commit, and loads by any older atomic with the `aq` bit until it completes (`has_fence_blocking`)
 4. **Loads** wait for the older stores the memory-dependence predictor links them to (below); under `Blind`, and always on the in-order backend, that is every older store with an unresolved address (`has_unresolved_store_before`)
 
 **Reorder buffer** — circular buffer with O(1) tag lookup via HashMap. Supports partial flush after branch misprediction (preserves older in-flight work).

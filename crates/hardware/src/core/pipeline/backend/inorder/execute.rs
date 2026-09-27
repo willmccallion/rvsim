@@ -5,6 +5,7 @@
 
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::backend::shared::execute::{
     csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
     propagate_trap, resolve_branch, resolve_jump, unit_disabled,
@@ -156,10 +157,14 @@ fn execute_system(
             };
             Some((result, Some(refetch_after(id))))
         }
-        // CBO ops gate, translate and take effect at commit, which reads the
-        // block address from `alu`; younger loads wait for them in issue.
+        // A CBO passes its operand to memory1, which translates the block;
+        // commit performs it. Younger loads wait for it in issue.
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
-            Some((ExMem1Entry::from_issue(id, id.rv1, 0), None))
+            let hart = state.hart();
+            Some(match cbo::gate(&hart.csrs, hart.privilege, id.ctrl.system_op, id.inst) {
+                Ok(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
+                Err(trap) => faulted(state, id, trap),
+            })
         }
         SystemOp::Ecall => Some(faulted(state, id, ecall_trap(state))),
         SystemOp::Csr => Some(match csr_access(state, id) {

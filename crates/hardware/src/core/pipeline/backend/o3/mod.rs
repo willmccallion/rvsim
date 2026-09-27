@@ -584,10 +584,7 @@ impl ExecutionEngine for O3Engine {
                         .counter(state.core.stat_paths.fu.all[fu_type as usize])
                         .inc();
 
-                    if entry.ctrl.mem_read
-                        || entry.ctrl.mem_write
-                        || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
-                    {
+                    if entry.ctrl.uses_memory_pipeline() {
                         self.execute_mem1.push(entry);
                     } else if let Some(trap) = entry.trap {
                         let stage =

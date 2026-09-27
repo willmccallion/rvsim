@@ -591,6 +591,16 @@ impl ControlSignals {
     pub const fn writes_memory(&self) -> bool {
         self.mem_write || crate::core::units::vpu::mem::is_vec_store(self.vec_op)
     }
+
+    /// True for a scalar instruction memory1 must translate: a load, a
+    /// store, an atomic or a cache-block operation. It completes after the
+    /// memory stages rather than when its unit finishes.
+    pub const fn uses_memory_pipeline(&self) -> bool {
+        self.mem_read
+            || self.mem_write
+            || !matches!(self.atomic_op, AtomicOp::None)
+            || self.system_op.is_cbo()
+    }
 }
 
 /// Vector operation type.

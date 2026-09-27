@@ -19,6 +19,7 @@
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
 use crate::common::{ExceptionStage, PhysAddr};
+use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;
@@ -182,6 +183,12 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
         }
         WalkContinuation::LoadStore(mut entry) => {
             if let Some(trap) = result.trap {
+                let op = entry.ctrl.system_op;
+                let trap = if op.is_cbo() {
+                    cbo::as_store_fault(trap, cbo::fault_address(op, entry.alu))
+                } else {
+                    trap
+                };
                 // Walker returned a page fault (e.g. software A/D unset).
                 // Stamp the trap on the entry so memory1 propagates it to
                 // memory2 / writeback rather than re-translating and

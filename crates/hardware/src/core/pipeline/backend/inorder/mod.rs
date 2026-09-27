@@ -172,9 +172,7 @@ impl InOrderEngine {
     /// waits for its unit's latency in `pending`.
     fn hold_results(&mut self, results: Vec<ExMem1Entry>, units: &[IssuedUnit], now: u64) {
         for entry in results {
-            let is_mem = entry.ctrl.mem_read
-                || entry.ctrl.mem_write
-                || entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
+            let is_mem = entry.ctrl.uses_memory_pipeline();
             let unit = units.iter().find(|u| u.tag == entry.rob_tag);
             match unit {
                 Some(unit) if !is_mem && !entry.ctrl.vec_op.is_config() => {
