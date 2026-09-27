@@ -444,6 +444,21 @@ pub enum SystemOp {
 }
 
 impl SystemOp {
+    /// True for the instructions gem5 marks `IsSerializeAfter`: an
+    /// out-of-order core renames nothing younger until they commit.
+    pub const fn serializes_after(self) -> bool {
+        matches!(
+            self,
+            Self::Csr
+                | Self::Ecall
+                | Self::Mret
+                | Self::Sret
+                | Self::Wfi
+                | Self::SfenceVma
+                | Self::FenceI
+        )
+    }
+
     /// True for the Zicboz/Zicbom cache-block operations.
     pub const fn is_cbo(self) -> bool {
         matches!(self, Self::CboZero | Self::CboInval | Self::CboClean | Self::CboFlush)

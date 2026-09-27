@@ -23,6 +23,10 @@ impl O3Engine {
     /// Returns the instruction when a checkpoint or a vector physical
     /// register is short; `can_accept` covers every other resource.
     pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
+        if !self.serialization.admits(self.cycle) {
+            state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
+            return Renamed::Stalled(Box::new(id));
+        }
         let vector = self.vector_config(&state.hart().csrs);
         let is_branch_or_jump =
             matches!(id.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
@@ -245,6 +249,9 @@ impl O3Engine {
             "RN: O3 rename"
         );
 
+        if entry.ctrl.system_op.serializes_after() {
+            self.serialization = super::serialize::Serialization::after(entry.rob_tag);
+        }
         Renamed::Accepted(Box::new(entry))
     }
 }

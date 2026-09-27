@@ -9,6 +9,7 @@ pub mod execute;
 pub mod fu_pool;
 pub mod issue_queue;
 mod rename;
+mod serialize;
 
 use crate::config::Config;
 use crate::core::pipeline::backend::shared::commit::{
@@ -103,6 +104,8 @@ pub struct O3Engine {
     pub checkpoints: CheckpointTable,
     /// Stall cycles remaining for in-progress squash recovery (blocks dispatch while > 0).
     pub squash_stall_remaining: u64,
+    /// Whether rename holds the instruction after a serializing one.
+    serialization: serialize::Serialization,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
     /// Vector physical register file (VLEN-bit storage per register + ready bits).
@@ -168,6 +171,7 @@ impl O3Engine {
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_stall_remaining: 0,
+            serialization: serialize::Serialization::Off,
             redirect_latency: config.pipeline.redirect_latency(),
             vec_prf: {
                 let prf_vpr_size = config.pipeline.prf_vpr_size;
@@ -267,6 +271,7 @@ impl O3Engine {
             SquashCause::MemoryOrder | SquashCause::Coherence => {}
         }
 
+        self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
         let squashed = if let Some(keep_tag) = keep_tag {
             for entry in self.rob.iter_after(keep_tag) {
@@ -424,6 +429,7 @@ impl ExecutionEngine for O3Engine {
             }
             None => {}
         }
+        self.serialization.observe(self.rob.is_empty(), now);
 
         // Intercept vec mem micro-ops before the normal writeback stage.
         {
@@ -1093,6 +1099,7 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
+        self.serialization = serialize::Serialization::Off;
         // Drain committed VSB writes; trap-driven flushes still owe pre-trap retired stores.
         self.vec_store_buffer.drain_all_committed(state, &mut self.common);
 

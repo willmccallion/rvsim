@@ -123,6 +123,8 @@ stat_paths! {
         stalls_dispatch: "pipeline.stalls.dispatch",
         /// Checkpoint allocation stalls.
         stalls_checkpoint: "pipeline.stalls.checkpoint",
+        /// Rename held behind a serializing instruction until the ROB drains.
+        stalls_serialize: "pipeline.stalls.serialize",
         /// Squash-recovery cycles.
         stalls_squash: "pipeline.stalls.squash",
         /// Rename-map rebuild cycles.

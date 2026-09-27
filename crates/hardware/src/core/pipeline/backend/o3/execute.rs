@@ -147,13 +147,13 @@ fn execute_system(
         }
         SystemOp::Ecall => faulted(state, id, ecall_trap(state)),
         SystemOp::Csr => match csr_access(state, id) {
-            // Only CSR writes need a flush; pure reads stay serialized at issue time.
+            // Nothing younger is renamed until this commits (serialize-after),
+            // so the write needs no squash.
             Ok(access) => {
-                let redirect = access.update.map(|update| {
+                if let Some(update) = access.update {
                     rob.set_csr_update(id.rob_tag, update);
-                    refetch_after(id)
-                });
-                (ExMem1Entry::from_issue(id, access.old, id.rv2), redirect)
+                }
+                (ExMem1Entry::from_issue(id, access.old, id.rv2), None)
             }
             Err(trap) => faulted(state, id, trap),
         },
