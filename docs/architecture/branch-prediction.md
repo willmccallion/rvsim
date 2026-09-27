@@ -75,13 +75,19 @@ XOR of the branch PC and the global history register indexes into a table of 2-b
 
 ### Tournament
 
-Two-level adaptive predictor with three components:
+gem5's `TournamentBP`, the Alpha 21264 predictor, with three components:
 
-1. **Global predictor** — 2-bit counters indexed by global history
-2. **Local predictor** — per-PC local history table feeding a second table of 2-bit counters
-3. **Meta-predictor (chooser)** — selects between global and local predictions based on which has been more accurate recently
+1. **Global predictor** — 2-bit counters indexed by global history alone
+2. **Local predictor** — a local history table indexed by `pc >> 2`, feeding a table of 2-bit counters
+3. **Choice predictor** — 2-bit counters, also indexed by global history, selecting the global prediction when above 1
 
-Configurable parameters: `global_size_bits`, `local_hist_bits`, `local_pred_bits`.
+Counters start at 0. Both histories are updated speculatively at prediction
+and restored per squashed branch. At commit the choice counter moves toward
+whichever component was right, when they disagreed, using the predictions
+recorded at fetch. A jump shifts only the global history and trains its
+global counter as taken.
+
+Configurable parameters: `global_size_bits` (global and choice tables), `local_hist_bits` (local history table), `local_pred_bits` (local counters).
 
 ### Perceptron
 

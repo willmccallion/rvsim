@@ -161,7 +161,7 @@ fn tage_adapts_to_a_pattern_change() {
 }
 
 #[test]
-fn tournament_starts_weakly_not_taken() {
+fn tournament_starts_not_taken_with_zeroed_counters() {
     assert!(!Driver::new(tournament()).predicts_taken(PC));
 }
 
@@ -178,6 +178,19 @@ fn tournament_learns_not_taken_after_taken() {
     bp.train(PC, true, 10);
     bp.train(PC, false, 30);
     assert!(!bp.predicts_taken(PC));
+}
+
+#[test]
+fn tournament_learns_an_alternating_branch() {
+    let mut bp = Driver::new(tournament());
+    let mut late_mispredictions = 0;
+    for i in 0..200 {
+        let taken = i % 2 == 0;
+        if bp.run_branch(PC, taken) != taken && i >= 100 {
+            late_mispredictions += 1;
+        }
+    }
+    assert_eq!(late_mispredictions, 0);
 }
 
 /// An indirect jump at a branch's address finds the target the branch
