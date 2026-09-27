@@ -92,23 +92,19 @@ impl CoreCtx<'_> {
             self.hart.csrs.sepc = epc;
             self.hart.csrs.stval = tval;
 
-            let mut sstatus = self.hart.csrs.sstatus;
-            if (sstatus & csr::MSTATUS_SIE) != 0 {
-                sstatus |= csr::MSTATUS_SPIE;
+            let mut mstatus = self.hart.csrs.mstatus;
+            if (mstatus & csr::MSTATUS_SIE) != 0 {
+                mstatus |= csr::MSTATUS_SPIE;
             } else {
-                sstatus &= !csr::MSTATUS_SPIE;
+                mstatus &= !csr::MSTATUS_SPIE;
             }
             if self.hart.privilege == PrivilegeMode::Supervisor {
-                sstatus |= csr::MSTATUS_SPP;
+                mstatus |= csr::MSTATUS_SPP;
             } else {
-                sstatus &= !csr::MSTATUS_SPP;
+                mstatus &= !csr::MSTATUS_SPP;
             }
-            sstatus &= !csr::MSTATUS_SIE;
-            self.hart.csrs.sstatus = sstatus;
-
-            let sstatus_mask = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
-            self.hart.csrs.mstatus =
-                (self.hart.csrs.mstatus & !sstatus_mask) | (sstatus & sstatus_mask);
+            mstatus &= !csr::MSTATUS_SIE;
+            self.hart.csrs.mstatus = mstatus;
 
             self.hart.privilege = PrivilegeMode::Supervisor;
             let stvec_base = self.hart.csrs.stvec & !3;
@@ -256,12 +252,12 @@ mod tests {
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.sepc = 0x3000;
-        state.hart.csrs.sstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;
+        state.hart.csrs.mstatus = csr::MSTATUS_SPP | csr::MSTATUS_SPIE;
 
         state.do_sret();
 
         assert_eq!(state.hart.pc, 0x3000);
         assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
-        assert_eq!(state.hart.csrs.sstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
+        assert_eq!(state.hart.csrs.mstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
     }
 }

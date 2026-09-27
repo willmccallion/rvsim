@@ -657,8 +657,6 @@ pub struct Csrs {
     pub mtval: u64,
     /// Machine interrupt pending.
     pub mip: u64,
-    /// Supervisor status (subset of `mstatus`).
-    pub sstatus: u64,
     /// Supervisor interrupt enable (masked view of `mie`).
     pub sie: u64,
     /// Supervisor trap vector base address.
@@ -735,6 +733,12 @@ impl Csrs {
         }
     }
 
+    /// `sstatus`: the fields of `mstatus` supervisor mode sees, without SD.
+    #[must_use]
+    pub const fn sstatus(&self) -> u64 {
+        self.mstatus & SSTATUS_VISIBLE
+    }
+
     /// Reads a CSR value by its address. Returns 0 for unrecognized addresses.
     pub const fn read(&self, addr: CsrAddr) -> u64 {
         match addr.as_u32() {
@@ -752,7 +756,7 @@ impl Csrs {
             x if x == MCAUSE.as_u32() => self.mcause,
             x if x == MTVAL.as_u32() => self.mtval,
             x if x == MIP.as_u32() => self.mip,
-            x if x == SSTATUS.as_u32() => with_state_dirty(self.sstatus),
+            x if x == SSTATUS.as_u32() => with_state_dirty(self.sstatus()),
             x if x == SIE.as_u32() => self.sie,
             x if x == STVEC.as_u32() => self.stvec,
             x if x == SSCRATCH.as_u32() => self.sscratch,
@@ -799,7 +803,9 @@ impl Csrs {
             x if x == MCAUSE.as_u32() => self.mcause = val,
             x if x == MTVAL.as_u32() => self.mtval = val,
             x if x == MIP.as_u32() => self.mip = val,
-            x if x == SSTATUS.as_u32() => self.sstatus = val,
+            x if x == SSTATUS.as_u32() => {
+                self.mstatus = (self.mstatus & !SSTATUS_WRITABLE) | (val & SSTATUS_WRITABLE);
+            }
             x if x == SIE.as_u32() => self.sie = val,
             x if x == STVEC.as_u32() => self.stvec = val,
             x if x == SSCRATCH.as_u32() => self.sscratch = val,
@@ -836,6 +842,27 @@ impl Csrs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_sstatus_write_lands_in_mstatus() {
+        let mut csrs = Csrs::default();
+
+        csrs.write(SSTATUS, MSTATUS_SIE | MSTATUS_SUM | MSTATUS_MIE);
+
+        assert_eq!(
+            csrs.read(MSTATUS) & (MSTATUS_SIE | MSTATUS_SUM | MSTATUS_MIE),
+            MSTATUS_SIE | MSTATUS_SUM
+        );
+    }
+
+    #[test]
+    fn an_mstatus_write_shows_through_sstatus() {
+        let mut csrs = Csrs::default();
+
+        csrs.write(MSTATUS, MSTATUS_MXR | MSTATUS_MPP);
+
+        assert_eq!(csrs.read(SSTATUS), MSTATUS_MXR);
+    }
 
     #[test]
     fn test_csr_serialization_type() {

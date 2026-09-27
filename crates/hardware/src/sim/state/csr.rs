@@ -44,7 +44,7 @@ pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
         x if x == csr::MCAUSE.as_u32() => hart.csrs.mcause,
         x if x == csr::MTVAL.as_u32() => hart.csrs.mtval,
         x if x == csr::MIP.as_u32() => hart.csrs.mip,
-        x if x == csr::SSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.sstatus),
+        x if x == csr::SSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.sstatus()),
         x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
         x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
         x if x == csr::SSCRATCH.as_u32() => hart.csrs.sscratch,
@@ -136,23 +136,17 @@ impl CoreCtx<'_> {
                 self.hart.csrs.fflags = val & 0x1F;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus =
-                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::FRM.as_u32() => {
                 self.hart.csrs.frm = val & 0x7;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus =
-                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::FCSR.as_u32() => {
                 self.hart.csrs.fflags = val & 0x1F;
                 self.hart.csrs.frm = (val >> 5) & 0x7;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-                self.hart.csrs.sstatus =
-                    (self.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             x if x == csr::CSR_SIM_PANIC.as_u32() => {
                 self.trap(&Trap::RequestedTrap(val), self.hart.pc);
@@ -184,8 +178,6 @@ impl CoreCtx<'_> {
                 if mpp == 2 {
                     self.hart.csrs.mstatus &= !csr::MSTATUS_MPP;
                 }
-
-                self.hart.csrs.sstatus = self.hart.csrs.mstatus & csr::SSTATUS_VISIBLE;
             }
             x if x == csr::MEDELEG.as_u32() => {
                 // Bit 11 (ecall from M-mode) cannot be delegated
@@ -228,7 +220,6 @@ impl CoreCtx<'_> {
             x if x == csr::SSTATUS.as_u32() => {
                 self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::SSTATUS_WRITABLE)
                     | (val & csr::SSTATUS_WRITABLE);
-                self.hart.csrs.sstatus = self.hart.csrs.mstatus & csr::SSTATUS_VISIBLE;
             }
             x if x == csr::SIE.as_u32() => {
                 let mask = self.hart.csrs.mideleg;

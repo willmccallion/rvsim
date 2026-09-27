@@ -430,7 +430,7 @@ impl SimState {
         use crate::core::arch::csr::{
             MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
             MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_XLEN_64, MSTATUS_DEFAULT_RV64,
-            MSTATUS_FS_INIT, MSTATUS_VS_INIT, SSTATUS_VISIBLE,
+            MSTATUS_FS_INIT, MSTATUS_VS_INIT,
         };
         use crate::isa::abi;
 
@@ -560,13 +560,9 @@ impl SimState {
             MSTATUS_DEFAULT_RV64
         };
 
-        // Initialize sstatus as a view of mstatus (spec: sstatus is not a
-        // separate register, it's a restricted view of mstatus).
-        let sstatus = mstatus & SSTATUS_VISIBLE;
         let vlenb = config.pipeline.vlen / 8;
         let csrs = Csrs {
             mstatus,
-            sstatus,
             misa: configured_misa,
             stimecmp: u64::MAX,
             vlenb: vlenb as u64,

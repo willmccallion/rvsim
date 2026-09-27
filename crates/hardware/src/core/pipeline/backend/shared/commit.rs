@@ -413,8 +413,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             registers.retire_scalar(&entry, true);
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            state.hart.csrs.sstatus =
-                (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -444,8 +442,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             writes.apply(state.hart.regs.vpr_mut());
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.sstatus =
-                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
             state.hart.csrs.vstart = 0;
         }
 
@@ -457,8 +453,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             }
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.sstatus =
-                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
             state.hart.csrs.vstart = 0;
         }
 
@@ -489,8 +483,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             state.hart.csrs.fflags |= entry.fp_flags as u64;
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-            state.hart.csrs.sstatus =
-                (state.hart.csrs.sstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
         }
 
         if entry.vxsat {
@@ -507,8 +499,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             state.hart.csrs.vstart = 0;
             state.hart.csrs.mstatus =
                 (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.sstatus =
-                (state.hart.csrs.sstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
         }
 
         if let Some(csr_update) = entry.csr_update {

@@ -10,7 +10,9 @@
 use crate::common::{
     AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, TranslationResult, Trap, VPN_MASK, VirtAddr, Vpn,
 };
-use crate::core::arch::csr::{Csrs, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK};
+use crate::core::arch::csr::{
+    Csrs, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK,
+};
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::{Pmp, PmpResult};
@@ -347,11 +349,6 @@ fn check_permissions(
     privilege: PrivilegeMode,
     csrs: &Csrs,
 ) -> Result<(), ()> {
-    /// Bit position of MXR (Make eXecutable Readable) bit in sstatus register.
-    const SSTATUS_MXR_SHIFT: u64 = 19;
-    /// Bit position of SUM (Supervisor User Memory access) bit in sstatus register.
-    const SSTATUS_SUM_SHIFT: u64 = 18;
-
     if access == AccessType::Write && !pte.can_write() {
         return Err(());
     }
@@ -359,7 +356,7 @@ fn check_permissions(
         return Err(());
     }
 
-    let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
+    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
 
     if access == AccessType::Read && !(pte.can_read() || (pte.can_exec() && mxr)) {
         return Err(());
@@ -370,7 +367,7 @@ fn check_permissions(
     }
 
     if privilege == PrivilegeMode::Supervisor && pte.is_user() {
-        let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
+        let sum = csrs.mstatus & MSTATUS_SUM != 0;
         if !sum {
             return Err(());
         }

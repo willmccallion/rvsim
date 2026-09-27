@@ -32,23 +32,19 @@ impl Hart {
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
     pub(crate) const fn do_sret(&mut self) {
         self.pc = self.csrs.sepc & !1;
-        let sstatus = self.csrs.sstatus;
-        let spp = (sstatus & csr::MSTATUS_SPP) != 0;
-        let spie = (sstatus & csr::MSTATUS_SPIE) != 0;
+        let mstatus = self.csrs.mstatus;
+        let spp = (mstatus & csr::MSTATUS_SPP) != 0;
+        let spie = (mstatus & csr::MSTATUS_SPIE) != 0;
 
         self.privilege = if spp { PrivilegeMode::Supervisor } else { PrivilegeMode::User };
-        let mut new_sstatus = sstatus;
+        let mut new_mstatus = mstatus;
         if spie {
-            new_sstatus |= csr::MSTATUS_SIE;
+            new_mstatus |= csr::MSTATUS_SIE;
         } else {
-            new_sstatus &= !csr::MSTATUS_SIE;
+            new_mstatus &= !csr::MSTATUS_SIE;
         }
-        new_sstatus |= csr::MSTATUS_SPIE;
-        new_sstatus &= !csr::MSTATUS_SPP;
-
-        self.csrs.sstatus = new_sstatus;
-        let mask = csr::MSTATUS_SIE | csr::MSTATUS_SPIE | csr::MSTATUS_SPP;
-        let mut new_mstatus = (self.csrs.mstatus & !mask) | (new_sstatus & mask);
+        new_mstatus |= csr::MSTATUS_SPIE;
+        new_mstatus &= !csr::MSTATUS_SPP;
         // Per spec 3.1.6.1: SRET returns to S or U (never M), so always clear MPRV
         new_mstatus &= !csr::MSTATUS_MPRV;
         self.csrs.mstatus = new_mstatus;

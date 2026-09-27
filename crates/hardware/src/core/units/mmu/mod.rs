@@ -108,10 +108,9 @@ impl Mmu {
     ) -> TranslateOutcome {
         use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
         use crate::core::arch::csr::{
-            PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK, SATP_MODE_SHIFT,
+            MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
+            SATP_MODE_SHIFT,
         };
-        const SSTATUS_MXR_SHIFT: u64 = 19;
-        const SSTATUS_SUM_SHIFT: u64 = 18;
 
         let satp = csrs.satp;
         let mode_raw = (satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
@@ -166,7 +165,7 @@ impl Mmu {
                     ));
                 }
                 if access == AccessType::Read {
-                    let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
+                    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
                     let readable = hit.r || (hit.x && mxr);
                     if !readable {
                         return TranslateOutcome::Ready(TranslationResult::fault(
@@ -183,7 +182,7 @@ impl Mmu {
                     ));
                 }
                 if privilege == PrivilegeMode::Supervisor && hit.u {
-                    let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
+                    let sum = csrs.mstatus & MSTATUS_SUM != 0;
                     if !sum {
                         return TranslateOutcome::Ready(TranslationResult::fault(
                             page_fault(vaddr.val(), access),
@@ -230,7 +229,7 @@ impl Mmu {
                     ));
                 }
                 if access == AccessType::Read {
-                    let mxr = (csrs.sstatus >> SSTATUS_MXR_SHIFT) & 1 != 0;
+                    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
                     if !(r || (x && mxr)) {
                         return TranslateOutcome::Ready(TranslationResult::fault(
                             Trap::LoadPageFault(vaddr.val()),
@@ -246,7 +245,7 @@ impl Mmu {
                     ));
                 }
                 if privilege == PrivilegeMode::Supervisor && u {
-                    let sum = (csrs.sstatus >> SSTATUS_SUM_SHIFT) & 1 != 0;
+                    let sum = csrs.mstatus & MSTATUS_SUM != 0;
                     if !sum {
                         return TranslateOutcome::Ready(TranslationResult::fault(
                             page_fault(vaddr.val(), access),
