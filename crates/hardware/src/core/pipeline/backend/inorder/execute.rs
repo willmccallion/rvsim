@@ -6,8 +6,8 @@
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::execute::{
-    csr_access, ecall_trap, evaluate, fault, fp_disabled, next_pc, operands, privileged_op_fault,
-    propagate_trap, resolve_branch, resolve_jump,
+    csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
+    propagate_trap, resolve_branch, resolve_jump, unit_disabled,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -96,7 +96,7 @@ fn execute_one(
         return executed;
     }
 
-    if fp_disabled(state, id) {
+    if unit_disabled(state, id) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 

@@ -7,8 +7,8 @@
 use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::pipeline::backend::shared::execute::{
-    csr_access, ecall_trap, evaluate, fault, fp_disabled, next_pc, operands, privileged_op_fault,
-    propagate_trap, resolve_branch, resolve_jump,
+    csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
+    propagate_trap, resolve_branch, resolve_jump, unit_disabled,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -57,6 +57,10 @@ pub fn execute_one(
         "EX: begin"
     );
 
+    if unit_disabled(state, id) {
+        return faulted(state, id, Trap::IllegalInstruction(id.inst));
+    }
+
     let (op_a, op_b) = operands(id);
 
     if id.ctrl.vec_op != VectorOp::None {
@@ -69,10 +73,6 @@ pub fn execute_one(
 
     if let Some(executed) = execute_system(state, id, rob) {
         return executed;
-    }
-
-    if fp_disabled(state, id) {
-        return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 
     let (alu_out, fp_flags) = evaluate(state, id, op_a, op_b);

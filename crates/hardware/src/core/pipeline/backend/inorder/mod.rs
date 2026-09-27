@@ -13,11 +13,12 @@ pub mod execute;
 pub mod issue;
 mod rename;
 
-use crate::common::error::ExceptionStage;
+use crate::common::error::{ExceptionStage, Trap};
 use crate::config::Config;
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
+use crate::core::pipeline::backend::shared::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, retire_element,
 };
@@ -192,10 +193,15 @@ impl InOrderEngine {
     /// Starts a vector load or store: its element micro-ops are generated
     /// from the architectural registers, which are current because a
     /// vector instruction issues only from the ROB head.
-    fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
+    fn start_vec_mem_op(&mut self, state: &mut CoreCtx<'_>, entry: &RenameIssueEntry) {
         use crate::core::units::vpu::mem::{
             check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
         };
+        if unit_disabled(&state.stage(), entry) {
+            let trap = Trap::IllegalInstruction(entry.inst);
+            self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
+            return;
+        }
         let vec_op = entry.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vtype = parse_vtype(state.hart.csrs.vtype);

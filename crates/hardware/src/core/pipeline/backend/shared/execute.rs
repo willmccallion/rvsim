@@ -4,17 +4,19 @@
 //! privilege and CSR checks that decide whether a system instruction faults.
 //! Each backend decides for itself which instructions redirect fetch.
 
+use crate::common::CsrAddr;
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
-use crate::core::pipeline::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp};
+use crate::core::pipeline::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
 use crate::core::units::alu::Alu;
 use crate::core::units::bru::BranchPredictor;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
+use crate::core::units::vpu::fpu::is_vec_fp;
 use crate::isa::abi;
 use crate::isa::rv64i::{funct3, opcodes};
 use crate::sim::StageCtx;
@@ -77,12 +79,55 @@ pub fn propagate_trap(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -
     fault(state, id, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute))
 }
 
-/// True when `id` touches the FP registers while `mstatus.FS` is Off.
-/// Checked here rather than at decode because `mstatus` writes apply at commit.
-pub const fn fp_disabled(state: &StageCtx<'_>, id: &RenameIssueEntry) -> bool {
-    let fs_off = state.hart().csrs.mstatus & csr::MSTATUS_FS == 0;
-    let is_fp = id.ctrl.fp_reg_write || id.ctrl.rs1_fp || id.ctrl.rs2_fp || id.ctrl.rs3_fp;
-    fs_off && is_fp
+const fn fs_off(state: &StageCtx<'_>) -> bool {
+    state.hart().csrs.mstatus & csr::MSTATUS_FS == 0
+}
+
+const fn vs_off(state: &StageCtx<'_>) -> bool {
+    state.hart().csrs.mstatus & csr::MSTATUS_VS == 0
+}
+
+/// True when `id` needs a unit `mstatus` has switched Off.
+///
+/// Any vector instruction while VS is Off, and anything touching the FP
+/// registers or doing vector floating-point arithmetic while FS is Off.
+/// Checked here rather than at decode because `mstatus` writes apply at
+/// commit.
+pub const fn unit_disabled(state: &StageCtx<'_>, id: &RenameIssueEntry) -> bool {
+    let is_vector = !matches!(id.ctrl.vec_op, VectorOp::None);
+    let is_fp = id.ctrl.fp_reg_write
+        || id.ctrl.rs1_fp
+        || id.ctrl.rs2_fp
+        || id.ctrl.rs3_fp
+        || is_vector_fp(id.ctrl.vec_op);
+    (is_vector && vs_off(state)) || (is_fp && fs_off(state))
+}
+
+/// True for vector instructions that do floating-point arithmetic.
+const fn is_vector_fp(op: VectorOp) -> bool {
+    is_vec_fp(op)
+        || matches!(
+            op,
+            VectorOp::VFRedMax
+                | VectorOp::VFRedMin
+                | VectorOp::VFRedOSum
+                | VectorOp::VFRedUSum
+                | VectorOp::VFWRedOSum
+                | VectorOp::VFWRedUSum
+        )
+}
+
+/// True when `addr` belongs to a unit `mstatus` has switched Off.
+fn csr_unit_disabled(state: &StageCtx<'_>, addr: CsrAddr) -> bool {
+    let fp_csr = addr == csr::FFLAGS || addr == csr::FRM || addr == csr::FCSR;
+    let vector_csr = addr == csr::VSTART
+        || addr == csr::VXSAT
+        || addr == csr::VXRM
+        || addr == csr::VCSR
+        || addr == csr::VL
+        || addr == csr::VTYPE
+        || addr == csr::VLENB;
+    (fp_csr && fs_off(state)) || (vector_csr && vs_off(state))
 }
 
 const fn mstatus_bit(state: &StageCtx<'_>, bit: u32) -> bool {
@@ -147,6 +192,7 @@ pub fn csr_access(state: &StageCtx<'_>, id: &RenameIssueEntry) -> Result<CsrAcce
         && matches!(privilege, PrivilegeMode::Supervisor)
         && mstatus_bit(state, MSTATUS_TVM_BIT);
     if satp_trapped
+        || csr_unit_disabled(state, addr)
         || counter_access_denied(state, id)
         || !state.is_valid_csr(addr)
         || u32::from(privilege.to_u8()) < addr.privilege_level() as u32

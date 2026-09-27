@@ -28,6 +28,7 @@ pub mod page_crossing;
 pub mod stage_widths;
 pub mod tlb_latency;
 pub mod trap_latency;
+pub mod unit_status;
 pub mod vector_config;
 pub mod vector_pipeline;
 pub mod wfi_wake;
