@@ -37,7 +37,7 @@ fn run(backend: BackendType, offset: i32) -> (u64, u64) {
 
     ctx.run(300);
 
-    let paths = &ctx.sim.state.cores[0].l1_d_cache.stat_paths;
+    let paths = &ctx.sim.state.cores[0].units.l1_d_cache.stat_paths;
     let stats = &ctx.sim.state.stats;
     let accesses = stats.get(paths.hits).unwrap_or(0.0) + stats.get(paths.misses).unwrap_or(0.0);
     (ctx.get_reg(A1 as usize), accesses as u64)

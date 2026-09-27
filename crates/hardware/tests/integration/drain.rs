@@ -48,7 +48,7 @@ fn drain_after(backend: BackendType, cycles: u64) -> u64 {
     ctx.sim.drain();
 
     assert_eq!(
-        ctx.sim.pipelines[0].fetch_pc(),
+        ctx.sim.state.cores[0].pipeline.fetch_pc(),
         ctx.sim.state.harts[0].pc,
         "{backend:?} @{cycles}: fetch restarts at the committed PC"
     );

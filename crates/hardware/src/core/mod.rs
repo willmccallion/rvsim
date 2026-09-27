@@ -20,6 +20,7 @@ pub use self::hart::Hart;
 
 use crate::common::CoreId;
 use crate::config::{Config, InclusionPolicy};
+use crate::core::pipeline::engine::PipelineDispatch;
 use crate::core::pipeline::write_buffer::WriteCombiningBuffer;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::Cache;
@@ -28,20 +29,26 @@ use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
 
-/// A physical processor core hosting one or more harts.
+/// One processor core: the pipeline and the functional units it drives.
 ///
-/// Owns the runtime hardware shared across the harts running on it:
-/// pipeline-private caches (L1 instruction, L1 data, L2), load/store MSHRs,
-/// write-combining buffer, branch predictor, and prefetch filter. Hosts one
-/// or more [`Hart`]s — one for a non-SMT core, two or more for SMT.
-///
-/// Configuration-derived constants (`pipeline_width`, ELEN/Zvfh, inclusion
-/// policy, …) are NOT cached here — they're read on demand from
-/// `soc.config`. Pipeline properties like register-renaming are queried via
-/// the [`ExecutionEngine`](crate::core::pipeline::engine::ExecutionEngine)
-/// trait. `i_cache_line_bytes` is read via [`Cache::line_bytes()`].
+/// The pipeline is kept apart from the units so it can run with the units,
+/// its hart and the uncore borrowed through a
+/// [`CoreCtx`](crate::sim::CoreCtx).
 #[derive(Debug)]
 pub struct Core {
+    /// The core's functional units.
+    pub units: CoreUnits,
+    /// The pipeline driving them.
+    pub pipeline: PipelineDispatch,
+}
+
+/// A core's private hardware: its caches (L1 instruction, L1 data, L2),
+/// MMU, write-combining buffer and branch predictor.
+///
+/// Configuration-derived constants (ELEN/Zvfh, inclusion policy, …) are not
+/// cached here; they are read from the config on demand.
+#[derive(Debug)]
+pub struct CoreUnits {
     /// Identifier for this physical core within the `SoC`.
     pub core_id: CoreId,
     /// L1 Instruction Cache.
@@ -60,7 +67,7 @@ pub struct Core {
     pub stat_paths: CorePaths,
 }
 
-impl Core {
+impl CoreUnits {
     /// Creates a new `Core` from configuration.
     ///
     /// Caches are assigned `CacheId`s starting at `cache_id_base`. The L1I/L1D

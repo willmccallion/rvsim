@@ -21,7 +21,7 @@ fn history_after_a_jump_loop(backend: BackendType) -> bool {
     ctx.run(100);
 
     assert!(ctx.sim.state.harts[0].instructions_retired > 4, "{backend:?}: the loop ran");
-    ctx.sim.state.cores[0].branch_predictor.snapshot_history().bit(0)
+    ctx.sim.state.cores[0].units.branch_predictor.snapshot_history().bit(0)
 }
 
 #[test]

@@ -33,7 +33,7 @@ impl HartId {
 
 /// A physical-core identifier within the simulated `SoC`.
 ///
-/// Used to address the `Vec<Core>` on the `SoC` and to disambiguate the source
+/// Used to address `SimState::cores` and to disambiguate the source
 /// of coherence requests in the fabric. Distinct from `HartId`: a core hosts
 /// `harts_per_core` hardware threads, each with its own `HartId`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

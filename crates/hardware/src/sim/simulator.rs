@@ -1,5 +1,5 @@
-//! Simulator: owns the system state, one pipeline per core, and drives the
-//! global event queue.
+//! Simulator: owns the system state, whose cores carry their pipelines, and
+//! drives the global event queue.
 //!
 //! Each `tick()` runs the fixed order described in
 //! `docs/architecture/multicore.md`:
@@ -18,27 +18,21 @@
 use crate::common::SimError;
 use crate::config::Config;
 use crate::core::arch::mode::PrivilegeMode;
-use crate::core::pipeline::backend::inorder::InOrderEngine;
-use crate::core::pipeline::backend::o3::O3Engine;
-use crate::core::pipeline::engine::{BackendType, Pipeline, PipelineDispatch};
-use crate::core::pipeline::frontend::{Frontend, STAGE_DELAY};
-use crate::core::pipeline::latches::Latch;
+use crate::core::pipeline::engine::PipelineDispatch;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::Packet;
 use crate::sim::state::SimState;
-use crate::sim::topology::{CacheSlot, CoreTopology, PrivateCache};
+use crate::sim::topology::{CacheSlot, PrivateCache};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-/// Top-level simulator: system state plus one pipeline per core.
+/// Top-level simulator: the system state and the order it ticks in.
 #[derive(Debug)]
 pub struct Simulator {
-    /// The whole system: harts, cores, and the uncore.
+    /// The whole system: harts, cores and their pipelines, and the uncore.
     pub state: SimState,
-    /// Pipelines indexed by `CoreId`.
-    pub pipelines: Vec<PipelineDispatch>,
     /// Privilege mode of each hart at the start of the current tick, kept
     /// between ticks to avoid reallocating.
     prev_privileges: Vec<PrivilegeMode>,
@@ -48,21 +42,17 @@ unsafe impl Send for Simulator {}
 unsafe impl Sync for Simulator {}
 
 impl Simulator {
-    /// Wraps an existing `SimState` with one pipeline per core, built from
-    /// its `config`. Use this when the caller needs to interleave setup
-    /// between state construction and pipeline dispatch (e.g. loading an
-    /// ELF image and registering HTIF before the pipeline reads the reset
-    /// PC).
-    pub fn new(state: SimState) -> Self {
-        let config = &state.config;
-        let pipelines = state
-            .topology
-            .cores
-            .iter()
-            .map(|core| build_pipeline(config, core, state.harts[core.hart_ids[0].as_index()].pc))
-            .collect();
+    /// Wraps an existing `SimState`, pointing each core's fetch at its
+    /// hart's PC. Use this when the caller needs to interleave setup between
+    /// state construction and the first tick (e.g. loading an ELF image and
+    /// registering HTIF, which set the reset PC).
+    pub fn new(mut state: SimState) -> Self {
+        for core in 0..state.cores.len() {
+            let (pipeline, ctx) = state.pipeline_ctx(core);
+            pipeline.restart_fetch_at(ctx.hart.pc);
+        }
         let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
-        Self { state, pipelines, prev_privileges }
+        Self { state, prev_privileges }
     }
 
     /// Convenience constructor: builds the exit-signal `Arc`, the `SimState`,
@@ -78,9 +68,9 @@ impl Simulator {
     /// architectural state a checkpoint records. Like gem5's drain, it
     /// perturbs the timing of a run that continues afterwards.
     pub fn drain(&mut self) {
-        for core in 0..self.pipelines.len() {
-            let mut ctx = self.state.core_ctx(core);
-            self.pipelines[core].drain(&mut ctx);
+        for core in 0..self.core_count() {
+            let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
+            pipeline.drain(&mut ctx);
         }
         let shared = &mut self.state.shared;
         shared.bus.drain_devices();
@@ -89,10 +79,10 @@ impl Simulator {
         }
     }
 
-    /// Number of cores (and pipelines).
+    /// Number of cores.
     #[must_use]
     pub const fn core_count(&self) -> usize {
-        self.pipelines.len()
+        self.state.cores.len()
     }
 
     /// Synchronize every hart's architectural state into its pipeline:
@@ -101,11 +91,10 @@ impl Simulator {
     /// Must be called after all register and PC initialization (loader
     /// setup, etc.) but before the first pipeline tick.
     pub fn sync_arch_regs(&mut self) {
-        for core in 0..self.pipelines.len() {
-            let pc = self.state.harts[self.state.topology.cores[core].hart_ids[0].as_index()].pc;
-            self.pipelines[core].restart_fetch_at(pc);
-            if let PipelineDispatch::OutOfOrder(p) = &mut self.pipelines[core] {
-                let ctx = self.state.core_ctx(core);
+        for core in 0..self.core_count() {
+            let (pipeline, ctx) = self.state.pipeline_ctx(core);
+            pipeline.restart_fetch_at(ctx.hart.pc);
+            if let PipelineDispatch::OutOfOrder(p) = pipeline {
                 p.engine.sync_arch_regs(&ctx);
             }
         }
@@ -117,8 +106,8 @@ impl Simulator {
         self.state.harts[hart].pc = pc;
         let hart_id = self.state.harts[hart].hart_id;
         let Some(core) = self.state.topology.core_of_hart(hart_id) else { return };
-        let mut ctx = self.state.core_ctx(core.as_index());
-        self.pipelines[core.as_index()].flush(&mut ctx);
+        let (pipeline, mut ctx) = self.state.pipeline_ctx(core.as_index());
+        pipeline.flush(&mut ctx);
     }
 
     /// Advances the simulator by one clock cycle.
@@ -135,13 +124,13 @@ impl Simulator {
         }
         let run_cycle = self.state.pre_cycle()?;
         if run_cycle {
-            for core in 0..self.pipelines.len() {
+            for core in 0..self.core_count() {
                 let hart = self.state.topology.cores[core].hart_ids[0];
                 let irqs = self.state.bus.hart_irqs(hart);
                 self.state.core_ctx(core).pre_tick(irqs);
             }
             self.state.advance_cycle();
-            for core in 0..self.pipelines.len() {
+            for core in 0..self.core_count() {
                 self.state.core_ctx(core).track_mode_cycles();
             }
         }
@@ -150,10 +139,10 @@ impl Simulator {
         // previous cycles' emissions).
         self.drain_events();
         if run_cycle {
-            for core in 0..self.pipelines.len() {
+            for core in 0..self.core_count() {
                 self.scoped_to_hart(core, |sim| {
-                    let mut ctx = sim.state.core_ctx(core);
-                    sim.pipelines[core].tick(&mut ctx);
+                    let (pipeline, mut ctx) = sim.state.pipeline_ctx(core);
+                    pipeline.tick(&mut ctx);
                 });
             }
             self.leave_hart_scope();
@@ -168,7 +157,7 @@ impl Simulator {
         // controller's and fabric's ticks reach their targets on the
         // following cycle.
         self.drain_events();
-        for core in 0..self.pipelines.len() {
+        for core in 0..self.core_count() {
             let prev = self.prev_privileges[self.state.topology.cores[core].hart_ids[0].as_index()];
             self.scoped_to_hart(core, |sim| sim.state.core_ctx(core).post_tick(prev));
         }
@@ -217,8 +206,8 @@ impl Simulator {
         let Event { fire_at: _, seq: _, target, source, packet } = event;
         match target {
             ComponentId::Pipeline(id) => {
-                if let Some(pipeline) = self.pipelines.get_mut(id.as_index()) {
-                    pipeline.deliver(source, packet);
+                if let Some(core) = self.state.cores.get_mut(id.as_index()) {
+                    core.pipeline.deliver(source, packet);
                 }
             }
             ComponentId::Cache(id) => {
@@ -405,26 +394,6 @@ impl Simulator {
     }
 }
 
-/// Builds the pipeline for one core from the configured backend.
-fn build_pipeline(config: &Config, core: &CoreTopology, pc: u64) -> PipelineDispatch {
-    let l1i = core.cache(PrivateCache::L1I);
-    let l1d = core.cache(PrivateCache::L1D);
-    match config.pipeline.backend {
-        BackendType::InOrder => PipelineDispatch::InOrder(Box::new(Pipeline {
-            frontend: Frontend::new(pc),
-            engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
-            rename_output: Latch::new(STAGE_DELAY),
-            redirect: None,
-        })),
-        BackendType::OutOfOrder => PipelineDispatch::OutOfOrder(Box::new(Pipeline {
-            frontend: Frontend::new(pc),
-            engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
-            rename_output: Latch::new(STAGE_DELAY),
-            redirect: None,
-        })),
-    }
-}
-
 /// Dispatches a packet to the cache identified by `id`.
 fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: ComponentId) {
     let self_id = ComponentId::Cache(id);
@@ -443,7 +412,7 @@ fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: 
     };
     match slot {
         CacheSlot::Private { core, which } => {
-            let core = &mut cores[core.as_index()];
+            let core = &mut cores[core.as_index()].units;
             let cache = match which {
                 PrivateCache::L1I => &mut core.l1_i_cache,
                 PrivateCache::L1D => &mut core.l1_d_cache,

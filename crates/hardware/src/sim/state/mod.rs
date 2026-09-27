@@ -33,10 +33,11 @@ use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerTy
 use crate::core::arch::csr::Csrs;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::hart::HartInit;
+use crate::core::pipeline::engine::PipelineDispatch;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::pmp::Pmp;
-use crate::core::{Core, Hart};
+use crate::core::{Core, CoreUnits, Hart};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;
@@ -190,7 +191,7 @@ pub struct CoreCtx<'a> {
     /// The hart the pipeline is executing.
     pub hart: &'a mut Hart,
     /// The pipeline's private micro-architecture.
-    pub core: &'a mut Core,
+    pub core: &'a mut CoreUnits,
     /// The uncore.
     pub shared: &'a mut SharedState,
 }
@@ -383,13 +384,25 @@ impl SimState {
         let hart_index = self.shared.topology.cores[core].hart_ids[0].as_index();
         CoreCtx {
             hart: &mut self.harts[hart_index],
-            core: &mut self.cores[core],
+            core: &mut self.cores[core].units,
             shared: &mut self.shared,
         }
     }
 
+    /// Core `core`'s pipeline together with the execution view it runs in.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `core` is not a valid core index.
+    pub fn pipeline_ctx(&mut self, core: usize) -> (&mut PipelineDispatch, CoreCtx<'_>) {
+        let hart_index = self.shared.topology.cores[core].hart_ids[0].as_index();
+        let Core { units, pipeline } = &mut self.cores[core];
+        let ctx =
+            CoreCtx { hart: &mut self.harts[hart_index], core: units, shared: &mut self.shared };
+        (pipeline, ctx)
+    }
+
     /// Instructions retired across every hart.
-    #[must_use]
     pub fn instructions_retired(&self) -> u64 {
         self.harts.iter().map(|h| h.instructions_retired).sum()
     }
@@ -601,15 +614,15 @@ impl SimState {
             })
             .collect();
 
-        let mut cores: Vec<Core> = topology
+        let mut units: Vec<CoreUnits> = topology
             .cores
             .iter()
-            .map(|c| Core::new(c.core_id, config, c.l1i.val(), topology.llc))
+            .map(|c| CoreUnits::new(c.core_id, config, c.l1i.val(), topology.llc))
             .collect();
-        let coherence = if cores.len() > 1 {
-            Some(Self::attach_coherence_fabric(config, &mut cores, &mut l3_cache))
+        let coherence = if units.len() > 1 {
+            Some(Self::attach_coherence_fabric(config, &mut units, &mut l3_cache))
         } else {
-            for core in &cores {
+            for core in &units {
                 l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
             }
             None
@@ -620,10 +633,10 @@ impl SimState {
         let core_stat_paths: Vec<_> = topology
             .cores
             .iter()
-            .zip(&cores)
+            .zip(&units)
             .map(|(c, core)| (core.stat_paths, c.hart_ids[0]))
             .collect();
-        let cache_stat_paths: Vec<_> = cores
+        let cache_stat_paths: Vec<_> = units
             .iter()
             .flat_map(|core| {
                 [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths]
@@ -636,6 +649,16 @@ impl SimState {
             &cache_stat_paths,
             coherence.as_ref().map(CoherenceFabric::stat_paths),
         );
+
+        let cores = topology
+            .cores
+            .iter()
+            .zip(units)
+            .map(|(c, units)| Core {
+                units,
+                pipeline: PipelineDispatch::new(config, c, config.general.start_pc),
+            })
+            .collect();
 
         Self {
             harts,
@@ -682,7 +705,7 @@ impl SimState {
     /// cross the fabric without taking part in coherence.
     fn attach_coherence_fabric(
         config: &Config,
-        cores: &mut [Core],
+        cores: &mut [CoreUnits],
         llc: &mut Cache,
     ) -> CoherenceFabric {
         let agents: Vec<ComponentId> =
@@ -769,8 +792,8 @@ mod tests {
         assert_eq!(sys.harts.len(), 2);
         assert_eq!(sys.cores.len(), 2);
         assert_eq!(sys.harts[1].hart_id, HartId::new(1));
-        assert_eq!(sys.cores[1].core_id, crate::common::CoreId::new(1));
-        assert_ne!(sys.cores[0].l2_cache.id, sys.cores[1].l2_cache.id);
+        assert_eq!(sys.cores[1].units.core_id, crate::common::CoreId::new(1));
+        assert_ne!(sys.cores[0].units.l2_cache.id, sys.cores[1].units.l2_cache.id);
         assert_eq!(sys.l3_cache.id, sys.topology.llc);
     }
 }

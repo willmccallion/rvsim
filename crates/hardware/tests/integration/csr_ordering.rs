@@ -72,7 +72,7 @@ fn o3_holds_rename_behind_a_csr_access_instead_of_squashing() {
 
     ctx.run(400);
 
-    let paths = &ctx.sim.state.cores[0].stat_paths.pipeline;
+    let paths = &ctx.sim.state.cores[0].units.stat_paths.pipeline;
     let stats = &ctx.sim.state.stats;
     assert_eq!(ctx.get_reg(T1 as usize), 0x123, "the read sees the swapped-in value");
     assert_eq!(stats.get(paths.flushes_system), Some(0.0), "no CSR access squashed");

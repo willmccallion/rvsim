@@ -33,7 +33,7 @@ pub fn audit(state: &SimState) -> Vec<Violation> {
     let Some(fabric) = state.shared.coherence.as_ref() else { return violations };
 
     let mut in_flight: Vec<LineAddr> = fabric.lines_in_flight();
-    for core in &state.cores {
+    for core in state.cores.iter().map(|core| &core.units) {
         in_flight.extend(core.l2_cache.lines_in_flight());
         in_flight.extend(core.l1_d_cache.lines_in_flight());
         in_flight.extend(core.l1_i_cache.lines_in_flight());
@@ -42,7 +42,7 @@ pub fn audit(state: &SimState) -> Vec<Violation> {
 
     // Who holds what, from the L2s (the requesting agents).
     let mut holders: BTreeMap<LineAddr, Vec<(CoreId, MesiState)>> = BTreeMap::new();
-    for core in &state.cores {
+    for core in state.cores.iter().map(|core| &core.units) {
         for cache in [&core.l1_i_cache, &core.l1_d_cache, &core.l2_cache] {
             for dup in cache.duplicate_lines() {
                 violations.push(Violation {

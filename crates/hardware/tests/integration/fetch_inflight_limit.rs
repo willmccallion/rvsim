@@ -44,8 +44,8 @@ fn assert_fetch_bounded(backend: BackendType) {
 
     for cycle in 0..2_000 {
         tc.run(1);
-        let inflight = inflight_fetches(&tc.sim.pipelines[0]);
-        let latched = tc.sim.pipelines[0].snapshot(width).fetch1_fetch2.len();
+        let inflight = inflight_fetches(&tc.sim.state.cores[0].pipeline);
+        let latched = tc.sim.state.cores[0].pipeline.snapshot(width).fetch1_fetch2.len();
         assert!(
             inflight <= 1,
             "cycle {cycle}: {inflight} fetch groups in flight, expected at most one"

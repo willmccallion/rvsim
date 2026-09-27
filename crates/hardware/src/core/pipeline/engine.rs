@@ -6,6 +6,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use crate::config::Config;
+use crate::core::pipeline::backend::inorder::InOrderEngine;
+use crate::core::pipeline::backend::o3::O3Engine;
+use crate::core::pipeline::frontend::{Frontend, STAGE_DELAY};
 use crate::core::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::{Rob, RobTag};
@@ -14,6 +18,7 @@ use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
+use crate::sim::topology::{CoreTopology, PrivateCache};
 use serde::Deserialize;
 
 /// Backend type selection.
@@ -362,7 +367,7 @@ impl BackendCommon {
 #[derive(Debug)]
 pub struct Pipeline<E: ExecutionEngine> {
     /// Frontend stages: fetch, decode, rename.
-    pub frontend: crate::core::pipeline::frontend::Frontend<E>,
+    pub frontend: Frontend<E>,
     /// Backend execution engine (in-order or out-of-order).
     pub engine: E,
     /// Rename → dispatch latch, consumed by the engine each cycle.
@@ -474,6 +479,26 @@ pub enum PipelineDispatch {
 }
 
 impl PipelineDispatch {
+    /// Builds the configured backend for `core`, fetching from `pc`.
+    pub fn new(config: &Config, core: &CoreTopology, pc: u64) -> Self {
+        let l1i = core.cache(PrivateCache::L1I);
+        let l1d = core.cache(PrivateCache::L1D);
+        match config.pipeline.backend {
+            BackendType::InOrder => Self::InOrder(Box::new(Pipeline {
+                frontend: Frontend::new(pc),
+                engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
+                rename_output: Latch::new(STAGE_DELAY),
+                redirect: None,
+            })),
+            BackendType::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
+                frontend: Frontend::new(pc),
+                engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
+                rename_output: Latch::new(STAGE_DELAY),
+                redirect: None,
+            })),
+        }
+    }
+
     /// Run one cycle.
     pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
         match self {

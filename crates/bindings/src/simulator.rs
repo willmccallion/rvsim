@@ -606,7 +606,7 @@ impl PySimulator {
     /// simulation correctness or timing.
     fn pipeline_snapshot(&self) -> PyPipelineSnapshot {
         let width = self.inner.state.config.pipeline.width;
-        PyPipelineSnapshot::new(self.inner.pipelines[0].snapshot(width))
+        PyPipelineSnapshot::new(self.inner.state.cores[0].pipeline.snapshot(width))
     }
 
     /// Save a checkpoint of the full simulation state to a file.
@@ -728,7 +728,7 @@ impl PySimulator {
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
 
-        for core in &mut cpu.cores {
+        for core in cpu.cores.iter_mut().map(|core| &mut core.units) {
             let _ = core.l1_i_cache.flush();
             let _ = core.l1_d_cache.flush();
             let _ = core.l2_cache.flush();

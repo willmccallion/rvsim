@@ -10,7 +10,7 @@ use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use crate::core::units::mmu::TranslateOutcome;
 use crate::core::units::mmu::pmp::PmpResult;
 use crate::core::units::mmu::ptw::WalkState;
-use crate::core::{Core, Hart};
+use crate::core::{CoreUnits, Hart};
 
 /// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
 ///
@@ -34,7 +34,7 @@ pub enum TranslateResult {
 
 /// Begins (or completes) translation of a virtual address.
 pub(super) fn translate(
-    core: &mut Core,
+    core: &mut CoreUnits,
     hart: &Hart,
     shared: &SharedState,
     vaddr: VirtAddr,
@@ -88,7 +88,7 @@ pub(super) fn translate(
 
 /// Resumes a walk that was parked waiting on a PTE response.
 pub(super) fn translate_continue(
-    core: &mut Core,
+    core: &mut CoreUnits,
     hart: &Hart,
     shared: &SharedState,
     state: WalkState,

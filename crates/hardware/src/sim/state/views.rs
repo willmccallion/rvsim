@@ -12,7 +12,7 @@ use super::memory::TranslateResult;
 use super::{SharedState, csr, memory};
 use crate::common::{AccessType, CsrAddr, VirtAddr};
 use crate::core::units::mmu::ptw::WalkState;
-use crate::core::{Core, Hart};
+use crate::core::{CoreUnits, Hart};
 use crate::sim::events::EventQueue;
 use crate::sim::stats::Counter;
 use crate::sim::stats::paths::HartPaths;
@@ -38,7 +38,7 @@ use crate::sim::stats::paths::HartPaths;
 #[derive(Debug)]
 pub struct StageCtx<'a> {
     hart: &'a Hart,
-    core: &'a mut Core,
+    core: &'a mut CoreUnits,
     shared: &'a mut SharedState,
 }
 
@@ -53,7 +53,7 @@ impl Deref for StageCtx<'_> {
 impl<'a> StageCtx<'a> {
     pub(super) const fn new(
         hart: &'a Hart,
-        core: &'a mut Core,
+        core: &'a mut CoreUnits,
         shared: &'a mut SharedState,
     ) -> Self {
         Self { hart, core, shared }
@@ -69,13 +69,13 @@ impl<'a> StageCtx<'a> {
     /// The core's private micro-architecture.
     #[inline]
     #[must_use]
-    pub const fn core(&self) -> &Core {
+    pub const fn core(&self) -> &CoreUnits {
         self.core
     }
 
     /// The core's private micro-architecture, to drive it.
     #[inline]
-    pub const fn core_mut(&mut self) -> &mut Core {
+    pub const fn core_mut(&mut self) -> &mut CoreUnits {
         self.core
     }
 
