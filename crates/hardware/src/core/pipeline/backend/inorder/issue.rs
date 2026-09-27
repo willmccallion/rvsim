@@ -151,11 +151,11 @@ impl InOrderIssueUnit {
 
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
                 let fu_type = FuType::classify(&entry.ctrl);
-                if !fu_pool.has_free(fu_type, now) {
+                let Some(unit) = fu_pool.free_unit(fu_type, now) else {
                     state.counter(state.core().stat_paths.pipeline.stalls_fu_structural).inc();
                     break;
-                }
-                let complete_cycle = fu_pool.acquire(fu_type, now);
+                };
+                let complete_cycle = fu_pool.acquire(unit, now);
                 let Some(mut issued) = self.queue.pop_front() else { break };
                 units.push(IssuedUnit { tag: issued.rob_tag, fu_type, complete_cycle });
                 issued.rv1 = v1;

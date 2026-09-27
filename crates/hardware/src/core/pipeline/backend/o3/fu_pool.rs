@@ -202,6 +202,12 @@ impl FuType {
     }
 }
 
+/// A unit [`FuPool::free_unit`] found free, which [`FuPool::acquire`] then
+/// occupies. Units are never removed from a pool, so the index stays valid.
+#[derive(Clone, Copy, Debug)]
+#[must_use]
+pub struct FreeUnit(usize);
+
 /// One instance of a functional unit.
 #[derive(Clone, Debug)]
 pub struct FuUnit {
@@ -511,39 +517,21 @@ impl FuPool {
         Self { units }
     }
 
-    /// Returns true if at least one unit of `fu_type` is free at cycle `now`.
-    pub fn has_free(&self, fu_type: FuType, now: u64) -> bool {
-        self.units.iter().any(|u| u.fu_type == fu_type && u.is_free(now))
+    /// A unit of `fu_type` free at cycle `now`, if there is one.
+    pub fn free_unit(&self, fu_type: FuType, now: u64) -> Option<FreeUnit> {
+        self.units.iter().position(|u| u.fu_type == fu_type && u.is_free(now)).map(FreeUnit)
     }
 
-    /// Acquire a free unit of `fu_type` at cycle `now`.
-    /// Returns the cycle at which the result is ready.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no unit of `fu_type` is free (caller must call `has_free` first).
-    pub fn acquire(&mut self, fu_type: FuType, now: u64) -> u64 {
-        for unit in &mut self.units {
-            if unit.fu_type == fu_type && unit.is_free(now) {
-                return unit.acquire(now);
-            }
-        }
-        panic!("acquire called with no free unit of type {fu_type:?}");
+    /// Occupies `unit` for one instruction issued at cycle `now` and returns
+    /// the cycle its result is ready.
+    pub fn acquire(&mut self, unit: FreeUnit, now: u64) -> u64 {
+        self.units[unit.0].acquire(now)
     }
 
-    /// Acquire a free unit with a dynamic latency (for vector ops).
-    /// Returns the cycle at which the result is ready.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no unit of `fu_type` is free.
-    pub fn acquire_with_latency(&mut self, fu_type: FuType, now: u64, latency: u64) -> u64 {
-        for unit in &mut self.units {
-            if unit.fu_type == fu_type && unit.is_free(now) {
-                return unit.acquire_with_latency(now, latency);
-            }
-        }
-        panic!("acquire_with_latency called with no free unit of type {fu_type:?}");
+    /// Like [`acquire`](Self::acquire) with a latency the instruction sets
+    /// (vector ops, whose latency depends on VL and the lane count).
+    pub fn acquire_with_latency(&mut self, unit: FreeUnit, now: u64, latency: u64) -> u64 {
+        self.units[unit.0].acquire_with_latency(now, latency)
     }
 
     /// Returns the latency of the first unit of `fu_type`.
@@ -576,36 +564,36 @@ mod tests {
     #[test]
     fn test_pipelined_unit_free_next_cycle() {
         let mut pool = default_pool();
-        assert!(pool.has_free(FuType::IntAlu, 0));
-        let complete = pool.acquire(FuType::IntAlu, 0);
+        assert!(pool.free_unit(FuType::IntAlu, 0).is_some());
+        let complete = pool.acquire(pool.free_unit(FuType::IntAlu, 0).unwrap(), 0);
         // Latency = 1, so complete = cycle 1
         assert_eq!(complete, 1);
         // Pipelined: unit is free at cycle 1 (busy_until = 0 + 1 = 1, so is_free at cycle 1)
-        assert!(pool.has_free(FuType::IntAlu, 1));
+        assert!(pool.free_unit(FuType::IntAlu, 1).is_some());
         // With 4 int ALUs, even cycle 0 has 3 remaining free after 1 acquired
-        assert!(pool.has_free(FuType::IntAlu, 0));
+        assert!(pool.free_unit(FuType::IntAlu, 0).is_some());
     }
 
     #[test]
     fn test_non_pipelined_holds_for_full_latency() {
         let mut pool = default_pool();
-        assert!(pool.has_free(FuType::IntDiv, 0));
-        let complete = pool.acquire(FuType::IntDiv, 0);
+        assert!(pool.free_unit(FuType::IntDiv, 0).is_some());
+        let complete = pool.acquire(pool.free_unit(FuType::IntDiv, 0).unwrap(), 0);
         // Latency = 35, so complete = cycle 35
         assert_eq!(complete, 35);
         // Non-pipelined: busy_until = 35, NOT free until cycle 35
-        assert!(!pool.has_free(FuType::IntDiv, 1));
-        assert!(!pool.has_free(FuType::IntDiv, 34));
-        assert!(pool.has_free(FuType::IntDiv, 35));
+        assert!(pool.free_unit(FuType::IntDiv, 1).is_none());
+        assert!(pool.free_unit(FuType::IntDiv, 34).is_none());
+        assert!(pool.free_unit(FuType::IntDiv, 35).is_some());
     }
 
     #[test]
     fn test_structural_hazard_all_units_busy() {
         let mut pool = default_pool();
         // FpDivSqrt has count=1
-        pool.acquire(FuType::FpDivSqrt, 0);
+        pool.acquire(pool.free_unit(FuType::FpDivSqrt, 0).unwrap(), 0);
         // No more FpDivSqrt units available
-        assert!(!pool.has_free(FuType::FpDivSqrt, 0));
+        assert!(pool.free_unit(FuType::FpDivSqrt, 0).is_none());
     }
 
     #[test]
@@ -689,23 +677,24 @@ mod tests {
     #[test]
     fn test_acquire_with_latency() {
         let mut pool = default_pool();
-        let complete = pool.acquire_with_latency(FuType::VecIntAlu, 10, 5);
+        let complete =
+            pool.acquire_with_latency(pool.free_unit(FuType::VecIntAlu, 10).unwrap(), 10, 5);
         assert_eq!(complete, 15);
         // Pipelined: unit free next cycle
-        assert!(pool.has_free(FuType::VecIntAlu, 11));
+        assert!(pool.free_unit(FuType::VecIntAlu, 11).is_some());
     }
 
     #[test]
     fn test_vec_fu_pool_created() {
         let pool = default_pool();
-        assert!(pool.has_free(FuType::VecIntAlu, 0));
-        assert!(pool.has_free(FuType::VecIntMul, 0));
-        assert!(pool.has_free(FuType::VecIntDiv, 0));
-        assert!(pool.has_free(FuType::VecFpAlu, 0));
-        assert!(pool.has_free(FuType::VecFpFma, 0));
-        assert!(pool.has_free(FuType::VecFpDivSqrt, 0));
-        assert!(pool.has_free(FuType::VecMem, 0));
-        assert!(pool.has_free(FuType::VecPermute, 0));
+        assert!(pool.free_unit(FuType::VecIntAlu, 0).is_some());
+        assert!(pool.free_unit(FuType::VecIntMul, 0).is_some());
+        assert!(pool.free_unit(FuType::VecIntDiv, 0).is_some());
+        assert!(pool.free_unit(FuType::VecFpAlu, 0).is_some());
+        assert!(pool.free_unit(FuType::VecFpFma, 0).is_some());
+        assert!(pool.free_unit(FuType::VecFpDivSqrt, 0).is_some());
+        assert!(pool.free_unit(FuType::VecMem, 0).is_some());
+        assert!(pool.free_unit(FuType::VecPermute, 0).is_some());
     }
 
     #[test]

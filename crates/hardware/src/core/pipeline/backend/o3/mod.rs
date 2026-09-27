@@ -706,7 +706,7 @@ impl ExecutionEngine for O3Engine {
                     continue;
                 }
 
-                if !self.fu_pool.has_free(fu_type, now) {
+                let Some(unit) = self.fu_pool.free_unit(fu_type, now) else {
                     state
                         .shared
                         .stats
@@ -723,7 +723,7 @@ impl ExecutionEngine for O3Engine {
                     );
                     debug_assert!(ok, "re-dispatch after FU stall failed");
                     continue;
-                }
+                };
 
                 if is_mem_instr {
                     self.mdp.issued(rob_tag);
@@ -799,11 +799,11 @@ impl ExecutionEngine for O3Engine {
                     } else {
                         lane_model::compute_vec_latency(vl, lanes, startup, pipelined)
                     };
-                    self.fu_pool.acquire_with_latency(fu_type, now, latency)
+                    self.fu_pool.acquire_with_latency(unit, now, latency)
                 } else {
                     // A vector memory op's unit is the address generator;
                     // its elements pay their latency in memory1 and memory2.
-                    self.fu_pool.acquire(fu_type, now)
+                    self.fu_pool.acquire(unit, now)
                 };
 
                 let (ex_result, redirect) =
