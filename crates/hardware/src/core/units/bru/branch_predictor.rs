@@ -189,6 +189,11 @@ pub trait BranchPredictor {
     /// Called on full pipeline flushes (trap, MRET/SRET, FENCE.I) where the
     /// speculative history may contain wrong-path branch outcomes.
     fn repair_to_committed(&mut self) {}
+
+    /// Records a committed jump in the committed history: fetch shifted the
+    /// speculative history as taken for it, so training that indexes by the
+    /// committed history stays in step with the prediction it trains.
+    fn retire_jump(&mut self) {}
 }
 
 #[cfg(test)]

@@ -180,4 +180,8 @@ impl BranchPredictor for PerceptronPredictor {
     fn repair_to_committed(&mut self) {
         self.ghr = self.commit_ghr;
     }
+
+    fn retire_jump(&mut self) {
+        self.commit_ghr = self.shifted(self.commit_ghr, true);
+    }
 }

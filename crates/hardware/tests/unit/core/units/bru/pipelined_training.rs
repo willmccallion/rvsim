@@ -17,19 +17,38 @@ const TARGET: u64 = 0x8000_0744;
 /// The loop's back-edge, taken every iteration.
 const LOOP_PC: u64 = 0x8000_075c;
 const LOOP_TARGET: u64 = 0x8000_072c;
+/// A call in the loop body, which shifts the history as taken.
+const CALL_PC: u64 = 0x8000_0748;
+
+/// One control instruction in flight between fetch and commit.
+enum InFlight {
+    Branch { pc: u64, taken: bool, target: u64, snapshot: Ghr },
+    Jump,
+}
 const ITERATIONS: usize = 2_000;
 /// Branches in flight between fetch and commit.
 const IN_FLIGHT: usize = 6;
 
+fn retire_oldest<P: BranchPredictor>(bp: &mut P, pending: &mut VecDeque<InFlight>) {
+    if pending.len() <= IN_FLIGHT {
+        return;
+    }
+    match pending.pop_front().unwrap() {
+        InFlight::Branch { pc, taken, target, snapshot } => {
+            bp.update_branch(pc, taken, taken.then_some(target), &snapshot);
+        }
+        InFlight::Jump => bp.retire_jump(),
+    }
+}
+
 /// Mispredictions of an alternating taken/not-taken branch over the second
-/// half of a loop whose always-taken back-edge follows it, with `IN_FLIGHT`
-/// branches between prediction and training.
+/// half of a loop that also holds a call and an always-taken back-edge,
+/// with `IN_FLIGHT` control instructions between prediction and training.
 fn late_mispredictions<P: BranchPredictor>(bp: &mut P) -> usize {
-    let mut pending: VecDeque<(u64, bool, u64, Ghr)> = VecDeque::new();
+    let mut pending = VecDeque::new();
     let mut mispredictions = 0;
     for i in 0..ITERATIONS {
-        let branches = [(PC, i % 2 == 0, TARGET), (LOOP_PC, true, LOOP_TARGET)];
-        for (pc, taken, target) in branches {
+        for (pc, taken, target) in [(PC, i % 2 == 0, TARGET), (LOOP_PC, true, LOOP_TARGET)] {
             let snapshot = bp.snapshot_history();
             let (predicted, _) = bp.predict_branch(pc);
             if pc == PC && i >= ITERATIONS / 2 && predicted != taken {
@@ -39,10 +58,12 @@ fn late_mispredictions<P: BranchPredictor>(bp: &mut P) -> usize {
                 bp.repair_history(&snapshot);
             }
             bp.speculate(pc, taken);
-            pending.push_back((pc, taken, target, snapshot));
-            if pending.len() > IN_FLIGHT {
-                let (pc, outcome, target, snap) = pending.pop_front().unwrap();
-                bp.update_branch(pc, outcome, outcome.then_some(target), &snap);
+            pending.push_back(InFlight::Branch { pc, taken, target, snapshot });
+            retire_oldest(bp, &mut pending);
+            if pc == PC {
+                bp.speculate(CALL_PC, true);
+                pending.push_back(InFlight::Jump);
+                retire_oldest(bp, &mut pending);
             }
         }
     }

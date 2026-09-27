@@ -377,6 +377,9 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         state.stats.counter(hart_paths.retired_insts).inc();
         update_instruction_stats(state, &entry);
 
+        if entry.ctrl.control_flow == ControlFlow::Jump {
+            state.core.branch_predictor.retire_jump();
+        }
         if entry.bp_update {
             state.core.branch_predictor.update_branch(
                 entry.bp_pc,

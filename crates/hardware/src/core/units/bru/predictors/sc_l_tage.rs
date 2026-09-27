@@ -173,6 +173,12 @@ impl BranchPredictor for ScLTagePredictor {
         self.tage.repair_to_committed_csrs();
         self.ittage.repair_to_committed_csrs();
     }
+
+    fn retire_jump(&mut self) {
+        self.tage.commit_advance(true, &self.commit_ghr);
+        self.ittage.commit_advance(true, &self.commit_ghr);
+        self.commit_ghr.push(true);
+    }
 }
 
 #[cfg(test)]

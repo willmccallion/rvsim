@@ -135,4 +135,8 @@ impl BranchPredictor for GSharePredictor {
     fn repair_to_committed(&mut self) {
         self.ghr = self.commit_ghr;
     }
+
+    fn retire_jump(&mut self) {
+        self.commit_ghr = Self::shifted(self.commit_ghr, true);
+    }
 }

@@ -199,4 +199,8 @@ impl BranchPredictor for TournamentPredictor {
     fn repair_to_committed(&mut self) {
         self.ghr = self.commit_ghr;
     }
+
+    fn retire_jump(&mut self) {
+        self.commit_ghr = ((self.commit_ghr << 1) | 1) & (self.global_mask as u64);
+    }
 }

@@ -97,6 +97,11 @@ impl BranchPredictor for TagePredictor {
         self.spec_ghr = self.commit_ghr;
         self.tage.repair_to_committed_csrs();
     }
+
+    fn retire_jump(&mut self) {
+        self.tage.commit_advance(true, &self.commit_ghr);
+        self.commit_ghr.push(true);
+    }
 }
 
 #[cfg(test)]

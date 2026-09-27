@@ -229,4 +229,16 @@ impl BranchPredictor for BranchPredictorWrapper {
             Self::ScLTage(bp) => bp.repair_to_committed(),
         }
     }
+
+    #[inline(always)]
+    fn retire_jump(&mut self) {
+        match self {
+            Self::Static(bp) => bp.retire_jump(),
+            Self::GShare(bp) => bp.retire_jump(),
+            Self::Tournament(bp) => bp.retire_jump(),
+            Self::Tage(bp) => bp.retire_jump(),
+            Self::Perceptron(bp) => bp.retire_jump(),
+            Self::ScLTage(bp) => bp.retire_jump(),
+        }
+    }
 }
