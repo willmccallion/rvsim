@@ -24,6 +24,16 @@ pub enum SquashCause {
     Coherence,
 }
 
+impl SquashCause {
+    /// True when the squash replays the instruction after the kept one from
+    /// the PC it was fetched at, rather than redirecting to where the kept
+    /// instruction itself says execution goes next.
+    #[must_use]
+    pub const fn replays(self) -> bool {
+        matches!(self, Self::MemoryOrder | Self::Coherence)
+    }
+}
+
 /// The predictor state a mispredicted branch restores when its squash is
 /// taken: the global history as fetched, with the real outcome pushed,
 /// and the return-address stack as it was before the branch.
@@ -110,6 +120,23 @@ impl PendingSquash {
         }
     }
 
+    /// True when this squash should be taken instead of `other`: it removes
+    /// more of the window, or it removes the same and redirects from the kept
+    /// instruction while `other` only replays the one after it, which was
+    /// fetched down a path the kept instruction may be about to correct.
+    #[must_use]
+    pub const fn takes_precedence_over(&self, other: &Self) -> bool {
+        if self.is_older_than(other) {
+            return true;
+        }
+        let same_window = match (self.keep_tag, other.keep_tag) {
+            (Some(mine), Some(theirs)) => mine.0 == theirs.0,
+            (None, None) => true,
+            _ => false,
+        };
+        same_window && other.redirect.cause.replays() && !self.redirect.cause.replays()
+    }
+
     /// True when the latency has elapsed at `now`.
     #[must_use]
     pub const fn is_due(&self, now: u64) -> bool {
@@ -140,6 +167,32 @@ mod tests {
     #[test]
     fn a_squash_without_a_kept_tag_squashes_the_whole_window() {
         assert!(pending(None).squashes(RobTag(0)));
+    }
+
+    fn keeping(keep_tag: u32, cause: SquashCause) -> PendingSquash {
+        PendingSquash {
+            keep_tag: Some(RobTag(keep_tag)),
+            redirect: Redirect::to(0, cause),
+            apply_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_redirect_from_the_kept_instruction_beats_a_replay_of_the_next() {
+        let violation = keeping(5, SquashCause::MemoryOrder);
+        let mispredict = keeping(5, SquashCause::Branch);
+
+        assert!(mispredict.takes_precedence_over(&violation));
+        assert!(!violation.takes_precedence_over(&mispredict));
+    }
+
+    #[test]
+    fn a_squash_that_removes_more_takes_precedence_whatever_its_cause() {
+        let older_violation = keeping(3, SquashCause::Coherence);
+        let younger_mispredict = keeping(7, SquashCause::Branch);
+
+        assert!(older_violation.takes_precedence_over(&younger_mispredict));
+        assert!(!younger_mispredict.takes_precedence_over(&older_violation));
     }
 
     #[test]

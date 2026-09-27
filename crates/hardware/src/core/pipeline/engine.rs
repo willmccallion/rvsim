@@ -293,10 +293,11 @@ impl BackendCommon {
         self.coherence_violation = None;
     }
 
-    /// Files a squash, keeping the one that removes more of the window
-    /// when one is already pending.
+    /// Files a squash, keeping whichever of it and the pending one takes
+    /// precedence (see [`PendingSquash::takes_precedence_over`]).
     pub fn request_squash(&mut self, squash: PendingSquash) {
-        let replaces = self.pending_squash.is_none_or(|pending| squash.is_older_than(&pending));
+        let replaces =
+            self.pending_squash.is_none_or(|pending| squash.takes_precedence_over(&pending));
         if replaces {
             self.pending_squash = Some(squash);
         }
@@ -583,6 +584,42 @@ mod tests {
     use super::*;
     use crate::core::pipeline::backend::inorder::InOrderEngine;
     use crate::core::pipeline::frontend::Frontend;
+
+    fn squash(
+        keep: u32,
+        cause: crate::core::pipeline::squash::SquashCause,
+        target: u64,
+    ) -> PendingSquash {
+        PendingSquash {
+            keep_tag: Some(RobTag(keep)),
+            redirect: crate::core::pipeline::squash::Redirect::to(target, cause),
+            apply_at: 10,
+        }
+    }
+
+    #[test]
+    fn a_mispredict_filed_after_a_violation_behind_it_still_redirects() {
+        use crate::core::pipeline::squash::SquashCause;
+        let mut common = BackendCommon::default();
+
+        common.request_squash(squash(5, SquashCause::MemoryOrder, 0x1000));
+        common.request_squash(squash(5, SquashCause::Branch, 0x2000));
+
+        let taken = common.take_due_squash(10).map(|s| s.redirect.target);
+        assert_eq!(taken, Some(0x2000));
+    }
+
+    #[test]
+    fn a_violation_filed_after_a_mispredict_does_not_replace_it() {
+        use crate::core::pipeline::squash::SquashCause;
+        let mut common = BackendCommon::default();
+
+        common.request_squash(squash(5, SquashCause::Branch, 0x2000));
+        common.request_squash(squash(5, SquashCause::MemoryOrder, 0x1000));
+
+        let taken = common.take_due_squash(10).map(|s| s.redirect.target);
+        assert_eq!(taken, Some(0x2000));
+    }
 
     #[test]
     fn test_backend_type_default() {
