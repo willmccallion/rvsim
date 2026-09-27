@@ -379,7 +379,10 @@ mod tests {
         let remapped = LEAF + (1 << 10);
         let revoked = LEAF & !0b100;
 
-        assert_eq!((set_dirty().applied_to(remapped), set_dirty().applied_to(revoked)), (None, None));
+        assert_eq!(
+            (set_dirty().applied_to(remapped), set_dirty().applied_to(revoked)),
+            (None, None)
+        );
     }
 
     #[test]

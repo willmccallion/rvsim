@@ -365,7 +365,10 @@ fn check_permissions(
 /// The hardware A/D updates the access that walked to leaf `pte` needs:
 /// setting A, which the walker does at once, and setting D for a store,
 /// which waits until the store retires.
-fn access_bit_updates(state: &WalkState, pte: PageTableEntry) -> (Option<PteUpdate>, Option<PteUpdate>) {
+fn access_bit_updates(
+    state: &WalkState,
+    pte: PageTableEntry,
+) -> (Option<PteUpdate>, Option<PteUpdate>) {
     let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
     let vpn_i = (state.vaddr.val() >> vpn_shift) & VPN_ENTRY_MASK;
     let pte_addr = PhysAddr::new((state.ppn_raw << PAGE_SHIFT) + (vpn_i * PTE_SIZE));

@@ -632,7 +632,14 @@ fn emit_load_req<E: ExecutionEngine>(
     let parts_outstanding = if second_line.is_some() { 2 } else { 1 };
     let _ = engine.common_mut().outstanding_loads.insert(
         req_id,
-        OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, side_effecting, parts_outstanding },
+        OutstandingLoad {
+            entry: ex,
+            paddr,
+            vaddr,
+            dirty_updates,
+            side_effecting,
+            parts_outstanding,
+        },
     );
 }
 

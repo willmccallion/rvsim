@@ -235,10 +235,9 @@ fn set_accessed_bit<E: ExecutionEngine>(
     let Some(pte) = state.set_pte_accessed(update) else { return };
     let common = pipeline.engine.common_mut();
     let req_id = common.alloc_req_id();
-    let _ = common.outstanding_stores.insert(
-        req_id,
-        OutstandingStore { rob_tag: RobTag::default(), paddr: update.pte_addr },
-    );
+    let _ = common
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { rob_tag: RobTag::default(), paddr: update.pte_addr });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
     let cycle = state.cycle;
     state.events().schedule(

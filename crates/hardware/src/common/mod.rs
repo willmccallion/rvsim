@@ -34,7 +34,9 @@ pub use addr::{Asid, IrqId, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
 pub use constants::{PAGE_SHIFT, VPN_MASK};
 pub use csr_addr::CsrAddr;
 pub use data::AccessType;
-pub use error::{DirtyUpdates, ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, TranslationResult, Trap};
+pub use error::{
+    DirtyUpdates, ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, TranslationResult, Trap,
+};
 pub use ids::{CoreId, HartId, InstSeq};
 pub use inst_size::InstSize;
 pub use reg::RegisterFile;

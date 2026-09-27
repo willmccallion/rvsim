@@ -827,7 +827,9 @@ pub struct MemoryConfig {
     pub paging_mode_max: crate::core::arch::csr::PagingMode,
 }
 
-fn deserialize_misa<'de, D>(deserializer: D) -> Result<Option<crate::core::arch::csr::Misa>, D::Error>
+fn deserialize_misa<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::core::arch::csr::Misa>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
