@@ -540,6 +540,8 @@ pub struct ControlSignals {
     pub rs3_fp: bool,
     /// Atomic memory operation type.
     pub atomic_op: AtomicOp,
+    /// An atomic with the `aq` bit: no younger load may perform before it.
+    pub acquire: bool,
     /// Vector operation type.
     pub vec_op: VectorOp,
     /// Vector destination register.

@@ -839,8 +839,10 @@ impl Rob {
     ///
     /// A FENCE with successor bits `succ.r` / `succ.w` prevents younger
     /// loads/stores (respectively) from issuing until the FENCE has committed.
-    /// A CBO takes effect at commit, so it holds back every younger load.
-    /// Returns `true` if the instruction is blocked by an older fence or CBO.
+    /// A CBO takes effect at commit, and an atomic with the `aq` bit must
+    /// perform before anything after it, so each holds back younger loads
+    /// until it has completed (gem5 splits an `aq` atomic into the atomic
+    /// and a full barrier). Returns `true` if the instruction is blocked.
     pub fn has_fence_blocking(&self, tag: RobTag, is_load: bool, is_store: bool) -> bool {
         if self.count == 0 || (!is_load && !is_store) {
             return false;
@@ -853,6 +855,9 @@ impl Rob {
                     return false;
                 }
                 if is_load && entry.ctrl.system_op.is_cbo() {
+                    return true;
+                }
+                if is_load && entry.ctrl.acquire && entry.state == RobState::Issued {
                     return true;
                 }
                 if entry.ctrl.system_op == crate::core::pipeline::signals::SystemOp::Fence {
@@ -1122,6 +1127,28 @@ mod tests {
         assert!(rob.has_fence_blocking(t_load, true, false));
         // Store is NOT blocked (succ.w = false)
         assert!(!rob.has_fence_blocking(t_store, false, true));
+    }
+
+    #[test]
+    fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
+        let mut rob = Rob::new(8);
+        let acquire_ctrl = ControlSignals {
+            atomic_op: crate::core::pipeline::signals::AtomicOp::Swap,
+            acquire: true,
+            mem_read: true,
+            mem_write: true,
+            ..Default::default()
+        };
+        let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+        let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
+        let t_amo = alloc_with_inst(&mut rob, 0, acquire_ctrl).unwrap();
+        let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+        let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
+
+        assert!(rob.has_fence_blocking(t_load, true, false));
+        assert!(!rob.has_fence_blocking(t_store, false, true));
+        rob.complete(t_amo, 0);
+        assert!(!rob.has_fence_blocking(t_load, true, false));
     }
 
     #[test]

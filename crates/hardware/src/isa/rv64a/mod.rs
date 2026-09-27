@@ -11,3 +11,6 @@ pub mod funct5;
 
 /// Atomic extension opcodes (AMO, LR, SC).
 pub mod opcodes;
+
+/// The `aq` (acquire) ordering bit of an AMO, LR or SC instruction.
+pub const AQ: u32 = 1 << 26;
