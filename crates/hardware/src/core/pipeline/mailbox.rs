@@ -18,11 +18,9 @@
 //!    sign-extension, AMO RMW, and SB ordering checks.
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
-use crate::common::{ExceptionStage, LineAddr, PhysAddr};
+use crate::common::{ExceptionStage, PhysAddr};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
-use crate::core::pipeline::frontend::fetch1::{
-    FetchWalkHalf, dispatch_fetch_group, drain_fetch_reorder,
-};
+use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
     OutstandingFetch, OutstandingLoad, OutstandingWalk, WalkContinuation,
@@ -154,9 +152,9 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
     result: crate::common::TranslationResult,
 ) {
     match continuation {
-        WalkContinuation::Fetch { fetch_seq, mut entry, half } => {
+        WalkContinuation::Fetch { fetch_seq, mut entry } => {
             pipeline.engine.common_mut().fetch_walk_pending = false;
-            if half == FetchWalkHalf::Lower && result.trap.is_none() {
+            if result.trap.is_none() {
                 // The TLB now holds the page. Fetch the instruction again
                 // from fetch1 so its size, its upper half-word and its
                 // prediction are formed the normal way; the sequence
@@ -171,22 +169,15 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 );
                 return;
             }
-            let line = if let Some(trap) = result.trap {
-                entry.trap = Some(trap);
-                entry.exception_stage = Some(ExceptionStage::Fetch);
-                entry.paddr = PhysAddr::new(0);
-                None
-            } else {
-                entry.upper_paddr = Some(result.paddr);
-                let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
-                Some(LineAddr::from_phys(entry.paddr, line_bytes))
-            };
+            entry.trap = result.trap;
+            entry.exception_stage = Some(ExceptionStage::Fetch);
+            entry.paddr = PhysAddr::new(0);
             dispatch_fetch_group(
                 state,
                 &mut pipeline.engine,
                 &mut pipeline.frontend.fetch_buffer,
                 &mut pipeline.frontend.fetch1_fetch2,
-                OutstandingFetch { fetch_seq, line, entries: vec![entry] },
+                OutstandingFetch { fetch_seq, line: None, entries: vec![entry] },
             );
         }
         WalkContinuation::LoadStore(mut entry) => {

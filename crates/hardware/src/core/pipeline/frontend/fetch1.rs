@@ -76,16 +76,6 @@ impl FetchBuffer {
     }
 }
 
-/// Which half of a 32-bit instruction an outstanding fetch walk translates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FetchWalkHalf {
-    /// The instruction's own PC; `paddr` is unknown until the walk completes.
-    Lower,
-    /// The upper half-word of an instruction straddling a page boundary;
-    /// `paddr` (the lower half) is already known and stays as is.
-    Upper,
-}
-
 /// Accumulates one cycle's fetch entries into an [`OutstandingFetch`].
 #[derive(Default)]
 struct GroupBuilder {
@@ -239,7 +229,6 @@ fn park_fetch_walk<E: ExecutionEngine>(
     walk_state: crate::core::units::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
     entry: Fetch1Fetch2Entry,
-    half: FetchWalkHalf,
 ) {
     let common = engine.common_mut();
     let fetch_seq = common.alloc_fetch_seq();
@@ -251,7 +240,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
         OutstandingWalk {
             state: walk_state,
             pte_addr,
-            continuation: WalkContinuation::Fetch { fetch_seq, entry, half },
+            continuation: WalkContinuation::Fetch { fetch_seq, entry },
         },
     );
     common.fetch_walk_pending = true;
@@ -413,7 +402,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     ghr_snapshot: Ghr::default(),
                     ras_snapshot: RasSnapshot::default(),
                 };
-                park_fetch_walk(state, engine, walk_state, pte_addr, pending, FetchWalkHalf::Lower);
+                park_fetch_walk(state, engine, walk_state, pte_addr, pending);
                 // Fetch holds here until the translation returns: the
                 // encoding, and so the next PC, is unknown until then.
                 break;
@@ -496,18 +485,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                             ghr_snapshot,
                             ras_snapshot,
                         };
-                        park_fetch_walk(
-                            state,
-                            engine,
-                            walk_state,
-                            pte_addr,
-                            pending,
-                            FetchWalkHalf::Upper,
-                        );
-                        // See the lower-half NeedPte arm above. The
-                        // instruction is known to be 32-bit here (compressed
-                        // instructions never cross a page).
-                        current_pc = current_pc.wrapping_add(4);
+                        park_fetch_walk(state, engine, walk_state, pte_addr, pending);
+                        // As for the lower half: fetch holds until the
+                        // translation returns, then fetches this again.
                         break;
                     }
                 }

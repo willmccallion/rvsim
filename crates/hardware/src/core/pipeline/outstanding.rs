@@ -9,7 +9,6 @@
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
-use crate::core::pipeline::frontend::fetch1::FetchWalkHalf;
 use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::units::mmu::ptw::WalkState;
@@ -109,8 +108,9 @@ pub struct OutstandingWalk {
 /// What an in-progress walk resumes once it completes.
 #[derive(Clone, Debug)]
 pub enum WalkContinuation {
-    /// An instruction fetch waiting on its translation. When the walk
-    /// completes the instruction is dispatched as a one-entry fetch group
+    /// An instruction fetch waiting on the translation of its first or
+    /// second half-word. When the walk completes, fetch1 fetches the
+    /// instruction again, or a fault drains as a one-entry fetch group
     /// under `fetch_seq`.
     Fetch {
         /// Sequence number reserved for the group at park time so it drains
@@ -118,10 +118,6 @@ pub enum WalkContinuation {
         fetch_seq: u64,
         /// The instruction whose translation is outstanding.
         entry: Fetch1Fetch2Entry,
-        /// Which half-word the walk translates. A `Lower` walk supplies the
-        /// entry's `paddr`; an `Upper` walk only warms the TLB for fetch2's
-        /// re-translation of the page-crossing upper half.
-        half: FetchWalkHalf,
     },
     /// A demand load or store waiting on its translation. The
     /// `ExMem1Entry` is re-injected into the Execute→Memory1 latch so
