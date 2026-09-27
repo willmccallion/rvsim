@@ -329,9 +329,6 @@ pub fn resolve_jump(
     let mispredicted = actual_target != predicted_target;
 
     rob.set_bp_target(id.rob_tag, actual_target);
-    if is_jalr {
-        state.core_mut().branch_predictor.update_btb(id.pc, actual_target);
-    }
     let rd_link = id.rd == abi::REG_RA || id.rd == abi::REG_T0;
     let rs1_link = is_jalr && (id.rs1 == abi::REG_RA || id.rs1 == abi::REG_T0);
     trace_branch!(state.config.general.trace_instructions;

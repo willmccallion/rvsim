@@ -49,6 +49,14 @@ impl ControlInst {
     const fn predicts_indirect_target(self) -> bool {
         matches!(self, Self::IndirectJump { returns: false, .. })
     }
+
+    const fn is_direct(self) -> bool {
+        matches!(self, Self::Branch { .. } | Self::Jump { .. })
+    }
+
+    const fn is_return(self) -> bool {
+        matches!(self, Self::IndirectJump { returns: true, .. })
+    }
 }
 
 /// One prediction in flight, gem5's `PredictorHistory`.
@@ -140,7 +148,8 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
 
     /// Control instruction `seq` resolved against its prediction: squashes
     /// everything younger, rewrites its own history update with its real
-    /// direction, and keeps its real target for commit.
+    /// direction, keeps its real target for commit, and teaches the BTB a
+    /// taken target, as gem5 does only here.
     pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: u64) {
         let squashed = self.squash_younger_than(Some(seq));
         let Some(record) = self.in_flight.back_mut().filter(|record| record.seq == seq) else {
@@ -152,6 +161,17 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         record.taken = taken;
         record.target = taken.then_some(target);
         self.direction.correct(record.pc, taken, &record.direction);
+        let (pc, inst) = (record.pc, record.inst);
+        if taken && Self::btb_holds(inst) {
+            self.btb.update(pc, target);
+        }
+    }
+
+    /// Whether the BTB keeps this instruction's target (gem5's rule without
+    /// `requiresBTBHit`): a direct branch or jump, or an indirect jump that
+    /// is not a return when there is no indirect predictor to hold it.
+    const fn btb_holds(inst: ControlInst) -> bool {
+        inst.is_direct() || (!P::HAS_INDIRECT_PREDICTOR && !inst.is_return())
     }
 
     /// Trains on every prediction up to and including `done`, the youngest
@@ -162,18 +182,8 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         }
     }
 
-    /// Teaches the BTB a jump's target as soon as it is known.
-    pub fn update_btb(&mut self, pc: u64, target: u64) {
-        self.btb.update(pc, target);
-    }
-
     fn retire(&mut self, record: &PredictorHistory<P::History>) {
         let class = record.inst.class();
-        if class == BranchClass::Conditional
-            && let Some(target) = record.target
-        {
-            self.btb.update(record.pc, target);
-        }
         let indirect_target = record.target.filter(|_| record.inst.predicts_indirect_target());
         let retired = Retired { class, taken: record.taken, indirect_target };
         self.direction.commit(record.pc, retired, &record.direction);

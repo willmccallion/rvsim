@@ -95,6 +95,8 @@ impl ScLTagePredictor {
 }
 
 impl DirectionPredictor for ScLTagePredictor {
+    const HAS_INDIRECT_PREDICTOR: bool = true;
+
     type History = ScLTageHistory;
 
     fn lookup(&self, pc: u64) -> (bool, ScLTageHistory) {

@@ -31,6 +31,12 @@ All predictors share these components:
 
 Set-associative cache (default: 4096 entries, 4-way) that maps branch PCs to their target addresses. Used for indirect jumps where the target isn't encoded in the instruction.
 
+As in gem5, the BTB learns a target only when a taken branch's misprediction
+is corrected: for direct control flow, and for an indirect jump that is not
+a return when the predictor has no indirect target predictor of its own
+(SC-L-TAGE's ITTAGE keeps those). A jump that executes on a path an older
+branch squashes before its own correction arrives teaches it nothing.
+
 ### Return Address Stack (RAS)
 
 Circular stack (default: 32 entries) for call/return prediction, after

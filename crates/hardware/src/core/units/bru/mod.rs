@@ -118,9 +118,4 @@ impl BranchPredictorWrapper {
     pub fn commit(&mut self, done: InstSeq) {
         dispatch!(self, unit => unit.commit(done));
     }
-
-    /// See [`BranchPredUnit::update_btb`].
-    pub fn update_btb(&mut self, pc: u64, target: u64) {
-        dispatch!(self, unit => unit.update_btb(pc, target));
-    }
 }

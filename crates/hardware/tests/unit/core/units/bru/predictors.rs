@@ -212,24 +212,39 @@ fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
     assert_eq!(last_prediction, Some(TARGET));
 }
 
-/// An indirect jump at a branch's address finds the target the branch
-/// taught the BTB when it committed taken.
-fn committed_taken_branch_trains_the_btb<P: DirectionPredictor>(direction: P) {
+/// An indirect jump that mispredicts teaches the BTB its real target.
+fn a_mispredicted_indirect_jump_trains_the_btb<P: DirectionPredictor>(direction: P) {
     let mut bp = Driver::new(direction);
-    let _ = bp.run_branch(PC, true);
+    let jump = ControlInst::IndirectJump { returns: false, link: None };
+    let (seq, predicted) = bp.predict(PC, jump);
+    assert_eq!(predicted, None);
+    bp.unit.mispredict(seq, true, TARGET);
+    bp.unit.commit(seq);
 
-    let (_, target) = bp.predict(PC, ControlInst::IndirectJump { returns: false, link: None });
-
-    assert_eq!(target, Some(TARGET));
+    assert_eq!(bp.predict(PC, jump).1, Some(TARGET));
 }
 
 #[test]
-fn every_predictor_trains_the_btb_on_a_taken_branch() {
-    committed_taken_branch_trains_the_btb(StaticPredictor::new());
-    committed_taken_branch_trains_the_btb(GSharePredictor::new());
-    committed_taken_branch_trains_the_btb(perceptron());
-    committed_taken_branch_trains_the_btb(tage());
-    committed_taken_branch_trains_the_btb(tournament());
+fn a_predictor_without_an_indirect_predictor_keeps_indirect_targets_in_the_btb() {
+    a_mispredicted_indirect_jump_trains_the_btb(StaticPredictor::new());
+    a_mispredicted_indirect_jump_trains_the_btb(GSharePredictor::new());
+    a_mispredicted_indirect_jump_trains_the_btb(perceptron());
+    a_mispredicted_indirect_jump_trains_the_btb(tage());
+    a_mispredicted_indirect_jump_trains_the_btb(tournament());
+}
+
+#[test]
+fn a_correctly_predicted_indirect_jump_leaves_the_btb_alone() {
+    let mut bp = Driver::new(StaticPredictor::new());
+    let jump = ControlInst::IndirectJump { returns: false, link: None };
+    let (first, _) = bp.predict(PC, jump);
+    bp.unit.mispredict(first, true, TARGET);
+    bp.unit.commit(first);
+    let (second, predicted) = bp.predict(PC, jump);
+    assert_eq!(predicted, Some(TARGET));
+    bp.unit.commit(second);
+
+    assert_eq!(bp.predict(PC, jump).1, Some(TARGET));
 }
 
 #[test]
