@@ -9,7 +9,7 @@
 //! 1. TAGE base -> (direction, `TageScMeta`)
 //! 2. Loop predictor override -> if confident, use loop prediction
 //! 3. SC correction -> may flip direction if confident base is wrong
-//! 4. Target: ITTAGE for indirect branches, the unit's BTB otherwise
+//! 4. Target: ITTAGE for indirect jumps, the unit's BTB otherwise
 
 use crate::config::{IttageConfig, ScConfig, TageConfig};
 use crate::core::units::bru::Ghr;
@@ -132,9 +132,7 @@ impl DirectionPredictor for ScLTagePredictor {
         if retired.class == BranchClass::Conditional {
             self.train_direction(pc, retired.taken, history);
         }
-        if retired.class == BranchClass::Conditional
-            && let Some(target) = retired.target
-        {
+        if let Some(target) = retired.indirect_target {
             self.ittage.update(pc, target, &history.ghr);
         }
         self.push_committed(retired.taken);
@@ -217,15 +215,19 @@ mod tests {
     }
 
     #[test]
-    fn a_committed_taken_branch_teaches_ittage_its_target() {
+    fn a_committed_indirect_jump_teaches_ittage_its_target() {
         let mut pred = predictor();
         let pc = 0x8000_2000u64;
         let target = 0x8000_5000u64;
-        let (_, history) = pred.lookup(pc);
+        let history = pred.unconditional(pc);
 
         pred.commit(
             pc,
-            Retired { class: BranchClass::Conditional, taken: true, target: Some(target) },
+            Retired {
+                class: BranchClass::Unconditional,
+                taken: true,
+                indirect_target: Some(target),
+            },
             &history,
         );
 

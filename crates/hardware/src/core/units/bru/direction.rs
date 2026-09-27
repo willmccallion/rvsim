@@ -22,8 +22,8 @@ pub struct Retired {
     pub class: BranchClass,
     /// Its real direction.
     pub taken: bool,
-    /// Its real target when taken.
-    pub target: Option<u64>,
+    /// Its real target, for an indirect jump that is not a return.
+    pub indirect_target: Option<u64>,
 }
 
 /// A predictor of branch direction with speculatively updated histories.

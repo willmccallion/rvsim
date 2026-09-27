@@ -5,9 +5,10 @@
 //! commit.
 
 use rvsim_core::common::InstSeq;
-use rvsim_core::config::{PerceptronConfig, TageConfig, TournamentConfig};
+use rvsim_core::config::{Config, PerceptronConfig, TageConfig, TournamentConfig};
 use rvsim_core::core::units::bru::predictors::gshare::GSharePredictor;
 use rvsim_core::core::units::bru::predictors::perceptron::PerceptronPredictor;
+use rvsim_core::core::units::bru::predictors::sc_l_tage::ScLTagePredictor;
 use rvsim_core::core::units::bru::predictors::static_bp::StaticPredictor;
 use rvsim_core::core::units::bru::predictors::tage::TagePredictor;
 use rvsim_core::core::units::bru::predictors::tournament::TournamentPredictor;
@@ -191,6 +192,24 @@ fn tournament_learns_an_alternating_branch() {
         }
     }
     assert_eq!(late_mispredictions, 0);
+}
+
+#[test]
+fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
+    let pipeline = Config::default().pipeline;
+    let mut bp = Driver::new(ScLTagePredictor::new(&pipeline.tage, &pipeline.sc, &pipeline.ittage));
+    let jump = ControlInst::IndirectJump { returns: false, link: None };
+    let mut last_prediction = None;
+    for _ in 0..20 {
+        let (seq, predicted) = bp.predict(PC, jump);
+        if predicted != Some(TARGET) {
+            bp.unit.mispredict(seq, true, TARGET);
+        }
+        bp.unit.commit(seq);
+        last_prediction = predicted;
+    }
+
+    assert_eq!(last_prediction, Some(TARGET));
 }
 
 /// An indirect jump at a branch's address finds the target the branch

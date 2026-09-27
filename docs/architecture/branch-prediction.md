@@ -115,7 +115,7 @@ The most accurate predictor available. Combines four sub-predictors into a singl
 1. **TAGE** — same tagged geometric history as the standalone TAGE predictor (default: 8 banks)
 2. **Loop Predictor** — detects counted loops and overrides TAGE when a loop iteration count is learned
 3. **Statistical Corrector (SC)** — a bank of small signed counters indexed by different history lengths that learns to correct systematic TAGE errors. The SC sum is initialized with a centered confidence value from the TAGE prediction: `(2 * |ctr| + 1) * direction`. When the total SC sum disagrees with TAGE and exceeds a threshold, the SC prediction overrides TAGE.
-4. **ITTAGE (Indirect Target TAGE)** — predicts indirect branch targets (computed jumps, virtual dispatch) using the same geometric history structure as TAGE but storing target addresses instead of direction counters
+4. **ITTAGE (Indirect Target TAGE)** — predicts indirect jump targets (computed jumps, virtual dispatch) using the same geometric history structure as TAGE but storing target addresses instead of direction counters; it trains on each committed indirect jump's real target
 
 **USE_ALT_ON_NA** is also applied within SC-L-TAGE's TAGE component, ensuring the SC receives the effective TAGE prediction (after alt-pred override) rather than the raw provider prediction.
 

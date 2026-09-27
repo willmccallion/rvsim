@@ -184,7 +184,7 @@ mod tests {
     }
 
     const fn conditional(taken: bool) -> Retired {
-        Retired { class: BranchClass::Conditional, taken, target: None }
+        Retired { class: BranchClass::Conditional, taken, indirect_target: None }
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
 
         bp.commit(
             0x8000_0010,
-            Retired { class: BranchClass::Unconditional, taken: true, target: None },
+            Retired { class: BranchClass::Unconditional, taken: true, indirect_target: None },
             &record,
         );
 

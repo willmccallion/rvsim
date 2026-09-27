@@ -45,6 +45,10 @@ impl ControlInst {
             Self::Jump { .. } | Self::IndirectJump { .. } => BranchClass::Unconditional,
         }
     }
+
+    const fn predicts_indirect_target(self) -> bool {
+        matches!(self, Self::IndirectJump { returns: false, .. })
+    }
 }
 
 /// One prediction in flight, gem5's `PredictorHistory`.
@@ -170,7 +174,8 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         {
             self.btb.update(record.pc, target);
         }
-        let retired = Retired { class, taken: record.taken, target: record.target };
+        let indirect_target = record.target.filter(|_| record.inst.predicts_indirect_target());
+        let retired = Retired { class, taken: record.taken, indirect_target };
         self.direction.commit(record.pc, retired, &record.direction);
     }
 
