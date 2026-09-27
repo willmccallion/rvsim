@@ -41,11 +41,11 @@ flowchart LR
 
 **Fetch2 / Decode** — Decodes fetched instructions, expands compressed (RVC) 16-bit instructions to their 32-bit equivalents, and generates control signals for the backend. Detects illegal instructions and raises decode-time exceptions.
 
-**Rename** — Maps architectural registers to physical registers using the speculative rename map. Allocates free physical registers from the free list. Writes entries into the ROB and, for loads/stores, the load queue.
+**Rename** — Maps architectural registers to physical registers using the speculative rename map. Allocates free physical registers from the free list. Writes entries into the ROB and, for loads/stores, the load queue. After a serializing instruction (CSR access, ECALL, xRET, WFI, SFENCE.VMA, FENCE.I: gem5's `IsSerializeAfter`), the next instruction waits here until the ROB has drained, starting the cycle after commit empties it (`pipeline.stalls.serialize`), as gem5's O3 rename does.
 
 **Issue Queue** — CAM-style wakeup/select structure. When an instruction's source operands are written back (broadcast on the result bus), the instruction wakes up and becomes ready to issue. Selection uses oldest-first priority with per-functional-unit-type port limits.
 
-**Execute** — Instructions execute on their assigned functional unit. A result is written to the physical register file, its dependents woken and its ROB entry completed when the unit's latency has elapsed (ALU 1 cycle, multiply 3 pipelined, divide 35 non-pipelined by default). Branches resolve here; a misprediction, CSR write, FENCE.I or execute-stage fault produces a `Redirect` that the pipeline takes `redirect_latency` cycles after the result completes, as gem5's squash travels from IEW through commit to fetch. Until it is taken, commit retires nothing the squash will remove and issue keeps executing wrong-path work.
+**Execute** — Instructions execute on their assigned functional unit. A result is written to the physical register file, its dependents woken and its ROB entry completed when the unit's latency has elapsed (ALU 1 cycle, multiply 3 pipelined, divide 35 non-pipelined by default). Branches resolve here; a misprediction, xRET, WFI or FENCE.I produces a `Redirect` that the pipeline takes `redirect_latency` cycles after the result completes, as gem5's squash travels from IEW through commit to fetch. Until it is taken, commit retires nothing the squash will remove and issue keeps executing wrong-path work. A fault raised here (illegal instruction, ECALL, a debug trigger, or a trap carried from fetch or decode) does not redirect: it travels with the instruction, writeback records it on the ROB entry, and commit takes it and flushes everything younger once.
 
 **Memory1** — Translates virtual addresses through the D-TLB, probes L1D cache tags. On a hit, the data is available for Memory2. On a miss with MSHRs, the load is parked in an MSHR and the pipeline continues. On a miss without MSHRs, the access blocks until the line arrives.
 
@@ -65,7 +65,7 @@ flowchart LR
 
 1. **System/CSR instructions** issue only from the head of the ROB, once everything older has retired (`rob.is_head`)
 2. **FENCE** instructions wait for older operations matching the predecessor bits (`fence_pred_satisfied`)
-3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits (`has_fence_blocking`)
+3. **Loads/stores** are blocked by older in-flight FENCE instructions with matching successor bits, and loads by any older uncommitted CBO, which takes effect at commit (`has_fence_blocking`)
 4. **Loads** wait for all older stores to resolve their addresses (`has_unresolved_store_before`)
 
 **Reorder buffer** — circular buffer with O(1) tag lookup via HashMap. Supports partial flush after branch misprediction (preserves older in-flight work).
@@ -121,7 +121,7 @@ flowchart LR
 
 **Backpressure gating.** The execute-to-memory1 latch has limited capacity. When it's occupied (e.g., the previous instruction is still in the memory pipeline), the issue stage is gated off — no new instructions can issue until the latch drains.
 
-**Same serialization guarantees as O3.** The same four serialization checks (system/CSR, FENCE, FENCE blocking, store address resolution) are enforced at issue time. This ensures correctness and makes the two backends functionally equivalent. A redirect is taken `redirect_latency` cycles (default 1, gem5 MinorCPU's execute-to-fetch latch) after the result completes; unlike the O3 backend, nothing the pending squash will remove issues in the meantime.
+**Same serialization guarantees as O3.** The same four serialization checks (system/CSR, FENCE, FENCE/CBO blocking, store address resolution) are enforced at issue time. This ensures correctness and makes the two backends functionally equivalent. Where O3 holds rename behind a serializing instruction, the in-order backend squashes and refetches after it, CSR reads included, as gem5's MinorCPU forces a branch after every `IsSerializeAfter` instruction. A redirect is taken `redirect_latency` cycles (default 1, gem5 MinorCPU's execute-to-fetch latch) after the result completes; unlike the O3 backend, nothing the pending squash will remove issues in the meantime.
 
 **Vector memory through the memory stages.** A vector load or store issues from the ROB head and becomes one element micro-op per element address, flowing through Memory1, Memory2 and Writeback like scalar accesses. A load's elements land in the architectural register at writeback; a store's element data waits in the vector store buffer, forwards to younger scalar loads, and is published at commit. Other vector instructions still execute against the architectural registers at issue and flush what follows them.
 
