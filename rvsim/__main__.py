@@ -4,6 +4,7 @@ CLI entry point for rvsim.
 Usage::
 
     rvsim <file> [options]   Run an ELF binary, kernel image, or Python script
+    rvsim bench [names]      Run benchmarks inside Linux on a configuration
     rvsim list               List bundled programs
 """
 
@@ -111,6 +112,10 @@ def _print_help() -> None:
         "    [cyan]rvsim[/] [green]<file>[/] [dim][[/][yellow]options[/][dim]][/]",
         highlight=False,
     )
+    console.print(
+        "    [cyan]rvsim[/] [green]bench[/] [dim][[/][yellow]names[/][dim]] [[/][yellow]options[/][dim]][/]",
+        highlight=False,
+    )
     console.print("    [cyan]rvsim[/] [green]list[/]", highlight=False)
     console.print()
 
@@ -169,6 +174,10 @@ def _print_help() -> None:
         "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
     )
     ex_table.add_row("rvsim experiment.py", "run a Python script via the rvsim API")
+    ex_table.add_row(
+        "rvsim bench coremark stream", "benchmarks inside Linux; the boot is cached"
+    )
+    ex_table.add_row("rvsim bench --help", "options: core config, harts, warm-up, JSON")
     ex_table.add_row("rvsim list", "list bundled programs and benchmarks")
     console.print(Padding(ex_table, (0, 2)))
     console.print()
@@ -192,6 +201,11 @@ def main() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] == "list":
         _cmd_list()
         return
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "bench":
+        from ._bench import main as bench
+
+        sys.exit(bench(sys.argv[2:]))
 
     from importlib.metadata import (
         PackageNotFoundError as _PkgNotFound,

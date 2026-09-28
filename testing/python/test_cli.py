@@ -34,5 +34,28 @@ class JsonExport(unittest.TestCase):
         self.assertIn("core0.cache.l1d.hits", stats)
 
 
+class Bench(unittest.TestCase):
+    def bench(self, *args):
+        return subprocess.run(
+            [sys.executable, "-m", "rvsim", "bench", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_list_names_each_benchmark_and_its_command(self):
+        result = self.bench("--list")
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("coremark", result.stdout)
+        self.assertIn("dhrystone 200000", result.stdout)
+
+    def test_an_unknown_benchmark_is_an_error(self):
+        result = self.bench("not-a-benchmark")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown benchmarks", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
