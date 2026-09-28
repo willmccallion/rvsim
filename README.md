@@ -190,7 +190,7 @@ a mesh and a DDR5-5600 memory subsystem.
 
 ```bash
 make -C software linux              # Build kernel + rootfs via Buildroot
-make run-linux                      # Boot 4 SMP cores (login: root, no password)
+make run-linux                      # Boot 8 SMP cores (login: root, no password)
 rvsim scripts/setup/boot_linux.py --harts 1   # Single core
 ```
 

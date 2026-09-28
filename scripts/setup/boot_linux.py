@@ -9,9 +9,9 @@ Run from repo root:
   sim script scripts/setup/boot_linux.py --no-boot  # only download & build
   sim script scripts/setup/boot_linux.py --no-build # boot only (fail if no Image)
 
-The default boot is the showcase system: four out-of-order cores from the
-``fast`` preset, a MESI snoop-filter home agent over a 2-D mesh, and a
-DDR5-5600 memory subsystem. ``--harts``, ``--memory``, ``--speed-bin`` and
+The default boot is the showcase system: eight out-of-order M-class cores
+from the ``fast`` preset (64KB TAGE-SC-L), a MESI snoop-filter home agent
+over a 2-D mesh, and four channels of DDR5-5600. ``--harts``, ``--memory``, ``--speed-bin`` and
 ``--interconnect`` trim it down.
 """
 
@@ -146,12 +146,12 @@ INTERCONNECTS = {
 def memory_controller(kind: str, speed_bin: str):
     """The DDR5 controller at ``speed_bin``, or the preset's row-buffer DRAM model."""
     if kind == "ddr5":
-        return MemoryController.DDR5(speed_bin=speed_bin)
+        return MemoryController.DDR5(speed_bin=speed_bin, channels=4)
     return presets.fast().memory_controller
 
 
 def config(
-    hart_count: int = 4,
+    hart_count: int = 8,
     memory: str = "ddr5",
     speed_bin: str = "5600B",
     interconnect: str = "mesh",
@@ -200,7 +200,7 @@ def main():
         "--no-boot", action="store_true", help="Only build; do not run simulator"
     )
     ap.add_argument(
-        "--harts", type=int, default=4, help="Number of harts to boot (default 4)"
+        "--harts", type=int, default=8, help="Number of harts to boot (default 8)"
     )
     ap.add_argument(
         "--memory",

@@ -26,11 +26,12 @@ The build takes about 15-30 minutes on first run (cached after that).
 make run-linux                       # or: rvsim scripts/setup/boot_linux.py
 ```
 
-The default system is the showcase configuration: four out-of-order cores
-from the `fast` preset (8-wide, 630-entry ROB, SC-L-TAGE), private L1/L2
-caches kept coherent by a MESI snoop-filter home agent over a 2-D mesh, a
-shared L3, and a DDR5-5600 memory subsystem with JEDEC command timing.
-Linux brings up all four CPUs and runs the BusyBox userspace on them.
+The default system is the showcase configuration: eight out-of-order cores
+from the `fast` preset (Apple M4 P-core class: 8-wide at 4.4 GHz, 630-entry
+ROB, Seznec's 64KB TAGE-SC-L), private L1/L2 caches kept coherent by a MESI
+snoop-filter home agent over a 2-D mesh, a shared L3, and four channels of
+DDR5-5600 with JEDEC command timing. Linux brings up all eight CPUs and runs
+the BusyBox userspace on them.
 
 ```bash
 rvsim scripts/setup/boot_linux.py --harts 1                  # single core

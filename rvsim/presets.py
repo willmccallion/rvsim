@@ -4,9 +4,9 @@ Built-in configuration presets.
 Two presets are provided:
 
 - ``basic`` — modest 4-wide OoO core, small caches, good for quick runs.
-- ``fast``  — Apple M4 P-core class: 8-wide OoO, 630-entry ROB, 192KB L1I,
-  128KB L1D, 4MB L2, 36MB L3, SC-L-TAGE+ITTAGE predictor, 4 unified
-  FP/SIMD pipes, and DRAM controller.
+- ``fast``  — Apple M4 P-core class: 8-wide OoO at 4.4 GHz, 630-entry ROB,
+  192KB L1I, 128KB L1D, 4MB L2, 36MB L3, the 64KB TAGE-SC-L with ITTAGE,
+  4 unified FP/SIMD pipes, and DRAM controller.
 
 Usage from the CLI::
 
@@ -53,8 +53,9 @@ def fast() -> Config:
     - 4 unified FP/SIMD pipes (each handles add, mul, FMA)
     - 2 branch units, 4 load/store AGUs (3 load + 2 store capable)
     - 192KB 6-way L1I, 128KB 8-way L1D (3-cycle hit), 4MB L2, 36MB L3
-    - SC-L-TAGE+ITTAGE branch predictor (Apple's is proprietary but
-      believed to be TAGE-class)
+    - 4.4 GHz P-core clock
+    - Seznec's 64KB TAGE-SC-L (CBP-5) with ITTAGE (Apple's predictor is
+      proprietary but believed to be TAGE-class)
     - Non-inclusive cache hierarchy
     - LPDDR5-class DRAM controller
 
@@ -69,6 +70,7 @@ def fast() -> Config:
     return Config(
         # ── Frontend ─────────────────────────────────────────────────────
         width=8,
+        cpu_clock_mhz=4400,
         mem_dep_predictor=MemDepPredictor.StoreSet(
             ssit_size=4096,
             lfst_size=512,
