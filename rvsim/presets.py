@@ -20,6 +20,8 @@ Usage from Python::
     Simulator(cfg, binary="mandelbrot.elf").run()
 """
 
+from typing import Optional
+
 from .config import Config
 from .types import (
     Backend,
@@ -206,15 +208,18 @@ def linux(
     speed_bin: str = "5600B",
     interconnect: str = "mesh",
     real_time: bool = True,
+    core: Optional[Config] = None,
 ) -> Config:
-    """The ``fast`` core in a system that boots the bundled Linux image.
+    """``core`` (the ``fast`` preset by default) in a system that boots the
+    bundled Linux image: its memory map, harts, coherence and memory
+    replace the core config's.
 
     ``harts`` harts boot through OpenSBI's HSM into an SMP kernel; with
     more than one, the private caches are kept coherent by a snoop-filter
     home agent over ``interconnect`` (``crossbar``, ``ring``, ``mesh``,
     ``torus`` or ``hypercube``). ``memory`` is ``ddr5`` (JEDEC
     command-level timing at ``speed_bin``, four channels) or ``dram`` (the
-    ``fast`` preset's row-buffer model).
+    core config's own memory controller).
 
     With ``real_time`` the CLINT ticks at the device tree's 10 MHz
     timebase, so the guest's clock keeps time with the modelled one.
@@ -222,7 +227,7 @@ def linux(
     ``cpu_clock_mhz / 10`` times fast, which shortens a boot's sleeps and
     timeouts but floods measurements with timer interrupts.
     """
-    base = fast()
+    base = core if core is not None else fast()
     if interconnect not in INTERCONNECTS:
         raise ValueError(f"interconnect must be one of {sorted(INTERCONNECTS)}, got {interconnect!r}")
     if memory == "ddr5":
