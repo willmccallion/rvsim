@@ -58,11 +58,8 @@ impl CoreCtx<'_> {
                 // Hang detection reads the instruction at the stuck PC for
                 // tracing; uses the RAM fast-path pointer (bench-side
                 // observability — no cache modelling needed).
-                let paddr_raw = if let Some(hit) = self
-                    .core
-                    .mmu
-                    .dtlb
-                    .lookup(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
+                let paddr_raw = if let Some(hit) =
+                    self.core.mmu.dtlb.peek(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
                 {
                     hit.ppn.to_addr() | (self.hart.pc & PAGE_OFFSET_MASK)
                 } else {

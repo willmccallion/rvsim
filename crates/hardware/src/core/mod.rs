@@ -25,6 +25,7 @@ use crate::core::pipeline::write_buffer::WriteCombiningBuffer;
 use crate::core::units::bru::BranchPredictorWrapper;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
+use crate::core::units::mmu::tlb::TlbGeometry;
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
@@ -103,9 +104,8 @@ impl CoreUnits {
             l1_d_cache,
             l2_cache,
             mmu: Mmu::new(
-                config.memory.tlb_size,
-                config.memory.l2_tlb_size,
-                config.memory.l2_tlb_ways,
+                TlbGeometry { entries: config.memory.tlb_size, ways: config.memory.tlb_ways },
+                TlbGeometry { entries: config.memory.l2_tlb_size, ways: config.memory.l2_tlb_ways },
                 config.memory.l2_tlb_latency,
                 config.memory.paging_mode_max,
             ),

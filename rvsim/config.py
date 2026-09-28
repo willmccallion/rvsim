@@ -97,8 +97,9 @@ class Config:
         # Memory
         ram_size="256MB",
         memory_controller=None,
-        tlb_size: int = 32,
-        l2_tlb_size: int = 512,
+        tlb_size: int = 64,
+        tlb_ways: int = 0,
+        l2_tlb_size: int = 0,
         l2_tlb_ways: int = 4,
         l2_tlb_latency: int = 4,
         misaligned_access_trap: bool = False,
@@ -160,6 +161,7 @@ class Config:
             else MemoryController.Simple()
         )
         self.tlb_size = tlb_size
+        self.tlb_ways = tlb_ways
         self.l2_tlb_size = l2_tlb_size
         self.l2_tlb_ways = l2_tlb_ways
         self.l2_tlb_latency = l2_tlb_latency
@@ -697,6 +699,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "ram_size": cfg.ram_size,
         "controller": _mc_name(mc),
         "tlb_size": cfg.tlb_size,
+        "tlb_ways": cfg.tlb_ways,
         "l2_tlb_size": cfg.l2_tlb_size,
         "l2_tlb_ways": cfg.l2_tlb_ways,
         "l2_tlb_latency": cfg.l2_tlb_latency,

@@ -18,6 +18,7 @@ use crate::core::arch::csr::{
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::{Pmp, PmpResult};
+use crate::core::units::mmu::tlb::PageSize;
 
 /// Page Table Entry valid bit (bit 0).
 const PTE_VALID_BIT: u64 = 1;
@@ -302,12 +303,18 @@ pub fn continue_walk(
     let vpn = Vpn::new((state.vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
 
     let pte_raw = pte.raw();
+    let Some(size) = PageSize::from_level(state.level) else {
+        return WalkStep::Done(TranslationResult::fault(
+            page_fault(state.vaddr.val(), state.access),
+            state.cycles,
+        ));
+    };
     if state.access == AccessType::Fetch {
-        mmu.itlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid);
+        mmu.itlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid, size);
     } else {
-        mmu.dtlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid);
+        mmu.dtlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid, size);
     }
-    mmu.l2_tlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid);
+    mmu.l2_tlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid, size);
 
     let result = TranslationResult {
         paddr: PhysAddr::new(final_paddr),

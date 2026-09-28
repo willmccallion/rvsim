@@ -114,13 +114,15 @@ mod defaults {
     /// are unavailable.
     pub const T_RFC: u64 = 350;
 
-    /// Translation Lookaside Buffer entry count (L1).
-    ///
-    /// Number of virtual-to-physical address translations cached in each L1 TLB.
-    pub const TLB_SIZE: usize = 32;
+    /// Entries in each L1 TLB (instruction and data): gem5's RISC-V TLB
+    /// size.
+    pub const TLB_SIZE: usize = 64;
 
-    /// L2 TLB entry count (shared between iTLB and dTLB).
-    pub const L2_TLB_SIZE: usize = 512;
+    /// L1 TLB ways per set; zero for fully associative, as in gem5.
+    pub const TLB_WAYS: usize = 0;
+
+    /// Entries in the shared L2 TLB; zero for none, as in gem5.
+    pub const L2_TLB_SIZE: usize = 0;
 
     /// L2 TLB associativity (ways per set).
     pub const L2_TLB_WAYS: usize = 4;
@@ -787,7 +789,11 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_tlb_size")]
     pub tlb_size: usize,
 
-    /// L2 TLB entry count (shared between iTLB and dTLB)
+    /// L1 TLB associativity (ways per set); 0 for fully associative
+    #[serde(default = "MemoryConfig::default_tlb_ways")]
+    pub tlb_ways: usize,
+
+    /// L2 TLB entry count (shared between iTLB and dTLB); 0 for none
     #[serde(default = "MemoryConfig::default_l2_tlb_size")]
     pub l2_tlb_size: usize,
 
@@ -924,6 +930,11 @@ impl MemoryConfig {
         defaults::TLB_SIZE
     }
 
+    /// Returns the default L1 TLB associativity.
+    const fn default_tlb_ways() -> usize {
+        defaults::TLB_WAYS
+    }
+
     /// Returns the default L2 TLB entry count.
     const fn default_l2_tlb_size() -> usize {
         defaults::L2_TLB_SIZE
@@ -971,6 +982,7 @@ impl Default for MemoryConfig {
             t_refi: defaults::T_REFI,
             t_rfc: defaults::T_RFC,
             tlb_size: defaults::TLB_SIZE,
+            tlb_ways: defaults::TLB_WAYS,
             l2_tlb_size: defaults::L2_TLB_SIZE,
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,

@@ -1,18 +1,141 @@
-//! Translation Lookaside Buffer (TLB).
+//! Translation Lookaside Buffers (TLBs).
 //!
-//! Provides both L1 TLBs (direct-mapped, per iTLB/dTLB) and a shared L2 TLB
-//! (set-associative). L1 TLBs cache the mapping between Virtual Page Numbers
-//! (VPN) and Physical Page Numbers (PPN), along with permission bits (R/W/X/U)
-//! to speed up address translation. On L1 miss the shared L2 TLB is consulted
-//! before invoking the hardware page table walker.
+//! One structure serves both levels: `entries` slots in sets of `ways`
+//! with LRU replacement within a set, fully associative when `ways` is zero
+//! (gem5's RISC-V TLB, the default for the L1 TLBs) and absent when
+//! `entries` is zero (the default for the shared L2 TLB, which gem5 does
+//! not have). Each entry maps a whole page of the size its leaf PTE was
+//! found at, so a 2 MiB kernel mapping is one entry; a page lives in the set
+//! its page number above the page offset selects, and a lookup probes the
+//! set of each page size.
 
 use crate::common::{Asid, Ppn, Vpn};
+
+/// Bits of a VPN one page-table level translates.
+const VPN_BITS_PER_LEVEL: u32 = 9;
+
+/// PTE bits a TLB keeps: V, R, W, X, U, G and D.
+const PTE_R: u64 = 1 << 1;
+const PTE_W: u64 = 1 << 2;
+const PTE_X: u64 = 1 << 3;
+const PTE_U: u64 = 1 << 4;
+const PTE_G: u64 = 1 << 5;
+const PTE_D: u64 = 1 << 7;
+
+/// The size of the page a leaf PTE maps, from the level it was found at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageSize {
+    /// A base page, from a level-0 leaf.
+    Kib4,
+    /// A megapage, from a level-1 leaf.
+    Mib2,
+    /// A gigapage, from a level-2 leaf.
+    Gib1,
+    /// A terapage, from a level-3 leaf (Sv48 and Sv57).
+    Gib512,
+    /// A petapage, from a level-4 leaf (Sv57).
+    Tib256,
+}
+
+impl PageSize {
+    /// Every size, smallest first.
+    pub const ALL: [Self; 5] = [Self::Kib4, Self::Mib2, Self::Gib1, Self::Gib512, Self::Tib256];
+
+    /// The size a leaf found at walk level `level` maps; `None` beyond Sv57.
+    #[must_use]
+    pub const fn from_level(level: u32) -> Option<Self> {
+        match level {
+            0 => Some(Self::Kib4),
+            1 => Some(Self::Mib2),
+            2 => Some(Self::Gib1),
+            3 => Some(Self::Gib512),
+            4 => Some(Self::Tib256),
+            _ => None,
+        }
+    }
+
+    /// Low VPN bits that index within a page of this size.
+    const fn vpn_offset_bits(self) -> u32 {
+        let level = match self {
+            Self::Kib4 => 0,
+            Self::Mib2 => 1,
+            Self::Gib1 => 2,
+            Self::Gib512 => 3,
+            Self::Tib256 => 4,
+        };
+        level * VPN_BITS_PER_LEVEL
+    }
+
+    /// Mask of the VPN bits that index within a page of this size.
+    const fn vpn_offset_mask(self) -> u64 {
+        (1u64 << self.vpn_offset_bits()) - 1
+    }
+}
+
+/// One cached translation: a page of `size` starting at base page `vpn`,
+/// mapped to base physical page `ppn`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mapping {
+    /// First base page of the virtual page.
+    vpn: Vpn,
+    /// First base page of the physical page.
+    ppn: Ppn,
+    /// Page size.
+    size: PageSize,
+    /// The leaf PTE's permission and status bits.
+    pte: u64,
+    /// Address space the mapping belongs to (ignored when global).
+    asid: Asid,
+}
+
+impl Mapping {
+    /// The mapping a leaf PTE `pte` gives for base page `vpn` (mapped to
+    /// base page `ppn`) inside a page of `size`.
+    const fn new(vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid, size: PageSize) -> Self {
+        let offset = vpn.val() & size.vpn_offset_mask();
+        Self {
+            vpn: Vpn::new(vpn.val() - offset),
+            ppn: Ppn::new(ppn.val() - offset),
+            size,
+            pte,
+            asid,
+        }
+    }
+
+    const fn is_global(&self) -> bool {
+        self.pte & PTE_G != 0
+    }
+
+    /// True when the page contains base page `vpn`.
+    const fn covers(&self, vpn: Vpn) -> bool {
+        vpn.val() & !self.size.vpn_offset_mask() == self.vpn.val()
+    }
+
+    /// True when the page contains `vpn` in address space `asid`.
+    const fn translates(&self, vpn: Vpn, asid: Asid) -> bool {
+        self.covers(vpn) && (self.is_global() || self.asid.val() == asid.val())
+    }
+
+    /// The hit for base page `vpn`, which the mapping covers.
+    const fn hit(self, vpn: Vpn) -> TlbHit {
+        let pte = self.pte;
+        TlbHit {
+            ppn: Ppn::new(self.ppn.val() + (vpn.val() - self.vpn.val())),
+            r: pte & PTE_R != 0,
+            w: pte & PTE_W != 0,
+            x: pte & PTE_X != 0,
+            u: pte & PTE_U != 0,
+            d: pte & PTE_D != 0,
+            mapping: self,
+        }
+    }
+}
 
 /// Translation data and permission bits returned on a TLB hit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct TlbHit {
-    /// Physical Page Number.
+    /// Physical page of the looked-up base page.
     pub ppn: Ppn,
     /// Read permission.
     pub r: bool,
@@ -24,358 +147,155 @@ pub struct TlbHit {
     pub u: bool,
     /// Dirty bit (if `false` on a write, the PTW must set it before the mapping is cached).
     pub d: bool,
+    /// The whole mapping, for promoting an L2 hit into an L1 TLB.
+    pub mapping: Mapping,
 }
 
-/// A single entry in the TLB.
+/// The organisation of one TLB level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TlbGeometry {
+    /// Entry count; zero for no TLB at this level.
+    pub entries: usize,
+    /// Ways per set; zero for fully associative.
+    pub ways: usize,
+}
+
+/// A slot of a TLB.
 #[derive(Clone, Copy, Debug, Default)]
-#[allow(clippy::struct_excessive_bools)]
-struct TlbEntry {
-    /// Virtual Page Number (Tag).
-    vpn: Vpn,
-    /// Physical Page Number (Data).
-    ppn: Ppn,
-    /// Entry validity flag.
-    valid: bool,
-    /// Read permission.
-    r: bool,
-    /// Write permission.
-    w: bool,
-    /// Execute permission.
-    x: bool,
-    /// User mode accessible.
-    u: bool,
-    /// Dirty bit from PTE.
-    d: bool,
-    /// Address Space Identifier from SATP[59:44].
-    asid: Asid,
-    /// PTE Global bit — matches regardless of ASID.
-    global: bool,
+struct Slot {
+    mapping: Option<Mapping>,
+    /// Use sequence number of the last access (larger is more recent;
+    /// gem5's `lruSeq`).
+    last_use: u64,
 }
 
-/// Translation Lookaside Buffer structure.
+/// A TLB of `sets * ways` slots with LRU replacement within a set.
 #[derive(Debug)]
 pub struct Tlb {
-    /// Vector of TLB entries.
-    entries: Vec<TlbEntry>,
-    /// Mask used for indexing (size - 1).
-    mask: usize,
-}
-
-impl Tlb {
-    /// Creates a new TLB with the specified size.
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - Number of entries (will be rounded up to next power of 2).
-    pub fn new(size: usize) -> Self {
-        let safe_size = if size.is_power_of_two() { size } else { size.next_power_of_two() };
-
-        Self { entries: vec![TlbEntry::default(); safe_size], mask: safe_size - 1 }
-    }
-
-    /// Looks up a VPN in the TLB.
-    ///
-    /// # Arguments
-    ///
-    /// * `vpn` - The Virtual Page Number to look up.
-    /// * `asid` - The current Address Space Identifier from SATP[59:44].
-    ///
-    /// # Returns
-    ///
-    /// Returns [`TlbHit`] if the VPN is cached, otherwise `None`.
-    /// Global entries (G bit set in PTE) match regardless of ASID.
-    ///
-    /// # Panics
-    ///
-    /// This function will not panic. The unsafe array access is guaranteed safe because:
-    /// - `idx = vpn & self.mask` where `mask = size - 1` (size is power of 2)
-    /// - This ensures `idx` is always `< size` and within bounds of `entries`
-    #[inline(always)]
-    pub fn lookup(&self, vpn: Vpn, asid: Asid) -> Option<TlbHit> {
-        let idx = (vpn.val() as usize) & self.mask;
-
-        // SAFETY: mask = entries.len() - 1, so idx & mask is always in bounds.
-        let entry = unsafe { self.entries.get_unchecked(idx) };
-
-        if entry.valid && entry.vpn == vpn && (entry.global || entry.asid == asid) {
-            return Some(TlbHit {
-                ppn: entry.ppn,
-                r: entry.r,
-                w: entry.w,
-                x: entry.x,
-                u: entry.u,
-                d: entry.d,
-            });
-        }
-        None
-    }
-
-    /// Inserts a new mapping into the TLB.
-    ///
-    /// # Arguments
-    ///
-    /// * `vpn` - Virtual Page Number.
-    /// * `ppn` - Physical Page Number.
-    /// * `pte` - Raw Page Table Entry (used to extract permissions).
-    /// * `asid` - Address Space Identifier from SATP[59:44].
-    pub fn insert(&mut self, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
-        let r = (pte >> 1) & 1 != 0;
-        let w = (pte >> 2) & 1 != 0;
-        let x = (pte >> 3) & 1 != 0;
-        let u = (pte >> 4) & 1 != 0;
-        let global = (pte >> 5) & 1 != 0;
-        let d = (pte >> 7) & 1 != 0;
-
-        let idx = (vpn.val() as usize) & self.mask;
-
-        self.entries[idx] = TlbEntry { vpn, ppn, valid: true, r, w, x, u, d, asid, global };
-    }
-
-    /// Invalidates a single TLB entry by VPN (used for dirty-bit re-walk).
-    pub fn invalidate(&mut self, vpn: Vpn) {
-        let idx = (vpn.val() as usize) & self.mask;
-        if self.entries[idx].valid && self.entries[idx].vpn == vpn {
-            self.entries[idx].valid = false;
-        }
-    }
-
-    /// Flushes all entries from the TLB.
-    ///
-    /// Called when SFENCE.VMA has rs1=x0 and rs2=x0.
-    pub fn flush(&mut self) {
-        for e in &mut self.entries {
-            e.valid = false;
-        }
-    }
-
-    /// Flushes TLB entries matching a specific virtual address.
-    ///
-    /// Called when SFENCE.VMA has rs1!=x0 and rs2=x0.
-    /// Invalidates entries whose VPN matches `vpn`, regardless of ASID.
-    pub fn flush_vaddr(&mut self, vpn: Vpn) {
-        let idx = (vpn.val() as usize) & self.mask;
-        if self.entries[idx].valid && self.entries[idx].vpn == vpn {
-            self.entries[idx].valid = false;
-        }
-    }
-
-    /// Flushes TLB entries matching a specific ASID.
-    ///
-    /// Called when SFENCE.VMA has rs1=x0 and rs2!=x0.
-    /// Invalidates all non-global entries with the given ASID.
-    pub fn flush_asid(&mut self, asid: Asid) {
-        for e in &mut self.entries {
-            if e.valid && !e.global && e.asid == asid {
-                e.valid = false;
-            }
-        }
-    }
-
-    /// Flushes TLB entries matching both a virtual address and ASID.
-    ///
-    /// Called when SFENCE.VMA has rs1!=x0 and rs2!=x0.
-    /// Invalidates the entry at `vpn` only if it is non-global and has the given ASID.
-    pub fn flush_vaddr_asid(&mut self, vpn: Vpn, asid: Asid) {
-        let idx = (vpn.val() as usize) & self.mask;
-        let e = &mut self.entries[idx];
-        if e.valid && e.vpn == vpn && !e.global && e.asid == asid {
-            e.valid = false;
-        }
-    }
-}
-
-/// Shared L2 TLB sitting between the per-access-type L1 TLBs and the
-/// hardware page table walker. 4-way set-associative with LRU replacement.
-#[derive(Debug)]
-pub struct L2Tlb {
-    /// Flat array of entries: `sets * ways` elements, laid out
-    /// `[set0_way0, set0_way1, …, set0_wayN, set1_way0, …]`.
-    entries: Vec<TlbEntry>,
+    /// Slots laid out set by set.
+    slots: Vec<Slot>,
     /// Associativity (ways per set).
     ways: usize,
     /// Mask for set indexing (`num_sets - 1`).
     set_mask: usize,
-    /// Per-set LRU counters. Each element is a small array of way ages
-    /// (lower = more recently used). Stored flat: `[set0_way0_age, set0_way1_age, …]`.
-    lru: Vec<u8>,
-    /// Access latency in cycles for an L2 TLB hit.
-    pub latency: u64,
+    /// Last use sequence number handed out.
+    next_use: u64,
 }
 
-impl L2Tlb {
-    /// Creates a new L2 TLB.
-    ///
-    /// * `total_entries` – total capacity (rounded up to a multiple of `ways`).
-    /// * `ways` – set associativity (e.g. 4).
-    /// * `latency` – cycles charged on an L2 TLB hit.
-    pub fn new(total_entries: usize, ways: usize, latency: u64) -> Self {
-        let safe_ways = if ways == 0 { 4 } else { ways };
-        let sets_raw = total_entries / safe_ways;
-        let num_sets =
-            if sets_raw.is_power_of_two() { sets_raw } else { sets_raw.next_power_of_two() }.max(1);
-        let capacity = num_sets * safe_ways;
-
+impl Tlb {
+    /// A TLB of `entries` slots in sets of `ways`: fully associative when
+    /// `ways` is zero or covers every entry, and holding nothing when
+    /// `entries` is zero. The set count is rounded up to a power of two.
+    #[must_use]
+    pub fn new(geometry: TlbGeometry) -> Self {
+        let TlbGeometry { entries, ways } = geometry;
+        if entries == 0 {
+            return Self { slots: Vec::new(), ways: 0, set_mask: 0, next_use: 0 };
+        }
+        let ways = if ways == 0 || ways >= entries { entries } else { ways };
+        let num_sets = entries.div_ceil(ways).next_power_of_two();
         Self {
-            entries: vec![TlbEntry::default(); capacity],
-            ways: safe_ways,
+            slots: vec![Slot::default(); num_sets * ways],
+            ways,
             set_mask: num_sets - 1,
-            lru: vec![0u8; capacity],
-            latency,
+            next_use: 0,
         }
     }
 
-    /// Looks up a VPN in the L2 TLB.
-    ///
-    /// Returns `Some((ppn, pte_bits, asid))` on hit so the caller can
-    /// promote the entry into the L1 TLB. The `pte_bits` value is a
-    /// reconstructed raw PTE suitable for `Tlb::insert`.
-    pub fn lookup(&mut self, vpn: Vpn, asid: Asid) -> Option<(Ppn, u64, Asid)> {
-        let set = (vpn.val() as usize) & self.set_mask;
-        let base = set * self.ways;
-
-        for w in 0..self.ways {
-            let e = &self.entries[base + w];
-            if e.valid && e.vpn == vpn && (e.global || e.asid == asid) {
-                let ppn = e.ppn;
-                let entry_asid = e.asid;
-                let pte_bits = Self::reconstruct_pte(e);
-                self.touch_lru(set, w);
-                return Some((ppn, pte_bits, entry_asid));
-            }
-        }
-        None
+    /// The slots of the set a page of `size` containing `vpn` lives in.
+    const fn set_of(&self, vpn: Vpn, size: PageSize) -> std::ops::Range<usize> {
+        let page_number = vpn.val() >> size.vpn_offset_bits();
+        let base = ((page_number as usize) & self.set_mask) * self.ways;
+        base..base + self.ways
     }
 
-    /// Inserts an entry, evicting the LRU way if the set is full.
-    pub fn insert(&mut self, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
-        let set = (vpn.val() as usize) & self.set_mask;
-        let base = set * self.ways;
-
-        for w in 0..self.ways {
-            let e = &self.entries[base + w];
-            if e.valid && e.vpn == vpn && (e.global || e.asid == asid) {
-                self.write_entry(base + w, vpn, ppn, pte, asid);
-                self.touch_lru(set, w);
-                return;
-            }
+    /// The slot translating base page `vpn` in address space `asid`.
+    fn find(&self, vpn: Vpn, asid: Asid) -> Option<usize> {
+        if self.slots.is_empty() {
+            return None;
         }
-
-        for w in 0..self.ways {
-            if !self.entries[base + w].valid {
-                self.write_entry(base + w, vpn, ppn, pte, asid);
-                self.touch_lru(set, w);
-                return;
-            }
-        }
-
-        let victim = self.lru_victim(set);
-        self.write_entry(base + victim, vpn, ppn, pte, asid);
-        self.touch_lru(set, victim);
+        PageSize::ALL.into_iter().find_map(|size| {
+            self.set_of(vpn, size).find(|&i| {
+                self.slots[i].mapping.is_some_and(|m| m.size == size && m.translates(vpn, asid))
+            })
+        })
     }
 
-    /// Flushes all entries.
+    /// Looks up base page `vpn` in address space `asid`, marking the entry
+    /// most recently used.
+    pub fn lookup(&mut self, vpn: Vpn, asid: Asid) -> Option<TlbHit> {
+        let index = self.find(vpn, asid)?;
+        self.next_use += 1;
+        self.slots[index].last_use = self.next_use;
+        self.slots[index].mapping.map(|m| m.hit(vpn))
+    }
+
+    /// Looks up base page `vpn` without touching replacement state, for
+    /// observers outside the pipeline.
+    #[must_use]
+    pub fn peek(&self, vpn: Vpn, asid: Asid) -> Option<TlbHit> {
+        self.find(vpn, asid).and_then(|index| self.slots[index].mapping).map(|m| m.hit(vpn))
+    }
+
+    /// Caches the translation of base page `vpn` to `ppn` inside a page of
+    /// `size` described by leaf `pte`.
+    pub fn insert(&mut self, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid, size: PageSize) {
+        self.insert_mapping(Mapping::new(vpn, ppn, pte, asid, size));
+    }
+
+    /// Caches `mapping`, replacing one for the same page, else an empty or
+    /// the least recently used way of its set.
+    pub fn insert_mapping(&mut self, mapping: Mapping) {
+        if self.slots.is_empty() {
+            return;
+        }
+        let set = self.set_of(mapping.vpn, mapping.size);
+        let same_page =
+            |m: Mapping| m.vpn == mapping.vpn && m.size == mapping.size && m.asid == mapping.asid;
+        let index = set
+            .clone()
+            .find(|&i| self.slots[i].mapping.is_some_and(same_page))
+            .or_else(|| set.clone().find(|&i| self.slots[i].mapping.is_none()))
+            .or_else(|| set.clone().min_by_key(|&i| self.slots[i].last_use))
+            .unwrap_or(set.start);
+        self.next_use += 1;
+        self.slots[index] = Slot { mapping: Some(mapping), last_use: self.next_use };
+    }
+
+    fn remove_if(&mut self, doomed: impl Fn(&Mapping) -> bool) {
+        for slot in &mut self.slots {
+            if slot.mapping.as_ref().is_some_and(&doomed) {
+                slot.mapping = None;
+            }
+        }
+    }
+
+    /// Drops the entries covering base page `vpn` in any address space
+    /// (used for the dirty-bit re-walk).
+    pub fn invalidate(&mut self, vpn: Vpn) {
+        self.remove_if(|m| m.covers(vpn));
+    }
+
+    /// Flushes every entry (SFENCE.VMA with rs1=x0, rs2=x0).
     pub fn flush(&mut self) {
-        for e in &mut self.entries {
-            e.valid = false;
-        }
+        self.remove_if(|_| true);
     }
 
-    /// Flushes entries matching a specific virtual address.
+    /// Flushes the entries covering `vpn` in any address space (SFENCE.VMA
+    /// with rs1!=x0, rs2=x0).
     pub fn flush_vaddr(&mut self, vpn: Vpn) {
-        let set = (vpn.val() as usize) & self.set_mask;
-        let base = set * self.ways;
-        for w in 0..self.ways {
-            let e = &mut self.entries[base + w];
-            if e.valid && e.vpn == vpn {
-                e.valid = false;
-            }
-        }
+        self.remove_if(|m| m.covers(vpn));
     }
 
-    /// Flushes non-global entries matching a specific ASID.
+    /// Flushes the non-global entries of `asid` (SFENCE.VMA with rs1=x0,
+    /// rs2!=x0).
     pub fn flush_asid(&mut self, asid: Asid) {
-        for e in &mut self.entries {
-            if e.valid && !e.global && e.asid == asid {
-                e.valid = false;
-            }
-        }
+        self.remove_if(|m| !m.is_global() && m.asid == asid);
     }
 
-    /// Flushes entries matching both a virtual address and ASID.
+    /// Flushes the non-global entries of `asid` covering `vpn` (SFENCE.VMA
+    /// with rs1!=x0, rs2!=x0).
     pub fn flush_vaddr_asid(&mut self, vpn: Vpn, asid: Asid) {
-        let set = (vpn.val() as usize) & self.set_mask;
-        let base = set * self.ways;
-        for w in 0..self.ways {
-            let e = &mut self.entries[base + w];
-            if e.valid && e.vpn == vpn && !e.global && e.asid == asid {
-                e.valid = false;
-            }
-        }
-    }
-
-    fn write_entry(&mut self, idx: usize, vpn: Vpn, ppn: Ppn, pte: u64, asid: Asid) {
-        self.entries[idx] = TlbEntry {
-            vpn,
-            ppn,
-            valid: true,
-            r: (pte >> 1) & 1 != 0,
-            w: (pte >> 2) & 1 != 0,
-            x: (pte >> 3) & 1 != 0,
-            u: (pte >> 4) & 1 != 0,
-            global: (pte >> 5) & 1 != 0,
-            d: (pte >> 7) & 1 != 0,
-            asid,
-        };
-    }
-
-    /// Reconstruct a raw PTE value from a `TlbEntry` so it can be
-    /// passed to `Tlb::insert` when promoting from L2 to L1.
-    const fn reconstruct_pte(e: &TlbEntry) -> u64 {
-        let mut pte: u64 = 1;
-        if e.r {
-            pte |= 1 << 1;
-        }
-        if e.w {
-            pte |= 1 << 2;
-        }
-        if e.x {
-            pte |= 1 << 3;
-        }
-        if e.u {
-            pte |= 1 << 4;
-        }
-        if e.global {
-            pte |= 1 << 5;
-        }
-        if e.d {
-            pte |= 1 << 7;
-        }
-        pte
-    }
-
-    /// Mark way `w` as most-recently-used in set `set`.
-    fn touch_lru(&mut self, set: usize, way: usize) {
-        let base = set * self.ways;
-        let old_age = self.lru[base + way];
-        for w in 0..self.ways {
-            if self.lru[base + w] < old_age {
-                self.lru[base + w] += 1;
-            }
-        }
-        self.lru[base + way] = 0;
-    }
-
-    /// Returns the way index of the LRU victim in `set`.
-    fn lru_victim(&self, set: usize) -> usize {
-        let base = set * self.ways;
-        let mut max_age = 0u8;
-        let mut victim = 0;
-        for w in 0..self.ways {
-            if self.lru[base + w] > max_age {
-                max_age = self.lru[base + w];
-                victim = w;
-            }
-        }
-        victim
+        self.remove_if(|m| m.covers(vpn) && !m.is_global() && m.asid == asid);
     }
 }

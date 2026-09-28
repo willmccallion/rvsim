@@ -47,7 +47,7 @@ fn test_memory_config_defaults() {
     assert_eq!(memory.t_ras, 14);
     assert_eq!(memory.t_pre, 14);
     assert_eq!(memory.row_miss_latency, 120);
-    assert_eq!(memory.tlb_size, 32);
+    assert_eq!((memory.tlb_size, memory.tlb_ways, memory.l2_tlb_size), (64, 0, 0));
 }
 
 #[test]

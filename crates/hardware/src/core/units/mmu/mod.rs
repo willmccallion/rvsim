@@ -18,7 +18,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::pmp::Pmp;
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
-use self::tlb::{L2Tlb, Tlb};
+use self::tlb::{Tlb, TlbGeometry, TlbHit};
 
 /// Outcome of [`Mmu::translate_async`].
 ///
@@ -50,8 +50,10 @@ pub struct Mmu {
     pub dtlb: Tlb,
     /// Instruction TLB for fetch address translation.
     pub itlb: Tlb,
-    /// Shared L2 TLB (set-associative, consulted on L1 miss).
-    pub l2_tlb: L2Tlb,
+    /// Shared L2 TLB, consulted on an L1 miss; empty when not configured.
+    pub l2_tlb: Tlb,
+    /// L2 TLB hit latency in cycles.
+    pub l2_tlb_latency: u64,
     /// Highest SATP paging mode the CPU writer will accept. Anything above
     /// this is coerced to Bare on write, letting tests pin a mode without
     /// rebuilding the kernel (e.g. force a Sv57-aware Linux onto Sv39).
@@ -59,26 +61,21 @@ pub struct Mmu {
 }
 
 impl Mmu {
-    /// Creates a new MMU with the specified TLB sizes.
-    ///
-    /// # Arguments
-    ///
-    /// * `tlb_size` - Number of entries in each L1 TLB (instruction and data)
-    /// * `l2_size` - Total number of entries in the shared L2 TLB
-    /// * `l2_ways` - L2 TLB associativity (ways per set)
-    /// * `l2_latency` - L2 TLB hit latency in cycles
-    /// * `paging_mode_max` - Highest paging mode the SATP writer will accept
+    /// Creates an MMU with instruction and data L1 TLBs of `l1`'s geometry,
+    /// a shared L2 TLB of `l2`'s hitting after `l2_latency` cycles, and a
+    /// SATP writer accepting modes up to `paging_mode_max`.
+    #[must_use]
     pub fn new(
-        tlb_size: usize,
-        l2_size: usize,
-        l2_ways: usize,
+        l1: TlbGeometry,
+        l2: TlbGeometry,
         l2_latency: u64,
         paging_mode_max: PagingMode,
     ) -> Self {
         Self {
-            dtlb: Tlb::new(tlb_size),
-            itlb: Tlb::new(tlb_size),
-            l2_tlb: L2Tlb::new(l2_size, l2_ways, l2_latency),
+            dtlb: Tlb::new(l1),
+            itlb: Tlb::new(l1),
+            l2_tlb: Tlb::new(l2),
+            l2_tlb_latency: l2_latency,
             paging_mode_max,
         }
     }
@@ -198,13 +195,9 @@ impl Mmu {
             }
         }
 
-        let l2_latency = self.l2_tlb.latency;
-        if let Some((ppn, pte_bits, entry_asid)) = self.l2_tlb.lookup(vpn, asid) {
-            let r = (pte_bits >> 1) & 1 != 0;
-            let w = (pte_bits >> 2) & 1 != 0;
-            let x = (pte_bits >> 3) & 1 != 0;
-            let u = (pte_bits >> 4) & 1 != 0;
-            let d = (pte_bits >> 7) & 1 != 0;
+        let l2_latency = self.l2_tlb_latency;
+        if let Some(hit) = self.l2_tlb.lookup(vpn, asid) {
+            let TlbHit { ppn, r, w, x, u, d, mapping } = hit;
 
             if access == AccessType::Write && !d {
                 // fall through to PTW so it sets the dirty bit
@@ -254,9 +247,9 @@ impl Mmu {
                 }
 
                 if access == AccessType::Fetch {
-                    self.itlb.insert(vpn, ppn, pte_bits, entry_asid);
+                    self.itlb.insert_mapping(mapping);
                 } else {
-                    self.dtlb.insert(vpn, ppn, pte_bits, entry_asid);
+                    self.dtlb.insert_mapping(mapping);
                 }
 
                 let paddr = ppn.to_addr() | vaddr.page_offset();

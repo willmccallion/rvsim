@@ -1,6 +1,6 @@
 //! An L2 TLB hit costs the configured latency before the access proceeds.
 //!
-//! Forty pages of loads evict the first page from the 32-entry L1 DTLB,
+//! Forty pages of loads evict the first page from a 32-entry L1 DTLB,
 //! so the final load of page 0 hits the L2 TLB; that load, and nothing
 //! else, gets slower when `l2_tlb_latency` grows.
 
@@ -25,6 +25,9 @@ const PAGES: u64 = 40;
 const DRAIN_NOPS: u64 = 80;
 const ROB_SIZE: usize = 4;
 const L2_LATENCY: u64 = 25;
+const L1_TLB_ENTRIES: usize = 32;
+const L2_TLB_ENTRIES: usize = 512;
+const L2_TLB_WAYS: usize = 4;
 const A0: u32 = 10;
 const A1: u32 = 11;
 const T0: u32 = 5;
@@ -57,6 +60,9 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     config.pipeline.width = 1;
     // A tiny ROB keeps the commit backlog from hiding the delay.
     config.pipeline.rob_size = ROB_SIZE;
+    config.memory.tlb_size = L1_TLB_ENTRIES;
+    config.memory.l2_tlb_size = L2_TLB_ENTRIES;
+    config.memory.l2_tlb_ways = L2_TLB_WAYS;
     config.memory.l2_tlb_latency = l2_tlb_latency;
     config.system.uart_quiet = true;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);

@@ -12,6 +12,7 @@ use crate::common::harness::TestContext;
 use rvsim_core::common::{AccessType, TranslationResult, Trap, VirtAddr};
 use rvsim_core::core::arch::csr::{self, Csrs};
 use rvsim_core::core::arch::mode::PrivilegeMode;
+use rvsim_core::core::units::mmu::tlb::TlbGeometry;
 use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
 use rvsim_core::soc::interconnect::Bus;
 
@@ -66,7 +67,12 @@ fn make_pte(ppn: u64, perms: u64) -> u64 {
 }
 
 fn setup_mmu() -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57); // Small TLB + small L2 TLB to force walks
+    let mmu = Mmu::new(
+        TlbGeometry { entries: 4, ways: 0 },
+        TlbGeometry { entries: 4, ways: 4 },
+        4,
+        csr::PagingMode::Sv57,
+    ); // Small TLB + small L2 TLB to force walks
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
 
@@ -415,7 +421,12 @@ fn non_canonical_address_faults() {
 }
 
 fn setup_mmu_with_mode(mode: u64) -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57);
+    let mmu = Mmu::new(
+        TlbGeometry { entries: 4, ways: 0 },
+        TlbGeometry { entries: 4, ways: 4 },
+        4,
+        csr::PagingMode::Sv57,
+    );
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
     let satp_val = (mode << 60) | ROOT_PPN;

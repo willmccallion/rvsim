@@ -12,6 +12,7 @@ use proptest::prelude::*;
 use rvsim_core::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use rvsim_core::core::arch::csr::{self, Csrs};
 use rvsim_core::core::arch::mode::PrivilegeMode;
+use rvsim_core::core::units::mmu::tlb::TlbGeometry;
 use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
 
 /// Drives a synchronous translation: repeatedly invokes `translate_async` /
@@ -72,7 +73,12 @@ fn modes() -> Vec<(u64, usize)> {
 }
 
 fn build_mmu(satp: u64) -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57);
+    let mmu = Mmu::new(
+        TlbGeometry { entries: 4, ways: 0 },
+        TlbGeometry { entries: 4, ways: 4 },
+        4,
+        csr::PagingMode::Sv57,
+    );
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
     csrs.write(csr::SATP, satp);
