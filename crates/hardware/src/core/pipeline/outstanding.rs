@@ -81,7 +81,9 @@ impl PartRead {
                 Self { value: *value, observed: *observed }
             }
             MemRespData::Small(value) => Self { value: *value, observed: None },
-            MemRespData::Line(_) => Self { value: 0, observed: None },
+            MemRespData::Line(_) | MemRespData::PerformedBytes { .. } => {
+                Self { value: 0, observed: None }
+            }
         }
     }
 }

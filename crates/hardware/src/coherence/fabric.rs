@@ -643,7 +643,7 @@ impl CoherenceFabric {
         let Some(index) = self.parked_requests.iter().position(|p| p.txn == txn) else { return };
         let to = self.parked_requests.remove(index).requester;
         let bytes = match data {
-            MemRespData::Line(line) => line.len(),
+            MemRespData::Line(bytes) | MemRespData::PerformedBytes { bytes, .. } => bytes.len(),
             MemRespData::Small(_) | MemRespData::Performed { .. } => 8,
         };
         self.parked_responses.push(Parked { txn, requester: to, packet: Some(packet) });

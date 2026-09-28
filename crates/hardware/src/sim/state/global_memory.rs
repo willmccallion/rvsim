@@ -60,6 +60,17 @@ impl GlobalMemory {
         Some(value)
     }
 
+    /// The `len` bytes at `paddr` in address order; `None` outside RAM.
+    #[must_use]
+    pub fn read_bytes(&self, paddr: PhysAddr, len: usize) -> Option<Box<[u8]>> {
+        let ram = self.ram.filter(|ram| ram.contains(paddr.val(), len as u64))?;
+        let bytes = (0..len)
+            // SAFETY: `contains` bounds-checked `[paddr, paddr + len)`.
+            .map(|i| unsafe { *ram.ptr(paddr.val() + i as u64) })
+            .collect();
+        Some(bytes)
+    }
+
     /// Writes the low `bytes` (at most 8) of `data` at `paddr` as `writer`,
     /// breaking the reservations the write must break. Outside RAM nothing
     /// is written.
@@ -92,6 +103,12 @@ impl GlobalMemory {
     /// [`MemOp::takes_effect_when_served`]), and returns what it read.
     pub fn perform(&mut self, paddr: PhysAddr, size: AccessSize, op: &MemOp) -> MemRespData {
         match op {
+            MemOp::Read if matches!(size, AccessSize::Span(_)) => MemRespData::PerformedBytes {
+                bytes: self
+                    .read_bytes(paddr, size.bytes())
+                    .unwrap_or_else(|| vec![0; size.bytes()].into()),
+                observed: self.write_log.as_ref().map(WriteLog::now),
+            },
             MemOp::Read | MemOp::Atomic { op: AtomicOp::Lr, .. } => {
                 self.performed(self.read(paddr, size.bytes()))
             }

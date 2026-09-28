@@ -66,7 +66,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
         {
             return match data {
                 MemRespData::Small(value) | MemRespData::Performed { value, .. } => value,
-                MemRespData::Line(_) => 0,
+                MemRespData::Line(_) | MemRespData::PerformedBytes { .. } => 0,
             };
         }
     }

@@ -34,6 +34,9 @@ pub enum AccessSize {
     Part(u8),
     /// One cache line.
     Line,
+    /// A vector access's contiguous bytes (1 to 64) within one cache line:
+    /// a hart's access, never a line fill.
+    Span(u8),
 }
 
 impl AccessSize {
@@ -45,7 +48,7 @@ impl AccessSize {
             Self::B2 => 2,
             Self::B4 => 4,
             Self::B8 => 8,
-            Self::Part(bytes) => bytes as usize,
+            Self::Part(bytes) | Self::Span(bytes) => bytes as usize,
             Self::Line => 64,
         }
     }
@@ -95,6 +98,15 @@ pub enum MemRespData {
     },
     /// A full cache line.
     Line(Box<[u8]>),
+    /// What a hart's [`AccessSize::Span`] read when the memory system
+    /// served it.
+    PerformedBytes {
+        /// The bytes, in address order.
+        bytes: Box<[u8]>,
+        /// Position in the order of RAM writes the bytes reflect; kept only
+        /// when more than one hart can write.
+        observed: Option<WriteSeq>,
+    },
 }
 
 /// Atomic memory operation kind.

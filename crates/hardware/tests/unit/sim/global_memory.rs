@@ -77,3 +77,26 @@ fn a_store_conditional_whose_reservation_another_hart_broke_fails() {
     assert_eq!(value(&result), 1);
     assert_eq!(memory.read(WORD, 8), Some(1));
 }
+
+#[test]
+fn a_span_read_returns_its_bytes_in_address_order() {
+    let mut ram = vec![0u8; RAM_BYTES];
+    for (i, byte) in ram[0x200..0x220].iter_mut().enumerate() {
+        *byte = i as u8 + 1;
+    }
+    let mut memory = memory(&mut ram);
+
+    let response = memory.perform(PhysAddr::new(0x208), AccessSize::Span(24), &MemOp::Read);
+
+    let MemRespData::PerformedBytes { bytes, observed } = response else {
+        panic!("expected the span's bytes, got {response:?}");
+    };
+    assert_eq!(&*bytes, &(9..=32).collect::<Vec<u8>>()[..]);
+    assert!(observed.is_some(), "a two-hart read carries its write order");
+}
+
+#[test]
+fn a_span_read_takes_effect_where_it_is_served() {
+    assert!(MemOp::Read.takes_effect_when_served(AccessSize::Span(64)));
+    assert!(!MemOp::Read.takes_effect_when_served(AccessSize::Line));
+}

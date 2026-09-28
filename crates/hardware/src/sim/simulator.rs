@@ -414,7 +414,7 @@ impl Simulator {
             {
                 return match data {
                     MemRespData::Small(value) | MemRespData::Performed { value, .. } => value,
-                    MemRespData::Line(_) => 0,
+                    MemRespData::Line(_) | MemRespData::PerformedBytes { .. } => 0,
                 };
             }
         }
