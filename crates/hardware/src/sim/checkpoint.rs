@@ -277,6 +277,7 @@ impl Simulator {
             units.mmu.l2_tlb.flush();
         }
         state.shared.l3_cache.invalidate_all();
+        state.mem_controller.resume_at(header.cycle);
         if let Some(coherence) = &mut state.shared.coherence {
             coherence.forget_cached_lines();
         }

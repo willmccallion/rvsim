@@ -100,3 +100,32 @@ fn bank_masks_cover_the_rank_and_one_bank_per_group() {
     assert_eq!(bank_mask_all(wide), (1u64 << 32) - 1);
     assert_eq!(bank_mask_set(wide, 3).count_ones(), 8);
 }
+
+#[test]
+fn a_controller_resumed_later_starts_fresh_there_instead_of_replaying_the_gap() {
+    use rvsim_core::soc::memory::controller::MemoryController;
+    let cfg = tiny_config();
+    let t = Ddr5Timing::default();
+    let a = addr_from(&cfg, 0, 0, 0, 0, 0);
+    let mut fresh = Harness::new(cfg);
+    let fresh_id = fresh.issue(a, 0, read_op());
+    let fresh_latency = fresh.response_at(fresh_id);
+    let resume = 5 * t.t_refi;
+    let mut h = Harness::new(cfg);
+
+    h.controller.resume_at(resume);
+    h.next_tick = resume;
+    let id = h.issue(a, resume, read_op());
+    let latency = h.response_at(id) - resume;
+    h.run_until(resume + t.t_refi + t.t_rp + 1);
+
+    assert_eq!(latency, fresh_latency, "the first read sees a freshly powered-up DRAM");
+    let refresh_starts: Vec<u64> = h
+        .dram_cmds()
+        .into_iter()
+        .filter(|c| matches!(c.kind, DramCmdKind::PrechargeAll | DramCmdKind::Refresh))
+        .map(|c| c.fire_at)
+        .collect();
+    assert_eq!(refresh_starts.first(), Some(&(resume + t.t_refi)), "{refresh_starts:?}");
+    assert_eq!(h.commands_of(DramCmdKind::Refresh).len(), 1, "no refreshes owed from the gap");
+}

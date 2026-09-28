@@ -256,6 +256,17 @@ impl MemoryController for Ddr5Controller {
         }
         self.flush(ctx);
     }
+
+    fn resume_at(&mut self, cycle: u64) {
+        let origin = self.clock.to_dram(cycle);
+        for subchannel in self.channels.iter_mut().flat_map(|c| c.subchannels.iter_mut()) {
+            subchannel.restart_at(origin, self.refresh_interval);
+        }
+        if let Some(scrubber) = &mut self.scrubber {
+            scrubber.next_at = origin + scrubber.interval;
+        }
+        self.next_dram_cycle = origin;
+    }
 }
 
 impl Ddr5Controller {

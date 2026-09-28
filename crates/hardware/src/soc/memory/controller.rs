@@ -309,10 +309,28 @@ pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {
     /// Advances the controller by one simulator cycle. Default implementation
     /// is a no-op for controllers that do all their work in `handle`.
     fn tick(&mut self, _ctx: &mut HandleCtx<'_>) {}
+
+    /// Continues from simulator cycle `cycle` after a checkpoint restore,
+    /// as a controller powered up then would: no timing history, and
+    /// refreshes scheduled from that cycle. Queued requests are kept.
+    fn resume_at(&mut self, cycle: u64);
 }
 
-impl MemoryController for SimpleController {}
-impl MemoryController for DramController {}
+impl MemoryController for SimpleController {
+    fn resume_at(&mut self, _cycle: u64) {
+        self.busy_until = 0;
+    }
+}
+
+impl MemoryController for DramController {
+    fn resume_at(&mut self, cycle: u64) {
+        for bank in &mut self.banks {
+            *bank = BankState { open_row: None, busy_until: 0 };
+        }
+        self.last_activate_cycle = None;
+        self.next_refresh_cycle = if self.t_refi > 0 { cycle + self.t_refi } else { u64::MAX };
+    }
+}
 
 /// Serves a request at the controller: a hart's access takes effect in
 /// `memory` now; a line read returns the line.

@@ -312,15 +312,8 @@ impl Subchannel {
     /// demand the command bus for their first refresh.
     #[must_use]
     pub fn new(rank_count: usize, bank_count: usize, refresh_interval: u64) -> Self {
-        let ranks_as_u64 = u64::try_from(rank_count).unwrap_or(u64::MAX);
-        let stagger = if ranks_as_u64 == 0 { 0 } else { refresh_interval / ranks_as_u64 };
         Self {
-            ranks: (0..rank_count)
-                .map(|r| {
-                    let offset = u64::try_from(r).unwrap_or(0) * stagger;
-                    Rank::new(bank_count, refresh_interval + offset)
-                })
-                .collect(),
+            ranks: fresh_ranks(rank_count, bank_count, refresh_interval, 0),
             inbound: VecDeque::new(),
             read_queue: VecDeque::new(),
             write_queue: VecDeque::new(),
@@ -338,6 +331,44 @@ impl Subchannel {
             counters: SubchannelCounters::default(),
         }
     }
+
+    /// Restarts the subchannel's timing as if it powered up at DRAM clock
+    /// `origin`: fresh ranks whose refreshes are staggered from there and
+    /// no command history. Queued requests and counters are kept.
+    pub fn restart_at(&mut self, origin: u64, refresh_interval: u64) {
+        let bank_count = self.ranks.first().map_or(0, |rank| rank.banks.len());
+        self.ranks = fresh_ranks(self.ranks.len(), bank_count, refresh_interval, origin);
+        self.drain_state = WriteDrainState::Filling;
+        self.writes_this_drain = 0;
+        self.last_command_cycle = 0;
+        self.last_data_end = 0;
+        self.last_bus_rank = None;
+        self.last_data_op = BusOp::None;
+        self.last_read_cmd = 0;
+        self.last_read_end = 0;
+        self.last_write_cmd = 0;
+        self.last_write_end = 0;
+        self.last_column_bg = None;
+    }
+}
+
+/// `rank_count` idle ranks powered up at DRAM clock `origin`, their first
+/// refreshes staggered evenly across `refresh_interval` so they do not
+/// demand the command bus together.
+fn fresh_ranks(
+    rank_count: usize,
+    bank_count: usize,
+    refresh_interval: u64,
+    origin: u64,
+) -> Vec<Rank> {
+    let ranks_as_u64 = u64::try_from(rank_count).unwrap_or(u64::MAX);
+    let stagger = if ranks_as_u64 == 0 { 0 } else { refresh_interval / ranks_as_u64 };
+    (0..rank_count)
+        .map(|r| {
+            let offset = u64::try_from(r).unwrap_or(0) * stagger;
+            Rank::new(bank_count, origin + refresh_interval + offset)
+        })
+        .collect()
 }
 
 /// One DRAM channel: an array of DDR5 subchannels.
