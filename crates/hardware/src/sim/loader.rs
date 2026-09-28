@@ -20,6 +20,49 @@ pub fn load_binary(path: &str) -> Result<Vec<u8>, SimError> {
     fs::read(path).map_err(|source| SimError::FileRead { path: path.to_owned(), source })
 }
 
+/// The images a kernel boot loads.
+#[derive(Clone, Debug, Default)]
+pub struct KernelBoot {
+    /// The kernel image; `software/linux/output/Image` when absent.
+    pub kernel: Option<String>,
+    /// An `OpenSBI` `fw_jump` firmware image; when absent, `fw_jump.bin` or
+    /// `fw_dynamic.bin` under `software/linux/output`, if either exists.
+    pub firmware: Option<String>,
+    /// A device tree blob; generated from the config when absent.
+    pub dtb: Option<String>,
+}
+
+/// Where the firmware comes from and how it hands over to the kernel.
+enum Firmware {
+    Jump(String),
+    Dynamic(String),
+}
+
+impl Firmware {
+    /// The boot's firmware, preferring `fw_jump` since it matches Spike's
+    /// `fw_jump.elf` for log comparison.
+    fn find(boot: &KernelBoot) -> Option<Self> {
+        if let Some(path) = &boot.firmware {
+            return Some(Self::Jump(path.clone()));
+        }
+        let jump = "software/linux/output/fw_jump.bin";
+        let dynamic = "software/linux/output/fw_dynamic.bin";
+        if fs::metadata(jump).is_ok() {
+            Some(Self::Jump(jump.to_owned()))
+        } else if fs::metadata(dynamic).is_ok() {
+            Some(Self::Dynamic(dynamic.to_owned()))
+        } else {
+            None
+        }
+    }
+
+    fn path(&self) -> &str {
+        match self {
+            Self::Jump(path) | Self::Dynamic(path) => path,
+        }
+    }
+}
+
 /// Sets up kernel loading: places `OpenSBI`, kernel image, and DTB in RAM and initializes CPU state.
 ///
 /// If `OpenSBI` is found, loads it at `ram_base`, kernel at `ram_base + 0x200000`, DTB at `ram_base + 0x2200000`,
@@ -28,13 +71,10 @@ pub fn load_binary(path: &str) -> Result<Vec<u8>, SimError> {
 /// # Errors
 ///
 /// Returns [`SimError::FileRead`] if any required binary file cannot be read from disk.
-#[allow(clippy::needless_pass_by_value)]
 pub fn setup_kernel_load(
     state: &mut SimState,
     config: &Config,
-    _disk_path: &str,
-    dtb_path: Option<String>,
-    kernel_path_override: Option<String>,
+    boot: &KernelBoot,
 ) -> Result<(), SimError> {
     let ram_base = config.system.ram_base;
 
@@ -42,27 +82,20 @@ pub fn setup_kernel_load(
     let kernel_addr = ram_base + 0x200000;
     let dtb_addr = ram_base + 0x2200000;
 
-    if let Some(path) = dtb_path {
-        let dtb_data = load_binary(&path)?;
+    if let Some(path) = &boot.dtb {
+        let dtb_data = load_binary(path)?;
         state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     } else {
         let dtb_data = crate::sim::dtb::generate_dtb(config);
         state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     }
 
-    // Prefer fw_jump.bin (matches spike's fw_jump.elf for log comparison)
-    // over fw_dynamic.bin (which requires extra fw_dynamic_info setup).
-    let sbi_jump_path = "software/linux/output/fw_jump.bin";
-    let sbi_dynamic_path = "software/linux/output/fw_dynamic.bin";
-    let sbi_path =
-        if fs::metadata(sbi_jump_path).is_ok() { sbi_jump_path } else { sbi_dynamic_path };
-
-    if fs::metadata(sbi_path).is_ok() {
-        let sbi_data = load_binary(sbi_path)?;
+    if let Some(firmware) = Firmware::find(boot) {
+        let sbi_data = load_binary(firmware.path())?;
         state.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
         let default_kernel_path = "software/linux/output/Image";
-        let kernel_path = kernel_path_override.as_deref().unwrap_or(default_kernel_path);
+        let kernel_path = boot.kernel.as_deref().unwrap_or(default_kernel_path);
 
         if fs::metadata(kernel_path).is_ok() {
             let kernel_data = load_binary(kernel_path)?;
@@ -80,7 +113,7 @@ pub fn setup_kernel_load(
             hart.regs.write(abi::REG_A1, dtb_addr);
         }
 
-        if sbi_path == sbi_dynamic_path {
+        if matches!(firmware, Firmware::Dynamic(_)) {
             // fw_dynamic_info struct: magic, version, next_addr, next_mode,
             // options, boot_hart, next_arg1 (each u64 on rv64).
             const FW_DYNAMIC_INFO_MAGIC: u64 = 0x4942534f;
@@ -223,7 +256,7 @@ mod tests {
         let config = Config::default();
         let mut state = SimState::build(&config, "");
 
-        setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+        setup_kernel_load(&mut state, &config, &KernelBoot::default()).unwrap();
 
         let ram_base = config.system.ram_base;
         let load_addr = ram_base + config.system.kernel_offset;

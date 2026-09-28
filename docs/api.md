@@ -103,51 +103,27 @@ JSON-serializable dictionary of all result fields.
 
 ## Simulator
 
-Low-level fluent API for building and controlling a CPU instance tick-by-tick.
+Builds a system from a configuration and workload, and runs it.
 
 ```python
 from rvsim import Simulator
 ```
 
-### Builder Methods
-
-Each method returns `self` for chaining:
+### Constructor
 
 ```python
-cpu = (
-    Simulator()
-    .config(Config(width=4))       # Set configuration
-    .binary("program.elf")         # Load ELF binary
-    .kernel("Image")               # Optional: load kernel image
-    .disk("rootfs.ext2")           # Optional: attach disk image
-    .dtb("custom.dtb")            # Optional: use custom device tree
-    .build()                       # Build and return Cpu instance
+Simulator(
+    config: Config | dict | None = None,  # Machine configuration (default Config())
+    *,
+    binary: str | None = None,            # Bare-metal ELF to load
+    elf_data: bytes | None = None,        # ...or its bytes
+    kernel: str | None = None,            # Kernel image (Linux boot)
+    firmware: str | None = None,          # OpenSBI fw_jump image; found under
+                                          # software/linux/output if absent
+    disk: str | None = None,              # VirtIO disk image
+    dtb: str | None = None,               # Device tree; generated from config if absent
 )
 ```
-
-#### `config(path_or_config) -> Simulator`
-
-Set the machine configuration. Accepts a `Config` object or a path to a Python config file.
-
-#### `binary(path: str) -> Simulator`
-
-Set the path to the RISC-V ELF binary to load.
-
-#### `kernel(path: str) -> Simulator`
-
-Set the kernel image path (for Linux boot).
-
-#### `disk(path: str) -> Simulator`
-
-Attach a VirtIO disk image.
-
-#### `dtb(path: str) -> Simulator`
-
-Use a custom device tree blob instead of the auto-generated one.
-
-#### `build() -> Cpu`
-
-Build the system, load the binary/kernel, and return a configured `Cpu` instance.
 
 #### `run(limit=None, progress=0, stats_sections=None, output_stats=None) -> int`
 

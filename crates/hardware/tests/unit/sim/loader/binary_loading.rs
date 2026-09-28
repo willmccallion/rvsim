@@ -69,7 +69,7 @@ fn test_setup_kernel_load_without_opensbi() {
     let config = Config::default();
 
     // Setup without OpenSBI (default case when fw_jump.bin doesn't exist)
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // Verify PC is set to RAM base
     assert_eq!(state.harts[0].pc, config.system.ram_base);
@@ -91,7 +91,7 @@ fn test_setup_kernel_load_dtb_address() {
     let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // DTB should be loaded at RAM base + 0x2200000
     let expected_dtb_addr = config.system.ram_base + 0x2200000;
@@ -108,7 +108,9 @@ fn test_setup_kernel_load_with_dtb_file() {
     let temp_dtb = create_temp_binary(&dtb_data);
     let dtb_path = temp_dtb.path().to_str().unwrap();
 
-    loader::setup_kernel_load(&mut state, &config, "", Some(dtb_path.to_string()), None).unwrap();
+    let boot =
+        loader::KernelBoot { dtb: Some(dtb_path.to_string()), ..loader::KernelBoot::default() };
+    loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     // Verify DTB was loaded into memory at expected address
     let dtb_addr = config.system.ram_base + 0x2200000;
@@ -120,11 +122,45 @@ fn test_setup_kernel_load_with_dtb_file() {
 }
 
 #[test]
+fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
+    let mut state = create_test_cpu();
+    let config = Config::default();
+    let firmware = create_temp_binary(&[0x73, 0x00, 0x20, 0x30]);
+    let boot = loader::KernelBoot {
+        firmware: Some(firmware.path().to_str().unwrap().to_string()),
+        ..loader::KernelBoot::default()
+    };
+
+    loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
+
+    let ram_base = config.system.ram_base;
+    let first_byte = unsafe { state.bus.ram_region().expect("ram region").ptr(ram_base).read() };
+    assert_eq!(first_byte, 0x73);
+    assert_eq!(state.harts[0].pc, ram_base);
+    assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
+    assert_eq!(state.harts[0].regs.read(abi::REG_A2), 0, "fw_jump takes no info struct");
+}
+
+#[test]
+fn a_missing_explicit_firmware_is_an_error() {
+    let mut state = create_test_cpu();
+    let config = Config::default();
+    let boot = loader::KernelBoot {
+        firmware: Some("/nonexistent/fw_jump.bin".to_string()),
+        ..loader::KernelBoot::default()
+    };
+
+    let result = loader::setup_kernel_load(&mut state, &config, &boot);
+
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_setup_kernel_load_register_a2_is_zero() {
     let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // a2 register should be 0
     assert_eq!(state.harts[0].regs.read(abi::REG_A2), 0);
@@ -137,7 +173,7 @@ fn test_setup_kernel_load_preserves_config() {
     let kernel_offset_before = config.system.kernel_offset;
 
     let mut state = create_test_cpu();
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // Config should not be modified
     assert_eq!(config.system.ram_base, ram_base_before);
@@ -149,7 +185,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
     let mut state = create_test_cpu();
     let config = Config::default();
 
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
@@ -167,11 +203,11 @@ fn test_setup_kernel_load_multiple_calls() {
     let config = Config::default();
 
     // First setup
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
     let pc_first = state.harts[0].pc;
 
     // Second setup (should overwrite)
-    loader::setup_kernel_load(&mut state, &config, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
     let pc_second = state.harts[0].pc;
 
     // Both should set the same PC
@@ -188,10 +224,10 @@ fn test_setup_kernel_load_different_ram_bases() {
     config2.system.ram_base = 0x90000000;
 
     let mut cpu1 = SimState::build(&config1, "");
-    loader::setup_kernel_load(&mut cpu1, &config1, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut cpu1, &config1, &loader::KernelBoot::default()).unwrap();
 
     let mut cpu2 = SimState::build(&config2, "");
-    loader::setup_kernel_load(&mut cpu2, &config2, "", None, None).unwrap();
+    loader::setup_kernel_load(&mut cpu2, &config2, &loader::KernelBoot::default()).unwrap();
 
     // PC should match the respective RAM bases
     assert_eq!(cpu1.harts[0].pc, 0x80000000);

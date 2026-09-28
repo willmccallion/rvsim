@@ -37,6 +37,7 @@ class Simulator(_CoreSimulator):
         binary: Optional[str] = None,
         elf_data: Optional[bytes] = None,
         kernel: Optional[str] = None,
+        firmware: Optional[str] = None,
         disk: Optional[str] = None,
         dtb: Optional[str] = None,
     ) -> "Simulator":
@@ -56,6 +57,7 @@ class Simulator(_CoreSimulator):
             config_dict,
             elf_data=elf_data,
             kernel_path=kernel,
+            firmware_path=firmware,
             dtb_path=dtb,
             disk_path=disk,
         )

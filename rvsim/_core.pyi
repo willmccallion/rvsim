@@ -121,6 +121,7 @@ class Simulator:
         *,
         elf_data: Optional[bytes] = None,
         kernel_path: Optional[str] = None,
+        firmware_path: Optional[str] = None,
         dtb_path: Optional[str] = None,
         disk_path: Optional[str] = None,
     ) -> Self: ...

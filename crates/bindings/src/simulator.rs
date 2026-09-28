@@ -137,15 +137,18 @@ impl PySimulator {
     ///     `config_dict`: The nested config dict (from ``Config.to_dict()``).
     ///     `elf_data`: Raw bytes of an ELF binary (bare-metal mode). Optional.
     ///     `kernel_path`: Path to a kernel image (kernel mode). Optional.
+    ///     `firmware_path`: Path to an `OpenSBI` ``fw_jump`` image (kernel
+    ///         mode). Optional; found under ``software/linux/output`` if absent.
     ///     `dtb_path`: Path to a DTB file (kernel mode). Optional.
     ///     `disk_path`: Path to a disk image. Optional.
     #[new]
-    #[pyo3(signature = (config_dict, *, elf_data=None, kernel_path=None, dtb_path=None, disk_path=None))]
+    #[pyo3(signature = (config_dict, *, elf_data=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None))]
     fn new(
         py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
         elf_data: Option<Vec<u8>>,
         kernel_path: Option<String>,
+        firmware_path: Option<String>,
         dtb_path: Option<String>,
         disk_path: Option<String>,
     ) -> PyResult<Self> {
@@ -182,8 +185,10 @@ impl PySimulator {
             sim.state.harts[0].privilege = PrivilegeMode::Machine;
         }
 
-        if let Some(kpath) = kernel_path {
-            loader::setup_kernel_load(&mut sim.state, &config, "", dtb_path, Some(kpath))
+        if let Some(kernel) = kernel_path {
+            let boot =
+                loader::KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };
+            loader::setup_kernel_load(&mut sim.state, &config, &boot)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             sim.state.direct_mode = false;
         }
