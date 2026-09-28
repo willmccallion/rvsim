@@ -221,6 +221,57 @@ fn load_to_use(backend: BackendType, l1d_latency: u64) -> u64 {
     (long - short) / 20
 }
 
+/// `links` store/load pairs through one address: each load reads back the
+/// store just before it, and the next store writes what that load read.
+fn store_load_chain(links: u32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().auipc(10, 0).build(),
+        i().addi(10, 10, 0x400).build(),
+        i().addi(6, 0, 1).build(),
+        i().nop().build(),
+    ];
+    for _ in 0..links {
+        program.push(i().sd(10, 6, 0).build());
+        program.push(i().ld(6, 10, 0).build());
+    }
+    program.extend(done_marker());
+    program
+}
+
+/// Cycles each store/load link adds with an L1D of `l1d_latency`. Every
+/// load waits for its store's address, so the loads never speculate.
+fn forwarded_link(backend: BackendType, l1d_latency: u64) -> u64 {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.mem_dep_predictor = MemDepPredictor::Blind;
+    config.cache.l1_d.enabled = true;
+    config.cache.l1_d.latency = l1d_latency;
+    let short = cycles_to_finish(&config, &store_load_chain(10));
+    let long = cycles_to_finish(&config, &store_load_chain(30));
+    (long - short) / 20
+}
+
+fn assert_forwarded_load_takes_an_l1d_hit_latency(backend: BackendType) {
+    for l1d_latency in [1, 4, 9] {
+        assert_eq!(
+            forwarded_link(backend, l1d_latency),
+            load_to_use(backend, l1d_latency) + 1,
+            "{backend:?} l1d latency {l1d_latency}: a link is one store-to-load cycle plus a hit"
+        );
+    }
+}
+
+#[test]
+fn inorder_forwarded_load_takes_an_l1d_hit_latency() {
+    assert_forwarded_load_takes_an_l1d_hit_latency(BackendType::InOrder);
+}
+
+#[test]
+fn o3_forwarded_load_takes_an_l1d_hit_latency() {
+    assert_forwarded_load_takes_an_l1d_hit_latency(BackendType::OutOfOrder);
+}
+
 #[test]
 fn inorder_dependent_load_waits_the_l1d_latency_plus_two_cycles() {
     for l1d_latency in [1, 4] {

@@ -18,7 +18,6 @@ pub mod fetch_line_straddle;
 pub mod fetch_page_crossing;
 pub mod fetch_walk;
 pub mod fill_latency;
-pub mod forwarding_latency;
 pub mod frontend_prediction;
 pub mod hardware_ad_bits;
 pub mod illegal_system;

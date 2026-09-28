@@ -56,6 +56,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             acknowledge_write(pipeline, state, store.owner, req_id);
         }
     }
+    release_forwarded_loads(&mut pipeline.engine, state.cycle);
 
     drain_fetch_reorder(
         state.cycle,
@@ -63,6 +64,20 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,
     );
+}
+
+/// Moves forwarded loads whose L1D latency has elapsed into the M1→M2 latch.
+fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
+    let mut ready = Vec::new();
+    engine.common_mut().forwarded_loads.retain(|load| {
+        if load.ready_cycle <= now {
+            ready.push(load.entry.clone());
+            false
+        } else {
+            true
+        }
+    });
+    engine.mem1_mem2_mut().extend(ready);
 }
 
 /// Tells the buffer a write came from that the memory system has taken it.

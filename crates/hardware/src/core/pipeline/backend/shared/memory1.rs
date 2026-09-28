@@ -92,7 +92,6 @@ pub fn memory1_stage<E: ExecutionEngine>(
 ) -> Memory1Outcome {
     let mut outcome = Memory1Outcome::default();
     let now = state.cycle;
-    release_forwarded_loads(engine, now);
     let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
     entries.append(input);
     let delayed = &mut engine.common_mut().mem1_delayed;
@@ -141,20 +140,6 @@ pub fn memory1_stage<E: ExecutionEngine>(
         }
     }
     outcome
-}
-
-/// Moves forwarded loads whose L1D latency has elapsed into the M1→M2 latch.
-fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
-    let mut ready = Vec::new();
-    engine.common_mut().forwarded_loads.retain(|load| {
-        if load.ready_cycle <= now {
-            ready.push(load.entry.clone());
-            false
-        } else {
-            true
-        }
-    });
-    engine.mem1_mem2_mut().extend(ready);
 }
 
 /// Processes one entry; `translated` holds the translations an access that
