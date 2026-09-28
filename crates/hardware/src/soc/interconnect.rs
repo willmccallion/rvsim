@@ -267,12 +267,32 @@ impl Bus {
 
     /// Restores the devices named in `states`, as [`Bus::checkpoint_devices`]
     /// produced them.
-    pub fn restore_devices(&mut self, states: &serde_json::Value) {
-        for device in &mut self.devices {
+    /// Checks that every device would take its state from `states`.
+    ///
+    /// # Errors
+    ///
+    /// Describes the first device that would not.
+    pub fn check_device_states(&self, states: &serde_json::Value) -> Result<(), String> {
+        for device in &self.devices {
             if let Some(state) = states.get(device.name()) {
-                device.restore(state);
+                device.check_restore(state)?;
             }
         }
+        Ok(())
+    }
+
+    /// Restores every device's state from `states`.
+    ///
+    /// # Errors
+    ///
+    /// Describes the first device that cannot take its state.
+    pub fn restore_devices(&mut self, states: &serde_json::Value) -> Result<(), String> {
+        for device in &mut self.devices {
+            if let Some(state) = states.get(device.name()) {
+                device.restore(state)?;
+            }
+        }
+        Ok(())
     }
 
     /// The CLINT's `mtime`, which the `time` CSR reads; zero without a CLINT.

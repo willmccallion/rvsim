@@ -257,7 +257,8 @@ A checkpoint holds RAM, the cycle counter, every hart's architectural
 state (PC, privilege, integer, floating-point and vector registers, every
 CSR, PMP entries, and its LR reservation) and the devices' registers
 (CLINT timers and `mtime`, PLIC priorities, enables, thresholds and claims,
-UART registers and unread input, the virtio disk's queue). `save` first
+UART registers and unread input, the virtio disk's queue and every sector
+the guest has written). `save` first
 drains the machine the way gem5 does: speculative work is discarded,
 committed stores still in the store buffers reach RAM, each hart is left at
 its committed PC and a disk request in flight completes at once, so a run
@@ -268,8 +269,11 @@ size and VLEN, so a system can boot on a cheap configuration and continue
 on a detailed one. It does not hold cache contents, TLBs, predictor state
 or in-flight memory traffic: after a restore the caches, TLBs and the
 coherence home agent start empty, as gem5's do, so warm the system up
-before measuring. A restore into a mismatched system raises an error
-naming what differs.
+before measuring. The disk's written sectors are replayed over the image
+the restoring simulator loaded, so it must load the same image the
+checkpoint was taken on; the image file itself is never modified. A
+restore into a mismatched system, or onto a different disk image, raises
+an error naming what differs and leaves the simulator untouched.
 
 #### `pipeline_snapshot() -> PipelineSnapshot`
 

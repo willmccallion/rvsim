@@ -22,7 +22,7 @@ use crate::core::units::mmu::pmp::PmpEntry;
 use crate::sim::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
-const VERSION: u64 = 4;
+const VERSION: u64 = 5;
 
 /// Why a checkpoint could not be written or restored.
 #[derive(Debug, thiserror::Error)]
@@ -42,6 +42,10 @@ pub enum CheckpointError {
         /// The file's version.
         found: u64,
     },
+    /// A device cannot take its state, such as a disk whose image differs
+    /// from the one the checkpoint was taken on.
+    #[error("checkpoint device: {0}")]
+    Device(String),
     /// The system being restored into differs in a way the state cannot
     /// carry over.
     #[error("checkpoint has {what} {saved}, this system has {current}")]
@@ -196,6 +200,7 @@ impl Simulator {
         mismatch("RAM bytes", header.ram_size, region.map_or(0, |r| r.size()))?;
         mismatch("RAM base", header.ram_base, region.map_or(0, |r| r.base()))?;
         mismatch("VLEN", header.vlen_bits, self.state.config.pipeline.vlen as u64)?;
+        self.state.bus.check_device_states(&header.devices).map_err(CheckpointError::Device)?;
 
         self.drain();
         if let Some(region) = region {
@@ -206,11 +211,10 @@ impl Simulator {
                 unsafe { std::slice::from_raw_parts_mut(region.as_ptr(), region.size() as usize) };
             input.read_exact(ram)?;
         }
-        self.apply_header(&header);
-        Ok(())
+        self.apply_header(&header)
     }
 
-    fn apply_header(&mut self, header: &Header) {
+    fn apply_header(&mut self, header: &Header) -> Result<(), CheckpointError> {
         let state = &mut self.state;
         state.cycle = header.cycle;
         state.direct_mode = header.direct_mode;
@@ -225,7 +229,7 @@ impl Simulator {
                 None => reservations.clear(hart.hart_id),
             }
         }
-        state.shared.bus.restore_devices(&header.devices);
+        state.shared.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all();
@@ -241,5 +245,6 @@ impl Simulator {
         }
         self.state.reset_stats();
         self.sync_arch_regs();
+        Ok(())
     }
 }

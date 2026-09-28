@@ -473,10 +473,11 @@ impl Device for Uart {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) {
-        if let Ok(state) = serde_json::from_value::<UartState>(state.clone()) {
-            self.set_state(&state);
-        }
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+        let state = serde_json::from_value::<UartState>(state.clone())
+            .map_err(|error| format!("UART state: {error}"))?;
+        self.set_state(&state);
+        Ok(())
     }
 
     fn as_uart_mut(&mut self) -> Option<&mut Uart> {

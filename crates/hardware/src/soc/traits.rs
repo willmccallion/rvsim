@@ -69,6 +69,22 @@ pub trait Device: Handle + Send + Sync {
         None
     }
 
+    /// Checks that [`Device::restore`] would take `state`, without
+    /// changing anything, so a restore can fail before it starts.
+    ///
+    /// # Errors
+    ///
+    /// Describes why the state cannot be restored into this device.
+    fn check_restore(&self, _state: &serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Restores state a [`Device::checkpoint`] produced.
-    fn restore(&mut self, _state: &serde_json::Value) {}
+    ///
+    /// # Errors
+    ///
+    /// Describes why the state cannot be restored into this device.
+    fn restore(&mut self, _state: &serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
 }

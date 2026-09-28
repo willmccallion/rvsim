@@ -349,10 +349,11 @@ impl Device for Plic {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) {
-        if let Ok(state) = serde_json::from_value::<PlicState>(state.clone()) {
-            self.set_state(&state);
-        }
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+        let state = serde_json::from_value::<PlicState>(state.clone())
+            .map_err(|error| format!("PLIC state: {error}"))?;
+        self.set_state(&state);
+        Ok(())
     }
 
     fn as_plic_mut(&mut self) -> Option<&mut Plic> {

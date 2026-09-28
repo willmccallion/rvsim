@@ -262,10 +262,11 @@ impl Device for Clint {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) {
-        if let Ok(state) = serde_json::from_value::<ClintState>(state.clone()) {
-            self.set_state(&state);
-        }
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+        let state = serde_json::from_value::<ClintState>(state.clone())
+            .map_err(|error| format!("CLINT state: {error}"))?;
+        self.set_state(&state);
+        Ok(())
     }
 
     fn as_clint_mut(&mut self) -> Option<&mut Clint> {

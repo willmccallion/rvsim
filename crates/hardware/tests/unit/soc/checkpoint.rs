@@ -29,7 +29,7 @@ fn read(device: &mut impl Device, addr: u64, width: u8) -> u64 {
 /// Moves `device`'s checkpoint into a fresh `blank` and returns it.
 fn restored<D: Device>(device: &D, mut blank: D) -> D {
     let state = device.checkpoint().expect("the device has state to checkpoint");
-    blank.restore(&state);
+    blank.restore(&state).expect("the device takes its own state");
     assert_eq!(blank.checkpoint(), Some(state), "the restored device checkpoints identically");
     blank
 }
@@ -113,7 +113,7 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     let before = sim.state.bus.checkpoint_devices();
 
     let mut fresh = Simulator::build(&config, "");
-    fresh.state.bus.restore_devices(&before);
+    fresh.state.bus.restore_devices(&before).expect("a fresh system takes every device's state");
 
     assert_eq!(fresh.state.bus.checkpoint_devices(), before);
     assert_eq!(fresh.probe_mem_load(PhysAddr::new(CLINT_BASE + 0x4008), 8), 1234);

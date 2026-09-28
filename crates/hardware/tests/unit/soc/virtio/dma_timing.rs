@@ -20,15 +20,15 @@ use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
 use rvsim_core::soc::memory::buffer::DramBuffer;
 use std::sync::Arc;
 
-const MMIO: u64 = 0x1000_1000;
-const RAM_BASE: u64 = 0x8000_0000;
+pub(super) const MMIO: u64 = 0x1000_1000;
+pub(super) const RAM_BASE: u64 = 0x8000_0000;
 const DESC: u64 = 0x1000;
 const AVAIL: u64 = 0x2000;
 const USED: u64 = 0x3000;
 const HEADER: u64 = 0x4000;
-const DATA: u64 = 0x5000;
+pub(super) const DATA: u64 = 0x5000;
 const STATUS: u64 = 0x6000;
-const SECTOR: u64 = 1;
+pub(super) const SECTOR: u64 = 1;
 const NEXT: u16 = 1;
 const WRITE: u16 = 2;
 
@@ -41,16 +41,40 @@ fn descriptor(ram: &DramBuffer, index: u64, addr: u64, len: u32, flags: u16, nex
     ram.write_slice((DESC + index * 16) as usize, &bytes);
 }
 
+/// The request a test queues.
+#[derive(Clone, Copy)]
+pub(super) enum Request {
+    /// Reads `SECTOR` into `DATA`.
+    Read,
+    /// Writes `DATA` to `SECTOR`.
+    Write,
+}
+
 /// A device with a 2 KiB disk and one queued read of `SECTOR` into `DATA`.
 fn device_with_a_queued_read() -> (VirtioBlock, Arc<DramBuffer>) {
+    device_with_a_queued(Request::Read)
+}
+
+/// The 2 KiB disk image the test devices load.
+pub(super) fn disk_image() -> Vec<u8> {
+    (0..2048u32).map(|i| (i % 251) as u8).collect()
+}
+
+/// A device with `disk_image` loaded and one `request` queued.
+pub(super) fn device_with_a_queued(request: Request) -> (VirtioBlock, Arc<DramBuffer>) {
     let ram = Arc::new(DramBuffer::new(0x10000));
     let mut device = VirtioBlock::new(MMIO, RAM_BASE, Arc::clone(&ram));
-    device.load((0..2048u32).map(|i| (i % 251) as u8).collect());
+    device.load(disk_image());
 
+    let (request_type, data_flags) = match request {
+        Request::Read => (0u32, NEXT | WRITE),
+        Request::Write => (1u32, NEXT),
+    };
     descriptor(&ram, 0, HEADER, 16, NEXT, 1);
-    descriptor(&ram, 1, DATA, 512, NEXT | WRITE, 2);
+    descriptor(&ram, 1, DATA, 512, data_flags, 2);
     descriptor(&ram, 2, STATUS, 1, WRITE, 0);
     let mut header = vec![0u8; 16];
+    header[0..4].copy_from_slice(&request_type.to_le_bytes());
     header[8..16].copy_from_slice(&SECTOR.to_le_bytes());
     ram.write_slice(HEADER as usize, &header);
     ram.write_slice(AVAIL as usize, &[0, 0, 1, 0, 0, 0]);
@@ -89,6 +113,18 @@ fn deliver(
         self_id: ComponentId::Device(DeviceId::new(0)),
     };
     device.handle(packet, source, &mut ctx);
+}
+
+/// Rings the device's doorbell, starting its queued request.
+pub(super) fn notify(device: &mut VirtioBlock, queue: &mut EventQueue) {
+    let doorbell = Packet::MemReq {
+        req_id: ReqId::new(1),
+        paddr: PhysAddr::new(MMIO + 0x50),
+        vaddr: None,
+        size: AccessSize::B4,
+        op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
+    };
+    deliver(device, queue, 0, ComponentId::Pipeline(PipelineId::new(0)), doorbell);
 }
 
 /// Takes the DMA requests the device has put on the bus.
@@ -131,15 +167,8 @@ fn used_idx(ram: &DramBuffer) -> u16 {
 fn a_read_request_completes_after_its_three_dma_phases() {
     let (mut device, ram) = device_with_a_queued_read();
     let mut queue = EventQueue::new();
-    let notify = Packet::MemReq {
-        req_id: ReqId::new(1),
-        paddr: PhysAddr::new(MMIO + 0x50),
-        vaddr: None,
-        size: AccessSize::B4,
-        op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
-    };
 
-    deliver(&mut device, &mut queue, 0, ComponentId::Pipeline(PipelineId::new(0)), notify);
+    notify(&mut device, &mut queue);
 
     let control = dma_requests(&mut queue);
     assert_eq!(control.len(), 10, "avail index and entry, three descriptors, the header");
@@ -183,14 +212,7 @@ fn a_read_request_completes_after_its_three_dma_phases() {
 fn draining_the_device_completes_a_queued_request_at_once() {
     let (mut device, ram) = device_with_a_queued_read();
     let mut queue = EventQueue::new();
-    let notify = Packet::MemReq {
-        req_id: ReqId::new(1),
-        paddr: PhysAddr::new(MMIO + 0x50),
-        vaddr: None,
-        size: AccessSize::B4,
-        op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
-    };
-    deliver(&mut device, &mut queue, 0, ComponentId::Pipeline(PipelineId::new(0)), notify);
+    notify(&mut device, &mut queue);
     assert_eq!(dma_requests(&mut queue).len(), 10, "the request is in flight");
 
     device.drain();

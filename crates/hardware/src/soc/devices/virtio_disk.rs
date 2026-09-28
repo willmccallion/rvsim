@@ -12,6 +12,7 @@ use crate::sim::packet::{
 };
 use crate::soc::devices::Device;
 use crate::soc::memory::buffer::DramBuffer;
+use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -141,6 +142,10 @@ pub struct VirtioBlock {
     ram_base: u64,
     /// Disk image data.
     disk_image: Vec<u8>,
+    /// Digest of the image as loaded.
+    image_digest: u64,
+    /// Sectors the guest has written since the image was loaded.
+    written: BTreeSet<u64>,
     /// Shared reference to system RAM for DMA.
     ram: Arc<DramBuffer>,
     /// DMA writes not yet published to the system.
@@ -217,6 +222,54 @@ pub struct VirtioBlockState {
     pub driver_features_sel: u32,
     /// Sequence number of the next DMA request id.
     pub next_dma_seq: u64,
+    /// Digest of the disk image as loaded, which a restore must match.
+    pub image_digest: u64,
+    /// Every sector the guest has written since the image was loaded.
+    pub written: Vec<WrittenSector>,
+}
+
+/// A sector the guest wrote, as a checkpoint carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WrittenSector {
+    /// The sector number.
+    pub sector: u64,
+    /// Its contents, as hex.
+    pub data: String,
+}
+
+/// A 64-bit FNV-1a digest of `bytes`, taken 8 bytes at a time.
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+fn digest(bytes: &[u8]) -> u64 {
+    let mut hash = FNV_OFFSET;
+    let mut chunks = bytes.chunks_exact(8);
+    for chunk in &mut chunks {
+        let mut word = [0; 8];
+        word.copy_from_slice(chunk);
+        hash = (hash ^ u64::from_le_bytes(word)).wrapping_mul(FNV_PRIME);
+    }
+    for &byte in chunks.remainder() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
+    }
+    hash ^ bytes.len() as u64
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        text.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+    text
+}
+
+fn from_hex(text: &str) -> Option<Vec<u8>> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| text.get(i..i + 2).and_then(|pair| u8::from_str_radix(pair, 16).ok()))
+        .collect()
 }
 
 /// One DMA transfer of a request, as the bus sees it.
@@ -274,6 +327,8 @@ impl VirtioBlock {
             base_addr,
             ram_base,
             disk_image: Vec::new(),
+            image_digest: FNV_OFFSET,
+            written: BTreeSet::new(),
             ram,
             dma_writes: Vec::new(),
             status: 0,
@@ -297,6 +352,8 @@ impl VirtioBlock {
 
     /// Loads a disk image into the device.
     pub fn load(&mut self, data: Vec<u8>) {
+        self.image_digest = digest(&data);
+        self.written.clear();
         self.disk_image = data;
     }
 
@@ -562,6 +619,10 @@ impl VirtioBlock {
                     if current_disk_offset + data.len() <= self.disk_image.len() {
                         self.disk_image[current_disk_offset..current_disk_offset + data.len()]
                             .copy_from_slice(&data);
+                        let first = current_disk_offset as u64 / SECTOR_SIZE;
+                        let last = (current_disk_offset + data.len()).div_ceil(SECTOR_SIZE as usize)
+                            as u64;
+                        self.written.extend(first..last);
                     }
                     current_disk_offset += *d_len as usize;
                     len_written += *d_len;
@@ -597,7 +658,7 @@ impl VirtioBlock {
 
     /// The registers a checkpoint carries.
     #[must_use]
-    pub const fn state(&self) -> VirtioBlockState {
+    pub fn state(&self) -> VirtioBlockState {
         VirtioBlockState {
             status: self.status,
             queue_num: self.queue_num,
@@ -614,12 +675,34 @@ impl VirtioBlock {
             device_features_sel: self.device_features_sel,
             driver_features_sel: self.driver_features_sel,
             next_dma_seq: self.next_dma_seq,
+            image_digest: self.image_digest,
+            written: self
+                .written
+                .iter()
+                .map(|&sector| {
+                    let start = (sector * SECTOR_SIZE) as usize;
+                    let end = (start + SECTOR_SIZE as usize).min(self.disk_image.len());
+                    WrittenSector { sector, data: to_hex(&self.disk_image[start..end]) }
+                })
+                .collect(),
         }
     }
 
-    /// Restores registers from a checkpoint; no request is in flight
-    /// afterwards, since a checkpoint is taken drained.
-    pub fn set_state(&mut self, state: &VirtioBlockState) {
+    /// Restores registers and written sectors from a checkpoint; no
+    /// request is in flight afterwards, since a checkpoint is taken
+    /// drained.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the loaded image is not the one the checkpoint was taken
+    /// on, or a written sector does not fit it.
+    pub fn set_state(&mut self, state: &VirtioBlockState) -> Result<(), String> {
+        self.check_state(state)?;
+        for written in &state.written {
+            let (start, data) = self.decode_written(written)?;
+            self.disk_image[start..start + data.len()].copy_from_slice(&data);
+            let _ = self.written.insert(written.sector);
+        }
         self.status = state.status;
         self.queue_num = state.queue_num;
         self.queue_ready = state.queue_ready;
@@ -636,6 +719,34 @@ impl VirtioBlock {
         self.driver_features_sel = state.driver_features_sel;
         self.next_dma_seq = state.next_dma_seq;
         self.job = None;
+        Ok(())
+    }
+
+    /// Checks that `state` was taken on this disk image and its written
+    /// sectors fit it.
+    ///
+    /// # Errors
+    ///
+    /// Describes the mismatch.
+    pub fn check_state(&self, state: &VirtioBlockState) -> Result<(), String> {
+        if state.image_digest != self.image_digest {
+            return Err("the disk image differs from the one the checkpoint was taken on".into());
+        }
+        for written in &state.written {
+            let _ = self.decode_written(written)?;
+        }
+        Ok(())
+    }
+
+    /// The byte offset and contents of a checkpointed written sector.
+    fn decode_written(&self, written: &WrittenSector) -> Result<(usize, Vec<u8>), String> {
+        let data = from_hex(&written.data).ok_or("a written sector is not hex")?;
+        let start = usize::try_from(written.sector * SECTOR_SIZE)
+            .map_err(|_| "a written sector lies past the end of the disk")?;
+        if data.len() > SECTOR_SIZE as usize || start + data.len() > self.disk_image.len() {
+            return Err("a written sector lies past the end of the disk".into());
+        }
+        Ok((start, data))
     }
 
     const fn desc_addr(&self) -> u64 {
@@ -790,10 +901,16 @@ impl Device for VirtioBlock {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) {
-        if let Ok(state) = serde_json::from_value::<VirtioBlockState>(state.clone()) {
-            self.set_state(&state);
-        }
+    fn check_restore(&self, state: &serde_json::Value) -> Result<(), String> {
+        let state = serde_json::from_value::<VirtioBlockState>(state.clone())
+            .map_err(|error| format!("virtio disk state: {error}"))?;
+        self.check_state(&state)
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+        let state = serde_json::from_value::<VirtioBlockState>(state.clone())
+            .map_err(|error| format!("virtio disk state: {error}"))?;
+        self.set_state(&state)
     }
 
     fn name(&self) -> &'static str {
