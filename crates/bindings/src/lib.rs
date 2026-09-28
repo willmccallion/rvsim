@@ -47,6 +47,7 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<views::Memory>()?;
     m.add_class::<views::VirtualMemory>()?;
 
+    m.add("CHECKPOINT_VERSION", rvsim_core::sim::checkpoint::VERSION)?;
     m.add_function(wrap_pyfunction!(utils::version, m)?)?;
     m.add_function(wrap_pyfunction!(utils::disassemble, m)?)?;
 

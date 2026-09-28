@@ -343,6 +343,19 @@ impl PySimulator {
         Harts { cpu: slf.unbind() }
     }
 
+    /// Cycles since the system started, carried across checkpoints.
+    #[getter]
+    fn cycle(&self) -> u64 {
+        self.inner.state.cycle
+    }
+
+    /// Instructions retired by every hart since the system started,
+    /// carried across checkpoints.
+    #[getter]
+    fn instructions_retired(&self) -> u64 {
+        self.inner.state.instructions_retired()
+    }
+
     /// Number of harts in the system.
     #[getter]
     fn hart_count(&self) -> usize {

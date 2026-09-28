@@ -22,7 +22,8 @@ use crate::core::units::mmu::pmp::PmpEntry;
 use crate::sim::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
-const VERSION: u64 = 6;
+/// The checkpoint format this build writes and restores.
+pub const VERSION: u64 = 6;
 
 /// RAM is saved in pages of this many bytes; pages of zeros are skipped.
 const PAGE_BYTES: usize = 4096;
