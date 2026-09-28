@@ -515,10 +515,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if let Some(csr_update) = entry.csr_update {
-            // SATP write: drain SB so PTW reads up-to-date PTEs after translation mode change.
-            if csr_update.addr == csr::SATP {
-                drain_all_committed(state, common, store_buffer, vec_store_buffer);
-            }
             // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
             if !csr_update.applied {
                 let pc_before = state.hart.pc;
@@ -541,9 +537,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             );
             // SATP redirect: post-execute fetches used old tables; refetch from the next instruction.
             if csr_update.addr == csr::SATP {
-                let _ = state.core.l1_i_cache.invalidate_all();
-                let dirty = state.core.l1_d_cache.flush();
-                write_back_lines(state, common, &dirty);
                 event =
                     Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
@@ -667,7 +660,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            sfence_vma_commit(state, common, &info);
+            sfence_vma_commit(state, &info);
             state.clear_reservation();
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
@@ -1448,20 +1441,17 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
     }
 }
 
-/// Performs selective SFENCE.VMA TLB/cache flushing at commit time per the privileged spec:
-/// rs1==0,rs2==0: flush all TLBs + D-cache + I-cache;
+/// Performs selective SFENCE.VMA TLB flushing at commit time per the privileged spec:
+/// rs1==0,rs2==0: flush all TLBs;
 /// rs1!=0,rs2==0: flush TLB entries matching vaddr in rs1;
 /// rs1==0,rs2!=0: flush non-global TLB entries matching ASID in rs2;
 /// rs1!=0,rs2!=0: flush TLB entry matching both vaddr and ASID.
-fn sfence_vma_commit(state: &mut CoreCtx<'_>, common: &mut BackendCommon, info: &SfenceVmaInfo) {
+fn sfence_vma_commit(state: &mut CoreCtx<'_>, info: &SfenceVmaInfo) {
     match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
         (false, false) => {
             state.core.mmu.dtlb.flush();
             state.core.mmu.itlb.flush();
             state.core.mmu.l2_tlb.flush();
-            let dirty = state.core.l1_d_cache.flush();
-            write_back_lines(state, common, &dirty);
-            let _ = state.core.l1_i_cache.invalidate_all();
         }
         (true, false) => {
             let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);

@@ -32,6 +32,7 @@ pub mod page_crossing;
 pub mod squash_history;
 pub mod stage_widths;
 pub mod tlb_latency;
+pub mod translation_fences;
 pub mod trap_latency;
 pub mod unit_status;
 pub mod unmapped_access;
