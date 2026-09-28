@@ -726,11 +726,13 @@ impl ExecutionEngine for O3Engine {
             };
             let selection = self.issue_queue.select(&budget, &self.store_buffer, &self.rob);
             let stalled_fu = selection.unit_stalls > 0;
-            state
-                .shared
-                .stats
-                .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
-                .add(selection.unit_stalls as u64);
+            if stalled_fu {
+                state
+                    .shared
+                    .stats
+                    .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
+                    .inc();
+            }
 
             let mut issued_count = 0;
 

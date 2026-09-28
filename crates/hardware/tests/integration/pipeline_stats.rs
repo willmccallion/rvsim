@@ -1,5 +1,5 @@
-//! Pipeline counters mean what their stats say: every applied flush is
-//! counted once, under its cause.
+//! Pipeline stall and flush counters mean what their stats say: stalls in
+//! cycles, and every applied flush once, under its cause.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
@@ -53,4 +53,33 @@ fn flushes_by_cause_add_up_to_all_flushes() {
     assert!(count(core_paths.mdp.violations) > 0.0, "the program violates memory order");
     assert_eq!(by_cause, count(paths.flushes_total));
     assert_eq!(ctx.get_reg(T4 as usize), 7, "the last load reads the stored value");
+}
+
+/// Independent divides compete for the one divider.
+fn divide_bound_program() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![i().addi(T0, 0, 100).build(), i().addi(T3, 0, 3).build()];
+    for rd in 10..26 {
+        program.push(i().div(rd, T0, T3).build());
+    }
+    program.push(i().jal(0, 0).build());
+    program
+}
+
+#[test]
+fn fu_structural_stalls_are_counted_in_cycles() {
+    let mut config = Config::default();
+    config.pipeline.backend = BackendType::OutOfOrder;
+    config.system.uart_quiet = true;
+    let mut ctx =
+        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &divide_bound_program());
+
+    ctx.run(60);
+
+    let paths = &ctx.sim.state.cores[0].units.stat_paths.pipeline;
+    let stats = &ctx.sim.state.stats;
+    let stalls = stats.get(paths.stalls_fu_structural).unwrap_or(0.0);
+    let cycles = stats.get(paths.cycles_total).unwrap_or(0.0);
+    assert!(stalls > 0.0, "the divides wait for the divider");
+    assert!(stalls <= cycles, "{stalls} stall cycles in {cycles} cycles");
 }
