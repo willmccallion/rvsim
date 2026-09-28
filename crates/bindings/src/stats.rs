@@ -7,6 +7,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyList};
+use rvsim_core::sim::state::StatsEpoch;
 use rvsim_core::sim::stats::Stats;
 
 /// Python-facing view over the hierarchical stats tree.
@@ -20,12 +21,45 @@ pub struct PyStats {
     stats: Stats,
     cycles: u64,
     instructions_retired: u64,
+    /// The stats reset these counts start from.
+    epoch: StatsEpoch,
 }
 
 impl PyStats {
-    /// Snapshot the tree along with the top-level counters `summary` needs.
-    pub const fn new(stats: Stats, cycles: u64, instructions_retired: u64) -> Self {
-        Self { stats, cycles, instructions_retired }
+    /// Snapshot the tree along with the top-level counters `summary` needs,
+    /// counted from the reset at `epoch`.
+    pub const fn new(
+        stats: Stats,
+        cycles: u64,
+        instructions_retired: u64,
+        epoch: StatsEpoch,
+    ) -> Self {
+        Self { stats, cycles, instructions_retired, epoch }
+    }
+
+    /// The stats of the region between `earlier` and this snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Raises `ValueError` when the stats were reset between the two, or
+    /// `earlier` was taken after this one.
+    pub fn since(&self, earlier: &Self) -> PyResult<Self> {
+        if earlier.epoch != self.epoch {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "the stats were reset between these snapshots",
+            ));
+        }
+        if earlier.cycles > self.cycles {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "the snapshot being subtracted was taken later",
+            ));
+        }
+        Ok(Self {
+            stats: self.stats.since(&earlier.stats),
+            cycles: self.cycles - earlier.cycles,
+            instructions_retired: self.instructions_retired - earlier.instructions_retired,
+            epoch: self.epoch,
+        })
     }
 }
 
@@ -41,6 +75,14 @@ impl PyStats {
     #[getter]
     const fn instructions_retired(&self) -> u64 {
         self.instructions_retired
+    }
+
+    /// `later - earlier`: the stats of the region between two snapshots.
+    /// Counters are subtracted and derived stats (IPC, miss rates) are
+    /// recomputed from the differences; histograms keep exact counts and
+    /// means but lose their minimum and maximum.
+    fn __sub__(&self, earlier: &Self) -> PyResult<Self> {
+        self.since(earlier)
     }
 
     /// Instructions per cycle (0.0 if cycles == 0).

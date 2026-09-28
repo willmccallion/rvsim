@@ -48,7 +48,9 @@ use crate::sim::per_hart_debug::HartDebug;
 use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
 use crate::sim::topology::Topology;
-use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
+use crate::soc::devices::{
+    Clint, GoldfishRtc, Htif, Plic, SimControl, SimOp, SysCon, Uart, VirtioBlock,
+};
 use crate::soc::interconnect::Bus;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
@@ -150,8 +152,37 @@ pub struct SharedState {
     pub event_queue: EventQueue,
     /// Hierarchical statistics tree; sim-side perf observability counters.
     pub stats: Stats,
+    /// Where the current stats window began.
+    pub stats_epoch: StatsEpoch,
+    /// Stats the guest dumped, oldest first.
+    pub stats_dumps: Vec<StatsDump>,
     /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
     pub hart_stat_paths: Vec<HartPaths>,
+}
+
+/// The cycle and instructions retired when the stats were last reset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StatsEpoch {
+    /// The cycle of the reset.
+    pub cycle: u64,
+    /// Instructions all harts had retired by then.
+    pub instructions_retired: u64,
+}
+
+/// A copy of the stats a guest asked for. Two dumps with the same epoch
+/// subtract to the stats of the region between them.
+#[derive(Clone, Debug)]
+pub struct StatsDump {
+    /// The guest's label.
+    pub label: u64,
+    /// The reset the counts start from.
+    pub epoch: StatsEpoch,
+    /// The stats since the last reset.
+    pub stats: Stats,
+    /// Cycles since the last reset.
+    pub cycles: u64,
+    /// Instructions retired since the last reset.
+    pub instructions_retired: u64,
 }
 
 /// The whole system: harts, cores, and the uncore.
@@ -367,6 +398,39 @@ impl SimState {
         self.harts.iter().map(|h| h.instructions_retired).sum()
     }
 
+    /// Cycles and instructions retired since the stats were last reset.
+    #[must_use]
+    pub fn stats_window(&self) -> (u64, u64) {
+        let epoch = self.stats_epoch;
+        (self.cycle - epoch.cycle, self.instructions_retired() - epoch.instructions_retired)
+    }
+
+    /// Zeroes every stat and starts a new window here.
+    pub fn reset_stats(&mut self) {
+        self.shared.stats.reset();
+        self.shared.stats_epoch =
+            StatsEpoch { cycle: self.cycle, instructions_retired: self.instructions_retired() };
+    }
+
+    /// Carries out a request the guest made through the sim-control device.
+    pub fn apply_sim_op(&mut self, op: SimOp) {
+        match op {
+            SimOp::ResetStats => self.reset_stats(),
+            SimOp::DumpStats { label } => {
+                let (cycles, instructions_retired) = self.stats_window();
+                let stats = self.shared.stats.clone();
+                let epoch = self.shared.stats_epoch;
+                self.shared.stats_dumps.push(StatsDump {
+                    label,
+                    epoch,
+                    stats,
+                    cycles,
+                    instructions_retired,
+                });
+            }
+        }
+    }
+
     /// Dumps every hart's state (PC and registers) to stdout.
     pub fn dump_state(&self) {
         for hart in &self.harts {
@@ -429,6 +493,10 @@ impl SimState {
         bus.add_device(Box::new(clint));
         bus.add_device(Box::new(plic));
         bus.add_device(Box::new(syscon));
+        bus.add_device(Box::new(SimControl::new(
+            config.system.sim_control_base,
+            exit_signal.clone(),
+        )));
         bus.add_device(Box::new(rtc));
 
         if config.system.tohost_addr != 0 {
@@ -625,6 +693,8 @@ impl SimState {
                 direct_mode,
                 event_queue: EventQueue::new(),
                 stats,
+                stats_epoch: StatsEpoch::default(),
+                stats_dumps: Vec::new(),
                 hart_stat_paths,
             },
         }

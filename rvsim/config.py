@@ -120,6 +120,7 @@ class Config:
         disk_base: int = 0x9000_0000,
         clint_base: int = 0x0200_0000,
         syscon_base: int = 0x0010_0000,
+        sim_control_base: int = 0x0010_2000,
         kernel_offset: int = 0x0020_0000,
         bus_width: int = 8,
         bus_latency: int = 4,
@@ -191,6 +192,7 @@ class Config:
         self.disk_base = disk_base
         self.clint_base = clint_base
         self.syscon_base = syscon_base
+        self.sim_control_base = sim_control_base
         self.kernel_offset = kernel_offset
         self.bus_width = bus_width
         self.bus_latency = bus_latency
@@ -742,6 +744,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "disk_base": cfg.disk_base,
         "clint_base": cfg.clint_base,
         "syscon_base": cfg.syscon_base,
+        "sim_control_base": cfg.sim_control_base,
         "kernel_offset": cfg.kernel_offset,
         "bus_width": cfg.bus_width,
         "bus_latency": cfg.bus_latency,

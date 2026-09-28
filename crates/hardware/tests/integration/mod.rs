@@ -34,6 +34,7 @@ pub mod mmio_loads;
 pub mod multicore;
 pub mod page_crossing;
 pub mod pipeline_stats;
+pub mod sim_control;
 pub mod squash_history;
 pub mod stage_widths;
 pub mod store_completion;

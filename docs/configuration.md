@@ -298,6 +298,7 @@ These parameters control the SoC memory map and device configuration. You normal
 | `disk_base` | `int` | `0x9000_0000` | VirtIO disk base address |
 | `clint_base` | `int` | `0x0200_0000` | CLINT base address |
 | `syscon_base` | `int` | `0x0010_0000` | SYSCON base address |
+| `sim_control_base` | `int` | `0x0010_2000` | Sim-control device base address (guest stats reset / dump / exit) |
 | `kernel_offset` | `int` | `0x0020_0000` | Kernel load offset from ram_base |
 | `bus_width` | `int` | `8` | Bus width in bytes |
 | `bus_latency` | `int` | `4` | Bus transaction latency in cycles |

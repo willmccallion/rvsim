@@ -4,8 +4,8 @@
 //! folds CLINT and PLIC state into one set of interrupt lines per hart, and
 //! exposes a fast-path RAM region pointer for pipeline bit-exact reads.
 
-use super::devices::Device;
 use super::devices::clint::Clint;
+use super::devices::{Device, SimOp};
 use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
@@ -239,6 +239,11 @@ impl Bus {
     /// RAM ranges any device wrote by DMA since the last call.
     pub fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
         self.devices.iter_mut().flat_map(|d| d.take_dma_writes()).collect()
+    }
+
+    /// Requests the guest made of the simulator since the last call.
+    pub fn take_sim_ops(&mut self) -> Vec<SimOp> {
+        self.devices.iter_mut().flat_map(|d| d.take_sim_ops()).collect()
     }
 
     /// Finishes every device's work in flight before a checkpoint.

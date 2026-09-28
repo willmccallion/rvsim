@@ -47,6 +47,9 @@ mod defaults {
     /// Base address of system controller (power/reset) MMIO region.
     pub const SYSCON_BASE: u64 = 0x0010_0000;
 
+    /// Base address of the simulator control MMIO region.
+    pub const SIM_CONTROL_BASE: u64 = 0x0010_2000;
+
     /// System bus width in bytes (8 bytes = 64-bit bus).
     ///
     /// Determines the maximum transfer size per bus transaction.
@@ -611,6 +614,11 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_syscon_base")]
     pub syscon_base: u64,
 
+    /// Simulator control MMIO base address, which guest software writes
+    /// to reset or dump the stats and to end the run
+    #[serde(default = "SystemConfig::default_sim_control_base")]
+    pub sim_control_base: u64,
+
     /// Kernel load offset from RAM base
     #[serde(default = "SystemConfig::default_kernel_offset")]
     pub kernel_offset: u64,
@@ -693,6 +701,10 @@ impl SystemConfig {
         defaults::SYSCON_BASE
     }
 
+    const fn default_sim_control_base() -> u64 {
+        defaults::SIM_CONTROL_BASE
+    }
+
     /// Returns the default kernel load offset from RAM base.
     const fn default_kernel_offset() -> u64 {
         defaults::KERNEL_OFFSET
@@ -758,6 +770,7 @@ impl Default for SystemConfig {
             ram_base: defaults::RAM_BASE,
             clint_base: defaults::CLINT_BASE,
             syscon_base: defaults::SYSCON_BASE,
+            sim_control_base: defaults::SIM_CONTROL_BASE,
             kernel_offset: defaults::KERNEL_OFFSET,
             bus_width: defaults::BUS_WIDTH,
             bus_latency: defaults::BUS_LATENCY,

@@ -279,7 +279,52 @@ Capture the current pipeline state. Call `.visualize()` on the result to print a
 
 #### `stats -> Stats`
 
-Access the current statistics (accumulated since the start of simulation or last checkpoint restore).
+Access the current statistics (accumulated since the start of simulation,
+the last checkpoint restore, or the last `reset_stats()`).
+
+#### Measuring a region: `later - earlier`
+
+Subtracting two `Stats` snapshots gives the stats of the region between
+them, while the whole run's stats stay intact:
+
+```python
+start = cpu.stats
+cpu.run(limit=1_000_000)
+region = cpu.stats - start
+print(region.ipc, region["core0.bp.committed.accuracy"])
+```
+
+Counters are subtracted and derived stats (IPC, miss rates, accuracies)
+are recomputed from the differences. Histograms keep exact counts, sums and
+means but report no minimum or maximum, which two cumulative snapshots
+cannot recover. Subtracting a later snapshot, or across a `reset_stats()`,
+raises `ValueError`.
+
+#### `reset_stats()`
+
+Zero every stat; `stats` then counts from here, as gem5's `m5 resetstats`
+does. Prefer subtracting snapshots, which keeps the whole run's stats.
+
+#### `stats_dumps -> list[tuple[int, Stats]]`, `stats_between(start, end) -> Stats`
+
+Software running in the guest marks its own regions through the
+sim-control device (see below): each dump it requests is kept here as a
+labelled cumulative snapshot. `stats_between(start, end)` subtracts the
+dump labelled `start` from the next one labelled `end`.
+
+#### The sim-control device
+
+A simulator-only MMIO device at `sim_control_base` (default `0x0010_2000`),
+not in the device tree, with two 64-bit registers:
+
+| Offset | Register | Access |
+|---|---|---|
+| `0x00` | `COMMAND` | write `1` to reset the stats, `2` to dump them labelled with `ARG`, `3` to end the simulation with `ARG` as the exit code |
+| `0x08` | `ARG` | read/write: the argument of the next command |
+
+A guest writes `ARG`, then `COMMAND`. Under Linux, map the page through
+`/dev/mem`. The command takes effect at the end of the cycle the write
+reaches the device.
 
 ---
 

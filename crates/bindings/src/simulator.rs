@@ -252,11 +252,51 @@ impl PySimulator {
     /// auto-summary. See [`crate::stats::PyStats`].
     #[getter]
     fn stats(&self) -> PyStats {
-        PyStats::new(
-            self.inner.state.stats.clone(),
-            self.inner.state.cycle,
-            self.inner.state.instructions_retired(),
-        )
+        let (cycles, instructions_retired) = self.inner.state.stats_window();
+        let epoch = self.inner.state.stats_epoch;
+        PyStats::new(self.inner.state.stats.clone(), cycles, instructions_retired, epoch)
+    }
+
+    /// Zero every stat; cycles and instructions in summaries count from here.
+    fn reset_stats(&mut self) {
+        self.inner.state.reset_stats();
+    }
+
+    /// The stats the guest dumped through the sim-control device, oldest
+    /// first, as ``(label, Stats)`` pairs; each covers the window since the
+    /// last reset before it.
+    #[getter]
+    fn stats_dumps(&self) -> Vec<(u64, PyStats)> {
+        self.inner
+            .state
+            .stats_dumps
+            .iter()
+            .map(|dump| {
+                let stats = PyStats::new(
+                    dump.stats.clone(),
+                    dump.cycles,
+                    dump.instructions_retired,
+                    dump.epoch,
+                );
+                (dump.label, stats)
+            })
+            .collect()
+    }
+
+    /// The stats of the region between the guest's dump labelled `start`
+    /// and the next dump after it labelled `end`, with the whole run's
+    /// stats left intact.
+    ///
+    /// Raises ``KeyError`` when no such pair was dumped and ``ValueError``
+    /// when the stats were reset between them.
+    fn stats_between(&self, start: u64, end: u64) -> PyResult<PyStats> {
+        let dumps = self.stats_dumps();
+        let missing =
+            || pyo3::exceptions::PyKeyError::new_err(format!("no dumps {start} then {end}"));
+        let first = dumps.iter().position(|(label, _)| *label == start).ok_or_else(missing)?;
+        let (_, later) =
+            dumps[first + 1..].iter().find(|(label, _)| *label == end).ok_or_else(missing)?;
+        later.since(&dumps[first].1)
     }
 
     /// Hart 0's register file — ``cpu.regs[10]``, ``cpu.regs[10] = v``.
@@ -441,10 +481,13 @@ impl PySimulator {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
+            let (cycles, instructions_retired) = self.inner.state.stats_window();
+            let epoch = self.inner.state.stats_epoch;
             snapshots.push(PyStats::new(
                 self.inner.state.stats.clone(),
-                self.inner.state.cycle,
-                self.inner.state.instructions_retired(),
+                cycles,
+                instructions_retired,
+                epoch,
             ));
 
             if exit.is_some() {

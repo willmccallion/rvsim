@@ -182,6 +182,9 @@ impl Simulator {
             self.scoped_to_hart(core, |sim| sim.state.core_ctx(core).post_tick(prev));
         }
         self.leave_hart_scope();
+        for op in self.state.bus.take_sim_ops() {
+            self.state.apply_sim_op(op);
+        }
         Ok(())
     }
 

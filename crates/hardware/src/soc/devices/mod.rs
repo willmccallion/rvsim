@@ -16,6 +16,9 @@ pub mod htif;
 /// Platform-Level Interrupt Controller (PLIC).
 pub mod plic;
 
+/// Simulator control (regions of interest marked by the guest).
+pub mod sim_control;
+
 /// System Controller (power and reset control).
 pub mod syscon;
 
@@ -29,6 +32,7 @@ pub use clint::Clint;
 pub use goldfish_rtc::GoldfishRtc;
 pub use htif::Htif;
 pub use plic::Plic;
+pub use sim_control::{SimControl, SimOp};
 pub use syscon::SysCon;
 pub use uart::Uart;
 pub use virtio_disk::VirtioBlock;

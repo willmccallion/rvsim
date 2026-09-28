@@ -7,7 +7,7 @@
 
 use crate::common::{IrqId, PhysAddr};
 use crate::sim::handle::Handle;
-use crate::soc::devices::{Clint, Plic, Uart};
+use crate::soc::devices::{Clint, Plic, SimOp, Uart};
 
 /// Trait for memory-mapped I/O devices attached to the system bus.
 ///
@@ -51,6 +51,11 @@ pub trait Device: Handle + Send + Sync {
     /// system can publish them like any other write (reservations, the
     /// write log).
     fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
+        Vec::new()
+    }
+
+    /// Requests the guest made of the simulator since the last call.
+    fn take_sim_ops(&mut self) -> Vec<SimOp> {
         Vec::new()
     }
 

@@ -239,6 +239,7 @@ impl Simulator {
         if let Some(coherence) = &mut state.shared.coherence {
             coherence.forget_cached_lines();
         }
+        self.state.reset_stats();
         self.sync_arch_regs();
     }
 }
