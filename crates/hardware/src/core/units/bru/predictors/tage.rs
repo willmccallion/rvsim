@@ -7,21 +7,22 @@
 
 use crate::config::TageConfig;
 use crate::core::units::bru::Ghr;
-use crate::core::units::bru::components::tage_core::TageCore;
+use crate::core::units::bru::components::tage_core::{TageCore, TagePrediction};
 use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
 /// TAGE Predictor structure.
 #[derive(Debug)]
 pub struct TagePredictor {
     spec_ghr: Ghr,
-    commit_ghr: Ghr,
     tage: TageCore,
 }
 
-/// The speculative global history a TAGE prediction was made with.
+/// The speculative global history a TAGE prediction was made with, and for
+/// a conditional branch the entries it read.
 #[derive(Clone, Copy, Debug)]
 pub struct TageHistory {
     ghr: Ghr,
+    prediction: Option<TagePrediction>,
 }
 
 impl TagePredictor {
@@ -30,17 +31,12 @@ impl TagePredictor {
         let tage = TageCore::new(config);
         let max_hist = tage.max_history();
 
-        Self { spec_ghr: Ghr::with_len(max_hist), commit_ghr: Ghr::with_len(max_hist), tage }
+        Self { spec_ghr: Ghr::with_len(max_hist), tage }
     }
 
     fn push_speculative(&mut self, taken: bool) {
         self.tage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
-    }
-
-    fn push_committed(&mut self, taken: bool) {
-        self.tage.commit_advance(taken, &self.commit_ghr);
-        self.commit_ghr.push(taken);
     }
 }
 
@@ -48,11 +44,12 @@ impl DirectionPredictor for TagePredictor {
     type History = TageHistory;
 
     fn lookup(&self, pc: u64) -> (bool, TageHistory) {
-        (self.tage.predict(pc).pred_taken, TageHistory { ghr: self.spec_ghr })
+        let prediction = self.tage.predict(pc);
+        (prediction.taken(), TageHistory { ghr: self.spec_ghr, prediction: Some(prediction) })
     }
 
     fn unconditional(&self, _pc: u64) -> TageHistory {
-        TageHistory { ghr: self.spec_ghr }
+        TageHistory { ghr: self.spec_ghr, prediction: None }
     }
 
     fn update_histories(&mut self, _pc: u64, taken: bool, _history: &TageHistory) {
@@ -73,13 +70,14 @@ impl DirectionPredictor for TagePredictor {
         self.push_speculative(taken);
     }
 
-    /// Trains with the committed history, as Seznec's CBP functional model
-    /// does, then shifts the outcome into it.
-    fn commit(&mut self, pc: u64, retired: Retired, _history: &TageHistory) {
-        if retired.class == BranchClass::Conditional {
-            let _result = self.tage.update(pc, retired.taken, &self.commit_ghr);
+    /// Trains the entries the prediction read, as gem5 trains those its
+    /// `BranchInfo` recorded.
+    fn commit(&mut self, _pc: u64, retired: Retired, history: &TageHistory) {
+        if retired.class == BranchClass::Conditional
+            && let Some(prediction) = &history.prediction
+        {
+            self.tage.update(retired.taken, prediction);
         }
-        self.push_committed(retired.taken);
     }
 }
 

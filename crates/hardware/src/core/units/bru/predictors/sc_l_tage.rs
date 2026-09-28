@@ -14,8 +14,12 @@
 use crate::config::{IttageConfig, ScConfig, TageConfig};
 use crate::core::units::bru::Ghr;
 use crate::core::units::bru::components::{
-    ittage::Ittage, loop_predictor::LoopPredictor, sc_types::ScSum, sc_types::TageScMeta,
-    stat_corrector::StatCorrector, tage_core::TageCore,
+    ittage::Ittage,
+    loop_predictor::LoopPredictor,
+    sc_types::ScSum,
+    sc_types::TageScMeta,
+    stat_corrector::StatCorrector,
+    tage_core::{TageCore, TagePrediction},
 };
 use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
 
@@ -38,6 +42,8 @@ pub struct ScLTagePredictor {
 pub struct ScLTageHistory {
     /// The speculative global history before the prediction.
     ghr: Ghr,
+    /// The TAGE entries a conditional branch's prediction read.
+    tage: Option<TagePrediction>,
     /// The TAGE metadata and SC sum the statistical corrector decided
     /// with; `None` when the loop predictor overrode it or for a jump.
     sc: Option<(TageScMeta, ScSum)>,
@@ -78,14 +84,15 @@ impl ScLTagePredictor {
     /// committed CSRs for this instruction: the folded histories need the
     /// bit about to be shifted out.
     fn push_committed(&mut self, taken: bool) {
-        self.tage.commit_advance(taken, &self.commit_ghr);
         self.ittage.commit_advance(taken, &self.commit_ghr);
         self.commit_ghr.push(taken);
     }
 
     fn train_direction(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
         self.loop_pred.update(pc, taken);
-        let meta = self.tage.update(pc, taken, &self.commit_ghr).meta;
+        let Some(prediction) = &history.tage else { return };
+        self.tage.update(taken, prediction);
+        let meta = prediction.meta();
         let (sc_meta, sc_sum) = history.sc.unwrap_or_else(|| {
             let (_taken, sum) = self.sc.predict(pc, &self.commit_ghr, &meta);
             (meta, sum)
@@ -98,16 +105,18 @@ impl DirectionPredictor for ScLTagePredictor {
     type History = ScLTageHistory;
 
     fn lookup(&self, pc: u64) -> (bool, ScLTageHistory) {
-        let meta = self.tage.predict(pc);
+        let prediction = self.tage.predict(pc);
+        let tage = Some(prediction);
         if let Some(loop_taken) = self.loop_pred.predict(pc) {
-            return (loop_taken, ScLTageHistory { ghr: self.spec_ghr, sc: None });
+            return (loop_taken, ScLTageHistory { ghr: self.spec_ghr, tage, sc: None });
         }
+        let meta = prediction.meta();
         let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
-        (sc_taken, ScLTageHistory { ghr: self.spec_ghr, sc: Some((meta, sc_sum)) })
+        (sc_taken, ScLTageHistory { ghr: self.spec_ghr, tage, sc: Some((meta, sc_sum)) })
     }
 
     fn unconditional(&self, _pc: u64) -> ScLTageHistory {
-        ScLTageHistory { ghr: self.spec_ghr, sc: None }
+        ScLTageHistory { ghr: self.spec_ghr, tage: None, sc: None }
     }
 
     fn update_histories(&mut self, _pc: u64, taken: bool, _history: &ScLTageHistory) {

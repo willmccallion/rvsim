@@ -5,7 +5,7 @@
 //! compose those on top.
 
 use super::sc_types::{TageConfLevel, TageScMeta};
-use super::tagged_bank::GeoBankSet;
+use super::tagged_bank::{GeoBankSet, MAX_BANKS};
 use crate::config::TageConfig;
 use crate::core::units::bru::Ghr;
 
@@ -17,13 +17,36 @@ struct TageEntry {
     u: u8,
 }
 
-/// Result of a commit-time TAGE update, providing metadata for the SC layer.
+/// What a TAGE prediction read: the entries its branch trains at commit,
+/// as gem5's `TAGEBase::BranchInfo` carries them.
 #[derive(Clone, Copy, Debug)]
-pub struct TageUpdateResult {
-    /// Structured metadata (confidence, provider bank, effective prediction).
-    pub meta: TageScMeta,
-    /// Effective TAGE prediction after `USE_ALT_ON_NA`.
-    pub tage_taken: bool,
+pub struct TagePrediction {
+    indices: [usize; MAX_BANKS],
+    tags: [u16; MAX_BANKS],
+    base_index: usize,
+    /// Bank of the longest matching entry.
+    provider: Option<usize>,
+    /// The longest match's prediction, or the base's without one.
+    provider_taken: bool,
+    /// The next longest match's prediction, or the base's without one.
+    alt_taken: bool,
+    /// The longest match's counter is weak, as a new entry's is.
+    provider_weak: bool,
+    meta: TageScMeta,
+}
+
+impl TagePrediction {
+    /// The predicted direction, after `USE_ALT_ON_NA`.
+    #[must_use]
+    pub const fn taken(&self) -> bool {
+        self.meta.pred_taken
+    }
+
+    /// The metadata the statistical corrector decides with.
+    #[must_use]
+    pub const fn meta(&self) -> TageScMeta {
+        self.meta
+    }
 }
 
 /// Core TAGE direction predictor.
@@ -100,80 +123,52 @@ impl TageCore {
         self.geo_banks.table_mask()
     }
 
-    /// Speculative prediction using pre-maintained CSRs. `O(num_banks)`.
-    ///
-    /// Returns structured `TageScMeta` with confidence, provider info, and
-    /// effective prediction after `USE_ALT_ON_NA`.
-    pub fn predict(&self, pc: u64) -> TageScMeta {
+    /// Predicts the branch at `pc` from the speculative history, recording
+    /// the entries it read. `O(num_banks)`.
+    pub fn predict(&self, pc: u64) -> TagePrediction {
         let num_banks = self.tables.len();
-        let base_idx = ((pc >> 2) as usize) & self.geo_banks.table_mask();
-
-        let mut provider: Option<usize> = None;
-        let mut alt: Option<usize> = None;
-
-        for i in (0..num_banks).rev() {
-            let idx = self.geo_banks.spec_index(pc, i);
-            let tag = self.geo_banks.spec_tag(pc, i);
-            if self.tables[i][idx].tag == tag {
-                if provider.is_none() {
-                    provider = Some(i);
-                } else {
-                    alt = Some(i);
-                    break;
-                }
-            }
+        let mut indices = [0usize; MAX_BANKS];
+        let mut tags = [0u16; MAX_BANKS];
+        for bank in 0..num_banks {
+            indices[bank] = self.geo_banks.spec_index(pc, bank);
+            tags[bank] = self.geo_banks.spec_tag(pc, bank);
         }
+        let base_index = ((pc >> 2) as usize) & self.geo_banks.table_mask();
 
-        let Some(prov_bank) = provider else {
-            let ctr = self.base[base_idx];
-            return TageScMeta {
-                conf: TageConfLevel::from_ctr(ctr),
-                provider_bank: 0,
-                alt_bank_present: false,
-                pred_taken: ctr >= 0,
-                pred_ctr: ctr,
-            };
-        };
+        let mut matching =
+            (0..num_banks).rev().filter(|&b| self.tables[b][indices[b]].tag == tags[b]);
+        let provider = matching.next();
+        let alt = matching.next();
 
-        let prov_idx = self.geo_banks.spec_index(pc, prov_bank);
-        let prov_ctr = self.tables[prov_bank][prov_idx].ctr;
-        let prov_taken = prov_ctr >= 0;
-
-        let provider_weak = prov_ctr == 0 || prov_ctr == -1;
-        if provider_weak && self.use_alt_on_na_ctr >= 0 {
-            let (alt_ctr, alt_taken) = alt.map_or_else(
-                || {
-                    let ctr = self.base[base_idx];
-                    (ctr, ctr >= 0)
-                },
-                |bank| {
-                    let idx = self.geo_banks.spec_index(pc, bank);
-                    let ctr = self.tables[bank][idx].ctr;
-                    (ctr, ctr >= 0)
-                },
-            );
-            return TageScMeta {
-                conf: TageConfLevel::from_ctr(alt_ctr),
-                provider_bank: prov_bank + 1,
-                alt_bank_present: alt.is_some(),
-                pred_taken: alt_taken,
-                pred_ctr: alt_ctr,
-            };
-        }
-
-        TageScMeta {
-            conf: TageConfLevel::from_ctr(prov_ctr),
-            provider_bank: prov_bank + 1,
+        let base_ctr = self.base[base_index];
+        let ctr_of =
+            |bank: Option<usize>| bank.map_or(base_ctr, |b| self.tables[b][indices[b]].ctr);
+        let (provider_ctr, alt_ctr) = (ctr_of(provider), ctr_of(alt));
+        let provider_weak = provider.is_some() && (provider_ctr == 0 || provider_ctr == -1);
+        let pred_ctr =
+            if provider_weak && self.use_alt_on_na_ctr >= 0 { alt_ctr } else { provider_ctr };
+        let meta = TageScMeta {
+            conf: TageConfLevel::from_ctr(pred_ctr),
+            provider_bank: provider.map_or(0, |b| b + 1),
             alt_bank_present: alt.is_some(),
-            pred_taken: prov_taken,
-            pred_ctr: prov_ctr,
+            pred_taken: pred_ctr >= 0,
+            pred_ctr,
+        };
+        TagePrediction {
+            indices,
+            tags,
+            base_index,
+            provider,
+            provider_taken: provider_ctr >= 0,
+            alt_taken: alt_ctr >= 0,
+            provider_weak,
+            meta,
         }
     }
 
-    /// Commit-time update. Recomputes indices/tags from the GHR snapshot,
-    /// updates counters, useful bits, `USE_ALT_ON_NA`, and allocates on
-    /// misprediction. Returns metadata for SC consumption.
-    pub fn update(&mut self, pc: u64, taken: bool, _ghr: &Ghr) -> TageUpdateResult {
+    /// Trains the entries `prediction` read with the branch's outcome, and
+    /// allocates a longer-history entry when it was wrong.
+    pub fn update(&mut self, taken: bool, prediction: &TagePrediction) {
         self.clock_counter += 1;
         if self.clock_counter >= self.reset_interval {
             self.clock_counter = 0;
@@ -184,69 +179,21 @@ impl TageCore {
             }
         }
 
-        let (indices, tags) = self.geo_banks.committed_all(pc);
-        let num_banks = self.tables.len();
-
-        let mut provider = 0usize;
-        let mut alt = 0usize;
-
-        for i in (0..num_banks).rev() {
-            if self.tables[i][indices[i]].tag == tags[i] {
-                if provider == 0 {
-                    provider = i + 1;
-                } else if alt == 0 {
-                    alt = i + 1;
-                    break;
-                }
-            }
-        }
-
-        let base_idx = ((pc >> 2) as usize) & self.geo_banks.table_mask();
-
-        let (prov_taken, prov_ctr) = if provider > 0 {
-            let ctr = self.tables[provider - 1][indices[provider - 1]].ctr;
-            (ctr >= 0, ctr)
-        } else {
-            let ctr = self.base[base_idx];
-            (ctr >= 0, ctr)
-        };
-
-        let alt_taken = if alt > 0 {
-            self.tables[alt - 1][indices[alt - 1]].ctr >= 0
-        } else {
-            self.base[base_idx] >= 0
-        };
-
-        let provider_weak = provider > 0 && (prov_ctr == 0 || prov_ctr == -1);
-        if provider_weak && prov_taken != alt_taken {
+        let TagePrediction { indices, tags, base_index, provider, .. } = *prediction;
+        let (prov_taken, alt_taken) = (prediction.provider_taken, prediction.alt_taken);
+        if prediction.provider_weak && prov_taken != alt_taken {
             if alt_taken == taken {
                 self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr + 1).min(7);
             } else {
                 self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr - 1).max(-8);
             }
         }
-
-        let (eff_taken, eff_ctr) = if provider_weak && self.use_alt_on_na_ctr >= 0 {
-            if alt > 0 {
-                let ctr = self.tables[alt - 1][indices[alt - 1]].ctr;
-                (ctr >= 0, ctr)
-            } else {
-                let ctr = self.base[base_idx];
-                (ctr >= 0, ctr)
-            }
-        } else {
-            (prov_taken, prov_ctr)
-        };
-
-        let tage_taken = eff_taken;
+        let num_banks = self.tables.len();
         let provider_mispred = prov_taken != taken;
-        let tage_mispred = tage_taken != taken;
+        let tage_mispred = prediction.taken() != taken;
 
-        if provider > 0 {
-            let bank_idx = provider - 1;
-            let idx = indices[bank_idx];
-            let e = &mut self.tables[bank_idx][idx];
-
+        if let Some(bank) = provider {
+            let e = &mut self.tables[bank][indices[bank]];
             if taken {
                 if e.ctr < 3 {
                     e.ctr += 1;
@@ -254,7 +201,6 @@ impl TageCore {
             } else if e.ctr > -4 {
                 e.ctr -= 1;
             }
-
             if !provider_mispred && (alt_taken != taken) && e.u < 3 {
                 e.u += 1;
             }
@@ -262,7 +208,7 @@ impl TageCore {
                 e.u -= 1;
             }
         } else {
-            let b = &mut self.base[base_idx];
+            let b = &mut self.base[base_index];
             if taken {
                 if *b < 1 {
                     *b += 1;
@@ -273,46 +219,27 @@ impl TageCore {
         }
 
         if tage_mispred {
-            let start_bank = if provider == 0 { 0 } else { provider };
-
+            let start_bank = provider.map_or(0, |bank| bank + 1);
             if start_bank < num_banks {
                 let mut allocated = false;
-                for (table, (&idx, &tag)) in self.tables[start_bank..num_banks]
-                    .iter_mut()
-                    .zip(indices[start_bank..num_banks].iter().zip(&tags[start_bank..num_banks]))
-                {
-                    let e = &mut table[idx];
+                for bank in start_bank..num_banks {
+                    let e = &mut self.tables[bank][indices[bank]];
                     if e.u == 0 {
-                        e.tag = tag;
+                        e.tag = tags[bank];
                         e.ctr = if taken { 0 } else { -1 };
                         e.u = 1;
                         allocated = true;
                         break;
                     }
                 }
-
                 if !allocated {
-                    for (table, &idx) in self.tables[start_bank..num_banks]
-                        .iter_mut()
-                        .zip(&indices[start_bank..num_banks])
-                    {
-                        if table[idx].u > 0 {
-                            table[idx].u -= 1;
-                        }
+                    let banks = self.tables[start_bank..].iter_mut();
+                    for (table, &index) in banks.zip(&indices[start_bank..num_banks]) {
+                        table[index].u = table[index].u.saturating_sub(1);
                     }
                 }
             }
         }
-
-        let meta = TageScMeta {
-            conf: TageConfLevel::from_ctr(eff_ctr),
-            provider_bank: provider,
-            alt_bank_present: alt > 0,
-            pred_taken: eff_taken,
-            pred_ctr: eff_ctr,
-        };
-
-        TageUpdateResult { meta, tage_taken }
     }
 
     /// Incrementally updates CSRs for a new speculative branch outcome.
@@ -325,13 +252,6 @@ impl TageCore {
     /// Recomputes speculative CSRs from a recorded GHR after a squash.
     pub fn repair(&mut self, ghr: &Ghr) {
         self.geo_banks.recompute_all(ghr);
-    }
-
-    /// Incrementally advances committed CSRs for a committed branch outcome.
-    /// Must be called BEFORE `commit_ghr.push()`.
-    #[inline]
-    pub fn commit_advance(&mut self, taken: bool, ghr: &Ghr) {
-        self.geo_banks.update_committed_csrs(taken, ghr);
     }
 }
 
@@ -354,9 +274,9 @@ mod tests {
     fn test_predict_default_taken() {
         let config = test_config();
         let tage = TageCore::new(&config);
-        let meta = tage.predict(0x8000_1000);
+        let prediction = tage.predict(0x8000_1000);
         // Default counters are 0, which is >= 0 -> taken.
-        assert!(meta.pred_taken);
+        assert!(prediction.taken());
     }
 
     #[test]
@@ -374,7 +294,7 @@ mod tests {
         }
 
         let snapshot = ghr;
-        let saved_meta = tage.predict(pc);
+        let saved = tage.predict(pc);
 
         // Diverge.
         for _ in 0..30 {
@@ -385,24 +305,48 @@ mod tests {
         // Repair.
         ghr = snapshot;
         tage.repair(&ghr);
-        let restored_meta = tage.predict(pc);
-        assert_eq!(saved_meta.pred_taken, restored_meta.pred_taken);
+        let restored = tage.predict(pc);
+        assert_eq!(saved.taken(), restored.taken());
+    }
+
+    #[test]
+    fn a_branch_trains_the_entries_its_prediction_read() {
+        let mut tage = TageCore::new(&test_config());
+        let mut ghr = Ghr::with_len(tage.max_history());
+        for i in 0u64..40 {
+            tage.speculate(i % 3 == 0, &ghr);
+            ghr.push(i % 3 == 0);
+        }
+        let at_prediction = ghr;
+        let pc = 0x8000_2040u64;
+
+        for _ in 0..30 {
+            ghr = at_prediction;
+            tage.repair(&ghr);
+            let prediction = tage.predict(pc);
+            for _ in 0..8 {
+                tage.speculate(true, &ghr);
+                ghr.push(true);
+            }
+            tage.update(false, &prediction);
+        }
+        tage.repair(&at_prediction);
+
+        assert!(!tage.predict(pc).taken(), "trained under the history it predicted with");
     }
 
     #[test]
     fn test_update_trains_predictor() {
         let config = test_config();
         let mut tage = TageCore::new(&config);
-        let max_hist = tage.max_history();
-        let ghr = Ghr::with_len(max_hist);
         let pc = 0x8000_1000u64;
 
         // Train not-taken heavily.
         for _ in 0..50 {
-            let _ = tage.update(pc, false, &ghr);
+            let prediction = tage.predict(pc);
+            tage.update(false, &prediction);
         }
 
-        let meta = tage.predict(pc);
-        assert!(!meta.pred_taken, "Should predict not-taken after heavy training");
+        assert!(!tage.predict(pc).taken(), "Should predict not-taken after heavy training");
     }
 }
