@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Run gem5 on a set of binaries and save stats to results/gem5.json.
+Run gem5 on the comparison programs under every variant and save the stats
+to results/gem5.json.
 
-Each benchmark is run as a separate gem5 subprocess to avoid the
-"multiple Root instances" limitation.
+Each run is a separate gem5 process, since gem5 allows one Root per process.
 
 Usage:
-    python scripts/comparison/run_gem5.py [binary.elf ...]
+    python scripts/comparison/run_gem5.py [variant ...]
 
-Requires gem5.opt to be on PATH (or set GEM5_BIN env var).
+Runs every variant in variants.VARIANTS when none are named. Requires
+gem5.opt on PATH, or GEM5_BIN set.
 """
 
 import json
@@ -16,115 +17,82 @@ import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from variants import VARIANTS
 
 ROOT = Path(__file__).parent.parent.parent
 RESULTS_DIR = Path(__file__).parent / "results"
 SINGLE_SCRIPT = Path(__file__).parent / "gem5_single.py"
-
-BENCH = ROOT / "software/bin/benchmarks"
-
-DEFAULT_BINARIES = [
-    BENCH / "mix_matrix_mul.elf",
-    BENCH / "cache_linear_read.elf",
-    BENCH / "cache_strided_read.elf",
-    BENCH / "cache_thrash_assoc.elf",
-    BENCH / "cache_write_heavy.elf",
-    BENCH / "bp_random.elf",
-    BENCH / "bp_pattern_alt.elf",
-    BENCH / "bp_always_taken.elf",
-    BENCH / "bp_never_taken.elf",
-    BENCH / "alu_int_mul.elf",
-    BENCH / "alu_int_div.elf",
-    BENCH / "alu_fp_add.elf",
-    BENCH / "pipe_load_use.elf",
-    BENCH / "pipe_raw_hazard.elf",
-    BENCH / "mem_rand_walk.elf",
-]
+PROGRAMS = ROOT / "testing/builds/compare-programs"
+OUTDIR = ROOT / "testing/builds/results/gem5-compare"
 
 GEM5_BIN = os.environ.get("GEM5_BIN", shutil.which("gem5.opt") or "gem5.opt")
 
+CORE = "board.processor.cores.core"
+CACHES = "board.cache_hierarchy"
+STATS = {
+    "insts": f"{CORE}.commitStats0.numInsts",
+    "cycles": f"{CORE}.numCycles",
+    "ipc": f"{CORE}.ipc",
+    "branches": f"{CORE}.commitStats0.committedControl::IsControl",
+    "mispredicts": f"{CORE}.commit.branchMispredicts",
+    "loads": f"{CORE}.commitStats0.numLoadInsts",
+    "stores": f"{CORE}.commitStats0.numStoreInsts",
+    "l1i_misses": f"{CACHES}.l1i-cache-0.demandMisses::total",
+    "l1d_accesses": f"{CACHES}.l1d-cache-0.demandAccesses::total",
+    "l1d_misses": f"{CACHES}.l1d-cache-0.demandMisses::total",
+    "l2_accesses": f"{CACHES}.l2-cache-0.demandAccesses::total",
+    "l2_misses": f"{CACHES}.l2-cache-0.demandMisses::total",
+}
+
 
 def extract_stats(stats_path: Path) -> dict:
-    """Parse gem5 stats.txt and extract the metrics we care about."""
-    text = stats_path.read_text()
-    stats = {}
-    for line in text.splitlines():
+    values = {}
+    for line in stats_path.read_text().splitlines():
         parts = line.split()
-        if len(parts) < 2:
-            continue
-        key, val = parts[0], parts[1]
-        try:
-            v = float(val)
-        except ValueError:
-            continue
-
-        if key.endswith("ipc"):
-            stats["ipc"] = v
-        elif "committedInsts" in key and "ipc" not in key:
-            stats["insts"] = int(v)
-        elif "numCycles" in key and "core" in key:
-            stats["cycles"] = int(v)
-        elif "branchMispredicts" in key:
-            stats["mispreds"] = int(v)
-        elif "branchPredLookups" in key:
-            stats["bp_lookups"] = int(v)
-
-    if "mispreds" in stats and "bp_lookups" in stats and stats["bp_lookups"] > 0:
-        stats["bp_acc"] = (1 - stats["mispreds"] / stats["bp_lookups"]) * 100
-
-    return stats
+        if len(parts) >= 2:
+            values[parts[0]] = parts[1]
+    return {name: float(values[key]) if key in values else None for name, key in STATS.items()}
 
 
-def run_single(binary: Path, m5out: Path) -> dict:
-    """Run gem5 on a single binary in a subprocess."""
+def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
+    variant_name, binary = job
+    m5out = OUTDIR / variant_name / binary.stem
     m5out.mkdir(parents=True, exist_ok=True)
-
     result = subprocess.run(
-        [GEM5_BIN, f"--outdir={m5out}", str(SINGLE_SCRIPT), str(binary), str(m5out)],
+        [GEM5_BIN, f"--outdir={m5out}", str(SINGLE_SCRIPT), str(binary), str(m5out), variant_name],
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=1800,
     )
-
-    if result.returncode != 0:
-        # Print stderr for debugging but don't abort
-        for line in result.stderr.splitlines():
-            if "fatal" in line.lower() or "error" in line.lower():
-                print(f"    {line}", file=sys.stderr)
-
+    (m5out / "run.log").write_text(result.stdout + result.stderr)
     stats_file = m5out / "stats.txt"
-    if stats_file.exists():
-        return extract_stats(stats_file)
-    return {}
+    if result.returncode != 0 or not stats_file.exists():
+        return variant_name, binary.stem, {}
+    return variant_name, binary.stem, extract_stats(stats_file)
 
 
 def main():
-    binaries = [Path(a) for a in sys.argv[1:]] if len(sys.argv) > 1 else DEFAULT_BINARIES
-    missing = [b for b in binaries if not b.exists()]
-    if missing:
-        for m in missing:
-            print(f"error: binary not found: {m}", file=sys.stderr)
-        sys.exit(1)
+    variants = sys.argv[1:] or list(VARIANTS)
+    binaries = sorted(PROGRAMS.glob("*.elf"))
+    if not binaries:
+        sys.exit(f"error: no programs in {PROGRAMS}; run scripts/comparison/programs/build.sh")
 
-    print("Running gem5...")
-    results = {}
-    for binary in binaries:
-        name = binary.stem
-        m5out = Path(f"/tmp/gem5_compare_{name}")
-        print(f"  gem5: {name}...", end=" ", flush=True)
-
-        stats = run_single(binary, m5out)
-        results[name] = stats
-
-        if "ipc" in stats:
-            print(f"IPC={stats['ipc']:.4f}")
-        else:
-            print("[no stats]")
+    jobs = [(v, b) for v in variants for b in binaries]
+    results: dict = {v: {} for v in variants}
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+        for variant_name, program, stats in pool.map(run_one, jobs):
+            results[variant_name][program] = stats
+            ipc = f"IPC={stats['ipc']:.3f}" if stats.get("ipc") is not None else "FAILED"
+            print(f"  gem5 {variant_name:20} {program:22} {ipc}", flush=True)
 
     RESULTS_DIR.mkdir(exist_ok=True)
     out = RESULTS_DIR / "gem5.json"
-    out.write_text(json.dumps(results, indent=2))
+    out.write_text(json.dumps(results, indent=2, sort_keys=True))
     print(f"Saved: {out}")
 
 

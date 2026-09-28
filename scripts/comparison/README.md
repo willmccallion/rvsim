@@ -1,60 +1,54 @@
 # rvsim vs gem5 Comparison
 
-Runs the same binaries through both simulators and compares IPC, cycle counts, and branch accuracy.
+Runs the same programs on rvsim and on gem5's O3 CPU, each configured as the
+same machine, and compares cycles, branch mispredictions and cache misses.
 
 ## Usage
 
-**Step 1 — run rvsim:**
 ```bash
-python scripts/comparison/run_rvsim.py [binary1.elf binary2.elf ...]
-# defaults to qsort, maze, mandelbrot, merge_sort
-# outputs: scripts/comparison/results/rvsim.json
-```
-
-**Step 2 — run gem5:**
-```bash
-gem5.opt scripts/comparison/run_gem5.py [binary1.elf binary2.elf ...]
-# outputs: scripts/comparison/results/gem5.json
-```
-
-**Step 3 — compare:**
-```bash
+bash scripts/comparison/programs/build.sh     # -> testing/builds/compare-programs/*.elf
+python scripts/comparison/run_rvsim.py [variant ...]
+GEM5_BIN=path/to/gem5.opt python scripts/comparison/run_gem5.py [variant ...]
 python scripts/comparison/compare.py
-# reads both JSONs and prints a side-by-side table
 ```
 
-## Config
+`make compare-gem5` does all four; without `GEM5_BIN` it compares with the
+stored `results/gem5.json`.
 
-Both simulators use a P550-like config:
-- 3-wide OOO, ROB=72, IQ=32
-- 32KB L1i/L1d, 256KB L2
-- Tournament branch predictor
+## Programs
 
-`run_rvsim.py` (`p550_config`) mirrors the machine `gem5_single.py` builds,
-taking every value it leaves unset from gem5's defaults: the O3 FU pool
-latencies, the stdlib L1/L2 caches (tag and data 1/1 and 10/10, accessed in
-parallel; 16/16/20 MSHRs; 16-way L2), the direct-mapped 4096-entry
-`SimpleBTB`, the 16-entry RAS and `TournamentBP`'s table sizes.
+`programs/` holds small C programs that do no I/O, so one ELF runs unchanged
+on rvsim and in gem5's syscall emulation. Each isolates one behaviour: branch
+patterns, calls and indirect calls, memory access patterns, ALU and FP
+latency chains, store-to-load forwarding, and vector unit-stride, strided,
+indexed and reduction code. They are built for
+`rv64gcv_zba_zbb_zbc_zbs_zbkb_zbkx_zfh`, every extension both simulators
+implement (gem5 lacks the vector crypto extensions).
+
+## Machine
+
+`variants.py` describes each machine as plain data, and both
+`run_rvsim.py` and `gem5_single.py` build their simulator from it. The base
+is P550-like: 3-wide O3, ROB 72, IQ 32, LQ 24, SQ 16, 32 KiB L1s, 256 KiB L2,
+tournament predictor, VLEN 256, fixed-latency memory at 12.8 GiB/s. Each
+other variant changes one thing: the predictor (TAGE, a small tournament),
+the cache sizes, the L1D's MSHRs, or a tagged L1D prefetcher.
 
 What no rvsim setting can express:
 
 - gem5 pools some operations that rvsim gives separate units. Branches share
   the three `IntALU`s; integer multiply and divide share one `IntMultDiv`; FP
   multiply, FMA, divide and square root share two `FP_MultDiv` units, where
-  square root takes 24 cycles and divide 12 (rvsim uses 12 for both).
-  Sign injection and `fclass` are `FloatMisc` there (3 cycles on
-  `FP_MultDiv`); rvsim runs them on the FP adder.
-- gem5 puts an `L2XBar` between the L1s and the L2, adding a cycle each way.
-- gem5 runs in syscall-emulation mode on DDR3-1600; rvsim uses its
-  fixed-latency controller at the same 12.8 GiB/s.
+  square root takes 24 cycles and divide 12 (rvsim uses 12 for both). All
+  vector arithmetic shares gem5's `SIMD_Unit`s; rvsim gets that many of each
+  vector unit.
+- gem5 splits a vector instruction into one micro-op per register of its
+  group; rvsim models lanes, set here to one register per cycle.
 - Stage-to-stage delays differ: gem5's O3 has two cycles from rename to IEW.
 
-`make compare-gem5` runs rvsim, runs gem5 when `gem5.opt` is on `PATH` (or
-`GEM5_BIN` is set), and prints the table; without gem5 it compares with the
-stored `results/gem5.json`.
+## Reading the stats
 
-## Notes
-
-- gem5 must be built for RISCV: `gem5/build/RISCV/gem5.opt`
-- rvsim must be installed: `pip install -e .` or `make build`
-- Results are saved to `results/` so you can run the simulators separately
+- Loads, stores and L1D accesses count differently for vector code: gem5
+  counts micro-ops and cache packets, rvsim instructions and its own accesses.
+- gem5 counts `vset{i}vl{i}` as control instructions.
+- L1I accesses differ in granularity; only misses are compared.

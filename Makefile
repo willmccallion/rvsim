@@ -145,6 +145,7 @@ test-python: python
 # scripts/comparison/results/gem5.json.
 GEM5_BIN ?= $(shell command -v gem5.opt)
 compare-gem5: python
+	bash scripts/comparison/programs/build.sh
 	@printf "$(GREEN)Running rvsim on the comparison set…$(RESET)\n"
 	$(PYTHON) scripts/comparison/run_rvsim.py
 	@if [ -n "$(GEM5_BIN)" ]; then \
