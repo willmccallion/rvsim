@@ -32,7 +32,7 @@
 use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
 use crate::core::pipeline::backend::shared::cbo;
-use crate::core::pipeline::engine::ExecutionEngine;
+use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
 };
@@ -298,7 +298,7 @@ fn process_entry<E: ExecutionEngine>(
         if ex.ctrl.performs_at_rob_head() {
             // It follows every older store to memory, sets its PTE's D bit
             // as its translation completes, then takes effect in the cache.
-            if older_stores_pending(state, engine) {
+            if !takes_effect_now(engine, ex.rob_tag) || older_stores_pending(state, engine) {
                 return EntryOutcome::Replay(ex);
             }
             if !apply_dirty_updates(state, engine, dirty_updates) {
@@ -313,7 +313,7 @@ fn process_entry<E: ExecutionEngine>(
         {
             return EntryOutcome::Replay(ex);
         }
-        if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+        if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
             return EntryOutcome::Replay(ex);
         }
         emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates, true);
@@ -323,7 +323,7 @@ fn process_entry<E: ExecutionEngine>(
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
     // instruction in the machine.
-    if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
+    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
         return EntryOutcome::Replay(ex);
     }
 
@@ -600,11 +600,14 @@ fn reads_a_device(state: &StageCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
     state.bus.ram_region_for(paddr.val(), size).is_none()
 }
 
-/// True when `tag` is the oldest instruction in the ROB and no squash on
-/// its way will remove it.
-fn is_rob_head<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
+/// True when an access that has an effect nothing can undo may take it:
+/// `tag` is the oldest instruction and nothing on its way will remove it,
+/// neither a squash nor a trap, whose flush takes everything in flight.
+fn takes_effect_now<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
+    let common = engine.common();
     engine.rob().peek_head().is_some_and(|head| head.tag == tag)
-        && !engine.common().will_squash(tag)
+        && !common.will_squash(tag)
+        && !matches!(common.trap, TrapProgress::Pending(_))
 }
 
 /// Pushes an ALU/non-memory entry directly into the M1→M2 latch.
