@@ -94,10 +94,10 @@ impl<'a> StageCtx<'a> {
         self.core
     }
 
-    /// The stat counter at `path`.
+    /// The stat counter `stat`.
     #[inline]
-    pub fn counter(&mut self, path: &'static str) -> &mut Counter {
-        self.shared.stats.counter(path)
+    pub fn counter(&mut self, stat: crate::sim::stats::StatId) -> &mut Counter {
+        self.shared.stats.counter(stat)
     }
 
     /// The event queue, to schedule a packet.

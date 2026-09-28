@@ -1,51 +1,49 @@
 //! Stat paths for the coherence fabric, allocated once when it is built.
 
-fn leak(path: String) -> &'static str {
-    Box::leak(path.into_boxed_str())
-}
+use crate::sim::stats::StatId;
 
 /// Counters the home agent writes, under `coherence.ha`.
 #[derive(Clone, Copy, Debug)]
 pub struct HomeStatPaths {
     /// `ReadShared` requests received.
-    pub read_shared: &'static str,
+    pub read_shared: StatId,
     /// `ReadUnique` requests received.
-    pub read_unique: &'static str,
+    pub read_unique: StatId,
     /// `CleanUnique` requests received.
-    pub clean_unique: &'static str,
+    pub clean_unique: StatId,
     /// Writebacks received.
-    pub writebacks: &'static str,
+    pub writebacks: StatId,
     /// Silent evictions received.
-    pub evicts: &'static str,
+    pub evicts: StatId,
     /// Cache-maintenance requests received.
-    pub maintenance: &'static str,
+    pub maintenance: StatId,
     /// Writebacks from a core a snoop had already taken the line from.
-    pub stale_writebacks: &'static str,
+    pub stale_writebacks: StatId,
     /// Accesses carried to memory without snooping.
-    pub non_coherent: &'static str,
+    pub non_coherent: StatId,
     /// Snoops sent.
-    pub snoops_sent: &'static str,
+    pub snoops_sent: StatId,
     /// Requests answered with another core's modified data.
-    pub c2c_transfers: &'static str,
+    pub c2c_transfers: StatId,
     /// Lines recalled because the tracking structure ran out of room.
-    pub recalls: &'static str,
+    pub recalls: StatId,
     /// Requests that waited for an earlier transaction on their line.
-    pub serialised: &'static str,
+    pub serialised: StatId,
     /// Requests that waited for a free transaction entry.
-    pub txn_full_stalls: &'static str,
+    pub txn_full_stalls: StatId,
     /// Request-to-completion latency in cycles (histogram).
-    pub txn_latency: &'static str,
+    pub txn_latency: StatId,
     /// Tracking lookups that found the line.
-    pub filter_hits: &'static str,
+    pub filter_hits: StatId,
     /// Tracking lookups that found nothing.
-    pub filter_misses: &'static str,
+    pub filter_misses: StatId,
 }
 
 impl HomeStatPaths {
     /// Paths under `subject`.
     #[must_use]
     pub fn new(subject: &str) -> Self {
-        let path = |tail: &str| leak(format!("{subject}.{tail}"));
+        let path = |tail: &str| StatId::of(&format!("{subject}.{tail}"));
         Self {
             read_shared: path("requests.read_shared"),
             read_unique: path("requests.read_unique"),
@@ -71,20 +69,20 @@ impl HomeStatPaths {
 #[derive(Clone, Copy, Debug)]
 pub struct InterconnectStatPaths {
     /// Messages transferred.
-    pub messages: &'static str,
+    pub messages: StatId,
     /// Bytes transferred.
-    pub bytes: &'static str,
+    pub bytes: StatId,
     /// Cycles a message waited for a busy link or port.
-    pub blocked_cycles: &'static str,
+    pub blocked_cycles: StatId,
     /// Port-class-cycles an output was busy transferring.
-    pub busy_cycles: &'static str,
+    pub busy_cycles: StatId,
 }
 
 impl InterconnectStatPaths {
     /// Paths under `subject`.
     #[must_use]
     pub fn new(subject: &str) -> Self {
-        let path = |tail: &str| leak(format!("{subject}.{tail}"));
+        let path = |tail: &str| StatId::of(&format!("{subject}.{tail}"));
         Self {
             messages: path("messages"),
             bytes: path("bytes"),

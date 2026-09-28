@@ -1,31 +1,29 @@
 //! Stat paths for every component, allocated once when the component is
 //! built.
 //!
-//! Each component holds a struct of `&'static str` paths (`core3.commit.op.load`
-//! and so on) so the hot path increments a counter through a pre-resolved
-//! string and a typo at a writer site is a compile error. Paths are leaked
-//! once per component at construction, as the DDR5 controller does.
+//! Each component holds a struct of interned [`StatId`]s (`core3.commit.op.load`
+//! and so on) so the hot path increments a counter by index and a typo at a
+//! writer site is a compile error. Paths are interned once when the component
+//! is built.
 //!
 //! Path grammar: `<subject>.<subsystem>[.<sub>].<counter>`. See
 //! `docs/architecture/stats.md` for rationale.
 
 use crate::common::{CoreId, HartId};
 
-fn leak(path: String) -> &'static str {
-    Box::leak(path.into_boxed_str())
-}
+use super::StatId;
 
 macro_rules! stat_paths {
     ($(#[$meta:meta])* $name:ident { $( $(#[$fmeta:meta])* $field:ident: $tail:literal ),* $(,)? }) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug)]
         pub struct $name {
-            $( $(#[$fmeta])* pub $field: &'static str, )*
+            $( $(#[$fmeta])* pub $field: StatId, )*
         }
 
         impl $name {
             fn under(subject: &str) -> Self {
-                Self { $( $field: leak(format!("{subject}.{}", $tail)), )* }
+                Self { $( $field: StatId::of(&format!("{subject}.{}", $tail)), )* }
             }
         }
     };
@@ -238,15 +236,13 @@ const FU_NAMES: [&str; 17] = [
 #[derive(Clone, Copy, Debug)]
 pub struct FuPaths {
     /// One path per FU type, in `FuType` discriminant order.
-    pub all: [&'static str; FU_NAMES.len()],
+    pub all: [StatId; FU_NAMES.len()],
 }
 
 impl FuPaths {
     fn under(subject: &str) -> Self {
-        let mut all = [""; FU_NAMES.len()];
-        for (slot, name) in all.iter_mut().zip(FU_NAMES) {
-            *slot = leak(format!("{subject}.fu.util.{name}"));
-        }
+        let all =
+            std::array::from_fn(|i| StatId::of(&format!("{subject}.fu.util.{}", FU_NAMES[i])));
         Self { all }
     }
 }
@@ -272,9 +268,9 @@ pub struct CorePaths {
     /// `core<N>.fu.util.*`
     pub fu: FuPaths,
     /// Derived: instructions per cycle.
-    pub ipc: &'static str,
+    pub ipc: StatId,
     /// Derived: cycles per instruction.
-    pub cpi: &'static str,
+    pub cpi: StatId,
 }
 
 impl CorePaths {
@@ -291,8 +287,8 @@ impl CorePaths {
             wcb: WcbPaths::under(&subject),
             cache: CachePaths::under(&subject),
             fu: FuPaths::under(&subject),
-            ipc: leak(format!("{subject}.ipc")),
-            cpi: leak(format!("{subject}.cpi")),
+            ipc: StatId::of(&format!("{subject}.ipc")),
+            cpi: StatId::of(&format!("{subject}.cpi")),
         }
     }
 }
@@ -301,16 +297,19 @@ impl CorePaths {
 #[derive(Clone, Copy, Debug)]
 pub struct SystemPaths {
     /// Instructions retired by all harts.
-    pub retired_insts: &'static str,
+    pub retired_insts: StatId,
     /// Traps taken by all harts.
-    pub traps: &'static str,
+    pub traps: StatId,
 }
 
 impl SystemPaths {
     /// The single `system` subject.
     #[must_use]
-    pub const fn new() -> Self {
-        Self { retired_insts: "system.retired_insts", traps: "system.traps" }
+    pub fn new() -> Self {
+        Self {
+            retired_insts: StatId::of("system.retired_insts"),
+            traps: StatId::of("system.traps"),
+        }
     }
 }
 
@@ -327,11 +326,11 @@ mod tests {
     #[test]
     fn paths_carry_their_subject_index() {
         let core = CorePaths::new(CoreId::new(3));
-        assert_eq!(core.commit.op_load, "core3.commit.op.load");
-        assert_eq!(core.fu.all[0], "core3.fu.util.int_alu");
-        assert_eq!(core.fu.all[16], "core3.fu.util.vec_permute");
-        assert_eq!(core.ipc, "core3.ipc");
+        assert_eq!(core.commit.op_load.path(), "core3.commit.op.load");
+        assert_eq!(core.fu.all[0].path(), "core3.fu.util.int_alu");
+        assert_eq!(core.fu.all[16].path(), "core3.fu.util.vec_permute");
+        assert_eq!(core.ipc.path(), "core3.ipc");
         let hart = HartPaths::new(HartId::new(7));
-        assert_eq!(hart.cycles_kernel, "hart7.cycles.kernel");
+        assert_eq!(hart.cycles_kernel.path(), "hart7.cycles.kernel");
     }
 }

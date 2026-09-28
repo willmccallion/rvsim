@@ -9,6 +9,8 @@
 //! counters stay unregistered (queryable, but not summarised) to keep the
 //! report readable.
 
+use crate::sim::stats::StatId;
+
 use crate::sim::stats::{Formula, Meta, Stats};
 use crate::soc::memory::ddr5::state::{Bank, Subchannel};
 
@@ -90,42 +92,38 @@ pub struct ControllerStatPaths {
 
 #[derive(Debug)]
 struct SubchannelPaths {
-    reads: &'static str,
-    writes: &'static str,
-    writes_merged: &'static str,
-    reads_hit_write_queue: &'static str,
-    scrub_reads: &'static str,
-    activates: &'static str,
-    precharges: &'static str,
-    precharge_alls: &'static str,
-    refreshes: &'static str,
-    row_hits: &'static str,
-    row_misses: &'static str,
-    row_hit_rate: &'static str,
-    power_down_entries: &'static str,
-    power_down_exits: &'static str,
-    bus_busy_clocks: &'static str,
-    clocks: &'static str,
-    data_bus_utilization: &'static str,
-    read_admission_stalls: &'static str,
-    write_admission_stalls: &'static str,
-    read_latency: &'static str,
-    read_queue_depth: &'static str,
-    write_queue_depth: &'static str,
+    reads: StatId,
+    writes: StatId,
+    writes_merged: StatId,
+    reads_hit_write_queue: StatId,
+    scrub_reads: StatId,
+    activates: StatId,
+    precharges: StatId,
+    precharge_alls: StatId,
+    refreshes: StatId,
+    row_hits: StatId,
+    row_misses: StatId,
+    row_hit_rate: StatId,
+    power_down_entries: StatId,
+    power_down_exits: StatId,
+    bus_busy_clocks: StatId,
+    clocks: StatId,
+    data_bus_utilization: StatId,
+    read_admission_stalls: StatId,
+    write_admission_stalls: StatId,
+    read_latency: StatId,
+    read_queue_depth: StatId,
+    write_queue_depth: StatId,
     banks: Vec<BankPaths>,
 }
 
 #[derive(Debug)]
 struct BankPaths {
-    activates: &'static str,
-    reads: &'static str,
-    writes: &'static str,
-    row_hits: &'static str,
-    row_misses: &'static str,
-}
-
-fn leak(path: String) -> &'static str {
-    Box::leak(path.into_boxed_str())
+    activates: StatId,
+    reads: StatId,
+    writes: StatId,
+    row_hits: StatId,
+    row_misses: StatId,
 }
 
 impl ControllerStatPaths {
@@ -147,37 +145,37 @@ impl ControllerStatPaths {
                     for bank in 0..banks_per_rank {
                         let bank_prefix = format!("{prefix}.rank{rank}.bank{bank}");
                         banks.push(BankPaths {
-                            activates: leak(format!("{bank_prefix}.activates")),
-                            reads: leak(format!("{bank_prefix}.reads")),
-                            writes: leak(format!("{bank_prefix}.writes")),
-                            row_hits: leak(format!("{bank_prefix}.row_hits")),
-                            row_misses: leak(format!("{bank_prefix}.row_misses")),
+                            activates: StatId::of(&format!("{bank_prefix}.activates")),
+                            reads: StatId::of(&format!("{bank_prefix}.reads")),
+                            writes: StatId::of(&format!("{bank_prefix}.writes")),
+                            row_hits: StatId::of(&format!("{bank_prefix}.row_hits")),
+                            row_misses: StatId::of(&format!("{bank_prefix}.row_misses")),
                         });
                     }
                 }
                 subchannels.push(SubchannelPaths {
-                    reads: leak(format!("{prefix}.reads")),
-                    writes: leak(format!("{prefix}.writes")),
-                    writes_merged: leak(format!("{prefix}.writes_merged")),
-                    reads_hit_write_queue: leak(format!("{prefix}.reads_hit_write_queue")),
-                    scrub_reads: leak(format!("{prefix}.scrub_reads")),
-                    activates: leak(format!("{prefix}.activates")),
-                    precharges: leak(format!("{prefix}.precharges")),
-                    precharge_alls: leak(format!("{prefix}.precharge_alls")),
-                    refreshes: leak(format!("{prefix}.refreshes")),
-                    row_hits: leak(format!("{prefix}.row_hits")),
-                    row_misses: leak(format!("{prefix}.row_misses")),
-                    row_hit_rate: leak(format!("{prefix}.row_hit_rate")),
-                    power_down_entries: leak(format!("{prefix}.power_down_entries")),
-                    power_down_exits: leak(format!("{prefix}.power_down_exits")),
-                    bus_busy_clocks: leak(format!("{prefix}.bus_busy_clocks")),
-                    clocks: leak(format!("{prefix}.clocks")),
-                    data_bus_utilization: leak(format!("{prefix}.data_bus_utilization")),
-                    read_admission_stalls: leak(format!("{prefix}.read_admission_stalls")),
-                    write_admission_stalls: leak(format!("{prefix}.write_admission_stalls")),
-                    read_latency: leak(format!("{prefix}.read_latency")),
-                    read_queue_depth: leak(format!("{prefix}.read_queue_depth")),
-                    write_queue_depth: leak(format!("{prefix}.write_queue_depth")),
+                    reads: StatId::of(&format!("{prefix}.reads")),
+                    writes: StatId::of(&format!("{prefix}.writes")),
+                    writes_merged: StatId::of(&format!("{prefix}.writes_merged")),
+                    reads_hit_write_queue: StatId::of(&format!("{prefix}.reads_hit_write_queue")),
+                    scrub_reads: StatId::of(&format!("{prefix}.scrub_reads")),
+                    activates: StatId::of(&format!("{prefix}.activates")),
+                    precharges: StatId::of(&format!("{prefix}.precharges")),
+                    precharge_alls: StatId::of(&format!("{prefix}.precharge_alls")),
+                    refreshes: StatId::of(&format!("{prefix}.refreshes")),
+                    row_hits: StatId::of(&format!("{prefix}.row_hits")),
+                    row_misses: StatId::of(&format!("{prefix}.row_misses")),
+                    row_hit_rate: StatId::of(&format!("{prefix}.row_hit_rate")),
+                    power_down_entries: StatId::of(&format!("{prefix}.power_down_entries")),
+                    power_down_exits: StatId::of(&format!("{prefix}.power_down_exits")),
+                    bus_busy_clocks: StatId::of(&format!("{prefix}.bus_busy_clocks")),
+                    clocks: StatId::of(&format!("{prefix}.clocks")),
+                    data_bus_utilization: StatId::of(&format!("{prefix}.data_bus_utilization")),
+                    read_admission_stalls: StatId::of(&format!("{prefix}.read_admission_stalls")),
+                    write_admission_stalls: StatId::of(&format!("{prefix}.write_admission_stalls")),
+                    read_latency: StatId::of(&format!("{prefix}.read_latency")),
+                    read_queue_depth: StatId::of(&format!("{prefix}.read_queue_depth")),
+                    write_queue_depth: StatId::of(&format!("{prefix}.write_queue_depth")),
                     banks,
                 });
             }

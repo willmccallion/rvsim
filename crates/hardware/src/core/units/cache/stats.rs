@@ -1,58 +1,56 @@
 //! Stat paths for one cache, allocated when the cache is built.
 
-fn leak(path: String) -> &'static str {
-    Box::leak(path.into_boxed_str())
-}
+use crate::sim::stats::StatId;
 
 /// Counters one cache writes, rooted at its subject (`core0.cache.l1d`,
 /// `llc`, ...).
 #[derive(Clone, Copy, Debug)]
 pub struct CacheStatPaths {
     /// Requests answered from the tag array.
-    pub hits: &'static str,
+    pub hits: StatId,
     /// Requests that started or joined a line fetch.
-    pub misses: &'static str,
+    pub misses: StatId,
     /// Misses that joined an MSHR already fetching the line.
-    pub mshr_hits: &'static str,
+    pub mshr_hits: StatId,
     /// Requests queued because every MSHR or writeback buffer entry was busy.
-    pub blocked_requests: &'static str,
+    pub blocked_requests: StatId,
     /// Lines installed by a fill.
-    pub fills: &'static str,
+    pub fills: StatId,
     /// Valid lines replaced by a fill.
-    pub evictions: &'static str,
+    pub evictions: StatId,
     /// Lines written back to the next level.
-    pub writebacks: &'static str,
+    pub writebacks: StatId,
     /// Lines invalidated on request of the next level.
-    pub back_invalidations: &'static str,
+    pub back_invalidations: StatId,
     /// Cache-maintenance operations (`cbo.clean` / `flush` / `inval`) passed
     /// through this cache.
-    pub maintenance: &'static str,
+    pub maintenance: StatId,
     /// Probes received on behalf of a snoop.
-    pub probes: &'static str,
+    pub probes: StatId,
     /// Snoops received from the home agent (coherent L2 only).
-    pub snoops: &'static str,
+    pub snoops: StatId,
     /// Snoops that took the line away.
-    pub snoop_invalidations: &'static str,
+    pub snoop_invalidations: StatId,
     /// Snoops that left a shared copy.
-    pub snoop_downgrades: &'static str,
+    pub snoop_downgrades: StatId,
     /// Permission requests for a line held Shared (`CleanUnique`).
-    pub upgrades: &'static str,
+    pub upgrades: StatId,
     /// Permission grants that arrived after a snoop took the line, re-issued
     /// as `ReadUnique`.
-    pub upgrade_retries: &'static str,
+    pub upgrade_retries: StatId,
     /// Prefetch fetches started.
-    pub prefetches_issued: &'static str,
+    pub prefetches_issued: StatId,
     /// Prefetch fetches a demand request joined before the fill arrived.
-    pub prefetches_useful: &'static str,
+    pub prefetches_useful: StatId,
     /// Derived: misses / (hits + misses).
-    pub miss_rate: &'static str,
+    pub miss_rate: StatId,
 }
 
 impl CacheStatPaths {
     /// Paths under `subject`.
     #[must_use]
     pub fn new(subject: &str) -> Self {
-        let path = |tail: &str| leak(format!("{subject}.{tail}"));
+        let path = |tail: &str| StatId::of(&format!("{subject}.{tail}"));
         Self {
             hits: path("hits"),
             misses: path("misses"),

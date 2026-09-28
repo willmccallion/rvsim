@@ -159,7 +159,11 @@ fn divide_by_zero_yields_zero_not_nan() {
     let mut s = Stats::new();
     s.register("a.numerator", Meta::events(""));
     s.register("a.denominator", Meta::events(""));
-    s.derive("a.ratio", Formula::Div("a.numerator", "a.denominator"), Meta::ratio(""));
+    s.derive(
+        "a.ratio",
+        Formula::Div("a.numerator".into(), "a.denominator".into()),
+        Meta::ratio(""),
+    );
     // Both counters are zero: divide-by-zero must yield 0.0.
     assert_eq!(s.get("a.ratio"), Some(0.0));
 }

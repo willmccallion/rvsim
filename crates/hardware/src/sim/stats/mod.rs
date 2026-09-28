@@ -16,8 +16,8 @@
 //! See `docs/architecture/stats.md` for the design rationale.
 
 use std::collections::{BTreeMap, HashMap};
-use std::hash::{BuildHasherDefault, Hasher};
 use std::io::{self, Write};
+use std::sync::{LazyLock, RwLock};
 
 pub mod meta;
 pub mod paths;
@@ -149,91 +149,148 @@ impl Histogram {
     }
 }
 
-/// Hashes a path by the address and length of its text: stat paths are
-/// `&'static str`s built once, so the address names the path, and hashing
-/// two words is far cheaper than hashing or comparing the text.
+/// A stat path, interned for the whole process: its text is kept once and
+/// its id indexes every [`Stats`]' storage directly, so a hot increment is
+/// an array index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct StatId(u32);
+
+/// Every interned path and the id it has.
 #[derive(Default)]
-struct AddressHasher(u64);
+struct Registry {
+    ids: HashMap<&'static str, StatId>,
+    paths: Vec<&'static str>,
+}
 
-impl Hasher for AddressHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
+static REGISTRY: LazyLock<RwLock<Registry>> = LazyLock::new(RwLock::default);
 
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.write_u64(u64::from(byte));
+fn registry() -> std::sync::RwLockReadGuard<'static, Registry> {
+    REGISTRY.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl StatId {
+    /// The id of `path`, interning it on first use.
+    #[must_use]
+    pub fn of(path: &str) -> Self {
+        if let Some(id) = Self::find(path) {
+            return id;
         }
+        let mut registry = REGISTRY.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(&id) = registry.ids.get(path) {
+            return id;
+        }
+        let id = Self(u32::try_from(registry.paths.len()).unwrap_or(u32::MAX));
+        let text: &'static str = Box::leak(path.to_owned().into_boxed_str());
+        registry.paths.push(text);
+        let _ = registry.ids.insert(text, id);
+        id
     }
 
-    fn write_u64(&mut self, n: u64) {
-        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x517c_c1b7_2722_0a95);
+    /// The id of `path` if it was ever interned.
+    #[must_use]
+    pub fn find(path: &str) -> Option<Self> {
+        registry().ids.get(path).copied()
     }
 
-    fn write_usize(&mut self, n: usize) {
-        self.write_u64(n as u64);
+    /// The path's text.
+    #[must_use]
+    pub fn path(self) -> &'static str {
+        registry().paths[self.0 as usize]
+    }
+
+    const fn index(self) -> usize {
+        self.0 as usize
     }
 }
 
-/// One kind of stat, stored flat: values in first-use order, found by path
-/// text for reads, or by the path's address on the hot increment path.
+impl From<&str> for StatId {
+    fn from(path: &str) -> Self {
+        Self::of(path)
+    }
+}
+
+/// Something that names a stat for reading: an id, or a path's text.
+pub trait StatKey {
+    /// The stat's id, if the path was ever interned.
+    fn stat_id(&self) -> Option<StatId>;
+}
+
+impl StatKey for StatId {
+    fn stat_id(&self) -> Option<StatId> {
+        Some(*self)
+    }
+}
+
+impl StatKey for str {
+    fn stat_id(&self) -> Option<StatId> {
+        StatId::find(self)
+    }
+}
+
+impl<T: StatKey + ?Sized> StatKey for &T {
+    fn stat_id(&self) -> Option<StatId> {
+        (**self).stat_id()
+    }
+}
+
+impl StatKey for String {
+    fn stat_id(&self) -> Option<StatId> {
+        StatId::find(self)
+    }
+}
+
+/// One kind of stat, indexed by [`StatId`]: which ids this tree holds, and
+/// their values.
 #[derive(Clone, Debug)]
-struct Slots<T> {
+struct Store<T> {
     values: Vec<T>,
-    by_path: BTreeMap<&'static str, usize>,
-    by_address: HashMap<(usize, usize), usize, BuildHasherDefault<AddressHasher>>,
+    present: Vec<bool>,
 }
 
-impl<T> Default for Slots<T> {
+impl<T> Default for Store<T> {
     fn default() -> Self {
-        Self { values: Vec::new(), by_path: BTreeMap::new(), by_address: HashMap::default() }
+        Self { values: Vec::new(), present: Vec::new() }
     }
 }
 
-impl<T: Default> Slots<T> {
-    /// The value at `path`, created on first use.
-    fn get_or_insert(&mut self, path: &'static str) -> &mut T {
-        let address = (path.as_ptr() as usize, path.len());
-        let slot = if let Some(&slot) = self.by_address.get(&address) {
-            slot
-        } else {
-            let values = &mut self.values;
-            let slot = *self.by_path.entry(path).or_insert_with(|| {
-                values.push(T::default());
-                values.len() - 1
-            });
-            let _ = self.by_address.insert(address, slot);
-            slot
-        };
-        &mut self.values[slot]
+impl<T: Default + Clone> Store<T> {
+    /// The value of `id`, created on first use.
+    #[inline]
+    fn get_or_insert(&mut self, id: StatId) -> &mut T {
+        let index = id.index();
+        if index >= self.values.len() {
+            self.values.resize(index + 1, T::default());
+            self.present.resize(index + 1, false);
+        }
+        self.present[index] = true;
+        &mut self.values[index]
     }
 }
 
-impl<T> Slots<T> {
-    fn get(&self, path: &str) -> Option<&T> {
-        self.by_path.get(path).map(|&slot| &self.values[slot])
+impl<T> Store<T> {
+    fn get(&self, id: StatId) -> Option<&T> {
+        let index = id.index();
+        self.present.get(index).copied().unwrap_or(false).then(|| &self.values[index])
     }
 
-    /// Every path and its value, in path order.
-    fn iter(&self) -> impl Iterator<Item = (&'static str, &T)> {
-        self.by_path.iter().map(|(&path, &slot)| (path, &self.values[slot]))
-    }
-
-    /// The same paths with each value mapped through `f`, given the value
-    /// `earlier` holds at that path, if any.
-    fn map_since(&self, earlier: &Self, f: impl Fn(&T, Option<&T>) -> T) -> Self {
-        let values = self
-            .by_path
-            .iter()
-            .map(|(&path, &slot)| f(&self.values[slot], earlier.get(path)))
-            .collect::<Vec<_>>();
-        let by_path: BTreeMap<_, _> =
-            self.by_path.keys().enumerate().map(|(slot, &path)| (path, slot)).collect();
-        let by_address = by_path
-            .iter()
-            .map(|(&path, &slot)| ((path.as_ptr() as usize, path.len()), slot))
+    /// Every id this tree holds, in path order.
+    fn ids(&self) -> Vec<StatId> {
+        let registry = registry();
+        let mut ids: Vec<StatId> = (0..self.values.len())
+            .filter(|&index| self.present[index])
+            .map(|index| StatId(index as u32))
             .collect();
-        Self { values, by_path, by_address }
+        ids.sort_by_key(|id| registry.paths[id.index()]);
+        ids
+    }
+
+    /// The same ids with each value mapped through `f`, given the value
+    /// `earlier` holds for it, if any.
+    fn map_since(&self, earlier: &Self, f: impl Fn(&T, Option<&T>) -> T) -> Self {
+        let values = (0..self.values.len())
+            .map(|index| f(&self.values[index], earlier.get(StatId(index as u32))))
+            .collect();
+        Self { values, present: self.present.clone() }
     }
 }
 
@@ -251,18 +308,18 @@ pub enum StatFormat {
 /// downstream analysis.
 #[derive(Clone, Debug)]
 pub enum Formula {
-    /// `numerator / denominator`. Both are stat paths (raw or derived).
-    Div(&'static str, &'static str),
+    /// `numerator / denominator`. Both are stats (raw or derived).
+    Div(StatId, StatId),
     /// `numerator / (numerator + other)` — the common "accuracy" or
     /// "hit rate" shape.
     Ratio {
-        /// Path whose value goes in the numerator and one term of the denominator.
-        numerator: &'static str,
-        /// Path whose value is the second term of the denominator.
-        other: &'static str,
+        /// The stat in the numerator and one term of the denominator.
+        numerator: StatId,
+        /// The second term of the denominator.
+        other: StatId,
     },
-    /// Sum of many paths. `Sum(&[])` is `0.0`.
-    Sum(&'static [&'static str]),
+    /// Sum of many stats. `Sum(&[])` is `0.0`.
+    Sum(Vec<StatId>),
 }
 
 /// A derived stat registration: formula + metadata.
@@ -276,12 +333,12 @@ pub(crate) struct Derived {
 /// Top-level statistics tree.
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
-    counters: Slots<Counter>,
-    histograms: Slots<Histogram>,
-    /// Per-registered-path metadata.
-    pub(crate) meta: BTreeMap<&'static str, Meta>,
+    counters: Store<Counter>,
+    histograms: Store<Histogram>,
+    /// Per-registered-stat metadata.
+    pub(crate) meta: BTreeMap<StatId, Meta>,
     /// Registered derived stats.
-    pub(crate) derived: BTreeMap<&'static str, Derived>,
+    pub(crate) derived: BTreeMap<StatId, Derived>,
 }
 
 impl Stats {
@@ -335,19 +392,19 @@ impl Stats {
     ///
     /// `path` uses `.` as a separator: `"core0.cache.l1d.hits"`.
     #[inline]
-    pub fn counter(&mut self, path: &'static str) -> &mut Counter {
-        self.counters.get_or_insert(path)
+    pub fn counter(&mut self, stat: impl Into<StatId>) -> &mut Counter {
+        self.counters.get_or_insert(stat.into())
     }
 
     /// Returns a mutable reference to the histogram at `path`.
-    pub fn histogram(&mut self, path: &'static str) -> &mut Histogram {
-        self.histograms.get_or_insert(path)
+    pub fn histogram(&mut self, stat: impl Into<StatId>) -> &mut Histogram {
+        self.histograms.get_or_insert(stat.into())
     }
 
-    /// Reads the histogram at `path` without creating it.
+    /// Reads the histogram `stat` names without creating it.
     #[must_use]
-    pub fn histogram_at(&self, path: &str) -> Option<&Histogram> {
-        self.histograms.get(path)
+    pub fn histogram_at(&self, stat: impl StatKey) -> Option<&Histogram> {
+        self.histograms.get(stat.stat_id()?)
     }
 
     /// Registers metadata for a counter path. Idempotent — a repeat
@@ -355,27 +412,30 @@ impl Stats {
     ///
     /// Registering also allocates the underlying [`Counter`] so the path
     /// appears in queries even before any writer has incremented it.
-    pub fn register(&mut self, path: &'static str, meta: Meta) {
-        let _ = self.counters.get_or_insert(path);
-        let _ = self.meta.insert(path, meta);
+    pub fn register(&mut self, stat: impl Into<StatId>, meta: Meta) {
+        let stat = stat.into();
+        let _ = self.counters.get_or_insert(stat);
+        let _ = self.meta.insert(stat, meta);
     }
 
     /// Registers a derived stat with a formula. The value is computed on read
     /// via [`Stats::get`] and included in [`Stats::summary`].
-    pub fn derive(&mut self, path: &'static str, formula: Formula, meta: Meta) {
-        let _ = self.derived.insert(path, Derived { formula, meta });
-        let _ = self.meta.insert(path, meta);
+    pub fn derive(&mut self, stat: impl Into<StatId>, formula: Formula, meta: Meta) {
+        let stat = stat.into();
+        let _ = self.derived.insert(stat, Derived { formula, meta });
+        let _ = self.meta.insert(stat, meta);
     }
 
     /// Reads a stat value by path. Works for both raw counters and derived
     /// stats. Returns `None` if the path isn't registered / hasn't been
     /// written and isn't a derived formula.
     #[must_use]
-    pub fn get(&self, path: &str) -> Option<f64> {
-        if let Some(derived) = self.derived.get(path) {
+    pub fn get(&self, stat: impl StatKey) -> Option<f64> {
+        let stat = stat.stat_id()?;
+        if let Some(derived) = self.derived.get(&stat) {
             return Some(self.eval(&derived.formula));
         }
-        self.counters.get(path).map(|c| c.get() as f64)
+        self.counters.get(stat).map(|c| c.get() as f64)
     }
 
     /// Evaluates a wildcard query against every path in the tree (raw and
@@ -388,11 +448,12 @@ impl Stats {
                 matches.push((path, value));
             }
         };
-        for (path, counter) in self.counters.iter() {
-            visit(path.to_string(), counter.get() as f64);
+        for id in self.counters.ids() {
+            let value = self.counters.get(id).map_or(0.0, |c| c.get() as f64);
+            visit(id.path().to_string(), value);
         }
-        for (path, derived) in &self.derived {
-            visit((*path).to_string(), self.eval(&derived.formula));
+        for (id, derived) in &self.derived {
+            visit(id.path().to_string(), self.eval(&derived.formula));
         }
         QueryResult { matches }
     }
@@ -421,8 +482,12 @@ impl Stats {
     /// registered stat.
     #[must_use]
     pub fn subjects(&self) -> Vec<&'static str> {
-        let mut out: Vec<&'static str> =
-            self.meta.keys().map(|p| p.split_once('.').map_or(*p, |(head, _)| head)).collect();
+        let mut out: Vec<&'static str> = self
+            .meta
+            .keys()
+            .map(|id| id.path())
+            .map(|p| p.split_once('.').map_or(p, |(head, _)| head))
+            .collect();
         out.sort_unstable();
         out.dedup();
         out
@@ -468,10 +533,12 @@ impl Stats {
     }
 
     fn dump_text(&self, out: &mut dyn Write) -> io::Result<()> {
-        for (path, counter) in self.counters.iter() {
-            writeln!(out, "{path} {}", counter.get())?;
+        for id in self.counters.ids() {
+            let value = self.counters.get(id).map_or(0, Counter::get);
+            writeln!(out, "{} {value}", id.path())?;
         }
-        for (path, h) in self.histograms.iter() {
+        for id in self.histograms.ids() {
+            let (path, Some(h)) = (id.path(), self.histograms.get(id)) else { continue };
             let known = |v: Option<u64>| v.map_or_else(|| "n/a".to_string(), |v| v.to_string());
             writeln!(
                 out,
@@ -491,17 +558,17 @@ impl Stats {
     pub(crate) fn eval(&self, formula: &Formula) -> f64 {
         match formula {
             Formula::Div(num, den) => {
-                let n = self.get(num).unwrap_or(0.0);
-                let d = self.get(den).unwrap_or(0.0);
+                let n = self.get(*num).unwrap_or(0.0);
+                let d = self.get(*den).unwrap_or(0.0);
                 if d == 0.0 { 0.0 } else { n / d }
             }
             Formula::Ratio { numerator, other } => {
-                let n = self.get(numerator).unwrap_or(0.0);
-                let o = self.get(other).unwrap_or(0.0);
+                let n = self.get(*numerator).unwrap_or(0.0);
+                let o = self.get(*other).unwrap_or(0.0);
                 let total = n + o;
                 if total == 0.0 { 0.0 } else { n / total }
             }
-            Formula::Sum(paths) => paths.iter().map(|p| self.get(p).unwrap_or(0.0)).sum(),
+            Formula::Sum(stats) => stats.iter().map(|&stat| self.get(stat).unwrap_or(0.0)).sum(),
         }
     }
 }
@@ -687,18 +754,14 @@ fn register_coherence(s: &mut Stats, c: &CoherenceStatPaths) {
 /// Registers the `system.*` sums over every hart.
 fn register_system(s: &mut Stats, harts: &[HartPaths]) {
     let system = SystemPaths::new();
-    let retired: Vec<&'static str> = harts.iter().map(|h| h.retired_insts).collect();
-    let traps: Vec<&'static str> = harts.iter().map(|h| h.traps).collect();
+    let retired: Vec<StatId> = harts.iter().map(|h| h.retired_insts).collect();
+    let traps: Vec<StatId> = harts.iter().map(|h| h.traps).collect();
     s.derive(
         system.retired_insts,
-        Formula::Sum(Box::leak(retired.into_boxed_slice())),
+        Formula::Sum(retired),
         Meta::events("instructions retired by all harts"),
     );
-    s.derive(
-        system.traps,
-        Formula::Sum(Box::leak(traps.into_boxed_slice())),
-        Meta::events("traps taken by all harts"),
-    );
+    s.derive(system.traps, Formula::Sum(traps), Meta::events("traps taken by all harts"));
 }
 
 #[cfg(test)]
@@ -750,7 +813,11 @@ mod tests {
     #[test]
     fn a_window_recomputes_ratios_from_the_counts_it_holds() {
         let mut s = Stats::new();
-        s.derive("core.ipc", Formula::Div("core.insts", "core.cycles"), Meta::events("ipc"));
+        s.derive(
+            "core.ipc",
+            Formula::Div("core.insts".into(), "core.cycles".into()),
+            Meta::events("ipc"),
+        );
         s.counter("core.insts").add(100);
         s.counter("core.cycles").add(400);
         let start = s.clone();

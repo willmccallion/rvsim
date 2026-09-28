@@ -79,8 +79,9 @@ struct Entry<'a> {
 
 fn collect_entries(stats: &Stats) -> Vec<Entry<'_>> {
     let mut entries = Vec::new();
-    for (path, meta) in &stats.meta {
-        let Some(value) = stats.get(path) else { continue };
+    for (&stat, meta) in &stats.meta {
+        let Some(value) = stats.get(stat) else { continue };
+        let path = stat.path();
         let (subject, tail) = path.split_once('.').unwrap_or((path, ""));
         entries.push(Entry { subject, tail, value, meta: *meta });
     }
@@ -116,7 +117,7 @@ mod tests {
         stats.register("core0.commit.op.store", Meta::events("integer store retired"));
         stats.derive(
             "core0.ipc",
-            Formula::Div("core0.commit.op.load", "core0.commit.op.store"),
+            Formula::Div("core0.commit.op.load".into(), "core0.commit.op.store".into()),
             Meta::ratio("instructions per cycle"),
         );
         stats.counter("core0.commit.op.load").add(10);
