@@ -486,6 +486,10 @@ impl ExecutionEngine for InOrderEngine {
         &self.vec_store_buffer
     }
 
+    fn vec_store_buffer_mut(&mut self) -> &mut VecStoreBuffer {
+        &mut self.vec_store_buffer
+    }
+
     fn has_register_renaming(&self) -> bool {
         false
     }

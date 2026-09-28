@@ -31,6 +31,7 @@ pub mod multicore;
 pub mod page_crossing;
 pub mod squash_history;
 pub mod stage_widths;
+pub mod store_completion;
 pub mod tlb_latency;
 pub mod translation_fences;
 pub mod trap_latency;

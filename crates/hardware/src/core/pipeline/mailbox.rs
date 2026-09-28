@@ -26,9 +26,8 @@ use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
     DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk,
-    WalkContinuation,
+    StoreOwner, WalkContinuation,
 };
-use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
@@ -51,9 +50,9 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             buffer_fetch(pipeline, fetch);
         } else if let Some(load) = take_completed_load(pipeline.engine.common_mut(), req_id) {
             complete_load(pipeline, state, load, &data);
-        } else {
-            // outstanding_stores ack or stale post-flush response — drop.
-            let _ = pipeline.engine.common_mut().outstanding_stores.remove(&req_id);
+        } else if let Some(store) = pipeline.engine.common_mut().outstanding_stores.remove(&req_id)
+        {
+            acknowledge_write(pipeline, store.owner, req_id);
         }
     }
 
@@ -63,6 +62,21 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,
     );
+}
+
+/// Tells the buffer a write came from that the memory system has taken it.
+fn acknowledge_write<E: ExecutionEngine>(
+    pipeline: &mut Pipeline<E>,
+    owner: StoreOwner,
+    req: ReqId,
+) {
+    match owner {
+        StoreOwner::StoreBuffer => {
+            let _ = pipeline.engine.store_buffer_mut().write_acked(req);
+        }
+        StoreOwner::VecStoreBuffer => pipeline.engine.vec_store_buffer_mut().write_acked(req),
+        StoreOwner::Untracked => {}
+    }
 }
 
 /// Accounts one answered part of the load `req_id` belongs to and returns
@@ -237,7 +251,7 @@ fn set_accessed_bit<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let _ = common
         .outstanding_stores
-        .insert(req_id, OutstandingStore { rob_tag: RobTag::default(), paddr: update.pte_addr });
+        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr: update.pte_addr });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
     let cycle = state.cycle;
     state.events().schedule(

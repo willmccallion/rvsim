@@ -10,7 +10,6 @@
 
 use crate::common::{LineAddr, PhysAddr, TranslationResult, VirtAddr};
 use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
-use crate::core::pipeline::rob::RobTag;
 use crate::core::units::mmu::ptw::WalkState;
 
 /// One instruction-fetch group: the instructions fetch1 produced in a single
@@ -84,16 +83,25 @@ pub struct PageTranslations {
     pub second: Option<TranslationResult>,
 }
 
-/// A store awaiting cache write-allocate acknowledgment.
-///
-/// The store itself resolves its store buffer slot inline at memory1 — this
-/// entry tracks the cache-side write-allocate `MemReq` so the LSU's
-/// outstanding-count is accurate for back-pressure decisions.
+/// Which buffer a write request's acknowledgement goes back to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreOwner {
+    /// A scalar store, which keeps its store-buffer slot until acknowledged.
+    StoreBuffer,
+    /// A vector store, which keeps its vector-store-buffer entry until
+    /// every write of it is acknowledged.
+    VecStoreBuffer,
+    /// A write nothing waits for: a line writeback, a PTE update, a CBO's
+    /// writes, or a store written at once for a checkpoint.
+    Untracked,
+}
+
+/// A write request awaiting its acknowledgement.
 #[derive(Clone, Debug)]
 pub struct OutstandingStore {
-    /// ROB tag of the store.
-    pub rob_tag: RobTag,
-    /// Translated physical address of the store.
+    /// Who is told when it is acknowledged.
+    pub owner: StoreOwner,
+    /// Physical address written.
     pub paddr: PhysAddr,
 }
 

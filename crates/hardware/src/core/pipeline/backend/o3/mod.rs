@@ -305,7 +305,7 @@ impl O3Engine {
             self.store_buffer.flush_speculative();
             self.load_queue.flush();
             self.mdp.flush();
-            self.vec_store_buffer.flush_all();
+            self.vec_store_buffer.flush_speculative();
             self.common.squash_all();
         }
         let survives = |tag: crate::core::pipeline::rob::RobTag| {
@@ -1075,8 +1075,6 @@ impl ExecutionEngine for O3Engine {
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.serialization = serialize::Serialization::Off;
-        // Drain committed VSB writes; trap-driven flushes still owe pre-trap retired stores.
-        self.vec_store_buffer.drain_all_committed(state, &mut self.common);
 
         for entry in self.rob.iter_all() {
             self.free_list.reclaim(entry.phys_dst);
@@ -1097,7 +1095,7 @@ impl ExecutionEngine for O3Engine {
         self.vec_pending.clear();
         self.vec_mem_pending.clear();
         self.vec_mem_inflight.clear();
-        self.vec_store_buffer.flush_all();
+        self.vec_store_buffer.flush_speculative();
         self.execute_mem1.clear();
         self.common.mem1_replay.clear();
         self.common.coherence_violation = None;
@@ -1137,6 +1135,10 @@ impl ExecutionEngine for O3Engine {
 
     fn vec_store_buffer(&self) -> &VecStoreBuffer {
         &self.vec_store_buffer
+    }
+
+    fn vec_store_buffer_mut(&mut self) -> &mut VecStoreBuffer {
+        &mut self.vec_store_buffer
     }
 
     fn rename(

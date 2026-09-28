@@ -106,6 +106,11 @@ pub trait ExecutionEngine {
     /// The vector store buffer younger loads forward from.
     fn vec_store_buffer(&self) -> &crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 
+    /// The vector store buffer, for the mailbox to acknowledge its writes.
+    fn vec_store_buffer_mut(
+        &mut self,
+    ) -> &mut crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
+
     /// The load queue, on a backend that tracks loads for ordering
     /// violations.
     fn load_queue_mut(&mut self) -> Option<&mut LoadQueue>;
@@ -545,7 +550,8 @@ impl<E: ExecutionEngine> Pipeline<E> {
         let common = self.engine.common_mut();
         common.mailbox.clear();
         common.outstanding_loads.clear();
-        common.outstanding_stores.clear();
+        // Committed stores' writes are still in the memory system; their
+        // acknowledgements free store-buffer slots.
         common.outstanding_walks.clear();
         common.load_parts.clear();
         common.mem1_replay.clear();

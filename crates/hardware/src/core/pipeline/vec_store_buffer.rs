@@ -35,10 +35,12 @@
 //! pipeline's FIFO memory path. This matches spike, ARM SVE, and AVX-512.
 
 use crate::common::PhysAddr;
+use crate::core::pipeline::outstanding::StoreOwner;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
 use crate::sim::CoreCtx;
+use crate::sim::components::ReqId;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
@@ -90,15 +92,27 @@ pub struct VecStoreBufferEntry {
     pub resolved_elements: usize,
     /// `true` once the ROB has retired the parent vec store.
     pub committed: bool,
+    /// Writes sent for drained lines and not yet acknowledged.
+    pub pending_writes: Vec<ReqId>,
     /// `true` while this slot occupies an in-flight entry.
     pub valid: bool,
 }
 
 impl VecStoreBufferEntry {
-    const fn is_drainable(&self) -> bool {
+    const fn is_committed_and_resolved(&self) -> bool {
         self.valid
             && self.committed
             && matches!(self.expected_elements, Some(expected) if expected == self.resolved_elements)
+    }
+
+    /// A committed store with lines still to write.
+    const fn is_drainable(&self) -> bool {
+        self.is_committed_and_resolved() && !self.lines.is_empty()
+    }
+
+    /// A committed store every write of which has been acknowledged.
+    const fn is_finished(&self) -> bool {
+        self.is_committed_and_resolved() && self.lines.is_empty() && self.pending_writes.is_empty()
     }
 }
 
@@ -174,6 +188,7 @@ impl VecStoreBuffer {
             expected_elements: None,
             resolved_elements: 0,
             committed: false,
+            pending_writes: Vec::new(),
             valid: true,
         };
 
@@ -260,6 +275,7 @@ impl VecStoreBuffer {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) {
             entry.committed = true;
         }
+        self.release_finished();
     }
 
     /// Returns `true` if the entry for `rob_tag` exists and has finished
@@ -425,34 +441,58 @@ impl VecStoreBuffer {
     /// Drains one cache-line buffer from the oldest drainable entry by
     /// emitting `MemReq` packets through the engine's `BackendCommon`.
     /// Returns `true` if a write was issued. One call per pipeline cycle
-    /// to share commit-time bandwidth with the scalar SB.
+    /// to share commit-time bandwidth with the scalar SB. The entry keeps
+    /// its slot until every write of it is acknowledged.
     pub fn drain_one_committed(
         &mut self,
         state: &mut CoreCtx<'_>,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) -> bool {
+        self.release_finished();
         let Some(idx) = self.oldest_drainable_entry_index() else { return false };
 
-        let line = {
-            let entry = &mut self.entries[idx];
-            entry.lines.remove(0)
-        };
-        write_line_to_memory(state, common, &line);
-
-        if self.entries[idx].lines.is_empty() {
-            self.entries[idx].valid = false;
-        }
+        let line = self.entries[idx].lines.remove(0);
+        let requests = write_line_to_memory(state, common, &line, StoreOwner::VecStoreBuffer);
+        self.entries[idx].pending_writes.extend(requests);
+        self.release_finished();
         true
     }
 
-    /// Drains all currently-drainable entries. Used by FENCE / SATP / FENCE.I
-    /// (commit-time barriers) and by the trap-driven full flush.
+    /// The memory system acknowledged `req`, one of a drained line's writes.
+    pub fn write_acked(&mut self, req: ReqId) {
+        for entry in &mut self.entries {
+            entry.pending_writes.retain(|pending| *pending != req);
+        }
+        self.release_finished();
+    }
+
+    /// Frees the entries whose writes have all been acknowledged.
+    fn release_finished(&mut self) {
+        for entry in &mut self.entries {
+            if entry.is_finished() {
+                entry.valid = false;
+            }
+        }
+    }
+
+    /// Writes every committed store's remaining lines at once and frees all
+    /// committed entries without waiting for acknowledgements. Only for
+    /// emptying the pipeline to take a checkpoint.
     pub fn drain_all_committed(
         &mut self,
         state: &mut CoreCtx<'_>,
         common: &mut crate::core::pipeline::engine::BackendCommon,
     ) {
-        while self.drain_one_committed(state, common) {}
+        while let Some(idx) = self.oldest_drainable_entry_index() {
+            let line = self.entries[idx].lines.remove(0);
+            let _ = write_line_to_memory(state, common, &line, StoreOwner::Untracked);
+        }
+        for entry in &mut self.entries {
+            if entry.valid && entry.committed {
+                entry.valid = false;
+                entry.pending_writes.clear();
+            }
+        }
     }
 
     /// Drops entries strictly newer than `keep_tag`. Older entries (whether
@@ -514,7 +554,9 @@ fn write_line_to_memory(
     state: &mut CoreCtx<'_>,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     line: &VsbLine,
-) {
+    owner: StoreOwner,
+) -> Vec<ReqId> {
+    let mut requests = Vec::new();
     let mut i = 0usize;
     while i < VSB_LINE_BYTES {
         if (line.valid_mask >> i) & 1 == 0 {
@@ -552,23 +594,26 @@ fn write_line_to_memory(
                 data |= (line.data[abs_offset + b] as u64) << (b * 8);
             }
             let paddr = PhysAddr::new(abs_addr);
-            issue_drained_write(state, common, paddr, data, width);
+            requests.extend(issue_drained_write(state, common, paddr, data, width, owner));
 
             pos += max_natural;
         }
         i += run;
     }
+    requests
 }
 
-/// Publishes a single VSB-drained write and emits its `MemReq` (op = Write).
-/// MMIO addresses fall through the packet path only (no RAM-backed write).
+/// Publishes a single VSB-drained write and emits its `MemReq` (op = Write),
+/// returning the request. MMIO addresses fall through the packet path only
+/// (no RAM-backed write).
 fn issue_drained_write(
     state: &mut CoreCtx<'_>,
     common: &mut crate::core::pipeline::engine::BackendCommon,
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
-) {
+    owner: StoreOwner,
+) -> Option<ReqId> {
     use crate::core::pipeline::outstanding::OutstandingStore;
     use crate::sim::components::ComponentId;
     use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
@@ -578,7 +623,7 @@ fn issue_drained_write(
         MemWidth::Half => AccessSize::B2,
         MemWidth::Word => AccessSize::B4,
         MemWidth::Double => AccessSize::B8,
-        MemWidth::Nop => return,
+        MemWidth::Nop => return None,
     };
 
     state.publish_write(paddr, data, width);
@@ -586,9 +631,7 @@ fn issue_drained_write(
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
-    let _ = common
-        .outstanding_stores
-        .insert(req_id, OutstandingStore { rob_tag: RobTag::default(), paddr });
+    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -602,6 +645,7 @@ fn issue_drained_write(
             op: MemOp::Write { data: WriteData::Small(data) },
         },
     );
+    Some(req_id)
 }
 
 #[cfg(test)]
@@ -792,6 +836,23 @@ mod tests {
         b.flush_speculative();
         assert!(b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag(1)));
         assert!(!b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag(2)));
+    }
+
+    #[test]
+    fn a_drained_entry_keeps_its_slot_until_its_writes_are_acknowledged() {
+        let mut b = vsb(4);
+        b.reserve_for_test(RobTag(1), 1);
+        b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
+        b.mark_committed(RobTag(1));
+        let entry = b.entries.iter_mut().find(|e| e.valid).expect("entry");
+        entry.lines.clear();
+        entry.pending_writes.push(ReqId::new(9));
+
+        b.release_finished();
+        let before_ack = (b.len(), b.has_committed_stores());
+        b.write_acked(ReqId::new(9));
+
+        assert_eq!((before_ack, b.len()), ((1, true), 0));
     }
 
     #[test]

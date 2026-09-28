@@ -6,11 +6,16 @@
 //! 2. **Resolution:** Fill in the physical address and data after Memory1/Memory2.
 //! 3. **Forwarding:** Provide store-to-load forwarding for loads that hit a pending store.
 //! 4. **Commit:** Mark entries as committed when the ROB retires the store.
-//! 5. **Drain:** Write committed stores to memory one per cycle.
+//! 5. **Drain:** Send committed stores' writes to memory one per cycle, in
+//!    order. An entry keeps its slot until the memory system acknowledges
+//!    its write, and slots are released from the head, as gem5's store queue
+//!    does: a store that misses in the cache holds the buffer until its line
+//!    arrives.
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
+use crate::sim::components::ReqId;
 
 /// Result of store-to-load forwarding check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +98,33 @@ pub struct AppliedStore {
     pub width: MemWidth,
 }
 
+/// Where a committed store's write to memory stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WriteProgress {
+    /// Not yet sent.
+    #[default]
+    Unsent,
+    /// Sent; waiting for the acknowledgement of each listed request.
+    InFlight([Option<ReqId>; 2]),
+    /// Acknowledged (or needed no write); the slot frees once it is the
+    /// oldest.
+    Done,
+}
+
+/// A committed store taken for writing by [`StoreBuffer::begin_write`];
+/// [`StoreBuffer::issue_write`] records the requests that carry it.
+#[derive(Clone, Copy, Debug)]
+#[must_use]
+pub struct PendingWrite {
+    slot: usize,
+    /// The store.
+    pub rob_tag: RobTag,
+    /// Its width.
+    pub width: MemWidth,
+    /// What to write.
+    pub resolution: StoreResolution,
+}
+
 /// A single entry in the store buffer.
 ///
 /// The scalar store buffer holds one entry per scalar store instruction.
@@ -108,6 +140,8 @@ pub struct StoreBufferEntry {
     pub width: MemWidth,
     /// Resolution state — encodes lifecycle, physical address, and data.
     pub resolution: StoreResolution,
+    /// Progress of the write once committed.
+    pub write: WriteProgress,
     /// Whether this slot is occupied.
     pub valid: bool,
 }
@@ -195,6 +229,7 @@ impl StoreBuffer {
             vaddr: VirtAddr::new(0),
             width,
             resolution: StoreResolution::Pending,
+            write: WriteProgress::Unsent,
             valid: true,
         };
 
@@ -393,23 +428,102 @@ impl StoreBuffer {
         false
     }
 
-    /// Drains (removes) the oldest committed store. Returns it so the caller
-    /// can write it to memory. Returns `None` if no committed store is available.
-    pub fn drain_one(&mut self) -> Option<StoreBufferEntry> {
-        if self.count == 0 {
-            return None;
+    /// Takes the oldest committed store whose write has not been sent, in
+    /// program order. `None` when there is none.
+    pub fn begin_write(&mut self) -> Option<PendingWrite> {
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if !entry.valid || !entry.resolution.is_committed() {
+                return None;
+            }
+            if entry.write == WriteProgress::Unsent {
+                return Some(PendingWrite {
+                    slot: idx,
+                    rob_tag: entry.rob_tag,
+                    width: entry.width,
+                    resolution: entry.resolution,
+                });
+            }
+            idx = (idx + 1) % cap;
         }
+        None
+    }
 
-        let entry = &self.entries[self.head];
-        if !entry.valid || !entry.resolution.is_committed() {
-            return None;
+    /// Records the requests carrying `write`; with none (the store needed no
+    /// write) it is done at once.
+    pub fn issue_write(&mut self, write: PendingWrite, requests: &[ReqId]) {
+        let entry = &mut self.entries[write.slot];
+        debug_assert!(entry.valid && entry.rob_tag == write.rob_tag, "stale pending write");
+        let mut outstanding = [None; 2];
+        for (slot, req) in outstanding.iter_mut().zip(requests) {
+            *slot = Some(*req);
         }
+        debug_assert!(requests.len() <= outstanding.len(), "a store is at most two requests");
+        entry.write = if requests.is_empty() {
+            WriteProgress::Done
+        } else {
+            WriteProgress::InFlight(outstanding)
+        };
+        self.release_done();
+    }
 
-        let drained = self.entries[self.head].clone();
-        self.entries[self.head].valid = false;
-        self.head = (self.head + 1) % self.entries.len();
-        self.count -= 1;
-        Some(drained)
+    /// The memory system acknowledged `req`. Returns whether it belonged to
+    /// a store in this buffer.
+    pub fn write_acked(&mut self, req: ReqId) -> bool {
+        let Some(entry) = self.entries.iter_mut().find(|e| {
+            e.valid && matches!(e.write, WriteProgress::InFlight(reqs) if reqs.contains(&Some(req)))
+        }) else {
+            return false;
+        };
+        let WriteProgress::InFlight(mut reqs) = entry.write else { return false };
+        for slot in &mut reqs {
+            if *slot == Some(req) {
+                *slot = None;
+            }
+        }
+        entry.write = if reqs.iter().all(Option::is_none) {
+            WriteProgress::Done
+        } else {
+            WriteProgress::InFlight(reqs)
+        };
+        self.release_done();
+        true
+    }
+
+    /// Frees the slots of the oldest stores whose writes are done.
+    fn release_done(&mut self) {
+        while self.count > 0 {
+            let head = &mut self.entries[self.head];
+            if !head.valid || head.write != WriteProgress::Done {
+                return;
+            }
+            head.valid = false;
+            self.head = (self.head + 1) % self.entries.len();
+            self.count -= 1;
+        }
+    }
+
+    /// Frees every committed store whether or not its write was sent or
+    /// acknowledged, returning the ones never sent so the caller can write
+    /// them at once. For a checkpoint drain, where the pipeline is emptied
+    /// and no acknowledgement will be waited for.
+    pub fn release_all_committed(&mut self) -> Vec<StoreBufferEntry> {
+        let mut unsent = Vec::new();
+        while self.count > 0 {
+            let head = &mut self.entries[self.head];
+            if !head.valid || !head.resolution.is_committed() {
+                break;
+            }
+            if head.write == WriteProgress::Unsent {
+                unsent.push(head.clone());
+            }
+            head.valid = false;
+            self.head = (self.head + 1) % self.entries.len();
+            self.count -= 1;
+        }
+        unsent
     }
 
     /// Flushes speculative (non-committed) entries. Committed entries remain.
@@ -501,7 +615,7 @@ impl StoreBuffer {
                     self.tail = prev_tail;
                     self.count -= 1;
                 } else {
-                    // Not at tail; mark Cancelled so drain_one passes it through unwritten.
+                    // Not at tail; mark Cancelled so the drain passes it through unwritten.
                     self.entries[idx].resolution = StoreResolution::Cancelled;
                 }
                 return;
@@ -553,6 +667,94 @@ pub(crate) const fn width_to_bytes(w: MemWidth) -> usize {
 mod tests {
     use super::*;
 
+    /// Sends the next write and completes it at once, returning what was
+    /// written.
+    fn drain_now(sb: &mut StoreBuffer) -> Option<StoreResolution> {
+        let write = sb.begin_write()?;
+        let resolution = write.resolution;
+        sb.issue_write(write, &[]);
+        Some(resolution)
+    }
+
+    fn committed_store(sb: &mut StoreBuffer, tag: u32, paddr: u64, data: u64) {
+        assert!(sb.allocate(RobTag(tag), MemWidth::Double));
+        sb.resolve(RobTag(tag), VirtAddr::new(paddr), PhysAddr::new(paddr), data);
+        sb.mark_committed(RobTag(tag));
+    }
+
+    #[test]
+    fn a_sent_store_keeps_its_slot_and_forwards_until_acknowledged() {
+        let mut sb = StoreBuffer::new(4);
+        committed_store(&mut sb, 1, 0x1000, 0x55);
+        let write = sb.begin_write().expect("committed store");
+        sb.issue_write(write, &[ReqId::new(7)]);
+
+        let before_ack = (sb.len(), sb.has_committed_stores());
+        let forwarded = sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2));
+        let known = sb.write_acked(ReqId::new(7));
+
+        assert_eq!((before_ack, forwarded), ((1, true), ForwardResult::Hit(0x55)));
+        assert!(known && sb.is_empty());
+    }
+
+    #[test]
+    fn a_younger_store_is_sent_while_an_older_one_is_in_flight() {
+        let mut sb = StoreBuffer::new(4);
+        committed_store(&mut sb, 1, 0x1000, 1);
+        committed_store(&mut sb, 2, 0x2000, 2);
+        let first = sb.begin_write().expect("first store");
+        sb.issue_write(first, &[ReqId::new(1)]);
+
+        let second = sb.begin_write().expect("second store");
+
+        assert_eq!(second.rob_tag, RobTag(2));
+    }
+
+    #[test]
+    fn slots_free_in_order_when_a_younger_write_is_acknowledged_first() {
+        let mut sb = StoreBuffer::new(4);
+        committed_store(&mut sb, 1, 0x1000, 1);
+        committed_store(&mut sb, 2, 0x2000, 2);
+        let first = sb.begin_write().expect("first store");
+        sb.issue_write(first, &[ReqId::new(1)]);
+        let second = sb.begin_write().expect("second store");
+        sb.issue_write(second, &[ReqId::new(2)]);
+
+        let _ = sb.write_acked(ReqId::new(2));
+        let after_younger = sb.len();
+        let _ = sb.write_acked(ReqId::new(1));
+
+        assert_eq!((after_younger, sb.len()), (2, 0));
+    }
+
+    #[test]
+    fn a_store_written_as_two_requests_waits_for_both() {
+        let mut sb = StoreBuffer::new(4);
+        committed_store(&mut sb, 1, 0x103C, 1);
+        let write = sb.begin_write().expect("committed store");
+        sb.issue_write(write, &[ReqId::new(1), ReqId::new(2)]);
+
+        let _ = sb.write_acked(ReqId::new(1));
+        let after_one = sb.len();
+        let _ = sb.write_acked(ReqId::new(2));
+
+        assert_eq!((after_one, sb.len()), (1, 0));
+    }
+
+    #[test]
+    fn releasing_all_committed_stores_returns_the_unsent_ones() {
+        let mut sb = StoreBuffer::new(4);
+        committed_store(&mut sb, 1, 0x1000, 1);
+        committed_store(&mut sb, 2, 0x2000, 2);
+        let first = sb.begin_write().expect("first store");
+        sb.issue_write(first, &[ReqId::new(1)]);
+
+        let unsent: Vec<RobTag> = sb.release_all_committed().iter().map(|e| e.rob_tag).collect();
+
+        assert_eq!(unsent, vec![RobTag(2)]);
+        assert!(sb.is_empty());
+    }
+
     #[test]
     fn test_allocate_and_drain() {
         let mut sb = StoreBuffer::new(4);
@@ -563,16 +765,16 @@ mod tests {
         assert_eq!(sb.len(), 1);
 
         // Can't drain yet (still Pending)
-        assert!(sb.drain_one().is_none());
+        assert!(sb.begin_write().is_none());
 
         sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0xDEADBEEF);
         // Can't drain yet (Ready but not Committed)
-        assert!(sb.drain_one().is_none());
+        assert!(sb.begin_write().is_none());
 
         sb.mark_committed(tag);
-        let entry = sb.drain_one().unwrap();
+        let entry = drain_now(&mut sb).unwrap();
         assert_eq!(
-            entry.resolution,
+            entry,
             StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 0xDEADBEEF }
         );
         assert!(sb.is_empty());
@@ -597,11 +799,8 @@ mod tests {
             ForwardResult::Hit(0x55)
         );
         assert!(sb.has_older_store_to(PhysAddr::new(0x1004), MemWidth::Word, RobTag(2)));
-        let drained = sb.drain_one().expect("applied entries drain");
-        assert_eq!(
-            drained.resolution,
-            StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 }
-        );
+        let drained = drain_now(&mut sb).expect("applied entries drain");
+        assert_eq!(drained, StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 });
         assert!(sb.is_empty());
     }
 
@@ -671,9 +870,9 @@ mod tests {
         sb.flush_speculative();
         assert_eq!(sb.len(), 1); // only t1 remains
 
-        let entry = sb.drain_one().unwrap();
+        let entry = drain_now(&mut sb).unwrap();
         assert_eq!(
-            entry.resolution,
+            entry,
             StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 10 }
         );
     }
@@ -696,9 +895,9 @@ mod tests {
             sb.allocate(tag, MemWidth::Word);
             sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
             sb.mark_committed(tag);
-            let entry = sb.drain_one().unwrap();
+            let entry = drain_now(&mut sb).unwrap();
             assert_eq!(
-                entry.resolution,
+                entry,
                 StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: i as u64 }
             );
         }

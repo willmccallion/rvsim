@@ -22,7 +22,7 @@ use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
 use crate::core::pipeline::load_queue::LoadQueue;
-use crate::core::pipeline::outstanding::OutstandingStore;
+use crate::core::pipeline::outstanding::{OutstandingStore, StoreOwner};
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobEntry, RobState, RobTag};
@@ -35,7 +35,7 @@ use crate::core::units::cache::DirtyLine;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::sim::CoreCtx;
-use crate::sim::components::ComponentId;
+use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::trace_branch;
@@ -328,20 +328,8 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             break;
         }
 
-        // SFENCE.VMA must wait for committed stores to reach RAM so PTW sees current PTEs.
-        if head.ctrl.system_op == SystemOp::SfenceVma && store_buffer.has_committed_stores() {
-            break;
-        }
-        // CBO ops (Zicboz / Zicbom) drain prior committed stores first so
-        // memory ordering against earlier writes matches a normal store and
-        // any stale PTE in the SB has settled before we re-translate.
-        if head.ctrl.system_op.is_cbo() && store_buffer.has_committed_stores() {
-            break;
-        }
-        // An `rl` atomic's write is published at commit; older stores go first.
-        if head.ctrl.release
-            && (store_buffer.has_committed_stores() || vec_store_buffer.has_committed_stores())
-        {
+        // A barrier retires once every older store's write has completed.
+        if waits_for_older_stores(head) && older_stores_pending(store_buffer, vec_store_buffer) {
             break;
         }
 
@@ -487,7 +475,14 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         for update in entry.dirty_updates.iter() {
             if let Some(pte) = updated_pte(state, update) {
-                write_store_to_memory(state, common, update.pte_addr, pte, MemWidth::Double);
+                let _ = write_store_to_memory(
+                    state,
+                    common,
+                    update.pte_addr,
+                    pte,
+                    MemWidth::Double,
+                    StoreOwner::Untracked,
+                );
             }
         }
 
@@ -642,20 +637,14 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if entry.ctrl.system_op == SystemOp::FenceI {
-            drain_all_committed(state, common, store_buffer, vec_store_buffer);
-            // I-cache flush after drain so refills see new data; force a fresh redirect.
+            flush_wcb(state, common);
+            // Older stores have completed (stall above); refills see them.
             let _ = state.core.l1_i_cache.invalidate_all();
-            // FENCE.I serializes: younger instructions were fetched before the drain.
+            // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
-        } else if entry.ctrl.system_op == SystemOp::Fence {
-            let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
-            let pred_w = pred_bits & 0b0001 != 0;
-            let pred_r = pred_bits & 0b0010 != 0;
-            // pred.w drains the SB; pred.r is satisfied by commit order.
-            if pred_w || pred_r {
-                drain_all_committed(state, common, store_buffer, vec_store_buffer);
-            }
+        } else if entry.ctrl.system_op == SystemOp::Fence && fence_orders_stores(entry.inst) {
+            flush_wcb(state, common);
         }
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
@@ -802,36 +791,41 @@ fn is_pure_ram(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> bool {
     state.bus.ram_region_for(paddr.val(), width.bytes()).is_some()
 }
 
-/// Drains one committed scalar SB entry to memory by emitting a `MemReq`
-/// (op = Write). Returns true if a write was emitted (so the caller can
-/// decide whether to also drain the vec-store buffer in the same cycle).
+/// Sends the write of the oldest committed store not yet sent. The entry
+/// keeps its slot until the write is acknowledged. Returns true if a store
+/// was taken (so the caller does not also drain the vec-store buffer this
+/// cycle).
 fn try_drain_one_store(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
 ) -> bool {
-    let Some(store) = store_buffer.drain_one() else { return false };
-    let (paddr, data) = match store.resolution {
+    let Some(write) = store_buffer.begin_write() else { return false };
+    let (paddr, data) = match write.resolution {
         StoreResolution::Committed { paddr, data } => (paddr, data),
         // An AMO's result was written by the L1D as part of its atomic
         // access and published at commit; a failed SC wrote nothing.
         StoreResolution::Applied { .. }
         | StoreResolution::Pending
         | StoreResolution::Ready { .. }
-        | StoreResolution::Cancelled => return true,
+        | StoreResolution::Cancelled => {
+            store_buffer.issue_write(write, &[]);
+            return true;
+        }
     };
 
     // Only pure RAM addresses go through the WCB coalesce path. HTIF and
     // other MMIO overlays must bypass it so the per-store MemReq carries the
     // original data to the device (WCB drain packets carry zero data).
-    let width_bytes = width_to_bytes(store.width);
-    let pure_ram = is_pure_ram(state, paddr, store.width);
+    let width_bytes = width_to_bytes(write.width);
+    let pure_ram = is_pure_ram(state, paddr, write.width);
 
-    if !state.core.wcb.is_disabled() && pure_ram {
+    let requests = if !state.core.wcb.is_disabled() && pure_ram {
         // Publish now so subsequent loads via the fast path see the new
         // value while the WCB coalesces dirty-line accounting; the WCB
         // drain only signals the line was dirty, it doesn't carry data.
-        state.publish_write(paddr, data, store.width);
+        // The WCB takes the store, so the store buffer is done with it.
+        state.publish_write(paddr, data, write.width);
         for (part_paddr, part_data, part_bytes) in line_parts(state, paddr, data, width_bytes) {
             let evicted = state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
             if evicted.is_none() {
@@ -842,34 +836,64 @@ fn try_drain_one_store(
                 state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
             }
         }
+        Vec::new()
     } else {
-        write_store_to_memory(state, common, paddr, data, store.width);
-    }
+        write_store_to_memory(state, common, paddr, data, write.width, StoreOwner::StoreBuffer)
+    };
+    store_buffer.issue_write(write, &requests);
     trace_commit!(state.config.general.trace_instructions;
         paddr      = %crate::trace::Hex(paddr.val()),
         data       = %crate::trace::Hex(data),
-        width      = ?store.width,
+        width      = ?write.width,
         via_wcb    = !state.core.wcb.is_disabled() && pure_ram,
-        "CM: committed store drained to memory"
+        "CM: committed store's write sent to memory"
     );
     true
 }
 
-/// Drains **all** committed stores from the store buffer through the packet
-/// pipeline, and flushes any committed vec-store writes from the VSB too.
-/// Also flushes the WCB.
-///
-/// Called before SATP writes (so the PTW sees up-to-date PTEs) and on FENCE
-/// commit (so younger memory ops see older committed writes).
+/// True when `head` must not retire before every older store's write has
+/// completed: SFENCE.VMA (the walker must see earlier PTE stores), a CBO
+/// (it acts on the line after earlier writes), an atomic with `rl` (its
+/// write is published at commit), FENCE.I, and a FENCE whose predecessor
+/// set includes writes.
+fn waits_for_older_stores(head: &RobEntry) -> bool {
+    matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
+        || head.ctrl.system_op.is_cbo()
+        || head.ctrl.release
+        || (head.ctrl.system_op == SystemOp::Fence && fence_orders_stores(head.inst))
+}
+
+/// True when FENCE `inst`'s predecessor set includes writes (`pred.w`), so
+/// it orders every older store before what follows it.
+const fn fence_orders_stores(inst: u32) -> bool {
+    (inst >> 24) & 0b0001 != 0
+}
+
+/// True while a committed scalar or vector store has not finished writing.
+fn older_stores_pending(store_buffer: &StoreBuffer, vec_store_buffer: &VecStoreBuffer) -> bool {
+    store_buffer.has_committed_stores() || vec_store_buffer.has_committed_stores()
+}
+
+/// Writes every committed store to memory at once and frees them without
+/// waiting for acknowledgements, then flushes the WCB. Only for emptying the
+/// pipeline to take a checkpoint; in normal execution stores drain one per
+/// cycle and barriers wait for them.
 pub(crate) fn drain_all_committed(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
     vec_store_buffer: &mut VecStoreBuffer,
 ) {
-    while let Some(store) = store_buffer.drain_one() {
+    for store in store_buffer.release_all_committed() {
         if let StoreResolution::Committed { paddr, data } = store.resolution {
-            write_store_to_memory(state, common, paddr, data, store.width);
+            let _ = write_store_to_memory(
+                state,
+                common,
+                paddr,
+                data,
+                store.width,
+                StoreOwner::Untracked,
+            );
         }
     }
     vec_store_buffer.drain_all_committed(state, common);
@@ -893,10 +917,9 @@ fn emit_line_writeback(state: &mut CoreCtx<'_>, common: &mut BackendCommon, padd
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_stores.insert(
-        req_id,
-        OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
-    );
+    let _ = common
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -959,12 +982,13 @@ fn cboz_write(state: &mut CoreCtx<'_>, common: &mut BackendCommon, block_paddr: 
     const CHUNK: u64 = 8;
     let mut offset = 0u64;
     while offset < CBOZ_BLOCK_SIZE {
-        write_store_to_memory(
+        let _ = write_store_to_memory(
             state,
             common,
             PhysAddr::new(block_paddr + offset),
             0,
             MemWidth::Double,
+            StoreOwner::Untracked,
         );
         offset += CHUNK;
     }
@@ -987,35 +1011,49 @@ fn write_store_to_memory(
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
-) {
+    owner: StoreOwner,
+) -> Vec<ReqId> {
     if width == MemWidth::Nop {
-        return;
+        return Vec::new();
     }
     state.publish_write(paddr, data, width);
-    emit_store_write_packet(state, common, paddr, data, width);
+    emit_store_write_packet(state, common, paddr, data, width, owner)
 }
 
 /// Emits the `MemReq`s (op = Write) for a store whose data is already
 /// published: the timing side of [`write_store_to_memory`]. A RAM store
-/// straddling a cache line is one write per line.
+/// straddling a cache line is one write per line. Returns the requests.
 fn emit_store_write_packet(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
-) {
+    owner: StoreOwner,
+) -> Vec<ReqId> {
     if width == MemWidth::Nop {
-        return;
+        return Vec::new();
     }
+    let write = StoreWrite { width, owner };
     if !is_pure_ram(state, paddr, width) {
-        emit_store_write_packet_to(state, common, paddr, data, width, ComponentId::Bus);
-        return;
+        return emit_store_write_packet_to(state, common, paddr, data, write, ComponentId::Bus)
+            .into_iter()
+            .collect();
     }
     let l1d = ComponentId::Cache(common.l1_d_id);
-    for (part_paddr, part_data, _) in line_parts(state, paddr, data, width.bytes() as usize) {
-        emit_store_write_packet_to(state, common, part_paddr, part_data, width, l1d);
-    }
+    line_parts(state, paddr, data, width.bytes() as usize)
+        .into_iter()
+        .filter_map(|(part_paddr, part_data, _)| {
+            emit_store_write_packet_to(state, common, part_paddr, part_data, write, l1d)
+        })
+        .collect()
+}
+
+/// A write's width and the buffer its acknowledgement goes back to.
+#[derive(Clone, Copy)]
+struct StoreWrite {
+    width: MemWidth,
+    owner: StoreOwner,
 }
 
 /// The byte ranges of a store's data that fall in each cache line it
@@ -1038,28 +1076,26 @@ fn line_parts(
     ]
 }
 
-/// Emits one `MemReq` (op = Write) to `target`.
+/// Emits one `MemReq` (op = Write) to `target` and returns its request.
 fn emit_store_write_packet_to(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
-    width: MemWidth,
+    write: StoreWrite,
     target: ComponentId,
-) {
-    let access_size = match width {
+) -> Option<ReqId> {
+    let access_size = match write.width {
         MemWidth::Byte => AccessSize::B1,
         MemWidth::Half => AccessSize::B2,
         MemWidth::Word => AccessSize::B4,
         MemWidth::Double => AccessSize::B8,
-        MemWidth::Nop => return,
+        MemWidth::Nop => return None,
     };
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_stores.insert(
-        req_id,
-        OutstandingStore { rob_tag: crate::core::pipeline::rob::RobTag::default(), paddr },
-    );
+    let _ =
+        common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner, paddr });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -1073,6 +1109,7 @@ fn emit_store_write_packet_to(
             op: MemOp::Write { data: WriteData::Small(data) },
         },
     );
+    Some(req_id)
 }
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
