@@ -366,6 +366,23 @@ impl VecStoreBuffer {
         })
     }
 
+    /// True when a vector store older than `rob_tag` may write any of the
+    /// `bytes` bytes at `paddr`: its addresses are not all known yet, or
+    /// one of its lines, drained or not, holds such a byte.
+    #[must_use]
+    pub fn has_older_store_to(&self, paddr: PhysAddr, bytes: usize, rob_tag: RobTag) -> bool {
+        let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
+        self.entries.iter().filter(|e| e.valid && e.rob_tag.is_older_than(rob_tag)).any(|e| {
+            e.expected_elements != Some(e.resolved_elements)
+                || e.forwarding_lines().any(|line| {
+                    (0..VSB_LINE_BYTES as u64).any(|i| {
+                        let byte = line.line_addr + i;
+                        line.valid_mask >> i & 1 == 1 && byte >= start && byte < end
+                    })
+                })
+        })
+    }
+
     /// Forwarding check for a younger load. Policy-dependent — see module doc.
     pub fn forward_load(
         &self,
@@ -912,6 +929,19 @@ mod tests {
         let written = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
 
         assert_eq!((in_flight, written), (ForwardResult::Hit(0xAB), ForwardResult::Miss));
+    }
+
+    #[test]
+    fn an_older_vector_store_to_the_bytes_holds_an_lr_back() {
+        let mut b = vsb(2);
+        b.reserve_for_test(RobTag(1), 1);
+        b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0004), 0xAB, MemWidth::Byte);
+
+        let overlapping = b.has_older_store_to(PhysAddr::new(0x8000_0000), 8, RobTag(2));
+        let elsewhere = b.has_older_store_to(PhysAddr::new(0x8000_0008), 8, RobTag(2));
+        let younger = b.has_older_store_to(PhysAddr::new(0x8000_0000), 8, RobTag(1));
+
+        assert_eq!((overlapping, elsewhere, younger), (true, false, false));
     }
 
     #[test]

@@ -309,6 +309,7 @@ fn process_entry<E: ExecutionEngine>(
         }
         // LR: wait for older stores to this address to drain.
         if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
+            || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.rob_tag)
             || state.core_mut().wcb.request_send(paddr, size as usize)
         {
             return EntryOutcome::Replay(ex);
