@@ -257,7 +257,9 @@ impl StoreBuffer {
                 debug_assert!(
                     matches!(
                         entry.resolution,
-                        StoreResolution::Ready { .. } | StoreResolution::Applied { .. }
+                        StoreResolution::Ready { .. }
+                            | StoreResolution::Applied { .. }
+                            | StoreResolution::Cancelled
                     ),
                     "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
                     rob_tag.0,

@@ -33,6 +33,7 @@ pub mod page_crossing;
 pub mod squash_history;
 pub mod stage_widths;
 pub mod store_completion;
+pub mod store_conditional;
 pub mod tlb_latency;
 pub mod tlb_superpages;
 pub mod translation_fences;

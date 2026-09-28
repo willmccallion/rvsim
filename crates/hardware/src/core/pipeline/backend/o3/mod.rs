@@ -403,6 +403,7 @@ impl ExecutionEngine for O3Engine {
             rename_output.clear();
         }
 
+        let mut decided_at_commit = Vec::new();
         let commit_event = commit::commit_stage(
             state,
             CommitResources {
@@ -412,6 +413,7 @@ impl ExecutionEngine for O3Engine {
                 vec_store_buffer: &mut self.vec_store_buffer,
                 width: self.commit_width,
                 registers: CommitRegisters::Renamed {
+                    decided_at_commit: &mut decided_at_commit,
                     rename_map: &mut self.committed_rename_map,
                     free_list: &mut self.free_list,
                     prf: &mut self.prf,
@@ -422,6 +424,10 @@ impl ExecutionEngine for O3Engine {
                 },
             },
         );
+
+        for (phys, value) in decided_at_commit {
+            self.issue_queue.wakeup_phys(phys, value);
+        }
 
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
@@ -488,7 +494,7 @@ impl ExecutionEngine for O3Engine {
         let wb_wakeups: Vec<_> = self
             .mem2_wb
             .iter()
-            .filter(|wb| wb.trap.is_none())
+            .filter(|wb| wb.trap.is_none() && wb.ctrl.atomic_op != AtomicOp::Sc)
             .map(|wb| {
                 let val = if wb.ctrl.mem_read {
                     wb.load_data

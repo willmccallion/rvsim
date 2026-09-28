@@ -314,7 +314,14 @@ fn process_entry<E: ExecutionEngine>(
 
     if is_atomic {
         if ex.ctrl.atomic_op == AtomicOp::Sc {
-            push_resolved_store(engine, ex, paddr, vaddr, dirty_updates);
+            // As a store it follows every older store to memory; it then
+            // takes the line for writing, and commit decides its success.
+            if engine.store_buffer().has_committed_stores()
+                || engine.vec_store_buffer().has_committed_stores()
+            {
+                return EntryOutcome::Replay(ex);
+            }
+            emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates, true);
             return EntryOutcome::Done;
         }
         // LR / AMO: wait for older stores to this address to drain.
@@ -571,7 +578,7 @@ fn emit_load_req<E: ExecutionEngine>(
             AtomicOp::Max => packet::AtomicOp::Max,
             AtomicOp::Minu => packet::AtomicOp::MinU,
             AtomicOp::Maxu => packet::AtomicOp::MaxU,
-            AtomicOp::Sc => unreachable!("Sc is resolved at memory1 before emit"),
+            AtomicOp::Sc => packet::AtomicOp::Sc,
             AtomicOp::None => unreachable!("is_atomic checked"),
         };
         MemOp::Atomic { op: packet_atomic, data: ex.store_data }

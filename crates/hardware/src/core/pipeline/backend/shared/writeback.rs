@@ -10,7 +10,7 @@
 use crate::common::ExceptionStage;
 use crate::core::pipeline::latches::Mem2WbEntry;
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::ControlFlow;
+use crate::core::pipeline::signals::{AtomicOp, ControlFlow};
 use crate::sim::StageCtx;
 use crate::trace_trap;
 use crate::trace_writeback;
@@ -40,9 +40,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             continue;
         }
 
-        let val = if wb.ctrl.mem_read
-            || wb.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
-        {
+        let val = if wb.ctrl.mem_read || wb.ctrl.atomic_op != AtomicOp::None {
             wb.load_data
         } else if wb.ctrl.control_flow == ControlFlow::Jump {
             wb.pc.wrapping_add(wb.inst_size.as_u64())
@@ -65,7 +63,12 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
         if let Some(seq) = wb.observed {
             rob.set_observed(wb.rob_tag, seq);
         }
-        rob.complete(wb.rob_tag, val);
+        if wb.ctrl.atomic_op == AtomicOp::Sc {
+            // Its result is its success, which commit decides.
+            rob.complete_pending_commit(wb.rob_tag);
+        } else {
+            rob.complete(wb.rob_tag, val);
+        }
 
         trace_writeback!(state.config.general.trace_instructions;
             rob_tag  = wb.rob_tag.0,

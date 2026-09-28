@@ -86,6 +86,9 @@ pub enum CommitRegisters<'a> {
     /// frees the previous mapping and releases the per-instruction slots
     /// only a renaming backend allocates.
     Renamed {
+        /// Results commit decided (store-conditionals), for the engine to
+        /// wake their dependents with.
+        decided_at_commit: &'a mut Vec<(PhysReg, u64)>,
         /// The committed architectural-to-physical mapping.
         rename_map: &'a mut RenameMap,
         /// Free scalar physical registers.
@@ -145,10 +148,12 @@ impl CommitRegisters<'_> {
         }
     }
 
-    /// Records a failed SC's result of 1 where a post-squash rename reads it.
-    fn record_sc_failure(&mut self, phys_dst: PhysReg) {
-        if let Self::Renamed { prf, .. } = self {
-            prf.write(phys_dst, 1);
+    /// Publishes a result commit decided to the physical register its
+    /// dependents read, for the engine to wake them.
+    fn publish_decided(&mut self, phys_dst: PhysReg, value: u64) {
+        if let Self::Renamed { prf, decided_at_commit, .. } = self {
+            prf.write(phys_dst, value);
+            decided_at_commit.push((phys_dst, value));
         }
     }
 
@@ -336,6 +341,17 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         let Some(entry) = rob.commit_head() else { break };
         retired_count += 1;
         youngest_retired = Some(entry.seq);
+        // A store-conditional's result is decided here, where its write is
+        // published or dropped atomically with the reservation check.
+        let sc_succeeded = match entry.lr_sc {
+            Some(LrScRecord::Sc { paddr }) => Some(state.check_reservation(paddr)),
+            _ => None,
+        };
+        let val = match sc_succeeded {
+            Some(true) => 0,
+            Some(false) => 1,
+            None => entry.result.unwrap_or(0),
+        };
 
         // The architectural PC advances to the retired instruction's successor:
         // a taken branch's target, so an interrupt's EPC is right.
@@ -370,7 +386,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             if state.commit_log.is_some() {
                 let has_rd =
                     (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
-                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), entry.result.unwrap_or(0)))
+                Some((entry.pc, entry.inst, has_rd, entry.rd.as_usize(), val))
             } else {
                 None
             }
@@ -407,12 +423,13 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         debug_assert!(
-            entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
+            entry.result.is_some()
+                || sc_succeeded.is_some()
+                || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
             "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
             entry.tag.0,
             entry.pc,
         );
-        let val = entry.result.unwrap_or(0);
         if entry.ctrl.fp_reg_write {
             state.hart.regs.write_f(entry.rd, val);
             registers.retire_scalar(&entry, true);
@@ -431,6 +448,9 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
             state.hart.regs.write(entry.rd, val);
             registers.retire_scalar(&entry, false);
+            if sc_succeeded.is_some() {
+                registers.publish_decided(entry.phys_dst, val);
+            }
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -586,20 +606,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 LrScRecord::Lr { paddr } => {
                     state.set_reservation(paddr);
                 }
-                LrScRecord::Sc { paddr } => {
-                    if state.check_reservation(paddr) {
+                LrScRecord::Sc { .. } => {
+                    if sc_succeeded == Some(true) {
                         state.clear_reservation();
                     } else {
-                        // SC failure: undo Memory2's optimistic success (rd=0) and re-fetch.
                         store_buffer.cancel(entry.tag);
-                        if entry.ctrl.reg_write && !entry.rd.is_zero() {
-                            state.hart.regs.write(entry.rd, 1);
-                            registers.record_sc_failure(entry.phys_dst);
-                        }
-                        event = Some(CommitEvent::SquashAfter(
-                            entry.pc.wrapping_add(entry.inst_size.as_u64()),
-                        ));
-                        break;
                     }
                 }
             }

@@ -17,8 +17,8 @@
 //!   ask the load queue whether a younger load has already executed with
 //!   stale data; surface the oldest violation back to the caller for
 //!   pipeline flush.
-//! - **SC:** optimistic store buffer resolve, set the deferred
-//!   `LrScRecord::Sc` so commit can verify the reservation.
+//! - **SC:** resolve the store buffer and record `LrScRecord::Sc`; commit
+//!   checks the reservation and decides the result.
 //! - **LR:** record `LrScRecord::Lr` so commit installs the reservation.
 //! - **AMO:** combine `load_data` (the old value) with `store_data`
 //!   (the register operand) through the AMO ALU and resolve the store
@@ -104,8 +104,8 @@ pub fn memory2_stage(
                     lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
                 }
                 AtomicOp::Sc => {
-                    // SC was resolved optimistically at memory1; commit
-                    // verifies. The returned value is 0 (success).
+                    // The SC has taken its line; commit decides its success
+                    // and result, and publishes or drops this write.
                     store_buffer.resolve(mem.rob_tag, mem.vaddr, mem.paddr, mem.store_data);
                     lr_sc = Some(LrScRecord::Sc { paddr: mem.paddr });
                     if let Some(ref lq) = load_queue
