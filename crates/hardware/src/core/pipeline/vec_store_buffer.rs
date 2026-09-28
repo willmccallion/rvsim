@@ -143,13 +143,29 @@ pub struct VecStoreBufferEntry {
     pub resolved_elements: usize,
     /// `true` once the ROB has retired the parent vec store.
     pub committed: bool,
-    /// Writes sent for drained lines and not yet acknowledged.
-    pub pending_writes: Vec<ReqId>,
+    /// Lines whose writes are sent and not all acknowledged: they still
+    /// forward, since the memory system has not yet performed them.
+    pub sent: Vec<SentVsbLine>,
     /// `true` while this slot occupies an in-flight entry.
     pub valid: bool,
 }
 
+/// A drained line and the writes carrying it that are not yet acknowledged.
+#[derive(Clone, Debug)]
+pub struct SentVsbLine {
+    /// The line's bytes.
+    pub line: VsbLine,
+    /// Its writes still outstanding.
+    pub writes: Vec<ReqId>,
+}
+
 impl VecStoreBufferEntry {
+    /// The lines a younger load may forward from: those waiting to drain
+    /// and those whose writes are in flight.
+    fn forwarding_lines(&self) -> impl Iterator<Item = &VsbLine> {
+        self.lines.iter().chain(self.sent.iter().map(|sent| &sent.line))
+    }
+
     const fn is_committed_and_resolved(&self) -> bool {
         self.valid
             && self.committed
@@ -163,7 +179,7 @@ impl VecStoreBufferEntry {
 
     /// A committed store every write of which has been acknowledged.
     const fn is_finished(&self) -> bool {
-        self.is_committed_and_resolved() && self.lines.is_empty() && self.pending_writes.is_empty()
+        self.is_committed_and_resolved() && self.lines.is_empty() && self.sent.is_empty()
     }
 }
 
@@ -239,7 +255,7 @@ impl VecStoreBuffer {
             expected_elements: None,
             resolved_elements: 0,
             committed: false,
-            pending_writes: Vec::new(),
+            sent: Vec::new(),
             valid: true,
         };
 
@@ -411,14 +427,14 @@ impl VecStoreBuffer {
             }
             VecStoreForwarding::Stall => {
                 let touches = older
-                    .flat_map(|e| &e.lines)
+                    .flat_map(VecStoreBufferEntry::forwarding_lines)
                     .any(|line| line.line_addr == line_addr && line.valid_mask & span_mask != 0);
                 if touches { SpanForward::Stall } else { SpanForward::Miss }
             }
             VecStoreForwarding::ByteMask => {
                 let youngest = older
                     .filter_map(|e| {
-                        let line = e.lines.iter().find(|l| l.line_addr == line_addr)?;
+                        let line = e.forwarding_lines().find(|l| l.line_addr == line_addr)?;
                         (line.valid_mask & span_mask != 0).then_some((e.rob_tag, line))
                     })
                     .reduce(|a, b| if b.0.is_newer_than(a.0) { b } else { a });
@@ -452,7 +468,7 @@ impl VecStoreBuffer {
             if !entry.rob_tag.is_older_than(load_rob_tag) {
                 continue;
             }
-            for line in &entry.lines {
+            for line in entry.forwarding_lines() {
                 if (line.line_addr == line_a || line.line_addr == line_b) && line.valid_mask != 0 {
                     return ForwardResult::Stall;
                 }
@@ -479,7 +495,7 @@ impl VecStoreBuffer {
             .iter()
             .filter(|e| e.valid && e.rob_tag.is_older_than(load_rob_tag))
             .filter_map(|e| {
-                let line = e.lines.iter().find(|l| l.line_addr == load_line)?;
+                let line = e.forwarding_lines().find(|l| l.line_addr == load_line)?;
                 (line.valid_mask & load_byte_mask != 0).then_some((e.rob_tag, line))
             })
             .reduce(|a, b| if b.0.is_newer_than(a.0) { b } else { a });
@@ -507,7 +523,7 @@ impl VecStoreBuffer {
             }
             let unresolved_older =
                 entry.expected_elements.is_none_or(|expected| entry.resolved_elements < expected);
-            for line in &entry.lines {
+            for line in entry.forwarding_lines() {
                 if line.line_addr == load_line && (line.valid_mask & load_byte_mask) != 0 {
                     return ForwardResult::Stall;
                 }
@@ -536,14 +552,20 @@ impl VecStoreBuffer {
         self.release_finished();
         let idx = self.oldest_drainable_entry_index()?;
         let entry = &mut self.entries[idx];
-        Some((entry.rob_tag, entry.lines.remove(0)))
+        let line = entry.lines.remove(0);
+        entry.sent.push(SentVsbLine { line: line.clone(), writes: Vec::new() });
+        Some((entry.rob_tag, line))
     }
 
-    /// Records the writes carrying a line [`Self::take_drainable_line`]
-    /// handed out for `rob_tag`.
+    /// Records the writes carrying the line [`Self::take_drainable_line`]
+    /// last handed out for `rob_tag`; it forwards until they are all
+    /// acknowledged.
     pub fn line_sent(&mut self, rob_tag: RobTag, requests: Vec<ReqId>) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) {
-            entry.pending_writes.extend(requests);
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag)
+            && let Some(sent) = entry.sent.last_mut()
+        {
+            sent.writes = requests;
+            entry.sent.retain(|sent| !sent.writes.is_empty());
         }
         self.release_finished();
     }
@@ -551,7 +573,10 @@ impl VecStoreBuffer {
     /// The memory system acknowledged `req`, one of a drained line's writes.
     pub fn write_acked(&mut self, req: ReqId) {
         for entry in &mut self.entries {
-            entry.pending_writes.retain(|pending| *pending != req);
+            for sent in &mut entry.sent {
+                sent.writes.retain(|pending| *pending != req);
+            }
+            entry.sent.retain(|sent| !sent.writes.is_empty());
         }
         self.release_finished();
     }
@@ -595,6 +620,7 @@ impl VecStoreBuffer {
         for entry in &mut self.entries {
             entry.valid = false;
             entry.lines.clear();
+            entry.sent.clear();
         }
     }
 
@@ -826,8 +852,8 @@ mod tests {
         b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
         b.mark_committed(RobTag(1));
         let entry = b.entries.iter_mut().find(|e| e.valid).expect("entry");
-        entry.lines.clear();
-        entry.pending_writes.push(ReqId::new(9));
+        let line = entry.lines.remove(0);
+        entry.sent.push(SentVsbLine { line, writes: vec![ReqId::new(9)] });
 
         b.release_finished();
         let before_ack = (b.len(), b.has_committed_stores());
@@ -870,6 +896,22 @@ mod tests {
         let addresses: Vec<u64> = line.natural_writes().iter().map(|(a, _, _)| a.val()).collect();
 
         assert_eq!(addresses, vec![0x1000_0000, 0x1000_0004]);
+    }
+
+    #[test]
+    fn a_drained_line_forwards_until_its_write_is_acknowledged() {
+        let mut b = vsb(2);
+        b.reserve_for_test(RobTag(1), 1);
+        b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0xAB, MemWidth::Byte);
+        b.mark_committed(RobTag(1));
+        let _ = b.take_drainable_line();
+        b.line_sent(RobTag(1), vec![ReqId::new(7)]);
+
+        let in_flight = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
+        b.write_acked(ReqId::new(7));
+        let written = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
+
+        assert_eq!((in_flight, written), (ForwardResult::Hit(0xAB), ForwardResult::Miss));
     }
 
     #[test]
