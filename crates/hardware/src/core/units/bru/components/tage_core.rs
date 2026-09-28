@@ -17,6 +17,10 @@ struct TageEntry {
     u: u8,
 }
 
+/// The bimodal's starting counter, weakly not taken: `TAGEBase` starts
+/// each entry's prediction bit clear and its hysteresis bit set.
+const BASE_WEAKLY_NOT_TAKEN: i8 = -1;
+
 /// Branches the path history holds, as gem5's `pathHistBits`.
 const PATH_HISTORY_BITS: usize = 16;
 
@@ -122,7 +126,7 @@ impl TageCore {
         let geo_banks = GeoBankSet::new(hist_lengths, tag_widths, table_bits);
 
         Self {
-            base: vec![0; config.table_size],
+            base: vec![BASE_WEAKLY_NOT_TAKEN; config.table_size],
             geo_banks,
             tables,
             use_alt_on_na_ctr: 0,
@@ -332,12 +336,13 @@ mod tests {
     }
 
     #[test]
-    fn test_predict_default_taken() {
-        let config = test_config();
-        let tage = TageCore::new(&config);
-        let prediction = tage.predict(0x8000_1000);
-        // Default counters are 0, which is >= 0 -> taken.
-        assert!(prediction.taken());
+    fn a_branch_never_seen_is_predicted_not_taken() {
+        let tage = TageCore::new(&test_config());
+
+        // Its tags are not 0, which every empty tagged entry holds.
+        let prediction = tage.predict(0x8000_1004);
+
+        assert!(!prediction.taken());
     }
 
     #[test]
