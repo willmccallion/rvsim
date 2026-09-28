@@ -16,10 +16,10 @@
 //! ## Forwarding semantics (`VecStoreForwarding::ByteMask`)
 //!
 //! - Load `[paddr, paddr+width)` against entries older than the load:
-//!   - `valid_mask & load_byte_mask == load_byte_mask` (full coverage in one
-//!     line of one entry) → `Hit(data)`. Youngest such match wins.
-//!   - Some bytes covered but not all → `Stall`.
-//!   - No bytes covered → `Miss`.
+//!   - The youngest such entry touching the load decides: it holds every
+//!     byte (`valid_mask & load_byte_mask == load_byte_mask`) → `Hit(data)`,
+//!     some of them → `Stall`.
+//!   - No entry touches it → `Miss`.
 //! - Loads that straddle a 64-byte cache line never forward; they `Miss`.
 //!
 //! Memory-ordering violations against vec stores that have not yet resolved
@@ -464,6 +464,8 @@ impl VecStoreBuffer {
         ForwardResult::Miss
     }
 
+    /// The youngest older store touching the load decides: it forwards
+    /// when it holds every byte, and otherwise the load waits for it.
     fn forward_load_byte_mask(
         &self,
         load_line: u64,
@@ -472,43 +474,25 @@ impl VecStoreBuffer {
         load_byte_mask: u64,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
-        let mut best_hit: Option<(RobTag, u64)> = None;
-        let mut had_partial = false;
-
-        for entry in self.entries.iter().filter(|e| e.valid) {
-            if !entry.rob_tag.is_older_than(load_rob_tag) {
-                continue;
+        let youngest = self
+            .entries
+            .iter()
+            .filter(|e| e.valid && e.rob_tag.is_older_than(load_rob_tag))
+            .filter_map(|e| {
+                let line = e.lines.iter().find(|l| l.line_addr == load_line)?;
+                (line.valid_mask & load_byte_mask != 0).then_some((e.rob_tag, line))
+            })
+            .reduce(|a, b| if b.0.is_newer_than(a.0) { b } else { a });
+        match youngest {
+            None => ForwardResult::Miss,
+            Some((_, line)) if line.valid_mask & load_byte_mask == load_byte_mask => {
+                let data = (0..bytes).fold(0u64, |data, i| {
+                    data | (u64::from(line.data[load_offset + i]) << (i * 8))
+                });
+                ForwardResult::Hit(data)
             }
-            for line in &entry.lines {
-                if line.line_addr != load_line {
-                    continue;
-                }
-                let coverage = line.valid_mask & load_byte_mask;
-                if coverage == load_byte_mask {
-                    let mut data: u64 = 0;
-                    for i in 0..bytes {
-                        data |= (line.data[load_offset + i] as u64) << (i * 8);
-                    }
-                    match best_hit {
-                        None => best_hit = Some((entry.rob_tag, data)),
-                        Some((prev_tag, _)) if entry.rob_tag.is_newer_than(prev_tag) => {
-                            best_hit = Some((entry.rob_tag, data));
-                        }
-                        _ => {}
-                    }
-                } else if coverage != 0 {
-                    had_partial = true;
-                }
-            }
+            Some(_) => ForwardResult::Stall,
         }
-
-        if let Some((_, data)) = best_hit {
-            return ForwardResult::Hit(data);
-        }
-        if had_partial {
-            return ForwardResult::Stall;
-        }
-        ForwardResult::Miss
     }
 
     fn forward_load_stall(
@@ -730,6 +714,19 @@ mod tests {
 
         let r = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Half, RobTag(3));
         assert_eq!(r, ForwardResult::Hit(0x2222));
+    }
+
+    #[test]
+    fn a_younger_store_over_part_of_the_load_stalls_it() {
+        let mut b = vsb(2);
+        b.reserve_for_test(RobTag(1), 1);
+        b.reserve_for_test(RobTag(2), 1);
+        b.resolve_element(RobTag(1), PhysAddr::new(0x8000_0000), 0x1111_1111, MemWidth::Word);
+        b.resolve_element(RobTag(2), PhysAddr::new(0x8000_0002), 0x22, MemWidth::Byte);
+
+        let r = b.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(3));
+
+        assert_eq!(r, ForwardResult::Stall, "store 2 overwrote a byte store 1 would forward");
     }
 
     #[test]
