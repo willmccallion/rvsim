@@ -350,6 +350,11 @@ impl Bus {
         self.devices.get_mut(self.uart_idx?)?.as_uart_mut()
     }
 
+    /// Whether a captured console holds output the host has not taken.
+    pub fn console_has_output(&mut self) -> bool {
+        self.uart_mut().is_some_and(|uart| uart.has_output())
+    }
+
     /// Returns whether the UART device has detected a kernel panic pattern.
     pub fn check_kernel_panic(&mut self) -> bool {
         self.uart_mut().is_some_and(Uart::check_kernel_panic)

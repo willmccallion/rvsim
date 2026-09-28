@@ -40,6 +40,8 @@ pub struct StopAt {
     pub pc: Option<u64>,
     /// When guest software asks to stop (the sim-control break command).
     pub guest_breaks: bool,
+    /// When a captured console holds output the host has not taken.
+    pub console_output: bool,
 }
 
 /// Why [`Simulator::run_to`] returned.
@@ -61,6 +63,8 @@ pub enum StopReason {
         /// The guest's label.
         label: u64,
     },
+    /// A captured console holds output the host has not taken.
+    ConsoleOutput,
     /// The caller's `keep_going` said to stop.
     Cancelled,
 }
@@ -224,6 +228,9 @@ impl Simulator {
             && let Some(label) = self.state.shared.pending_break.take()
         {
             return Some(StopReason::GuestBreak { label });
+        }
+        if stop.console_output && self.state.bus.console_has_output() {
+            return Some(StopReason::ConsoleOutput);
         }
         if let Some(pc) = stop.pc
             && let Some(hart) = self.state.harts.iter().position(|hart| hart.pc == pc)

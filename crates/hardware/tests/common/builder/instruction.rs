@@ -127,6 +127,15 @@ impl InstructionBuilder {
         self
     }
 
+    pub fn sb(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+        self.opcode = OP_STORE;
+        self.rs1 = rs1;
+        self.rs2 = rs2;
+        self.funct3 = 0b000;
+        self.imm = imm;
+        self
+    }
+
     pub fn sw(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
         self.opcode = OP_STORE;
         self.rs1 = rs1;

@@ -582,7 +582,8 @@ impl PySimulator {
 
     /// Run until a condition holds, checking after every cycle, and say
     /// which: ``("exit", code)``, ``("cycles", None)``,
-    /// ``("instructions", None)``, ``("pc", hart)`` or ``("break", label)``.
+    /// ``("instructions", None)``, ``("pc", hart)``, ``("break", label)`` or
+    /// ``("console", None)``.
     ///
     /// Args:
     ///     cycles: Stop after this many cycles.
@@ -590,10 +591,12 @@ impl PySimulator {
     ///         (all harts).
     ///     pc: Stop when any hart's next instruction to retire is here.
     ///     `guest_breaks`: Stop when guest software runs ``rvsim break``.
+    ///     `console_output`: Stop when a captured console holds output
+    ///         :meth:`read_console` has not taken.
     ///
     /// Runs at least one cycle, so running on from a stop at ``pc`` moves
     /// past it.
-    #[pyo3(signature = (*, cycles=None, instructions=None, pc=None, guest_breaks=true))]
+    #[pyo3(signature = (*, cycles=None, instructions=None, pc=None, guest_breaks=true, console_output=false))]
     fn run_to(
         &mut self,
         py: Python<'_>,
@@ -601,9 +604,10 @@ impl PySimulator {
         instructions: Option<u64>,
         pc: Option<u64>,
         guest_breaks: bool,
+        console_output: bool,
     ) -> PyResult<(String, Option<u64>)> {
         use rvsim_core::sim::simulator::{StopAt, StopReason};
-        let stop = StopAt { cycles, instructions, pc, guest_breaks };
+        let stop = StopAt { cycles, instructions, pc, guest_breaks, console_output };
         let mut interrupted = None;
         let reason = self
             .inner
@@ -622,6 +626,7 @@ impl PySimulator {
             StopReason::Instructions => ("instructions".into(), None),
             StopReason::Pc { hart } => ("pc".into(), Some(hart as u64)),
             StopReason::GuestBreak { label } => ("break".into(), Some(label)),
+            StopReason::ConsoleOutput => ("console".into(), None),
             StopReason::Cancelled => {
                 return Err(interrupted.unwrap_or_else(|| PyRuntimeError::new_err("run cancelled")));
             }

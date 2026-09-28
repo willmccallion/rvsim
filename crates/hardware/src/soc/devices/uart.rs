@@ -225,6 +225,12 @@ impl Uart {
         }
     }
 
+    /// Whether a captured console holds output the host has not taken.
+    #[must_use]
+    pub const fn has_output(&self) -> bool {
+        !self.captured.is_empty()
+    }
+
     /// Takes the output a captured console has written since the last call.
     pub fn take_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.captured)
