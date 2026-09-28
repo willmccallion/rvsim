@@ -1,0 +1,18 @@
+Subject: [PATCH] Errno: keep cpp file markers when finding the errno headers
+
+perl-cross sets cppstdin to "gcc -E -P", and -P drops the line markers
+Errno_pm.PL reads to learn which headers errno.h includes. A host with
+/usr/include/errno.h hides this by using the host header; a host
+without one (NixOS) finds no error definitions and fails the build.
+
+--- a/ext/Errno/Errno_pm.PL	2026-09-28 13:47:57.941938848 -0600
++++ b/ext/Errno/Errno_pm.PL	2026-09-28 13:47:57.976635433 -0600
+@@ -166,6 +166,8 @@
+ 		die "Cannot run '$Config{cpprun} $Config{cppflags} errno.c'";
+ 	} else {
+ 	    my $cpp = default_cpp();
++	    # The file markers name the headers errno.h pulls in; -P drops them.
++	    $cpp =~ s/(^|\s)-P(?=\s|$)/$1/;
+ 	    open(CPPO,"$cpp < errno.c |") or
+ 		die "Cannot exec $cpp";
+ 	}

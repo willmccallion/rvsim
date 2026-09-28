@@ -8,6 +8,11 @@ Run from repo root:
   sim script scripts/setup/boot_linux.py            # build if needed, then boot
   sim script scripts/setup/boot_linux.py --no-boot  # only download & build
   sim script scripts/setup/boot_linux.py --no-build # boot only (fail if no Image)
+  sim script scripts/setup/boot_linux.py --rebuild --no-boot  # rebuild after package changes
+
+The root filesystem carries the benchmark suite (CoreMark, CoreMark-PRO,
+Dhrystone, Whetstone, lmbench, mbw, ramspeed, stress-ng, STREAM, perf) and
+the ``rvsim`` guest tool that marks regions for the simulator's stats.
 
 The default boot is the showcase system: eight out-of-order M-class cores
 from the ``fast`` preset (64KB TAGE-SC-L), a MESI snoop-filter home agent
@@ -48,8 +53,19 @@ BR2_TARGET_OPENSBI=y
 BR2_TARGET_OPENSBI_PLAT="generic"
 BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="PLATFORM_RISCV_ISA=rv64imafdcv_zifencei"
 BR2_TARGET_ROOTFS_EXT2=y
-BR2_TARGET_ROOTFS_EXT2_SIZE="60M"
+BR2_TARGET_ROOTFS_EXT2_SIZE="256M"
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_6=y
+BR2_ROOTFS_POST_BUILD_SCRIPT="{guest}/post_build.sh"
+BR2_GLOBAL_PATCH_DIR="{guest}/buildroot-patches"
+BR2_PACKAGE_COREMARK=y
+BR2_PACKAGE_COREMARK_PRO=y
+BR2_PACKAGE_DHRYSTONE=y
+BR2_PACKAGE_WHETSTONE=y
+BR2_PACKAGE_LMBENCH=y
+BR2_PACKAGE_MBW=y
+BR2_PACKAGE_RAMSPEED=y
+BR2_PACKAGE_STRESS_NG=y
+BR2_PACKAGE_LINUX_TOOLS_PERF=y
 """
 
 
@@ -78,8 +94,9 @@ def write_defconfig(buildroot_dir: str) -> None:
     configs_dir = os.path.join(buildroot_dir, "configs")
     os.makedirs(configs_dir, exist_ok=True)
     path = os.path.join(configs_dir, "riscv_emu_defconfig")
+    guest = os.path.join(repo_root(), "software", "guest")
     with open(path, "w") as f:
-        f.write(DEFCONFIG)
+        f.write(DEFCONFIG.format(guest=guest))
     print("[Linux] Wrote", path)
 
 
@@ -200,6 +217,11 @@ def main():
         "--no-boot", action="store_true", help="Only build; do not run simulator"
     )
     ap.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Rebuild the image even if one exists (after changing the package list)",
+    )
+    ap.add_argument(
         "--harts", type=int, default=8, help="Number of harts to boot (default 8)"
     )
     ap.add_argument(
@@ -222,7 +244,7 @@ def main():
     args = ap.parse_args()
 
     if not args.no_build:
-        if not os.path.exists(image_path) or not os.path.exists(
+        if args.rebuild or not os.path.exists(image_path) or not os.path.exists(
             os.path.join(out_dir, "fw_jump.bin")
         ):
             os.makedirs(linux_dir, exist_ok=True)
