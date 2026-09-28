@@ -67,6 +67,7 @@ fn tage() -> TagePredictor {
         reset_interval: 256_000,
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],
+        ..TageConfig::default()
     })
 }
 

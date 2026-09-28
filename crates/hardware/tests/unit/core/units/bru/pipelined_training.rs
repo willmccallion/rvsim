@@ -95,6 +95,7 @@ fn tage_learns_an_alternating_branch_while_others_are_in_flight() {
         reset_interval: 256_000,
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],
+        ..TageConfig::default()
     };
     assert_eq!(late_mispredictions(TagePredictor::new(&config), steady_window), 0);
 }

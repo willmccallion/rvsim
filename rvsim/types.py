@@ -98,8 +98,12 @@ class BranchPredictor:
             reset_interval: int = 256_000,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
+            use_alt_counters: int = 1,
+            use_alt_bits: int = 4,
         ):
             self.num_banks = num_banks
+            self.use_alt_counters = use_alt_counters
+            self.use_alt_bits = use_alt_bits
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
@@ -220,7 +224,8 @@ class BranchPredictor:
         Combines TAGE (direction), Loop Predictor, Statistical Corrector,
         and Indirect Target TAGE into a single high-accuracy predictor.
 
-        The TAGE parameters are shared with the standalone TAGE config.
+        The TAGE parameters are shared with the standalone TAGE config;
+        the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``).
         The loop predictor, SC and ITTAGE have their own sub-configs; the
         loop predictor and SC defaults are Seznec's 64KB TAGE-SC-L (CBP-5).
         The SC's GEHL components are ``BranchPredictor.ScGehl`` and
@@ -235,6 +240,8 @@ class BranchPredictor:
             reset_interval: int = 256_000,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
+            use_alt_counters: int = 16,
+            use_alt_bits: int = 5,
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -289,6 +296,8 @@ class BranchPredictor:
             self.tag_widths = (
                 tag_widths if tag_widths is not None else [8, 8, 9, 9, 10, 10, 11, 11]
             )
+            self.use_alt_counters = use_alt_counters
+            self.use_alt_bits = use_alt_bits
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
             self.loop_tag_bits = loop_tag_bits

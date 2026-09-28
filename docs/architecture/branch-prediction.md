@@ -113,7 +113,7 @@ Uses multiple tagged tables with geometrically increasing history lengths:
 - **USE_ALT_ON_NA** — meta-counter that learns whether newly allocated (weak) provider entries should be trusted or whether the alternate (second-longest match) prediction is better. When the provider entry's counter is weak (0 or -1) and the meta-counter is non-negative, the alternate prediction is used instead.
 - **Useful counter reset** — periodically resets the "useful" counters to allow new entries to replace stale ones
 
-Configurable parameters: `num_banks`, `table_size`, `reset_interval`, `history_lengths`, `tag_widths`.
+Configurable parameters: `num_banks`, `table_size`, `reset_interval`, `history_lengths`, `tag_widths`, `use_alt_counters` and `use_alt_bits` (one 4-bit USE_ALT_ON_NA counter, as TAGEBase keeps; SC-L-TAGE defaults to TAGE-SC-L's 16 5-bit counters, indexed by the provider's bank group and the alternate's confidence).
 
 ### SC-L-TAGE (Statistical Corrector + Loop + TAGE)
 

@@ -1596,6 +1596,16 @@ pub struct TageConfig {
     /// Tag widths for each bank
     #[serde(default = "TageConfig::default_tag_widths")]
     pub tag_widths: Vec<usize>,
+
+    /// `USE_ALT_ON_NA` counters. One is `TAGEBase`'s; more are indexed by
+    /// the provider's bank group and the alternate's confidence, as
+    /// TAGE-SC-L indexes its 16.
+    #[serde(default = "TageConfig::default_use_alt_counters")]
+    pub use_alt_counters: usize,
+
+    /// Width of each `USE_ALT_ON_NA` counter.
+    #[serde(default = "TageConfig::default_use_alt_bits")]
+    pub use_alt_bits: u32,
 }
 
 impl Default for TageConfig {
@@ -1606,6 +1616,8 @@ impl Default for TageConfig {
             reset_interval: Self::default_reset_interval(),
             history_lengths: Self::default_history_lengths(),
             tag_widths: Self::default_tag_widths(),
+            use_alt_counters: Self::default_use_alt_counters(),
+            use_alt_bits: Self::default_use_alt_bits(),
         }
     }
 }
@@ -1638,6 +1650,14 @@ impl TageConfig {
     /// Tag widths increase with history length: [8, 8, 9, 9, 10, 10, 11, 11] bits.
     fn default_tag_widths() -> Vec<usize> {
         vec![8, 8, 9, 9, 10, 10, 11, 11]
+    }
+
+    const fn default_use_alt_counters() -> usize {
+        1
+    }
+
+    const fn default_use_alt_bits() -> u32 {
+        4
     }
 }
 
@@ -2335,6 +2355,14 @@ pub enum ConfigError {
     /// 64 bytes, the widest access within the smallest allowed line.
     #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
     VectorMemWidth(usize),
+    /// `USE_ALT_ON_NA` counters must exist and fit an `i8`.
+    #[error("tage use_alt_counters {counters} must be at least 1 and use_alt_bits {bits} in 2..=8")]
+    TageUseAlt {
+        /// Configured counters.
+        counters: usize,
+        /// Configured width.
+        bits: u32,
+    },
     /// A statistical corrector setting outside what it can be built with.
     #[error("sc: {0}")]
     StatCorrector(#[from] ScConfigError),
@@ -2404,6 +2432,13 @@ impl Config {
             if cache.enabled && line_bytes != 0 && (line_bytes as u64) < CBOZ_BLOCK_SIZE {
                 return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes });
             }
+        }
+        let tage = &self.pipeline.tage;
+        if tage.use_alt_counters == 0 || !(2..=8).contains(&tage.use_alt_bits) {
+            return Err(ConfigError::TageUseAlt {
+                counters: tage.use_alt_counters,
+                bits: tage.use_alt_bits,
+            });
         }
         self.pipeline.sc.validate()?;
         let vector_mem_width = self.pipeline.vector_mem_width_bytes();

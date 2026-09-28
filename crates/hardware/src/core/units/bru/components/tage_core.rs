@@ -39,6 +39,21 @@ const fn saturating_step(ctr: i8, up: bool, min: i8, max: i8) -> i8 {
     }
 }
 
+/// Tagged banks that share a `USE_ALT_ON_NA` counter when there are
+/// several, as TAGE-SC-L groups its tables.
+const USE_ALT_BANK_GROUP: usize = 8;
+
+/// `|2 * ctr + 1|`, how far a counter is from its weak middle.
+const fn centred_magnitude(ctr: i8) -> u32 {
+    (2 * ctr as i32 + 1).unsigned_abs()
+}
+
+/// The range of a signed `bits`-wide counter.
+const fn signed_range(bits: u32) -> (i8, i8) {
+    let max = ((1i32 << (bits - 1)) - 1) as i8;
+    (-max - 1, max)
+}
+
 /// Branches the path history holds, as gem5's `pathHistBits`.
 const PATH_HISTORY_BITS: usize = 16;
 
@@ -80,6 +95,8 @@ pub struct TagePrediction {
     alt_taken: bool,
     /// The longest match's counter is weak, as a new entry's is.
     provider_weak: bool,
+    /// The `USE_ALT_ON_NA` counter that chose between them.
+    use_alt_index: usize,
     meta: TageScMeta,
 }
 
@@ -106,7 +123,10 @@ pub struct TageCore {
     base: Vec<i8>,
     geo_banks: GeoBankSet,
     tables: Vec<Vec<TageEntry>>,
-    use_alt_on_na_ctr: i8,
+    /// `USE_ALT_ON_NA`: whether a weak (newly allocated) provider defers
+    /// to the alternate prediction; non-negative defers.
+    use_alt_on_na: Vec<i8>,
+    use_alt_bits: u32,
     /// Low bit of each recent branch's `pc >> 2`, youngest in bit 0.
     path_history: u16,
     /// Counts updates; the useful bits age each time it passes a multiple
@@ -153,7 +173,8 @@ impl TageCore {
             base: vec![BASE_WEAKLY_NOT_TAKEN; config.table_size],
             geo_banks,
             tables,
-            use_alt_on_na_ctr: 0,
+            use_alt_on_na: vec![0; config.use_alt_counters.max(1)],
+            use_alt_bits: config.use_alt_bits,
             path_history: 0,
             // Half a period in, as gem5's initialTCounterValue (2^17) is for
             // its 2^18-update period.
@@ -203,12 +224,18 @@ impl TageCore {
             |bank: Option<usize>| bank.map_or(base_ctr, |b| self.tables[b][indices[b]].ctr);
         let (provider_ctr, alt_ctr) = (ctr_of(provider), ctr_of(alt));
         let provider_weak = provider.is_some() && (provider_ctr == 0 || provider_ctr == -1);
-        let pred_ctr =
-            if provider_weak && self.use_alt_on_na_ctr >= 0 { alt_ctr } else { provider_ctr };
+        let base_saturated = base_ctr == BASE_MIN || base_ctr == BASE_MAX;
+        let alt_confident = alt.map_or(base_saturated, |_| centred_magnitude(alt_ctr) > 1);
+        let use_alt_index = self.use_alt_index(provider, alt_confident);
+        let pred_ctr = if provider_weak && self.use_alt_on_na[use_alt_index] >= 0 {
+            alt_ctr
+        } else {
+            provider_ctr
+        };
         let conf = if provider.is_some() {
             TageConfLevel::from_tagged_ctr(provider_ctr)
         } else {
-            TageConfLevel::from_bimodal(base_ctr == BASE_MIN || base_ctr == BASE_MAX)
+            TageConfLevel::from_bimodal(base_saturated)
         };
         let meta = TageScMeta {
             conf,
@@ -226,8 +253,21 @@ impl TageCore {
             provider_taken: provider_ctr >= 0,
             alt_taken: alt_ctr >= 0,
             provider_weak,
+            use_alt_index,
             meta,
         }
+    }
+
+    /// The `USE_ALT_ON_NA` counter for a prediction: `TAGEBase`'s one, or
+    /// `TAGE_SC_L_TAGE::getUseAltIdx`'s pick by the provider's group of
+    /// banks and whether the alternate is confident.
+    fn use_alt_index(&self, provider: Option<usize>, alt_confident: bool) -> usize {
+        let counters = self.use_alt_on_na.len();
+        if counters == 1 {
+            return 0;
+        }
+        let group = provider.map_or(0, |bank| bank / USE_ALT_BANK_GROUP);
+        ((group << 1) + usize::from(alt_confident)) % (counters - 1)
     }
 
     /// Trains the entries `prediction` read with the branch's outcome, and
@@ -244,7 +284,9 @@ impl TageCore {
             }
             if prediction.provider_taken != prediction.alt_taken {
                 let alt_right = prediction.alt_taken == taken;
-                self.use_alt_on_na_ctr = saturating_step(self.use_alt_on_na_ctr, alt_right, -8, 7);
+                let (min, max) = signed_range(self.use_alt_bits);
+                let ctr = &mut self.use_alt_on_na[prediction.use_alt_index];
+                *ctr = saturating_step(*ctr, alt_right, min, max);
             }
         }
         let choice = self.next_random();
@@ -389,6 +431,7 @@ mod tests {
             reset_interval: 100_000,
             history_lengths: vec![5, 15, 44, 130],
             tag_widths: vec![9, 9, 10, 10],
+            ..TageConfig::default()
         }
     }
 
@@ -503,6 +546,7 @@ mod tests {
             provider_taken,
             alt_taken,
             provider_weak: true,
+            use_alt_index: 0,
             meta: TageScMeta {
                 conf: TageConfLevel::None,
                 provider_bank: provider.map_or(0, |bank| bank + 1),
@@ -570,5 +614,33 @@ mod tests {
         }
 
         assert!(!tage.predict(pc).taken(), "Should predict not-taken after heavy training");
+    }
+
+    #[test]
+    fn several_use_alt_counters_split_by_bank_group_and_alternate_confidence() {
+        let tage = TageCore::new(&TageConfig {
+            num_banks: 12,
+            history_lengths: (1..=12).map(|i| i * 10).collect(),
+            tag_widths: vec![10; 12],
+            use_alt_counters: 16,
+            use_alt_bits: 5,
+            ..TageConfig::default()
+        });
+
+        let picks = [
+            tage.use_alt_index(Some(0), false),
+            tage.use_alt_index(Some(7), true),
+            tage.use_alt_index(Some(8), false),
+            tage.use_alt_index(Some(11), true),
+        ];
+
+        assert_eq!(picks, [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn one_use_alt_counter_serves_every_prediction() {
+        let tage = TageCore::new(&test_config());
+
+        assert_eq!(tage.use_alt_index(Some(3), true), 0);
     }
 }

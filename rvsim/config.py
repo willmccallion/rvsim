@@ -319,6 +319,8 @@ def _bp_sub_dict(bp) -> dict:
             "reset_interval": bp.reset_interval,
             "history_lengths": bp.history_lengths,
             "tag_widths": bp.tag_widths,
+            "use_alt_counters": bp.use_alt_counters,
+            "use_alt_bits": bp.use_alt_bits,
         }
     if isinstance(bp, BranchPredictor.Perceptron):
         return {
@@ -686,6 +688,8 @@ _TAGE_DEFAULTS = {
     "reset_interval": 256_000,
     "history_lengths": [5, 11, 22, 44, 89, 178, 356, 712],
     "tag_widths": [8, 8, 9, 9, 10, 10, 11, 11],
+    "use_alt_counters": 1,
+    "use_alt_bits": 4,
 }
 
 _PERCEPTRON_DEFAULTS = {
