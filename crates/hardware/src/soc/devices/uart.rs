@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::{IrqId, LineAddr};
+use crate::config::Console;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
@@ -113,10 +114,10 @@ pub struct Uart {
     thre_ip: bool,
     /// Received data has been announced by the receive interrupt.
     rx_ready: bool,
-    /// When true, output goes to stderr (for visibility when run from Python).
-    to_stderr: bool,
-    /// When true, all output is suppressed (for scripting / benchmarks).
-    quiet: bool,
+    /// Where output goes and input comes from.
+    console: Console,
+    /// Output a captured console has written that the host has not read.
+    captured: Vec<u8>,
     /// State machine index for panic detection.
     panic_match_state: usize,
     /// Flag indicating if a kernel panic string was detected.
@@ -185,19 +186,21 @@ impl Uart {
         self.rx_queue = state.rx_queue.iter().copied().collect();
     }
 
-    /// Creates a new UART device, spawning a background thread to read stdin.
-    /// `cpu_clock_mhz` sizes the interrupt delay in cycles.
-    pub fn new(base_addr: u64, to_stderr: bool, quiet: bool, cpu_clock_mhz: u64) -> Self {
+    /// Creates a new UART device on `console`; a terminal console spawns a
+    /// thread reading stdin. `cpu_clock_mhz` sizes the interrupt delay in
+    /// cycles.
+    pub fn new(base_addr: u64, console: Console, cpu_clock_mhz: u64) -> Self {
         let (tx, rx) = channel();
-
-        let _ = thread::spawn(move || {
-            let mut buffer = [0u8; 1];
-            let stdin = io::stdin();
-            let mut handle = stdin.lock();
-            while handle.read_exact(&mut buffer).is_ok() {
-                let _ = tx.send(buffer[0]);
-            }
-        });
+        if matches!(console, Console::Stdout | Console::Stderr) {
+            let _ = thread::spawn(move || {
+                let mut buffer = [0u8; 1];
+                let stdin = io::stdin();
+                let mut handle = stdin.lock();
+                while handle.read_exact(&mut buffer).is_ok() {
+                    let _ = tx.send(buffer[0]);
+                }
+            });
+        }
 
         Self {
             base_addr,
@@ -215,10 +218,23 @@ impl Uart {
             rx_interrupt_at: None,
             thre_ip: true,
             rx_ready: false,
-            to_stderr,
-            quiet,
+            console,
+            captured: Vec::new(),
             panic_match_state: 0,
             panic_detected: false,
+        }
+    }
+
+    /// Takes the output a captured console has written since the last call.
+    pub fn take_output(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.captured)
+    }
+
+    /// Queues `bytes` as typed input, as a captured console's host gives it.
+    pub fn send_input(&mut self, bytes: &[u8]) {
+        self.rx_queue.extend(bytes);
+        if !bytes.is_empty() && !self.rx_ready && self.rx_interrupt_at.is_none() {
+            self.rx_interrupt_at = Some(self.cycle + self.interrupt_delay);
         }
     }
 
@@ -343,14 +359,17 @@ impl Uart {
                 return;
             }
 
-            if !self.quiet {
-                if self.to_stderr {
-                    eprint!("{}", val as char);
-                    let _ = io::stderr().flush();
-                } else {
+            match self.console {
+                Console::Stdout => {
                     print!("{}", val as char);
                     let _ = io::stdout().flush();
                 }
+                Console::Stderr => {
+                    eprint!("{}", val as char);
+                    let _ = io::stderr().flush();
+                }
+                Console::Quiet => {}
+                Console::Captured => self.captured.push(val),
             }
 
             self.schedule_tx_interrupt();

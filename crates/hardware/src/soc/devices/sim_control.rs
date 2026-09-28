@@ -5,7 +5,7 @@
 //!
 //! * `0x00`: `COMMAND` (write): `1` resets the stats, `2` dumps them
 //!   labelled with `ARG`, `3` ends the simulation with `ARG` as the exit
-//!   code.
+//!   code, `4` stops the host's run at this point with `ARG` as the label.
 //! * `0x08`: `ARG` (read/write): the argument of the next command.
 
 use std::sync::Arc;
@@ -23,6 +23,7 @@ const ARG: u64 = 0x08;
 const RESET_STATS: u64 = 1;
 const DUMP_STATS: u64 = 2;
 const EXIT: u64 = 3;
+const BREAK: u64 = 4;
 
 /// A request from the guest that the simulator carries out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +33,11 @@ pub enum SimOp {
     /// Keep a copy of the stats, labelled.
     DumpStats {
         /// The guest's label for this dump.
+        label: u64,
+    },
+    /// Stop the host's run here, so it can inspect, save or switch.
+    Break {
+        /// The guest's label for this point.
         label: u64,
     },
 }
@@ -57,6 +63,7 @@ impl SimControl {
             RESET_STATS => self.pending.push(SimOp::ResetStats),
             DUMP_STATS => self.pending.push(SimOp::DumpStats { label: self.arg }),
             EXIT => self.exit_signal.store(self.arg, Ordering::Relaxed),
+            BREAK => self.pending.push(SimOp::Break { label: self.arg }),
             _ => {}
         }
     }

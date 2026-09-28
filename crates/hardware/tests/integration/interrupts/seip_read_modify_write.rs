@@ -32,7 +32,7 @@ fn program() -> Vec<u32> {
 #[test]
 fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
     let mut config = Config::default();
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     // The UART's transmit-empty interrupt, enabled for hart 0's S context, holds SEIP high.
     ctx.sim.probe_mem_store(PhysAddr::new(PLIC_BASE + UART_SOURCE * 4), 1, 4);

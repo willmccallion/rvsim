@@ -644,13 +644,9 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_rtc_epoch_seconds")]
     pub rtc_epoch_seconds: u64,
 
-    /// When true, UART output goes to stderr (for visibility when run from Python).
+    /// Where the UART console reads and writes.
     #[serde(default)]
-    pub uart_to_stderr: bool,
-
-    /// When true, UART output is suppressed entirely (for scripting / benchmarks).
-    #[serde(default)]
-    pub uart_quiet: bool,
+    pub console: Console,
 
     /// Time every device takes to answer a register access, in nanoseconds
     /// (gem5's `pio_latency`).
@@ -777,8 +773,7 @@ impl Default for SystemConfig {
             clint_divider: defaults::CLINT_DIVIDER,
             cpu_clock_mhz: defaults::CPU_CLOCK_MHZ,
             rtc_epoch_seconds: defaults::RTC_EPOCH_SECONDS,
-            uart_to_stderr: false,
-            uart_quiet: false,
+            console: Console::default(),
             device_latency_ns: defaults::DEVICE_LATENCY_NS,
             device_latency_ns_overrides: std::collections::HashMap::new(),
             tohost_addr: 0,
@@ -1963,6 +1958,22 @@ pub enum ScConfigError {
 
 /// Most TAGE banks.
 pub const MAX_TAGE_BANKS: usize = crate::core::units::bru::components::tagged_bank::MAX_BANKS;
+
+/// Where the UART console connects.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Console {
+    /// The host's stdout, with input read from its stdin.
+    #[default]
+    Stdout,
+    /// The host's stderr, with input read from its stdin.
+    Stderr,
+    /// Output discarded; no input.
+    Quiet,
+    /// Output kept in memory and input given by the host program, which
+    /// reads and writes it through the simulator.
+    Captured,
+}
 
 /// Longest TAGE history, in history bits.
 pub const MAX_TAGE_HISTORY: usize = 1 << 13;

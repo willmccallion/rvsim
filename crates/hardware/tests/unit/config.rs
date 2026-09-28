@@ -35,7 +35,7 @@ fn test_system_config_defaults() {
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);
     assert_eq!(system.clint_divider, 10);
-    assert!(!system.uart_to_stderr);
+    assert_eq!(system.console, rvsim_core::config::Console::Stdout);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_json_deserialization_minimal() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -263,7 +263,7 @@ fn test_json_deserialization_with_tracing() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -374,7 +374,7 @@ fn test_json_dram_controller() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -465,7 +465,7 @@ fn test_json_all_replacement_policies() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "uart_to_stderr": false}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -488,7 +488,7 @@ fn test_json_all_prefetchers() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "uart_to_stderr": false}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -511,7 +511,7 @@ fn test_json_all_branch_predictors() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "uart_to_stderr": false}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -547,7 +547,7 @@ fn test_initial_sp_option() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -650,7 +650,7 @@ fn test_misa_override_option() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -749,7 +749,7 @@ fn an_unparsable_misa_override_is_a_config_error() {
 }
 
 #[test]
-fn test_uart_to_stderr_flag() {
+fn a_captured_console_is_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
@@ -766,7 +766,7 @@ fn test_uart_to_stderr_flag() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": true
+            "console": "captured"
         },
         "memory": {
             "ram_size": 134217728,
@@ -848,7 +848,7 @@ fn test_uart_to_stderr_flag() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert!(config.system.uart_to_stderr);
+    assert_eq!(config.system.console, rvsim_core::config::Console::Captured);
 }
 
 #[test]
@@ -869,7 +869,7 @@ fn test_custom_cache_sizes() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -982,7 +982,7 @@ fn test_custom_dram_timings() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "uart_to_stderr": false
+            "console": "stdout"
         },
         "memory": {
             "ram_size": 134217728,

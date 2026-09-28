@@ -37,7 +37,7 @@ fn cycles_to_finish(l1d_latency: u64, l1d_response_latency: u64) -> u64 {
     config.memory.simple_bandwidth_gib_s = 1e6;
     config.cache.l1_d.latency = l1d_latency;
     config.cache.l1_d.response_latency = l1d_response_latency;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let program = program();
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     let all_but_spin = program.len() as u64 - 1;

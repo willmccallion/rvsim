@@ -57,7 +57,7 @@ fn run_with(
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.isa.svadu = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(CODE_PA + 4 * n as u64), u64::from(*inst), 4);

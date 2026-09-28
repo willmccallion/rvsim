@@ -29,7 +29,7 @@ fn warm_iteration_cycles(backend: BackendType, narrow: impl Fn(&mut Config)) -> 
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.cache.l1_i.enabled = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     narrow(&mut config);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 

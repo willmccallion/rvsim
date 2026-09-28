@@ -5,6 +5,7 @@
 //! exposes a fast-path RAM region pointer for pipeline bit-exact reads.
 
 use super::devices::clint::Clint;
+use super::devices::uart::Uart;
 use super::devices::{Device, SimOp};
 use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
@@ -324,15 +325,14 @@ impl Bus {
         }
     }
 
+    /// The console UART.
+    pub fn uart_mut(&mut self) -> Option<&mut Uart> {
+        self.devices.get_mut(self.uart_idx?)?.as_uart_mut()
+    }
+
     /// Returns whether the UART device has detected a kernel panic pattern.
     pub fn check_kernel_panic(&mut self) -> bool {
-        if let Some(idx) = self.uart_idx
-            && idx < self.devices.len()
-            && let Some(uart) = self.devices[idx].as_uart_mut()
-        {
-            return uart.check_kernel_panic();
-        }
-        false
+        self.uart_mut().is_some_and(Uart::check_kernel_panic)
     }
 
     fn find_device_idx(&self, paddr: PhysAddr) -> Option<usize> {

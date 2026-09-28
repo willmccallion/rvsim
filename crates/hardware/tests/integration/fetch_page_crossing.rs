@@ -37,7 +37,7 @@ fn straddling_context(backend: BackendType) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
 
     write_pte(&mut ctx, ROOT_PPN, (CODE_VA >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);

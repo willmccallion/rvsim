@@ -96,7 +96,7 @@ fn run(backend: BackendType, width: usize) -> (u64, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, word) in machine_code().iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(CODE + (n as u64) * 4), u64::from(*word), 4);

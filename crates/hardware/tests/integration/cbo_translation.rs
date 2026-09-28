@@ -47,7 +47,7 @@ const fn cbo(imm: i64, rs1: u32) -> u32 {
 fn run(backend: BackendType, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     let i = InstructionBuilder::new;
     let program = [

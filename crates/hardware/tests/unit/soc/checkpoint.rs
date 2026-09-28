@@ -4,6 +4,7 @@
 use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::Config;
+use rvsim_core::config::Console;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::clint::Clint;
 use rvsim_core::soc::devices::plic::Plic;
@@ -71,12 +72,12 @@ fn a_plic_keeps_its_priorities_enables_thresholds_and_claims() {
 
 #[test]
 fn a_uart_keeps_its_registers() {
-    let mut uart = Uart::new(UART_BASE, true, true, 2400);
+    let mut uart = Uart::new(UART_BASE, Console::Quiet, 2400);
     write(&mut uart, UART_BASE + 1, 0x01, 1);
     write(&mut uart, UART_BASE + 3, 0x03, 1);
     write(&mut uart, UART_BASE + 7, 0x5a, 1);
 
-    let mut uart = restored(&uart, Uart::new(UART_BASE, true, true, 2400));
+    let mut uart = restored(&uart, Uart::new(UART_BASE, Console::Quiet, 2400));
 
     assert_eq!(read(&mut uart, UART_BASE + 1, 1), 0x01);
     assert_eq!(read(&mut uart, UART_BASE + 3, 1), 0x03);
@@ -102,7 +103,7 @@ fn a_virtio_disk_keeps_its_queue_configuration() {
 fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     let mut config = Config::default();
     config.system.hart_count = 2;
-    config.system.uart_quiet = true;
+    config.system.console = Console::Quiet;
     let mut sim = Simulator::build(&config, "");
     sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 1234, 8);
     sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 4 * 10), 3, 4);

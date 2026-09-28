@@ -14,7 +14,7 @@ fn history_after_a_jump_loop(backend: BackendType) -> bool {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = rvsim_core::config::BranchPredictor::GShare;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let program = [InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
 

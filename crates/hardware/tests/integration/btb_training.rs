@@ -42,7 +42,7 @@ fn a_wrong_path_indirect_jump_leaves_the_btb_alone() {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::OutOfOrder;
     config.pipeline.branch_predictor = BranchPredictor::Static;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(200);

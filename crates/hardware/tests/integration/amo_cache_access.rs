@@ -33,7 +33,7 @@ fn check_one_access_per_amo(backend: BackendType) {
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.cache.wcb_entries = 0;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 100, 8);
 

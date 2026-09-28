@@ -60,7 +60,7 @@ fn config(backend: BackendType, vector_mem_width: Option<usize>) -> Config {
     config.pipeline.backend = backend;
     config.pipeline.vector_mem_width = vector_mem_width;
     config.cache.l1_d.enabled = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     config
 }
 

@@ -64,7 +64,7 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     config.memory.l2_tlb_size = L2_TLB_ENTRIES;
     config.memory.l2_tlb_ways = L2_TLB_WAYS;
     config.memory.l2_tlb_latency = l2_tlb_latency;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     let program = program();
     for (i, word) in program.iter().enumerate() {

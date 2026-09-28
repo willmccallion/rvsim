@@ -31,7 +31,7 @@ fn program() -> Vec<u32> {
 fn mispredicts(backend: BackendType) -> f64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(800);

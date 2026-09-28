@@ -32,7 +32,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     config.cache.l1_i.enabled = true;
     config.cache.l1_i.prefetcher = Prefetcher::NextLine;
     config.cache.l1_i.prefetch_degree = 4;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     let mut cycles = 0;
     while ctx.sim.state.harts[0].instructions_retired < retired && cycles < 100_000 {

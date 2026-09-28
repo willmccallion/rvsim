@@ -12,7 +12,7 @@ const PLIC_BASE: u64 = 0x0c00_0000;
 fn two_hart_sim() -> Simulator {
     let mut config = Config::default();
     config.system.hart_count = 2;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut sim = Simulator::build(&config, "");
     sim.probe_mem_store(PhysAddr::new(config.system.ram_base), 0x0000_006F, 4);
     sim

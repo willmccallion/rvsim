@@ -32,7 +32,7 @@ fn mispredicts_running(backend: BackendType, program: &[u16], retired: u64) -> f
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 2;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config);
     for (i, half) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(PROGRAM_BASE + 2 * i as u64), u64::from(*half), 2);

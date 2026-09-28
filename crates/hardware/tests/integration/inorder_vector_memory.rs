@@ -58,7 +58,7 @@ fn a_scalar_load_forwards_from_an_in_order_vector_store() {
     config.pipeline.backend = BackendType::InOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..ELEMENTS {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, 1);

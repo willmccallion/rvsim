@@ -56,7 +56,7 @@ fn l1d_accesses(backend: BackendType, with_store: bool) -> (u64, TestContext) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &copy(with_store));
     for byte in 0..BYTES {

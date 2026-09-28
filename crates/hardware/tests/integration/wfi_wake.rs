@@ -41,7 +41,7 @@ fn check(backend: BackendType, width: usize) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(
         PhysAddr::new(HANDLER),

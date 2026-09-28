@@ -131,6 +131,7 @@ class Config:
         rtc_epoch_seconds: int = 1_767_225_600,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
+        console: Optional[str] = None,
         hart_count: int = 1,
         coherence: Optional[Coherence] = None,
     ):
@@ -203,6 +204,9 @@ class Config:
         self.rtc_epoch_seconds = rtc_epoch_seconds
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
+        if console is not None and console not in _CONSOLES:
+            raise ValueError(f"console must be one of {_CONSOLES}, got {console!r}")
+        self.console = console
         self.hart_count = hart_count
         self.coherence = coherence if coherence is not None else Coherence()
 
@@ -245,6 +249,21 @@ class Config:
         if self.l3 is not None:
             parts.append(f"l3={self.l3!r}")
         return f"Config({', '.join(parts)})"
+
+
+_CONSOLES = ("stdout", "stderr", "quiet", "captured")
+
+
+def _console_name(cfg) -> str:
+    """Where the UART console connects: ``console`` if given, else what
+    the ``uart_quiet`` / ``uart_to_stderr`` shorthands say."""
+    if cfg.console is not None:
+        return cfg.console
+    if cfg.uart_quiet:
+        return "quiet"
+    if cfg.uart_to_stderr:
+        return "stderr"
+    return "stdout"
 
 
 def _config_to_dict(config) -> Dict[str, Any]:
@@ -753,8 +772,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "device_latency_ns": cfg.device_latency_ns,
         "device_latency_ns_overrides": cfg.device_latency_ns_overrides,
         "rtc_epoch_seconds": cfg.rtc_epoch_seconds,
-        "uart_to_stderr": cfg.uart_to_stderr,
-        "uart_quiet": cfg.uart_quiet,
+        "console": _console_name(cfg),
         "tohost_addr": 0,
         "hart_count": cfg.hart_count,
     }

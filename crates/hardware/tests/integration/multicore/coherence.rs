@@ -33,7 +33,7 @@ const AUDIT_EVERY: u64 = 32;
 fn cached(harts: usize, backend: BackendType) -> Config {
     let mut config = Config::default();
     config.system.hart_count = harts;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
         cache.enabled = true;
@@ -258,7 +258,7 @@ fn a_shared_llc_serves_the_home_agent() {
 fn cores_without_caches_take_no_part_in_coherence() {
     let mut config = Config::default();
     config.system.hart_count = 2;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut system = MultiHart::with_config(&config, &shared_line_stores(2, 20));
     let exit = run_audited(&mut system, 2_000_000);
     assert_eq!(exit, Some(40));

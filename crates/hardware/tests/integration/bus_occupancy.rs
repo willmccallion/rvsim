@@ -35,7 +35,7 @@ fn cycles_to_finish(bus_width: u64) -> u64 {
     // Memory must not serialise the fills.
     config.memory.simple_bandwidth_gib_s = 1e6;
     config.system.bus_width = bus_width;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let program = program();
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     let all_but_spin = program.len() as u64 - 1;

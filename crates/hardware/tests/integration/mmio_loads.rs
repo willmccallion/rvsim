@@ -35,7 +35,7 @@ fn mtime_seen_by_the_load(backend: BackendType) -> u64 {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.clint_divider = 1;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);

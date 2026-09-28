@@ -45,7 +45,7 @@ fn running_squares() -> Vec<u32> {
 fn config(backend: BackendType) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     config
 }
 

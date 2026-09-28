@@ -50,7 +50,7 @@ fn handler() -> Vec<u32> {
 fn run(backend: BackendType, units: Units, inst: u32) -> (u64, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let i = InstructionBuilder::new;
     let program = [inst, i().addi(A4, 0, 1).build(), i().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);

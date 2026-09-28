@@ -39,7 +39,7 @@ fn marked_program(before: i32, before_arg: i32) -> Vec<u32> {
 
 fn run(program: &[u32]) -> TestContext {
     let mut config = Config::default();
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
     assert_eq!(ctx.sim.state.check_exit(), Some(5), "the guest ended the run with its code");

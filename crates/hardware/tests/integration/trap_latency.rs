@@ -67,7 +67,7 @@ fn run_until_trap(backend: BackendType, trap_latency: u64, program: &[u32]) -> T
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.pipeline.trap_latency = trap_latency;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     for (i, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + (i as u64) * 4), u64::from(*word), 4);

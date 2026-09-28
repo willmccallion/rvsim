@@ -28,7 +28,7 @@ fn handler() -> Vec<u32> {
 fn run(backend: BackendType, inst: u32) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let program = [inst, InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler().iter().enumerate() {

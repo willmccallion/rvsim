@@ -580,6 +580,74 @@ impl PySimulator {
         }
     }
 
+    /// Run until a condition holds, checking after every cycle, and say
+    /// which: ``("exit", code)``, ``("cycles", None)``,
+    /// ``("instructions", None)``, ``("pc", hart)`` or ``("break", label)``.
+    ///
+    /// Args:
+    ///     cycles: Stop after this many cycles.
+    ///     instructions: Stop once this many more instructions have retired
+    ///         (all harts).
+    ///     pc: Stop when any hart's next instruction to retire is here.
+    ///     `guest_breaks`: Stop when guest software runs ``rvsim break``.
+    ///
+    /// Runs at least one cycle, so running on from a stop at ``pc`` moves
+    /// past it.
+    #[pyo3(signature = (*, cycles=None, instructions=None, pc=None, guest_breaks=true))]
+    fn run_to(
+        &mut self,
+        py: Python<'_>,
+        cycles: Option<u64>,
+        instructions: Option<u64>,
+        pc: Option<u64>,
+        guest_breaks: bool,
+    ) -> PyResult<(String, Option<u64>)> {
+        use rvsim_core::sim::simulator::{StopAt, StopReason};
+        let stop = StopAt { cycles, instructions, pc, guest_breaks };
+        let mut interrupted = None;
+        let reason = self
+            .inner
+            .run_to_with(&stop, || match py.check_signals() {
+                Ok(()) => true,
+                Err(error) => {
+                    interrupted = Some(error);
+                    false
+                }
+            })
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let _ = std::io::stdout().flush();
+        Ok(match reason {
+            StopReason::Exited(code) => ("exit".into(), Some(code)),
+            StopReason::Cycles => ("cycles".into(), None),
+            StopReason::Instructions => ("instructions".into(), None),
+            StopReason::Pc { hart } => ("pc".into(), Some(hart as u64)),
+            StopReason::GuestBreak { label } => ("break".into(), Some(label)),
+            StopReason::Cancelled => {
+                return Err(interrupted.unwrap_or_else(|| PyRuntimeError::new_err("run cancelled")));
+            }
+        })
+    }
+
+    /// The console output since the last call, when the config's
+    /// ``console`` is ``"captured"``.
+    fn read_console(&mut self) -> String {
+        let output = self
+            .inner
+            .state
+            .bus
+            .uart_mut()
+            .map(rvsim_core::soc::devices::Uart::take_output)
+            .unwrap_or_default();
+        String::from_utf8_lossy(&output).into_owned()
+    }
+
+    /// Type ``text`` into a captured console.
+    fn write_console(&mut self, text: &str) {
+        if let Some(uart) = self.inner.state.bus.uart_mut() {
+            uart.send_input(text.as_bytes());
+        }
+    }
+
     /// Advance one cycle.
     fn tick(&mut self) -> PyResult<()> {
         self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))

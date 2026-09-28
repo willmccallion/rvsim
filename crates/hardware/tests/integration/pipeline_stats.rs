@@ -37,7 +37,7 @@ fn violating_program() -> Vec<u32> {
 fn flushes_by_cause_add_up_to_all_flushes() {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::OutOfOrder;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &violating_program());
 
@@ -70,7 +70,7 @@ fn divide_bound_program() -> Vec<u32> {
 fn fu_structural_stalls_are_counted_in_cycles() {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::OutOfOrder;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &divide_bound_program());
 

@@ -29,7 +29,7 @@ fn swap_then_read_back(backend: BackendType, width: usize) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
@@ -67,7 +67,7 @@ fn an_o3_csr_read_sees_the_preceding_write() {
 fn o3_holds_rename_behind_a_csr_access_instead_of_squashing() {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::OutOfOrder;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);

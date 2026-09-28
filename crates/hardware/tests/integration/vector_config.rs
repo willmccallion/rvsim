@@ -51,7 +51,7 @@ fn run(backend: BackendType) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     for (i, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + (i as u64) * 4), u64::from(*word), 4);
@@ -91,7 +91,7 @@ fn cycles_to_retire(backend: BackendType, program: &[u32]) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     let target = program.len() as u64 - 1;
     let mut cycles = 0;

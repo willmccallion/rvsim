@@ -319,7 +319,7 @@ not in the device tree, with two 64-bit registers:
 
 | Offset | Register | Access |
 |---|---|---|
-| `0x00` | `COMMAND` | write `1` to reset the stats, `2` to dump them labelled with `ARG`, `3` to end the simulation with `ARG` as the exit code |
+| `0x00` | `COMMAND` | write `1` to reset the stats, `2` to dump them labelled with `ARG`, `3` to end the simulation with `ARG` as the exit code, `4` to stop the host's `run_to` here with `ARG` as the label |
 | `0x08` | `ARG` | read/write: the argument of the next command |
 
 A guest writes `ARG`, then `COMMAND`. Under Linux, map the page through

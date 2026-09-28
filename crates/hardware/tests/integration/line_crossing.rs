@@ -30,7 +30,7 @@ fn run(backend: BackendType, offset: i32) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(offset));
     ctx.sim.probe_mem_store(PhysAddr::new(DATA + offset as u64), 0x1817_1615_1413_1211, 8);

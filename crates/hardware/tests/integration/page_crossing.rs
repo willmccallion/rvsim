@@ -77,7 +77,7 @@ fn run(backend: BackendType, second_pa: Option<u64>) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.uart_quiet = true;
+    config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     store_program(&mut ctx, CODE, &program());
     store_program(&mut ctx, HANDLER, &handler());

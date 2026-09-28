@@ -22,7 +22,7 @@ impl MultiHart {
     pub fn new(hart_count: usize, backend: BackendType, program: &[u32]) -> Self {
         let mut config = Config::default();
         config.system.hart_count = hart_count;
-        config.system.uart_quiet = true;
+        config.system.console = rvsim_core::config::Console::Quiet;
         config.pipeline.backend = backend;
         let mut sim = Simulator::build(&config, "");
         for (index, word) in program.iter().enumerate() {

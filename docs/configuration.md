@@ -385,7 +385,8 @@ each private L2 counts its snoops under `core<N>.l2.coherence.*`.
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Enable per-instruction commit logging |
 | `initial_sp` | `int` or `None` | `None` | Initial stack pointer (auto-configured if None) |
-| `uart_quiet` | `bool` | `False` | Suppress UART output (useful for sweeps) |
+| `uart_quiet` | `bool` | `False` | Suppress UART output (useful for sweeps); shorthand for `console="quiet"` |
+| `console` | `str` | `None` | Where the UART console connects: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (output kept in memory for `read_console()`, input given with `write_console()`); overrides the `uart_*` shorthands |
 | `uart_to_stderr` | `bool` | `False` | Route UART output to stderr instead of stdout |
 
 ---

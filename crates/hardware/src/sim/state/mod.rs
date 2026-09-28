@@ -156,6 +156,8 @@ pub struct SharedState {
     pub stats_epoch: StatsEpoch,
     /// Stats the guest dumped, oldest first.
     pub stats_dumps: Vec<StatsDump>,
+    /// The label of a guest break the host has not yet stopped for.
+    pub pending_break: Option<u64>,
     /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
     pub hart_stat_paths: Vec<HartPaths>,
 }
@@ -428,6 +430,7 @@ impl SimState {
                     instructions_retired,
                 });
             }
+            SimOp::Break { label } => self.shared.pending_break = Some(label),
         }
     }
 
@@ -464,12 +467,8 @@ impl SimState {
         let ram_size = config.memory.ram_size;
         let ram_buffer = Arc::new(DramBuffer::new(ram_size));
 
-        let uart = Uart::new(
-            config.system.uart_base,
-            config.system.uart_to_stderr,
-            config.system.uart_quiet,
-            config.system.cpu_clock_mhz,
-        );
+        let uart =
+            Uart::new(config.system.uart_base, config.system.console, config.system.cpu_clock_mhz);
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
         let plic = Plic::new(0x0c00_0000, hart_count);
 
@@ -695,6 +694,7 @@ impl SimState {
                 stats,
                 stats_epoch: StatsEpoch::default(),
                 stats_dumps: Vec::new(),
+                pending_break: None,
                 hart_stat_paths,
             },
         }

@@ -6,6 +6,7 @@
  *   rvsim dump-stats LABEL          keep a labelled snapshot of the stats
  *   rvsim reset-stats               zero the stats
  *   rvsim exit [CODE]               end the simulation
+ *   rvsim break LABEL               stop the host's run here
  *   rvsim run START END CMD [ARG]   dump START, run CMD, dump END
  *
  * `run` brackets the command as tightly as a separate process allows: the
@@ -25,7 +26,7 @@
 #define REG_COMMAND 0x00
 #define REG_ARG 0x08
 
-enum command { RESET_STATS = 1, DUMP_STATS = 2, EXIT = 3 };
+enum command { RESET_STATS = 1, DUMP_STATS = 2, EXIT = 3, BREAK = 4 };
 
 static volatile uint64_t *device;
 
@@ -84,7 +85,7 @@ static int run(uint64_t start, uint64_t end, char **argv)
 
 static void usage(void)
 {
-	fputs("usage: rvsim dump-stats LABEL | reset-stats | exit [CODE] |"
+	fputs("usage: rvsim dump-stats LABEL | reset-stats | break LABEL | exit [CODE] |"
 	      " run START END CMD [ARG...]\n",
 	      stderr);
 	exit(2);
@@ -100,6 +101,8 @@ int main(int argc, char **argv)
 		issue(DUMP_STATS, number(argv[2]));
 	} else if (strcmp(verb, "reset-stats") == 0 && argc == 2) {
 		issue(RESET_STATS, 0);
+	} else if (strcmp(verb, "break") == 0 && argc == 3) {
+		issue(BREAK, number(argv[2]));
 	} else if (strcmp(verb, "exit") == 0 && argc <= 3) {
 		issue(EXIT, argc == 3 ? number(argv[2]) : 0);
 	} else if (strcmp(verb, "run") == 0 && argc >= 5) {

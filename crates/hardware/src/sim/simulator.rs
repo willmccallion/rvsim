@@ -28,6 +28,46 @@ use crate::sim::topology::{CacheSlot, PrivateCache};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+/// Where [`Simulator::run_to`] stops, besides the simulation ending.
+/// Counts are relative to where the run starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StopAt {
+    /// After this many cycles.
+    pub cycles: Option<u64>,
+    /// Once this many more instructions have retired, over all harts.
+    pub instructions: Option<u64>,
+    /// When any hart's next instruction to retire is at this address.
+    pub pc: Option<u64>,
+    /// When guest software asks to stop (the sim-control break command).
+    pub guest_breaks: bool,
+}
+
+/// Why [`Simulator::run_to`] returned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    /// The simulation ended with this exit code.
+    Exited(u64),
+    /// The cycle count was reached.
+    Cycles,
+    /// The instruction count was reached.
+    Instructions,
+    /// This hart reached the address.
+    Pc {
+        /// The hart.
+        hart: usize,
+    },
+    /// Guest software asked to stop, with this label.
+    GuestBreak {
+        /// The guest's label.
+        label: u64,
+    },
+    /// The caller's `keep_going` said to stop.
+    Cancelled,
+}
+
+/// Cycles between [`Simulator::run_to_with`]'s checks of `keep_going`.
+const CANCEL_POLL_CYCLES: u64 = 1 << 16;
+
 /// Top-level simulator: the system state and the order it ticks in.
 #[derive(Debug)]
 pub struct Simulator {
@@ -131,6 +171,75 @@ impl Simulator {
         let Some(core) = self.state.topology.core_of_hart(hart_id) else { return };
         let (pipeline, mut ctx) = self.state.pipeline_ctx(core.as_index());
         pipeline.flush(&mut ctx);
+    }
+
+    /// Runs at least one cycle, then until one of `stop`'s conditions
+    /// holds or the simulation ends, checking after every cycle, and says
+    /// which. Running on from a stop at a PC therefore moves past it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`SimError`] a tick raised.
+    pub fn run_to(&mut self, stop: &StopAt) -> Result<StopReason, SimError> {
+        self.run_to_with(stop, || true)
+    }
+
+    /// [`Self::run_to`], asking `keep_going` every so often whether to go
+    /// on (a host checking for Ctrl-C).
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`SimError`] a tick raised.
+    pub fn run_to_with(
+        &mut self,
+        stop: &StopAt,
+        mut keep_going: impl FnMut() -> bool,
+    ) -> Result<StopReason, SimError> {
+        if let Some(code) = self.take_exit() {
+            return Ok(StopReason::Exited(code));
+        }
+        let start_cycle = self.state.cycle;
+        let start_instructions = self.state.instructions_retired();
+        loop {
+            self.tick()?;
+            if let Some(reason) = self.stop_reason(stop, start_cycle, start_instructions) {
+                return Ok(reason);
+            }
+            if self.state.cycle.is_multiple_of(CANCEL_POLL_CYCLES) && !keep_going() {
+                return Ok(StopReason::Cancelled);
+            }
+        }
+    }
+
+    fn stop_reason(
+        &mut self,
+        stop: &StopAt,
+        start_cycle: u64,
+        start_instructions: u64,
+    ) -> Option<StopReason> {
+        if let Some(code) = self.take_exit() {
+            return Some(StopReason::Exited(code));
+        }
+        if stop.guest_breaks
+            && let Some(label) = self.state.shared.pending_break.take()
+        {
+            return Some(StopReason::GuestBreak { label });
+        }
+        if let Some(pc) = stop.pc
+            && let Some(hart) = self.state.harts.iter().position(|hart| hart.pc == pc)
+        {
+            return Some(StopReason::Pc { hart });
+        }
+        if stop
+            .instructions
+            .is_some_and(|n| self.state.instructions_retired() - start_instructions >= n)
+        {
+            return Some(StopReason::Instructions);
+        }
+        if stop.cycles.is_some_and(|n| self.state.cycle - start_cycle >= n) {
+            return Some(StopReason::Cycles);
+        }
+        None
     }
 
     /// Advances the simulator by one clock cycle.
