@@ -80,7 +80,15 @@ def p550_config() -> Config:
         ras_size=16,
         l1i=Cache(size="32KB", line="64B", ways=8, latency=1, mshr_count=16, write_buffers=8),
         l1d=Cache(size="32KB", line="64B", ways=8, latency=1, mshr_count=16, write_buffers=8),
-        l2=Cache(size="256KB", line="64B", ways=16, latency=10, mshr_count=20, write_buffers=8),
+        l2=Cache(
+            size="256KB",
+            line="64B",
+            ways=16,
+            latency=10,
+            mshr_count=20,
+            write_buffers=8,
+            targets_per_mshr=12,
+        ),
     )
 
 

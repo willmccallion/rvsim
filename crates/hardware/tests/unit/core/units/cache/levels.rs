@@ -37,6 +37,7 @@ fn test_config() -> CacheConfig {
         prefetch_degree: 1,
         mshr_count: 4,
         write_buffers: 4,
+        targets_per_mshr: 8,
     }
 }
 
@@ -283,6 +284,33 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
         .collect();
     assert_eq!(retried, vec![0x2000], "the queued miss is fetched once an MSHR frees");
     assert_eq!(bench.cache.blocked_requests(), 0);
+}
+
+#[test]
+fn an_mshr_holding_its_target_limit_blocks_the_cache_until_its_fill() {
+    let mut config = test_config();
+    config.targets_per_mshr = 2;
+    let mut bench = Bench::new(cache_with(&config));
+    bench.read(1, 0x1000);
+    let first = bench.downstream_requests();
+
+    bench.read(2, 0x1008);
+    bench.read(3, 0x2000);
+
+    assert!(bench.downstream_requests().is_empty(), "a free MSHR does not unblock the cache");
+    assert_eq!(bench.cache.blocked_requests(), 1);
+    bench.fill(first[0].0, 0x1000);
+    let events = bench.drain();
+    let answered_at = bench.cycle + LATENCY;
+    assert_eq!(
+        responses_to(&events, PIPELINE),
+        vec![(ReqId::new(1), answered_at), (ReqId::new(2), answered_at)]
+    );
+    assert!(
+        events.iter().any(|e| e.target == DOWNSTREAM
+            && matches!(e.packet, Packet::MemReq { paddr, .. } if paddr.val() == 0x2000)),
+        "the queued miss is fetched once the full MSHR's fill returns"
+    );
 }
 
 #[test]

@@ -159,6 +159,9 @@ mod defaults {
     pub const MSHR_COUNT: usize = 8;
     /// Default writeback buffer entries per cache level.
     pub const WRITE_BUFFERS: usize = 8;
+    /// Default requests one MSHR can hold (gem5's `tgts_per_mshr` for an
+    /// L1; its L2 uses 12).
+    pub const TARGETS_PER_MSHR: usize = 20;
 
     /// Default pipeline width (1 instruction per cycle).
     pub const PIPELINE_WIDTH: usize = 1;
@@ -1099,6 +1102,12 @@ pub struct CacheConfig {
     /// the cache stops accepting requests. Zero behaves as one.
     #[serde(default = "CacheConfig::default_write_buffers")]
     pub write_buffers: usize,
+
+    /// Requests one MSHR can hold (gem5's `tgts_per_mshr`): once a line in
+    /// flight has this many waiting, the cache accepts nothing until that
+    /// line's fill returns. Zero behaves as one.
+    #[serde(default = "CacheConfig::default_targets_per_mshr")]
+    pub targets_per_mshr: usize,
 }
 
 impl CacheConfig {
@@ -1141,6 +1150,11 @@ impl CacheConfig {
     const fn default_write_buffers() -> usize {
         defaults::WRITE_BUFFERS
     }
+
+    /// Returns the default number of requests one MSHR can hold.
+    const fn default_targets_per_mshr() -> usize {
+        defaults::TARGETS_PER_MSHR
+    }
 }
 
 impl Default for CacheConfig {
@@ -1157,6 +1171,7 @@ impl Default for CacheConfig {
             prefetch_degree: defaults::PREFETCH_DEGREE,
             mshr_count: defaults::MSHR_COUNT,
             write_buffers: defaults::WRITE_BUFFERS,
+            targets_per_mshr: defaults::TARGETS_PER_MSHR,
         }
     }
 }

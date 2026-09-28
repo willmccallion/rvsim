@@ -163,6 +163,7 @@ Cache(
     latency=1,            # Hit latency in cycles
     mshr_count=8,         # Outstanding line fetches (0 = simulator default, 8)
     write_buffers=8,      # Victims in flight to the next level (0 = default, 8)
+    targets_per_mshr=20,  # Requests one MSHR can hold (0 = default, 20)
     policy=ReplacementPolicy.LRU(),       # Eviction policy
     prefetcher=Prefetcher.Stride(),       # Hardware prefetcher
 )
@@ -180,9 +181,11 @@ Cache(
 !!! tip "MSHRs and writeback buffers"
     Every level fetches at most `mshr_count` lines at a time and keeps at
     most `write_buffers` evicted lines in flight to the next level; while
-    either is exhausted the cache blocks and later requests queue. Passing
-    `0` (the Python default) leaves the simulator default of 8 in place; a
-    `mshr_count=1` cache is a blocking cache that serialises its misses.
+    either is exhausted, or one MSHR holds `targets_per_mshr` requests
+    (gem5's `tgts_per_mshr`), the cache blocks and later requests queue.
+    Passing `0` (the Python default) leaves the simulator default in place
+    (8, 8 and 20, gem5's L1 value; gem5's L2 uses 12); a `mshr_count=1`
+    cache is a blocking cache that serialises its misses.
 
 ### Replacement Policies
 

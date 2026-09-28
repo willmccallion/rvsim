@@ -157,6 +157,10 @@ pub struct Cache {
     line_bytes: usize,
     policy: Box<dyn ReplacementPolicy + Send + Sync>,
     mshrs: MshrTable,
+    targets_per_mshr: usize,
+    /// The MSHR that reached `targets_per_mshr`, blocking the cache until
+    /// its fill returns (gem5's `noTargetMSHR`).
+    full_mshr: Option<ReqId>,
     writebacks: WritebackBuffer,
     blocked: VecDeque<BlockedRequest>,
     forwarded: Vec<Forwarded>,
@@ -238,6 +242,8 @@ impl Cache {
             line_bytes: safe_line,
             policy,
             mshrs: MshrTable::new(config.mshr_count),
+            targets_per_mshr: config.targets_per_mshr.max(1),
+            full_mshr: None,
             writebacks: WritebackBuffer::new(config.write_buffers),
             blocked: VecDeque::new(),
             forwarded: Vec::new(),
@@ -460,7 +466,7 @@ impl Cache {
     }
 
     const fn is_blocked(&self) -> bool {
-        self.mshrs.is_full() || self.writebacks.is_full()
+        self.mshrs.is_full() || self.full_mshr.is_some() || self.writebacks.is_full()
     }
 
     const fn hit_level(&self) -> HitLevel {
@@ -574,6 +580,9 @@ impl Cache {
                 mshr.deferred.push(target);
             } else {
                 mshr.targets.push(target);
+            }
+            if mshr.target_count() >= self.targets_per_mshr {
+                self.full_mshr = Some(mshr.req_id);
             }
         } else {
             let fetch_op = match target.op {
@@ -832,6 +841,9 @@ impl Cache {
             return;
         }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
+        if self.full_mshr == Some(req_id) {
+            self.full_mshr = None;
+        }
         let installed = self.fill(&mshr, granted, ctx);
         if let Some(way) = self.find_way(mshr.line.val()) {
             let index = self.set_index(mshr.line.val()) * self.ways + way;

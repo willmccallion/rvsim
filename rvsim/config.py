@@ -643,6 +643,8 @@ def _cache_to_dict(c: Cache) -> Dict[str, Any]:
         d["mshr_count"] = c.mshr_count
     if c.write_buffers > 0:
         d["write_buffers"] = c.write_buffers
+    if c.targets_per_mshr > 0:
+        d["targets_per_mshr"] = c.targets_per_mshr
     return d
 
 

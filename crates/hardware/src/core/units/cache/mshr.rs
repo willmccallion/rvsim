@@ -53,6 +53,14 @@ pub struct Mshr {
     pub upgrade: bool,
 }
 
+impl Mshr {
+    /// Requests waiting for the line, deferred ones included.
+    #[must_use]
+    pub const fn target_count(&self) -> usize {
+        self.targets.len() + self.deferred.len()
+    }
+}
+
 /// Bounded table of outstanding line fetches.
 #[derive(Debug)]
 pub struct MshrTable {

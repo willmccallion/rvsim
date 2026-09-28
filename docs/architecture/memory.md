@@ -59,6 +59,9 @@ classic cache:
   in flight **joins that MSHR** instead of fetching again; when the fill
   arrives every joined request is answered at once. `mshr_count` bounds the
   fetches in flight (default 8; zero behaves as one, a blocking cache).
+  An MSHR holds at most `targets_per_mshr` requests (gem5's
+  `tgts_per_mshr`, default 20): the request that fills it blocks the
+  cache until that line's fill returns.
 - A **write miss allocates**: the line is fetched, then installed dirty. A
   whole-line write from above (a drained write-combining line, or a
   cache-maintenance writeback) merges into a held line or is forwarded
@@ -70,7 +73,8 @@ classic cache:
   acknowledges. Dirty lines leaving the last cache reach the memory
   controller as writes, so DRAM sees the real write traffic.
 - While every MSHR or every writeback buffer entry (`write_buffers`,
-  default 8) is busy the cache is **blocked**: new requests queue in
+  default 8) is busy, or one MSHR holds its target limit, the cache is
+  **blocked**: new requests queue in
   arrival order and are retried as entries free up, which is what a blocked
   port does to its requester.
 - **Prefetches are real fetches**: a candidate line the prefetcher wants
