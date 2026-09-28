@@ -385,7 +385,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         state.stats.counter(hart_paths.retired_insts).inc();
         update_instruction_stats(state, &entry);
 
-        if entry.bp_update {
+        if entry.control_resolved {
             trace_branch!(state.config.general.trace_instructions;
                 event         = "retire",
                 pc            = %crate::trace::Hex(entry.pc),

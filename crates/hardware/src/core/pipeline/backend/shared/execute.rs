@@ -327,7 +327,7 @@ fn resolve_branch(
     }
     let mispredicted = predicted_next_pc != actual_next_pc;
 
-    rob.set_bp_update(
+    rob.set_control_outcome(
         id.rob_tag,
         BpOutcome { taken, mispredicted },
         taken.then_some(actual_target),
@@ -348,7 +348,8 @@ fn resolve_branch(
 }
 
 /// Resolves a JAL or JALR against its predicted target and returns the
-/// redirect a misprediction needs. Jumps do not train the direction tables.
+/// redirect a misprediction needs. Jumps do not train the direction tables,
+/// but commit counts their predictions with the branches'.
 fn resolve_jump(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
@@ -365,7 +366,11 @@ fn resolve_jump(
     let predicted_target = if id.pred_taken { id.pred_target } else { next_pc(id) };
     let mispredicted = actual_target != predicted_target;
 
-    rob.set_bp_target(id.rob_tag, actual_target);
+    rob.set_control_outcome(
+        id.rob_tag,
+        BpOutcome { taken: true, mispredicted },
+        Some(actual_target),
+    );
     let rd_link = id.rd == abi::REG_RA || id.rd == abi::REG_T0;
     let rs1_link = is_jalr && (id.rs1 == abi::REG_RA || id.rs1 == abi::REG_T0);
     trace_branch!(state.config.general.trace_instructions;

@@ -502,8 +502,11 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(pipe.flushes_squashed_insns, Meta::events("insts squashed by flushes"));
 
     let bp = &c.bp;
-    s.register(bp.committed_hits, Meta::events("branch predictions correct (committed)"));
-    s.register(bp.committed_mispredicts, Meta::events("branch predictions wrong (committed)"));
+    s.register(bp.committed_hits, Meta::events("branch and jump predictions correct (committed)"));
+    s.register(
+        bp.committed_mispredicts,
+        Meta::events("branch and jump predictions wrong (committed)"),
+    );
     s.register(bp.spec_hits, Meta::events("branch predictions correct (speculative)"));
     s.register(bp.spec_mispredicts, Meta::events("branch predictions wrong (speculative)"));
     s.register(bp.decode_redirects, Meta::events("fetch redirects from decode"));
