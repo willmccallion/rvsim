@@ -465,6 +465,29 @@ impl ExecutionEngine for O3Engine {
         }
         self.serialization.observe(self.rob.is_empty(), now);
 
+        // A load writes back in the cycle memory2 finalizes it, as gem5's LSQ
+        // hands a returned load to the current cycle's writeback.
+        let mut memory2_results = Vec::with_capacity(self.mem1_mem2.len());
+        let mem_violation = memory2::memory2_stage(
+            &mut state.stage(),
+            &mut self.mem1_mem2,
+            &mut memory2_results,
+            &mut self.store_buffer,
+            Some(&mut self.load_queue),
+            Some(&mut self.vec_store_buffer),
+        );
+
+        // Stores that resolve in memory2: store-conditionals, AMOs, vectors.
+        for entry in &memory2_results {
+            if entry.ctrl.mem_write
+                && (entry.ctrl.atomic_op != AtomicOp::None || entry.vec_mem.is_some())
+                && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
+            {
+                self.issue_queue.wakeup_mem_dep(&[store_tag]);
+            }
+        }
+        self.mem2_wb.extend(memory2_results);
+
         // Intercept vec mem micro-ops before the normal writeback stage.
         {
             let mut scalar_wb = Vec::with_capacity(self.mem2_wb.len());
@@ -532,26 +555,7 @@ impl ExecutionEngine for O3Engine {
             self.issue_queue.wakeup_phys(*rd_phys, *val);
         }
 
-        let mem_violation = memory2::memory2_stage(
-            &mut state.stage(),
-            &mut self.mem1_mem2,
-            &mut self.mem2_wb,
-            &mut self.store_buffer,
-            Some(&mut self.load_queue),
-            Some(&mut self.vec_store_buffer),
-        );
-
-        // Stores that resolve in memory2: store-conditionals, AMOs, vectors.
-        for entry in &self.mem2_wb {
-            if entry.ctrl.mem_write
-                && (entry.ctrl.atomic_op != AtomicOp::None || entry.vec_mem.is_some())
-                && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
-            {
-                self.issue_queue.wakeup_mem_dep(&[store_tag]);
-            }
-        }
-        let memory2_results = std::mem::replace(&mut self.mem2_wb, later_mem_results);
-        self.mem2_wb.extend(memory2_results);
+        self.mem2_wb = later_mem_results;
 
         // Packet-based memory1 always accepts work and parks loads in
         // `common.outstanding_loads`. Backpressure comes from the L1D's

@@ -222,11 +222,25 @@ fn load_to_use(backend: BackendType, l1d_latency: u64) -> u64 {
 }
 
 #[test]
-fn a_dependent_load_waits_the_l1d_latency_plus_two_cycles_on_both_backends() {
+fn inorder_dependent_load_waits_the_l1d_latency_plus_two_cycles() {
     for l1d_latency in [1, 4] {
-        let inorder = load_to_use(BackendType::InOrder, l1d_latency);
-        let o3 = load_to_use(BackendType::OutOfOrder, l1d_latency);
+        assert_eq!(
+            load_to_use(BackendType::InOrder, l1d_latency),
+            l1d_latency + 2,
+            "l1d latency {l1d_latency}"
+        );
+    }
+}
 
-        assert_eq!((inorder, o3), (l1d_latency + 2, l1d_latency + 2), "l1d latency {l1d_latency}");
+/// Address generation, then the L1D; the load writes back as its data
+/// returns, as gem5's O3 LSQ does.
+#[test]
+fn o3_dependent_load_waits_the_l1d_latency_plus_one_cycle() {
+    for l1d_latency in [1, 4] {
+        assert_eq!(
+            load_to_use(BackendType::OutOfOrder, l1d_latency),
+            l1d_latency + 1,
+            "l1d latency {l1d_latency}"
+        );
     }
 }
