@@ -129,6 +129,13 @@ impl GeoBankSet {
         self.tag_widths[bank]
     }
 
+    /// The speculative folded histories of `bank`: the index fold, the tag
+    /// fold and the tag fold one bit narrower.
+    #[inline]
+    pub const fn folds(&self, bank: usize) -> (u64, u64, u64) {
+        (self.idx_csr[bank].val, self.tag_csr[bank].val, self.tag_csr2[bank].val)
+    }
+
     /// Computes the table index for a bank using pre-computed speculative CSRs. `O(1)`.
     #[inline]
     pub const fn spec_index(&self, pc: u64, bank: usize) -> usize {

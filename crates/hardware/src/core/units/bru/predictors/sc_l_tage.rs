@@ -27,6 +27,8 @@ use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retire
 #[derive(Debug)]
 pub struct ScLTagePredictor {
     spec_ghr: Ghr,
+    /// The TAGE path history a squash returns to.
+    spec_path: u16,
     commit_ghr: Ghr,
 
     /// Shared TAGE direction core.
@@ -42,6 +44,8 @@ pub struct ScLTagePredictor {
 pub struct ScLTageHistory {
     /// The speculative global history before the prediction.
     ghr: Ghr,
+    /// The TAGE path history before the prediction.
+    path: u16,
     /// The TAGE entries a conditional branch's prediction read.
     tage: Option<TagePrediction>,
     /// The TAGE metadata and SC sum the statistical corrector decided
@@ -61,6 +65,7 @@ impl ScLTagePredictor {
 
         Self {
             spec_ghr: Ghr::with_len(max_hist),
+            spec_path: 0,
             commit_ghr: Ghr::with_len(max_hist),
             tage,
             loop_pred: LoopPredictor::new(tage_config.loop_table_size),
@@ -69,14 +74,15 @@ impl ScLTagePredictor {
         }
     }
 
-    fn push_speculative(&mut self, taken: bool) {
-        self.tage.speculate(taken, &self.spec_ghr);
+    fn push_speculative(&mut self, pc: u64, taken: bool) {
+        self.tage.speculate(pc, taken, &self.spec_ghr);
         self.ittage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
+        self.spec_path = self.tage.path_history();
     }
 
     fn repair_speculative(&mut self) {
-        self.tage.repair(&self.spec_ghr);
+        self.tage.repair(&self.spec_ghr, self.spec_path);
         self.ittage.repair_history(&self.spec_ghr);
     }
 
@@ -108,33 +114,46 @@ impl DirectionPredictor for ScLTagePredictor {
         let prediction = self.tage.predict(pc);
         let tage = Some(prediction);
         if let Some(loop_taken) = self.loop_pred.predict(pc) {
-            return (loop_taken, ScLTageHistory { ghr: self.spec_ghr, tage, sc: None });
+            return (
+                loop_taken,
+                ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, tage, sc: None },
+            );
         }
         let meta = prediction.meta();
         let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
-        (sc_taken, ScLTageHistory { ghr: self.spec_ghr, tage, sc: Some((meta, sc_sum)) })
+        (
+            sc_taken,
+            ScLTageHistory {
+                ghr: self.spec_ghr,
+                path: self.spec_path,
+                tage,
+                sc: Some((meta, sc_sum)),
+            },
+        )
     }
 
     fn unconditional(&self, _pc: u64) -> ScLTageHistory {
-        ScLTageHistory { ghr: self.spec_ghr, tage: None, sc: None }
+        ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, tage: None, sc: None }
     }
 
-    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &ScLTageHistory) {
-        self.push_speculative(taken);
+    fn update_histories(&mut self, pc: u64, taken: bool, _history: &ScLTageHistory) {
+        self.push_speculative(pc, taken);
     }
 
     fn squash(&mut self, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
+        self.spec_path = history.path;
     }
 
     fn squash_done(&mut self) {
         self.repair_speculative();
     }
 
-    fn correct(&mut self, _pc: u64, taken: bool, history: &ScLTageHistory) {
+    fn correct(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
+        self.spec_path = history.path;
         self.repair_speculative();
-        self.push_speculative(taken);
+        self.push_speculative(pc, taken);
     }
 
     fn commit(&mut self, pc: u64, retired: Retired, history: &ScLTageHistory) {

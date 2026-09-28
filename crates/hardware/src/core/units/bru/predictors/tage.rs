@@ -14,6 +14,8 @@ use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retire
 #[derive(Debug)]
 pub struct TagePredictor {
     spec_ghr: Ghr,
+    /// The path history a squash returns to.
+    spec_path: u16,
     tage: TageCore,
 }
 
@@ -22,6 +24,7 @@ pub struct TagePredictor {
 #[derive(Clone, Copy, Debug)]
 pub struct TageHistory {
     ghr: Ghr,
+    path: u16,
     prediction: Option<TagePrediction>,
 }
 
@@ -31,12 +34,17 @@ impl TagePredictor {
         let tage = TageCore::new(config);
         let max_hist = tage.max_history();
 
-        Self { spec_ghr: Ghr::with_len(max_hist), tage }
+        Self { spec_ghr: Ghr::with_len(max_hist), spec_path: 0, tage }
     }
 
-    fn push_speculative(&mut self, taken: bool) {
-        self.tage.speculate(taken, &self.spec_ghr);
+    fn push_speculative(&mut self, pc: u64, taken: bool) {
+        self.tage.speculate(pc, taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
+        self.spec_path = self.tage.path_history();
+    }
+
+    const fn snapshot(&self, prediction: Option<TagePrediction>) -> TageHistory {
+        TageHistory { ghr: self.spec_ghr, path: self.spec_path, prediction }
     }
 }
 
@@ -45,29 +53,31 @@ impl DirectionPredictor for TagePredictor {
 
     fn lookup(&self, pc: u64) -> (bool, TageHistory) {
         let prediction = self.tage.predict(pc);
-        (prediction.taken(), TageHistory { ghr: self.spec_ghr, prediction: Some(prediction) })
+        (prediction.taken(), self.snapshot(Some(prediction)))
     }
 
     fn unconditional(&self, _pc: u64) -> TageHistory {
-        TageHistory { ghr: self.spec_ghr, prediction: None }
+        self.snapshot(None)
     }
 
-    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &TageHistory) {
-        self.push_speculative(taken);
+    fn update_histories(&mut self, pc: u64, taken: bool, _history: &TageHistory) {
+        self.push_speculative(pc, taken);
     }
 
     fn squash(&mut self, history: &TageHistory) {
         self.spec_ghr = history.ghr;
+        self.spec_path = history.path;
     }
 
     fn squash_done(&mut self) {
-        self.tage.repair(&self.spec_ghr);
+        self.tage.repair(&self.spec_ghr, self.spec_path);
     }
 
-    fn correct(&mut self, _pc: u64, taken: bool, history: &TageHistory) {
+    fn correct(&mut self, pc: u64, taken: bool, history: &TageHistory) {
         self.spec_ghr = history.ghr;
-        self.tage.repair(&self.spec_ghr);
-        self.push_speculative(taken);
+        self.spec_path = history.path;
+        self.tage.repair(&self.spec_ghr, self.spec_path);
+        self.push_speculative(pc, taken);
     }
 
     /// Trains the entries the prediction read, as gem5 trains those its
