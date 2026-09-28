@@ -39,6 +39,12 @@ impl ReservationSet {
         self.slots[hart.as_index()] == Some(Self::align(addr))
     }
 
+    /// The line `hart` holds reserved, if any.
+    #[must_use]
+    pub fn reserved(&self, hart: HartId) -> Option<PhysAddr> {
+        self.slots[hart.as_index()]
+    }
+
     /// Drops `hart`'s reservation.
     pub fn clear(&mut self, hart: HartId) {
         self.slots[hart.as_index()] = None;

@@ -179,7 +179,8 @@ Drain the pipelines and save a checkpoint to disk.
 
 #### `restore(path: str)`
 
-Restore from a checkpoint.
+Restore from a checkpoint; the configuration may differ in anything but
+hart count, RAM size and VLEN (see below).
 
 ### State Inspection
 
@@ -253,16 +254,22 @@ cpu.run(limit=60_000)
 #### `save(path)`, `restore(path)`
 
 A checkpoint holds RAM, the cycle counter, every hart's architectural
-state (PC, privilege, registers, CSRs) and the devices' registers (CLINT
-timers and `mtime`, PLIC priorities, enables, thresholds and claims, UART
-registers and unread input, the virtio disk's queue). `save` first drains
-the machine the way gem5 does: speculative work is discarded, committed
-stores still in the store buffers reach RAM, each hart is left at its
-committed PC and a disk request in flight completes at once, so a run
-that continues after a save is not cycle-identical to one without it. A
-checkpoint does not hold cache contents or in-flight memory traffic, so
-restore into a freshly built simulator with the same configuration and
-expect cold caches.
+state (PC, privilege, integer, floating-point and vector registers, every
+CSR, PMP entries, and its LR reservation) and the devices' registers
+(CLINT timers and `mtime`, PLIC priorities, enables, thresholds and claims,
+UART registers and unread input, the virtio disk's queue). `save` first
+drains the machine the way gem5 does: speculative work is discarded,
+committed stores still in the store buffers reach RAM, each hart is left at
+its committed PC and a disk request in flight completes at once, so a run
+that continues after a save is not cycle-identical to one without it.
+
+A checkpoint restores into any configuration with the same hart count, RAM
+size and VLEN, so a system can boot on a cheap configuration and continue
+on a detailed one. It does not hold cache contents, TLBs, predictor state
+or in-flight memory traffic: after a restore the caches, TLBs and the
+coherence home agent start empty, as gem5's do, so warm the system up
+before measuring. A restore into a mismatched system raises an error
+naming what differs.
 
 #### `pipeline_snapshot() -> PipelineSnapshot`
 

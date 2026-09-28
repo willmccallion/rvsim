@@ -4,6 +4,7 @@
 //! the initial system state, and the `Simulator` struct that owns
 //! the simulated chip and the bench-side state.
 
+pub mod checkpoint;
 pub mod components;
 pub mod dtb;
 pub mod events;

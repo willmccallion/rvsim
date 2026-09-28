@@ -16,7 +16,7 @@ use rvsim_core::common::{CsrAddr, HartId};
 use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::sim::loader;
 use std::io::Write;
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, BufWriter};
 
 fn fmt_commas(n: u64) -> String {
     let s = n.to_string();
@@ -609,248 +609,28 @@ impl PySimulator {
         PyPipelineSnapshot::new(self.inner.state.cores[0].pipeline.snapshot(width))
     }
 
-    /// Save a checkpoint of the full simulation state to a file.
+    /// Save a checkpoint of the system's architectural state to a file.
     ///
-    /// The checkpoint includes PC, registers, CSRs, privilege mode, RAM and
-    /// the devices' registers.
+    /// The checkpoint holds every hart's registers (vector ones too), CSRs,
+    /// PMP, privilege, PC and load reservation, the devices' registers, and
+    /// RAM. The system is drained first.
     fn save(&mut self, path: &str) -> PyResult<()> {
-        self.inner.drain();
-        let cpu = &self.inner.state;
         let file = std::fs::File::create(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot create checkpoint file: {e}")))?;
-        let mut w = BufWriter::new(file);
-
-        let mut header = serde_json::Map::new();
-        let _ = header.insert("magic".into(), serde_json::Value::from("rvsim-checkpoint"));
-        let _ = header.insert("version".into(), serde_json::Value::from(3u64));
-        let _ = header.insert("cycle".into(), serde_json::Value::from(cpu.cycle));
-        let _ = header.insert("direct_mode".into(), serde_json::Value::from(cpu.direct_mode));
-        let _ = header.insert("trace".into(), serde_json::Value::from(cpu.trace.armed));
-        let region = cpu.bus.ram_region();
-        let ram_start = region.map_or(0, |r| r.base());
-        let ram_end = region.map_or(0, |r| r.base() + r.size());
-        let _ = header.insert("ram_start".into(), serde_json::Value::from(ram_start));
-        let _ = header.insert("ram_end".into(), serde_json::Value::from(ram_end));
-        let harts: Vec<serde_json::Value> = cpu.harts.iter().map(hart_to_json).collect();
-        let _ = header.insert("harts".into(), serde_json::Value::Array(harts));
-        let _ = header.insert("devices".into(), cpu.bus.checkpoint_devices());
-
-        let header_bytes = serde_json::to_vec(&serde_json::Value::Object(header))
-            .map_err(|e| PyRuntimeError::new_err(format!("serialization error: {e}")))?;
-        let header_len = header_bytes.len() as u64;
-        std::io::Write::write_all(&mut w, &header_len.to_le_bytes())
-            .map_err(|e| PyRuntimeError::new_err(format!("write error: {e}")))?;
-        std::io::Write::write_all(&mut w, &header_bytes)
-            .map_err(|e| PyRuntimeError::new_err(format!("write error: {e}")))?;
-
-        if let Some(r) = region {
-            let ram_size = r.size() as usize;
-            if ram_size > 0 {
-                // SAFETY: `r.as_ptr()` is the start of a contiguous DRAM region of
-                // exactly `r.size()` bytes owned by the Memory device on the bus.
-                let ram_slice = unsafe { std::slice::from_raw_parts(r.as_ptr(), ram_size) };
-                std::io::Write::write_all(&mut w, ram_slice)
-                    .map_err(|e| PyRuntimeError::new_err(format!("write error: {e}")))?;
-            }
-        }
-        std::io::Write::flush(&mut w)
-            .map_err(|e| PyRuntimeError::new_err(format!("flush error: {e}")))?;
-        Ok(())
+        self.inner
+            .save_checkpoint(&mut BufWriter::new(file))
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Restore simulation state from a checkpoint file.
+    /// Restore a checkpoint saved by :meth:`save`.
     ///
-    /// The CPU must have been created with compatible RAM size.
+    /// The simulator may use any configuration with the same hart count, RAM
+    /// size and VLEN; caches, TLBs and predictors start cold.
     fn restore(&mut self, path: &str) -> PyResult<()> {
         let file = std::fs::File::open(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot open checkpoint file: {e}")))?;
-        let mut r = BufReader::new(file);
-
-        let mut len_buf = [0u8; 8];
-        Read::read_exact(&mut r, &mut len_buf)
-            .map_err(|e| PyRuntimeError::new_err(format!("read error: {e}")))?;
-        let header_len = u64::from_le_bytes(len_buf) as usize;
-
-        let mut header_bytes = vec![0u8; header_len];
-        Read::read_exact(&mut r, &mut header_bytes)
-            .map_err(|e| PyRuntimeError::new_err(format!("read error: {e}")))?;
-        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
-            .map_err(|e| PyRuntimeError::new_err(format!("invalid checkpoint header: {e}")))?;
-
-        let magic = header.get("magic").and_then(|v| v.as_str()).unwrap_or("");
-        if magic != "rvsim-checkpoint" {
-            return Err(PyRuntimeError::new_err("not a valid rvsim checkpoint file"));
-        }
-
-        self.inner.drain();
-        let cpu = &mut self.inner.state;
-
-        cpu.direct_mode = header["direct_mode"].as_bool().unwrap_or(false);
-        cpu.trace.armed = header["trace"].as_bool().unwrap_or(false);
-        if let Some(cycle) = header["cycle"].as_u64() {
-            cpu.cycle = cycle;
-        }
-        let saved_harts =
-            header["harts"].as_array().cloned().unwrap_or_else(|| vec![header.clone()]);
-        if saved_harts.len() != cpu.harts.len() {
-            return Err(PyRuntimeError::new_err(format!(
-                "hart count mismatch: checkpoint has {} harts, simulator has {}",
-                saved_harts.len(),
-                cpu.harts.len()
-            )));
-        }
-        for (hart, saved) in cpu.harts.iter_mut().zip(&saved_harts) {
-            hart_from_json(hart, saved);
-        }
-        if let Some(devices) = header.get("devices") {
-            cpu.bus.restore_devices(devices);
-        }
-
-        let ckpt_ram_start = header["ram_start"].as_u64().unwrap_or(0);
-        let ckpt_ram_end = header["ram_end"].as_u64().unwrap_or(0);
-        let ckpt_ram_size = (ckpt_ram_end - ckpt_ram_start) as usize;
-        let region = cpu.bus.ram_region();
-        let cpu_ram_size = region.map_or(0, |reg| reg.size() as usize);
-
-        if ckpt_ram_size != cpu_ram_size {
-            return Err(PyRuntimeError::new_err(format!(
-                "RAM size mismatch: checkpoint has {ckpt_ram_size} bytes, CPU has {cpu_ram_size} bytes"
-            )));
-        }
-
-        if let Some(reg) = region
-            && ckpt_ram_size > 0
-        {
-            // SAFETY: `reg.as_ptr()` is the start of a contiguous DRAM region of
-            // exactly `reg.size()` bytes owned by the Memory device on the bus.
-            let ram_slice = unsafe { std::slice::from_raw_parts_mut(reg.as_ptr(), ckpt_ram_size) };
-            Read::read_exact(&mut r, ram_slice)
-                .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
-        }
-
-        // A checkpoint holds no cache state, so the caches start cold, as
-        // gem5's do after a restore.
-        for core in cpu.cores.iter_mut().map(|core| &mut core.units) {
-            core.l1_i_cache.invalidate_all();
-            core.l1_d_cache.invalidate_all();
-            core.l2_cache.invalidate_all();
-            core.mmu.dtlb.flush();
-            core.mmu.itlb.flush();
-            core.mmu.l2_tlb.flush();
-        }
-        cpu.l3_cache.invalidate_all();
-        self.inner.sync_arch_regs();
-
-        Ok(())
+        self.inner
+            .restore_checkpoint(&mut BufReader::new(file))
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
-}
-
-/// One hart's architectural state as checkpoint JSON.
-fn hart_to_json(hart: &rvsim_core::core::Hart) -> serde_json::Value {
-    let mut h = serde_json::Map::new();
-    let _ = h.insert("pc".into(), serde_json::Value::from(hart.pc));
-    let _ = h.insert("privilege".into(), serde_json::Value::from(hart.privilege.to_u8()));
-    let _ = h.insert("wfi_waiting".into(), serde_json::Value::from(hart.wfi_waiting));
-    let _ = h.insert("sw_seip".into(), serde_json::Value::from(hart.sw_seip));
-    let _ =
-        h.insert("instructions_retired".into(), serde_json::Value::from(hart.instructions_retired));
-    let gprs: Vec<serde_json::Value> = (0u8..32)
-        .map(|i| serde_json::Value::from(hart.regs.read(rvsim_core::common::RegIdx::new(i))))
-        .collect();
-    let _ = h.insert("gpr".into(), serde_json::Value::Array(gprs));
-    let fprs: Vec<serde_json::Value> = (0u8..32)
-        .map(|i| serde_json::Value::from(hart.regs.read_f(rvsim_core::common::RegIdx::new(i))))
-        .collect();
-    let _ = h.insert("fpr".into(), serde_json::Value::Array(fprs));
-    let c = &hart.csrs;
-    let mut csrs = serde_json::Map::new();
-    macro_rules! save_csr {
-        ($($field:ident),*) => { $( let _ = csrs.insert(stringify!($field).into(), c.$field.into()); )* };
-    }
-    save_csr!(
-        mstatus,
-        misa,
-        medeleg,
-        mideleg,
-        mie,
-        mtvec,
-        mscratch,
-        mepc,
-        mcause,
-        mtval,
-        mip,
-        sie,
-        stvec,
-        sscratch,
-        sepc,
-        scause,
-        stval,
-        sip,
-        satp,
-        mcycle,
-        minstret,
-        mcountinhibit,
-        stimecmp,
-        fflags,
-        frm,
-        mcounteren,
-        scounteren,
-        menvcfg
-    );
-    let _ = h.insert("csrs".into(), serde_json::Value::Object(csrs));
-    serde_json::Value::Object(h)
-}
-
-/// Restores one hart's architectural state from checkpoint JSON.
-fn hart_from_json(hart: &mut rvsim_core::core::Hart, saved: &serde_json::Value) {
-    hart.pc = saved["pc"].as_u64().unwrap_or(0);
-    hart.privilege = PrivilegeMode::from_u8(saved["privilege"].as_u64().unwrap_or(3) as u8);
-    hart.wfi_waiting = saved["wfi_waiting"].as_bool().unwrap_or(false);
-    hart.sw_seip = saved["sw_seip"].as_bool().unwrap_or(false);
-    hart.instructions_retired = saved["instructions_retired"].as_u64().unwrap_or(0);
-    if let Some(gprs) = saved["gpr"].as_array() {
-        for (i, v) in gprs.iter().enumerate().take(32) {
-            hart.regs.write(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
-        }
-    }
-    if let Some(fprs) = saved["fpr"].as_array() {
-        for (i, v) in fprs.iter().enumerate().take(32) {
-            hart.regs.write_f(rvsim_core::common::RegIdx::new(i as u8), v.as_u64().unwrap_or(0));
-        }
-    }
-    let Some(csrs) = saved.get("csrs") else { return };
-    let c = &mut hart.csrs;
-    macro_rules! restore_csr {
-        ($($field:ident),*) => { $( if let Some(v) = csrs.get(stringify!($field)).and_then(|v| v.as_u64()) { c.$field = v; } )* };
-    }
-    restore_csr!(
-        mstatus,
-        misa,
-        medeleg,
-        mideleg,
-        mie,
-        mtvec,
-        mscratch,
-        mepc,
-        mcause,
-        mtval,
-        mip,
-        sie,
-        stvec,
-        sscratch,
-        sepc,
-        scause,
-        stval,
-        sip,
-        satp,
-        mcycle,
-        minstret,
-        mcountinhibit,
-        stimecmp,
-        fflags,
-        frm,
-        mcounteren,
-        scounteren,
-        menvcfg
-    );
 }

@@ -6,6 +6,7 @@ pub mod btb_frontend;
 pub mod btb_training;
 pub mod bus_occupancy;
 pub mod cbo_translation;
+pub mod checkpoint_resume;
 pub mod committed_prediction_stats;
 pub mod csr_head_execution;
 pub mod csr_ordering;

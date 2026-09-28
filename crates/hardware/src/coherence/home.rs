@@ -58,6 +58,9 @@ pub trait HomeAgent: Send + Sync + std::fmt::Debug {
 
     /// Every tracked line for audits, when the agent tracks exactly.
     fn tracked_lines(&self) -> Option<Vec<LineAddr>>;
+
+    /// Every core dropped every line, as when all caches are emptied.
+    fn forget_all(&mut self);
 }
 
 /// Snoop everyone; track nothing.
@@ -95,6 +98,8 @@ impl HomeAgent for Broadcast {
     fn tracked_lines(&self) -> Option<Vec<LineAddr>> {
         None
     }
+
+    fn forget_all(&mut self) {}
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -253,6 +258,12 @@ impl HomeAgent for SnoopFilter {
 
     fn tracked_lines(&self) -> Option<Vec<LineAddr>> {
         Some(self.sets.iter().flatten().flatten().map(|e| e.line).collect())
+    }
+
+    fn forget_all(&mut self) {
+        for entry in self.sets.iter_mut().flatten() {
+            *entry = None;
+        }
     }
 }
 

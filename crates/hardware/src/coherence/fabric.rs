@@ -184,6 +184,12 @@ impl CoherenceFabric {
         self.tracking.exact_holders(line)
     }
 
+    /// Tells the home that every core dropped every line, after the caches
+    /// were emptied behind its back (a checkpoint restore).
+    pub fn forget_cached_lines(&mut self) {
+        self.tracking.forget_all();
+    }
+
     /// Every line the home tracks, when it tracks exactly.
     #[must_use]
     pub fn tracked_lines(&self) -> Option<Vec<LineAddr>> {

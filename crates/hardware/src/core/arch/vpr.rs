@@ -20,6 +20,17 @@ impl Vpr {
         Self { data: vec![0u8; 32 * vlen.bytes()], vlen }
     }
 
+    /// All 32 registers' bytes, register 0 first.
+    pub fn bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Overwrites all 32 registers from `bytes`, laid out as [`Self::bytes`].
+    pub fn set_bytes(&mut self, bytes: &[u8]) {
+        let len = self.data.len().min(bytes.len());
+        self.data[..len].copy_from_slice(&bytes[..len]);
+    }
+
     /// Returns the configured VLEN.
     #[inline]
     pub const fn vlen(&self) -> Vlen {

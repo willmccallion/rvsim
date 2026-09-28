@@ -61,7 +61,7 @@ pub enum PmpResult {
 }
 
 /// Decoded PMP entry with precomputed range.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PmpEntry {
     /// Raw configuration byte from pmpcfg.
     pub cfg: u8,
@@ -123,6 +123,13 @@ impl Pmp {
     /// Returns a reference to the entries slice for inspection.
     pub fn entries(&self) -> &[PmpEntry] {
         &self.entries
+    }
+
+    /// Replaces every entry, locked or not, as restoring a checkpoint does.
+    pub fn restore(&mut self, entries: &[PmpEntry]) {
+        for (entry, saved) in self.entries.iter_mut().zip(entries) {
+            *entry = saved.clone();
+        }
     }
 
     /// Sets the configuration byte for entry `idx`.

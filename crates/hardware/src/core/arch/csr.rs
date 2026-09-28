@@ -787,7 +787,7 @@ pub const fn csr_serialization_type(addr: CsrAddr) -> CsrSerializationType {
 ///
 /// Contains all machine-level and supervisor-level CSRs that control processor state,
 /// interrupt handling, memory management, and performance counters.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Csrs {
     /// Machine status register.
     pub mstatus: u64,
