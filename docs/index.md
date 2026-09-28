@@ -57,7 +57,7 @@ print(result.stats.query("ipc|branch|miss"))
 
 - **[Getting Started](getting-started.md)** — Install, run your first simulation, understand the output
 - **[Configuration](configuration.md)** — Every parameter explained: caches, predictors, backends, FU pools
-- **[API Reference](api.md)** — Complete reference for `Config`, `Environment`, `Simulator`, `Sweep`, `Stats`
+- **[API Reference](api.md)** — Complete reference for `Config`, `Environment`, `Session`, `Simulator`, `Sweep`, `Stats`
 - **[Architecture](architecture/pipeline.md)** — Deep-dive into the pipeline, memory hierarchy, and branch prediction
 
 </div>

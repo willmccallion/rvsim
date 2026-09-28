@@ -149,6 +149,33 @@ Run until the program exits or `limit` cycles.
 
 Run until the architectural PC (the next instruction to retire) equals the given address or the privilege level matches the given string (`"M"`, `"S"`, or `"U"`).
 
+#### `run_to(*, cycles=None, instructions=None, pc=None, guest_breaks=True, console_output=False) -> (str, int | None)`
+
+Run until the first of these holds, checked every cycle, and say which:
+
+| Returns | When |
+|---|---|
+| `("exit", code)` | the workload ended |
+| `("break", label)` | guest software asked to stop (sim-control `BREAK`), if `guest_breaks` |
+| `("console", None)` | a captured console holds output `read_console()` has not taken, if `console_output` |
+| `("pc", hart)` | a hart's next instruction to retire is at `pc` (an address or a list of them) |
+| `("instructions", None)` | `instructions` more have retired over all harts |
+| `("cycles", None)` | `cycles` more cycles have passed |
+
+It runs at least one cycle, so running on from a stop at a PC moves past
+it. Ctrl-C interrupts it. `Session` builds its stop points on this.
+
+#### `cycle -> int`, `instructions_retired -> int`
+
+The cycle count and the instructions retired by every hart since the
+system started. Unlike `stats.cycles`, they carry across checkpoints and
+stats resets.
+
+#### `read_console() -> str`, `write_console(text)`
+
+With `console="captured"`, take what the guest has printed since the last
+call, and type into its console.
+
 #### `save(path: str)`
 
 Drain the pipelines and save a checkpoint to disk.
@@ -303,8 +330,159 @@ not in the device tree, with two 64-bit registers:
 | `0x08` | `ARG` | read/write: the argument of the next command |
 
 A guest writes `ARG`, then `COMMAND`. Under Linux, map the page through
-`/dev/mem`. The command takes effect at the end of the cycle the write
-reaches the device.
+`/dev/mem`, or use the image's `rvsim` tool (`rvsim dump-stats LABEL`,
+`rvsim break LABEL`, `rvsim run START END CMD`); bare-metal programs
+include `software/libc/rvsim.h` (`rvsim_dump_stats`, `rvsim_break`,
+`rvsim_reset_stats`, `rvsim_exit`). The command takes effect at the end of
+the cycle the write reaches the device.
+
+---
+
+## Session
+
+Runs a workload in phases, the way gem5 users fast-forward, switch CPUs and
+measure: get to the point of interest quickly, move onto the configuration
+under study, warm it up, and measure regions. A session keeps the guest's
+console, so a script can type into a Linux shell and wait for output.
+
+```python
+from rvsim import Session, presets
+
+s = Session.linux(harts=8)
+s.fast_forward(until=Session.LOGIN_SHELL)       # boots once; cached after that
+s.switch(presets.linux(harts=8, core=my_core))  # the configuration under study
+s.warm_up(command="coremark 0x0 0x0 0x66 20 7 1 2000")
+r = s.measure("coremark 0x0 0x0 0x66 20 7 1 2000")
+print(r.ipc, r.stats["core0.bp.committed.accuracy"], r.exit_code, r.console)
+```
+
+The same flow works for bare-metal programs:
+
+```python
+s = Session(my_core, binary="app.elf", fast_forward_config=cheap_core)
+s.fast_forward(until=Instructions(1e9))
+r = s.measure(until=Marker(2) | Exit())
+```
+
+### Constructors
+
+#### `Session(config=None, *, binary=None, kernel=None, firmware=None, disk=None, dtb=None, fast_forward_config=None, cache_dir=None, echo=False, console_log=None, progress=False)`
+
+A session on `config` running a bare-metal `binary`, or booting `kernel`
+through OpenSBI `firmware` (`fw_jump.bin` beside the kernel by default).
+Fast-forwards run on `fast_forward_config` (`config` unless given).
+`echo` copies the console to stdout (or a stream), `console_log` writes it
+to a file, and `progress` reports long runs on stderr.
+
+#### `Session.linux(config=None, *, harts=None, image_dir=None, ...)`
+
+A session on the image `make linux` builds. `config` defaults to
+`presets.linux(harts)`. Its fast-forwards run on `presets.linux` with the
+timer ticking every cycle, which shortens the boot's sleeps, keeping
+`config`'s RAM, VLEN and ISA options, so the cached boot is shared by
+every core configuration of the same system.
+
+#### `Session.resume(path, config=None, **kwargs)`
+
+Continue from a checkpoint `save` wrote, on `config` (the one it was saved
+on by default), with its console and history. Refuses if the workload's
+files changed since.
+
+### Stop points
+
+A run ends the moment one of its stops holds; `a | b` stops at whichever
+comes first. Counts are relative to the run's start, and every run also
+ends if the workload does.
+
+| Stop | Holds |
+|---|---|
+| `Cycles(n)` | after `n` more cycles |
+| `Instructions(n)` | once `n` more instructions have retired over all harts |
+| `Pc(addr, ...)` | when any hart's next instruction to retire is at one of the addresses |
+| `Marker(label=None)` | when guest software asks to stop (`rvsim break LABEL`, `rvsim_break(label)`); any label if `None` |
+| `Console(pattern)` | when the console prints a regular-expression match, on the cycle it is printed; the match consumes the output |
+| `Exit()` | when the workload ends |
+| `When(predicate, every=100_000, name=None)` | when `predicate(session)` is true, checked every `every` cycles |
+| `LOGIN_SHELL` / `LoginShell(user, password, login, prompt)` | at a Linux shell, after logging in |
+
+A run returns a `Stopped`: the stop that held (`by`), `cycle`,
+`instructions`, and `exit_code`, `hart`, `label` or `match` as it applies.
+
+### Methods
+
+#### `fast_forward(until, *, cache=True) -> Session`
+
+Get to `until` quickly. The first time, the session runs there on the
+fast-forward configuration and saves a checkpoint in the cache
+(`$RVSIM_CACHE_DIR`, else `~/.cache/rvsim/checkpoints`). Later sessions
+with the same history restore it in seconds. The cache key covers the
+workload's files, everything the session did before, the fast-forward
+configuration and the stop. Either way the session continues from the
+checkpoint on its own configuration with caches, TLBs and predictors cold,
+so results do not depend on whether the cache held the stop.
+`last_fast_forward` says which happened. A predicate stop is cached only
+if it has a `name`. Raises `WorkloadEnded` if the workload ends first.
+
+#### `switch(config) -> Session`
+
+Continue on `config`. It must show the guest the same system (harts, RAM,
+memory map, VLEN, ISA options); for Linux, wrap a core configuration with
+`presets.linux(core=...)`.
+
+#### `run(until=None, *, every=None, on_every=None) -> Stopped`
+
+Run to `until` (the workload's end by default), calling
+`on_every(session)` every `every` cycles.
+
+#### `warm_up(until=None, *, command=None) -> Session`
+
+Run unmeasured to `until`, or through a shell `command`.
+
+#### `measure(command=None, *, until=None, name=None) -> Region`
+
+Measure a shell `command` (Linux) or the run to `until`. A command runs
+under the guest's `rvsim run`, which snapshots the stats just before it
+starts and just after it exits. A `Region` holds `stats` (only what
+happened inside it), `console`, `exit_code`, `cycles`, `instructions`,
+`ipc`, and `to_dict()`. The session's whole-run stats stay intact.
+
+#### `send(text)`, `expect(pattern) -> re.Match`, `shell(command) -> ShellResult`
+
+Type into the console; run until it prints `pattern`; run a shell command
+and wait for its output and exit status.
+
+#### `save(path) -> str`
+
+Save a resume point: the checkpoint at `path` and the console and history
+beside it in `path.json`. Saving drains the pipelines, as gem5 does.
+
+#### `fork(configs) -> Iterator[tuple[str, Session]]`
+
+Continue from this point once per configuration in `{name: config}`, each
+as an independent session. This session is left where it was.
+
+#### `sim`, `stats`, `console`, `cycle`, `instructions`, `config`
+
+The running `Simulator`, its stats, everything the guest printed, the
+counters since the system started, and the configuration the session runs
+on. Changes made through `sim` directly are not part of the cache key's
+history; fast-forward with `cache=False` after them.
+
+### `rvsim bench`
+
+The benchmark suite inside Linux from the command line:
+
+```bash
+rvsim bench                              # every benchmark, fast core, 8 harts
+rvsim bench coremark stream --warm       # warm each benchmark before measuring it
+rvsim bench --config my_core.py --harts 4 --json results.json
+rvsim bench --list
+```
+
+It boots once per system (cached), places the core in the Linux system
+with `presets.linux(core=...)`, and prints each benchmark's cycles,
+instructions, IPC and branch, L1D, L2 and LLC misses per thousand
+instructions.
 
 ---
 
