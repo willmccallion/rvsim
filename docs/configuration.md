@@ -165,6 +165,7 @@ Cache(
     mshr_count=8,         # Outstanding line fetches (0 = simulator default, 8)
     write_buffers=8,      # Victims in flight to the next level (0 = default, 8)
     targets_per_mshr=20,  # Requests one MSHR can hold (0 = default, 20)
+    response_latency=1,   # Cycles from a fill to answering its requests
     policy=ReplacementPolicy.LRU(),       # Eviction policy
     prefetcher=Prefetcher.Stride(),       # Hardware prefetcher
 )

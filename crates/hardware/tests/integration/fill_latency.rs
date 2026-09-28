@@ -1,5 +1,7 @@
-//! A line that arrives from below is read out through the cache's own
-//! access latency before the requests waiting on it are answered.
+//! A fill is forwarded to its waiting requests as it is written.
+//!
+//! A miss pays the cache's access latency once, for its tag lookup, and the
+//! fill costs only the response latency.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
@@ -26,7 +28,7 @@ fn program() -> Vec<u32> {
 }
 
 /// Cycles until every load has retired; every load misses the L1D.
-fn cycles_to_finish(l1d_latency: u64) -> u64 {
+fn cycles_to_finish(l1d_latency: u64, l1d_response_latency: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::InOrder;
     config.pipeline.width = 1;
@@ -34,6 +36,7 @@ fn cycles_to_finish(l1d_latency: u64) -> u64 {
     // Memory must not serialise the fills.
     config.memory.simple_bandwidth_gib_s = 1e6;
     config.cache.l1_d.latency = l1d_latency;
+    config.cache.l1_d.response_latency = l1d_response_latency;
     config.system.uart_quiet = true;
     let program = program();
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
@@ -48,11 +51,21 @@ fn cycles_to_finish(l1d_latency: u64) -> u64 {
 }
 
 #[test]
-fn a_fill_is_answered_after_the_cache_latency() {
-    let fast = cycles_to_finish(1);
-    let slow = cycles_to_finish(9);
+fn a_miss_pays_the_access_latency_once_for_its_tag_lookup() {
+    let fast = cycles_to_finish(1, 1);
+    let slow = cycles_to_finish(9, 1);
 
-    // Every one of the sixteen misses pays the extra eight cycles twice:
-    // once on the request's tag lookup and once when the line arrives.
-    assert!(slow >= fast + LINES * 16, "l1d latency 9 cost {} cycles over {fast}", slow - fast);
+    let extra = slow - fast;
+    assert!(extra >= LINES * 8, "l1d latency 9 cost {extra} cycles over {fast}");
+    assert!(extra < LINES * 16, "the fill is not a second array access: {extra} cycles");
+}
+
+#[test]
+fn a_fill_is_answered_after_the_response_latency() {
+    let fast = cycles_to_finish(1, 1);
+    let slow = cycles_to_finish(1, 9);
+
+    // Every miss after the first waits on the load before it.
+    let serial_misses = LINES - 1;
+    assert!(slow >= fast + serial_misses * 8, "response latency 9 cost {} cycles", slow - fast);
 }

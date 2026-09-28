@@ -730,6 +730,7 @@ class Cache:
         mshr_count: int = 0,
         write_buffers: int = 0,
         targets_per_mshr: int = 0,
+        response_latency: int = 1,
     ):
         self.size_bytes = _parse_size(size)
         self.line_bytes = _parse_size(line)
@@ -740,6 +741,7 @@ class Cache:
         self.mshr_count = mshr_count
         self.write_buffers = write_buffers
         self.targets_per_mshr = targets_per_mshr
+        self.response_latency = response_latency
 
     def __repr__(self) -> str:
         return (
@@ -747,7 +749,8 @@ class Cache:
             f"ways={self.ways}, policy={self.policy!r}, "
             f"latency={self.latency}, prefetcher={self.prefetcher!r}, "
             f"mshr_count={self.mshr_count}, write_buffers={self.write_buffers}, "
-            f"targets_per_mshr={self.targets_per_mshr})"
+            f"targets_per_mshr={self.targets_per_mshr}, "
+            f"response_latency={self.response_latency})"
         )
 
 

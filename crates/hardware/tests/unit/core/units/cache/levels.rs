@@ -24,6 +24,7 @@ use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::RamRegion;
 
 const LATENCY: u64 = 2;
+const RESPONSE_LATENCY: u64 = 1;
 const HART: WriteOrigin = WriteOrigin::Hart(HartId::new(0));
 const RAM_BYTES: usize = 0x1_0000;
 const SELF: ComponentId = ComponentId::Cache(CacheId::new(0));
@@ -39,6 +40,7 @@ fn test_config() -> CacheConfig {
         ways: 2,
         policy: PolicyType::Lru,
         latency: LATENCY,
+        response_latency: RESPONSE_LATENCY,
         prefetcher: PrefetcherType::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
@@ -263,8 +265,8 @@ fn miss_sends_one_line_request_and_the_fill_answers_the_requester() {
     let events = bench.drain();
     assert_eq!(
         responses_to(&events, PIPELINE),
-        vec![(ReqId::new(7), bench.cycle + LATENCY)],
-        "the fill is read out through the array like a hit"
+        vec![(ReqId::new(7), bench.cycle + RESPONSE_LATENCY)],
+        "the fill is forwarded to its request as it is written"
     );
     assert!(bench.cache.contains(0x1008));
     assert_eq!(bench.stat("test.misses"), 1);
@@ -482,7 +484,10 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
 
     bench.fill(first[0].0, 0x1000);
     let events = bench.drain();
-    assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(1), bench.cycle + LATENCY)]);
+    assert_eq!(
+        responses_to(&events, PIPELINE),
+        vec![(ReqId::new(1), bench.cycle + RESPONSE_LATENCY)]
+    );
     let retried: Vec<u64> = events
         .iter()
         .filter(|e| e.target == DOWNSTREAM)
@@ -510,7 +515,7 @@ fn an_mshr_holding_its_target_limit_blocks_the_cache_until_its_fill() {
     assert_eq!(bench.cache.blocked_requests(), 1);
     bench.fill(first[0].0, 0x1000);
     let events = bench.drain();
-    let answered_at = bench.cycle + LATENCY;
+    let answered_at = bench.cycle + RESPONSE_LATENCY;
     assert_eq!(
         responses_to(&events, PIPELINE),
         vec![(ReqId::new(1), answered_at), (ReqId::new(2), answered_at)]

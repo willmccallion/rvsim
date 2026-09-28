@@ -637,6 +637,7 @@ def _cache_to_dict(c: Cache) -> Dict[str, Any]:
         "ways": c.ways,
         "policy": _replacement_policy_name(c.policy),
         "latency": c.latency,
+        "response_latency": c.response_latency,
         "prefetcher": _prefetcher_name(c.prefetcher),
         "prefetch_table_size": _prefetcher_table_size(c.prefetcher),
         "prefetch_degree": _prefetcher_degree(c.prefetcher),

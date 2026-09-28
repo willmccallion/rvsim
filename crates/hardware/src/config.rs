@@ -148,6 +148,9 @@ mod defaults {
 
     /// Default cache access latency in cycles.
     pub const CACHE_LATENCY: u64 = 1;
+    /// Default cycles from a fill arriving to its requests being answered
+    /// (gem5's stdlib caches' `response_latency`).
+    pub const CACHE_RESPONSE_LATENCY: u64 = 1;
 
     /// Default prefetcher pattern table size (64 entries).
     pub const PREFETCH_TABLE_SIZE: usize = 64;
@@ -1082,6 +1085,12 @@ pub struct CacheConfig {
     #[serde(default = "CacheConfig::default_latency")]
     pub latency: u64,
 
+    /// Cycles from a line arriving from the next level to the requests
+    /// waiting on it being answered: the fill is forwarded to them as it is
+    /// written into the array (gem5's `response_latency`).
+    #[serde(default = "CacheConfig::default_response_latency")]
+    pub response_latency: u64,
+
     /// Hardware prefetcher type
     #[serde(default)]
     pub prefetcher: Prefetcher,
@@ -1132,6 +1141,11 @@ impl CacheConfig {
         defaults::CACHE_LATENCY
     }
 
+    /// Returns the default fill-forwarding latency.
+    const fn default_response_latency() -> u64 {
+        defaults::CACHE_RESPONSE_LATENCY
+    }
+
     /// Returns the default prefetcher pattern table size.
     const fn default_prefetch_table() -> usize {
         defaults::PREFETCH_TABLE_SIZE
@@ -1167,6 +1181,7 @@ impl Default for CacheConfig {
             ways: defaults::CACHE_WAYS,
             policy: ReplacementPolicy::default(),
             latency: defaults::CACHE_LATENCY,
+            response_latency: defaults::CACHE_RESPONSE_LATENCY,
             prefetcher: Prefetcher::default(),
             prefetch_table_size: defaults::PREFETCH_TABLE_SIZE,
             prefetch_degree: defaults::PREFETCH_DEGREE,

@@ -127,6 +127,9 @@ pub struct Cache {
     pub downstream: Option<ComponentId>,
     /// Access latency in cycles.
     pub latency: u64,
+    /// Cycles from a fill arriving to the requests waiting on it being
+    /// answered.
+    response_latency: u64,
     /// When false, accesses bypass this cache and forward straight downstream.
     pub enabled: bool,
     /// Optional hardware prefetcher.
@@ -223,6 +226,7 @@ impl Cache {
             upstream: Vec::new(),
             downstream: None,
             latency: config.latency,
+            response_latency: config.response_latency,
             enabled: config.enabled,
             prefetcher,
             stat_paths: CacheStatPaths::new(stat_subject),
@@ -909,9 +913,9 @@ impl Cache {
                 self.note_upper_copy(index, target.source);
             }
         }
-        // The filled line is read out through the same array access a hit
-        // pays before the waiting requests are answered.
-        let answered_at = ctx.cycle + self.latency;
+        // The line is forwarded to its requests as it is written into the
+        // array, without a second array access.
+        let answered_at = ctx.cycle + self.response_latency;
         for target in &mshr.targets {
             let data = Self::serve(target.paddr, target.size, &target.op, ctx);
             self.respond(
@@ -963,7 +967,7 @@ impl Cache {
         };
         let index = self.set_index(line.val()) * self.ways + way;
         self.lines[index].state = MesiState::Modified;
-        let answered_at = ctx.cycle + self.latency;
+        let answered_at = ctx.cycle + self.response_latency;
         for target in &deferred {
             self.note_upper_copy(index, target.source);
             let data = Self::serve(target.paddr, target.size, &target.op, ctx);
