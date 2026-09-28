@@ -37,9 +37,9 @@ flowchart LR
 
 ### Stage Details
 
-**Fetch1** — Sends the PC to the I-TLB and I-cache in parallel. On an I-TLB miss, the hardware page table walker is invoked. The branch predictor is consulted here: BTB for targets, RAS for returns, and the selected predictor (GShare/TAGE/etc.) for direction. Up to `fetch_width` instructions are fetched per cycle; every stage has its own width (`decode_width`, `rename_width`, `issue_width`, `commit_width`), each defaulting to `width`.
+**Fetch1** — Sends the PC to the I-TLB and I-cache in parallel. On an I-TLB miss, the hardware page table walker is invoked. The branch predictor is consulted here for the control instructions the BTB knows, as a real front end has only the BTB before decode: its target, the RAS for returns, and the selected predictor (GShare/TAGE/etc.) for direction. Up to `fetch_width` instructions are fetched per cycle; every stage has its own width (`decode_width`, `rename_width`, `issue_width`, `commit_width`), each defaulting to `width`.
 
-**Fetch2 / Decode** — Decodes fetched instructions, expands compressed (RVC) 16-bit instructions to their 32-bit equivalents, and generates control signals for the backend. Detects illegal instructions and raises decode-time exceptions.
+**Fetch2 / Decode** — Decodes fetched instructions, expands compressed (RVC) 16-bit instructions to their 32-bit equivalents, and generates control signals for the backend. Detects illegal instructions and raises decode-time exceptions. A control instruction the BTB missed is predicted here and, when it changes the next PC, redirects fetch, which resumes the next cycle; so does a BTB hit that decode finds is not a control instruction, or a direct jump or branch whose BTB target is stale (`bp.decode_redirects`).
 
 **Rename** — Maps architectural registers to physical registers using the speculative rename map. Allocates free physical registers from the free list. Writes entries into the ROB and, for loads/stores, the load queue. After a serializing instruction (CSR access, ECALL, xRET, WFI, SFENCE.VMA, FENCE.I: gem5's `IsSerializeAfter`), the next instruction waits here until the ROB has drained, starting the cycle after commit empties it (`pipeline.stalls.serialize`), as gem5's O3 rename does.
 
