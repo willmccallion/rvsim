@@ -188,6 +188,26 @@ fn the_reserved_cbie_encoding_is_written_as_illegal() {
 }
 
 #[test]
+fn a_satp_write_keeps_asid_tagged_tlb_entries() {
+    use rvsim_core::common::{Asid, Ppn, Vpn};
+    use rvsim_core::core::units::mmu::tlb::PageSize;
+    const PTE_VR: u64 = 0b11;
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+    state.core.mmu.dtlb.insert(
+        Vpn::new(0x40),
+        Ppn::new(0x8_0040),
+        PTE_VR,
+        Asid::new(1),
+        PageSize::Kib4,
+    );
+
+    state.csr_write(csr::SATP, (csr::SATP_MODE_SV39 << 60) | (2 << 44) | 0x8_0100);
+
+    assert!(state.core.mmu.dtlb.peek(Vpn::new(0x40), Asid::new(1)).is_some());
+}
+
+#[test]
 fn test_csr_read_write_mcause() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);

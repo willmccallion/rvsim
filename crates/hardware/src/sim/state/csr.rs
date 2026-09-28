@@ -290,11 +290,9 @@ impl CoreCtx<'_> {
                     val & !(csr::SATP_MODE_MASK << csr::SATP_MODE_SHIFT)
                 };
 
+                // TLB entries are ASID-tagged: software orders a satp change
+                // against cached translations with SFENCE.VMA.
                 self.hart.csrs.satp = new_val;
-
-                self.core.mmu.dtlb.flush();
-                self.core.mmu.itlb.flush();
-                self.core.mmu.l2_tlb.flush();
             }
             // Writable vector CSRs
             x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart = val,
