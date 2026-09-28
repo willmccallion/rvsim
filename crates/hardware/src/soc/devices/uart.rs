@@ -471,6 +471,21 @@ impl Device for Uart {
         (iir & IIR_NO_INTERRUPT) == 0
     }
 
+    fn quiet_ticks(&self) -> Option<u64> {
+        let until = |at: Option<u64>| at.map(|at| at.saturating_sub(self.cycle).saturating_sub(1));
+        let stdin_poll = matches!(self.console, Console::Stdout | Console::Stderr)
+            .then(|| u64::from(u8::MAX - self.tick_count));
+        [until(self.tx_interrupt_at), until(self.rx_interrupt_at), stdin_poll]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    fn skip_ticks(&mut self, ticks: u64) {
+        self.cycle += ticks;
+        self.tick_count = self.tick_count.wrapping_add((ticks % 256) as u8);
+    }
+
     fn get_irq_id(&self) -> Option<IrqId> {
         Some(IrqId::new(10))
     }

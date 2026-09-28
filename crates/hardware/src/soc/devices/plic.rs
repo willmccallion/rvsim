@@ -345,6 +345,17 @@ impl Device for Plic {
         (self.base_addr, 0x4000000)
     }
 
+    /// Quiet once the claims in the delay line all equal what the current
+    /// pending, enable and threshold state computes.
+    fn quiet_ticks(&self) -> Option<u64> {
+        let settled = self.updates.len() == UPDATE_DELAY_CYCLES
+            && (0..self.context_count()).all(|ctx| {
+                let claim = self.calc_max_id(ctx);
+                self.claims[ctx] == claim && self.updates.iter().all(|update| update[ctx] == claim)
+            });
+        if settled { None } else { Some(0) }
+    }
+
     fn checkpoint(&self) -> Option<serde_json::Value> {
         serde_json::to_value(self.state()).ok()
     }

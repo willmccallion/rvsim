@@ -90,4 +90,8 @@ impl Device for Htif {
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, 16)
     }
+
+    fn quiet_ticks(&self) -> Option<u64> {
+        None
+    }
 }

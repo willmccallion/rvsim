@@ -45,7 +45,8 @@ use crate::soc::memory::ddr5::ecc::EccPolicy;
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
 use crate::soc::memory::ddr5::state::{
-    Bank, BankState, BusOp, DramChannel, PendingReq, PowerState, RefreshPhase, WriteDrainState,
+    Bank, BankState, BusOp, DramChannel, PendingReq, PowerState, Rank, RefreshPhase, Subchannel,
+    WriteDrainState,
 };
 use crate::soc::memory::ddr5::stats::ControllerStatPaths;
 
@@ -257,6 +258,31 @@ impl MemoryController for Ddr5Controller {
         self.flush(ctx);
     }
 
+    fn quiet_until(&self, cycle: u64) -> Option<u64> {
+        if !self.pending_commands.is_empty() || !self.pending_responses.is_empty() {
+            return Some(cycle);
+        }
+        let now = self.next_dram_cycle;
+        let subchannels = self.channels.iter().flat_map(|c| c.subchannels.iter());
+        let horizon = subchannels
+            .filter_map(|subchannel| self.subchannel_quiet_until(subchannel, now))
+            .chain(self.scrubber.as_ref().map(|scrubber| scrubber.next_at))
+            .min()?;
+        Some(if horizon <= now { cycle } else { self.clock.to_cpu(horizon).max(cycle) })
+    }
+
+    fn skip_quiet(&mut self, ctx: &mut HandleCtx<'_>) {
+        let target = self.clock.to_dram(ctx.cycle);
+        if target >= self.next_dram_cycle {
+            let clocks = target + 1 - self.next_dram_cycle;
+            for subchannel in self.channels.iter_mut().flat_map(|c| c.subchannels.iter_mut()) {
+                subchannel.counters.clocks += clocks;
+            }
+            self.next_dram_cycle = target + 1;
+        }
+        self.flush(ctx);
+    }
+
     fn resume_at(&mut self, cycle: u64) {
         let origin = self.clock.to_dram(cycle);
         for subchannel in self.channels.iter_mut().flat_map(|c| c.subchannels.iter_mut()) {
@@ -296,6 +322,51 @@ impl Ddr5Controller {
         };
         let sc = &mut self.channels[loc.channel.as_index()].subchannels[loc.subchannel.as_index()];
         sc.inbound.push_back(pending);
+    }
+
+    /// The first DRAM clock at or after `now` at which `subchannel` may do
+    /// more than count the clock, or `None` if it waits for a request.
+    fn subchannel_quiet_until(&self, subchannel: &Subchannel, now: u64) -> Option<u64> {
+        let queued = !subchannel.inbound.is_empty()
+            || !subchannel.read_queue.is_empty()
+            || !subchannel.write_queue.is_empty();
+        let drain_ends = subchannel.drain_state == WriteDrainState::Draining
+            && subchannel.writes_this_drain >= self.config.min_writes_per_switch;
+        if queued || drain_ends {
+            return Some(now);
+        }
+        let mut horizon: Option<u64> = None;
+        for rank in &subchannel.ranks {
+            if rank.refresh_phase != RefreshPhase::Idle {
+                return Some(now);
+            }
+            let refreshed = rank.banks.iter().filter(|bank| bank.state == BankState::Refreshing);
+            if let Some(end) = refreshed.map(|bank| bank.refresh_end).min() {
+                horizon = Some(horizon.map_or(end, |h| h.min(end)));
+            }
+            if self.refresh_interval > 0 {
+                horizon = Some(horizon.map_or(rank.next_refresh, |h| h.min(rank.next_refresh)));
+            }
+            if let Some(entry) = self.power_down_entry(subchannel, rank, now) {
+                horizon = Some(horizon.map_or(entry, |h| h.min(entry)));
+            }
+        }
+        horizon
+    }
+
+    /// The first DRAM clock at or after `now` at which an idle, active
+    /// `rank` could enter power-down, if it could before its next refresh.
+    fn power_down_entry(&self, subchannel: &Subchannel, rank: &Rank, now: u64) -> Option<u64> {
+        let PowerDownPolicy::AfterIdle { idle_clocks } = self.config.power_down else {
+            return None;
+        };
+        if rank.power != PowerState::Active {
+            return None;
+        }
+        let entry = (rank.command_floor() + idle_clocks).max(subchannel.last_data_end).max(now);
+        let blocked_by_refresh =
+            self.refresh_interval > 0 && rank.next_refresh <= entry + self.config.timing.t_pd;
+        (!blocked_by_refresh).then_some(entry)
     }
 
     /// Injects the next patrol-scrub read when its interval has elapsed.

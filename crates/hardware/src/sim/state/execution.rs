@@ -52,6 +52,29 @@ impl CoreCtx<'_> {
         self.shared.stats.counter(paths.pipeline.cycles_wfi).inc();
     }
 
+    /// Credits `cycles` cycles an idle core spends waiting with the whole
+    /// system quiet, as that many ticks would: the hang detector's count,
+    /// `mcycle`, the privilege-mode and core cycle counts, and the idle
+    /// counts.
+    pub fn skip_quiet_cycles(&mut self, cycles: u64) {
+        let hart_idx = self.hart.hart_id.as_index();
+        let debug = &mut self.shared.per_hart_debug[hart_idx];
+        debug.same_pc_count = debug.same_pc_count.saturating_add(cycles);
+        self.hart.csrs.count_cycles(cycles);
+        let hart_paths = self.hart_paths();
+        let mode_cycles = match self.hart.privilege {
+            PrivilegeMode::User => hart_paths.cycles_user,
+            PrivilegeMode::Supervisor => hart_paths.cycles_kernel,
+            PrivilegeMode::Machine => hart_paths.cycles_machine,
+        };
+        let paths = &self.core.stat_paths;
+        let stats = &mut self.shared.stats;
+        stats.counter(mode_cycles).add(cycles);
+        stats.counter(paths.pipeline.cycles_total).add(cycles);
+        stats.counter(paths.commit.retire_hist_zero).add(cycles);
+        stats.counter(paths.pipeline.cycles_wfi).add(cycles);
+    }
+
     /// Per-hart work at the top of a cycle, before the clock advances:
     /// hang detection and folding this hart's interrupt lines into `mip`.
     pub fn pre_tick(&mut self, irqs: HartIrqs) {

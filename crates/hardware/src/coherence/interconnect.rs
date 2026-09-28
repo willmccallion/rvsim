@@ -40,6 +40,11 @@ pub trait Interconnect: Send + Sync + std::fmt::Debug {
     /// True while any message is in flight.
     fn is_idle(&self) -> bool;
 
+    /// True when idle and ticking at cycle `now` or later changes nothing.
+    fn is_quiet(&self, _now: u64) -> bool {
+        self.is_idle()
+    }
+
     /// Shape of the network.
     fn topology(&self) -> TopologyInfo;
 }
@@ -205,6 +210,11 @@ impl Interconnect for Crossbar {
     fn is_idle(&self) -> bool {
         self.in_flight.is_empty()
             && self.inputs.iter().all(|queues| queues.iter().all(VecDeque::is_empty))
+    }
+
+    /// An output still transmitting counts a busy cycle every tick.
+    fn is_quiet(&self, now: u64) -> bool {
+        self.is_idle() && self.output_free_at.iter().flatten().all(|&free_at| free_at <= now)
     }
 
     fn topology(&self) -> TopologyInfo {

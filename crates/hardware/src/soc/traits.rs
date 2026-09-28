@@ -25,6 +25,18 @@ pub trait Device: Handle + Send + Sync {
     fn tick(&mut self) -> bool {
         false
     }
+    /// How many of the coming ticks would change nothing but the device's
+    /// own clock, or `None` when it will stay that way until software
+    /// touches it. The default says none, so a device skips no time until
+    /// it implements [`Device::skip_ticks`].
+    fn quiet_ticks(&self) -> Option<u64> {
+        Some(0)
+    }
+
+    /// Advances the device by `ticks` ticks, at most [`Device::quiet_ticks`],
+    /// leaving it exactly as ticking would.
+    fn skip_ticks(&mut self, _ticks: u64) {}
+
     /// Returns the IRQ ID for this device if it can raise interrupts.
     fn get_irq_id(&self) -> Option<IrqId> {
         None

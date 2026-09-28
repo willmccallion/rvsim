@@ -886,6 +886,13 @@ impl Csrs {
         }
     }
 
+    /// Counts `cycles` cycles in `mcycle` unless inhibited.
+    pub const fn count_cycles(&mut self, cycles: u64) {
+        if self.mcountinhibit & MCOUNTINHIBIT_CY == 0 {
+            self.mcycle = self.mcycle.wrapping_add(cycles);
+        }
+    }
+
     /// Counts one retired instruction in `minstret` unless inhibited.
     pub const fn count_retired(&mut self) {
         if self.mcountinhibit & MCOUNTINHIBIT_IR == 0 {

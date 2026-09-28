@@ -882,6 +882,12 @@ impl Handle for VirtioBlock {
 }
 
 impl Device for VirtioBlock {
+    /// A request in flight moves on DMA responses; without one the device
+    /// waits for the driver.
+    fn quiet_ticks(&self) -> Option<u64> {
+        if self.job.is_some() { Some(0) } else { None }
+    }
+
     fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
         std::mem::take(&mut self.dma_writes)
     }

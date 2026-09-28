@@ -110,6 +110,10 @@ impl Device for SimControl {
         (self.base_addr, 0x1000)
     }
 
+    fn quiet_ticks(&self) -> Option<u64> {
+        None
+    }
+
     fn take_sim_ops(&mut self) -> Vec<SimOp> {
         std::mem::take(&mut self.pending)
     }

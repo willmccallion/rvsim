@@ -212,6 +212,12 @@ impl CoherenceFabric {
             && self.interconnect.is_idle()
     }
 
+    /// True when idle and ticking at cycle `now` or later changes nothing.
+    #[must_use]
+    pub fn is_quiet(&self, now: u64) -> bool {
+        self.is_idle() && self.interconnect.is_quiet(now)
+    }
+
     /// Advances the interconnect one cycle and processes what arrives.
     pub fn tick(&mut self, ctx: &mut HandleCtx<'_>) {
         let mut arrived = Vec::new();

@@ -93,4 +93,8 @@ impl Device for SysCon {
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, 0x1000)
     }
+
+    fn quiet_ticks(&self) -> Option<u64> {
+        None
+    }
 }

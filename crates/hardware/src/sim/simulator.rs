@@ -73,6 +73,10 @@ pub enum StopReason {
 /// Cycles between [`Simulator::run_to_with`]'s checks of `keep_going`.
 const CANCEL_POLL_CYCLES: u64 = 1 << 16;
 
+/// The most cycles one quiet skip covers, so a system idle forever still
+/// polls `keep_going`.
+const MAX_QUIET_SKIP: u64 = 1 << 32;
+
 /// Top-level simulator: the system state and the order it ticks in.
 #[derive(Debug)]
 pub struct Simulator {
@@ -206,14 +210,79 @@ impl Simulator {
         let start_cycle = self.state.cycle;
         let start_instructions = self.state.instructions_retired();
         loop {
-            self.tick()?;
+            let before = self.state.cycle;
+            let limit = stop.cycles.map_or(u64::MAX, |n| start_cycle + n - before);
+            self.advance(stop, limit)?;
             if let Some(reason) = self.stop_reason(stop, start_cycle, start_instructions) {
                 return Ok(reason);
             }
-            if self.state.cycle.is_multiple_of(CANCEL_POLL_CYCLES) && !keep_going() {
+            let polled = before / CANCEL_POLL_CYCLES != self.state.cycle / CANCEL_POLL_CYCLES;
+            if polled && !keep_going() {
                 return Ok(StopReason::Cancelled);
             }
         }
+    }
+
+    /// Ticks one cycle, then skips the cycles after it in which nothing
+    /// but time would pass, `limit` cycles in all at most.
+    fn advance(&mut self, stop: &StopAt, limit: u64) -> Result<(), SimError> {
+        self.tick()?;
+        let quiet = self.quiet_cycles(stop).min(limit.saturating_sub(1)).min(MAX_QUIET_SKIP);
+        if quiet > 0 {
+            self.skip_quiet_cycles(quiet);
+        }
+        Ok(())
+    }
+
+    /// How many cycles from here would change nothing but time: every core
+    /// idle in WFI, nothing in flight, and no device, timer comparator or
+    /// memory controller due to act. Stops `stop` would take after one more
+    /// cycle end the skip too, so a run stops where ticking would stop it.
+    fn quiet_cycles(&mut self, stop: &StopAt) -> u64 {
+        let state = &mut self.state;
+        let now = state.cycle;
+        let settled = self.skip_idle_cores
+            && !state.trace.armed
+            && !state.config.general.trace_instructions
+            && state.check_exit().is_none()
+            && state.panic_detected_at_cycle.is_none()
+            && state.event_queue.is_empty()
+            && state.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))
+            && !(stop.guest_breaks && state.shared.pending_break.is_some())
+            && !(stop.console_output && state.bus.console_has_output())
+            && !state.harts.iter().any(|hart| stop.pcs.contains(&hart.pc));
+        if !settled || !(0..self.core_count()).all(|core| self.core_is_idle(core)) {
+            return 0;
+        }
+        let state = &self.state;
+        let timers = state.harts.iter().filter_map(|hart| {
+            let sstc = hart.csrs.menvcfg & crate::core::arch::csr::MENVCFG_STCE != 0;
+            sstc.then(|| state.bus.ticks_until_mtime(hart.csrs.stimecmp)).flatten()
+        });
+        let memory = state.mem_controller.quiet_until(now + 1).map(|at| at - (now + 1));
+        let devices = state.bus.quiet_ticks();
+        let stimecmp = timers.min().map(|ticks| ticks - 1);
+        [devices, stimecmp, memory].into_iter().flatten().min().unwrap_or(u64::MAX)
+    }
+
+    /// Advances `cycles` quiet cycles at once, leaving the system exactly as
+    /// ticking through them would.
+    fn skip_quiet_cycles(&mut self, cycles: u64) {
+        self.state.bus.skip_ticks(cycles);
+        for core in 0..self.core_count() {
+            self.state.core_ctx(core).skip_quiet_cycles(cycles);
+        }
+        self.state.cycle += cycles;
+        let shared = &mut self.state.shared;
+        let mut ctx = HandleCtx {
+            scheduler: &mut shared.event_queue,
+            stats: &mut shared.stats,
+            memory: &mut shared.memory,
+            config: &shared.config,
+            cycle: shared.cycle,
+            self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
+        };
+        shared.mem_controller.skip_quiet(&mut ctx);
     }
 
     fn stop_reason(

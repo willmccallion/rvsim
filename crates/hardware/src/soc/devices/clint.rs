@@ -124,6 +124,16 @@ impl Clint {
         self.mtimecmp.get(hart.as_index()).is_some_and(|cmp| self.mtime >= *cmp)
     }
 
+    /// Ticks until `mtime` reaches `value`, or `None` if it already has.
+    #[must_use]
+    pub const fn ticks_until_mtime(&self, value: u64) -> Option<u64> {
+        if value <= self.mtime {
+            return None;
+        }
+        let first = self.divider - self.counter;
+        Some(first.saturating_add((value - self.mtime - 1).saturating_mul(self.divider)))
+    }
+
     /// Reads the 8-byte-aligned window containing `offset`.
     fn read_window(&self, offset: u64) -> u64 {
         let aligned = offset & !7;
@@ -252,6 +262,20 @@ impl Device for Clint {
             self.counter = 0;
         }
         false
+    }
+
+    fn quiet_ticks(&self) -> Option<u64> {
+        self.mtimecmp
+            .iter()
+            .filter_map(|&compare| self.ticks_until_mtime(compare))
+            .min()
+            .map(|ticks| ticks - 1)
+    }
+
+    fn skip_ticks(&mut self, ticks: u64) {
+        let total = self.counter + ticks;
+        self.mtime = self.mtime.wrapping_add(total / self.divider);
+        self.counter = total % self.divider;
     }
 
     fn as_clint(&self) -> Option<&Clint> {

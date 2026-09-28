@@ -84,6 +84,10 @@ impl Device for GoldfishRtc {
         (self.base_addr, 0x1000)
     }
 
+    fn quiet_ticks(&self) -> Option<u64> {
+        None
+    }
+
     fn get_irq_id(&self) -> Option<IrqId> {
         Some(IrqId::new(11))
     }

@@ -301,6 +301,25 @@ impl Bus {
         self.clint_idx.and_then(|i| self.devices[i].as_clint()).map_or(0, Clint::mtime)
     }
 
+    /// Ticks the whole bus can skip; see [`Device::quiet_ticks`]. `None`
+    /// when no device needs another tick until software touches one.
+    pub fn quiet_ticks(&self) -> Option<u64> {
+        self.devices.iter().filter_map(|device| device.quiet_ticks()).min()
+    }
+
+    /// Advances every device by `ticks` quiet ticks.
+    pub fn skip_ticks(&mut self, ticks: u64) {
+        for device in &mut self.devices {
+            device.skip_ticks(ticks);
+        }
+    }
+
+    /// Ticks until the CLINT's `mtime` reaches `value`, or `None` if it
+    /// already has or there is no CLINT.
+    pub fn ticks_until_mtime(&self, value: u64) -> Option<u64> {
+        self.clint_idx.and_then(|i| self.devices[i].as_clint())?.ticks_until_mtime(value)
+    }
+
     /// The interrupt lines currently asserted towards `hart`.
     pub fn hart_irqs(&self, hart: HartId) -> HartIrqs {
         self.hart_irqs.get(hart.as_index()).copied().unwrap_or_default()

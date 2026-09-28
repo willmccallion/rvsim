@@ -310,6 +310,17 @@ pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {
     /// is a no-op for controllers that do all their work in `handle`.
     fn tick(&mut self, _ctx: &mut HandleCtx<'_>) {}
 
+    /// The first simulator cycle at or after `cycle` whose tick may do more
+    /// than count time, or `None` if none will until a request arrives.
+    /// Controllers whose tick does nothing are always quiet.
+    fn quiet_until(&self, _cycle: u64) -> Option<u64> {
+        None
+    }
+
+    /// Credits the quiet ticks of every cycle up to `ctx.cycle`, leaving the
+    /// controller as ticking through them would.
+    fn skip_quiet(&mut self, _ctx: &mut HandleCtx<'_>) {}
+
     /// Continues from simulator cycle `cycle` after a checkpoint restore,
     /// as a controller powered up then would: no timing history, and
     /// refreshes scheduled from that cycle. Queued requests are kept.
