@@ -263,6 +263,8 @@ def main():
     except Exception as e:
         print(f"Simulation failed: {e}")
         return 1
+    finally:
+        print(sim.stats.summary())
 
 
 if __name__ == "__main__":

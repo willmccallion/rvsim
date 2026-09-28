@@ -47,6 +47,8 @@ def main():
     except Exception as e:
         print(f"Simulation ended: {e}", file=sys.stderr)
         return 1
+    finally:
+        print(sim.stats.summary())
 
 
 if __name__ == "__main__":
