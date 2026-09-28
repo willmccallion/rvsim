@@ -71,6 +71,26 @@ _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 _TAGE_RULES = ("tage_base", "cbp5")
 _TAGE_HISTORY_MODES = ("direction", "pc_bits")
 _TAGE_MAX_HISTORY = 8192  # Must match MAX_TAGE_HISTORY in config.rs
+_TAGE_HASHINGS = ("tage_base", "tage_sc_l")
+
+# gem5's TAGE_SC_L_TAGE_64KB: 18 geometric lengths from 6 to 3000, each
+# shared by a pair of banks, and the banks it enables (noSkip).
+_TAGE_SC_L_64KB_HISTORY_LENGTHS = (
+    6, 6, 9, 9, 12, 12, 18, 18, 26, 26, 37, 37, 54, 54, 78, 78, 112, 112,
+    161, 161, 232, 232, 335, 335, 482, 482, 695, 695, 1002, 1002, 1444, 1444,
+    2081, 2081, 3000, 3000,
+)
+_TAGE_SC_L_64KB_ENABLED = [
+    bank in (1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 31, 35)
+    for bank in range(36)
+]
+
+
+def _tage_hashing(hashing: str) -> str:
+    """Check a TAGE ``hashing`` name."""
+    if hashing not in _TAGE_HASHINGS:
+        raise ValueError(f"TAGE hashing must be one of {_TAGE_HASHINGS}, got {hashing!r}")
+    return hashing
 
 
 def _tage_history_mode(mode: str) -> str:
@@ -111,6 +131,39 @@ class BranchPredictor:
         def __repr__(self) -> str:
             return "BranchPredictor.GShare()"
 
+    class TageBanking:
+        """TAGE-SC-L's banked tables: banks before ``first_long_bank``
+        share an array of ``short_factor`` slices of ``table_size``
+        entries, the rest one of ``long_factor``; each pair of banks forms
+        a 2-way table, and ``enabled`` (one flag per bank) says which exist."""
+
+        def __init__(
+            self,
+            short_factor: int,
+            long_factor: int,
+            first_long_bank: int,
+            enabled: List[bool],
+        ):
+            self.short_factor = short_factor
+            self.long_factor = long_factor
+            self.first_long_bank = first_long_bank
+            self.enabled = list(enabled)
+
+        def to_dict(self) -> dict:
+            return {
+                "short_factor": self.short_factor,
+                "long_factor": self.long_factor,
+                "first_long_bank": self.first_long_bank,
+                "enabled": self.enabled,
+            }
+
+        def __repr__(self) -> str:
+            return (
+                f"BranchPredictor.TageBanking(short_factor={self.short_factor}, "
+                f"long_factor={self.long_factor}, "
+                f"first_long_bank={self.first_long_bank})"
+            )
+
     class TAGE:
         def __init__(
             self,
@@ -129,6 +182,8 @@ class BranchPredictor:
             path_history_bits: int = 16,
             bimodal_entries: Optional[int] = None,
             bimodal_hysteresis_share_log: int = 2,
+            hashing: str = "tage_base",
+            banking: Optional["BranchPredictor.TageBanking"] = None,
         ):
             self.num_banks = num_banks
             self.use_alt_counters = use_alt_counters
@@ -141,6 +196,8 @@ class BranchPredictor:
             self.path_history_bits = path_history_bits
             self.bimodal_entries = bimodal_entries
             self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
+            self.hashing = _tage_hashing(hashing)
+            self.banking = banking
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
@@ -266,8 +323,10 @@ class BranchPredictor:
         The TAGE parameters are shared with the standalone TAGE config;
         the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``,
         CBP-5 ``allocation`` and ``update`` with 1-bit useful counters, two
-        allocations, a ``reset_interval`` of 1024 allocation penalties, and
-        ``pc_bits`` history with a 27-bit path over lengths from 6 to 3000).
+        allocations, a ``reset_interval`` of 1024 allocation penalties,
+        ``pc_bits`` history with a 27-bit path, ``tage_sc_l`` hashing, and
+        the 64KB TAGE-SC-L's 36 banked 1024-entry tables over history
+        lengths 6 to 3000).
         The loop predictor, SC and ITTAGE have their own sub-configs; the
         loop predictor and SC defaults are Seznec's 64KB TAGE-SC-L (CBP-5).
         The SC's GEHL components are ``BranchPredictor.ScGehl`` and
@@ -277,8 +336,8 @@ class BranchPredictor:
         def __init__(
             self,
             # TAGE parameters
-            num_banks: int = 8,
-            table_size: int = 2048,
+            num_banks: int = 36,
+            table_size: int = 1024,
             reset_interval: int = 1024,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
@@ -292,6 +351,8 @@ class BranchPredictor:
             path_history_bits: int = 27,
             bimodal_entries: Optional[int] = 8192,
             bimodal_hysteresis_share_log: int = 2,
+            hashing: str = "tage_sc_l",
+            banking: Optional["BranchPredictor.TageBanking"] = None,
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -341,10 +402,10 @@ class BranchPredictor:
             self.history_lengths = (
                 history_lengths
                 if history_lengths is not None
-                else [6, 15, 35, 86, 209, 508, 1235, 3000]
+                else list(_TAGE_SC_L_64KB_HISTORY_LENGTHS)
             )
             self.tag_widths = (
-                tag_widths if tag_widths is not None else [8, 8, 8, 12, 12, 12, 12, 12]
+                tag_widths if tag_widths is not None else [8] * 12 + [12] * 24
             )
             self.use_alt_counters = use_alt_counters
             self.use_alt_bits = use_alt_bits
@@ -356,6 +417,12 @@ class BranchPredictor:
             self.path_history_bits = path_history_bits
             self.bimodal_entries = bimodal_entries
             self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
+            self.hashing = _tage_hashing(hashing)
+            self.banking = (
+                banking
+                if banking is not None
+                else BranchPredictor.TageBanking(10, 20, 12, _TAGE_SC_L_64KB_ENABLED)
+            )
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
             self.loop_tag_bits = loop_tag_bits

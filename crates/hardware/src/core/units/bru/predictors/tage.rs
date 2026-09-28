@@ -31,8 +31,8 @@ impl TagePredictor {
         Self { tage: TageCore::new(config) }
     }
 
-    fn record(&self, branch: HistoryBranch, prediction: Option<TagePrediction>) -> TageHistory {
-        TageHistory { checkpoint: self.tage.checkpoint(), branch, prediction }
+    fn record(&self, branch: HistoryBranch) -> TageHistory {
+        TageHistory { checkpoint: self.tage.checkpoint(), branch, prediction: None }
     }
 }
 
@@ -41,11 +41,13 @@ impl DirectionPredictor for TagePredictor {
 
     fn lookup(&self, pc: u64, _target: u64) -> (bool, TageHistory) {
         let prediction = self.tage.predict(pc);
-        (prediction.taken(), self.record(HistoryBranch::Conditional, Some(prediction)))
+        let mut history = self.record(HistoryBranch::Conditional);
+        history.prediction = Some(prediction);
+        (prediction.taken(), history)
     }
 
     fn unconditional(&self, _pc: u64, jump: Jump) -> TageHistory {
-        self.record(HistoryBranch::from(jump), None)
+        self.record(HistoryBranch::from(jump))
     }
 
     fn update_histories(&mut self, pc: u64, taken: bool, history: &TageHistory) {

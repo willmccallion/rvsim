@@ -112,12 +112,16 @@ BranchPredictor.TAGE(             # Tagged geometric history length
     tag_widths=[9, 9, 10, 10],
 )
 BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
-    # TAGE parameters
-    num_banks=8,
-    table_size=2048,
+    # TAGE parameters (defaults: the 64KB TAGE-SC-L's 36 banked tables)
+    num_banks=36,
+    table_size=1024,
     reset_interval=1024,  # CBP-5: allocation penalties before useful bits halve
-    history_lengths=[5, 15, 44, 130, 380, 1024, 2048, 4096],
-    tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
+    history="pc_bits",
+    hashing="tage_sc_l",
+    banking=BranchPredictor.TageBanking(
+        short_factor=10, long_factor=20, first_long_bank=12,
+        enabled=[...],  # one flag per bank; the default is gem5's noSkip
+    ),
     # Loop predictor (2^log_size entries, 2^log_assoc ways)
     loop_log_size=5,
     loop_log_assoc=2,

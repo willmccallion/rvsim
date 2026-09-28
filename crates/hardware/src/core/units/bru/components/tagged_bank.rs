@@ -11,8 +11,8 @@ use super::folded_history::FoldedHistory;
 use crate::core::units::bru::Ghr;
 
 /// Maximum number of banks supported. Configs with more banks will panic at init.
-/// 16 covers all realistic TAGE/ITTAGE configurations (Seznec uses 8-12).
-pub(crate) const MAX_BANKS: usize = 16;
+/// 40 covers the 36 logical tables of the 64KB TAGE-SC-L.
+pub(crate) const MAX_BANKS: usize = 40;
 
 /// Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 ///

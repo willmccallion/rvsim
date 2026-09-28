@@ -329,6 +329,8 @@ def _bp_sub_dict(bp) -> dict:
             "path_history_bits": bp.path_history_bits,
             "bimodal_entries": bp.bimodal_entries,
             "bimodal_hysteresis_share_log": bp.bimodal_hysteresis_share_log,
+            "hashing": bp.hashing,
+            "banking": bp.banking.to_dict() if bp.banking is not None else None,
         }
     if isinstance(bp, BranchPredictor.Perceptron):
         return {
@@ -706,6 +708,8 @@ _TAGE_DEFAULTS = {
     "path_history_bits": 16,
     "bimodal_entries": None,
     "bimodal_hysteresis_share_log": 2,
+    "hashing": "tage_base",
+    "banking": None,
 }
 
 _PERCEPTRON_DEFAULTS = {

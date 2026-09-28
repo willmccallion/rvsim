@@ -1639,6 +1639,47 @@ pub struct TageConfig {
     /// hysteresis bit, as `TAGEBase`'s `logRatioBiModalHystEntries`.
     #[serde(default = "TageConfig::default_bimodal_hysteresis_share_log")]
     pub bimodal_hysteresis_share_log: u32,
+
+    /// How the PC enters the table, tag and bimodal hashes.
+    #[serde(default)]
+    pub hashing: TageHashing,
+
+    /// TAGE-SC-L's table organization; each bank its own table of
+    /// `table_size` entries when absent.
+    #[serde(default)]
+    pub banking: Option<TageBanking>,
+}
+
+/// How the PC enters TAGE's hashes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TageHashing {
+    /// `TAGEBase`: the PC shifted past its two low bits.
+    #[default]
+    TageBase,
+    /// TAGE-SC-L: the PC unshifted in the tables, and `pc ^ (pc >> 2)` in
+    /// the bimodal.
+    TageScL,
+}
+
+/// TAGE-SC-L's banked tables.
+///
+/// Banks come in pairs that share a history length; the second of a pair
+/// is indexed by the first's index XOR its tag, which makes each pair a
+/// 2-way table. Banks before `first_long_bank` share one array of
+/// `short_factor * table_size` entries, the rest one of
+/// `long_factor * table_size`; each enabled bank takes the next
+/// `table_size`-entry slice from a PC- and path-hashed start.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TageBanking {
+    /// Slices in the short-tag array.
+    pub short_factor: usize,
+    /// Slices in the long-tag array.
+    pub long_factor: usize,
+    /// The first bank (0-based) in the long-tag array.
+    pub first_long_bank: usize,
+    /// Which banks exist (gem5's `noSkip`).
+    pub enabled: Vec<bool>,
 }
 
 /// What each control instruction shifts into TAGE's global history.
@@ -1703,6 +1744,8 @@ impl Default for TageConfig {
             path_history_bits: Self::default_path_history_bits(),
             bimodal_entries: None,
             bimodal_hysteresis_share_log: Self::default_bimodal_hysteresis_share_log(),
+            hashing: TageHashing::default(),
+            banking: None,
         }
     }
 }
@@ -1904,6 +1947,9 @@ pub enum ScConfigError {
     #[error("{0} local histories is not a power of two")]
     LocalHistories(usize),
 }
+
+/// Most TAGE banks.
+pub const MAX_TAGE_BANKS: usize = crate::core::units::bru::components::tagged_bank::MAX_BANKS;
 
 /// Longest TAGE history, in history bits.
 pub const MAX_TAGE_HISTORY: usize = 1 << 13;
@@ -2465,6 +2511,14 @@ pub enum ConfigError {
     /// 64 bytes, the widest access within the smallest allowed line.
     #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
     VectorMemWidth(usize),
+    /// More TAGE banks than a prediction record holds.
+    #[error("tage num_banks {0} exceeds {MAX_TAGE_BANKS}")]
+    TageBanks(usize),
+    /// Banking that does not describe the configured banks.
+    #[error(
+        "tage banking needs one enabled flag per bank, a first_long_bank among them and non-zero factors"
+    )]
+    TageBanking,
     /// A bimodal that is not a power of two or shares one hysteresis bit
     /// among more entries than it has.
     #[error("tage bimodal_entries {entries} must be a power of two of at least 2^{share_log}")]
@@ -2574,6 +2628,18 @@ impl Config {
                 counters: tage.use_alt_counters,
                 bits: tage.use_alt_bits,
             });
+        }
+        if tage.num_banks > MAX_TAGE_BANKS {
+            return Err(ConfigError::TageBanks(tage.num_banks));
+        }
+        if let Some(banking) = &tage.banking {
+            let fits = banking.enabled.len() == tage.num_banks
+                && banking.first_long_bank < tage.num_banks
+                && banking.short_factor > 0
+                && banking.long_factor > 0;
+            if !fits {
+                return Err(ConfigError::TageBanking);
+            }
         }
         let bimodal = tage.bimodal_entries();
         if !bimodal.is_power_of_two() || (bimodal >> tage.bimodal_hysteresis_share_log) == 0 {

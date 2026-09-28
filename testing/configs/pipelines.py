@@ -99,10 +99,7 @@ PIPELINES = [
     # SC-L-TAGE with larger tables (matches linux config scale).
     ("o3 w4 sc-l-tage-wide", Config(width=4, backend=Backend.OutOfOrder(),
                                    branch_predictor=BranchPredictor.ScLTage(
-                                       num_banks=8, table_size=4096,
                                        loop_log_size=9,
-                                       history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
-                                       tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
                                        ittage_num_banks=8, ittage_table_size=512,
                                    ))),
 

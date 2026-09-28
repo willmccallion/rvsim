@@ -74,10 +74,6 @@ def fast() -> Config:
             lfst_size=512,
         ),
         branch_predictor=BranchPredictor.ScLTage(
-            num_banks=8,
-            table_size=8192,
-            history_lengths=[4, 8, 16, 32, 64, 128, 256, 512],
-            tag_widths=[8, 8, 9, 9, 10, 10, 11, 11],
             loop_log_size=10,
             ittage_num_banks=8,
             ittage_table_size=512,

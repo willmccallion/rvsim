@@ -7,7 +7,7 @@
 use super::sc_types::{TageConfLevel, TageScMeta};
 use super::tage_history::{HistoryBranch, HistoryCheckpoint, TageHistories};
 use super::tagged_bank::MAX_BANKS;
-use crate::config::{TageAllocation, TageConfig, TageUpdate};
+use crate::config::{TageAllocation, TageBanking, TageConfig, TageHashing, TageUpdate};
 
 /// An entry in a TAGE tagged bank.
 #[derive(Clone, Copy, Debug, Default)]
@@ -163,7 +163,14 @@ pub struct TageCore {
     hist_lengths: Vec<usize>,
     tag_widths: Vec<usize>,
     path_history_bits: usize,
-    tables: Vec<Vec<TageEntry>>,
+    /// The entry arrays: one per bank, or TAGE-SC-L's short- and long-tag
+    /// arrays that its banks share.
+    storage: Vec<Vec<TageEntry>>,
+    /// Which array each bank's entries are in.
+    bank_storage: Vec<usize>,
+    num_banks: usize,
+    banking: Option<TageBanking>,
+    hashing: TageHashing,
     /// `USE_ALT_ON_NA`: whether a weak (newly allocated) provider defers
     /// to the alternate prediction; non-negative defers.
     use_alt_on_na: Vec<i8>,
@@ -201,10 +208,7 @@ impl TageCore {
 
         let table_bits = config.table_size.trailing_zeros() as usize;
 
-        let mut tables = Vec::with_capacity(num_banks);
-        for _ in 0..num_banks {
-            tables.push(vec![TageEntry::default(); config.table_size]);
-        }
+        let (storage, bank_storage) = Self::storage(config);
 
         let histories = TageHistories::new(
             hist_lengths,
@@ -221,7 +225,11 @@ impl TageCore {
             hist_lengths: hist_lengths.clone(),
             tag_widths: tag_widths.clone(),
             path_history_bits: config.path_history_bits as usize,
-            tables,
+            storage,
+            bank_storage,
+            num_banks,
+            banking: config.banking.clone(),
+            hashing: config.hashing,
             use_alt_on_na: vec![0; config.use_alt_counters.max(1)],
             use_alt_bits: config.use_alt_bits,
             // Half a period in, as gem5's initialTCounterValue is.
@@ -235,6 +243,28 @@ impl TageCore {
         }
     }
 
+    /// The entry arrays and the array each bank is in: a table per bank, or
+    /// TAGE-SC-L's short- and long-tag arrays.
+    fn storage(config: &TageConfig) -> (Vec<Vec<TageEntry>>, Vec<usize>) {
+        let table = |slices: usize| vec![TageEntry::default(); slices * config.table_size];
+        let banks = 0..config.num_banks;
+        config.banking.as_ref().map_or_else(
+            || (banks.clone().map(|_| table(1)).collect(), banks.clone().collect()),
+            |banking| {
+                let short_or_long =
+                    banks.clone().map(|bank| usize::from(bank >= banking.first_long_bank));
+                (
+                    vec![table(banking.short_factor), table(banking.long_factor)],
+                    short_or_long.collect(),
+                )
+            },
+        )
+    }
+
+    fn enabled(&self, bank: usize) -> bool {
+        self.banking.as_ref().is_none_or(|banking| banking.enabled[bank])
+    }
+
     const fn table_mask(&self) -> usize {
         (1 << self.table_bits) - 1
     }
@@ -242,23 +272,19 @@ impl TageCore {
     /// Predicts the branch at `pc` from the speculative history, recording
     /// the entries it read. `O(num_banks)`.
     pub fn predict(&self, pc: u64) -> TagePrediction {
-        let num_banks = self.tables.len();
-        let mut indices = [0usize; MAX_BANKS];
-        let mut tags = [0u16; MAX_BANKS];
-        for bank in 0..num_banks {
-            indices[bank] = self.index(pc, bank);
-            tags[bank] = self.tag(pc, bank);
-        }
-        let base_index = ((pc >> 2) as usize) & self.bimodal.mask();
+        let (indices, tags) = self.indices_and_tags(pc);
+        let base_index = self.bimodal_index(pc);
 
-        let mut matching =
-            (0..num_banks).rev().filter(|&b| self.tables[b][indices[b]].tag == tags[b]);
+        let mut matching = (0..self.num_banks).rev().filter(|&b| {
+            self.enabled(b) && self.storage[self.bank_storage[b]][indices[b]].tag == tags[b]
+        });
         let provider = matching.next();
         let alt = matching.next();
 
         let base_ctr = self.bimodal.counter(base_index);
-        let ctr_of =
-            |bank: Option<usize>| bank.map_or(base_ctr, |b| self.tables[b][indices[b]].ctr);
+        let ctr_of = |bank: Option<usize>| {
+            bank.map_or(base_ctr, |b| self.storage[self.bank_storage[b]][indices[b]].ctr)
+        };
         let (provider_ctr, alt_ctr) = (ctr_of(provider), ctr_of(alt));
         let provider_weak = provider.is_some() && (provider_ctr == 0 || provider_ctr == -1);
         let base_saturated = Bimodal::saturated(base_ctr);
@@ -312,7 +338,7 @@ impl TageCore {
     /// `TAGEBase::condBranchUpdate` does. `final_taken` is the prediction
     /// fetch followed, which the CBP-5 allocation also weighs.
     pub fn update(&mut self, taken: bool, prediction: &TagePrediction, final_taken: bool) {
-        let num_banks = self.tables.len();
+        let num_banks = self.num_banks;
         let mut allocate = prediction.taken() != taken
             && prediction.provider.is_none_or(|bank| bank + 1 < num_banks);
         if prediction.provider.is_some() && prediction.provider_weak {
@@ -355,22 +381,27 @@ impl TageCore {
     /// three tables, chosen at random so entries do not ping-pong, and when
     /// none from there is free it frees that one.
     fn allocate_after_provider(&mut self, taken: bool, prediction: &TagePrediction, choice: u64) {
-        let num_banks = self.tables.len();
+        let num_banks = self.num_banks;
         let TagePrediction { indices, tags, .. } = *prediction;
         let first = prediction.provider.map_or(0, |bank| bank + 1);
-        let free = |table: &Vec<TageEntry>, bank: usize| table[indices[bank]].u == 0;
-        let any_free = (first..num_banks).any(|bank| free(&self.tables[bank], bank));
+        let free = |bank: usize| {
+            self.enabled(bank) && self.storage[self.bank_storage[bank]][indices[bank]].u == 0
+        };
+        let any_free = (first..num_banks).any(free);
         let skips = choice & ((1 << (num_banks - first - 1)) - 1);
         let start = first + usize::from(skips & 1 != 0) + usize::from(skips & 0b11 == 0b11);
         if !any_free {
-            self.tables[start][indices[start]].u = 0;
+            self.storage[self.bank_storage[start]][indices[start]].u = 0;
         }
         let mut allocated = 0;
         for bank in start..num_banks {
             if allocated == self.max_allocations {
                 break;
             }
-            let entry = &mut self.tables[bank][indices[bank]];
+            if !self.enabled(bank) {
+                continue;
+            }
+            let entry = &mut self.storage[self.bank_storage[bank]][indices[bank]];
             if entry.u == 0 {
                 entry.tag = tags[bank];
                 entry.ctr = if taken { 0 } else { -1 };
@@ -388,7 +419,7 @@ impl TageCore {
     }
 
     fn halve_useful_bits(&mut self) {
-        for entry in self.tables.iter_mut().flatten() {
+        for entry in self.storage.iter_mut().flatten() {
             entry.u >>= 1;
         }
     }
@@ -401,7 +432,7 @@ impl TageCore {
     /// against it; once they outweigh the allocations by `reset_interval`,
     /// every useful counter halves.
     fn allocate_in_pairs(&mut self, taken: bool, prediction: &TagePrediction) {
-        let num_banks = self.tables.len();
+        let num_banks = self.num_banks;
         let TagePrediction { indices, tags, .. } = *prediction;
         let provider = prediction.provider.map_or(0, |bank| bank + 1);
         let pairs_up = if self.next_random() & 127 < 32 { 2 } else { 1 };
@@ -409,10 +440,10 @@ impl TageCore {
         let (mut penalty, mut allocated) = (0i64, 0usize);
         while pair < num_banks && allocated < self.max_allocations {
             for bank in [pair, pair ^ 1] {
-                if bank >= num_banks {
+                if bank >= num_banks || !self.enabled(bank) {
                     continue;
                 }
-                let entry = &mut self.tables[bank][indices[bank]];
+                let entry = &mut self.storage[self.bank_storage[bank]][indices[bank]];
                 if entry.u != 0 {
                     penalty += 1;
                 } else if centred_magnitude(entry.ctr) <= 3 {
@@ -445,12 +476,12 @@ impl TageCore {
             self.train_base(base_index, taken);
             return;
         };
-        let entry = &mut self.tables[bank][indices[bank]];
+        let entry = &mut self.storage[self.bank_storage[bank]][indices[bank]];
         entry.ctr = saturating_step(entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
         if entry.u == 0 {
             match alt {
                 Some(alt) => {
-                    let alt_entry = &mut self.tables[alt][indices[alt]];
+                    let alt_entry = &mut self.storage[self.bank_storage[alt]][indices[alt]];
                     alt_entry.ctr = saturating_step(alt_entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
                 }
                 None => self.train_base(base_index, taken),
@@ -458,7 +489,7 @@ impl TageCore {
         }
         if prediction.taken() != prediction.alt_taken {
             let useful_max = self.useful_max;
-            let entry = &mut self.tables[bank][indices[bank]];
+            let entry = &mut self.storage[self.bank_storage[bank]][indices[bank]];
             entry.u = if prediction.taken() == taken {
                 (entry.u + 1).min(useful_max)
             } else {
@@ -480,20 +511,21 @@ impl TageCore {
             self.train_base(base_index, taken);
             return;
         };
-        let weak = centred_magnitude(self.tables[bank][indices[bank]].ctr) == 1;
+        let weak = centred_magnitude(self.storage[self.bank_storage[bank]][indices[bank]].ctr) == 1;
         if weak && provider_taken != taken {
             match alt {
                 Some(alt) => {
-                    let alt_entry = &mut self.tables[alt][indices[alt]];
+                    let alt_entry = &mut self.storage[self.bank_storage[alt]][indices[alt]];
                     alt_entry.ctr = saturating_step(alt_entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
                 }
                 None => self.train_base(base_index, taken),
             }
         }
-        let alt_saturated =
-            alt.is_some_and(|alt| centred_magnitude(self.tables[alt][indices[alt]].ctr) == 7);
+        let alt_saturated = alt.is_some_and(|alt| {
+            centred_magnitude(self.storage[self.bank_storage[alt]][indices[alt]].ctr) == 7
+        });
         let useful_max = self.useful_max;
-        let entry = &mut self.tables[bank][indices[bank]];
+        let entry = &mut self.storage[self.bank_storage[bank]][indices[bank]];
         entry.ctr = saturating_step(entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
         if centred_magnitude(entry.ctr) == 1 {
             entry.u = 0;
@@ -521,13 +553,80 @@ impl TageCore {
         x
     }
 
+    /// The PC as the table and tag hashes take it: shifted past its low
+    /// bits by `TAGEBase`, whole by TAGE-SC-L.
+    const fn hashed_pc(&self, pc: u64) -> u64 {
+        match self.hashing {
+            TageHashing::TageBase => pc >> 2,
+            TageHashing::TageScL => pc,
+        }
+    }
+
+    /// `bindex`: `TAGEBase`'s shifted PC, or TAGE-SC-L's `pc ^ (pc >> 2)`.
+    const fn bimodal_index(&self, pc: u64) -> usize {
+        let hash = match self.hashing {
+            TageHashing::TageBase => pc >> 2,
+            TageHashing::TageScL => pc ^ (pc >> 2),
+        };
+        hash as usize & self.bimodal.mask()
+    }
+
+    /// Each bank's index and tag for `pc`, as `calculateIndicesAndTags`
+    /// computes them. With banking (`TAGE_SC_L_TAGE`'s), the second bank of
+    /// each pair takes the first's tag and its index XOR that tag, and each
+    /// enabled bank's index moves to its slice of the shared array.
+    fn indices_and_tags(&self, pc: u64) -> ([usize; MAX_BANKS], [u16; MAX_BANKS]) {
+        let mut indices = [0usize; MAX_BANKS];
+        let mut tags = [0u16; MAX_BANKS];
+        let Some(banking) = &self.banking else {
+            for bank in 0..self.num_banks {
+                indices[bank] = self.index(pc, bank);
+                tags[bank] = self.tag(pc, bank);
+            }
+            return (indices, tags);
+        };
+        for first in (0..self.num_banks).step_by(2) {
+            indices[first] = self.index(pc, first);
+            tags[first] = self.tag(pc, first);
+            if first + 1 < self.num_banks {
+                tags[first + 1] = tags[first];
+                indices[first + 1] =
+                    indices[first] ^ (usize::from(tags[first]) & self.table_mask());
+            }
+        }
+        let long = banking.first_long_bank..self.num_banks;
+        self.place_in_slices(pc, long, banking.long_factor, &mut indices);
+        self.place_in_slices(pc, 0..banking.first_long_bank, banking.short_factor, &mut indices);
+        (indices, tags)
+    }
+
+    /// Moves each enabled bank in `banks` to consecutive slices of an array
+    /// of `slices`, starting from one hashed from the PC and the path.
+    fn place_in_slices(
+        &self,
+        pc: u64,
+        banks: std::ops::Range<usize>,
+        slices: usize,
+        indices: &mut [usize; MAX_BANKS],
+    ) {
+        let path_bits = self.hist_lengths[banks.start].min(64) as u32;
+        let path = u64::from(self.histories.path()) & (u64::MAX >> (64 - path_bits.max(1)));
+        let mut slice = ((pc ^ path) % slices as u64) as usize;
+        for bank in banks {
+            if self.enabled(bank) {
+                indices[bank] += slice << self.table_bits;
+                slice = (slice + 1) % slices;
+            }
+        }
+    }
+
     /// The index of `pc` in tagged `bank` (0-based), as `TAGEBase::gindex`
     /// hashes it: the PC, a shifted copy of it, the folded global history
     /// and the folded path history.
     fn index(&self, pc: u64, bank: usize) -> usize {
         let table_bits = self.table_bits;
         let gem5_bank = bank + 1;
-        let shifted_pc = (pc >> 2) as u32;
+        let shifted_pc = self.hashed_pc(pc) as u32;
         let [index_fold, _, _] = self.histories.folds(bank);
         let path_bits = self.hist_lengths[bank].min(self.path_history_bits);
         let hash = shifted_pc
@@ -542,7 +641,7 @@ impl TageCore {
     fn tag(&self, pc: u64, bank: usize) -> u16 {
         let width = self.tag_widths[bank];
         let [_, tag_fold, short_tag_fold] = self.histories.folds(bank);
-        let tag = (pc >> 2) ^ tag_fold ^ (short_tag_fold << 1);
+        let tag = self.hashed_pc(pc) ^ tag_fold ^ (short_tag_fold << 1);
         (tag & ((1 << width) - 1)) as u16
     }
 
@@ -698,9 +797,10 @@ mod tests {
     }
 
     fn allocated_banks(tage: &TageCore, prediction: &TagePrediction) -> Vec<usize> {
-        (0..tage.tables.len())
+        (0..tage.num_banks)
             .filter(|&bank| {
-                tage.tables[bank][prediction.indices[bank]].tag == prediction.tags[bank]
+                tage.storage[tage.bank_storage[bank]][prediction.indices[bank]].tag
+                    == prediction.tags[bank]
             })
             .collect()
     }
@@ -710,7 +810,7 @@ mod tests {
         let mut tage = TageCore::new(&test_config());
         let wrong = prediction(None, None, true, true, true);
         for bank in 0..4 {
-            tage.tables[bank][wrong.indices[bank]].u = 3;
+            tage.storage[tage.bank_storage[bank]][wrong.indices[bank]].u = 3;
         }
 
         tage.update(false, &wrong, wrong.taken());
@@ -738,7 +838,10 @@ mod tests {
 
         tage.update(false, &p, p.taken());
 
-        assert_eq!(tage.tables[0][p.indices[0]].ctr, -1, "the alternate moved toward not taken");
+        assert_eq!(
+            tage.storage[tage.bank_storage[0]][p.indices[0]].ctr, -1,
+            "the alternate moved toward not taken"
+        );
     }
 
     #[test]
@@ -819,7 +922,7 @@ mod tests {
         for _ in 0..320 {
             tage.update(false, &tage_wrong, false);
             for bank in allocated_banks(&tage, &tage_wrong) {
-                tage.tables[bank][tage_wrong.indices[bank]].tag = 0;
+                tage.storage[tage.bank_storage[bank]][tage_wrong.indices[bank]].tag = 0;
                 allocations += 1;
             }
         }
@@ -832,13 +935,15 @@ mod tests {
         let mut tage = TageCore::new(&cbp5_config());
         let wrong = prediction(None, None, true, true, true);
         for bank in 0..8 {
-            tage.tables[bank][wrong.indices[bank]].ctr = 3;
+            tage.storage[tage.bank_storage[bank]][wrong.indices[bank]].ctr = 3;
         }
 
         tage.update(false, &wrong, true);
 
         assert!(allocated_banks(&tage, &wrong).is_empty());
-        let ctrs: Vec<i8> = (0..8).map(|bank| tage.tables[bank][wrong.indices[bank]].ctr).collect();
+        let ctrs: Vec<i8> = (0..8)
+            .map(|bank| tage.storage[tage.bank_storage[bank]][wrong.indices[bank]].ctr)
+            .collect();
         assert!(ctrs.contains(&2) && ctrs.iter().all(|&ctr| ctr >= 2), "{ctrs:?}");
     }
 
@@ -846,24 +951,24 @@ mod tests {
     fn cbp5_a_provider_turning_weak_loses_its_usefulness() {
         let mut tage = TageCore::new(&cbp5_config());
         let p = prediction(Some(1), Some(0), true, true, true);
-        let provider = &mut tage.tables[1][p.indices[1]];
+        let provider = &mut tage.storage[tage.bank_storage[1]][p.indices[1]];
         provider.ctr = 1;
         provider.u = 1;
 
         tage.update(false, &p, true);
 
-        assert_eq!(tage.tables[1][p.indices[1]].u, 0);
+        assert_eq!(tage.storage[tage.bank_storage[1]][p.indices[1]].u, 0);
     }
 
     #[test]
     fn cbp5_a_strong_provider_that_was_wrong_leaves_the_alternate_alone() {
         let mut tage = TageCore::new(&cbp5_config());
         let p = prediction(Some(1), Some(0), true, true, true);
-        tage.tables[1][p.indices[1]].ctr = 3;
+        tage.storage[tage.bank_storage[1]][p.indices[1]].ctr = 3;
 
         tage.update(false, &p, true);
 
-        assert_eq!(tage.tables[0][p.indices[0]].ctr, 0);
+        assert_eq!(tage.storage[tage.bank_storage[0]][p.indices[0]].ctr, 0);
     }
 
     #[test]
@@ -877,5 +982,60 @@ mod tests {
 
         assert_eq!((neighbour_before, bimodal.counter(1)), (-1, -2));
         assert_eq!(bimodal.counter(4), -1, "entry 4 has its own hysteresis bit");
+    }
+
+    fn banked_config() -> TageConfig {
+        TageConfig {
+            num_banks: 6,
+            table_size: 64,
+            history_lengths: vec![4, 4, 9, 9, 20, 20],
+            tag_widths: vec![8, 8, 12, 12, 12, 12],
+            hashing: TageHashing::TageScL,
+            banking: Some(TageBanking {
+                short_factor: 2,
+                long_factor: 3,
+                first_long_bank: 2,
+                enabled: vec![true, true, true, false, true, true],
+            }),
+            ..TageConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_bank_pair_shares_its_tag_and_offsets_its_index_by_it() {
+        let tage = TageCore::new(&banked_config());
+
+        let (indices, tags) = tage.indices_and_tags(0x8000_1234);
+
+        let slice = |index: usize| index >> 6;
+        assert_eq!(tags[1], tags[0]);
+        assert_eq!(indices[1] & 63, (indices[0] ^ usize::from(tags[0])) & 63);
+        assert_ne!(slice(indices[0]), slice(indices[1]), "each enabled bank its own slice");
+    }
+
+    #[test]
+    fn enabled_banks_take_consecutive_slices_of_their_array() {
+        let tage = TageCore::new(&banked_config());
+
+        let (indices, _) = tage.indices_and_tags(0x8000_1234);
+
+        let slices: Vec<usize> = [2, 4, 5].iter().map(|&bank| indices[bank] >> 6).collect();
+        assert_eq!(slices[1], (slices[0] + 1) % 3, "{slices:?}");
+        assert_eq!(slices[2], (slices[1] + 1) % 3, "{slices:?}");
+        assert!(slices.iter().all(|&slice| slice < 3));
+    }
+
+    #[test]
+    fn a_disabled_bank_never_provides() {
+        let mut tage = TageCore::new(&banked_config());
+        let pc = 0x8000_1234;
+        let (indices, tags) = tage.indices_and_tags(pc);
+        let entry = &mut tage.storage[tage.bank_storage[3]][indices[3]];
+        entry.tag = tags[3];
+        entry.ctr = 3;
+
+        let prediction = tage.predict(pc);
+
+        assert_ne!(prediction.provider, Some(3));
     }
 }
