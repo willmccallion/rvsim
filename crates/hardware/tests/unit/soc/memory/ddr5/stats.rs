@@ -38,8 +38,8 @@ fn counters_and_derived_rates_reflect_the_commands_issued() {
 
     let latency = h.stats.histogram("memctrl0.ch0.sc0.read_latency");
     assert_eq!(latency.count(), 2);
-    assert_eq!(latency.min(), t.t_cas + t.bl_half, "row hit: column at arrival");
-    assert_eq!(latency.max(), t.t_rcd + t.t_cas + t.bl_half, "row miss: ACT first");
+    assert_eq!(latency.min(), Some(t.t_cas + t.bl_half), "row hit: column at arrival");
+    assert_eq!(latency.max(), Some(t.t_rcd + t.t_cas + t.bl_half), "row miss: ACT first");
 
     let summary = h.stats.summary(0, 0);
     assert!(summary.contains("[memctrl0]"));

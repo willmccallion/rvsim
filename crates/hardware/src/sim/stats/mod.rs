@@ -59,6 +59,12 @@ impl Counter {
     pub const fn reset(&mut self) {
         self.0 = 0;
     }
+
+    /// What was counted after `earlier`, a snapshot of this counter.
+    #[must_use]
+    pub const fn since(self, earlier: Self) -> Self {
+        Self(self.0.saturating_sub(earlier.0))
+    }
 }
 
 /// A power-of-two-bucketed histogram for latency / queue-depth distributions.
@@ -69,8 +75,9 @@ pub struct Histogram {
     buckets: Vec<u64>,
     count: u64,
     sum: u64,
-    min: u64,
-    max: u64,
+    /// The smallest and largest samples; `None` with no samples, or for a
+    /// window between two snapshots, whose extremes cannot be recovered.
+    extremes: Option<(u64, u64)>,
 }
 
 impl Histogram {
@@ -81,12 +88,10 @@ impl Histogram {
             self.buckets.resize(bucket + 1, 0);
         }
         self.buckets[bucket] = self.buckets[bucket].saturating_add(1);
-        if self.count == 0 || sample < self.min {
-            self.min = sample;
-        }
-        if sample > self.max {
-            self.max = sample;
-        }
+        self.extremes = Some(match self.extremes {
+            Some((min, max)) => (min.min(sample), max.max(sample)),
+            None => (sample, sample),
+        });
         self.count = self.count.saturating_add(1);
         self.sum = self.sum.saturating_add(sample);
     }
@@ -106,14 +111,14 @@ impl Histogram {
         if self.count == 0 { 0.0 } else { self.sum as f64 / self.count as f64 }
     }
 
-    /// Returns the minimum recorded sample, or 0 if no samples were recorded.
-    pub const fn min(&self) -> u64 {
-        self.min
+    /// The smallest recorded sample, when known.
+    pub fn min(&self) -> Option<u64> {
+        self.extremes.map(|(min, _)| min)
     }
 
-    /// Returns the maximum recorded sample, or 0 if no samples were recorded.
-    pub const fn max(&self) -> u64 {
-        self.max
+    /// The largest recorded sample, when known.
+    pub fn max(&self) -> Option<u64> {
+        self.extremes.map(|(_, max)| max)
     }
 
     /// Clears the histogram for phase-based analysis.
@@ -121,8 +126,25 @@ impl Histogram {
         self.buckets.clear();
         self.count = 0;
         self.sum = 0;
-        self.min = 0;
-        self.max = 0;
+        self.extremes = None;
+    }
+
+    /// The samples recorded after `earlier`, a snapshot of this histogram:
+    /// exact buckets, count, sum and mean, but unknown extremes.
+    #[must_use]
+    pub fn since(&self, earlier: &Self) -> Self {
+        let buckets = self
+            .buckets
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| n.saturating_sub(earlier.buckets.get(i).copied().unwrap_or(0)))
+            .collect();
+        Self {
+            buckets,
+            count: self.count.saturating_sub(earlier.count),
+            sum: self.sum.saturating_sub(earlier.sum),
+            extremes: None,
+        }
     }
 }
 
@@ -197,6 +219,34 @@ impl StatGroup {
         }
     }
 
+    /// The counts accumulated after `earlier`, a snapshot of this group.
+    #[must_use]
+    pub fn since(&self, earlier: &Self) -> Self {
+        let counters = self
+            .counters
+            .iter()
+            .map(|(&name, &c)| {
+                (name, c.since(earlier.counters.get(name).copied().unwrap_or_default()))
+            })
+            .collect();
+        let histograms = self
+            .histograms
+            .iter()
+            .map(|(&name, h)| {
+                (name, earlier.histograms.get(name).map_or_else(|| h.clone(), |e| h.since(e)))
+            })
+            .collect();
+        let children = self
+            .children
+            .iter()
+            .map(|(&name, child)| {
+                let empty = Self::default();
+                (name, child.since(earlier.children.get(name).unwrap_or(&empty)))
+            })
+            .collect();
+        Self { counters, histograms, children }
+    }
+
     fn dump_text(&self, prefix: &str, out: &mut dyn Write) -> io::Result<()> {
         for (name, c) in &self.counters {
             writeln!(out, "{prefix}{name} {}", c.get())?;
@@ -208,8 +258,8 @@ impl StatGroup {
                 h.count(),
                 h.sum(),
                 h.mean(),
-                h.min(),
-                h.max()
+                h.min().map_or_else(|| "n/a".to_string(), |v| v.to_string()),
+                h.max().map_or_else(|| "n/a".to_string(), |v| v.to_string())
             )?;
         }
         for (name, child) in &self.children {
@@ -406,6 +456,18 @@ impl Stats {
         out.sort_unstable();
         out.dedup();
         out
+    }
+
+    /// The stats accumulated after `earlier`, a snapshot of this tree:
+    /// counters and histograms are subtracted, and derived stats (ratios)
+    /// are recomputed from the differences when read.
+    #[must_use]
+    pub fn since(&self, earlier: &Self) -> Self {
+        Self {
+            root: self.root.since(&earlier.root),
+            meta: self.meta.clone(),
+            derived: self.derived.clone(),
+        }
     }
 
     /// Resets every counter and histogram in the tree. Metadata and derived
@@ -660,8 +722,8 @@ mod tests {
         }
         let h = s.histogram("system.memctrl.latency");
         assert_eq!(h.count(), 7);
-        assert_eq!(h.min(), 1);
-        assert_eq!(h.max(), 16);
+        assert_eq!(h.min(), Some(1));
+        assert_eq!(h.max(), Some(16));
     }
 
     #[test]
@@ -684,5 +746,36 @@ mod tests {
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains("root.left 1"));
         assert!(out.contains("root.right 2"));
+    }
+
+    #[test]
+    fn a_window_recomputes_ratios_from_the_counts_it_holds() {
+        let mut s = Stats::new();
+        s.derive("core.ipc", Formula::Div("core.insts", "core.cycles"), Meta::events("ipc"));
+        s.counter("core.insts").add(100);
+        s.counter("core.cycles").add(400);
+        let start = s.clone();
+        s.counter("core.insts").add(300);
+        s.counter("core.cycles").add(100);
+
+        let window = s.since(&start);
+
+        assert_eq!(window.get("core.insts"), Some(300.0));
+        assert_eq!(window.get("core.ipc"), Some(3.0), "not 0.8 - 0.25");
+    }
+
+    #[test]
+    fn a_window_keeps_exact_histogram_counts_but_not_extremes() {
+        let mut s = Stats::new();
+        s.histogram("mem.latency").record(10);
+        let start = s.clone();
+        s.histogram("mem.latency").record(20);
+        s.histogram("mem.latency").record(40);
+
+        let window = s.since(&start);
+        let h = window.root.children["mem"].histograms["latency"].clone();
+
+        assert_eq!((h.count(), h.sum(), h.mean()), (2, 60, 30.0));
+        assert_eq!((h.min(), h.max()), (None, None));
     }
 }
