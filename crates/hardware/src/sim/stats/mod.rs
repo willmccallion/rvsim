@@ -15,7 +15,8 @@
 //!
 //! See `docs/architecture/stats.md` for the design rationale.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::io::{self, Write};
 
 pub mod meta;
@@ -148,132 +149,92 @@ impl Histogram {
     }
 }
 
-/// A single node in the stats tree. Holds local counters, histograms, and
-/// child sub-groups keyed by path segment.
-#[derive(Clone, Debug, Default)]
-pub struct StatGroup {
-    counters: BTreeMap<&'static str, Counter>,
-    histograms: BTreeMap<&'static str, Histogram>,
-    children: BTreeMap<&'static str, Self>,
-}
+/// Hashes a path by the address and length of its text: stat paths are
+/// `&'static str`s built once, so the address names the path, and hashing
+/// two words is far cheaper than hashing or comparing the text.
+#[derive(Default)]
+struct AddressHasher(u64);
 
-impl StatGroup {
-    /// Returns a mutable reference to the counter at `path`, creating it on first access.
-    pub fn counter(&mut self, path: &'static str) -> &mut Counter {
-        let (head, rest) = split_path(path);
-        if let Some(rest) = rest {
-            self.children.entry(head).or_default().counter(rest)
-        } else {
-            self.counters.entry(head).or_default()
+impl Hasher for AddressHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
         }
     }
 
-    /// Returns a mutable reference to the histogram at `path`, creating it on first access.
-    pub fn histogram(&mut self, path: &'static str) -> &mut Histogram {
-        let (head, rest) = split_path(path);
-        if let Some(rest) = rest {
-            self.children.entry(head).or_default().histogram(rest)
-        } else {
-            self.histograms.entry(head).or_default()
-        }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x517c_c1b7_2722_0a95);
     }
 
-    /// Reads the counter at `path` without creating it. Returns `None` if any
-    /// intermediate segment or the leaf itself has never been written.
-    #[must_use]
-    pub fn get(&self, path: &str) -> Option<&Counter> {
-        let (head, rest) =
-            path.find('.').map_or((path, None), |i| (&path[..i], Some(&path[i + 1..])));
-        if let Some(rest) = rest {
-            self.children.get(head)?.get(rest)
-        } else {
-            self.counters.get(head)
-        }
-    }
-
-    /// Visits every counter in the tree in pre-order, invoking `visit` with
-    /// the fully-qualified dotted path and a reference to the counter.
-    pub fn walk(&self, prefix: &str, visit: &mut dyn FnMut(&str, &Counter)) {
-        for (name, c) in &self.counters {
-            let path =
-                if prefix.is_empty() { (*name).to_string() } else { format!("{prefix}.{name}") };
-            visit(&path, c);
-        }
-        for (name, child) in &self.children {
-            let next =
-                if prefix.is_empty() { (*name).to_string() } else { format!("{prefix}.{name}") };
-            child.walk(&next, visit);
-        }
-    }
-
-    /// Resets all counters and histograms recursively (phase boundary).
-    pub fn reset(&mut self) {
-        for c in self.counters.values_mut() {
-            c.reset();
-        }
-        for h in self.histograms.values_mut() {
-            h.reset();
-        }
-        for child in self.children.values_mut() {
-            child.reset();
-        }
-    }
-
-    /// The counts accumulated after `earlier`, a snapshot of this group.
-    #[must_use]
-    pub fn since(&self, earlier: &Self) -> Self {
-        let counters = self
-            .counters
-            .iter()
-            .map(|(&name, &c)| {
-                (name, c.since(earlier.counters.get(name).copied().unwrap_or_default()))
-            })
-            .collect();
-        let histograms = self
-            .histograms
-            .iter()
-            .map(|(&name, h)| {
-                (name, earlier.histograms.get(name).map_or_else(|| h.clone(), |e| h.since(e)))
-            })
-            .collect();
-        let children = self
-            .children
-            .iter()
-            .map(|(&name, child)| {
-                let empty = Self::default();
-                (name, child.since(earlier.children.get(name).unwrap_or(&empty)))
-            })
-            .collect();
-        Self { counters, histograms, children }
-    }
-
-    fn dump_text(&self, prefix: &str, out: &mut dyn Write) -> io::Result<()> {
-        for (name, c) in &self.counters {
-            writeln!(out, "{prefix}{name} {}", c.get())?;
-        }
-        for (name, h) in &self.histograms {
-            writeln!(
-                out,
-                "{prefix}{name} count={} sum={} mean={:.4} min={} max={}",
-                h.count(),
-                h.sum(),
-                h.mean(),
-                h.min().map_or_else(|| "n/a".to_string(), |v| v.to_string()),
-                h.max().map_or_else(|| "n/a".to_string(), |v| v.to_string())
-            )?;
-        }
-        for (name, child) in &self.children {
-            let next =
-                if prefix.is_empty() { format!("{name}.") } else { format!("{prefix}{name}.") };
-            child.dump_text(&next, out)?;
-        }
-        Ok(())
+    fn write_usize(&mut self, n: usize) {
+        self.write_u64(n as u64);
     }
 }
 
-#[inline]
-fn split_path(path: &'static str) -> (&'static str, Option<&'static str>) {
-    path.find('.').map_or((path, None), |idx| (&path[..idx], Some(&path[idx + 1..])))
+/// One kind of stat, stored flat: values in first-use order, found by path
+/// text for reads, or by the path's address on the hot increment path.
+#[derive(Clone, Debug)]
+struct Slots<T> {
+    values: Vec<T>,
+    by_path: BTreeMap<&'static str, usize>,
+    by_address: HashMap<(usize, usize), usize, BuildHasherDefault<AddressHasher>>,
+}
+
+impl<T> Default for Slots<T> {
+    fn default() -> Self {
+        Self { values: Vec::new(), by_path: BTreeMap::new(), by_address: HashMap::default() }
+    }
+}
+
+impl<T: Default> Slots<T> {
+    /// The value at `path`, created on first use.
+    fn get_or_insert(&mut self, path: &'static str) -> &mut T {
+        let address = (path.as_ptr() as usize, path.len());
+        let slot = if let Some(&slot) = self.by_address.get(&address) {
+            slot
+        } else {
+            let values = &mut self.values;
+            let slot = *self.by_path.entry(path).or_insert_with(|| {
+                values.push(T::default());
+                values.len() - 1
+            });
+            let _ = self.by_address.insert(address, slot);
+            slot
+        };
+        &mut self.values[slot]
+    }
+}
+
+impl<T> Slots<T> {
+    fn get(&self, path: &str) -> Option<&T> {
+        self.by_path.get(path).map(|&slot| &self.values[slot])
+    }
+
+    /// Every path and its value, in path order.
+    fn iter(&self) -> impl Iterator<Item = (&'static str, &T)> {
+        self.by_path.iter().map(|(&path, &slot)| (path, &self.values[slot]))
+    }
+
+    /// The same paths with each value mapped through `f`, given the value
+    /// `earlier` holds at that path, if any.
+    fn map_since(&self, earlier: &Self, f: impl Fn(&T, Option<&T>) -> T) -> Self {
+        let values = self
+            .by_path
+            .iter()
+            .map(|(&path, &slot)| f(&self.values[slot], earlier.get(path)))
+            .collect::<Vec<_>>();
+        let by_path: BTreeMap<_, _> =
+            self.by_path.keys().enumerate().map(|(slot, &path)| (path, slot)).collect();
+        let by_address = by_path
+            .iter()
+            .map(|(&path, &slot)| ((path.as_ptr() as usize, path.len()), slot))
+            .collect();
+        Self { values, by_path, by_address }
+    }
 }
 
 /// Output format for `Stats::dump`.
@@ -315,8 +276,8 @@ pub(crate) struct Derived {
 /// Top-level statistics tree.
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
-    /// Root of the hierarchical tree.
-    pub root: StatGroup,
+    counters: Slots<Counter>,
+    histograms: Slots<Histogram>,
     /// Per-registered-path metadata.
     pub(crate) meta: BTreeMap<&'static str, Meta>,
     /// Registered derived stats.
@@ -373,13 +334,20 @@ impl Stats {
     /// Returns a mutable reference to the counter at `path`.
     ///
     /// `path` uses `.` as a separator: `"core0.cache.l1d.hits"`.
+    #[inline]
     pub fn counter(&mut self, path: &'static str) -> &mut Counter {
-        self.root.counter(path)
+        self.counters.get_or_insert(path)
     }
 
     /// Returns a mutable reference to the histogram at `path`.
     pub fn histogram(&mut self, path: &'static str) -> &mut Histogram {
-        self.root.histogram(path)
+        self.histograms.get_or_insert(path)
+    }
+
+    /// Reads the histogram at `path` without creating it.
+    #[must_use]
+    pub fn histogram_at(&self, path: &str) -> Option<&Histogram> {
+        self.histograms.get(path)
     }
 
     /// Registers metadata for a counter path. Idempotent — a repeat
@@ -388,7 +356,7 @@ impl Stats {
     /// Registering also allocates the underlying [`Counter`] so the path
     /// appears in queries even before any writer has incremented it.
     pub fn register(&mut self, path: &'static str, meta: Meta) {
-        let _ = self.root.counter(path);
+        let _ = self.counters.get_or_insert(path);
         let _ = self.meta.insert(path, meta);
     }
 
@@ -407,7 +375,7 @@ impl Stats {
         if let Some(derived) = self.derived.get(path) {
             return Some(self.eval(&derived.formula));
         }
-        self.root.get(path).map(|c| c.get() as f64)
+        self.counters.get(path).map(|c| c.get() as f64)
     }
 
     /// Evaluates a wildcard query against every path in the tree (raw and
@@ -420,7 +388,9 @@ impl Stats {
                 matches.push((path, value));
             }
         };
-        self.root.walk("", &mut |p, c| visit(p.to_string(), c.get() as f64));
+        for (path, counter) in self.counters.iter() {
+            visit(path.to_string(), counter.get() as f64);
+        }
         for (path, derived) in &self.derived {
             visit((*path).to_string(), self.eval(&derived.formula));
         }
@@ -464,7 +434,12 @@ impl Stats {
     #[must_use]
     pub fn since(&self, earlier: &Self) -> Self {
         Self {
-            root: self.root.since(&earlier.root),
+            counters: self
+                .counters
+                .map_since(&earlier.counters, |c, e| c.since(e.copied().unwrap_or_default())),
+            histograms: self
+                .histograms
+                .map_since(&earlier.histograms, |h, e| e.map_or_else(|| h.clone(), |e| h.since(e))),
             meta: self.meta.clone(),
             derived: self.derived.clone(),
         }
@@ -473,7 +448,12 @@ impl Stats {
     /// Resets every counter and histogram in the tree. Metadata and derived
     /// registrations are preserved so the tree shape survives phase resets.
     pub fn reset(&mut self) {
-        self.root.reset();
+        for counter in &mut self.counters.values {
+            counter.reset();
+        }
+        for histogram in &mut self.histograms.values {
+            histogram.reset();
+        }
     }
 
     /// Writes the stats tree to `out` in the requested format.
@@ -483,8 +463,27 @@ impl Stats {
     /// Propagates any I/O error from the underlying writer.
     pub fn dump(&self, format: StatFormat, out: &mut dyn Write) -> io::Result<()> {
         match format {
-            StatFormat::Text => self.root.dump_text("", out),
+            StatFormat::Text => self.dump_text(out),
         }
+    }
+
+    fn dump_text(&self, out: &mut dyn Write) -> io::Result<()> {
+        for (path, counter) in self.counters.iter() {
+            writeln!(out, "{path} {}", counter.get())?;
+        }
+        for (path, h) in self.histograms.iter() {
+            let known = |v: Option<u64>| v.map_or_else(|| "n/a".to_string(), |v| v.to_string());
+            writeln!(
+                out,
+                "{path} count={} sum={} mean={:.4} min={} max={}",
+                h.count(),
+                h.sum(),
+                h.mean(),
+                known(h.min()),
+                known(h.max())
+            )?;
+        }
+        Ok(())
     }
 
     /// Evaluates a formula against the current tree state. Divide-by-zero
@@ -773,7 +772,7 @@ mod tests {
         s.histogram("mem.latency").record(40);
 
         let window = s.since(&start);
-        let h = window.root.children["mem"].histograms["latency"].clone();
+        let h = window.histogram_at("mem.latency").cloned().expect("recorded");
 
         assert_eq!((h.count(), h.sum(), h.mean()), (2, 60, 30.0));
         assert_eq!((h.min(), h.max()), (None, None));
