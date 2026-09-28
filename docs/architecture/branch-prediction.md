@@ -110,24 +110,23 @@ Uses multiple tagged tables with geometrically increasing history lengths:
 - **Base predictor** — simple bimodal table (always consulted)
 - **Tagged tables** — each table uses a different history length (default: 5, 11, 22, 44, 89, 178, 356, 712 for 8 banks). Entries are tagged with a hash of the PC and history to avoid aliasing.
 - **Longest match wins** — the prediction comes from the table with the longest matching history
-- **Loop predictor** — detects counted loops and predicts the loop exit iteration
 - **USE_ALT_ON_NA** — meta-counter that learns whether newly allocated (weak) provider entries should be trusted or whether the alternate (second-longest match) prediction is better. When the provider entry's counter is weak (0 or -1) and the meta-counter is non-negative, the alternate prediction is used instead.
 - **Useful counter reset** — periodically resets the "useful" counters to allow new entries to replace stale ones
 
-Configurable parameters: `num_banks`, `table_size`, `loop_table_size`, `reset_interval`, `history_lengths`, `tag_widths`.
+Configurable parameters: `num_banks`, `table_size`, `reset_interval`, `history_lengths`, `tag_widths`.
 
 ### SC-L-TAGE (Statistical Corrector + Loop + TAGE)
 
 The most accurate predictor available. Combines four sub-predictors into a single high-accuracy predictor, following Seznec's Championship Branch Prediction (CBP) winning designs:
 
 1. **TAGE** — same tagged geometric history as the standalone TAGE predictor (default: 8 banks)
-2. **Loop Predictor** — detects counted loops and overrides TAGE when a loop iteration count is learned
+2. **Loop Predictor** — Seznec's loop predictor: a set-associative table that learns a loop's trip count, tracks each loop's iteration speculatively (restored on a squash), and overrides TAGE only when an entry is confident and a use counter shows loop overrides have been helping
 3. **Statistical Corrector (SC)** — a bank of small signed counters indexed by different history lengths that learns to correct systematic TAGE errors. The SC sum is initialized with a centered confidence value from the TAGE prediction: `(2 * |ctr| + 1) * direction`. When the total SC sum disagrees with TAGE and exceeds a threshold, the SC prediction overrides TAGE.
 4. **ITTAGE (Indirect Target TAGE)** — predicts indirect jump targets (computed jumps, virtual dispatch) using the same geometric history structure as TAGE but storing target addresses instead of direction counters; it trains on each committed indirect jump's real target
 
 **USE_ALT_ON_NA** is also applied within SC-L-TAGE's TAGE component, ensuring the SC receives the effective TAGE prediction (after alt-pred override) rather than the raw provider prediction.
 
-Configurable parameters: all TAGE parameters plus `sc_num_tables`, `sc_table_size`, `sc_history_lengths`, `sc_counter_bits`, `ittage_num_banks`, `ittage_table_size`, `ittage_history_lengths`, `ittage_tag_widths`, `ittage_reset_interval`.
+Configurable parameters: all TAGE parameters plus the `loop_*` loop predictor parameters (`loop_log_size`, `loop_log_assoc`, `loop_tag_bits`, `loop_iter_bits`, `loop_confidence_bits`, `loop_age_bits`, `loop_use_counter_bits`, `loop_use_direction_bit`, `loop_use_hashing`, `loop_restrict_allocation`, `loop_initial_iter`, `loop_initial_age`, `loop_optional_age_reset`, `loop_long_loop_confidence`, `loop_optional_age_increment`), `sc_num_tables`, `sc_table_size`, `sc_history_lengths`, `sc_counter_bits`, `ittage_num_banks`, `ittage_table_size`, `ittage_history_lengths`, `ittage_tag_widths`, `ittage_reset_interval`.
 
 ## Predictor Comparison
 

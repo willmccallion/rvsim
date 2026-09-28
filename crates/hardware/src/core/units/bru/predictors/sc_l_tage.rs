@@ -11,11 +11,11 @@
 //! 3. SC correction -> may flip direction if confident base is wrong
 //! 4. Target: ITTAGE for indirect jumps, the unit's BTB otherwise
 
-use crate::config::{IttageConfig, ScConfig, TageConfig};
+use crate::config::{IttageConfig, LoopConfig, ScConfig, TageConfig};
 use crate::core::units::bru::Ghr;
 use crate::core::units::bru::components::{
     ittage::Ittage,
-    loop_predictor::LoopPredictor,
+    loop_predictor::{LoopPrediction, LoopPredictor},
     sc_types::ScSum,
     sc_types::TageScMeta,
     stat_corrector::StatCorrector,
@@ -48,6 +48,10 @@ pub struct ScLTageHistory {
     path: u16,
     /// The TAGE entries a conditional branch's prediction read.
     tage: Option<TagePrediction>,
+    /// The loop entry a conditional branch's prediction read.
+    loop_prediction: Option<LoopPrediction>,
+    /// The direction fetch was sent down.
+    predicted: bool,
     /// The TAGE metadata and SC sum the statistical corrector decided
     /// with; `None` when the loop predictor overrode it or for a jump.
     sc: Option<(TageScMeta, ScSum)>,
@@ -59,6 +63,7 @@ impl ScLTagePredictor {
         tage_config: &TageConfig,
         sc_config: &ScConfig,
         ittage_config: &IttageConfig,
+        loop_config: &LoopConfig,
     ) -> Self {
         let tage = TageCore::new(tage_config);
         let max_hist = tage.max_history();
@@ -68,7 +73,7 @@ impl ScLTagePredictor {
             spec_path: 0,
             commit_ghr: Ghr::with_len(max_hist),
             tage,
-            loop_pred: LoopPredictor::new(tage_config.loop_table_size),
+            loop_pred: LoopPredictor::new(loop_config),
             sc: StatCorrector::new(sc_config),
             ittage: Ittage::new(ittage_config),
         }
@@ -95,8 +100,8 @@ impl ScLTagePredictor {
     }
 
     fn train_direction(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
-        self.loop_pred.update(pc, taken);
         let Some(prediction) = &history.tage else { return };
+        self.loop_pred.commit(pc, taken, prediction.taken(), history.predicted);
         self.tage.update(taken, prediction);
         let meta = prediction.meta();
         let (sc_meta, sc_sum) = history.sc.unwrap_or_else(|| {
@@ -112,37 +117,48 @@ impl DirectionPredictor for ScLTagePredictor {
 
     fn lookup(&self, pc: u64) -> (bool, ScLTageHistory) {
         let prediction = self.tage.predict(pc);
-        let tage = Some(prediction);
-        if let Some(loop_taken) = self.loop_pred.predict(pc) {
-            return (
-                loop_taken,
-                ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, tage, sc: None },
-            );
-        }
-        let meta = prediction.meta();
+        let loop_prediction = self.loop_pred.predict(pc);
+        let before_sc = match loop_prediction.confident() {
+            Some(loop_taken) if self.loop_pred.in_use() => loop_taken,
+            _ => prediction.taken(),
+        };
+        let meta = TageScMeta { pred_taken: before_sc, ..prediction.meta() };
         let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
-        (
-            sc_taken,
-            ScLTageHistory {
-                ghr: self.spec_ghr,
-                path: self.spec_path,
-                tage,
-                sc: Some((meta, sc_sum)),
-            },
-        )
+        let history = ScLTageHistory {
+            ghr: self.spec_ghr,
+            path: self.spec_path,
+            tage: Some(prediction),
+            loop_prediction: Some(loop_prediction),
+            predicted: sc_taken,
+            sc: Some((meta, sc_sum)),
+        };
+        (sc_taken, history)
     }
 
     fn unconditional(&self, _pc: u64) -> ScLTageHistory {
-        ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, tage: None, sc: None }
+        ScLTageHistory {
+            ghr: self.spec_ghr,
+            path: self.spec_path,
+            tage: None,
+            loop_prediction: None,
+            predicted: true,
+            sc: None,
+        }
     }
 
-    fn update_histories(&mut self, pc: u64, taken: bool, _history: &ScLTageHistory) {
+    fn update_histories(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
         self.push_speculative(pc, taken);
+        if let Some(loop_prediction) = &history.loop_prediction {
+            self.loop_pred.speculate(loop_prediction, taken);
+        }
     }
 
     fn squash(&mut self, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
         self.spec_path = history.path;
+        if let Some(loop_prediction) = &history.loop_prediction {
+            self.loop_pred.squash(loop_prediction);
+        }
     }
 
     fn squash_done(&mut self) {
@@ -154,6 +170,10 @@ impl DirectionPredictor for ScLTagePredictor {
         self.spec_path = history.path;
         self.repair_speculative();
         self.push_speculative(pc, taken);
+        if let Some(loop_prediction) = &history.loop_prediction {
+            self.loop_pred.squash(loop_prediction);
+            self.loop_pred.speculate(loop_prediction, taken);
+        }
     }
 
     fn commit(&mut self, pc: u64, retired: Retired, history: &ScLTageHistory) {
@@ -179,7 +199,6 @@ mod tests {
         TageConfig {
             num_banks: 4,
             table_size: 256,
-            loop_table_size: 16,
             reset_interval: 100_000,
             history_lengths: vec![5, 15, 44, 130],
             tag_widths: vec![9, 9, 10, 10],
@@ -210,7 +229,12 @@ mod tests {
     }
 
     fn predictor() -> ScLTagePredictor {
-        ScLTagePredictor::new(&test_tage_config(), &test_sc_config(), &test_ittage_config())
+        ScLTagePredictor::new(
+            &test_tage_config(),
+            &test_sc_config(),
+            &test_ittage_config(),
+            &LoopConfig::default(),
+        )
     }
 
     #[test]

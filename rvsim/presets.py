@@ -76,10 +76,10 @@ def fast() -> Config:
         branch_predictor=BranchPredictor.ScLTage(
             num_banks=8,
             table_size=8192,
-            loop_table_size=1024,
             reset_interval=500_000,
             history_lengths=[4, 8, 16, 32, 64, 128, 256, 512],
             tag_widths=[8, 8, 9, 9, 10, 10, 11, 11],
+            loop_log_size=10,
             sc_num_tables=6,
             sc_table_size=1024,
             sc_history_lengths=[0, 2, 4, 8, 16, 32],

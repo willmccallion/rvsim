@@ -64,7 +64,6 @@ fn tage() -> TagePredictor {
     TagePredictor::new(&TageConfig {
         num_banks: 4,
         table_size: 2048,
-        loop_table_size: 256,
         reset_interval: 256_000,
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],
@@ -197,7 +196,12 @@ fn tournament_learns_an_alternating_branch() {
 #[test]
 fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
     let pipeline = Config::default().pipeline;
-    let mut bp = Driver::new(ScLTagePredictor::new(&pipeline.tage, &pipeline.sc, &pipeline.ittage));
+    let mut bp = Driver::new(ScLTagePredictor::new(
+        &pipeline.tage,
+        &pipeline.sc,
+        &pipeline.ittage,
+        &pipeline.loop_predictor,
+    ));
     let jump = ControlInst::IndirectJump { returns: false, link: None };
     let mut last_prediction = None;
     for _ in 0..20 {

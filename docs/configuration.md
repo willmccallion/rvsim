@@ -107,7 +107,6 @@ BranchPredictor.Perceptron(       # Neural predictor
 BranchPredictor.TAGE(             # Tagged geometric history length
     num_banks=4,
     table_size=2048,
-    loop_table_size=256,
     reset_interval=2000,
     history_lengths=[5, 15, 44, 130],
     tag_widths=[9, 9, 10, 10],
@@ -116,10 +115,12 @@ BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
     # TAGE parameters
     num_banks=8,
     table_size=2048,
-    loop_table_size=256,
     reset_interval=256_000,
     history_lengths=[5, 15, 44, 130, 380, 1024, 2048, 4096],
     tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
+    # Loop predictor (2^log_size entries, 2^log_assoc ways)
+    loop_log_size=5,
+    loop_log_assoc=2,
     # Statistical corrector
     sc_num_tables=6,
     sc_table_size=512,

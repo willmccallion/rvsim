@@ -32,7 +32,6 @@ def cortex_a72_config():
         branch_predictor=BranchPredictor.TAGE(
             num_banks=4,
             table_size=2048,
-            loop_table_size=128,
             reset_interval=1000,
             history_lengths=[8, 20, 50, 110],
             tag_widths=[8, 8, 9, 9],

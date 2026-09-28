@@ -92,7 +92,6 @@ fn tage_learns_an_alternating_branch_while_others_are_in_flight() {
     let config = TageConfig {
         num_banks: 4,
         table_size: 2048,
-        loop_table_size: 256,
         reset_interval: 256_000,
         history_lengths: vec![5, 15, 44, 130],
         tag_widths: vec![9, 9, 10, 10],

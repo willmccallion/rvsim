@@ -88,7 +88,6 @@ fn test_tage_config_defaults() {
     let tage = TageConfig::default();
     assert_eq!(tage.num_banks, 8);
     assert_eq!(tage.table_size, 2048);
-    assert_eq!(tage.loop_table_size, 256);
     assert_eq!(tage.reset_interval, 256000);
     assert_eq!(tage.history_lengths, vec![5, 11, 22, 44, 89, 178, 356, 712]);
     assert_eq!(tage.tag_widths, vec![8, 8, 9, 9, 10, 10, 11, 11]);
@@ -225,7 +224,6 @@ fn test_json_deserialization_minimal() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -330,7 +328,6 @@ fn test_json_deserialization_with_tracing() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -442,7 +439,6 @@ fn test_json_dram_controller() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -477,7 +473,7 @@ fn test_json_all_replacement_policies() {
                 "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
-            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "loop_table_size": 256, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
+            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
             policy
         );
@@ -500,7 +496,7 @@ fn test_json_all_prefetchers() {
                 "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
-            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "loop_table_size": 256, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
+            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
             prefetcher
         );
@@ -523,7 +519,7 @@ fn test_json_all_branch_predictors() {
                 "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
-            "pipeline": {{"width": 1, "branch_predictor": "{}", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "loop_table_size": 256, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
+            "pipeline": {{"width": 1, "branch_predictor": "{}", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
             predictor
         );
@@ -616,7 +612,6 @@ fn test_initial_sp_option() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -721,7 +716,6 @@ fn test_misa_override_option() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -837,7 +831,6 @@ fn test_uart_to_stderr_flag() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -941,7 +934,6 @@ fn test_custom_cache_sizes() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]
@@ -1055,7 +1047,6 @@ fn test_custom_dram_timings() {
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
-                "loop_table_size": 256,
                 "reset_interval": 256000,
                 "history_lengths": [5, 15, 44, 130],
                 "tag_widths": [9, 9, 10, 10]

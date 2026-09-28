@@ -76,7 +76,7 @@ def o3_config():
     return Config(
         width=8,
         branch_predictor=BranchPredictor.TAGE(
-            num_banks=8, table_size=8192, loop_table_size=1024,
+            num_banks=8, table_size=8192,
             reset_interval=500_000,
             history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
             tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],

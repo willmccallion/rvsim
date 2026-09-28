@@ -95,14 +95,12 @@ class BranchPredictor:
             self,
             num_banks: int = 8,
             table_size: int = 2048,
-            loop_table_size: int = 256,
             reset_interval: int = 256_000,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
         ):
             self.num_banks = num_banks
             self.table_size = table_size
-            self.loop_table_size = loop_table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
                 history_lengths
@@ -118,7 +116,6 @@ class BranchPredictor:
             return (
                 f"BranchPredictor.TAGE(num_banks={self.num_banks}, "
                 f"table_size={self.table_size}, "
-                f"loop_table_size={self.loop_table_size}, "
                 f"reset_interval={self.reset_interval}, "
                 f"history_lengths={self.history_lengths}, "
                 f"tag_widths={self.tag_widths})"
@@ -160,7 +157,8 @@ class BranchPredictor:
         and Indirect Target TAGE into a single high-accuracy predictor.
 
         The TAGE parameters are shared with the standalone TAGE config.
-        SC and ITTAGE have their own sub-configs.
+        The loop predictor, SC and ITTAGE have their own sub-configs; the
+        loop defaults follow Seznec's TAGE-SC-L (32 entries, 4 ways a set).
         """
 
         def __init__(
@@ -168,10 +166,25 @@ class BranchPredictor:
             # TAGE parameters
             num_banks: int = 8,
             table_size: int = 2048,
-            loop_table_size: int = 256,
             reset_interval: int = 256_000,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
+            # Loop predictor parameters
+            loop_log_size: int = 5,
+            loop_log_assoc: int = 2,
+            loop_tag_bits: int = 10,
+            loop_iter_bits: int = 10,
+            loop_confidence_bits: int = 4,
+            loop_age_bits: int = 4,
+            loop_use_counter_bits: int = 7,
+            loop_use_direction_bit: bool = True,
+            loop_use_hashing: bool = True,
+            loop_restrict_allocation: bool = True,
+            loop_initial_iter: int = 0,
+            loop_initial_age: int = 7,
+            loop_optional_age_reset: bool = False,
+            loop_long_loop_confidence: bool = True,
+            loop_optional_age_increment: bool = True,
             # SC parameters
             sc_num_tables: int = 6,
             sc_table_size: int = 512,
@@ -190,7 +203,6 @@ class BranchPredictor:
         ):
             self.num_banks = num_banks
             self.table_size = table_size
-            self.loop_table_size = loop_table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
                 history_lengths
@@ -200,6 +212,21 @@ class BranchPredictor:
             self.tag_widths = (
                 tag_widths if tag_widths is not None else [8, 8, 9, 9, 10, 10, 11, 11]
             )
+            self.loop_log_size = loop_log_size
+            self.loop_log_assoc = loop_log_assoc
+            self.loop_tag_bits = loop_tag_bits
+            self.loop_iter_bits = loop_iter_bits
+            self.loop_confidence_bits = loop_confidence_bits
+            self.loop_age_bits = loop_age_bits
+            self.loop_use_counter_bits = loop_use_counter_bits
+            self.loop_use_direction_bit = loop_use_direction_bit
+            self.loop_use_hashing = loop_use_hashing
+            self.loop_restrict_allocation = loop_restrict_allocation
+            self.loop_initial_iter = loop_initial_iter
+            self.loop_initial_age = loop_initial_age
+            self.loop_optional_age_reset = loop_optional_age_reset
+            self.loop_long_loop_confidence = loop_long_loop_confidence
+            self.loop_optional_age_increment = loop_optional_age_increment
             self.sc_num_tables = sc_num_tables
             self.sc_table_size = sc_table_size
             self.sc_history_lengths = (

@@ -231,9 +231,6 @@ mod defaults {
     /// Default Physical Register File FPR size (128 entries).
     pub const PRF_FPR_SIZE: usize = 128;
 
-    /// Default TAGE loop predictor table size (256 entries).
-    pub const TAGE_LOOP_SIZE: usize = 256;
-
     /// Default TAGE useful counter reset interval (256K branches).
     pub const TAGE_RESET_INTERVAL: u32 = 256_000;
 
@@ -1280,6 +1277,10 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub ittage: IttageConfig,
 
+    /// Loop predictor configuration (used by SC-L-TAGE)
+    #[serde(default)]
+    pub loop_predictor: LoopConfig,
+
     /// Backend type (`InOrder` or `OutOfOrder`)
     #[serde(default)]
     pub backend: BackendType,
@@ -1547,6 +1548,7 @@ impl Default for PipelineConfig {
             tournament: TournamentConfig::default(),
             sc: ScConfig::default(),
             ittage: IttageConfig::default(),
+            loop_predictor: LoopConfig::default(),
             backend: BackendType::default(),
             rob_size: defaults::ROB_SIZE,
             store_buffer_size: defaults::STORE_BUFFER_SIZE,
@@ -1583,10 +1585,6 @@ pub struct TageConfig {
     #[serde(default = "TageConfig::default_table_size")]
     pub table_size: usize,
 
-    /// Loop predictor table size
-    #[serde(default = "TageConfig::default_loop_size")]
-    pub loop_table_size: usize,
-
     /// Useful counter reset interval
     #[serde(default = "TageConfig::default_reset_interval")]
     pub reset_interval: u32,
@@ -1605,7 +1603,6 @@ impl Default for TageConfig {
         Self {
             num_banks: Self::default_banks(),
             table_size: Self::default_table_size(),
-            loop_table_size: Self::default_loop_size(),
             reset_interval: Self::default_reset_interval(),
             history_lengths: Self::default_history_lengths(),
             tag_widths: Self::default_tag_widths(),
@@ -1622,11 +1619,6 @@ impl TageConfig {
     /// Returns the default TAGE predictor table size per bank.
     const fn default_table_size() -> usize {
         defaults::TAGE_TABLE_SIZE
-    }
-
-    /// Returns the default TAGE loop predictor table size.
-    const fn default_loop_size() -> usize {
-        defaults::TAGE_LOOP_SIZE
     }
 
     /// Returns the default TAGE useful counter reset interval.
@@ -1731,6 +1723,69 @@ impl ScConfig {
 
     const fn default_per_pc_threshold_bits() -> usize {
         6
+    }
+}
+
+/// Seznec's loop predictor (used by SC-L-TAGE). The defaults are gem5's
+/// 64KB TAGE-SC-L loop predictor.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct LoopConfig {
+    /// The table holds `2^log_size` entries.
+    pub log_size: usize,
+    /// In sets of `2^log_assoc` ways.
+    pub log_assoc: usize,
+    /// Tag bits per entry.
+    pub tag_bits: usize,
+    /// Iteration-count bits per entry.
+    pub iter_bits: usize,
+    /// Confidence bits per entry; a saturated counter predicts.
+    pub confidence_bits: usize,
+    /// Age bits per entry, which replacement consumes.
+    pub age_bits: usize,
+    /// Bits of the `WITHLOOP` counter that decides whether loop
+    /// predictions are used.
+    pub use_counter_bits: usize,
+    /// Each entry learns whether its loop body is taken or not taken.
+    pub use_direction_bit: bool,
+    /// The set and tag hash the PC rather than slice it.
+    pub use_hashing: bool,
+    /// Allocate on one mispredict in four, trying one way.
+    pub restrict_allocation: bool,
+    /// Iteration count a new entry starts with.
+    pub initial_iter: u16,
+    /// Age a new entry starts with.
+    pub initial_age: u8,
+    /// Freeing an entry's count also clears its age.
+    pub optional_age_reset: bool,
+    /// A long loop predicts before its confidence saturates, once
+    /// confidence × iterations exceeds 128 (TAGE-SC-L's rule).
+    pub long_loop_confidence: bool,
+    /// A correct loop prediction ages its entry up one time in eight even
+    /// when TAGE was also right (TAGE-SC-L's rule).
+    pub optional_age_increment: bool,
+}
+
+impl Default for LoopConfig {
+    fn default() -> Self {
+        Self {
+            log_size: 5,
+            log_assoc: 2,
+            tag_bits: 10,
+            iter_bits: 10,
+            confidence_bits: 4,
+            age_bits: 4,
+            use_counter_bits: 7,
+            use_direction_bit: true,
+            use_hashing: true,
+            restrict_allocation: true,
+            initial_iter: 0,
+            initial_age: 7,
+            optional_age_reset: false,
+            long_loop_confidence: true,
+            optional_age_increment: true,
+        }
     }
 }
 

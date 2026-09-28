@@ -20,7 +20,6 @@ def m1_config(
         branch_predictor = BranchPredictor.TAGE(
             num_banks=4,
             table_size=4096,
-            loop_table_size=512,
             reset_interval=2000,
             history_lengths=[5, 15, 44, 130],
             tag_widths=[9, 9, 10, 10],

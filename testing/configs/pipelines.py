@@ -89,7 +89,7 @@ PIPELINES = [
     ("o3 w4 tage-wide",     Config(width=4, backend=Backend.OutOfOrder(),
                                    branch_predictor=BranchPredictor.TAGE(
                                        num_banks=6, table_size=4096,
-                                       loop_table_size=512, reset_interval=2000,
+                                       reset_interval=2000,
                                        history_lengths=[5, 15, 44, 130, 320, 800],
                                        tag_widths=[9, 9, 10, 10, 11, 11],
                                    ))),
@@ -100,7 +100,7 @@ PIPELINES = [
     ("o3 w4 sc-l-tage-wide", Config(width=4, backend=Backend.OutOfOrder(),
                                    branch_predictor=BranchPredictor.ScLTage(
                                        num_banks=8, table_size=4096,
-                                       loop_table_size=512, reset_interval=500_000,
+                                       loop_log_size=9, reset_interval=500_000,
                                        history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
                                        tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
                                        sc_num_tables=6, sc_table_size=1024,

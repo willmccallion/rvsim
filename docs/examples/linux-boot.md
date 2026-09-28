@@ -55,7 +55,7 @@ config = Config(
     mem_dep_predictor=MemDepPredictor.StoreSet(),
     backend=Backend.OutOfOrder(rob_size=256),
     branch_predictor=BranchPredictor.ScLTage(
-        num_banks=8, table_size=8192, loop_table_size=1024,
+        num_banks=8, table_size=8192,
     ),
     ram_size="256MB",
     l1i=Cache("64KB", ways=8, latency=1,

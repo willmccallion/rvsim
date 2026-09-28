@@ -88,7 +88,12 @@ impl BranchPredictorWrapper {
             }
             BpType::ScLTage => Self::ScLTage(Box::new(unit_for(
                 config,
-                ScLTagePredictor::new(&pipeline.tage, &pipeline.sc, &pipeline.ittage),
+                ScLTagePredictor::new(
+                    &pipeline.tage,
+                    &pipeline.sc,
+                    &pipeline.ittage,
+                    &pipeline.loop_predictor,
+                ),
             ))),
         }
     }

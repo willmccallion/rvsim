@@ -316,7 +316,6 @@ def _bp_sub_dict(bp) -> dict:
         return {
             "num_banks": bp.num_banks,
             "table_size": bp.table_size,
-            "loop_table_size": bp.loop_table_size,
             "reset_interval": bp.reset_interval,
             "history_lengths": bp.history_lengths,
             "tag_widths": bp.tag_widths,
@@ -358,6 +357,32 @@ def _sc_sub_dict(bp) -> dict:
         "initial_threshold": 35,
         "per_pc_threshold_bits": 6,
     }
+
+
+_LOOP_FIELDS = (
+    "log_size",
+    "log_assoc",
+    "tag_bits",
+    "iter_bits",
+    "confidence_bits",
+    "age_bits",
+    "use_counter_bits",
+    "use_direction_bit",
+    "use_hashing",
+    "restrict_allocation",
+    "initial_iter",
+    "initial_age",
+    "optional_age_reset",
+    "long_loop_confidence",
+    "optional_age_increment",
+)
+
+
+def _loop_sub_dict(bp) -> dict:
+    """Return the loop predictor sub-config dict for ScLTage."""
+    if not isinstance(bp, BranchPredictor.ScLTage):
+        bp = BranchPredictor.ScLTage()
+    return {field: getattr(bp, f"loop_{field}") for field in _LOOP_FIELDS}
 
 
 def _ittage_sub_dict(bp) -> dict:
@@ -656,7 +681,6 @@ def _cache_to_dict(c: Cache) -> Dict[str, Any]:
 _TAGE_DEFAULTS = {
     "num_banks": 8,
     "table_size": 2048,
-    "loop_table_size": 256,
     "reset_interval": 256_000,
     "history_lengths": [5, 11, 22, 44, 89, 178, 356, 712],
     "tag_widths": [8, 8, 9, 9, 10, 10, 11, 11],
@@ -772,6 +796,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
     )
     sc_dict = _sc_sub_dict(bp)
     ittage_dict = _ittage_sub_dict(bp)
+    loop_dict = _loop_sub_dict(bp)
 
     # MDP sub-config
     mdp = cfg.mem_dep_predictor
@@ -801,6 +826,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "tournament": tournament_dict,
         "sc": sc_dict,
         "ittage": ittage_dict,
+        "loop_predictor": loop_dict,
         "mem_dep_predictor": _mdp_name(mdp),
         "store_set": store_set_dict,
         "vlen": cfg.vlen,

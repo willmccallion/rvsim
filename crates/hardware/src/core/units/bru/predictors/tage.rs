@@ -99,7 +99,6 @@ mod tests {
         TageConfig {
             num_banks: 4,
             table_size: 256,
-            loop_table_size: 16,
             reset_interval: 100_000,
             history_lengths: vec![5, 15, 44, 130],
             tag_widths: vec![9, 9, 10, 10],
