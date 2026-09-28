@@ -16,7 +16,8 @@ use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
-    AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind, WriteData,
+    AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
+    ProbeKind, WriteData,
 };
 use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
@@ -362,6 +363,108 @@ fn a_write_whose_bytes_are_already_placed_does_not_write_memory() {
     assert_eq!(bench.ram_value(0x1000), 0x11);
 }
 
+/// The maintenance requests `events` sends the next level, as
+/// `(req_id, op, dirty)`.
+fn maintenance_sent(events: &[Event]) -> Vec<(ReqId, Maintenance, bool)> {
+    events
+        .iter()
+        .filter(|e| e.target == DOWNSTREAM)
+        .filter_map(|e| match e.packet {
+            Packet::MemReq { req_id, op: MemOp::Maintain { op, dirty }, .. } => {
+                Some((req_id, op, dirty))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn maintain(bench: &mut Bench, req_id: u64, addr: u64, op: Maintenance) {
+    bench.request(req_id, addr, MemOp::Maintain { op, dirty: false });
+}
+
+fn line_state(bench: &Bench, addr: u64) -> Option<MesiState> {
+    let line = LineAddr::from_phys(PhysAddr::new(addr), 64);
+    bench.cache.held_lines().into_iter().find(|(held, _)| *held == line).map(|(_, state)| state)
+}
+
+#[test]
+fn a_clean_keeps_the_line_and_carries_its_dirty_data_down() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1), origin: HART });
+
+    maintain(&mut bench, 2, 0x1008, Maintenance::Clean);
+
+    let sent = maintenance_sent(&bench.drain());
+    assert_eq!(
+        sent.iter().map(|&(_, op, dirty)| (op, dirty)).collect::<Vec<_>>(),
+        [(Maintenance::Clean, true)]
+    );
+    assert_eq!(line_state(&bench, 0x1000), Some(MesiState::Exclusive));
+}
+
+#[test]
+fn a_flush_drops_the_line_and_carries_its_dirty_data_down() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1), origin: HART });
+
+    maintain(&mut bench, 2, 0x1000, Maintenance::Flush);
+
+    let sent = maintenance_sent(&bench.drain());
+    assert_eq!(
+        sent.iter().map(|&(_, op, dirty)| (op, dirty)).collect::<Vec<_>>(),
+        [(Maintenance::Flush, true)]
+    );
+    assert_eq!(line_state(&bench, 0x1000), None);
+}
+
+#[test]
+fn an_invalidate_drops_the_line_and_discards_its_dirty_data() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1), origin: HART });
+
+    maintain(&mut bench, 2, 0x1000, Maintenance::Invalidate);
+
+    let sent = maintenance_sent(&bench.drain());
+    assert_eq!(
+        sent.iter().map(|&(_, op, dirty)| (op, dirty)).collect::<Vec<_>>(),
+        [(Maintenance::Invalidate, false)]
+    );
+    assert_eq!(line_state(&bench, 0x1000), None);
+}
+
+#[test]
+fn a_maintenance_operation_is_answered_once_the_next_level_answers_it() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    maintain(&mut bench, 7, 0x1000, Maintenance::Flush);
+    let sent = maintenance_sent(&bench.drain());
+    assert!(responses_to(&bench.drain(), PIPELINE).is_empty());
+
+    bench.fill(sent[0].0, 0x1000);
+
+    assert_eq!(
+        responses_to(&bench.drain(), PIPELINE).iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        [ReqId::new(7)]
+    );
+}
+
+#[test]
+fn a_maintenance_operation_waits_for_its_lines_fetch_to_fill() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.write(1, 0x1000);
+    let fetch = bench.downstream_requests();
+
+    maintain(&mut bench, 2, 0x1000, Maintenance::Flush);
+    assert!(maintenance_sent(&bench.drain()).is_empty(), "held while the line is fetched");
+    bench.fill_with(fetch[0].0, 0x1000, MesiState::Modified);
+
+    let sent = maintenance_sent(&bench.drain());
+    assert_eq!(
+        sent.iter().map(|&(_, op, dirty)| (op, dirty)).collect::<Vec<_>>(),
+        [(Maintenance::Flush, true)]
+    );
+    assert_eq!(line_state(&bench, 0x1000), None);
+}
+
 #[test]
 fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
     let mut config = test_config();
@@ -656,8 +759,10 @@ fn a_writeback_for_a_held_line_marks_it_dirty_in_place() {
     );
     let events = bench.drain();
     assert!(events.iter().all(|e| e.target != DOWNSTREAM), "merged, not forwarded");
-    let dirty = bench.cache.flush();
-    assert_eq!(dirty.len(), 1);
+    assert_eq!(
+        bench.cache.held_lines(),
+        vec![(LineAddr::from_phys(PhysAddr::new(0x0000), 64), MesiState::Modified)]
+    );
 }
 
 #[test]
@@ -700,35 +805,6 @@ fn exclusive_upper_level_hands_clean_victims_down() {
             Packet::MemReq { op: MemOp::Writeback { dirty: false }, .. }
         ))
     );
-}
-
-#[test]
-fn maintenance_operations_report_dirty_lines_for_the_caller_to_write_back() {
-    let mut bench = Bench::new(cache_with(&test_config()));
-    bench.install(
-        1,
-        0x1000,
-        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
-    );
-    bench.install(2, 0x2000, MemOp::Read);
-
-    assert_eq!(bench.cache.clean_line(0x1000).map(|d| d.line.val()), Some(0x1000));
-    assert!(bench.cache.contains(0x1000));
-    assert!(bench.cache.clean_line(0x1000).is_none(), "already clean");
-    assert!(bench.cache.invalidate_line(0x2000).is_none(), "clean line: nothing to write back");
-    assert!(!bench.cache.contains(0x2000));
-
-    bench.install(
-        3,
-        0x3000,
-        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
-    );
-    let dirty: Vec<u64> = bench.cache.flush().into_iter().map(|d| d.line.val()).collect();
-    assert_eq!(dirty, vec![0x3000]);
-    assert!(bench.cache.contains(0x1000), "clean lines survive a flush");
-    assert!(!bench.cache.contains(0x3000));
-    assert!(bench.cache.invalidate_all().is_empty());
-    assert!(!bench.cache.contains(0x1000));
 }
 
 #[test]

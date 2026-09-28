@@ -2,8 +2,9 @@
 //! translates and faults.
 //!
 //! A CBO translates in memory1 like a load or store, and faults there to be
-//! taken at commit; commit performs it on the translated block. `cbo.zero`
-//! needs write permission. The management operations need only read
+//! taken at commit; it then waits in the store buffer, ordered as a store,
+//! and goes to the cache after it commits. `cbo.zero` needs write
+//! permission. The management operations need only read
 //! permission, but every CBO reports a fault as a store fault, as the CMO
 //! specification (and Spike) does.
 

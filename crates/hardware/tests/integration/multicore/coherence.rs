@@ -3,11 +3,16 @@
 //! agent and interconnect.
 
 use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
-use crate::common::multihart::MultiHart;
+use crate::common::multihart::{DATA_BASE, MultiHart};
 use crate::integration::multicore::{amo_counter, spinlock};
 use rvsim_core::coherence::audit::audit;
+use rvsim_core::common::{LineAddr, PhysAddr};
 use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
 use rvsim_core::core::pipeline::engine::BackendType;
+use rvsim_core::core::units::cache::Cache;
+use rvsim_core::isa::rv64i::{funct3 as i_f3, opcodes as i_op};
+use rvsim_core::isa::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
+use rvsim_core::sim::packet::MesiState;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -296,5 +301,89 @@ fn a_reload_sees_its_write_combined_store_while_the_line_is_shared() {
         let exit = system.run_until_exit(20_000);
 
         assert_eq!(exit, Some(0), "{backend:?}");
+    }
+}
+
+/// Hart 1 writes a word of a line and raises a flag on another; hart 0
+/// waits for the flag, then applies the CBO `cbo_imm` to the line and a
+/// fence that waits for it, and exits with 0.
+fn cbo_after_another_hart_writes(cbo_imm: i64) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let cbo = ((cbo_imm as u32 & 0xFFF) << 20) | (T2 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM;
+    let code = vec![
+        i().addi(T0, 0, 31).build(),
+        i().addi(T2, 0, 1).build(),
+        i().sll(T2, T2, T0).build(),
+        i().addi(T2, T2, 0x400).build(),
+        i().csrrs(T5, MHARTID, 0).build(),
+        i().bne(T5, 0, (13 - 5) * 4).build(),
+        i().ld(T6, T2, 0x80).build(),
+        i().beq(T6, 0, -4).build(),
+        cbo,
+        FENCE_IORW,
+        i().addi(A0, 0, 0).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+        i().addi(T6, 0, 5).build(),
+        i().sd(T2, T6, 0).build(),
+        FENCE_IORW,
+        i().addi(T6, 0, 1).build(),
+        i().sd(T2, T6, 0x80).build(),
+        i().jal(0, 0).build(),
+    ];
+    assert_eq!(code.len(), 19);
+    code
+}
+
+/// The state each hart's L1D and L2 hold the written line in.
+fn states_of_the_written_line(system: &MultiHart) -> Vec<(Option<MesiState>, Option<MesiState>)> {
+    let line = LineAddr::from_phys(PhysAddr::new(DATA_BASE), 64);
+    let state_in = |cache: &Cache| {
+        cache.held_lines().into_iter().find(|(held, _)| *held == line).map(|(_, state)| state)
+    };
+    system
+        .sim
+        .state
+        .cores
+        .iter()
+        .map(|core| (state_in(&core.units.l1_d_cache), state_in(&core.units.l2_cache)))
+        .collect()
+}
+
+#[test]
+fn a_flush_takes_a_line_out_of_every_harts_caches() {
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let config = cached(2, backend);
+        let mut system =
+            MultiHart::with_config(&config, &cbo_after_another_hart_writes(CBO_FLUSH_IMM));
+
+        let exit = system.run_until_exit(50_000);
+
+        assert_eq!(exit, Some(0), "{backend:?}");
+        assert_eq!(
+            states_of_the_written_line(&system),
+            [(None, None), (None, None)],
+            "{backend:?}"
+        );
+        assert_eq!(system.read_u64(DATA_BASE), 5, "{backend:?}");
+    }
+}
+
+#[test]
+fn a_clean_leaves_the_writer_holding_its_line_clean() {
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let config = cached(2, backend);
+        let mut system =
+            MultiHart::with_config(&config, &cbo_after_another_hart_writes(CBO_CLEAN_IMM));
+
+        let exit = system.run_until_exit(50_000);
+
+        assert_eq!(exit, Some(0), "{backend:?}");
+        let writer = states_of_the_written_line(&system)[1];
+        assert!(
+            !matches!(writer, (Some(MesiState::Modified), _) | (_, Some(MesiState::Modified))),
+            "{backend:?}: {writer:?}"
+        );
+        assert!(writer.1.is_some(), "{backend:?}: the writer keeps its copy");
     }
 }

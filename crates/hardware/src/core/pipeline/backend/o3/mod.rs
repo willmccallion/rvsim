@@ -724,7 +724,7 @@ impl ExecutionEngine for O3Engine {
             for selected in selection.entries {
                 let SelectedEntry { entry, fu_type, unit, .. } = selected;
                 let rob_tag = entry.rob_tag;
-                let is_mem_instr = entry.ctrl.mem_read || entry.ctrl.mem_write;
+                let is_mem_instr = entry.ctrl.mem_read || entry.ctrl.uses_store_buffer();
 
                 if is_mem_instr {
                     self.mdp.issued(rob_tag);
@@ -1017,7 +1017,7 @@ impl ExecutionEngine for O3Engine {
             let entries = std::mem::take(rename_output);
             for entry in entries {
                 let is_load = entry.ctrl.mem_read;
-                let is_store = entry.ctrl.mem_write;
+                let is_store = entry.ctrl.uses_store_buffer();
                 let is_atomic =
                     entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
                 let mem_dep =

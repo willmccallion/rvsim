@@ -567,6 +567,7 @@ fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
     s.register(c.evictions, Meta::events("valid lines replaced"));
     s.register(c.writebacks, Meta::events("lines written to the next level"));
     s.register(c.back_invalidations, Meta::events("lines dropped at the next level's request"));
+    s.register(c.maintenance, Meta::events("cache-maintenance operations passed through"));
     s.register(c.probes, Meta::events("probes received on behalf of snoops"));
     s.register(c.snoops, Meta::events("snoops received from the home agent"));
     s.register(c.snoop_invalidations, Meta::events("snoops that took the line away"));
@@ -593,6 +594,7 @@ fn register_coherence(s: &mut Stats, c: &CoherenceStatPaths) {
     s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
     s.register(h.writebacks, Meta::events("writebacks from private caches"));
     s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
+    s.register(h.maintenance, Meta::events("cache-maintenance requests from private caches"));
     s.register(
         h.stale_writebacks,
         Meta::events("writebacks whose line a snoop had already collected"),

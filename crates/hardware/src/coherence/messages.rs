@@ -10,7 +10,7 @@
 
 use crate::common::{CoreId, LineAddr};
 use crate::sim::components::ReqId;
-use crate::sim::packet::MesiState;
+use crate::sim::packet::{Maintenance, MesiState};
 
 /// An endpoint of the coherence interconnect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -68,6 +68,17 @@ pub enum ReqKind {
     },
     /// The requester silently dropped a clean line.
     Evict,
+    /// A cache-maintenance operation on the line, applied to every other
+    /// holder and then to the LLC and memory (CHI's `CleanShared`,
+    /// `CleanInvalid`, `MakeInvalid`). The requester has already applied it
+    /// to its own copy.
+    Maintain {
+        /// What to do to the line.
+        op: Maintenance,
+        /// The requester's copy was dirty; its data travels with the
+        /// request.
+        dirty: bool,
+    },
 }
 
 /// What the home asks of a holder.
@@ -79,6 +90,10 @@ pub enum SnoopKind {
     Unique,
     /// Drop the line because the home no longer tracks it.
     Invalid,
+    /// Keep the line, clean: dirty data goes back to the home.
+    Clean,
+    /// Drop the line, discarding dirty data.
+    MakeInvalid,
 }
 
 /// One message on the coherence interconnect.
@@ -212,7 +227,8 @@ impl CoherenceMsg {
     pub const fn bytes(self, line_bytes: usize) -> usize {
         const HEADER: usize = 8;
         match self {
-            Self::CompData { .. } => HEADER + line_bytes,
+            Self::CompData { .. }
+            | Self::Req { kind: ReqKind::Maintain { dirty: true, .. }, .. } => HEADER + line_bytes,
             Self::NoSnp { bytes, .. } | Self::NoSnpData { bytes, .. } => HEADER + bytes,
             _ => HEADER,
         }

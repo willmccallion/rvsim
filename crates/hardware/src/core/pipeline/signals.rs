@@ -605,6 +605,13 @@ impl ControlSignals {
         }
     }
 
+    /// True for an instruction that takes a store-buffer slot: a store, an
+    /// SC or AMO, or a cache-block operation, which is ordered as a store.
+    #[must_use]
+    pub const fn uses_store_buffer(&self) -> bool {
+        self.mem_write || self.system_op.is_cbo()
+    }
+
     /// True for a scalar instruction memory1 must translate: a load, a
     /// store, an atomic or a cache-block operation. It completes after the
     /// memory stages rather than when its unit finishes.

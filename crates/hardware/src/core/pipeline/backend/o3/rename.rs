@@ -169,7 +169,7 @@ impl O3Engine {
             self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vec_dst_count);
         }
 
-        let store_slot_allocated = if id.ctrl.mem_write {
+        let store_slot_allocated = if id.ctrl.uses_store_buffer() {
             self.store_buffer.allocate(rob_tag, id.ctrl.width)
         } else if is_vec_store(id.ctrl.vec_op) {
             self.vec_store_buffer.allocate(rob_tag)
@@ -268,7 +268,7 @@ impl O3Engine {
     /// slot for a memory op.
     fn has_slots_for(&self, id: &IdExEntry) -> bool {
         let needs_dst = (id.ctrl.reg_write && !id.rd.is_zero()) || id.ctrl.fp_reg_write;
-        let store_slot = if id.ctrl.mem_write {
+        let store_slot = if id.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
         } else if is_vec_store(id.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0

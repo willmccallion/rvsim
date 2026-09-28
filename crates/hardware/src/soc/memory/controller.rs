@@ -11,7 +11,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::common::{LineAddr, PhysAddr};
-use crate::sim::components::ComponentId;
+use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
 use crate::sim::state::global_memory::GlobalMemory;
@@ -106,6 +106,10 @@ impl SimpleController {
 impl Handle for SimpleController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
+            if is_dataless_maintenance(&op) {
+                acknowledge_now(req_id, paddr, source, ctx);
+                return;
+            }
             let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
             let started = ctx.cycle.max(self.busy_until);
             self.busy_until = started + self.bandwidth.occupancy(size.bytes() as u64);
@@ -271,6 +275,10 @@ impl DramController {
 impl Handle for DramController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
+            if is_dataless_maintenance(&op) {
+                acknowledge_now(req_id, paddr, source, ctx);
+                return;
+            }
             let latency = self.compute_latency(paddr.val(), ctx.cycle);
             let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
             ctx.scheduler.schedule(
@@ -324,8 +332,33 @@ fn service_request(
         MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
             read_response(buffer, offset, size)
         }
-        MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
+        MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => {
+            MemRespData::Small(0)
+        }
     }
+}
+
+/// Answers `req_id` in this cycle.
+fn acknowledge_now(req_id: ReqId, paddr: PhysAddr, source: ComponentId, ctx: &mut HandleCtx<'_>) {
+    ctx.scheduler.schedule(
+        ctx.cycle,
+        source,
+        ctx.self_id,
+        Packet::MemResp {
+            req_id,
+            line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
+            data: MemRespData::Small(0),
+            hit_level: HitLevel::Dram,
+            state: MesiState::Exclusive,
+        },
+    );
+}
+
+/// True for a maintenance operation that brings no data: memory, the point
+/// of coherence, acknowledges it as it arrives without a DRAM access. One
+/// carrying dirty data is a line write.
+const fn is_dataless_maintenance(op: &MemOp) -> bool {
+    matches!(op, MemOp::Maintain { dirty: false, .. })
 }
 
 fn read_response(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> MemRespData {

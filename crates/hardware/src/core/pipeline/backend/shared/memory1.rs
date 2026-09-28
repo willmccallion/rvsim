@@ -183,7 +183,7 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     if ex.ctrl.system_op.is_cbo() {
-        return translate_cbo(state, engine, ex, translated.first);
+        return translate_cbo(state, engine, ex, translated.first, resolved);
     }
 
     let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
@@ -385,14 +385,15 @@ fn forward_from_pending_stores<E: ExecutionEngine>(
     if wcb.request_send(paddr, bytes) { ForwardResult::Stall } else { vector }
 }
 
-/// Translates a cache-block operation's block and passes its physical
-/// address on as the entry's result for commit, which performs it there.
-/// A fault is reported as the store fault the CBO raises.
+/// Translates a cache-block operation's block and resolves it into its
+/// store-buffer slot, which sends it to the cache after it commits. A fault
+/// is reported as the store fault the CBO raises.
 fn translate_cbo<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
-    mut ex: ExMem1Entry,
+    ex: ExMem1Entry,
     translated: Option<TranslationResult>,
+    resolved: &mut Memory1Outcome,
 ) -> EntryOutcome {
     let hart = state.hart();
     let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.inst) {
@@ -437,19 +438,42 @@ fn translate_cbo<E: ExecutionEngine>(
         }
     };
 
-    let is_ram = state.bus.ram_region_for(paddr.val(), CBOZ_BLOCK_SIZE).is_some();
-    if effect != cbo::CboEffect::Zero && !is_ram {
+    // Device regions do not support cache-block operations, `cbo.zero`
+    // included, which the CMO specification leaves to each I/O region.
+    if state.bus.ram_region_for(paddr.val(), CBOZ_BLOCK_SIZE).is_none() {
         push_trap(engine, ex, Trap::StoreAccessFault(tval), ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
 
     let vaddr = VirtAddr::new(block);
-    ex.alu = paddr.val();
+    resolve_block_op(engine, &ex, paddr, vaddr, effect, resolved);
     let dirty_updates = DirtyUpdates::of(dirty_update, None);
     engine
         .mem1_mem2_mut()
         .push(Mem1Mem2Entry { dirty_updates, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) });
     EntryOutcome::Done
+}
+
+/// Puts a translated CBO in its store-buffer slot, where it is ordered as a
+/// store, and records the oldest younger load that already read its block.
+fn resolve_block_op<E: ExecutionEngine>(
+    engine: &mut E,
+    ex: &ExMem1Entry,
+    block: PhysAddr,
+    vaddr: VirtAddr,
+    effect: cbo::CboEffect,
+    outcome: &mut Memory1Outcome,
+) {
+    engine.store_buffer_mut().resolve_block(ex.rob_tag, vaddr, block, effect);
+    outcome.resolved_stores.push(ex.rob_tag);
+    let violator = engine
+        .load_queue_mut()
+        .and_then(|lq| lq.check_ordering_violation_over(block, CBOZ_BLOCK_SIZE, ex.rob_tag));
+    if let Some(load) = violator
+        && outcome.violation.is_none_or(|(oldest, _)| load.is_older_than(oldest))
+    {
+        outcome.violation = Some((load, ex.pc));
+    }
 }
 
 /// True while a committed store has yet to finish writing.

@@ -13,8 +13,10 @@
 //!    arrives.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::core::pipeline::backend::shared::cbo::CboEffect;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
+use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::components::ReqId;
 
 /// Result of store-to-load forwarding check.
@@ -42,15 +44,37 @@ pub enum StoreResolution {
         /// Physical address of the store.
         paddr: PhysAddr,
         /// Data to write.
-        data: u64,
+        data: StoreData,
     },
     /// ROB has committed this store; it can be drained to memory.
     Committed {
         /// Physical address of the store.
         paddr: PhysAddr,
         /// Data to write.
-        data: u64,
+        data: StoreData,
     },
+}
+
+/// What a store-buffer entry writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreData {
+    /// The low bytes of a value, as many as the store's width.
+    Bytes(u64),
+    /// A cache-block operation on the whole block at the entry's address,
+    /// which behaves as a store for ordering.
+    Block(CboEffect),
+}
+
+impl StoreData {
+    /// The bytes `[start, end)` the entry covers when it is at `paddr`
+    /// with `width`.
+    const fn span(self, paddr: PhysAddr, width: MemWidth) -> (u64, u64) {
+        let start = paddr.val();
+        match self {
+            Self::Bytes(_) => (start, start + width_to_bytes(width) as u64),
+            Self::Block(_) => (start, start + CBOZ_BLOCK_SIZE),
+        }
+    }
 }
 
 impl StoreResolution {
@@ -99,7 +123,7 @@ pub struct PendingWrite {
     /// Where it writes.
     pub paddr: PhysAddr,
     /// What it writes.
-    pub data: u64,
+    pub data: StoreData,
 }
 
 /// A single entry in the store buffer.
@@ -217,6 +241,22 @@ impl StoreBuffer {
 
     /// Resolves a store's address and data after memory translation.
     pub fn resolve(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: u64) {
+        self.resolve_as(rob_tag, vaddr, paddr, StoreData::Bytes(data));
+    }
+
+    /// Resolves a cache-block operation on the block at `block` after
+    /// memory translation.
+    pub fn resolve_block(
+        &mut self,
+        rob_tag: RobTag,
+        vaddr: VirtAddr,
+        block: PhysAddr,
+        effect: CboEffect,
+    ) {
+        self.resolve_as(rob_tag, vaddr, block, StoreData::Block(effect));
+    }
+
+    fn resolve_as(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: StoreData) {
         if let Some(entry) = self.find_by_tag_mut(rob_tag) {
             entry.vaddr = vaddr;
             entry.resolution = StoreResolution::Ready { paddr, data };
@@ -278,28 +318,27 @@ impl StoreBuffer {
                     continue;
                 }
 
-                match entry.resolution {
-                    StoreResolution::Ready { paddr: store_paddr, data: store_data }
-                    | StoreResolution::Committed { paddr: store_paddr, data: store_data } => {
-                        let store_size = width_to_bytes(entry.width);
-                        let store_start = store_paddr.val();
-                        let store_end = store_start + store_size as u64;
-
-                        if load_start < store_end && load_end > store_start {
-                            if store_start <= load_start && store_end >= load_end {
+                if let StoreResolution::Ready { paddr: store_paddr, data }
+                | StoreResolution::Committed { paddr: store_paddr, data } = entry.resolution
+                {
+                    let (store_start, store_end) = data.span(store_paddr, entry.width);
+                    if load_start < store_end && load_end > store_start {
+                        let covers = store_start <= load_start && store_end >= load_end;
+                        return match data {
+                            StoreData::Bytes(value) if covers => {
                                 let offset = (load_start - store_start) as u32;
-                                let shifted = store_data >> (offset * 8);
+                                let shifted = value >> (offset * 8);
                                 let mask = if load_size >= 8 {
                                     u64::MAX
                                 } else {
                                     (1u64 << (load_size * 8)) - 1
                                 };
-                                return ForwardResult::Hit(shifted & mask);
+                                ForwardResult::Hit(shifted & mask)
                             }
-                            return ForwardResult::Stall;
-                        }
+                            StoreData::Block(CboEffect::Zero) if covers => ForwardResult::Hit(0),
+                            StoreData::Bytes(_) | StoreData::Block(_) => ForwardResult::Stall,
+                        };
                     }
-                    StoreResolution::Pending => {}
                 }
             }
             if idx == 0 {
@@ -371,11 +410,9 @@ impl StoreBuffer {
                 match entry.resolution {
                     // Unresolved store to unknown address — assume overlap.
                     StoreResolution::Pending => return true,
-                    StoreResolution::Ready { paddr: store_paddr, .. }
-                    | StoreResolution::Committed { paddr: store_paddr, .. } => {
-                        let store_size = width_to_bytes(entry.width) as u64;
-                        let store_start = store_paddr.val();
-                        let store_end = store_start + store_size;
+                    StoreResolution::Ready { paddr: store_paddr, data }
+                    | StoreResolution::Committed { paddr: store_paddr, data } => {
+                        let (store_start, store_end) = data.span(store_paddr, entry.width);
                         if load_start < store_end && load_end > store_start {
                             return true;
                         }
@@ -697,7 +734,10 @@ mod tests {
         let entry = drain_now(&mut sb).unwrap();
         assert_eq!(
             entry,
-            StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 0xDEADBEEF }
+            StoreResolution::Committed {
+                paddr: PhysAddr::new(0x8000_0000),
+                data: StoreData::Bytes(0xDEADBEEF)
+            }
         );
         assert!(sb.is_empty());
     }
@@ -763,7 +803,10 @@ mod tests {
         let entry = drain_now(&mut sb).unwrap();
         assert_eq!(
             entry,
-            StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 10 }
+            StoreResolution::Committed {
+                paddr: PhysAddr::new(0x8000_0000),
+                data: StoreData::Bytes(10)
+            }
         );
     }
 
@@ -788,7 +831,10 @@ mod tests {
             let entry = drain_now(&mut sb).unwrap();
             assert_eq!(
                 entry,
-                StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: i as u64 }
+                StoreResolution::Committed {
+                    paddr: PhysAddr::new(0x8000_0000),
+                    data: StoreData::Bytes(i as u64)
+                }
             );
         }
     }

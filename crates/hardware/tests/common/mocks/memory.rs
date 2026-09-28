@@ -88,7 +88,7 @@ impl Handle for MockMemory {
                     }
                     0
                 }
-                MemOp::Writeback { .. } => 0,
+                MemOp::Writeback { .. } | MemOp::Maintain { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

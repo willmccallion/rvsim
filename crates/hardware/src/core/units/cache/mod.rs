@@ -35,7 +35,7 @@ use crate::core::units::prefetch::{
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{
-    AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind,
+    AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet, ProbeKind,
 };
 
 /// One tag-array entry.
@@ -114,15 +114,6 @@ struct PendingProbe {
     had_copy: bool,
 }
 
-/// A line that left the cache and must be written back by the caller
-/// (returned by the pipeline-facing maintenance operations, which cannot
-/// schedule events themselves).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DirtyLine {
-    /// The line.
-    pub line: LineAddr,
-}
-
 /// A set-associative cache at one level of the memory hierarchy.
 pub struct Cache {
     /// Arena-relative identifier; the `ComponentId` form is `ComponentId::Cache(id)`.
@@ -164,6 +155,8 @@ pub struct Cache {
     writebacks: WritebackBuffer,
     blocked: VecDeque<BlockedRequest>,
     forwarded: Vec<Forwarded>,
+    /// Maintenance operations waiting for a fetch of their line to fill.
+    after_fill: Vec<BlockedRequest>,
     pending_probes: Vec<PendingProbe>,
     next_req: u64,
 }
@@ -247,6 +240,7 @@ impl Cache {
             writebacks: WritebackBuffer::new(config.write_buffers),
             blocked: VecDeque::new(),
             forwarded: Vec::new(),
+            after_fill: Vec::new(),
             pending_probes: Vec::new(),
             next_req: 0,
         }
@@ -396,67 +390,33 @@ impl Cache {
         self.enabled && self.find_way(addr).is_some()
     }
 
-    /// Cleans the line containing `addr`, returning it when it was dirty so
-    /// the caller can write it back. Used by Zicbom `cbo.clean`.
-    pub fn clean_line(&mut self, addr: u64) -> Option<DirtyLine> {
-        if !self.enabled {
-            return None;
-        }
-        let way = self.find_way(addr)?;
+    /// Makes our copy of the line containing `addr` clean, keeping it.
+    /// Returns whether it was dirty.
+    fn clean_line(&mut self, addr: u64) -> bool {
+        let Some(way) = self.find_way(addr) else { return false };
         let index = self.set_index(addr) * self.ways + way;
         let was_dirty = self.lines[index].dirty();
-        self.lines[index].state = MesiState::Exclusive;
-        was_dirty.then(|| DirtyLine { line: self.line_of(addr) })
+        if was_dirty {
+            self.lines[index].state = MesiState::Exclusive;
+        }
+        was_dirty
     }
 
-    /// Invalidates the line containing `addr`, returning it when it was
-    /// dirty so the caller can write it back (`cbo.flush`) or drop it
-    /// (`cbo.inval`).
-    pub fn invalidate_line(&mut self, addr: u64) -> Option<DirtyLine> {
-        if !self.enabled {
-            return None;
-        }
-        let way = self.find_way(addr)?;
+    /// Drops our copy of the line containing `addr`. Returns whether it was
+    /// dirty.
+    fn invalidate_line(&mut self, addr: u64) -> bool {
+        let Some(way) = self.find_way(addr) else { return false };
         let index = self.set_index(addr) * self.ways + way;
         let was_dirty = self.lines[index].dirty();
         self.lines[index].state = MesiState::Invalid;
-        was_dirty.then(|| DirtyLine { line: self.line_of(addr) })
+        was_dirty
     }
 
-    /// Invalidates every line, returning the dirty ones for the caller to
-    /// write back.
-    pub fn invalidate_all(&mut self) -> Vec<DirtyLine> {
-        let mut dirty = Vec::new();
-        if !self.enabled {
-            return dirty;
+    /// Drops every line, as an instruction cache does for FENCE.I.
+    pub fn invalidate_all(&mut self) {
+        for line in &mut self.lines {
+            line.state = MesiState::Invalid;
         }
-        for index in 0..self.lines.len() {
-            if self.lines[index].dirty() {
-                let set_index = index / self.ways;
-                let addr = self.reconstruct_addr(set_index, self.lines[index].tag);
-                dirty.push(DirtyLine { line: self.line_of(addr) });
-            }
-            self.lines[index].state = MesiState::Invalid;
-        }
-        dirty
-    }
-
-    /// Writes back and invalidates every dirty line; clean lines stay
-    /// valid. Returns the dirty lines for the caller to write back.
-    pub fn flush(&mut self) -> Vec<DirtyLine> {
-        let mut dirty = Vec::new();
-        if !self.enabled {
-            return dirty;
-        }
-        for index in 0..self.lines.len() {
-            if self.lines[index].dirty() {
-                let set_index = index / self.ways;
-                let addr = self.reconstruct_addr(set_index, self.lines[index].tag);
-                dirty.push(DirtyLine { line: self.line_of(addr) });
-                self.lines[index].state = MesiState::Invalid;
-            }
-        }
-        dirty
     }
 
     const fn alloc_req_id(&mut self) -> ReqId {
@@ -534,6 +494,10 @@ impl Cache {
         }
         if let MemOp::Writeback { dirty } = req.op {
             self.on_writeback(&req, dirty, ctx);
+            return;
+        }
+        if let MemOp::Maintain { op, dirty } = req.op {
+            self.on_maintain(req, op, dirty, ctx);
             return;
         }
 
@@ -777,6 +741,79 @@ impl Cache {
         );
     }
 
+    /// A maintenance operation from above: applied to our copy once any
+    /// fetch of the line has filled, then passed on toward memory with our
+    /// dirty data, as gem5's cache always forwards one.
+    fn on_maintain(
+        &mut self,
+        req: BlockedRequest,
+        op: Maintenance,
+        dirty_above: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let line = self.line_of(req.paddr.val());
+        if self.mshrs.holds(line) {
+            self.after_fill.push(req);
+            return;
+        }
+        ctx.stats.counter(self.stat_paths.maintenance).inc();
+        let dirty_here = self.apply_maintenance(line, op, req.source, ctx);
+        let dirty = (dirty_above || dirty_here) && op != Maintenance::Invalidate;
+        let at = ctx.cycle + self.latency;
+        let Some(downstream) = self.downstream else {
+            let level = self.hit_level();
+            let ack = MemRespData::Small(0);
+            self.respond(
+                ctx,
+                req.source,
+                req.req_id,
+                req.paddr,
+                at,
+                level,
+                MesiState::Invalid,
+                ack,
+            );
+            return;
+        };
+        let ours = self.alloc_req_id();
+        self.forwarded.push(Forwarded { ours, source: req.source, theirs: req.req_id, line });
+        let packet = self.coherent.map_or_else(
+            || Packet::MemReq {
+                req_id: ours,
+                paddr: line.phys(),
+                vaddr: None,
+                size: AccessSize::Line,
+                op: MemOp::Maintain { op, dirty },
+            },
+            |requester| {
+                let kind = ReqKind::Maintain { op, dirty };
+                Packet::Coh(CoherenceMsg::Req { txn: ours, line, kind, requester })
+            },
+        );
+        ctx.scheduler.schedule(at, downstream, ctx.self_id, packet);
+    }
+
+    /// Applies a maintenance operation to our copy of `line`, dropping the
+    /// copies above other than the requester's for a flush or invalidate.
+    /// Returns whether our copy was dirty.
+    fn apply_maintenance(
+        &mut self,
+        line: LineAddr,
+        op: Maintenance,
+        requester: ComponentId,
+        ctx: &mut HandleCtx<'_>,
+    ) -> bool {
+        match op {
+            Maintenance::Clean => self.clean_line(line.val()),
+            Maintenance::Flush | Maintenance::Invalidate => {
+                let holders: Vec<ComponentId> =
+                    self.upper_holders(line).into_iter().filter(|&h| h != requester).collect();
+                self.back_invalidate(line, &holders, ctx);
+                self.invalidate_line(line.val())
+            }
+        }
+    }
+
     /// A disabled cache that is still its core's requesting agent: the
     /// caches above it hold the lines, so their line requests, writebacks
     /// and evictions are spoken to the home on their behalf.
@@ -807,6 +844,7 @@ impl Cache {
             }
             MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. } => ReqKind::ReadUnique,
             MemOp::Read | MemOp::Fetch => ReqKind::ReadShared,
+            MemOp::Maintain { op, dirty } => ReqKind::Maintain { op: *op, dirty: *dirty },
         };
         let ours = self.alloc_req_id();
         self.forwarded.push(Forwarded { ours, source: req.source, theirs: req.req_id, line });
@@ -888,7 +926,19 @@ impl Cache {
             );
         }
         self.serve_deferred(mshr.line, mshr.deferred, installed, hit_level, ctx);
+        self.serve_after_fill(mshr.line, ctx);
         self.retry_blocked(ctx);
+    }
+
+    /// Serves the maintenance operations that waited for `line` to fill.
+    fn serve_after_fill(&mut self, line: LineAddr, ctx: &mut HandleCtx<'_>) {
+        let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.after_fill)
+            .into_iter()
+            .partition(|req| self.line_of(req.paddr.val()) == line);
+        self.after_fill = waiting;
+        for req in ready {
+            self.on_request(req, ctx);
+        }
     }
 
     /// Serves the targets a fill without write permission had to hold back:
@@ -1013,8 +1063,8 @@ impl Cache {
             return;
         }
         let holders = self.upper_holders(line);
-        if let Some(dirty) = self.invalidate_line(line.val()) {
-            self.write_back(dirty.line, true, ctx);
+        if self.invalidate_line(line.val()) {
+            self.write_back(line, true, ctx);
         }
         ctx.stats.counter(self.stat_paths.back_invalidations).inc();
         self.back_invalidate(line, &holders, ctx);
@@ -1085,10 +1135,11 @@ impl Cache {
                 ctx.stats.counter(self.stat_paths.snoop_downgrades).inc();
                 ProbeKind::Downgrade
             }
-            SnoopKind::Unique | SnoopKind::Invalid => {
+            SnoopKind::Unique | SnoopKind::Invalid | SnoopKind::MakeInvalid => {
                 ctx.stats.counter(self.stat_paths.snoop_invalidations).inc();
                 ProbeKind::Invalidate
             }
+            SnoopKind::Clean => ProbeKind::Clean,
         };
         self.give_up_rights(line, probe_kind, ProbeOrigin::Snoop { txn }, false, ctx);
     }
@@ -1154,6 +1205,8 @@ impl Cache {
         self.lines[index].state = match kind {
             ProbeKind::Invalidate => MesiState::Invalid,
             ProbeKind::Downgrade => MesiState::Shared,
+            ProbeKind::Clean if dirty => MesiState::Exclusive,
+            ProbeKind::Clean => self.lines[index].state,
         };
         dirty
     }
@@ -1305,11 +1358,6 @@ impl Handle for Cache {
             }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
-            Packet::CacheClean { line_addr } => {
-                if let Some(dirty) = self.clean_line(line_addr.val()) {
-                    self.write_back(dirty.line, true, ctx);
-                }
-            }
             _ => {}
         }
     }

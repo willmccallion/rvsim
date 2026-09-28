@@ -17,6 +17,8 @@ pub struct HomeStatPaths {
     pub writebacks: &'static str,
     /// Silent evictions received.
     pub evicts: &'static str,
+    /// Cache-maintenance requests received.
+    pub maintenance: &'static str,
     /// Writebacks from a core a snoop had already taken the line from.
     pub stale_writebacks: &'static str,
     /// Accesses carried to memory without snooping.
@@ -50,6 +52,7 @@ impl HomeStatPaths {
             clean_unique: path("requests.clean_unique"),
             writebacks: path("requests.writebacks"),
             evicts: path("requests.evicts"),
+            maintenance: path("requests.maintenance"),
             stale_writebacks: path("requests.stale_writebacks"),
             non_coherent: path("requests.non_coherent"),
             snoops_sent: path("snoops_sent"),

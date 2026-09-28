@@ -13,7 +13,9 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{CacheId, ComponentId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
+use rvsim_core::sim::packet::{
+    AccessSize, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
+};
 use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 
@@ -495,4 +497,72 @@ fn a_broadcast_home_snoops_every_other_core() {
     let done = bench.completions_for(txn);
     assert_eq!((done[0].1, done[0].2), (MesiState::Exclusive, true));
     assert!(bench.fabric.tracked_holders(line(0x1000)).is_none());
+}
+
+/// The maintenance requests the LLC saw, as `(op, dirty)`.
+fn llc_maintenance(bench: &Bench) -> Vec<(Maintenance, bool)> {
+    bench
+        .llc_requests
+        .iter()
+        .filter_map(|(_, op, _)| match *op {
+            MemOp::Maintain { op, dirty } => Some((op, dirty)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn maintain(op: Maintenance) -> ReqKind {
+    ReqKind::Maintain { op, dirty: false }
+}
+
+#[test]
+fn a_flush_invalidates_every_other_holder_then_reaches_the_llc_with_their_dirty_data() {
+    let mut bench = Bench::precise();
+    bench.request(1, 0x1000, ReqKind::ReadUnique);
+    bench.run_until_idle();
+
+    let txn = bench.request(0, 0x1000, maintain(Maintenance::Flush));
+    bench.run(6);
+    assert_eq!(bench.snoops_to(1).last().map(|s| s.1), Some(SnoopKind::Unique));
+    assert!(llc_maintenance(&bench).is_empty(), "the LLC waits for the snoops");
+    bench.answer_snoops(1, true, true);
+    bench.run_until_idle();
+
+    assert_eq!(llc_maintenance(&bench), [(Maintenance::Flush, true)]);
+    assert_eq!(bench.completions_for(txn).len(), 1);
+    assert_eq!(bench.holders(0x1000), (None, vec![]));
+    assert_eq!(bench.stat("coherence.ha.requests.maintenance"), 1);
+}
+
+#[test]
+fn a_clean_snoops_only_the_owner_which_keeps_its_line() {
+    let mut bench = Bench::precise();
+    bench.request(1, 0x1000, ReqKind::ReadUnique);
+    bench.run_until_idle();
+
+    let txn = bench.request(0, 0x1000, maintain(Maintenance::Clean));
+    bench.run(6);
+    assert_eq!(bench.snoops_to(1).last().map(|s| s.1), Some(SnoopKind::Clean));
+    bench.answer_snoops(1, true, true);
+    bench.run_until_idle();
+
+    assert_eq!(llc_maintenance(&bench), [(Maintenance::Clean, true)]);
+    assert_eq!(bench.completions_for(txn).len(), 1);
+    assert_eq!(bench.holders(0x1000), (Some(core(1)), vec![core(1)]));
+}
+
+#[test]
+fn an_invalidate_drops_every_other_copy_and_discards_its_data() {
+    let mut bench = Bench::precise();
+    bench.request(1, 0x1000, ReqKind::ReadUnique);
+    bench.run_until_idle();
+
+    bench.request(0, 0x1000, maintain(Maintenance::Invalidate));
+    bench.run(6);
+    assert_eq!(bench.snoops_to(1).last().map(|s| s.1), Some(SnoopKind::MakeInvalid));
+    bench.answer_snoops(1, true, true);
+    bench.run_until_idle();
+
+    assert_eq!(llc_maintenance(&bench), [(Maintenance::Invalidate, false)]);
+    assert_eq!(bench.holders(0x1000), (None, vec![]));
 }

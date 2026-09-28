@@ -16,7 +16,7 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::arch::vpr::Vpr;
-use crate::core::pipeline::backend::shared::cbo::{self, CboEffect};
+use crate::core::pipeline::backend::shared::cbo::CboEffect;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
@@ -27,16 +27,16 @@ use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobEntry, RobState, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
-use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
+use crate::core::pipeline::store_buffer::{StoreBuffer, StoreData, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
-use crate::core::units::cache::DirtyLine;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
+use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData, WriteOrigin};
+use crate::sim::packet::{AccessSize, Maintenance, MemOp, Packet, WriteData, WriteOrigin};
 use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::trace_branch;
 use crate::trace_commit;
@@ -580,11 +580,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             state.set_reservation(paddr);
         }
 
-        if entry.ctrl.mem_write {
-            // A hart's own store to its reservation set fails its SC, which
-            // the spec allows; other harts' reservations break when the
-            // store is performed. An SC or AMO already took effect in the
-            // cache and has left the store buffer.
+        if entry.ctrl.uses_store_buffer() {
+            // A hart's own store (or CBO) to its reservation set fails its
+            // SC, which the spec allows; other harts' reservations break
+            // when the store is performed. An SC or AMO already took effect
+            // in the cache and has left the store buffer.
             if let Some(paddr) = store_buffer.find_paddr(entry.tag)
                 && state.check_reservation(paddr)
             {
@@ -607,7 +607,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         if entry.ctrl.system_op == SystemOp::FenceI {
             // Older stores have completed (stall above); refills see them.
-            let _ = state.core.l1_i_cache.invalidate_all();
+            state.core.l1_i_cache.invalidate_all();
             // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
@@ -619,17 +619,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             state.clear_reservation();
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
-        }
-
-        // A CBO (Zicboz / Zicbom) runs on the block memory1 translated, its
-        // result, once the store buffer has drained (stall above).
-        if entry.ctrl.system_op.is_cbo() {
-            let block = PhysAddr::new(entry.result.unwrap_or(0));
-            if let Some(trap) = commit_cbo(state, common, entry.ctrl.system_op, block, entry.inst) {
-                state.trap(&trap, entry.pc);
-                event = Some(CommitEvent::SquashAfter(state.hart.pc));
-                break;
-            }
         }
 
         state.hart.regs.write(RegIdx::new(0), 0);
@@ -742,46 +731,98 @@ fn try_drain_one_store(
     store_buffer: &mut StoreBuffer,
 ) -> bool {
     let Some(write) = store_buffer.begin_write() else { return false };
-    let (paddr, data) = (write.paddr, write.data);
-
-    // MMIO, including the HTIF window over RAM, bypasses the WCB so its
-    // device sees each store.
-    let width_bytes = width_to_bytes(write.width);
-    let pure_ram = is_pure_ram(state, paddr, write.width);
-
-    let requests = if !state.core.wcb.is_disabled() && pure_ram {
-        let span = state.core.wcb.entry_bytes();
-        for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width_bytes, span) {
-            match state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
-                Some(evicted) => send_wcb_line(state, common, &evicted),
-                None => state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
+    let requests = match write.data {
+        StoreData::Bytes(data) => send_data_store(state, common, write.paddr, data, write.width),
+        StoreData::Block(effect) => {
+            // A CBO follows the older stores the WCB holds for its block.
+            if state.core.wcb.request_send(write.paddr, CBOZ_BLOCK_SIZE as usize) {
+                return false;
             }
+            vec![send_block_op(state, common, write.paddr, effect)]
         }
-        Vec::new()
-    } else {
-        let hart = WriteOrigin::Hart(state.hart.hart_id);
-        let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
-        emit_store_write_packet(state, common, paddr, data, write.width, store)
     };
     store_buffer.issue_write(write, &requests);
-    trace_commit!(state.config.general.trace_instructions;
-        paddr      = %crate::trace::Hex(paddr.val()),
-        data       = %crate::trace::Hex(data),
-        width      = ?write.width,
-        via_wcb    = !state.core.wcb.is_disabled() && pure_ram,
-        "CM: committed store's write sent to memory"
-    );
     true
 }
 
+/// Sends a committed store's data: into the WCB for RAM when it is
+/// enabled, else as its own writes. Returns the writes the store buffer
+/// waits for.
+fn send_data_store(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    paddr: PhysAddr,
+    data: u64,
+    width: MemWidth,
+) -> Vec<ReqId> {
+    // MMIO, including the HTIF window over RAM, bypasses the WCB so its
+    // device sees each store.
+    let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
+    trace_commit!(state.config.general.trace_instructions;
+        paddr      = %crate::trace::Hex(paddr.val()),
+        data       = %crate::trace::Hex(data),
+        width      = ?width,
+        via_wcb    = via_wcb,
+        "CM: committed store's write sent to memory"
+    );
+    if !via_wcb {
+        let hart = WriteOrigin::Hart(state.hart.hart_id);
+        let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
+        return emit_store_write_packet(state, common, paddr, data, width, store);
+    }
+    let span = state.core.wcb.entry_bytes();
+    for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width_to_bytes(width), span)
+    {
+        match state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
+            Some(evicted) => send_wcb_line(state, common, &evicted),
+            None => state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
+        }
+    }
+    Vec::new()
+}
+
+/// Sends a committed CBO to the L1D: `cbo.zero` as the hart's write of a
+/// zeroed block, the others as a maintenance operation carried to memory.
+fn send_block_op(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    block: PhysAddr,
+    effect: CboEffect,
+) -> ReqId {
+    let maintain = |op| MemOp::Maintain { op, dirty: false };
+    let op = match effect {
+        CboEffect::Zero => MemOp::Write {
+            data: WriteData::Line {
+                bytes: vec![0; CBOZ_BLOCK_SIZE as usize].into(),
+                mask: u64::MAX,
+            },
+            origin: WriteOrigin::Hart(state.hart.hart_id),
+        },
+        CboEffect::Clean => maintain(Maintenance::Clean),
+        CboEffect::Flush => maintain(Maintenance::Flush),
+        CboEffect::Invalidate => maintain(Maintenance::Invalidate),
+    };
+    let req_id = common.alloc_req_id();
+    let _ = common
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer, paddr: block });
+    let cycle = state.cycle;
+    state.event_queue.schedule(
+        cycle,
+        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Pipeline(common.pipeline_id),
+        Packet::MemReq { req_id, paddr: block, vaddr: None, size: AccessSize::Line, op },
+    );
+    req_id
+}
+
 /// True when `head` must not retire before every older store's write has
-/// completed: SFENCE.VMA (the walker must see earlier PTE stores), a CBO
-/// (it acts on the line after earlier writes), FENCE.I, and a FENCE whose
-/// predecessor set includes writes. An atomic that needs older stores
-/// written waits for them before it issues.
+/// completed: SFENCE.VMA (the walker must see earlier PTE stores), FENCE.I,
+/// and a FENCE whose predecessor set includes writes. An atomic that needs
+/// older stores written waits for them before it issues, and a CBO is
+/// ordered with them in the store buffer.
 fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
-        || head.ctrl.system_op.is_cbo()
         || (head.ctrl.system_op == SystemOp::Fence && fence_orders_stores(head.inst))
 }
 
@@ -870,91 +911,6 @@ fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &Wcb
             },
         },
     );
-}
-
-/// Emits a dirty-line writeback to the L1D for a line the pipeline drained
-/// (a WCB line, or a line a cache-maintenance instruction pushed out). The
-/// cache merges it or forwards it down the hierarchy; the memory controller
-/// accounts the DRAM write.
-fn emit_line_writeback(state: &mut CoreCtx<'_>, common: &mut BackendCommon, paddr: PhysAddr) {
-    let req_id = common.alloc_req_id();
-    let l1_d_id = common.l1_d_id;
-    let pipeline_id = common.pipeline_id;
-    let _ = common
-        .outstanding_stores
-        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr });
-    let cycle = state.cycle;
-    state.event_queue.schedule(
-        cycle,
-        ComponentId::Cache(l1_d_id),
-        ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq {
-            req_id,
-            paddr,
-            vaddr: None,
-            size: AccessSize::Line,
-            op: MemOp::Writeback { dirty: true },
-        },
-    );
-}
-
-/// Writes back every dirty line a cache maintenance operation pushed out.
-fn write_back_lines(state: &mut CoreCtx<'_>, common: &mut BackendCommon, lines: &[DirtyLine]) {
-    for dirty in lines {
-        emit_line_writeback(state, common, dirty.line.phys());
-    }
-}
-
-/// Performs a CBO on `block`, the physical block memory1 translated, or
-/// returns the illegal-instruction trap its gate raises.
-fn commit_cbo(
-    state: &mut CoreCtx<'_>,
-    common: &mut BackendCommon,
-    op: SystemOp,
-    block: PhysAddr,
-    inst: u32,
-) -> Option<Trap> {
-    let effect = match cbo::gate(&state.hart.csrs, state.hart.privilege, op, inst) {
-        Ok(effect) => effect,
-        Err(trap) => return Some(trap),
-    };
-    let paddr = block.val();
-    match effect {
-        CboEffect::Zero => cboz_write(state, common, paddr),
-        CboEffect::Invalidate => {
-            let _ = state.core.l1_d_cache.invalidate_line(paddr);
-        }
-        CboEffect::Flush => {
-            if let Some(dirty) = state.core.l1_d_cache.invalidate_line(paddr) {
-                write_back_lines(state, common, &[dirty]);
-            }
-        }
-        CboEffect::Clean => {
-            if let Some(dirty) = state.core.l1_d_cache.clean_line(paddr) {
-                write_back_lines(state, common, &[dirty]);
-            }
-        }
-    }
-    None
-}
-
-/// Writes `CBOZ_BLOCK_SIZE` bytes of zeros at `block_paddr` as a sequence of
-/// 8-byte stores. Caller must drain the store buffer first.
-fn cboz_write(state: &mut CoreCtx<'_>, common: &mut BackendCommon, block_paddr: u64) {
-    use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
-    const CHUNK: u64 = 8;
-    let mut offset = 0u64;
-    while offset < CBOZ_BLOCK_SIZE {
-        let _ = write_store_to_memory(
-            state,
-            common,
-            PhysAddr::new(block_paddr + offset),
-            0,
-            MemWidth::Double,
-            StoreOwner::Untracked,
-        );
-        offset += CHUNK;
-    }
 }
 
 /// Writes a store's bytes to RAM at once and emits its `MemReq`s for their

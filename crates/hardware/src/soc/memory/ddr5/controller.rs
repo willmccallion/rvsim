@@ -226,6 +226,19 @@ impl Handle for Ddr5Controller {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let arrival = self.clock.to_dram(ctx.cycle);
+            if matches!(op, MemOp::Maintain { dirty: false, .. }) {
+                // The point of coherence acknowledges a maintenance
+                // operation that brings no data without a DRAM access.
+                self.pending_responses.push(ScheduledResponse {
+                    req_id,
+                    line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
+                    payload: Payload::Ready(MemRespData::Small(0)),
+                    hit_level: HitLevel::Dram,
+                    fire_at: arrival + self.config.frontend_latency,
+                    target: source,
+                });
+                return;
+            }
             self.enqueue(req_id, paddr, size, op, source, arrival);
         }
         // Other packet kinds (DramCmd / RefreshTick trace events, plus any
@@ -1200,7 +1213,9 @@ impl Ddr5Controller {
             MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                 read_from_buffer(&self.buffer, offset, request.size)
             }
-            MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
+            MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => {
+                MemRespData::Small(0)
+            }
         })
     }
 

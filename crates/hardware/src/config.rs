@@ -5,6 +5,7 @@
 
 use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
 use crate::core::pipeline::engine::BackendType;
+use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 use serde::Deserialize;
 
 /// Default configuration constants for the simulator.
@@ -2047,6 +2048,17 @@ pub enum ConfigError {
         /// Configured ELEN in bits.
         elen: usize,
     },
+    /// A cache line smaller than the block a cache-block operation acts on,
+    /// which every cache level must hold in one line.
+    #[error(
+        "cache {level} has {line_bytes}-byte lines, smaller than the {CBOZ_BLOCK_SIZE}-byte cache-block-operation block"
+    )]
+    LineSmallerThanCacheBlock {
+        /// The cache level.
+        level: &'static str,
+        /// Its line size.
+        line_bytes: usize,
+    },
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -2101,6 +2113,18 @@ impl Config {
         }
         if self.memory.simple_bandwidth_bytes_per_second().is_none() {
             return Err(ConfigError::SimpleBandwidth);
+        }
+        let levels = [
+            ("l1_d", &self.cache.l1_d),
+            ("l1_i", &self.cache.l1_i),
+            ("l2", &self.cache.l2),
+            ("l3", &self.cache.l3),
+        ];
+        for (level, cache) in levels {
+            let line_bytes = cache.line_bytes;
+            if cache.enabled && line_bytes != 0 && (line_bytes as u64) < CBOZ_BLOCK_SIZE {
+                return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes });
+            }
         }
         Ok(())
     }

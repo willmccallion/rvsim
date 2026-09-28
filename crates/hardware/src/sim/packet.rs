@@ -172,6 +172,29 @@ pub enum MemOp {
         /// Whether the line was modified.
         dirty: bool,
     },
+    /// A cache-maintenance operation on the request's line (`cbo.clean`,
+    /// `cbo.flush`, `cbo.inval`), gem5's `CleanSharedReq` /
+    /// `CleanInvalidReq` / `InvalidateReq` to the point of coherence: every
+    /// cache on the way applies it to its copy and passes it on, and
+    /// memory acknowledges it.
+    Maintain {
+        /// What to do to the line.
+        op: Maintenance,
+        /// A cache it passed held the line modified: that data travels with
+        /// it to memory, as gem5's `WriteClean`.
+        dirty: bool,
+    },
+}
+
+/// What a cache-maintenance operation does to every cached copy of a line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Maintenance {
+    /// Write modified data back, keeping a clean copy (`cbo.clean`).
+    Clean,
+    /// Write modified data back and drop every copy (`cbo.flush`).
+    Flush,
+    /// Drop every copy, discarding modified data (`cbo.inval`).
+    Invalidate,
 }
 
 impl MemOp {
@@ -185,7 +208,11 @@ impl MemOp {
         match self {
             Self::Read => !matches!(size, AccessSize::Line),
             Self::Atomic { .. } | Self::Write { origin: WriteOrigin::Hart(_), .. } => true,
-            Self::ReadOwn | Self::Write { .. } | Self::Fetch | Self::Writeback { .. } => false,
+            Self::ReadOwn
+            | Self::Write { .. }
+            | Self::Fetch
+            | Self::Writeback { .. }
+            | Self::Maintain { .. } => false,
         }
     }
 }
@@ -225,6 +252,8 @@ pub enum ProbeKind {
     Invalidate,
     /// Keep at most a shared copy (a reader elsewhere wants it).
     Downgrade,
+    /// Keep the copy, clean (a `cbo.clean` elsewhere).
+    Clean,
 }
 
 /// MESI / MOESI coherence state.
@@ -351,11 +380,6 @@ pub enum Packet {
     /// Invalidate a cache line (back-invalidation, FENCE.VMA, coherence-driven).
     CacheInval {
         /// Line to invalidate.
-        line_addr: LineAddr,
-    },
-    /// Clean a cache line (write back dirty data, retain valid in clean state).
-    CacheClean {
-        /// Line to clean.
         line_addr: LineAddr,
     },
     /// Prefetcher-generated request.

@@ -119,9 +119,11 @@ impl GlobalMemory {
                 }
                 MemRespData::Small(0)
             }
-            MemOp::ReadOwn | MemOp::Write { .. } | MemOp::Fetch | MemOp::Writeback { .. } => {
-                MemRespData::Small(0)
-            }
+            MemOp::ReadOwn
+            | MemOp::Write { .. }
+            | MemOp::Fetch
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { .. } => MemRespData::Small(0),
         }
     }
 

@@ -182,9 +182,20 @@ impl LoadQueue {
         store_width: MemWidth,
         store_rob_tag: RobTag,
     ) -> Option<RobTag> {
-        let store_size = width_to_bytes(store_width) as u64;
+        let store_bytes = width_to_bytes(store_width) as u64;
+        self.check_ordering_violation_over(store_paddr, store_bytes, store_rob_tag)
+    }
+
+    /// [`Self::check_ordering_violation`] for a store of `store_bytes`
+    /// bytes, such as a cache-block operation on a whole block.
+    pub fn check_ordering_violation_over(
+        &self,
+        store_paddr: PhysAddr,
+        store_bytes: u64,
+        store_rob_tag: RobTag,
+    ) -> Option<RobTag> {
         let store_start = store_paddr.val();
-        let store_end = store_start + store_size;
+        let store_end = store_start + store_bytes;
 
         let mut oldest_violator: Option<RobTag> = None;
         for entry in &self.entries {

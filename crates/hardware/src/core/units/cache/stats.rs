@@ -24,6 +24,9 @@ pub struct CacheStatPaths {
     pub writebacks: &'static str,
     /// Lines invalidated on request of the next level.
     pub back_invalidations: &'static str,
+    /// Cache-maintenance operations (`cbo.clean` / `flush` / `inval`) passed
+    /// through this cache.
+    pub maintenance: &'static str,
     /// Probes received on behalf of a snoop.
     pub probes: &'static str,
     /// Snoops received from the home agent (coherent L2 only).
@@ -59,6 +62,7 @@ impl CacheStatPaths {
             evictions: path("evictions"),
             writebacks: path("writebacks"),
             back_invalidations: path("back_invalidations"),
+            maintenance: path("maintenance"),
             probes: path("probes"),
             snoops: path("coherence.snoops"),
             snoop_invalidations: path("coherence.invalidations"),

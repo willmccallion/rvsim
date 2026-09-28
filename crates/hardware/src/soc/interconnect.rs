@@ -359,7 +359,11 @@ fn request_bytes(packet: &Packet) -> usize {
         Packet::MemReq { op: MemOp::Write { data: WriteData::Line { bytes, .. }, .. }, .. } => {
             COMMAND_BYTES + bytes.len()
         }
-        Packet::MemReq { op: MemOp::Writeback { .. }, size, .. } => COMMAND_BYTES + size.bytes(),
+        Packet::MemReq {
+            op: MemOp::Writeback { .. } | MemOp::Maintain { dirty: true, .. },
+            size,
+            ..
+        } => COMMAND_BYTES + size.bytes(),
         _ => COMMAND_BYTES,
     }
 }
@@ -368,7 +372,10 @@ fn request_bytes(packet: &Packet) -> usize {
 /// a read returns, or a bare acknowledgement for a write.
 const fn response_bytes(packet: &Packet) -> usize {
     match packet {
-        Packet::MemReq { op: MemOp::Write { .. } | MemOp::Writeback { .. }, .. } => COMMAND_BYTES,
+        Packet::MemReq {
+            op: MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. },
+            ..
+        } => COMMAND_BYTES,
         Packet::MemReq { size, .. } => size.bytes(),
         _ => COMMAND_BYTES,
     }

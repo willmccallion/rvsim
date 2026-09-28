@@ -20,7 +20,7 @@ impl InOrderEngine {
     /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
     /// every instruction needs.
     pub(super) fn rename_one(&mut self, state: &StageCtx<'_>, id: IdExEntry) -> Renamed {
-        let store_slot = if id.ctrl.mem_write {
+        let store_slot = if id.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
         } else if is_vec_store(id.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0
@@ -55,7 +55,7 @@ impl InOrderEngine {
             self.scoreboard.set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
         }
 
-        let slot_allocated = if id.ctrl.mem_write {
+        let slot_allocated = if id.ctrl.uses_store_buffer() {
             self.store_buffer.allocate(rob_tag, id.ctrl.width)
         } else if is_vec_store(id.ctrl.vec_op) {
             self.vec_store_buffer.allocate(rob_tag)

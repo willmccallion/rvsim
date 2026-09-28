@@ -20,7 +20,9 @@ use super::stats::CoherenceStatPaths;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{
+    AccessSize, Maintenance, MemOp, MemRespData, MesiState, Packet, WriteData,
+};
 
 /// Where a transaction is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +38,9 @@ enum Phase {
     FetchingData,
     /// Waiting for the LLC to acknowledge a writeback.
     WritingBack,
+    /// Waiting for the LLC and memory to acknowledge a maintenance
+    /// operation.
+    Maintaining,
     /// Completion sent; waiting for the requester to acknowledge it before
     /// the line is released.
     AwaitingAck,
@@ -282,6 +287,7 @@ impl CoherenceFabric {
             ReqKind::CleanUnique => self.stat_paths.home.clean_unique,
             ReqKind::WriteBack { .. } => self.stat_paths.home.writebacks,
             ReqKind::Evict => self.stat_paths.home.evicts,
+            ReqKind::Maintain { .. } => self.stat_paths.home.maintenance,
         };
         ctx.stats.counter(stat).inc();
         let mut txn = Txn {
@@ -323,6 +329,15 @@ impl CoherenceFabric {
                 self.send_llc(llc_req, line, MemOp::Writeback { dirty }, ctx);
             }
             ReqKind::Evict => {}
+            ReqKind::Maintain { op, .. } => {
+                // The requester dropped its copy before asking; a clean
+                // leaves it holding the line as before.
+                if op != Maintenance::Clean {
+                    self.tracking.on_release(line, requester);
+                }
+                self.txns.push(txn);
+                self.start_snoops(txn.id, ctx);
+            }
             ReqKind::ReadShared | ReqKind::ReadUnique | ReqKind::CleanUnique => {
                 let in_flight: Vec<LineAddr> = self.txns.iter().map(|t| t.line).collect();
                 match self.tracking.room_for(line, &in_flight) {
@@ -382,8 +397,7 @@ impl CoherenceFabric {
         let snoops = if let Some(holders) = holders {
             self.protocol.snoops_for(kind, requester, holders)
         } else {
-            let snoop_kind =
-                if kind == ReqKind::ReadShared { SnoopKind::Shared } else { SnoopKind::Unique };
+            let snoop_kind = broadcast_snoop(kind);
             self.all_cores().without(requester).iter().map(|core| (core, snoop_kind)).collect()
         };
         // Sharers a read need not snoop still keep their copies.
@@ -438,18 +452,18 @@ impl CoherenceFabric {
         let Some(txn) = self.txn_mut(id).copied() else { return };
         let snoop_kind = match txn.kind {
             TxnKind::Recall => SnoopKind::Invalid,
-            TxnKind::Request { kind: ReqKind::ReadShared, .. } => SnoopKind::Shared,
-            TxnKind::Request { .. } => SnoopKind::Unique,
+            TxnKind::Request { kind, .. } => broadcast_snoop(kind),
         };
         match snoop_kind {
             SnoopKind::Shared if had_copy => self.tracking.on_downgrade(txn.line, from),
-            SnoopKind::Shared | SnoopKind::Unique | SnoopKind::Invalid => {
+            SnoopKind::Clean => {}
+            SnoopKind::Shared | SnoopKind::Unique | SnoopKind::Invalid | SnoopKind::MakeInvalid => {
                 self.tracking.on_release(txn.line, from);
             }
         }
         let Some(t) = self.txn_mut(id) else { return };
         t.others_remain |= had_copy && snoop_kind == SnoopKind::Shared;
-        if dirty {
+        if dirty && snoop_kind != SnoopKind::MakeInvalid {
             t.dirty_from = Some(from);
         }
         t.snoops_outstanding = t.snoops_outstanding.saturating_sub(1);
@@ -520,6 +534,15 @@ impl CoherenceFabric {
                     self.send_llc(llc_req, txn.line, op, ctx);
                 }
             }
+            ReqKind::Maintain { op, dirty } => {
+                let llc_req = self.fabric_req_id();
+                if let Some(t) = self.txn_mut(id) {
+                    t.phase = Phase::Maintaining;
+                    t.llc_req = Some(llc_req);
+                }
+                let dirty = dirty || txn.dirty_from.is_some();
+                self.send_llc(llc_req, txn.line, MemOp::Maintain { op, dirty }, ctx);
+            }
             ReqKind::WriteBack { .. } | ReqKind::Evict => {}
         }
     }
@@ -540,7 +563,7 @@ impl CoherenceFabric {
                     ctx,
                 );
             }
-            Phase::WritingBack => {
+            Phase::WritingBack | Phase::Maintaining => {
                 let state = MesiState::Invalid;
                 self.complete(
                     txn.id,
@@ -586,9 +609,14 @@ impl CoherenceFabric {
         let txn = *req_id;
         let line = LineAddr::from_phys(*paddr, self.line_bytes as u64);
         let bytes = match op {
-            MemOp::Write { data: WriteData::Line { .. }, .. } => self.line_bytes,
+            MemOp::Write { data: WriteData::Line { .. }, .. }
+            | MemOp::Maintain { dirty: true, .. } => self.line_bytes,
             MemOp::Write { .. } | MemOp::Atomic { .. } => 8,
-            MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Writeback { .. } => 0,
+            MemOp::Read
+            | MemOp::ReadOwn
+            | MemOp::Fetch
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { dirty: false, .. } => 0,
         };
         ctx.stats.counter(self.stat_paths.home.non_coherent).inc();
         self.parked_requests.push(Parked { txn, requester, packet: Some(packet) });
@@ -672,6 +700,21 @@ impl CoherenceFabric {
             .iter()
             .position(|a| *a == source)
             .map(|index| Node::Core(CoreId::new(u32::try_from(index).unwrap_or(u32::MAX))))
+    }
+}
+
+/// The snoop a request sends a holder when the home does not know who holds
+/// the line and snoops every other core.
+const fn broadcast_snoop(kind: ReqKind) -> SnoopKind {
+    match kind {
+        ReqKind::ReadShared => SnoopKind::Shared,
+        ReqKind::Maintain { op: Maintenance::Clean, .. } => SnoopKind::Clean,
+        ReqKind::Maintain { op: Maintenance::Invalidate, .. } => SnoopKind::MakeInvalid,
+        ReqKind::ReadUnique
+        | ReqKind::CleanUnique
+        | ReqKind::WriteBack { .. }
+        | ReqKind::Evict
+        | ReqKind::Maintain { op: Maintenance::Flush, .. } => SnoopKind::Unique,
     }
 }
 

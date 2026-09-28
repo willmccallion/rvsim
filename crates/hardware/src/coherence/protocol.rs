@@ -6,6 +6,7 @@
 
 use super::messages::{ReqKind, SnoopKind};
 use crate::common::CoreId;
+use crate::sim::packet::Maintenance;
 use crate::sim::packet::MesiState;
 
 /// A set of cores, as a bitmap (at most 64 cores).
@@ -125,6 +126,17 @@ impl CoherenceProtocol for Mesi {
             ReqKind::ReadUnique | ReqKind::CleanUnique => {
                 others.iter().map(|core| (core, SnoopKind::Unique)).collect()
             }
+            ReqKind::Maintain { op: Maintenance::Clean, .. } => match holders.owner {
+                // Only an owner can hold modified data.
+                Some(owner) if owner != requester => vec![(owner, SnoopKind::Clean)],
+                _ => Vec::new(),
+            },
+            ReqKind::Maintain { op: Maintenance::Flush, .. } => {
+                others.iter().map(|core| (core, SnoopKind::Unique)).collect()
+            }
+            ReqKind::Maintain { op: Maintenance::Invalidate, .. } => {
+                others.iter().map(|core| (core, SnoopKind::MakeInvalid)).collect()
+            }
             ReqKind::WriteBack { .. } | ReqKind::Evict => Vec::new(),
         }
     }
@@ -134,16 +146,21 @@ impl CoherenceProtocol for Mesi {
             ReqKind::ReadShared if others_remain => MesiState::Shared,
             ReqKind::ReadShared => MesiState::Exclusive,
             ReqKind::ReadUnique | ReqKind::CleanUnique => MesiState::Modified,
-            ReqKind::WriteBack { .. } | ReqKind::Evict => MesiState::Invalid,
+            ReqKind::WriteBack { .. } | ReqKind::Evict | ReqKind::Maintain { .. } => {
+                MesiState::Invalid
+            }
         }
     }
 
     fn after_snoop(&self, current: MesiState, snoop: SnoopKind) -> MesiState {
         match (current, snoop) {
-            (MesiState::Invalid, _) | (_, SnoopKind::Unique | SnoopKind::Invalid) => {
+            (MesiState::Invalid, _)
+            | (_, SnoopKind::Unique | SnoopKind::Invalid | SnoopKind::MakeInvalid) => {
                 MesiState::Invalid
             }
             (_, SnoopKind::Shared) => MesiState::Shared,
+            (MesiState::Modified | MesiState::Owned, SnoopKind::Clean) => MesiState::Exclusive,
+            (state, SnoopKind::Clean) => state,
         }
     }
 

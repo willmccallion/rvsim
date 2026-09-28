@@ -119,6 +119,33 @@ The store buffer sits between the pipeline and L1D, holding stores that have exe
 - **Commit-time draining** — a store is written to L1D only after it commits, one per cycle from the head of the buffer, and keeps its slot (and keeps forwarding) until the L1D has performed it and acknowledged
 - **Write-combining buffer (WCB)** — optional merging write buffer (`wcb_entries`) between the store buffer and the L1D. A committed store merges into the entry for its line, which the hart's loads read from; the entry is written to the L1D as one masked line write when a new line needs its slot, when its line is fully written, when a load needs bytes it holds only some of, or when the store buffers leave the write port idle. A sent line keeps forwarding until the L1D acknowledges its write, since the cache can still serve a load from its old copy of the line while it fetches write permission. Barriers wait for its lines like any other committed store
 
+## Cache-block operations
+
+`cbo.clean`, `cbo.flush` and `cbo.inval` (Zicbom) and `cbo.zero` (Zicboz)
+act on a 64-byte block, which every cache line must hold whole. A CBO
+translates in memory1 and takes a store-buffer slot, so it drains to the
+L1D in order with the stores around it after it commits, and barriers wait
+for it like a store.
+
+- `cbo.zero` is the hart's write of a zeroed block, taking effect where the
+  L1D serves it.
+- The management operations follow gem5's `CleanSharedReq`,
+  `CleanInvalidReq` and `InvalidateReq` to the point of coherence: each
+  cache on the way applies the operation to its copy (a clean keeps the
+  line clean, a flush or invalidate drops it and the inclusive copies above
+  it) and passes it on, carrying any dirty data it found, which an
+  invalidate discards. A coherent L2 sends the home agent a maintenance
+  request; the home snoops the other harts (the owner is cleaned for a
+  clean, every holder invalidated for a flush, dropped without its data for
+  an invalidate), passes the operation to the LLC, and completes the
+  requester once memory acknowledges it. The memory controller counts a
+  line write when dirty data arrives with it.
+- Because caches hold tags only, an invalidate cannot lose data: memory
+  keeps the latest value, which the specification allows since
+  `cbo.inval` may perform a flush.
+- Device regions do not support CBOs: every CBO, `cbo.zero` included, to a
+  device address raises a store access fault.
+
 ## Hardware Prefetching
 
 Each cache level can have an independent hardware prefetcher:

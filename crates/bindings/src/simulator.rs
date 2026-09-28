@@ -728,15 +728,17 @@ impl PySimulator {
                 .map_err(|e| PyRuntimeError::new_err(format!("read error restoring RAM: {e}")))?;
         }
 
+        // A checkpoint holds no cache state, so the caches start cold, as
+        // gem5's do after a restore.
         for core in cpu.cores.iter_mut().map(|core| &mut core.units) {
-            let _ = core.l1_i_cache.flush();
-            let _ = core.l1_d_cache.flush();
-            let _ = core.l2_cache.flush();
+            core.l1_i_cache.invalidate_all();
+            core.l1_d_cache.invalidate_all();
+            core.l2_cache.invalidate_all();
             core.mmu.dtlb.flush();
             core.mmu.itlb.flush();
             core.mmu.l2_tlb.flush();
         }
-        let _ = cpu.l3_cache.flush();
+        cpu.l3_cache.invalidate_all();
         self.inner.sync_arch_regs();
 
         Ok(())

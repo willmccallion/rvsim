@@ -833,10 +833,10 @@ impl Rob {
     ///
     /// A FENCE with successor bits `succ.r` / `succ.w` prevents younger
     /// loads/stores (respectively) from issuing until the FENCE has committed.
-    /// A CBO takes effect at commit, and an atomic with the `aq` bit must
-    /// perform before anything after it, so each holds back younger loads
-    /// until it has completed (gem5 splits an `aq` atomic into the atomic
-    /// and a full barrier). Returns `true` if the instruction is blocked.
+    /// An atomic with the `aq` bit must perform before anything after it, so
+    /// it holds back younger loads until it has completed (gem5 splits an
+    /// `aq` atomic into the atomic and a full barrier). Returns `true` if
+    /// the instruction is blocked.
     pub fn has_fence_blocking(&self, tag: RobTag, is_load: bool, is_store: bool) -> bool {
         if self.count == 0 || (!is_load && !is_store) {
             return false;
@@ -847,9 +847,6 @@ impl Rob {
             if entry.valid {
                 if entry.tag == tag {
                     return false;
-                }
-                if is_load && entry.ctrl.system_op.is_cbo() {
-                    return true;
                 }
                 if is_load && entry.ctrl.acquire && entry.state == RobState::Issued {
                     return true;
