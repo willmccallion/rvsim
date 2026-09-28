@@ -62,29 +62,33 @@ impl PySimulator {
         ctx.is_valid_csr(addr).then(|| ctx.csr_read(addr))
     }
 
-    /// Runs for up to `limit` cycles, checking Python signals every 10000 cycles.
+    /// Runs for up to `limit` cycles, or until the workload exits, checking
+    /// Python signals as it goes.
     fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
-        let start = self.inner.state.cycle;
-        loop {
-            if let Some(max) = limit
-                && self.inner.state.cycle.saturating_sub(start) >= max
-            {
+        use rvsim_core::sim::simulator::{StopAt, StopReason};
+        let stop = StopAt { cycles: limit, ..StopAt::default() };
+        let mut interrupted = None;
+        let reason = self
+            .inner
+            .run_to_with(&stop, || {
                 let _ = std::io::stdout().flush();
-                return Ok(None);
-            }
-            if self.inner.state.cycle.is_multiple_of(10_000) {
-                py.check_signals()?;
-                let _ = std::io::stdout().flush();
-            }
-            match self.inner.tick() {
-                Ok(()) => {
-                    if let Some(code) = self.inner.take_exit() {
-                        let _ = std::io::stdout().flush();
-                        return Ok(Some(code));
+                match py.check_signals() {
+                    Ok(()) => true,
+                    Err(error) => {
+                        interrupted = Some(error);
+                        false
                     }
                 }
-                Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
+            })
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let _ = std::io::stdout().flush();
+        match reason {
+            StopReason::Exited(code) => Ok(Some(code)),
+            StopReason::Cycles => Ok(None),
+            StopReason::Cancelled => {
+                Err(interrupted.unwrap_or_else(|| PyRuntimeError::new_err("run cancelled")))
             }
+            other => Err(PyRuntimeError::new_err(format!("run stopped unexpectedly: {other:?}"))),
         }
     }
 
