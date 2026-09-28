@@ -1046,21 +1046,10 @@ impl ExecutionEngine for O3Engine {
         if self.squash_stall_remaining > 0 {
             return 0;
         }
+        // Slots only some instructions need are checked per instruction.
         let rob_free = self.rob.free_slots();
-        let sb_free = self.store_buffer.free_slots();
-        let vsb_free = self.vec_store_buffer.free_slots();
-        let lq_free = self.load_queue.free_slots();
         let iq_free = self.issue_queue.available_slots();
-        let prf_free = self.free_list.available();
-        let vec_prf_free = self.vec_free_list.available();
-        rob_free
-            .min(sb_free)
-            .min(vsb_free)
-            .min(lq_free)
-            .min(iq_free)
-            .min(prf_free)
-            .min(vec_prf_free)
-            .min(self.rename_width)
+        rob_free.min(iq_free).min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {

@@ -86,3 +86,29 @@ fn a_fence_waits_for_an_older_store_that_misses() {
         );
     }
 }
+
+/// A store to a line not yet cached, `ALU_OPS` independent ALU ops, then
+/// the marker.
+fn store_then_alu_ops() -> Vec<u32> {
+    const ALU_OPS: u32 = 24;
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().auipc(10, 0).build(),
+        i().addi(10, 10, DATA_OFFSET).build(),
+        i().sd(10, 0, 0).build(),
+    ];
+    program.extend((0..ALU_OPS).map(|n| i().addi(12 + n % 8, 0, n as i32).build()));
+    program.push(done());
+    program.push(i().jal(0, 0).build());
+    program
+}
+
+#[test]
+fn a_full_store_buffer_does_not_hold_up_instructions_that_need_no_slot() {
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let one_slot = cycles_to_finish(&config(backend, 1), &store_then_alu_ops());
+        let many_slots = cycles_to_finish(&config(backend, 16), &store_then_alu_ops());
+
+        assert_eq!(one_slot, many_slots, "{backend:?}: ALU ops rename past the full buffer");
+    }
+}

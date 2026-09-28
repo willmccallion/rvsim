@@ -20,8 +20,10 @@ use crate::trace_rename;
 
 impl O3Engine {
     /// Renames one decoded instruction and allocates its backend slots.
-    /// Returns the instruction when a checkpoint or a vector physical
-    /// register is short; `can_accept` covers every other resource.
+    /// Returns the instruction when a slot it needs is short, before
+    /// anything is allocated; `can_accept` covers only the ROB and issue
+    /// queue slots every instruction needs, as gem5's rename checks each
+    /// instruction's own resources.
     pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
         if !self.serialization.admits(self.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
@@ -32,6 +34,9 @@ impl O3Engine {
             matches!(id.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
         if is_branch_or_jump && self.checkpoints.capacity() > 0 && self.checkpoints.is_full() {
             state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
+            return Renamed::Stalled(Box::new(id));
+        }
+        if !self.has_slots_for(&id) {
             return Renamed::Stalled(Box::new(id));
         }
 
@@ -164,17 +169,19 @@ impl O3Engine {
             self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vec_dst_count);
         }
 
-        if id.ctrl.mem_write {
-            if !self.store_buffer.allocate(rob_tag, id.ctrl.width) {
-                return Renamed::Stalled(Box::new(id));
-            }
-        } else if is_vec_store(id.ctrl.vec_op) && !self.vec_store_buffer.allocate(rob_tag) {
-            return Renamed::Stalled(Box::new(id));
-        }
-
-        if id.ctrl.mem_read && !self.load_queue.allocate(rob_tag, id.ctrl.width, None) {
-            return Renamed::Stalled(Box::new(id));
-        }
+        let store_slot_allocated = if id.ctrl.mem_write {
+            self.store_buffer.allocate(rob_tag, id.ctrl.width)
+        } else if is_vec_store(id.ctrl.vec_op) {
+            self.vec_store_buffer.allocate(rob_tag)
+        } else {
+            true
+        };
+        let load_slot_allocated =
+            !id.ctrl.mem_read || self.load_queue.allocate(rob_tag, id.ctrl.width, None);
+        debug_assert!(
+            store_slot_allocated && load_slot_allocated,
+            "has_slots_for checked the memory slots"
+        );
 
         // Snapshot rename map *after* rd has been renamed.
         if is_branch_or_jump && self.checkpoints.capacity() > 0 {
@@ -253,5 +260,23 @@ impl O3Engine {
             self.serialization = super::serialize::Serialization::after(entry.rob_tag);
         }
         Renamed::Accepted(Box::new(entry))
+    }
+
+    /// True when the backend has the slots `id` needs besides the ROB and
+    /// issue-queue slots `can_accept` covers: a physical register for a
+    /// destination, and a store-buffer, vector-store-buffer or load-queue
+    /// slot for a memory op.
+    fn has_slots_for(&self, id: &IdExEntry) -> bool {
+        let needs_dst = (id.ctrl.reg_write && !id.rd.is_zero()) || id.ctrl.fp_reg_write;
+        let store_slot = if id.ctrl.mem_write {
+            !self.store_buffer.is_full()
+        } else if is_vec_store(id.ctrl.vec_op) {
+            self.vec_store_buffer.free_slots() > 0
+        } else {
+            true
+        };
+        let load_slot = !id.ctrl.mem_read || !self.load_queue.is_full();
+        let register = !needs_dst || self.free_list.available() > 0;
+        store_slot && load_slot && register
     }
 }

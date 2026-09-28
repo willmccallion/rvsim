@@ -450,11 +450,10 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn can_accept(&self) -> usize {
+        // A store's buffer slot is checked per instruction, at rename.
         let rob_free = self.rob.free_slots();
-        let sb_free = self.store_buffer.free_slots();
-        let vsb_free = self.vec_store_buffer.free_slots();
         let issue_free = self.issuer.available_slots();
-        rob_free.min(sb_free).min(vsb_free).min(issue_free).min(self.rename_width)
+        rob_free.min(issue_free).min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {

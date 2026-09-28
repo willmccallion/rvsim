@@ -16,8 +16,20 @@ use crate::trace_rename;
 
 impl InOrderEngine {
     /// Renames one decoded instruction and allocates its ROB and store
-    /// buffer slots; `can_accept` covers both, so this does not stall.
+    /// buffer slots. A store waits here, before anything is allocated, when
+    /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
+    /// every instruction needs.
     pub(super) fn rename_one(&mut self, state: &StageCtx<'_>, id: IdExEntry) -> Renamed {
+        let store_slot = if id.ctrl.mem_write {
+            !self.store_buffer.is_full()
+        } else if is_vec_store(id.ctrl.vec_op) {
+            self.vec_store_buffer.free_slots() > 0
+        } else {
+            true
+        };
+        if !store_slot {
+            return Renamed::Stalled(Box::new(id));
+        }
         let vector = self.vector_config(&state.hart().csrs);
         let Some(rob_tag) = self.rob.allocate(
             id.pc,
@@ -43,13 +55,14 @@ impl InOrderEngine {
             self.scoreboard.set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
         }
 
-        if id.ctrl.mem_write {
-            if !self.store_buffer.allocate(rob_tag, id.ctrl.width) {
-                return Renamed::Stalled(Box::new(id));
-            }
-        } else if is_vec_store(id.ctrl.vec_op) && !self.vec_store_buffer.allocate(rob_tag) {
-            return Renamed::Stalled(Box::new(id));
-        }
+        let slot_allocated = if id.ctrl.mem_write {
+            self.store_buffer.allocate(rob_tag, id.ctrl.width)
+        } else if is_vec_store(id.ctrl.vec_op) {
+            self.vec_store_buffer.allocate(rob_tag)
+        } else {
+            true
+        };
+        debug_assert!(slot_allocated, "the store slot was checked before allocating");
 
         let entry = RenameIssueEntry {
             rob_tag,
