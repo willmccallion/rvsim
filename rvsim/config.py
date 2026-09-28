@@ -123,6 +123,8 @@ class Config:
         bus_latency: int = 4,
         clint_divider: int = 10,
         cpu_clock_mhz: int = 2400,
+        device_latency_ns: int = 100,
+        device_latency_ns_overrides: Optional[Dict[str, int]] = None,
         rtc_epoch_seconds: int = 1_767_225_600,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
@@ -190,6 +192,8 @@ class Config:
         self.bus_latency = bus_latency
         self.clint_divider = clint_divider
         self.cpu_clock_mhz = cpu_clock_mhz
+        self.device_latency_ns = device_latency_ns
+        self.device_latency_ns_overrides = dict(device_latency_ns_overrides or {})
         self.rtc_epoch_seconds = rtc_epoch_seconds
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
@@ -686,6 +690,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "bus_latency": cfg.bus_latency,
         "clint_divider": cfg.clint_divider,
         "cpu_clock_mhz": cfg.cpu_clock_mhz,
+        "device_latency_ns": cfg.device_latency_ns,
+        "device_latency_ns_overrides": cfg.device_latency_ns_overrides,
         "rtc_epoch_seconds": cfg.rtc_epoch_seconds,
         "uart_to_stderr": cfg.uart_to_stderr,
         "uart_quiet": cfg.uart_quiet,

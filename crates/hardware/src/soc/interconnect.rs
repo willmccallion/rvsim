@@ -93,6 +93,23 @@ impl Bus {
         }
     }
 
+    /// Hands a host-side probe straight to the device mapped at its address,
+    /// with no bus or device timing, so inspecting a device from outside the
+    /// simulation leaves the run's timing untouched. Returns whether a
+    /// device took it.
+    pub fn probe_device(
+        &mut self,
+        packet: Packet,
+        source: ComponentId,
+        ctx: &mut HandleCtx<'_>,
+    ) -> bool {
+        let Packet::MemReq { paddr, .. } = &packet else { return false };
+        let Some(idx) = self.find_device_idx(*paddr) else { return false };
+        let device = DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX));
+        self.handle_device(device, packet, source, ctx);
+        true
+    }
+
     /// Hands `packet` to the device `id` names, which sees itself as
     /// `ComponentId::Device(id)` for the requests it originates.
     pub fn handle_device(
@@ -379,11 +396,17 @@ impl Handle for Bus {
                     return;
                 }
                 if let Some(idx) = self.find_device_idx(paddr) {
-                    self.handle_device(
-                        DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX)),
+                    // The request crosses the bus to the device, which answers
+                    // the bus after its access latency; the answer then
+                    // crosses back (the `MemResp` arm).
+                    let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
+                    let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
+                    let device = DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX));
+                    ctx.scheduler.schedule(
+                        arrives,
+                        ComponentId::Device(device),
+                        ctx.self_id,
                         packet,
-                        source,
-                        ctx,
                     );
                     return;
                 }

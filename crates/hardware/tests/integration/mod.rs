@@ -6,6 +6,7 @@ pub mod bus_occupancy;
 pub mod cbo_translation;
 pub mod csr_head_execution;
 pub mod csr_ordering;
+pub mod device_latency;
 pub mod drain;
 pub mod execute_trigger;
 pub mod fault_precedence;

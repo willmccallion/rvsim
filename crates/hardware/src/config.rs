@@ -67,6 +67,10 @@ mod defaults {
     /// timebase, which is a functional timer setting.
     pub const CPU_CLOCK_MHZ: u64 = 2400;
 
+    /// Time a device takes to answer a register access, in nanoseconds:
+    /// gem5's `BasicPioDevice.pio_latency`.
+    pub const DEVICE_LATENCY_NS: u64 = 100;
+
     /// CAS (Column Access Strobe) latency in DRAM cycles.
     ///
     /// Time from column address assertion to data availability for reads.
@@ -632,6 +636,17 @@ pub struct SystemConfig {
     #[serde(default)]
     pub uart_quiet: bool,
 
+    /// Time every device takes to answer a register access, in nanoseconds
+    /// (gem5's `pio_latency`).
+    #[serde(default = "SystemConfig::default_device_latency_ns")]
+    pub device_latency_ns: u64,
+
+    /// Per-device access latency in nanoseconds, by device name (`UART0`,
+    /// `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`),
+    /// overriding `device_latency_ns`.
+    #[serde(default)]
+    pub device_latency_ns_overrides: std::collections::HashMap<String, u64>,
+
     /// HTIF tohost address (0 = disabled). When non-zero, an HTIF device is
     /// registered at this address to intercept riscv-tests pass/fail writes.
     #[serde(default)]
@@ -694,6 +709,29 @@ impl SystemConfig {
         defaults::CPU_CLOCK_MHZ
     }
 
+    const fn default_device_latency_ns() -> u64 {
+        defaults::DEVICE_LATENCY_NS
+    }
+
+    /// Cycles a device takes to answer a register access unless overridden.
+    #[must_use]
+    pub const fn default_device_access_cycles(&self) -> u64 {
+        self.ns_to_cycles(self.device_latency_ns)
+    }
+
+    /// Cycles the device named `name` takes to answer a register access.
+    #[must_use]
+    pub fn device_access_cycles(&self, name: &str) -> u64 {
+        self.device_latency_ns_overrides
+            .get(name)
+            .map_or_else(|| self.default_device_access_cycles(), |&ns| self.ns_to_cycles(ns))
+    }
+
+    /// Core cycles in `ns` nanoseconds.
+    const fn ns_to_cycles(&self, ns: u64) -> u64 {
+        ns * self.cpu_clock_mhz / 1000
+    }
+
     const fn default_rtc_epoch_seconds() -> u64 {
         defaults::RTC_EPOCH_SECONDS
     }
@@ -720,6 +758,8 @@ impl Default for SystemConfig {
             rtc_epoch_seconds: defaults::RTC_EPOCH_SECONDS,
             uart_to_stderr: false,
             uart_quiet: false,
+            device_latency_ns: defaults::DEVICE_LATENCY_NS,
+            device_latency_ns_overrides: std::collections::HashMap::new(),
             tohost_addr: 0,
             hart_count: 1,
         }

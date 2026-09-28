@@ -67,7 +67,7 @@ impl Handle for Htif {
                 self.handle_tohost(val);
             }
             ctx.scheduler.schedule(
-                ctx.cycle + 1,
+                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
                 source,
                 ctx.self_id,
                 Packet::MemResp {

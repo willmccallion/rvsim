@@ -353,7 +353,6 @@ impl Simulator {
     ) -> u64 {
         use crate::sim::components::{ComponentId, PipelineId, ReqId};
         use crate::sim::events::EventQueue;
-        use crate::sim::handle::Handle;
         use crate::sim::handle::HandleCtx;
         use crate::sim::packet::{AccessSize, MemRespData, Packet};
         use crate::sim::stats::Stats;
@@ -375,7 +374,7 @@ impl Simulator {
             cycle: shared.cycle,
             self_id: ComponentId::Bus,
         };
-        shared.bus.handle(
+        let _ = shared.bus.probe_device(
             Packet::MemReq { req_id, paddr, vaddr: None, size: access_size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
