@@ -189,6 +189,41 @@ fn inorder_load_behind_a_store_is_not_delayed_by_it() {
 }
 
 #[test]
-fn o3_load_behind_a_store_waits_one_cycle_for_its_translation() {
-    assert_eq!(store_visibility_delay(BackendType::OutOfOrder), 1);
+fn o3_load_behind_a_store_is_not_delayed_by_it() {
+    assert_eq!(store_visibility_delay(BackendType::OutOfOrder), 0);
+}
+
+/// `links` loads that each read the address the previous one loaded.
+fn pointer_chase(links: u32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().auipc(6, 0).build(),
+        i().addi(6, 6, 0x400).build(),
+        i().sd(6, 6, 0).build(),
+        i().nop().build(),
+    ];
+    program.extend((0..links).map(|_| i().ld(6, 6, 0).build()));
+    program.extend(done_marker());
+    program
+}
+
+/// Cycles each dependent load adds with an L1D of `l1d_latency`.
+fn load_to_use(backend: BackendType, l1d_latency: u64) -> u64 {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.cache.l1_d.enabled = true;
+    config.cache.l1_d.latency = l1d_latency;
+    let short = cycles_to_finish(&config, &pointer_chase(10));
+    let long = cycles_to_finish(&config, &pointer_chase(30));
+    (long - short) / 20
+}
+
+#[test]
+fn a_dependent_load_waits_the_l1d_latency_plus_two_cycles_on_both_backends() {
+    for l1d_latency in [1, 4] {
+        let inorder = load_to_use(BackendType::InOrder, l1d_latency);
+        let o3 = load_to_use(BackendType::OutOfOrder, l1d_latency);
+
+        assert_eq!((inorder, o3), (l1d_latency + 2, l1d_latency + 2), "l1d latency {l1d_latency}");
+    }
 }

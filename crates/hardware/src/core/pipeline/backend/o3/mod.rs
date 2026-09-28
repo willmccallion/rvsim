@@ -347,6 +347,23 @@ impl O3Engine {
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
 
+    /// Sends the memory ops whose address generation finishes this cycle to
+    /// memory1, which runs later in the same cycle, as an in-order memory
+    /// op issued last cycle reaches it.
+    fn send_generated_addresses_to_memory1(&mut self, state: &mut CoreCtx<'_>, now: u64) {
+        let mut i = 0;
+        while i < self.pending_results.len() {
+            let result = &self.pending_results[i];
+            if result.complete_cycle > now || !result.entry.ctrl.uses_memory_pipeline() {
+                i += 1;
+                continue;
+            }
+            let done = self.pending_results.swap_remove(i);
+            state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
+            self.execute_mem1.push(done.entry);
+        }
+    }
+
     /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.
     fn issue_vec_mem_waves(&mut self) {
         for inflight in &mut self.vec_mem_inflight {
@@ -514,6 +531,7 @@ impl ExecutionEngine for O3Engine {
         // `common.outstanding_loads`. Backpressure comes from the L1D's
         // pending table when the cache is saturated, which surfaces as
         // mailbox-drain backlogs rather than a per-engine `mem1_busy` gate.
+        self.send_generated_addresses_to_memory1(state, now);
         let mut input = std::mem::take(&mut self.execute_mem1);
         let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         self.execute_mem1.extend(input);
@@ -584,9 +602,7 @@ impl ExecutionEngine for O3Engine {
                         .counter(state.core.stat_paths.fu.all[fu_type as usize])
                         .inc();
 
-                    if entry.ctrl.uses_memory_pipeline() {
-                        self.execute_mem1.push(entry);
-                    } else if let Some(trap) = entry.trap {
+                    if let Some(trap) = entry.trap {
                         let stage =
                             entry.exception_stage.unwrap_or(crate::common::ExceptionStage::Execute);
                         self.rob.fault(entry.rob_tag, trap, stage);
