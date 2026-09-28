@@ -29,7 +29,7 @@ use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreData, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
-use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
+use crate::core::pipeline::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
 use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
@@ -854,7 +854,7 @@ pub(crate) fn send_one_write(
 ) {
     if !send_urgent_wcb_line(state, common)
         && !try_drain_one_store(state, common, store_buffer)
-        && !vec_store_buffer.drain_one_committed(state, common)
+        && !drain_vec_store_line(state, common, vec_store_buffer)
     {
         send_oldest_wcb_line(state, common);
     }
@@ -887,14 +887,58 @@ fn send_oldest_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
 /// the cache serves it.
 fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &WcbLine) {
     let span = state.core.wcb.entry_bytes();
-    let req_id = common.alloc_req_id();
     let paddr = PhysAddr::new(line.line_addr);
-    let _ = common
-        .outstanding_stores
-        .insert(req_id, OutstandingStore { owner: StoreOwner::WriteCombining, paddr });
+    let req_id = emit_line_write(
+        state,
+        common,
+        paddr,
+        &line.data[..span],
+        line.mask,
+        StoreOwner::WriteCombining,
+    );
     state.core.wcb.sent(req_id, line.clone());
     state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
-    let hart = state.hart.hart_id;
+}
+
+/// Writes the next line of a committed vector store: to RAM as one masked
+/// line write, and to a device as the naturally aligned writes it must see.
+/// Returns whether a line went.
+fn drain_vec_store_line(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    vec_store_buffer: &mut VecStoreBuffer,
+) -> bool {
+    let Some((rob_tag, line)) = vec_store_buffer.take_drainable_line() else { return false };
+    let paddr = PhysAddr::new(line.line_addr);
+    let owner = StoreOwner::VecStoreBuffer;
+    let requests = if state.bus.ram_region_for(paddr.val(), VSB_LINE_BYTES as u64).is_some() {
+        vec![emit_line_write(state, common, paddr, &line.data, line.valid_mask, owner)]
+    } else {
+        let write = StoreWrite { origin: WriteOrigin::Hart(state.hart.hart_id), owner };
+        line.natural_writes()
+            .into_iter()
+            .flat_map(|(paddr, data, width)| {
+                emit_store_write_packet(state, common, paddr, data, width, write)
+            })
+            .collect()
+    };
+    vec_store_buffer.line_sent(rob_tag, requests);
+    true
+}
+
+/// Sends the hart's write of the bytes of the line at `line` that `mask`
+/// selects to the L1D. Returns the request.
+fn emit_line_write(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    line: PhysAddr,
+    bytes: &[u8],
+    mask: u64,
+    owner: StoreOwner,
+) -> ReqId {
+    let req_id = common.alloc_req_id();
+    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr: line });
+    let origin = WriteOrigin::Hart(state.hart.hart_id);
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -902,15 +946,13 @@ fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &Wcb
         ComponentId::Pipeline(common.pipeline_id),
         Packet::MemReq {
             req_id,
-            paddr,
+            paddr: line,
             vaddr: None,
             size: AccessSize::Line,
-            op: MemOp::Write {
-                data: WriteData::Line { bytes: line.data[..span].into(), mask: line.mask },
-                origin: WriteOrigin::Hart(hart),
-            },
+            op: MemOp::Write { data: WriteData::Line { bytes: bytes.into(), mask }, origin },
         },
     );
+    req_id
 }
 
 /// Writes a store's bytes to RAM at once and emits its `MemReq`s for their

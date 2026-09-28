@@ -28,20 +28,18 @@
 //!
 //! ## Drain order
 //!
-//! `drain_one_committed` writes one cache-line buffer per cycle from the
-//! oldest committed-and-fully-resolved entry. Within a line, contiguous
-//! valid-byte runs are issued as 1/2/4/8-byte writes. Between lines, the
-//! order is insertion order — which is element-index order under the
-//! pipeline's FIFO memory path. This matches spike, ARM SVE, and AVX-512.
+//! `take_drainable_line` hands commit one cache-line buffer per cycle from
+//! the oldest committed-and-fully-resolved entry, which commit writes as
+//! one masked line write (or, for a device, as naturally aligned writes).
+//! Between lines, the order is insertion order — which is element-index
+//! order under the pipeline's FIFO memory path. This matches spike, ARM
+//! SVE, and AVX-512.
 
 use crate::common::PhysAddr;
-use crate::core::pipeline::outstanding::StoreOwner;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
-use crate::sim::CoreCtx;
 use crate::sim::components::ReqId;
-use crate::sim::packet::WriteOrigin;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
@@ -76,6 +74,47 @@ pub struct VsbLine {
 impl VsbLine {
     const fn new(line_addr: u64) -> Self {
         Self { line_addr, data: [0; VSB_LINE_BYTES], valid_mask: 0 }
+    }
+
+    /// The line's valid bytes as naturally aligned writes of 1, 2, 4 or 8
+    /// bytes, `(address, data, width)`, for a device that must see each.
+    #[must_use]
+    pub fn natural_writes(&self) -> Vec<(PhysAddr, u64, MemWidth)> {
+        let mut writes = Vec::new();
+        let mut offset = 0usize;
+        while offset < VSB_LINE_BYTES {
+            if (self.valid_mask >> offset) & 1 == 0 {
+                offset += 1;
+                continue;
+            }
+            let run_end = (offset..VSB_LINE_BYTES)
+                .find(|&i| (self.valid_mask >> i) & 1 == 0)
+                .unwrap_or(VSB_LINE_BYTES);
+            while offset < run_end {
+                let addr = self.line_addr + offset as u64;
+                let bytes = [8usize, 4, 2, 1]
+                    .into_iter()
+                    .find(|&n| {
+                        addr.trailing_zeros() as usize >= n.trailing_zeros() as usize
+                            && run_end - offset >= n
+                    })
+                    .unwrap_or(1);
+                let data = (0..bytes)
+                    .fold(0u64, |data, b| data | (u64::from(self.data[offset + b]) << (b * 8)));
+                writes.push((PhysAddr::new(addr), data, mem_width_of(bytes)));
+                offset += bytes;
+            }
+        }
+        writes
+    }
+}
+
+const fn mem_width_of(bytes: usize) -> MemWidth {
+    match bytes {
+        8 => MemWidth::Double,
+        4 => MemWidth::Word,
+        2 => MemWidth::Half,
+        _ => MemWidth::Byte,
     }
 }
 
@@ -450,24 +489,24 @@ impl VecStoreBuffer {
         ForwardResult::Miss
     }
 
-    /// Drains one cache-line buffer from the oldest drainable entry by
-    /// emitting `MemReq` packets through the engine's `BackendCommon`.
-    /// Returns `true` if a write was issued. One call per pipeline cycle
-    /// to share commit-time bandwidth with the scalar SB. The entry keeps
-    /// its slot until every write of it is acknowledged.
-    pub fn drain_one_committed(
-        &mut self,
-        state: &mut CoreCtx<'_>,
-        common: &mut crate::core::pipeline::engine::BackendCommon,
-    ) -> bool {
+    /// Takes the next line to write: the first line of the oldest committed
+    /// store whose elements have all resolved. The store keeps its slot
+    /// until [`Self::line_sent`] records the line's writes and each of them
+    /// is acknowledged.
+    pub fn take_drainable_line(&mut self) -> Option<(RobTag, VsbLine)> {
         self.release_finished();
-        let Some(idx) = self.oldest_drainable_entry_index() else { return false };
+        let idx = self.oldest_drainable_entry_index()?;
+        let entry = &mut self.entries[idx];
+        Some((entry.rob_tag, entry.lines.remove(0)))
+    }
 
-        let line = self.entries[idx].lines.remove(0);
-        let requests = write_line_to_memory(state, common, &line, StoreOwner::VecStoreBuffer);
-        self.entries[idx].pending_writes.extend(requests);
+    /// Records the writes carrying a line [`Self::take_drainable_line`]
+    /// handed out for `rob_tag`.
+    pub fn line_sent(&mut self, rob_tag: RobTag, requests: Vec<ReqId>) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) {
+            entry.pending_writes.extend(requests);
+        }
         self.release_finished();
-        true
     }
 
     /// The memory system acknowledged `req`, one of a drained line's writes.
@@ -536,106 +575,6 @@ impl VecStoreBuffer {
         }
         chosen
     }
-}
-
-/// Issues memory writes for every contiguous valid-byte run in a VSB line.
-///
-/// Each run is rounded to a single 1/2/4/8-byte aligned `MemReq` that
-/// covers it, matching the scalar SB drain path.
-fn write_line_to_memory(
-    state: &mut CoreCtx<'_>,
-    common: &mut crate::core::pipeline::engine::BackendCommon,
-    line: &VsbLine,
-    owner: StoreOwner,
-) -> Vec<ReqId> {
-    let mut requests = Vec::new();
-    let mut i = 0usize;
-    while i < VSB_LINE_BYTES {
-        if (line.valid_mask >> i) & 1 == 0 {
-            i += 1;
-            continue;
-        }
-        let mut run = 1usize;
-        while i + run < VSB_LINE_BYTES && (line.valid_mask >> (i + run)) & 1 == 1 {
-            run += 1;
-        }
-
-        // Issue the run as a sequence of natural-aligned writes.
-        let mut pos = 0usize;
-        while pos < run {
-            let abs_offset = i + pos;
-            let abs_addr = line.line_addr + abs_offset as u64;
-            let max_natural = if abs_addr.trailing_zeros() >= 3 && run - pos >= 8 {
-                8
-            } else if abs_addr.trailing_zeros() >= 2 && run - pos >= 4 {
-                4
-            } else if abs_addr.trailing_zeros() >= 1 && run - pos >= 2 {
-                2
-            } else {
-                1
-            };
-
-            let width = match max_natural {
-                8 => MemWidth::Double,
-                4 => MemWidth::Word,
-                2 => MemWidth::Half,
-                _ => MemWidth::Byte,
-            };
-            let mut data: u64 = 0;
-            for b in 0..max_natural {
-                data |= (line.data[abs_offset + b] as u64) << (b * 8);
-            }
-            let paddr = PhysAddr::new(abs_addr);
-            requests.extend(issue_drained_write(state, common, paddr, data, width, owner));
-
-            pos += max_natural;
-        }
-        i += run;
-    }
-    requests
-}
-
-/// Emits the `MemReq` (op = Write) of a single VSB-drained write, returning
-/// the request.
-fn issue_drained_write(
-    state: &mut CoreCtx<'_>,
-    common: &mut crate::core::pipeline::engine::BackendCommon,
-    paddr: PhysAddr,
-    data: u64,
-    width: MemWidth,
-    owner: StoreOwner,
-) -> Option<ReqId> {
-    use crate::core::pipeline::outstanding::OutstandingStore;
-    use crate::sim::components::ComponentId;
-    use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
-
-    let access_size = match width {
-        MemWidth::Byte => AccessSize::B1,
-        MemWidth::Half => AccessSize::B2,
-        MemWidth::Word => AccessSize::B4,
-        MemWidth::Double => AccessSize::B8,
-        MemWidth::Nop => return None,
-    };
-
-    let req_id = common.alloc_req_id();
-    let l1_d_id = common.l1_d_id;
-    let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr });
-    let origin = WriteOrigin::Hart(state.hart.hart_id);
-    let cycle = state.cycle;
-    state.event_queue.schedule(
-        cycle,
-        ComponentId::Cache(l1_d_id),
-        ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq {
-            req_id,
-            paddr,
-            vaddr: None,
-            size: access_size,
-            op: MemOp::Write { data: WriteData::Small(data), origin },
-        },
-    );
-    Some(req_id)
 }
 
 #[cfg(test)]
@@ -843,6 +782,42 @@ mod tests {
         b.write_acked(ReqId::new(9));
 
         assert_eq!((before_ack, b.len()), ((1, true), 0));
+    }
+
+    fn line_with(line_addr: u64, bytes: std::ops::Range<usize>) -> VsbLine {
+        let mut line = VsbLine::new(line_addr);
+        for i in bytes {
+            line.data[i] = i as u8;
+            line.valid_mask |= 1 << i;
+        }
+        line
+    }
+
+    #[test]
+    fn a_device_write_splits_a_run_into_naturally_aligned_pieces() {
+        let line = line_with(0x1000_0000, 3..16);
+
+        let writes: Vec<_> =
+            line.natural_writes().into_iter().map(|(a, d, w)| (a.val(), d, w)).collect();
+
+        assert_eq!(
+            writes,
+            vec![
+                (0x1000_0003, 0x03, MemWidth::Byte),
+                (0x1000_0004, 0x0706_0504, MemWidth::Word),
+                (0x1000_0008, 0x0F0E_0D0C_0B0A_0908, MemWidth::Double),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_device_write_skips_the_bytes_no_element_wrote() {
+        let mut line = line_with(0x1000_0000, 0..2);
+        line.valid_mask |= 1 << 4;
+
+        let addresses: Vec<u64> = line.natural_writes().iter().map(|(a, _, _)| a.val()).collect();
+
+        assert_eq!(addresses, vec![0x1000_0000, 0x1000_0004]);
     }
 
     #[test]
