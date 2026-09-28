@@ -66,8 +66,9 @@ fn make_pte(ppn: u64, perms: u64) -> u64 {
 }
 
 fn setup_mmu() -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, false, csr::PagingMode::Sv57); // Small TLB + small L2 TLB to force walks
+    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57); // Small TLB + small L2 TLB to force walks
     let mut csrs = Csrs::default();
+    csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
 
     // Enable SV39 mode
     let satp_val = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
@@ -414,8 +415,9 @@ fn non_canonical_address_faults() {
 }
 
 fn setup_mmu_with_mode(mode: u64) -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, false, csr::PagingMode::Sv57);
+    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57);
     let mut csrs = Csrs::default();
+    csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
     let satp_val = (mode << 60) | ROOT_PPN;
     csrs.write(csr::SATP, satp_val);
     csrs.write(csr::SSTATUS, (1 << 18) | (1 << 19));
@@ -768,4 +770,19 @@ fn a_pointer_with_d_a_or_u_set_raises_a_page_fault() {
 
         assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "{bit:#x}: {:?}", res.trap);
     }
+}
+
+#[test]
+fn with_adue_clear_a_write_to_a_clean_page_raises_a_page_fault() {
+    let (mut mmu, mut csrs, mut tc) = setup_mmu();
+    csrs.write(csr::MENVCFG, 0);
+    let bus = &mut tc.cpu_mut().bus;
+    let target_ppn = ROOT_PPN + 0x40000;
+    write_pte(bus, ROOT_PPN, (0x8000_0000 >> 30) & 0x1FF, make_pte(target_ppn, R | W | X | A));
+
+    let vaddr = VirtAddr::new(0x8000_0000);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Write, PrivilegeMode::Supervisor, &csrs, bus);
+
+    assert!(matches!(res.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", res.trap);
 }

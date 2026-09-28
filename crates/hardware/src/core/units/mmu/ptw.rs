@@ -12,7 +12,8 @@ use crate::common::{
     VirtAddr, Vpn,
 };
 use crate::core::arch::csr::{
-    Csrs, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK,
+    Csrs, MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT,
+    SATP_PPN_MASK,
 };
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
@@ -272,7 +273,7 @@ pub fn continue_walk(
         ));
     }
 
-    if mmu.software_ad_bits {
+    if csrs.menvcfg & MENVCFG_ADUE == 0 {
         if !pte.is_accessed() {
             return WalkStep::Done(TranslationResult::fault(
                 page_fault(state.vaddr.val(), state.access),

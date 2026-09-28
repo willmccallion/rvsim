@@ -101,9 +101,10 @@ class Config:
         l2_tlb_size: int = 512,
         l2_tlb_ways: int = 4,
         l2_tlb_latency: int = 4,
-        software_ad_bits: bool = True,
         misaligned_access_trap: bool = False,
         paging_mode_max: str = "sv57",
+        # ISA extensions
+        svadu: bool = False,
         # Vector ISA
         vlen: int = 128,
         num_vec_lanes: Optional[int] = None,
@@ -162,9 +163,11 @@ class Config:
         self.l2_tlb_size = l2_tlb_size
         self.l2_tlb_ways = l2_tlb_ways
         self.l2_tlb_latency = l2_tlb_latency
-        self.software_ad_bits = software_ad_bits
         self.misaligned_access_trap = misaligned_access_trap
         self.paging_mode_max = _validate_paging_mode(paging_mode_max)
+
+        # ISA extensions
+        self.svadu = svadu
 
         # Vector ISA
         self.vlen = vlen
@@ -697,7 +700,6 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "l2_tlb_size": cfg.l2_tlb_size,
         "l2_tlb_ways": cfg.l2_tlb_ways,
         "l2_tlb_latency": cfg.l2_tlb_latency,
-        "software_ad_bits": cfg.software_ad_bits,
         "paging_mode_max": cfg.paging_mode_max,
         "misaligned_access_trap": cfg.misaligned_access_trap,
     }
@@ -792,6 +794,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
 
     return {
         "general": general,
+        "isa": {"svadu": cfg.svadu},
         "system": system,
         "memory": memory,
         "cache": cache,

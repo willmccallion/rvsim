@@ -182,6 +182,16 @@ impl Phandles {
     }
 }
 
+/// The ISA string the device tree advertises: `misa`'s letters and the
+/// multi-letter extensions the hart implements.
+fn isa_string(config: &Config) -> String {
+    let mut isa = config.misa().isa_string();
+    if config.isa.svadu {
+        isa.push_str("_svadu");
+    }
+    isa
+}
+
 /// Generates a DTB binary matching the simulator's `SoC` layout.
 ///
 /// The generated DTB includes:
@@ -237,7 +247,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_reg_1_0(hart);
         b.prop_string("status", "okay");
         b.prop_string("compatible", "riscv");
-        b.prop_string("riscv,isa", &config.misa().isa_string());
+        b.prop_string("riscv,isa", &isa_string(config));
         b.prop_string("mmu-type", "riscv,sv39");
         b.prop_u32("phandle", phandles.cpu(hart));
 

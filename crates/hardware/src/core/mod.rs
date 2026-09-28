@@ -107,7 +107,6 @@ impl CoreUnits {
                 config.memory.l2_tlb_size,
                 config.memory.l2_tlb_ways,
                 config.memory.l2_tlb_latency,
-                config.memory.software_ad_bits,
                 config.memory.paging_mode_max,
             ),
             wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),

@@ -52,9 +52,6 @@ pub struct Mmu {
     pub itlb: Tlb,
     /// Shared L2 TLB (set-associative, consulted on L1 miss).
     pub l2_tlb: L2Tlb,
-    /// Software-managed A/D bits: PTW faults on A=0 or D=0 instead of
-    /// auto-setting them (matches spike's behavior).
-    pub software_ad_bits: bool,
     /// Highest SATP paging mode the CPU writer will accept. Anything above
     /// this is coerced to Bare on write, letting tests pin a mode without
     /// rebuilding the kernel (e.g. force a Sv57-aware Linux onto Sv39).
@@ -70,22 +67,18 @@ impl Mmu {
     /// * `l2_size` - Total number of entries in the shared L2 TLB
     /// * `l2_ways` - L2 TLB associativity (ways per set)
     /// * `l2_latency` - L2 TLB hit latency in cycles
-    /// * `software_ad_bits` - If true, A/D bits are software-managed (faults
-    ///   on missing A/D instead of auto-setting them)
     /// * `paging_mode_max` - Highest paging mode the SATP writer will accept
     pub fn new(
         tlb_size: usize,
         l2_size: usize,
         l2_ways: usize,
         l2_latency: u64,
-        software_ad_bits: bool,
         paging_mode_max: PagingMode,
     ) -> Self {
         Self {
             dtlb: Tlb::new(tlb_size),
             itlb: Tlb::new(tlb_size),
             l2_tlb: L2Tlb::new(l2_size, l2_ways, l2_latency),
-            software_ad_bits,
             paging_mode_max,
         }
     }

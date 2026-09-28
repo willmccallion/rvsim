@@ -71,6 +71,9 @@ pub const MENVCFG: CsrAddr = CsrAddr::from_u32(0x30A);
 /// STCE bit in menvcfg — enables Sstc (hardware stimecmp-based STIP) for S-mode.
 pub const MENVCFG_STCE: u64 = 1 << 63;
 
+/// ADUE bit in menvcfg — enables Svadu's hardware PTE A/D updates.
+pub const MENVCFG_ADUE: u64 = 1 << 61;
+
 /// CBZE bit in menvcfg — enables Zicboz cbo.zero in S/U modes.
 pub const MENVCFG_CBZE: u64 = 1 << 7;
 

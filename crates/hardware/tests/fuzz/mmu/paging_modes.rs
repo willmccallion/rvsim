@@ -72,8 +72,9 @@ fn modes() -> Vec<(u64, usize)> {
 }
 
 fn build_mmu(satp: u64) -> (Mmu, Csrs, TestContext) {
-    let mmu = Mmu::new(4, 4, 4, 4, false, csr::PagingMode::Sv57);
+    let mmu = Mmu::new(4, 4, 4, 4, csr::PagingMode::Sv57);
     let mut csrs = Csrs::default();
+    csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
     csrs.write(csr::SATP, satp);
     csrs.write(csr::SSTATUS, (1 << 18) | (1 << 19)); // SUM | MXR
     let ctx = TestContext::new().with_memory(MEM_SIZE, MEM_BASE);

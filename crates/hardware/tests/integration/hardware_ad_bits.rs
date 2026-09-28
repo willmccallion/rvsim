@@ -1,5 +1,8 @@
-//! Hardware-managed A/D bits: the page-table walker sets A when it walks a
-//! leaf that lacks it, and a store sets D once it retires.
+//! Hardware-managed A/D bits under Svadu.
+//!
+//! With `menvcfg.ADUE` set the page-table walker sets A when it walks a
+//! leaf that lacks it, and a store sets D once it retires. With ADUE clear
+//! the hart behaves as Svade.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
@@ -41,13 +44,19 @@ fn leaf_pte(ctx: &mut TestContext, va: u64) -> u64 {
     ctx.sim.probe_mem_load(PhysAddr::new((L0_PPN << 12) | (index * 8)), 8)
 }
 
-/// Runs `program` then `j .` in supervisor mode with hardware A/D updates,
-/// the code page mapped with `code_flags` and the data page with
-/// `data_flags`, neither in the TLB.
-fn run(backend: BackendType, program: &[u32], code_flags: u64, data_flags: u64) -> TestContext {
+/// Runs `program` then `j .` in supervisor mode on a Svadu hart with
+/// `menvcfg` = `menvcfg`, the code page mapped with `code_flags` and the
+/// data page with `data_flags`, neither in the TLB.
+fn run_with(
+    backend: BackendType,
+    menvcfg: u64,
+    program: &[u32],
+    code_flags: u64,
+    data_flags: u64,
+) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.memory.software_ad_bits = false;
+    config.isa.svadu = true;
     config.system.uart_quiet = true;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
@@ -65,6 +74,7 @@ fn run(backend: BackendType, program: &[u32], code_flags: u64, data_flags: u64) 
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
         hart.csrs.mtvec = TRAP_PARK;
+        hart.csrs.menvcfg = menvcfg;
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
@@ -75,6 +85,11 @@ fn run(backend: BackendType, program: &[u32], code_flags: u64, data_flags: u64) 
 
     ctx.run(3_000);
     ctx
+}
+
+/// As [`run_with`] with hardware A/D updates enabled.
+fn run(backend: BackendType, program: &[u32], code_flags: u64, data_flags: u64) -> TestContext {
+    run_with(backend, csr::MENVCFG_ADUE, program, code_flags, data_flags)
 }
 
 fn store_program() -> Vec<u32> {
@@ -143,5 +158,17 @@ fn a_store_crossing_into_a_second_clean_page_sets_d_on_both() {
         assert_eq!(stored, STORED, "{backend:?}: the store retired");
         let pages = [leaf_pte(&mut ctx, DATA_VA), leaf_pte(&mut ctx, NEXT_VA)].map(|p| p & PTE_D);
         assert_eq!(pages, [PTE_D, PTE_D], "{backend:?}");
+    }
+}
+
+#[test]
+fn with_adue_clear_a_store_to_a_clean_page_raises_a_page_fault() {
+    const STORE_PAGE_FAULT: u64 = 15;
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let mut ctx = run_with(backend, 0, &store_program(), PTE_RWX_AD, PTE_RW);
+
+        let csrs = &ctx.sim.state.harts[0].csrs;
+        assert_eq!((csrs.mcause, csrs.mtval), (STORE_PAGE_FAULT, DATA_VA), "{backend:?}");
+        assert_eq!(leaf_pte(&mut ctx, DATA_VA) & (PTE_A | PTE_D), 0, "{backend:?}: PTE untouched");
     }
 }

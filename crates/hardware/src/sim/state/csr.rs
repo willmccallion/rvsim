@@ -250,7 +250,9 @@ impl CoreCtx<'_> {
                 self.hart.csrs.scounteren = val & 0x7;
             }
             x if x == csr::MENVCFG.as_u32() => {
-                self.hart.csrs.menvcfg = csr::legalize_envcfg(val, csr::MENVCFG_WRITABLE);
+                let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
+                let writable = csr::MENVCFG_WRITABLE | svadu;
+                self.hart.csrs.menvcfg = csr::legalize_envcfg(val, writable);
             }
             x if x == csr::SENVCFG.as_u32() => {
                 self.hart.csrs.senvcfg = csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);

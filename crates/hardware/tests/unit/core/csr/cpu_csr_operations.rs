@@ -152,6 +152,18 @@ fn menvcfg_keeps_only_the_fields_of_implemented_extensions() {
 }
 
 #[test]
+fn menvcfg_adue_is_writable_on_a_svadu_hart() {
+    let mut config = Config::default();
+    config.isa.svadu = true;
+    let mut sys = SimState::build(&config, "");
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MENVCFG, u64::MAX);
+
+    assert_eq!(state.csr_read(csr::MENVCFG), ENVCFG_FIELDS | csr::MENVCFG_STCE | csr::MENVCFG_ADUE);
+}
+
+#[test]
 fn senvcfg_keeps_only_the_fields_of_implemented_extensions() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);

@@ -799,13 +799,6 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_l2_tlb_latency")]
     pub l2_tlb_latency: u64,
 
-    /// Use software-managed A/D bits (fault on A=0 or D=0).
-    /// When true, the PTW raises a page fault instead of auto-setting the
-    /// Accessed/Dirty bits, matching spike's behavior and what Linux expects.
-    /// Default: true.
-    #[serde(default = "MemoryConfig::default_software_ad_bits")]
-    pub software_ad_bits: bool,
-
     /// Trap on misaligned memory accesses instead of handling them natively.
     /// When true, misaligned loads/stores raise `LoadAddressMisaligned` /
     /// `StoreAddressMisaligned` exceptions (matching spike's default behavior).
@@ -946,11 +939,6 @@ impl MemoryConfig {
         defaults::L2_TLB_LATENCY
     }
 
-    /// Returns the default value for software-managed A/D bits.
-    const fn default_software_ad_bits() -> bool {
-        true
-    }
-
     /// Returns the default value for misaligned access trap behavior.
     ///
     /// Default `true` matches spike and avoids the cross-page corruption bug:
@@ -986,7 +974,6 @@ impl Default for MemoryConfig {
             l2_tlb_size: defaults::L2_TLB_SIZE,
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
-            software_ad_bits: true,
             misaligned_access_trap: false,
             paging_mode_max: crate::core::arch::csr::PagingMode::Sv57,
         }

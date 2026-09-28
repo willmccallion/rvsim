@@ -18,6 +18,13 @@ pub struct IsaConfig {
     /// Vector extension capabilities.
     #[serde(default)]
     pub vector: VectorIsa,
+
+    /// Whether the Svadu extension is implemented: `menvcfg.ADUE` is then
+    /// writable and, while set, the page-table walker updates PTE A/D bits
+    /// itself. Without it, or with ADUE clear, the hart behaves as Svade and
+    /// raises a page fault when an A/D bit needs setting.
+    #[serde(default)]
+    pub svadu: bool,
 }
 
 /// Vector ISA capabilities (RVV 1.0 and sub-extensions).
