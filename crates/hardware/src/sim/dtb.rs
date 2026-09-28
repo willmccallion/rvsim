@@ -185,7 +185,12 @@ impl Phandles {
 /// The ISA string the device tree advertises: `misa`'s letters and the
 /// multi-letter extensions the hart implements.
 fn isa_string(config: &Config) -> String {
-    let mut isa = config.misa().isa_string();
+    let misa = config.misa();
+    let mut isa = misa.isa_string();
+    // Every hart with S-mode implements Sstc's stimecmp.
+    if misa.has_s() {
+        isa.push_str("_sstc");
+    }
     if config.isa.svadu {
         isa.push_str("_svadu");
     }

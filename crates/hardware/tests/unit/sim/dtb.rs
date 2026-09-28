@@ -174,7 +174,10 @@ fn the_isa_string_is_the_harts_misa() {
     let without_c =
         parse(&generate_dtb(&config)).child("cpus").child("cpu@0").props["riscv,isa"].clone();
 
-    assert_eq!((default_isa, without_c), (b"rv64imafdcv\0".to_vec(), b"rv64imafd\0".to_vec()));
+    assert_eq!(
+        (default_isa, without_c),
+        (b"rv64imafdcv_sstc\0".to_vec(), b"rv64imafd_sstc\0".to_vec())
+    );
 }
 
 #[test]
@@ -184,5 +187,5 @@ fn a_svadu_hart_advertises_svadu() {
 
     let isa = parse(&generate_dtb(&config)).child("cpus").child("cpu@0").props["riscv,isa"].clone();
 
-    assert_eq!(isa, b"rv64imafdcv_svadu\0".to_vec());
+    assert_eq!(isa, b"rv64imafdcv_sstc_svadu\0".to_vec());
 }

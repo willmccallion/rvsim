@@ -675,6 +675,12 @@ impl Misa {
         self.0 & MISA_EXT_V != 0
     }
 
+    /// True when the hart has supervisor mode.
+    #[must_use]
+    pub const fn has_s(self) -> bool {
+        self.0 & MISA_EXT_S != 0
+    }
+
     /// The lowercase ISA string naming these extensions, e.g. `rv64imafdcv`.
     #[must_use]
     pub fn isa_string(self) -> String {
