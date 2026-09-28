@@ -312,7 +312,10 @@ impl Handle for Plic {
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
                 }
-                (AccessSize::B4 | AccessSize::B8, MemOp::Write { data: WriteData::Small(val) }) => {
+                (
+                    AccessSize::B4 | AccessSize::B8,
+                    MemOp::Write { data: WriteData::Small(val), .. },
+                ) => {
                     self.write_u32_reg(offset, val as u32);
                     0
                 }

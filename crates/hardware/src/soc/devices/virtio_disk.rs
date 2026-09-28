@@ -7,7 +7,9 @@ use crate::common::PhysAddr;
 use crate::common::{IrqId, LineAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{
+    AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData, WriteOrigin,
+};
 use crate::soc::devices::Device;
 use crate::soc::memory::buffer::DramBuffer;
 use std::collections::VecDeque;
@@ -421,7 +423,7 @@ impl VirtioBlock {
                 self.next_dma_seq = self.next_dma_seq.wrapping_add(1);
                 job.outstanding.push(req_id);
                 let op = if access.write {
-                    MemOp::Write { data: WriteData::Small(0) }
+                    MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed }
                 } else {
                     MemOp::Read
                 };
@@ -732,11 +734,17 @@ impl Handle for VirtioBlock {
                     let shift = (offset & 3) * 8;
                     u64::from((self.read_u32_reg(aligned) >> shift) as u16)
                 }
-                (AccessSize::B4 | AccessSize::B8, MemOp::Write { data: WriteData::Small(val) }) => {
+                (
+                    AccessSize::B4 | AccessSize::B8,
+                    MemOp::Write { data: WriteData::Small(val), .. },
+                ) => {
                     self.write_u32_reg(offset, val as u32);
                     0
                 }
-                (AccessSize::B1 | AccessSize::B2, MemOp::Write { data: WriteData::Small(val) }) => {
+                (
+                    AccessSize::B1 | AccessSize::B2,
+                    MemOp::Write { data: WriteData::Small(val), .. },
+                ) => {
                     self.write_u32_reg(offset & !3, val as u32);
                     0
                 }

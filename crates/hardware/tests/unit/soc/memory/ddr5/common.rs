@@ -1,5 +1,7 @@
 //! Shared helpers for the DDR5 controller tests.
 
+use rvsim_core::common::HartId;
+use rvsim_core::sim::packet::WriteOrigin;
 use std::sync::Arc;
 
 use rvsim_core::common::PhysAddr;
@@ -8,6 +10,7 @@ use rvsim_core::sim::components::{ComponentId, MemCtrlId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::packet::{AccessSize, DramCmdKind, MemOp, Packet, WriteData};
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::MemoryController;
@@ -95,6 +98,7 @@ pub struct Harness {
     pub controller: Ddr5Controller,
     pub queue: EventQueue,
     pub stats: Stats,
+    pub memory: GlobalMemory,
     pub config: Config,
     pub next_req_id: u64,
     /// Next simulator cycle whose tick has not run yet.
@@ -111,6 +115,7 @@ impl Harness {
             controller,
             queue: EventQueue::new(),
             stats: Stats::new(),
+            memory: GlobalMemory::new(None, 1, 64),
             config: Config::default(),
             next_req_id: 0,
             next_tick: 0,
@@ -120,12 +125,14 @@ impl Harness {
     fn make_ctx<'s>(
         queue: &'s mut EventQueue,
         stats: &'s mut Stats,
+        memory: &'s mut GlobalMemory,
         config: &'s Config,
         cycle: u64,
     ) -> HandleCtx<'s> {
         HandleCtx {
             scheduler: queue,
             stats,
+            memory,
             config,
             cycle,
             self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
@@ -133,7 +140,8 @@ impl Harness {
     }
 
     fn tick_at(&mut self, cycle: u64) {
-        let mut ctx = Self::make_ctx(&mut self.queue, &mut self.stats, &self.config, cycle);
+        let mut ctx =
+            Self::make_ctx(&mut self.queue, &mut self.stats, &mut self.memory, &self.config, cycle);
         self.controller.tick(&mut ctx);
     }
 
@@ -162,7 +170,8 @@ impl Harness {
         self.advance_to(cycle);
         let req_id = ReqId::new(self.next_req_id);
         self.next_req_id += 1;
-        let mut ctx = Self::make_ctx(&mut self.queue, &mut self.stats, &self.config, cycle);
+        let mut ctx =
+            Self::make_ctx(&mut self.queue, &mut self.stats, &mut self.memory, &self.config, cycle);
         self.controller.handle(
             Packet::MemReq { req_id, paddr: PhysAddr::new(paddr), vaddr: None, size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
@@ -249,7 +258,7 @@ pub struct CommandRecord {
 }
 
 pub fn write_op() -> MemOp {
-    MemOp::Write { data: WriteData::Small(0) }
+    MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Hart(HartId::new(0)) }
 }
 
 pub fn read_op() -> MemOp {

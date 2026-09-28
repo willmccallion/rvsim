@@ -17,9 +17,11 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, DeviceId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 
 /// Maps a `width_bytes` value (1/2/4/8) to the matching [`AccessSize`].
@@ -37,10 +39,12 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
     let req_id = ReqId::new(u64::MAX);
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle: 0,
         self_id: ComponentId::Device(DeviceId::new(0)),
@@ -74,10 +78,12 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
     let req_id = ReqId::new(u64::MAX);
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle: 0,
         self_id: ComponentId::Device(DeviceId::new(0)),
@@ -88,7 +94,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
             paddr,
             vaddr: None,
             size: access_size_for(width),
-            op: MemOp::Write { data: WriteData::Small(value) },
+            op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
         },
         ComponentId::Pipeline(PipelineId::new(0)),
         &mut ctx,
@@ -104,6 +110,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
 pub fn write_and_run_dma<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut cycle = 0;
     let mut pending = vec![Packet::MemReq {
@@ -111,13 +118,14 @@ pub fn write_and_run_dma<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64,
         paddr,
         vaddr: None,
         size: access_size_for(width),
-        op: MemOp::Write { data: WriteData::Small(value) },
+        op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
     }];
     while !pending.is_empty() {
         for packet in std::mem::take(&mut pending) {
             let mut ctx = HandleCtx {
                 scheduler: &mut queue,
                 stats: &mut stats,
+                memory: &mut memory,
                 config: &config,
                 cycle,
                 self_id: ComponentId::Device(DeviceId::new(0)),

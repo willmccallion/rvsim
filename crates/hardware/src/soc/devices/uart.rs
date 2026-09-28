@@ -404,7 +404,7 @@ impl Handle for Uart {
                 MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     u64::from(self.read_register(offset))
                 }
-                MemOp::Write { data: WriteData::Small(val) } => {
+                MemOp::Write { data: WriteData::Small(val), .. } => {
                     self.write_register(offset, val as u8);
                     0
                 }

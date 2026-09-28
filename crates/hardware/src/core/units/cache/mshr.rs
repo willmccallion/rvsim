@@ -192,7 +192,10 @@ mod tests {
             paddr: PhysAddr::new(0x1008),
             vaddr: None,
             size: AccessSize::B8,
-            op: MemOp::Write { data: crate::sim::packet::WriteData::Small(1) },
+            op: MemOp::Write {
+                data: crate::sim::packet::WriteData::Small(1),
+                origin: crate::sim::packet::WriteOrigin::Hart(crate::common::HartId::new(0)),
+            },
         });
         entry.write = true;
         assert_eq!(table.iter().next().map(|m| m.targets.len()), Some(1));

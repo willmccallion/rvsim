@@ -616,7 +616,7 @@ fn issue_drained_write(
 ) -> Option<ReqId> {
     use crate::core::pipeline::outstanding::OutstandingStore;
     use crate::sim::components::ComponentId;
-    use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
+    use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData, WriteOrigin};
 
     let access_size = match width {
         MemWidth::Byte => AccessSize::B1,
@@ -632,6 +632,7 @@ fn issue_drained_write(
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
     let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr });
+    let hart = state.hart.hart_id;
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -642,7 +643,7 @@ fn issue_drained_write(
             paddr,
             vaddr: None,
             size: access_size,
-            op: MemOp::Write { data: WriteData::Small(data) },
+            op: MemOp::Write { data: WriteData::Small(data), origin: WriteOrigin::Hart(hart) },
         },
     );
     Some(req_id)

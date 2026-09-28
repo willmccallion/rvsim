@@ -206,7 +206,7 @@ impl Handle for Clint {
                 MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     self.read_register(offset, size)
                 }
-                MemOp::Write { data: WriteData::Small(val) } => {
+                MemOp::Write { data: WriteData::Small(val), .. } => {
                     self.write_register(offset, size, val);
                     0
                 }

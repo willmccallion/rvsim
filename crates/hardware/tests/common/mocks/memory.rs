@@ -82,11 +82,11 @@ impl Handle for MockMemory {
                 MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     self.read_bytes(offset, width)
                 }
-                MemOp::Write { data: WriteData::Small(v) } => {
+                MemOp::Write { data: WriteData::Small(v), .. } => {
                     self.write_bytes(offset, width, v);
                     0
                 }
-                MemOp::Write { data: WriteData::Line(bytes) } => {
+                MemOp::Write { data: WriteData::Line(bytes), .. } => {
                     let idx = offset as usize;
                     let end = (idx + bytes.len()).min(self.data.len());
                     self.data[idx..end].copy_from_slice(&bytes[..end - idx]);

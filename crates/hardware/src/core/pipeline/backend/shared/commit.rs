@@ -36,7 +36,7 @@ use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
 use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData, WriteOrigin};
 use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::trace_branch;
 use crate::trace_commit;
@@ -715,7 +715,7 @@ fn observed_value_is_stale(
     head: &RobEntry,
     store_buffer: &StoreBuffer,
 ) -> bool {
-    let Some(log) = state.write_log.as_ref() else { return false };
+    let Some(log) = state.memory.write_log() else { return false };
     let Some(observed) = head.observed else { return false };
     let reader = state.hart.hart_id;
     match (head.lr_sc, head.ctrl.atomic_op) {
@@ -1107,6 +1107,7 @@ fn emit_store_write_packet_to(
     let pipeline_id = common.pipeline_id;
     let _ =
         common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner, paddr });
+    let hart = state.hart.hart_id;
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -1117,7 +1118,7 @@ fn emit_store_write_packet_to(
             paddr,
             vaddr: None,
             size: access_size,
-            op: MemOp::Write { data: WriteData::Small(data) },
+            op: MemOp::Write { data: WriteData::Small(data), origin: WriteOrigin::Hart(hart) },
         },
     );
     Some(req_id)

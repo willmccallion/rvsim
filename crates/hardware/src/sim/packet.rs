@@ -10,7 +10,7 @@
 //! to keep the enum small.
 
 use crate::coherence::messages::CoherenceMsg;
-use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
 
 /// Width of a single memory access in bytes.
@@ -92,6 +92,20 @@ pub enum AtomicOp {
     Sc,
 }
 
+/// Whose write a [`MemOp::Write`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteOrigin {
+    /// A hart's store: its bytes land in RAM where the memory system serves
+    /// it.
+    Hart(HartId),
+    /// A write whose originator has already put its bytes in RAM (a device's
+    /// DMA, the page-table walker's A/D update); the packet carries only its
+    /// timing.
+    Placed,
+    /// The simulator host writing a device register.
+    Host,
+}
+
 /// Memory operation kind on a `MemReq`.
 #[derive(Clone, Debug)]
 pub enum MemOp {
@@ -105,6 +119,8 @@ pub enum MemOp {
     Write {
         /// Bytes to write.
         data: WriteData,
+        /// Whose write it is, which decides whether serving it writes RAM.
+        origin: WriteOrigin,
     },
     /// Atomic read-modify-write.
     Atomic {
@@ -112,6 +128,8 @@ pub enum MemOp {
         op: AtomicOp,
         /// Source-register value for the AMO.
         data: u64,
+        /// The hart performing it.
+        hart: HartId,
     },
     /// Instruction fetch.
     Fetch,

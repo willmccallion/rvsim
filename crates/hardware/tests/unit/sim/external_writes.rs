@@ -22,26 +22,29 @@ fn two_hart_system() -> SimState {
 #[test]
 fn external_write_range_invalidates_every_reservation_it_touches() {
     let mut sys = two_hart_system();
-    sys.shared.reservations.set(H0, LINE0);
-    sys.shared.reservations.set(H1, LINE1);
-    sys.shared.reservations.set(H0, LINE2);
+    sys.shared.memory.reservations_mut().set(H0, LINE0);
+    sys.shared.memory.reservations_mut().set(H1, LINE1);
+    sys.shared.memory.reservations_mut().set(H0, LINE2);
 
-    sys.shared.record_external_write_range(PhysAddr::new(0x8000_0030), 0x20);
+    sys.shared.memory.record_external_write_range(PhysAddr::new(0x8000_0030), 0x20);
 
-    assert!(!sys.shared.reservations.check(H0, LINE0), "first line written");
-    assert!(!sys.shared.reservations.check(H1, LINE1), "second line written");
-    assert!(sys.shared.reservations.check(H0, LINE2), "untouched line keeps its reservation");
+    assert!(!sys.shared.memory.reservations().check(H0, LINE0), "first line written");
+    assert!(!sys.shared.memory.reservations().check(H1, LINE1), "second line written");
+    assert!(
+        sys.shared.memory.reservations().check(H0, LINE2),
+        "untouched line keeps its reservation"
+    );
 }
 
 #[test]
 fn external_write_range_is_logged_on_every_line_it_touches() {
     let mut sys = two_hart_system();
-    let log = sys.shared.write_log.as_ref().expect("two harts share a write log");
+    let log = sys.shared.memory.write_log().expect("two harts share a write log");
     let stamp = log.now();
 
-    sys.shared.record_external_write_range(PhysAddr::new(0x8000_0030), 0x20);
+    sys.shared.memory.record_external_write_range(PhysAddr::new(0x8000_0030), 0x20);
 
-    let log = sys.shared.write_log.as_ref().expect("two harts share a write log");
+    let log = sys.shared.memory.write_log().expect("two harts share a write log");
     assert!(log.written_by_other_since(LINE0, H0, stamp));
     assert!(log.written_by_other_since(LINE1, H0, stamp));
     assert!(!log.written_by_other_since(LINE2, H0, stamp));
@@ -50,11 +53,11 @@ fn external_write_range_is_logged_on_every_line_it_touches() {
 #[test]
 fn a_single_byte_external_write_touches_one_line() {
     let mut sys = two_hart_system();
-    sys.shared.reservations.set(H0, LINE0);
-    sys.shared.reservations.set(H1, LINE1);
+    sys.shared.memory.reservations_mut().set(H0, LINE0);
+    sys.shared.memory.reservations_mut().set(H1, LINE1);
 
-    sys.shared.record_external_write_range(PhysAddr::new(0x8000_003F), 1);
+    sys.shared.memory.record_external_write_range(PhysAddr::new(0x8000_003F), 1);
 
-    assert!(!sys.shared.reservations.check(H0, LINE0));
-    assert!(sys.shared.reservations.check(H1, LINE1));
+    assert!(!sys.shared.memory.reservations().check(H0, LINE0));
+    assert!(sys.shared.memory.reservations().check(H1, LINE1));
 }

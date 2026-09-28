@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::sim::components::ComponentId;
 use crate::sim::events::EventQueue;
 use crate::sim::packet::Packet;
+use crate::sim::state::global_memory::GlobalMemory;
 use crate::sim::stats::Stats;
 
 /// Borrow bundle passed to every `Handle::handle` invocation.
@@ -23,6 +24,8 @@ pub struct HandleCtx<'a> {
     pub scheduler: &'a mut EventQueue,
     /// Component-rooted stats sink.
     pub stats: &'a mut Stats,
+    /// The memory image a request takes effect against when served.
+    pub memory: &'a mut GlobalMemory,
     /// Simulator configuration (read-only).
     pub config: &'a Config,
     /// The cycle at which this event is being delivered.

@@ -81,6 +81,6 @@ fn four_o3_harts_count_exactly() {
 #[test]
 fn a_single_hart_has_no_write_log() {
     let mut system = MultiHart::new(1, BackendType::OutOfOrder, &program(1, 50));
-    assert!(system.sim.state.write_log.is_none());
+    assert!(system.sim.state.memory.write_log().is_none());
     assert_eq!(system.run_until_exit(1_000_000), Some(50));
 }

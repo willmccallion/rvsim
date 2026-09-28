@@ -4,6 +4,7 @@
 //! A test cache is 256 bytes with 64-byte lines and 2 ways: two sets,
 //! set = (addr / 64) % 2, tag = addr / 128.
 
+use rvsim_core::common::HartId;
 use rvsim_core::common::{LineAddr, PhysAddr};
 use rvsim_core::config::{
     CacheConfig, Config, InclusionPolicy, Prefetcher as PrefetcherType,
@@ -13,9 +14,11 @@ use rvsim_core::core::units::cache::Cache;
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind, WriteData,
 };
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 
 const LATENCY: u64 = 2;
@@ -52,6 +55,7 @@ struct Bench {
     cache: Cache,
     queue: EventQueue,
     stats: Stats,
+    memory: GlobalMemory,
     config: Config,
     cycle: u64,
 }
@@ -62,6 +66,7 @@ impl Bench {
             cache,
             queue: EventQueue::new(),
             stats: Stats::new(),
+            memory: GlobalMemory::new(None, 1, 64),
             config: Config::default(),
             cycle: 100,
         }
@@ -71,6 +76,7 @@ impl Bench {
         let mut ctx = HandleCtx {
             scheduler: &mut self.queue,
             stats: &mut self.stats,
+            memory: &mut self.memory,
             config: &self.config,
             cycle: self.cycle,
             self_id: SELF,
@@ -100,7 +106,11 @@ impl Bench {
     }
 
     fn write(&mut self, req_id: u64, addr: u64) {
-        self.request(req_id, addr, MemOp::Write { data: WriteData::Small(1) });
+        self.request(
+            req_id,
+            addr,
+            MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+        );
     }
 
     /// Everything scheduled so far, in delivery order.
@@ -317,7 +327,11 @@ fn an_mshr_holding_its_target_limit_blocks_the_cache_until_its_fill() {
 fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
     let mut bench = Bench::new(cache_with(&test_config()));
     // Set 0 holds tags for 0x0000 and 0x0080; 0x0100 evicts the LRU one.
-    bench.install(1, 0x0000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install(
+        1,
+        0x0000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
     bench.install(2, 0x0080, MemOp::Read);
 
     bench.read(3, 0x0100);
@@ -366,7 +380,11 @@ fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
     let mut config = test_config();
     config.write_buffers = 1;
     let mut bench = Bench::new(cache_with(&config));
-    bench.install(1, 0x0000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install(
+        1,
+        0x0000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
     bench.install(2, 0x0080, MemOp::Read);
     bench.read(3, 0x0100);
     let fetch = bench.downstream_requests();
@@ -431,7 +449,12 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
     cache.add_upstream(UPSTREAM);
     cache.set_upstream_inclusion(InclusionPolicy::Inclusive);
     let mut bench = Bench::new(cache);
-    bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install_from(
+        UPSTREAM,
+        1,
+        0x1000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
 
     bench.deliver(
         Packet::CacheInval { line_addr: LineAddr::from_phys(PhysAddr::new(0x1000), 64) },
@@ -586,7 +609,11 @@ fn exclusive_upper_level_hands_clean_victims_down() {
 #[test]
 fn maintenance_operations_report_dirty_lines_for_the_caller_to_write_back() {
     let mut bench = Bench::new(cache_with(&test_config()));
-    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install(
+        1,
+        0x1000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
     bench.install(2, 0x2000, MemOp::Read);
 
     assert_eq!(bench.cache.clean_line(0x1000).map(|d| d.line.val()), Some(0x1000));
@@ -595,7 +622,11 @@ fn maintenance_operations_report_dirty_lines_for_the_caller_to_write_back() {
     assert!(bench.cache.invalidate_line(0x2000).is_none(), "clean line: nothing to write back");
     assert!(!bench.cache.contains(0x2000));
 
-    bench.install(3, 0x3000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install(
+        3,
+        0x3000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
     let dirty: Vec<u64> = bench.cache.flush().into_iter().map(|d| d.line.val()).collect();
     assert_eq!(dirty, vec![0x3000]);
     assert!(bench.cache.contains(0x1000), "clean lines survive a flush");
@@ -753,7 +784,11 @@ fn a_write_joining_a_read_miss_is_served_by_an_exclusive_fill() {
 #[test]
 fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
     let mut bench = Bench::new(cache_with(&test_config()));
-    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(1) });
+    bench.install(
+        1,
+        0x1000,
+        MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
+    );
 
     let txn = ReqId::new(77);
     bench.deliver(
@@ -1108,7 +1143,7 @@ mod coherent {
         bench.install_coherent(
             1,
             0x1000,
-            MemOp::Write { data: WriteData::Small(1) },
+            MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
             MesiState::Modified,
         );
 
@@ -1240,7 +1275,7 @@ mod coherent {
         bench.install_coherent(
             1,
             0x1000,
-            MemOp::Write { data: WriteData::Small(1) },
+            MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
             MesiState::Modified,
         );
         bench.install_coherent(2, 0x1080, MemOp::Read, MesiState::Exclusive);

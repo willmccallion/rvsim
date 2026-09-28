@@ -75,7 +75,7 @@ impl Simulator {
         let shared = &mut self.state.shared;
         shared.bus.drain_devices();
         for (paddr, len) in shared.bus.take_dma_writes() {
-            shared.record_external_write_range(paddr, len);
+            shared.memory.record_external_write_range(paddr, len);
         }
     }
 
@@ -186,6 +186,7 @@ impl Simulator {
         let mut ctx = HandleCtx {
             scheduler: &mut shared.event_queue,
             stats: &mut shared.stats,
+            memory: &mut shared.memory,
             config: &shared.config,
             cycle: shared.cycle,
             self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
@@ -218,13 +219,14 @@ impl Simulator {
                 let mut ctx = HandleCtx {
                     scheduler: &mut shared.event_queue,
                     stats: &mut shared.stats,
+                    memory: &mut shared.memory,
                     config: &shared.config,
                     cycle: shared.cycle,
                     self_id: ComponentId::Bus,
                 };
                 shared.bus.handle(packet, source, &mut ctx);
                 for (paddr, len) in shared.bus.take_dma_writes() {
-                    shared.record_external_write_range(paddr, len);
+                    shared.memory.record_external_write_range(paddr, len);
                 }
             }
             ComponentId::MemCtrl(id) => {
@@ -232,6 +234,7 @@ impl Simulator {
                 let mut ctx = HandleCtx {
                     scheduler: &mut shared.event_queue,
                     stats: &mut shared.stats,
+                    memory: &mut shared.memory,
                     config: &shared.config,
                     cycle: shared.cycle,
                     self_id: ComponentId::MemCtrl(id),
@@ -244,6 +247,7 @@ impl Simulator {
                     let mut ctx = HandleCtx {
                         scheduler: &mut shared.event_queue,
                         stats: &mut shared.stats,
+                        memory: &mut shared.memory,
                         config: &shared.config,
                         cycle: shared.cycle,
                         self_id: ComponentId::Fabric,
@@ -256,13 +260,14 @@ impl Simulator {
                 let mut ctx = HandleCtx {
                     scheduler: &mut shared.event_queue,
                     stats: &mut shared.stats,
+                    memory: &mut shared.memory,
                     config: &shared.config,
                     cycle: shared.cycle,
                     self_id: ComponentId::Device(id),
                 };
                 shared.bus.handle_device(id, packet, source, &mut ctx);
                 for (paddr, len) in shared.bus.take_dma_writes() {
-                    shared.record_external_write_range(paddr, len);
+                    shared.memory.record_external_write_range(paddr, len);
                 }
             }
             ComponentId::Hart(_) | ComponentId::Core(_) => {
@@ -279,6 +284,7 @@ impl Simulator {
         let mut ctx = HandleCtx {
             scheduler: &mut shared.event_queue,
             stats: &mut shared.stats,
+            memory: &mut shared.memory,
             config: &shared.config,
             cycle: shared.cycle,
             self_id: ComponentId::Fabric,
@@ -335,11 +341,13 @@ impl Simulator {
                     _ => {}
                 }
             }
-            self.state.record_external_write(paddr);
+            self.state.memory.record_external_write(paddr);
             return;
         }
-        let op =
-            crate::sim::packet::MemOp::Write { data: crate::sim::packet::WriteData::Small(value) };
+        let op = crate::sim::packet::MemOp::Write {
+            data: crate::sim::packet::WriteData::Small(value),
+            origin: crate::sim::packet::WriteOrigin::Host,
+        };
         let _ = self.probe_mmio(paddr, width, op);
     }
 
@@ -370,6 +378,7 @@ impl Simulator {
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
+            memory: &mut shared.memory,
             config: &shared.config,
             cycle: shared.cycle,
             self_id: ComponentId::Bus,
@@ -405,6 +414,7 @@ fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: 
     let mut ctx = HandleCtx {
         scheduler: &mut shared.event_queue,
         stats: &mut shared.stats,
+        memory: &mut shared.memory,
         config: &shared.config,
         cycle,
         self_id,

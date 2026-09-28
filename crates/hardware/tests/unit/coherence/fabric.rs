@@ -14,6 +14,7 @@ use rvsim_core::sim::components::{CacheId, ComponentId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 
 const LLC: ComponentId = ComponentId::Cache(CacheId::new(6));
@@ -37,6 +38,7 @@ struct Bench {
     fabric: CoherenceFabric,
     queue: EventQueue,
     stats: Stats,
+    memory: GlobalMemory,
     config: Config,
     cycle: u64,
     /// Packets to hand the fabric at a cycle, with their source.
@@ -62,6 +64,7 @@ impl Bench {
             fabric,
             queue: EventQueue::new(),
             stats: Stats::new(),
+            memory: GlobalMemory::new(None, 1, 64),
             config: Config::default(),
             cycle: 0,
             inbox: Vec::new(),
@@ -81,6 +84,7 @@ impl Bench {
         let mut ctx = HandleCtx {
             scheduler: &mut self.queue,
             stats: &mut self.stats,
+            memory: &mut self.memory,
             config: &self.config,
             cycle: self.cycle,
             self_id: ComponentId::Fabric,
@@ -140,6 +144,7 @@ impl Bench {
             let mut ctx = HandleCtx {
                 scheduler: &mut self.queue,
                 stats: &mut self.stats,
+                memory: &mut self.memory,
                 config: &self.config,
                 cycle: self.cycle,
                 self_id: ComponentId::Fabric,

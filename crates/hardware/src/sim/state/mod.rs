@@ -12,6 +12,9 @@ pub mod csr;
 /// Per-cycle hart bookkeeping (interrupts, hang detection, mode tracing).
 pub mod execution;
 
+/// RAM, reservations and write log: what every access takes effect against.
+pub mod global_memory;
+
 /// Address translation for the pipeline.
 pub mod memory;
 
@@ -52,12 +55,12 @@ use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
-use reservations::ReservationSet;
+use global_memory::GlobalMemory;
 use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use write_log::{WriteLog, Writer};
+use write_log::Writer;
 
 pub use views::StageCtx;
 
@@ -119,11 +122,8 @@ pub struct SharedState {
     /// Home agent and interconnect between the private L2s and the LLC;
     /// present only when more than one core shares memory.
     pub coherence: Option<CoherenceFabric>,
-    /// LR/SC reservations, one per hart.
-    pub reservations: ReservationSet,
-    /// Most recent RAM write per cache line; present only when more than
-    /// one hart can write memory.
-    pub write_log: Option<WriteLog>,
+    /// RAM with the LR/SC reservations and the log of RAM writes.
+    pub memory: GlobalMemory,
     /// Simulator parameters (cache sizes, ISA capability flags, pipeline
     /// knobs, system layout).
     pub config: Config,
@@ -229,20 +229,20 @@ impl CoreCtx<'_> {
     #[inline]
     pub fn set_reservation(&mut self, addr: PhysAddr) {
         let hart = self.hart.hart_id;
-        self.shared.reservations.set(hart, addr);
+        self.shared.memory.reservations_mut().set(hart, addr);
     }
 
     /// Returns `true` when this hart holds a reservation covering `addr`.
     #[inline]
     pub fn check_reservation(&self, addr: PhysAddr) -> bool {
-        self.shared.reservations.check(self.hart.hart_id, addr)
+        self.shared.memory.reservations().check(self.hart.hart_id, addr)
     }
 
     /// Clears this hart's load reservation.
     #[inline]
     pub fn clear_reservation(&mut self) {
         let hart = self.hart.hart_id;
-        self.shared.reservations.clear(hart);
+        self.shared.memory.reservations_mut().clear(hart);
     }
 
     /// Makes `data` visible at `paddr` as a write by this hart. See
@@ -255,29 +255,15 @@ impl CoreCtx<'_> {
 }
 
 impl SharedState {
-    /// The instant a write becomes visible to every hart: the bytes land in
-    /// RAM (an MMIO address is left to the device that receives the packet),
-    /// every other hart's reservation on the line is broken, and the write
-    /// log records the writer.
+    /// Makes `data` visible at `paddr` as an immediate write by `writer`,
+    /// for writes that do not travel through the memory system: an MMIO
+    /// address is left to the device that receives the packet.
     pub fn publish_write(&mut self, writer: Writer, paddr: PhysAddr, data: u64, width: MemWidth) {
         let width_bytes = width.bytes();
-        if width_bytes == 0 {
+        if width_bytes == 0 || self.bus.ram_region_for(paddr.val(), width_bytes).is_none() {
             return;
         }
-        if let Some(region) = self.bus.ram_region_for(paddr.val(), width_bytes) {
-            // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
-            unsafe {
-                let ptr = region.ptr(paddr.val());
-                match width {
-                    MemWidth::Byte => *ptr = data as u8,
-                    MemWidth::Half => ptr.cast::<u16>().write_unaligned(data as u16),
-                    MemWidth::Word => ptr.cast::<u32>().write_unaligned(data as u32),
-                    MemWidth::Double => ptr.cast::<u64>().write_unaligned(data),
-                    MemWidth::Nop => {}
-                }
-            }
-        }
-        self.note_write(writer, paddr);
+        self.memory.write(writer, paddr, data, width_bytes as usize);
     }
 
     /// Whether a trace event about `trap` prints under the current
@@ -286,32 +272,6 @@ impl SharedState {
     pub fn trace_trap_enabled(&self, trap: &Trap) -> bool {
         self.config.general.trace_instructions
             && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
-    }
-
-    /// Records a write that bypassed [`SharedState::publish_write`] (the
-    /// host-side memory probe writes RAM directly).
-    pub fn record_external_write(&mut self, paddr: PhysAddr) {
-        self.note_write(Writer::External, paddr);
-    }
-
-    /// Records an external write of `len` bytes from `paddr`, line by line.
-    pub fn record_external_write_range(&mut self, paddr: PhysAddr, len: usize) {
-        let line_bytes = self.write_log.as_ref().map_or(64, WriteLog::line_bytes);
-        let first = paddr.val() / line_bytes;
-        let last = paddr.val().saturating_add(len.saturating_sub(1) as u64) / line_bytes;
-        for line in first..=last {
-            self.note_write(Writer::External, PhysAddr::new(line * line_bytes));
-        }
-    }
-
-    fn note_write(&mut self, writer: Writer, paddr: PhysAddr) {
-        match writer {
-            Writer::Hart(hart) => self.reservations.invalidate_others(hart, paddr),
-            Writer::External => self.reservations.invalidate_all(paddr),
-        }
-        if let Some(log) = self.write_log.as_mut() {
-            log.record(paddr, writer);
-        }
     }
 
     /// Atomically takes the exit code if a bus device has signalled termination.
@@ -525,6 +485,10 @@ impl SimState {
         let ram_region =
             crate::soc::memory::RamRegion::new(ram_buffer.as_mut_ptr(), ram_base, ram_size as u64);
         bus.attach_ram(MemCtrlId::new(0), ram_region);
+        let write_log_line_bytes = match config.cache.l1_d.line_bytes {
+            0 => 64,
+            line_bytes => line_bytes as u64,
+        };
 
         // --- Hart architectural state ----------------------------------
         let configured_misa = config.misa().bits();
@@ -650,15 +614,7 @@ impl SimState {
                 mem_controller,
                 l3_cache,
                 coherence,
-                reservations: ReservationSet::new(hart_count),
-                write_log: (hart_count > 1).then(|| {
-                    let line_bytes = if config.cache.l1_d.line_bytes == 0 {
-                        64
-                    } else {
-                        config.cache.l1_d.line_bytes as u64
-                    };
-                    WriteLog::new(ram_base, ram_size as u64, line_bytes, hart_count)
-                }),
+                memory: GlobalMemory::new(Some(ram_region), hart_count, write_log_line_bytes),
                 config: config.clone(),
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
                 panic_detected_at_cycle: None,

@@ -1,0 +1,99 @@
+//! The one image of memory every access takes effect against.
+//!
+//! Caches hold tags only, so every line's data lives here, with the LR/SC
+//! reservations and the log of writes that make other harts' writes
+//! observable.
+
+use super::reservations::ReservationSet;
+use super::write_log::{WriteLog, Writer};
+use crate::common::PhysAddr;
+use crate::soc::memory::RamRegion;
+
+/// RAM with the reservations and write log that go with it.
+#[derive(Debug)]
+pub struct GlobalMemory {
+    ram: Option<RamRegion>,
+    reservations: ReservationSet,
+    write_log: Option<WriteLog>,
+}
+
+impl GlobalMemory {
+    /// Memory over `ram` shared by `hart_count` harts; the write log is kept
+    /// only when more than one hart can write, at `line_bytes` granularity.
+    #[must_use]
+    pub fn new(ram: Option<RamRegion>, hart_count: usize, line_bytes: u64) -> Self {
+        let write_log = ram
+            .filter(|_| hart_count > 1)
+            .map(|ram| WriteLog::new(ram.base(), ram.size(), line_bytes, hart_count));
+        Self { ram, reservations: ReservationSet::new(hart_count), write_log }
+    }
+
+    /// The LR/SC reservations.
+    #[must_use]
+    pub const fn reservations(&self) -> &ReservationSet {
+        &self.reservations
+    }
+
+    /// The LR/SC reservations, for setting and clearing.
+    pub const fn reservations_mut(&mut self) -> &mut ReservationSet {
+        &mut self.reservations
+    }
+
+    /// The write log; `None` with a single hart.
+    #[must_use]
+    pub const fn write_log(&self) -> Option<&WriteLog> {
+        self.write_log.as_ref()
+    }
+
+    /// The `bytes` (at most 8) at `paddr`, little-endian; `None` outside RAM.
+    #[must_use]
+    pub fn read(&self, paddr: PhysAddr, bytes: usize) -> Option<u64> {
+        let ram = self.ram.filter(|ram| ram.contains(paddr.val(), bytes as u64))?;
+        let value = (0..bytes).fold(0u64, |value, i| {
+            // SAFETY: `contains` bounds-checked `[paddr, paddr + bytes)`.
+            let byte = unsafe { *ram.ptr(paddr.val() + i as u64) };
+            value | (u64::from(byte) << (8 * i))
+        });
+        Some(value)
+    }
+
+    /// Writes the low `bytes` (at most 8) of `data` at `paddr` as `writer`,
+    /// breaking the reservations the write must break. Outside RAM nothing
+    /// is written.
+    pub fn write(&mut self, writer: Writer, paddr: PhysAddr, data: u64, bytes: usize) {
+        let Some(ram) = self.ram.filter(|ram| ram.contains(paddr.val(), bytes as u64)) else {
+            return;
+        };
+        for i in 0..bytes {
+            // SAFETY: `contains` bounds-checked `[paddr, paddr + bytes)`.
+            unsafe { *ram.ptr(paddr.val() + i as u64) = (data >> (8 * i)) as u8 };
+        }
+        self.note_write(writer, paddr);
+    }
+
+    /// Records a write that bypassed [`Self::write`] (the loader, a
+    /// host-side probe, or a device's DMA writing RAM directly).
+    pub fn record_external_write(&mut self, paddr: PhysAddr) {
+        self.note_write(Writer::External, paddr);
+    }
+
+    /// Records an external write of `len` bytes from `paddr`, line by line.
+    pub fn record_external_write_range(&mut self, paddr: PhysAddr, len: usize) {
+        let line_bytes = self.write_log.as_ref().map_or(64, WriteLog::line_bytes);
+        let first = paddr.val() / line_bytes;
+        let last = paddr.val().saturating_add(len.saturating_sub(1) as u64) / line_bytes;
+        for line in first..=last {
+            self.note_write(Writer::External, PhysAddr::new(line * line_bytes));
+        }
+    }
+
+    fn note_write(&mut self, writer: Writer, paddr: PhysAddr) {
+        match writer {
+            Writer::Hart(hart) => self.reservations.invalidate_others(hart, paddr),
+            Writer::External => self.reservations.invalidate_all(paddr),
+        }
+        if let Some(log) = self.write_log.as_mut() {
+            log.record(paddr, writer);
+        }
+    }
+}

@@ -586,7 +586,7 @@ impl CoherenceFabric {
         let txn = *req_id;
         let line = LineAddr::from_phys(*paddr, self.line_bytes as u64);
         let bytes = match op {
-            MemOp::Write { data: WriteData::Line(_) } => self.line_bytes,
+            MemOp::Write { data: WriteData::Line(_), .. } => self.line_bytes,
             MemOp::Write { .. } | MemOp::Atomic { .. } => 8,
             MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Writeback { .. } => 0,
         };

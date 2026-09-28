@@ -9,9 +9,11 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, DeviceId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
@@ -76,10 +78,12 @@ fn deliver(
     packet: Packet,
 ) {
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle,
         self_id: ComponentId::Device(DeviceId::new(0)),
@@ -132,7 +136,7 @@ fn a_read_request_completes_after_its_three_dma_phases() {
         paddr: PhysAddr::new(MMIO + 0x50),
         vaddr: None,
         size: AccessSize::B4,
-        op: MemOp::Write { data: WriteData::Small(0) },
+        op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
     };
 
     deliver(&mut device, &mut queue, 0, ComponentId::Pipeline(PipelineId::new(0)), notify);
@@ -184,7 +188,7 @@ fn draining_the_device_completes_a_queued_request_at_once() {
         paddr: PhysAddr::new(MMIO + 0x50),
         vaddr: None,
         size: AccessSize::B4,
-        op: MemOp::Write { data: WriteData::Small(0) },
+        op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
     };
     deliver(&mut device, &mut queue, 0, ComponentId::Pipeline(PipelineId::new(0)), notify);
     assert_eq!(dma_requests(&mut queue).len(), 10, "the request is in flight");

@@ -31,7 +31,7 @@ use crate::core::pipeline::outstanding::{
 use crate::core::pipeline::signals::MemWidth;
 use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};
 use crate::sim::state::memory::TranslateResult;
 use crate::sim::state::write_log::WriteLog;
 
@@ -116,10 +116,10 @@ fn complete_load<E: ExecutionEngine>(
     let entry = load.entry;
     let paddr = load.paddr;
     let load_raw = read_load_bytes(state, paddr.val(), entry.ctrl.width, resp_data);
-    let observed = state.write_log.as_ref().map(WriteLog::now);
+    let observed = state.memory.write_log().map(WriteLog::now);
     let cycle = state.cycle;
 
-    if let Some(log) = state.write_log.as_ref()
+    if let Some(log) = state.memory.write_log()
         && let Some(load_queue) = pipeline.engine.load_queue_mut()
         && let Some(violator) =
             load_queue.check_coherence_violation(entry.rob_tag, paddr, log, state.hart().hart_id)
@@ -263,7 +263,7 @@ fn set_accessed_bit<E: ExecutionEngine>(
             paddr: update.pte_addr,
             vaddr: None,
             size: AccessSize::B8,
-            op: MemOp::Write { data: WriteData::Small(pte) },
+            op: MemOp::Write { data: WriteData::Small(pte), origin: WriteOrigin::Placed },
         },
     );
 }

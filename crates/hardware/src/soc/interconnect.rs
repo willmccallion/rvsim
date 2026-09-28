@@ -353,10 +353,10 @@ const COMMAND_BYTES: usize = 8;
 /// data a write carries.
 fn request_bytes(packet: &Packet) -> usize {
     match packet {
-        Packet::MemReq { op: MemOp::Write { data: WriteData::Small(_) }, size, .. } => {
+        Packet::MemReq { op: MemOp::Write { data: WriteData::Small(_), .. }, size, .. } => {
             COMMAND_BYTES + size.bytes()
         }
-        Packet::MemReq { op: MemOp::Write { data: WriteData::Line(line) }, .. } => {
+        Packet::MemReq { op: MemOp::Write { data: WriteData::Line(line), .. }, .. } => {
             COMMAND_BYTES + line.len()
         }
         Packet::MemReq { op: MemOp::Writeback { .. }, size, .. } => COMMAND_BYTES + size.bytes(),

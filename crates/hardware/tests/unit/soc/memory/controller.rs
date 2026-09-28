@@ -6,12 +6,15 @@
 //! inspects the scheduled MemResp's fire_at to recover the access latency
 //! the controller computed.
 
+use rvsim_core::common::HartId;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, MemCtrlId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{AccessSize, MemOp, Packet, WriteData};
+use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::{
@@ -26,10 +29,12 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     let req_id = ReqId::new(u64::MAX);
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle,
         self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
@@ -59,10 +64,12 @@ fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     let req_id = ReqId::new(u64::MAX);
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle,
         self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
@@ -73,7 +80,10 @@ fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
             paddr: PhysAddr::new(paddr),
             vaddr: None,
             size: AccessSize::B8,
-            op: MemOp::Write { data: WriteData::Small(0) },
+            op: MemOp::Write {
+                data: WriteData::Small(0),
+                origin: WriteOrigin::Hart(HartId::new(0)),
+            },
         },
         ComponentId::Pipeline(PipelineId::new(0)),
         &mut ctx,
@@ -105,10 +115,12 @@ fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64
     let req_id = ReqId::new(u64::MAX);
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
+    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
+        memory: &mut memory,
         config: &config,
         cycle,
         self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),

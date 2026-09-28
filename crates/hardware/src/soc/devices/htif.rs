@@ -62,7 +62,7 @@ impl Handle for Htif {
                     size,
                     crate::sim::packet::AccessSize::B4 | crate::sim::packet::AccessSize::B8
                 )
-                && let MemOp::Write { data: WriteData::Small(val) } = op
+                && let MemOp::Write { data: WriteData::Small(val), .. } = op
             {
                 self.handle_tohost(val);
             }

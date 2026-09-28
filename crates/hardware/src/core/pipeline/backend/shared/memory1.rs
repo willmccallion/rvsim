@@ -581,7 +581,7 @@ fn emit_load_req<E: ExecutionEngine>(
             AtomicOp::Sc => packet::AtomicOp::Sc,
             AtomicOp::None => unreachable!("is_atomic checked"),
         };
-        MemOp::Atomic { op: packet_atomic, data: ex.store_data }
+        MemOp::Atomic { op: packet_atomic, data: ex.store_data, hart: state.hart().hart_id }
     } else {
         MemOp::Read
     };
