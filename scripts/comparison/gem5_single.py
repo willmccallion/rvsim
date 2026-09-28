@@ -29,7 +29,7 @@ from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 from m5.objects import (
     BadAddr, FUPool, FP_ALU, FP_MultDiv, IntALU, IntMultDiv, L2XBar, ReadPort,
-    RiscvO3CPU, SIMD_Unit, SystemXBar, TAGE, TAGEBase, TaggedPrefetcher,
+    RiscvO3CPU, SIMD_Unit, SystemXBar, TAGE, TAGE_SC_L_64KB, TAGEBase, TaggedPrefetcher,
     TournamentBP, WritePort,
 )
 from m5.params import NULL
@@ -75,6 +75,8 @@ def branch_predictor(bp: dict):
             ),
             **common,
         )
+    if bp["kind"] == "tage_sc_l":
+        return TAGE_SC_L_64KB(**common)
     raise ValueError(f"unknown predictor {bp['kind']}")
 
 

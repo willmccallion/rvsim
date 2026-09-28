@@ -71,6 +71,9 @@ def _with(**changes) -> dict:
 VARIANTS = {
     "base": copy.deepcopy(BASE),
     "bp_tage": _with(bp=TAGE),
+    # Each simulator's TAGE-SC-L at its own configuration: rvsim's SC-L-TAGE
+    # defaults against gem5's 64KB CBP-5 TAGE-SC-L.
+    "bp_tage_sc_l": _with(bp={"kind": "tage_sc_l"}),
     "bp_small_tournament": _with(
         bp={"kind": "tournament", "global_bits": 10, "local_hist_bits": 8, "local_pred_bits": 8}
     ),

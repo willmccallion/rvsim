@@ -93,7 +93,10 @@ def main():
 
     RESULTS_DIR.mkdir(exist_ok=True)
     out = RESULTS_DIR / "gem5.json"
-    out.write_text(json.dumps(results, indent=2, sort_keys=True))
+    # Variants not run this time keep their earlier results.
+    saved = json.loads(out.read_text()) if out.exists() else {}
+    saved.update(results)
+    out.write_text(json.dumps(saved, indent=2, sort_keys=True))
     print(f"Saved: {out}")
 
 
