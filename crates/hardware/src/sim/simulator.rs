@@ -30,14 +30,15 @@ use std::sync::atomic::AtomicU64;
 
 /// Where [`Simulator::run_to`] stops, besides the simulation ending.
 /// Counts are relative to where the run starts.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StopAt {
     /// After this many cycles.
     pub cycles: Option<u64>,
     /// Once this many more instructions have retired, over all harts.
     pub instructions: Option<u64>,
-    /// When any hart's next instruction to retire is at this address.
-    pub pc: Option<u64>,
+    /// When any hart's next instruction to retire is at one of these
+    /// addresses.
+    pub pcs: Vec<u64>,
     /// When guest software asks to stop (the sim-control break command).
     pub guest_breaks: bool,
     /// When a captured console holds output the host has not taken.
@@ -232,8 +233,8 @@ impl Simulator {
         if stop.console_output && self.state.bus.console_has_output() {
             return Some(StopReason::ConsoleOutput);
         }
-        if let Some(pc) = stop.pc
-            && let Some(hart) = self.state.harts.iter().position(|hart| hart.pc == pc)
+        if !stop.pcs.is_empty()
+            && let Some(hart) = self.state.harts.iter().position(|hart| stop.pcs.contains(&hart.pc))
         {
             return Some(StopReason::Pc { hart });
         }

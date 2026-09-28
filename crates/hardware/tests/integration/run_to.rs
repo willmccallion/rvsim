@@ -67,13 +67,13 @@ fn an_instruction_count_stops_once_it_is_reached() {
 }
 
 #[test]
-fn a_pc_stops_when_a_hart_is_about_to_run_it() {
+fn any_of_the_pcs_stops_when_a_hart_is_about_to_run_it() {
     let mut ctx = system();
     let loop_exit = PROGRAM_BASE + 4 * 4;
 
     let reason = ctx
         .sim
-        .run_to(&StopAt { pc: Some(loop_exit), ..StopAt::default() })
+        .run_to(&StopAt { pcs: vec![PROGRAM_BASE + 0x100, loop_exit], ..StopAt::default() })
         .expect("the run ticks");
 
     assert_eq!(reason, StopReason::Pc { hart: 0 });

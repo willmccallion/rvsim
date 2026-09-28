@@ -32,6 +32,13 @@ fn fmt_commas(n: u64) -> String {
     result
 }
 
+/// A `run_to` PC stop: one address or any of several.
+#[derive(FromPyObject)]
+enum PcStop {
+    One(u64),
+    Any(Vec<u64>),
+}
+
 /// The running simulator.
 #[pyclass(name = "Simulator", subclass)]
 pub struct PySimulator {
@@ -594,7 +601,8 @@ impl PySimulator {
     ///     cycles: Stop after this many cycles.
     ///     instructions: Stop once this many more instructions have retired
     ///         (all harts).
-    ///     pc: Stop when any hart's next instruction to retire is here.
+    ///     pc: Stop when any hart's next instruction to retire is at this
+    ///         address, or at any of a list of them.
     ///     `guest_breaks`: Stop when guest software runs ``rvsim break``.
     ///     `console_output`: Stop when a captured console holds output
     ///         :meth:`read_console` has not taken.
@@ -607,12 +615,17 @@ impl PySimulator {
         py: Python<'_>,
         cycles: Option<u64>,
         instructions: Option<u64>,
-        pc: Option<u64>,
+        pc: Option<PcStop>,
         guest_breaks: bool,
         console_output: bool,
     ) -> PyResult<(String, Option<u64>)> {
         use rvsim_core::sim::simulator::{StopAt, StopReason};
-        let stop = StopAt { cycles, instructions, pc, guest_breaks, console_output };
+        let pcs = match pc {
+            None => Vec::new(),
+            Some(PcStop::One(pc)) => vec![pc],
+            Some(PcStop::Any(pcs)) => pcs,
+        };
+        let stop = StopAt { cycles, instructions, pcs, guest_breaks, console_output };
         let mut interrupted = None;
         let reason = self
             .inner

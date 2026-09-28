@@ -191,7 +191,7 @@ class Simulator:
         *,
         cycles: Optional[int] = None,
         instructions: Optional[int] = None,
-        pc: Optional[int] = None,
+        pc: Union[int, List[int], None] = None,
         guest_breaks: bool = True,
         console_output: bool = False,
     ) -> Tuple[str, Optional[int]]: ...
