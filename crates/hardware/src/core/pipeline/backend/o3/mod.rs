@@ -75,8 +75,10 @@ pub struct O3Engine {
     pub issue_queue: IssueQueue,
     /// Functional unit pool for structural hazard modeling.
     pub fu_pool: FuPool,
-    /// Results that have been computed but not yet written back.
+    /// Non-memory results their unit is still producing.
     pub pending_results: Vec<PendingResult>,
+    /// Memory ops whose address unit is still generating their address.
+    pub pending_addresses: Vec<PendingResult>,
     /// Pipeline width (max instructions issued/committed per cycle).
     pub width: usize,
     /// Instructions renamed and dispatched per cycle.
@@ -157,6 +159,7 @@ impl O3Engine {
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),
             fu_pool,
             pending_results: Vec::new(),
+            pending_addresses: Vec::new(),
             width: config.pipeline.width,
             rename_width: config.pipeline.rename_width(),
             issue_width: config.pipeline.issue_width(),
@@ -314,6 +317,7 @@ impl O3Engine {
         self.mem1_mem2.retain(|e| survives(e.rob_tag));
         self.mem2_wb.retain(|e| survives(e.rob_tag));
         self.pending_results.retain(|p| survives(p.entry.rob_tag));
+        self.pending_addresses.retain(|p| survives(p.entry.rob_tag));
         self.vec_pending.retain(|v| survives(v.rob_tag));
         self.vec_mem_pending.retain(|m| survives(m.entry.rob_tag));
         self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
@@ -351,14 +355,11 @@ impl O3Engine {
     /// memory1, which runs later in the same cycle, as an in-order memory
     /// op issued last cycle reaches it.
     fn send_generated_addresses_to_memory1(&mut self, state: &mut CoreCtx<'_>, now: u64) {
-        let mut i = 0;
-        while i < self.pending_results.len() {
-            let result = &self.pending_results[i];
-            if result.complete_cycle > now || !result.entry.ctrl.uses_memory_pipeline() {
-                i += 1;
-                continue;
-            }
-            let done = self.pending_results.swap_remove(i);
+        let (ready, waiting) = std::mem::take(&mut self.pending_addresses)
+            .into_iter()
+            .partition(|p| p.complete_cycle <= now);
+        self.pending_addresses = waiting;
+        for done in ready {
             state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.execute_mem1.push(done.entry);
         }
@@ -981,11 +982,12 @@ impl ExecutionEngine for O3Engine {
                     continue;
                 }
 
-                self.pending_results.push(PendingResult {
-                    entry: ex_result,
-                    complete_cycle,
-                    fu_type,
-                });
+                let pending = PendingResult { entry: ex_result, complete_cycle, fu_type };
+                if pending.entry.ctrl.uses_memory_pipeline() {
+                    self.pending_addresses.push(pending);
+                } else {
+                    self.pending_results.push(pending);
+                }
             }
 
             if issued_count == 0 && !stalled_fu && !self.issue_queue.is_empty() {
@@ -1080,6 +1082,7 @@ impl ExecutionEngine for O3Engine {
         self.checkpoints.flush_all();
         // Caller sets squash_stall_remaining after this; not cleared here.
         self.pending_results.clear();
+        self.pending_addresses.clear();
         self.vec_pending.clear();
         self.vec_mem_pending.clear();
         self.vec_mem_inflight.clear();
