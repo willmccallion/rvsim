@@ -22,7 +22,10 @@ use crate::core::units::mmu::pmp::PmpEntry;
 use crate::sim::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
-const VERSION: u64 = 5;
+const VERSION: u64 = 6;
+
+/// RAM is saved in pages of this many bytes; pages of zeros are skipped.
+const PAGE_BYTES: usize = 4096;
 
 /// Why a checkpoint could not be written or restored.
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +134,39 @@ impl HartState {
     }
 }
 
+/// Writes a bitmap of `ram`'s pages that hold anything but zeros, then
+/// those pages in order.
+fn write_pages(ram: &[u8], out: &mut impl Write) -> std::io::Result<()> {
+    let pages: Vec<&[u8]> = ram.chunks(PAGE_BYTES).collect();
+    let mut present = vec![0u8; pages.len().div_ceil(8)];
+    for (index, page) in pages.iter().enumerate() {
+        if page.iter().any(|&byte| byte != 0) {
+            present[index / 8] |= 1 << (index % 8);
+        }
+    }
+    out.write_all(&present)?;
+    for (index, page) in pages.iter().enumerate() {
+        if present[index / 8] & (1 << (index % 8)) != 0 {
+            out.write_all(page)?;
+        }
+    }
+    Ok(())
+}
+
+/// Reads what [`write_pages`] wrote into `ram`, zeroing the skipped pages.
+fn read_pages(input: &mut impl Read, ram: &mut [u8]) -> std::io::Result<()> {
+    let mut present = vec![0u8; ram.len().div_ceil(PAGE_BYTES).div_ceil(8)];
+    input.read_exact(&mut present)?;
+    for (index, page) in ram.chunks_mut(PAGE_BYTES).enumerate() {
+        if present[index / 8] & (1 << (index % 8)) != 0 {
+            input.read_exact(page)?;
+        } else {
+            page.fill(0);
+        }
+    }
+    Ok(())
+}
+
 const fn mismatch(what: &'static str, saved: u64, current: u64) -> Result<(), CheckpointError> {
     if saved == current { Ok(()) } else { Err(CheckpointError::Mismatch { what, saved, current }) }
 }
@@ -170,7 +206,7 @@ impl Simulator {
             // nothing writes it while the drained simulator is borrowed here.
             let ram =
                 unsafe { std::slice::from_raw_parts(region.as_ptr(), region.size() as usize) };
-            out.write_all(ram)?;
+            write_pages(ram, out)?;
         }
         out.flush()?;
         Ok(())
@@ -209,7 +245,7 @@ impl Simulator {
             // borrowed mutably here.
             let ram =
                 unsafe { std::slice::from_raw_parts_mut(region.as_ptr(), region.size() as usize) };
-            input.read_exact(ram)?;
+            read_pages(input, ram)?;
         }
         self.apply_header(&header)
     }

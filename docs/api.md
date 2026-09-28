@@ -229,7 +229,7 @@ cpu.run(limit=60_000)
 
 #### `save(path)`, `restore(path)`
 
-A checkpoint holds RAM, the cycle counter, every hart's architectural
+A checkpoint holds RAM (skipping 4 KiB pages of zeros), the cycle counter, every hart's architectural
 state (PC, privilege, integer, floating-point and vector registers, every
 CSR, PMP entries, and its LR reservation) and the devices' registers
 (CLINT timers and `mtime`, PLIC priorities, enables, thresholds and claims,

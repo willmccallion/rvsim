@@ -184,3 +184,24 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
 
     assert_eq!(tracked(&system), Some(0));
 }
+
+#[test]
+fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
+    let mut system = TestContext::new_with_config(&config(BackendType::InOrder))
+        .load_program(PROGRAM_BASE, &running_squares());
+    let far = PROGRAM_BASE + 0x40_0000;
+    let checkpoint = saved(&mut system);
+    let mut restored = TestContext::new_with_config(&config(BackendType::InOrder));
+    restored.sim.probe_mem_store(PhysAddr::new(far), 0x1234, 8);
+
+    restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
+
+    assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(far), 8), 0);
+    assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(PROGRAM_BASE), 4), 0x0000_1297);
+    let ram = restored.sim.state.bus.ram_region().expect("the system has RAM").size() as usize;
+    assert!(
+        checkpoint.len() < ram / 100,
+        "a {}-byte checkpoint of {ram} bytes of RAM",
+        checkpoint.len()
+    );
+}
