@@ -92,6 +92,34 @@ pub const MENVCFG_CBIE_SHIFT: u32 = 4;
 /// CBIE field mask (2 bits).
 pub const MENVCFG_CBIE_MASK: u64 = 0b11;
 
+/// FIOM bit of menvcfg / senvcfg: FENCE on device I/O also orders memory.
+pub const ENVCFG_FIOM: u64 = 1 << 0;
+
+/// The CBIE field of menvcfg / senvcfg in place.
+const ENVCFG_CBIE: u64 = MENVCFG_CBIE_MASK << MENVCFG_CBIE_SHIFT;
+
+/// CBIE's reserved encoding.
+const CBIE_RESERVED: u64 = 0b10;
+
+/// The senvcfg fields this hart implements: FIOM and the Zicbom/Zicboz
+/// enables.
+pub const SENVCFG_WRITABLE: u64 = ENVCFG_FIOM | ENVCFG_CBIE | SENVCFG_CBCFE | SENVCFG_CBZE;
+
+/// The menvcfg fields this hart implements: those of senvcfg plus Sstc's STCE.
+pub const MENVCFG_WRITABLE: u64 = SENVCFG_WRITABLE | MENVCFG_STCE;
+
+/// The value a write of `val` leaves in an envcfg register whose
+/// implemented fields are `writable`: every other field reads as zero, and
+/// the reserved CBIE encoding is written as `0b00`, as spike does.
+#[must_use]
+pub const fn legalize_envcfg(val: u64, writable: u64) -> u64 {
+    let val = val & writable;
+    if (val >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK == CBIE_RESERVED {
+        return val & !ENVCFG_CBIE;
+    }
+    val
+}
+
 /// CBIE encoding: cbo.inval is illegal in S/U.
 pub const CBIE_ILLEGAL: u64 = 0b00;
 

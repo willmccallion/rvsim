@@ -137,6 +137,44 @@ fn without_c_an_xepc_has_its_two_low_bits_clear() {
     assert_eq!((state.csr_read(csr::MEPC), state.csr_read(csr::SEPC)), (0x8000_0000, 0x8000_0000));
 }
 
+/// FIOM, CBIE, CBCFE and CBZE: the envcfg fields of Zicbom, Zicboz and FIOM.
+const ENVCFG_FIELDS: u64 = 0b1111_0001;
+const CBIE_RESERVED: u64 = 0b10 << csr::MENVCFG_CBIE_SHIFT;
+
+#[test]
+fn menvcfg_keeps_only_the_fields_of_implemented_extensions() {
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MENVCFG, u64::MAX);
+
+    assert_eq!(state.csr_read(csr::MENVCFG), ENVCFG_FIELDS | csr::MENVCFG_STCE);
+}
+
+#[test]
+fn senvcfg_keeps_only_the_fields_of_implemented_extensions() {
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::SENVCFG, u64::MAX);
+
+    assert_eq!(state.csr_read(csr::SENVCFG), ENVCFG_FIELDS);
+}
+
+#[test]
+fn the_reserved_cbie_encoding_is_written_as_illegal() {
+    let mut sys = create_test_cpu();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MENVCFG, CBIE_RESERVED | csr::MENVCFG_CBZE);
+    state.csr_write(csr::SENVCFG, CBIE_RESERVED);
+
+    assert_eq!(
+        (state.csr_read(csr::MENVCFG), state.csr_read(csr::SENVCFG)),
+        (csr::MENVCFG_CBZE, 0)
+    );
+}
+
 #[test]
 fn test_csr_read_write_mcause() {
     let mut sys = create_test_cpu();

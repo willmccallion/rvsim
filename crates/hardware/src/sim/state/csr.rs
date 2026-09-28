@@ -250,10 +250,10 @@ impl CoreCtx<'_> {
                 self.hart.csrs.scounteren = val & 0x7;
             }
             x if x == csr::MENVCFG.as_u32() => {
-                self.hart.csrs.menvcfg = val;
+                self.hart.csrs.menvcfg = csr::legalize_envcfg(val, csr::MENVCFG_WRITABLE);
             }
             x if x == csr::SENVCFG.as_u32() => {
-                self.hart.csrs.senvcfg = val;
+                self.hart.csrs.senvcfg = csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);
             }
             x if x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle = val,
             x if x == csr::MINSTRET.as_u32() => self.hart.csrs.minstret = val,
