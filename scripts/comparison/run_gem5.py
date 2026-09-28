@@ -39,7 +39,8 @@ STATS = {
     "cycles": f"{CORE}.numCycles",
     "ipc": f"{CORE}.ipc",
     "branches": f"{CORE}.commitStats0.committedControl::IsControl",
-    "mispredicts": f"{CORE}.commit.branchMispredicts",
+    # Committed branches and jumps whose prediction was wrong, as rvsim counts.
+    "mispredicts": f"{CORE}.branchPred.mispredicted_0::total",
     "loads": f"{CORE}.commitStats0.numLoadInsts",
     "stores": f"{CORE}.commitStats0.numStoreInsts",
     "l1i_misses": f"{CACHES}.l1i-cache-0.demandMisses::total",

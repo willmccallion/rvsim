@@ -11,7 +11,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -25,7 +25,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -39,7 +39,7 @@
       "l2_accesses": 12303.0,
       "l2_misses": 2055.0,
       "loads": 65538.0,
-      "mispredicts": 55.0,
+      "mispredicts": 54.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -53,7 +53,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 1084.0,
+      "mispredicts": 1085.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -67,7 +67,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 46.0,
+      "mispredicts": 39.0,
       "stores": 4.0
     },
     "br_random": {
@@ -81,7 +81,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20082.0,
+      "mispredicts": 20065.0,
       "stores": 4.0
     },
     "call_return": {
@@ -95,7 +95,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 1785.0,
+      "mispredicts": 1784.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -109,7 +109,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -123,7 +123,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -137,7 +137,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30013.0,
+      "mispredicts": 30014.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -165,7 +165,7 @@
       "l2_accesses": 1815.0,
       "l2_misses": 871.0,
       "loads": 55299.0,
-      "mispredicts": 732.0,
+      "mispredicts": 779.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -207,7 +207,7 @@
       "l2_accesses": 200731.0,
       "l2_misses": 132061.0,
       "loads": 302144.0,
-      "mispredicts": 31.0,
+      "mispredicts": 30.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -249,7 +249,7 @@
       "l2_accesses": 4837.0,
       "l2_misses": 1043.0,
       "loads": 172819.0,
-      "mispredicts": 64676.0,
+      "mispredicts": 63966.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -305,7 +305,7 @@
       "l2_accesses": 16374.0,
       "l2_misses": 4159.0,
       "loads": 16387.0,
-      "mispredicts": 51.0,
+      "mispredicts": 50.0,
       "stores": 180228.0
     },
     "vec_reduce": {
@@ -349,7 +349,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 13.0,
+      "mispredicts": 14.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -363,7 +363,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 12.0,
+      "mispredicts": 13.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -377,7 +377,7 @@
       "l2_accesses": 12303.0,
       "l2_misses": 2055.0,
       "loads": 65538.0,
-      "mispredicts": 43.0,
+      "mispredicts": 42.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -391,7 +391,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 2563.0,
+      "mispredicts": 2564.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -405,7 +405,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 39.0,
+      "mispredicts": 33.0,
       "stores": 4.0
     },
     "br_random": {
@@ -419,7 +419,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20117.0,
+      "mispredicts": 20067.0,
       "stores": 4.0
     },
     "call_return": {
@@ -433,7 +433,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 2925.0,
+      "mispredicts": 2928.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -447,7 +447,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 12.0,
+      "mispredicts": 13.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -461,7 +461,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 13.0,
+      "mispredicts": 14.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -475,7 +475,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30012.0,
+      "mispredicts": 30013.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -503,7 +503,7 @@
       "l2_accesses": 1815.0,
       "l2_misses": 871.0,
       "loads": 55299.0,
-      "mispredicts": 720.0,
+      "mispredicts": 767.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -545,7 +545,7 @@
       "l2_accesses": 200731.0,
       "l2_misses": 132061.0,
       "loads": 302144.0,
-      "mispredicts": 25.0,
+      "mispredicts": 24.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -587,7 +587,7 @@
       "l2_accesses": 4836.0,
       "l2_misses": 1043.0,
       "loads": 172819.0,
-      "mispredicts": 66938.0,
+      "mispredicts": 66072.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -643,7 +643,7 @@
       "l2_accesses": 16373.0,
       "l2_misses": 4159.0,
       "loads": 16387.0,
-      "mispredicts": 41.0,
+      "mispredicts": 40.0,
       "stores": 180228.0
     },
     "vec_reduce": {
@@ -687,7 +687,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 4.0,
+      "mispredicts": 5.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -701,7 +701,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 4.0,
+      "mispredicts": 5.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -715,7 +715,7 @@
       "l2_accesses": 12305.0,
       "l2_misses": 2055.0,
       "loads": 65538.0,
-      "mispredicts": 15.0,
+      "mispredicts": 14.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -729,7 +729,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 24.0,
+      "mispredicts": 25.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -743,7 +743,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 59.0,
+      "mispredicts": 49.0,
       "stores": 4.0
     },
     "br_random": {
@@ -757,7 +757,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20131.0,
+      "mispredicts": 20132.0,
       "stores": 4.0
     },
     "call_return": {
@@ -771,7 +771,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 188.0,
+      "mispredicts": 191.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -785,7 +785,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 4.0,
+      "mispredicts": 5.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -799,7 +799,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 3.0,
+      "mispredicts": 4.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -813,7 +813,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30008.0,
+      "mispredicts": 30009.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -841,7 +841,7 @@
       "l2_accesses": 1816.0,
       "l2_misses": 871.0,
       "loads": 55299.0,
-      "mispredicts": 74.0,
+      "mispredicts": 121.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -883,7 +883,7 @@
       "l2_accesses": 200729.0,
       "l2_misses": 132060.0,
       "loads": 302144.0,
-      "mispredicts": 19.0,
+      "mispredicts": 11.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -925,7 +925,7 @@
       "l2_accesses": 4836.0,
       "l2_misses": 1043.0,
       "loads": 172819.0,
-      "mispredicts": 54797.0,
+      "mispredicts": 54486.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -1025,7 +1025,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -1039,7 +1039,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -1053,7 +1053,7 @@
       "l2_accesses": 12303.0,
       "l2_misses": 2055.0,
       "loads": 65538.0,
-      "mispredicts": 55.0,
+      "mispredicts": 54.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -1067,7 +1067,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 1084.0,
+      "mispredicts": 1085.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -1081,7 +1081,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 46.0,
+      "mispredicts": 39.0,
       "stores": 4.0
     },
     "br_random": {
@@ -1095,7 +1095,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20082.0,
+      "mispredicts": 20065.0,
       "stores": 4.0
     },
     "call_return": {
@@ -1109,7 +1109,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 1785.0,
+      "mispredicts": 1784.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -1123,7 +1123,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -1137,7 +1137,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -1151,7 +1151,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30013.0,
+      "mispredicts": 30014.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -1179,7 +1179,7 @@
       "l2_accesses": 870.0,
       "l2_misses": 870.0,
       "loads": 55299.0,
-      "mispredicts": 727.0,
+      "mispredicts": 774.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -1221,7 +1221,7 @@
       "l2_accesses": 186833.0,
       "l2_misses": 16449.0,
       "loads": 302144.0,
-      "mispredicts": 37.0,
+      "mispredicts": 30.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -1263,7 +1263,7 @@
       "l2_accesses": 1178.0,
       "l2_misses": 1044.0,
       "loads": 172819.0,
-      "mispredicts": 64467.0,
+      "mispredicts": 63959.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -1363,7 +1363,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -1377,7 +1377,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -1391,7 +1391,7 @@
       "l2_accesses": 12304.0,
       "l2_misses": 12304.0,
       "loads": 65538.0,
-      "mispredicts": 55.0,
+      "mispredicts": 54.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -1405,7 +1405,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 1084.0,
+      "mispredicts": 1085.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -1419,7 +1419,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 46.0,
+      "mispredicts": 39.0,
       "stores": 4.0
     },
     "br_random": {
@@ -1433,7 +1433,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20082.0,
+      "mispredicts": 20065.0,
       "stores": 4.0
     },
     "call_return": {
@@ -1447,7 +1447,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 1785.0,
+      "mispredicts": 1784.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -1461,7 +1461,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -1475,7 +1475,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -1489,7 +1489,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30013.0,
+      "mispredicts": 30014.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -1517,7 +1517,7 @@
       "l2_accesses": 18066.0,
       "l2_misses": 871.0,
       "loads": 55299.0,
-      "mispredicts": 737.0,
+      "mispredicts": 784.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -1559,7 +1559,7 @@
       "l2_accesses": 214005.0,
       "l2_misses": 186811.0,
       "loads": 302144.0,
-      "mispredicts": 31.0,
+      "mispredicts": 30.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -1601,7 +1601,7 @@
       "l2_accesses": 7665.0,
       "l2_misses": 1193.0,
       "loads": 172819.0,
-      "mispredicts": 65037.0,
+      "mispredicts": 63969.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -1671,7 +1671,7 @@
       "l2_accesses": 6153.0,
       "l2_misses": 1058.0,
       "loads": 8194.0,
-      "mispredicts": 47.0,
+      "mispredicts": 43.0,
       "stores": 10244.0
     },
     "vec_strided": {
@@ -1701,7 +1701,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -1715,7 +1715,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -1729,7 +1729,7 @@
       "l2_accesses": 12300.0,
       "l2_misses": 2055.0,
       "loads": 65538.0,
-      "mispredicts": 55.0,
+      "mispredicts": 54.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -1743,7 +1743,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 2.0,
-      "mispredicts": 1084.0,
+      "mispredicts": 1085.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -1757,7 +1757,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 46.0,
+      "mispredicts": 39.0,
       "stores": 4.0
     },
     "br_random": {
@@ -1771,7 +1771,7 @@
       "l2_accesses": 5.0,
       "l2_misses": 5.0,
       "loads": 2.0,
-      "mispredicts": 20082.0,
+      "mispredicts": 20065.0,
       "stores": 4.0
     },
     "call_return": {
@@ -1785,7 +1785,7 @@
       "l2_accesses": 22.0,
       "l2_misses": 22.0,
       "loads": 139106.0,
-      "mispredicts": 1785.0,
+      "mispredicts": 1784.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -1799,7 +1799,7 @@
       "l2_accesses": 4.0,
       "l2_misses": 4.0,
       "loads": 4.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -1813,7 +1813,7 @@
       "l2_accesses": 6.0,
       "l2_misses": 6.0,
       "loads": 7.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -1827,7 +1827,7 @@
       "l2_accesses": 7.0,
       "l2_misses": 6.0,
       "loads": 90005.0,
-      "mispredicts": 30012.0,
+      "mispredicts": 30014.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -1855,7 +1855,7 @@
       "l2_accesses": 1812.0,
       "l2_misses": 870.0,
       "loads": 55299.0,
-      "mispredicts": 731.0,
+      "mispredicts": 778.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -1897,7 +1897,7 @@
       "l2_accesses": 200737.0,
       "l2_misses": 132066.0,
       "loads": 302144.0,
-      "mispredicts": 32.0,
+      "mispredicts": 30.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -1939,7 +1939,7 @@
       "l2_accesses": 4839.0,
       "l2_misses": 1044.0,
       "loads": 172819.0,
-      "mispredicts": 64560.0,
+      "mispredicts": 63963.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -1995,7 +1995,7 @@
       "l2_accesses": 22546.0,
       "l2_misses": 4172.0,
       "loads": 16387.0,
-      "mispredicts": 52.0,
+      "mispredicts": 51.0,
       "stores": 180228.0
     },
     "vec_reduce": {
@@ -2039,7 +2039,7 @@
       "l2_accesses": 8.0,
       "l2_misses": 8.0,
       "loads": 2.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "alu_int_mul": {
@@ -2053,7 +2053,7 @@
       "l2_accesses": 8.0,
       "l2_misses": 8.0,
       "loads": 2.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "bitmanip": {
@@ -2067,7 +2067,7 @@
       "l2_accesses": 12321.0,
       "l2_misses": 2059.0,
       "loads": 65538.0,
-      "mispredicts": 55.0,
+      "mispredicts": 54.0,
       "stores": 32772.0
     },
     "br_nested_loops": {
@@ -2081,7 +2081,7 @@
       "l2_accesses": 8.0,
       "l2_misses": 8.0,
       "loads": 2.0,
-      "mispredicts": 1084.0,
+      "mispredicts": 1085.0,
       "stores": 4.0
     },
     "br_pattern": {
@@ -2095,7 +2095,7 @@
       "l2_accesses": 9.0,
       "l2_misses": 9.0,
       "loads": 2.0,
-      "mispredicts": 46.0,
+      "mispredicts": 39.0,
       "stores": 4.0
     },
     "br_random": {
@@ -2109,7 +2109,7 @@
       "l2_accesses": 9.0,
       "l2_misses": 8.0,
       "loads": 2.0,
-      "mispredicts": 20082.0,
+      "mispredicts": 20065.0,
       "stores": 4.0
     },
     "call_return": {
@@ -2123,7 +2123,7 @@
       "l2_accesses": 26.0,
       "l2_misses": 25.0,
       "loads": 139106.0,
-      "mispredicts": 1785.0,
+      "mispredicts": 1784.0,
       "stores": 139108.0
     },
     "fp_add_chain": {
@@ -2137,7 +2137,7 @@
       "l2_accesses": 8.0,
       "l2_misses": 8.0,
       "loads": 4.0,
-      "mispredicts": 15.0,
+      "mispredicts": 16.0,
       "stores": 4.0
     },
     "fp_fma_parallel": {
@@ -2151,7 +2151,7 @@
       "l2_accesses": 10.0,
       "l2_misses": 10.0,
       "loads": 7.0,
-      "mispredicts": 16.0,
+      "mispredicts": 17.0,
       "stores": 4.0
     },
     "indirect_calls": {
@@ -2165,7 +2165,7 @@
       "l2_accesses": 11.0,
       "l2_misses": 10.0,
       "loads": 90005.0,
-      "mispredicts": 30013.0,
+      "mispredicts": 30014.0,
       "stores": 60008.0
     },
     "load_use": {
@@ -2193,7 +2193,7 @@
       "l2_accesses": 1846.0,
       "l2_misses": 875.0,
       "loads": 55299.0,
-      "mispredicts": 734.0,
+      "mispredicts": 781.0,
       "stores": 12100.0
     },
     "mem_conflict": {
@@ -2235,7 +2235,7 @@
       "l2_accesses": 494808.0,
       "l2_misses": 294141.0,
       "loads": 302144.0,
-      "mispredicts": 31.0,
+      "mispredicts": 30.0,
       "stores": 524290.0
     },
     "mem_stride": {
@@ -2277,7 +2277,7 @@
       "l2_accesses": 4890.0,
       "l2_misses": 1047.0,
       "loads": 172819.0,
-      "mispredicts": 64568.0,
+      "mispredicts": 63966.0,
       "stores": 94427.0
     },
     "store_load_forward": {
@@ -2333,7 +2333,7 @@
       "l2_accesses": 19883.0,
       "l2_misses": 4254.0,
       "loads": 16387.0,
-      "mispredicts": 51.0,
+      "mispredicts": 50.0,
       "stores": 180228.0
     },
     "vec_reduce": {
