@@ -49,11 +49,11 @@ flowchart LR
 
 **Memory1** — Translates the address through the D-TLB, walking the page table on a miss. A load then forwards from the store buffer when an older store covers it, taking the L1D hit latency, or sends a request to the L1D and continues when the response arrives. A store writes its address and data into its store-buffer slot here and checks the load queue for younger loads that already read the location (a memory-order violation, which squashes from the load and trains the store-set predictor).
 
-**Memory2** — Finalises a load's value (sign or zero extension, NaN-boxing for FP loads), performs the AMO read-modify-write and records LR/SC reservations. Store-conditionals, AMOs and vector store elements resolve into their buffers here, where their data is final.
+**Memory2** — Finalises a load's value (sign or zero extension, NaN-boxing for FP loads) and records an LR's reservation for commit to set. An AMO or store-conditional arrives here already performed by the cache (its old value, or 0 or 1): it frees its store-buffer slot and squashes any younger load that read its location early. Vector store elements resolve into their buffer here, where their data is final.
 
 **Writeback** — Selects the final result (ALU output, load data, or jump link address), writes it to the physical register file, and marks the ROB entry as completed. Broadcasts the physical register tag for wakeup. The O3 backend writes back at most `writeback_width` results a cycle (gem5's `wbWidth`), memory results first and then functional-unit results earliest-finished and oldest first; the rest wait for a later cycle.
 
-**Commit** — In-order retirement from the head of the ROB. Handles CSR write serialization, FENCE store-drain semantics, SFENCE.VMA deferred TLB flush, MRET/SRET privilege return, and LR/SC reservation validation. An atomic with the `rl` bit waits here until every older store has drained to memory, since its own write is published when it commits.
+**Commit** — In-order retirement from the head of the ROB. Handles CSR write serialization, FENCE store-drain semantics, SFENCE.VMA deferred TLB flush, MRET/SRET privilege return, and setting an LR's reservation. AMOs and store-conditionals (and an LR with `rl`) are non-speculative, as in gem5: they issue only as the oldest instruction, once every older store has been written, and take effect in the cache.
 
 ### Design Choices
 
@@ -139,7 +139,7 @@ The following stages are identical between both backends:
 | Issue | **Different** | O3: CAM wakeup/select. In-order: FIFO blocking. |
 | Execute | **Different** | O3: multiple FUs in parallel. In-order: one instruction. |
 | Memory1 | Yes | Same D-TLB, forwarding, L1D request, store resolution |
-| Memory2 | Yes | Same load finalisation, AMO and LR/SC |
+| Memory2 | Yes | Same load finalisation, LR reservation and performed AMO/SC |
 | Writeback | Yes | Same result selection, ROB completion |
 | Commit | Yes | Same CSR serialization, FENCE semantics |
 

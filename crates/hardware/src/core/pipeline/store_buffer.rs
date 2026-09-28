@@ -51,24 +51,12 @@ pub enum StoreResolution {
         /// Data to write.
         data: u64,
     },
-    /// ROB has committed this store and its data is already in RAM: an SC
-    /// or AMO performs at commit, at the same instant as its reservation
-    /// decision. The entry still forwards to younger loads and drains as a
-    /// timing-only write.
-    Applied {
-        /// Physical address of the store.
-        paddr: PhysAddr,
-        /// Data written at commit.
-        data: u64,
-    },
-    /// Cancelled (failed SC) — committed no-op, will drain without writing.
-    Cancelled,
 }
 
 impl StoreResolution {
     /// Whether this entry has been committed (or cancelled) and is ready to drain.
     pub const fn is_committed(&self) -> bool {
-        matches!(self, Self::Committed { .. } | Self::Applied { .. } | Self::Cancelled)
+        matches!(self, Self::Committed { .. })
     }
 
     /// Whether this entry is still pending (no address resolved).
@@ -79,23 +67,10 @@ impl StoreResolution {
     /// Returns the physical address if resolved (Ready or Committed).
     pub const fn paddr(&self) -> Option<PhysAddr> {
         match self {
-            Self::Ready { paddr, .. }
-            | Self::Committed { paddr, .. }
-            | Self::Applied { paddr, .. } => Some(*paddr),
-            _ => None,
+            Self::Ready { paddr, .. } | Self::Committed { paddr, .. } => Some(*paddr),
+            Self::Pending => None,
         }
     }
-}
-
-/// A store whose data was written to RAM at commit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AppliedStore {
-    /// Physical address of the store.
-    pub paddr: PhysAddr,
-    /// Data to write.
-    pub data: u64,
-    /// Width of the store.
-    pub width: MemWidth,
 }
 
 /// Where a committed store's write to memory stands.
@@ -121,8 +96,10 @@ pub struct PendingWrite {
     pub rob_tag: RobTag,
     /// Its width.
     pub width: MemWidth,
-    /// What to write.
-    pub resolution: StoreResolution,
+    /// Where it writes.
+    pub paddr: PhysAddr,
+    /// What it writes.
+    pub data: u64,
 }
 
 /// A single entry in the store buffer.
@@ -247,7 +224,6 @@ impl StoreBuffer {
     }
 
     /// Marks a store as committed (the ROB has retired the instruction).
-    /// An entry already [`StoreResolution::Applied`] at commit stays so.
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
         let cap = self.entries.len();
         let mut idx = self.head;
@@ -255,12 +231,7 @@ impl StoreBuffer {
             let entry = &mut self.entries[idx];
             if entry.valid && entry.rob_tag == rob_tag {
                 debug_assert!(
-                    matches!(
-                        entry.resolution,
-                        StoreResolution::Ready { .. }
-                            | StoreResolution::Applied { .. }
-                            | StoreResolution::Cancelled
-                    ),
+                    matches!(entry.resolution, StoreResolution::Ready { .. }),
                     "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
                     rob_tag.0,
                     entry.resolution,
@@ -271,16 +242,6 @@ impl StoreBuffer {
             }
             idx = (idx + 1) % cap;
         }
-    }
-
-    /// Moves a resolved store to [`StoreResolution::Applied`] and returns
-    /// what the caller must now write to RAM. `None` when the entry is
-    /// missing or not yet resolved.
-    pub fn commit_applied(&mut self, rob_tag: RobTag) -> Option<AppliedStore> {
-        let entry = self.find_by_tag_mut(rob_tag)?;
-        let StoreResolution::Ready { paddr, data } = entry.resolution else { return None };
-        entry.resolution = StoreResolution::Applied { paddr, data };
-        Some(AppliedStore { paddr, data, width: entry.width })
     }
 
     /// Attempts store-to-load forwarding.
@@ -319,8 +280,7 @@ impl StoreBuffer {
 
                 match entry.resolution {
                     StoreResolution::Ready { paddr: store_paddr, data: store_data }
-                    | StoreResolution::Committed { paddr: store_paddr, data: store_data }
-                    | StoreResolution::Applied { paddr: store_paddr, data: store_data } => {
+                    | StoreResolution::Committed { paddr: store_paddr, data: store_data } => {
                         let store_size = width_to_bytes(entry.width);
                         let store_start = store_paddr.val();
                         let store_end = store_start + store_size as u64;
@@ -339,8 +299,7 @@ impl StoreBuffer {
                             return ForwardResult::Stall;
                         }
                     }
-                    // Pending entries are handled at issue time; Cancelled has no write.
-                    _ => {}
+                    StoreResolution::Pending => {}
                 }
             }
             if idx == 0 {
@@ -413,8 +372,7 @@ impl StoreBuffer {
                     // Unresolved store to unknown address — assume overlap.
                     StoreResolution::Pending => return true,
                     StoreResolution::Ready { paddr: store_paddr, .. }
-                    | StoreResolution::Committed { paddr: store_paddr, .. }
-                    | StoreResolution::Applied { paddr: store_paddr, .. } => {
+                    | StoreResolution::Committed { paddr: store_paddr, .. } => {
                         let store_size = width_to_bytes(entry.width) as u64;
                         let store_start = store_paddr.val();
                         let store_end = store_start + store_size;
@@ -422,7 +380,6 @@ impl StoreBuffer {
                             return true;
                         }
                     }
-                    StoreResolution::Cancelled => {}
                 }
             }
             idx = (idx + 1) % cap;
@@ -437,15 +394,19 @@ impl StoreBuffer {
         let mut idx = self.head;
         for _ in 0..self.count {
             let entry = &self.entries[idx];
-            if !entry.valid || !entry.resolution.is_committed() {
+            if !entry.valid {
                 return None;
             }
+            let StoreResolution::Committed { paddr, data } = entry.resolution else {
+                return None;
+            };
             if entry.write == WriteProgress::Unsent {
                 return Some(PendingWrite {
                     slot: idx,
                     rob_tag: entry.rob_tag,
                     width: entry.width,
-                    resolution: entry.resolution,
+                    paddr,
+                    data,
                 });
             }
             idx = (idx + 1) % cap;
@@ -583,25 +544,19 @@ impl StoreBuffer {
         self.count = 0;
     }
 
-    /// Cancels (removes) a store buffer entry that will not be written.
-    /// Used for failed SC (store-conditional) instructions.
-    pub fn cancel(&mut self, rob_tag: RobTag) {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
-                let prev_tail = if self.tail == 0 { cap - 1 } else { self.tail - 1 };
-                if idx == prev_tail {
-                    self.entries[idx].valid = false;
-                    self.tail = prev_tail;
-                    self.count -= 1;
-                } else {
-                    // Not at tail; mark Cancelled so the drain passes it through unwritten.
-                    self.entries[idx].resolution = StoreResolution::Cancelled;
-                }
-                return;
-            }
-            idx = (idx + 1) % cap;
+    /// Frees the slot of an AMO or store-conditional the cache has
+    /// performed, which has nothing left to write. Having waited for every
+    /// older store, it is the oldest entry.
+    pub fn remove_performed(&mut self, rob_tag: RobTag) {
+        let head = &mut self.entries[self.head];
+        debug_assert!(
+            self.count > 0 && head.valid && head.rob_tag == rob_tag,
+            "a performed atomic is the oldest store"
+        );
+        if self.count > 0 && head.valid && head.rob_tag == rob_tag {
+            head.valid = false;
+            self.head = (self.head + 1) % self.entries.len();
+            self.count -= 1;
         }
     }
 
@@ -652,7 +607,7 @@ mod tests {
     /// written.
     fn drain_now(sb: &mut StoreBuffer) -> Option<StoreResolution> {
         let write = sb.begin_write()?;
-        let resolution = write.resolution;
+        let resolution = StoreResolution::Committed { paddr: write.paddr, data: write.data };
         sb.issue_write(write, &[]);
         Some(resolution)
     }
@@ -745,38 +700,6 @@ mod tests {
             StoreResolution::Committed { paddr: PhysAddr::new(0x8000_0000), data: 0xDEADBEEF }
         );
         assert!(sb.is_empty());
-    }
-
-    #[test]
-    fn commit_applied_keeps_forwarding_and_drains_as_applied() {
-        let mut sb = StoreBuffer::new(4);
-        assert!(sb.allocate(RobTag(1), MemWidth::Double));
-        sb.resolve(RobTag(1), VirtAddr::new(0x1000), PhysAddr::new(0x1000), 0x55);
-
-        let applied = sb.commit_applied(RobTag(1)).expect("resolved entry");
-        assert_eq!(
-            applied,
-            AppliedStore { paddr: PhysAddr::new(0x1000), data: 0x55, width: MemWidth::Double }
-        );
-        sb.mark_committed(RobTag(1));
-
-        assert!(sb.has_committed_stores());
-        assert_eq!(
-            sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2)),
-            ForwardResult::Hit(0x55)
-        );
-        assert!(sb.has_older_store_to(PhysAddr::new(0x1004), MemWidth::Word, RobTag(2)));
-        let drained = drain_now(&mut sb).expect("applied entries drain");
-        assert_eq!(drained, StoreResolution::Applied { paddr: PhysAddr::new(0x1000), data: 0x55 });
-        assert!(sb.is_empty());
-    }
-
-    #[test]
-    fn commit_applied_refuses_unresolved_entries() {
-        let mut sb = StoreBuffer::new(4);
-        assert!(sb.allocate(RobTag(1), MemWidth::Double));
-        assert_eq!(sb.commit_applied(RobTag(1)), None);
-        assert_eq!(sb.commit_applied(RobTag(9)), None);
     }
 
     #[test]

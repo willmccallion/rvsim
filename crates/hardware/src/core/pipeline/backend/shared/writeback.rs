@@ -63,12 +63,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
         if let Some(seq) = wb.observed {
             rob.set_observed(wb.rob_tag, seq);
         }
-        if wb.ctrl.atomic_op == AtomicOp::Sc {
-            // Its result is its success, which commit decides.
-            rob.complete_pending_commit(wb.rob_tag);
-        } else {
-            rob.complete(wb.rob_tag, val);
-        }
+        rob.complete(wb.rob_tag, val);
 
         trace_writeback!(state.config.general.trace_instructions;
             rob_tag  = wb.rob_tag.0,

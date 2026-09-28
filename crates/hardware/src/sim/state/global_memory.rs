@@ -7,7 +7,9 @@
 use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
-use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin};
+use crate::core::pipeline::signals::{self, MemWidth};
+use crate::core::units::lsu::atomic;
+use crate::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData, WriteData, WriteOrigin};
 use crate::soc::memory::RamRegion;
 
 /// RAM with the reservations and write log that go with it.
@@ -90,7 +92,25 @@ impl GlobalMemory {
     /// [`MemOp::takes_effect_when_served`]), and returns what it read.
     pub fn perform(&mut self, paddr: PhysAddr, size: AccessSize, op: &MemOp) -> MemRespData {
         match op {
-            MemOp::Read | MemOp::Atomic { .. } => self.performed(self.read(paddr, size.bytes())),
+            MemOp::Read | MemOp::Atomic { op: AtomicOp::Lr, .. } => {
+                self.performed(self.read(paddr, size.bytes()))
+            }
+            MemOp::Atomic { op: AtomicOp::Sc, data, hart } => {
+                let succeeds = self.reservations.check(*hart, paddr);
+                if succeeds {
+                    self.write(Writer::Hart(*hart), paddr, *data, size.bytes());
+                }
+                self.reservations.clear(*hart);
+                self.performed(Some(u64::from(!succeeds)))
+            }
+            MemOp::Atomic { op, data, hart } => {
+                let old = self.read(paddr, size.bytes());
+                let width = if size.bytes() == 4 { MemWidth::Word } else { MemWidth::Double };
+                let new = atomic::atomic_alu(alu_op(*op), old.unwrap_or(0), *data, width);
+                let response = self.performed(old);
+                self.write(Writer::Hart(*hart), paddr, new, size.bytes());
+                response
+            }
             MemOp::Write { data, origin: WriteOrigin::Hart(hart) } => {
                 let writer = Writer::Hart(*hart);
                 match data {
@@ -138,5 +158,22 @@ impl GlobalMemory {
         if let Some(log) = self.write_log.as_mut() {
             log.record(paddr, writer);
         }
+    }
+}
+
+/// The pipeline's name for an AMO's operation.
+const fn alu_op(op: AtomicOp) -> signals::AtomicOp {
+    match op {
+        AtomicOp::Add => signals::AtomicOp::Add,
+        AtomicOp::Swap => signals::AtomicOp::Swap,
+        AtomicOp::Xor => signals::AtomicOp::Xor,
+        AtomicOp::And => signals::AtomicOp::And,
+        AtomicOp::Or => signals::AtomicOp::Or,
+        AtomicOp::Min => signals::AtomicOp::Min,
+        AtomicOp::Max => signals::AtomicOp::Max,
+        AtomicOp::MinU => signals::AtomicOp::Minu,
+        AtomicOp::MaxU => signals::AtomicOp::Maxu,
+        AtomicOp::Lr => signals::AtomicOp::Lr,
+        AtomicOp::Sc => signals::AtomicOp::Sc,
     }
 }

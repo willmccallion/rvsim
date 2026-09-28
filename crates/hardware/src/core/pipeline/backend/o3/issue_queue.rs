@@ -13,7 +13,7 @@ use crate::core::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPoo
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::{AtomicOp, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
@@ -391,9 +391,9 @@ impl IssueQueue {
                     {
                         continue;
                     }
-                    // A store-conditional is non-speculative (gem5's
+                    // An AMO or store-conditional is non-speculative (gem5's
                     // IsNonSpeculative): it executes only as the oldest.
-                    if iq.entry.ctrl.atomic_op == AtomicOp::Sc && !rob.is_head(iq.entry.rob_tag) {
+                    if iq.entry.ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
                         continue;
                     }
                     {

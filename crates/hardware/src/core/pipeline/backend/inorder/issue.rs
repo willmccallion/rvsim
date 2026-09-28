@@ -14,7 +14,7 @@ use crate::common::RegIdx;
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::{AtomicOp, SystemOp, VectorOp};
+use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
@@ -114,13 +114,13 @@ impl InOrderIssueUnit {
             // it executes only as the oldest instruction; FENCE and the CBOs
             // have their own checks below. A vector instruction reads the
             // architectural vector registers, so it waits for the head too,
-            // and a store-conditional is non-speculative, as in gem5.
+            // and so does an atomic that takes effect in the cache.
             let waits_for_head = (entry.ctrl.vec_op != VectorOp::None
                 && !entry.ctrl.vec_op.is_config())
                 || (entry.ctrl.system_op != SystemOp::None
                     && entry.ctrl.system_op != SystemOp::Fence
                     && !entry.ctrl.system_op.is_cbo())
-                || entry.ctrl.atomic_op == AtomicOp::Sc;
+                || entry.ctrl.performs_at_rob_head();
             if waits_for_head && !rob.is_head(entry.rob_tag) {
                 break;
             }

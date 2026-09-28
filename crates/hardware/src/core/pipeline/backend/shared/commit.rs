@@ -17,7 +17,6 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::backend::shared::cbo::{self, CboEffect};
-use crate::core::pipeline::backend::shared::memory2;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
@@ -27,8 +26,8 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobEntry, RobState, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, SystemOp, VectorOp};
-use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
+use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
+use crate::core::pipeline::store_buffer::{StoreBuffer, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
@@ -87,9 +86,6 @@ pub enum CommitRegisters<'a> {
     /// frees the previous mapping and releases the per-instruction slots
     /// only a renaming backend allocates.
     Renamed {
-        /// Results commit decided (store-conditionals), for the engine to
-        /// wake their dependents with.
-        decided_at_commit: &'a mut Vec<(PhysReg, u64)>,
         /// The committed architectural-to-physical mapping.
         rename_map: &'a mut RenameMap,
         /// Free scalar physical registers.
@@ -146,15 +142,6 @@ impl CommitRegisters<'_> {
             if !entry.vec_phys_dst[i].is_zero() {
                 vec_free_list.reclaim(entry.vec_phys_dst[i]);
             }
-        }
-    }
-
-    /// Publishes a result commit decided to the physical register its
-    /// dependents read, for the engine to wake them.
-    fn publish_decided(&mut self, phys_dst: PhysReg, value: u64) {
-        if let Self::Renamed { prf, decided_at_commit, .. } = self {
-            prf.write(phys_dst, value);
-            decided_at_commit.push((phys_dst, value));
         }
     }
 
@@ -308,13 +295,13 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             break;
         }
 
-        if head.state == RobState::Completed && observed_value_is_stale(state, head, store_buffer) {
+        if head.state == RobState::Completed && lr_read_a_stale_line(state, head) {
             state.shared.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
             trace_trap!(state.config.general.trace_instructions;
                 event   = "coherence-reexecute",
                 pc      = %crate::trace::Hex(head.pc),
                 rob_tag = head.tag.0,
-                "CM: LR/AMO read a value another hart has overwritten — re-executing"
+                "CM: LR read a line another hart has since written — re-executing"
             );
             event = Some(CommitEvent::ReExecute(head.pc));
             break;
@@ -344,17 +331,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         let Some(entry) = rob.commit_head() else { break };
         retired_count += 1;
         youngest_retired = Some(entry.seq);
-        // A store-conditional's result is decided here, where its write is
-        // published or dropped atomically with the reservation check.
-        let sc_succeeded = match entry.lr_sc {
-            Some(LrScRecord::Sc { paddr }) => Some(state.check_reservation(paddr)),
-            _ => None,
-        };
-        let val = match sc_succeeded {
-            Some(true) => 0,
-            Some(false) => 1,
-            None => entry.result.unwrap_or(0),
-        };
+        let val = entry.result.unwrap_or(0);
 
         // The architectural PC advances to the retired instruction's successor:
         // a taken branch's target, so an interrupt's EPC is right.
@@ -426,9 +403,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         debug_assert!(
-            entry.result.is_some()
-                || sc_succeeded.is_some()
-                || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
+            entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
             "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
             entry.tag.0,
             entry.pc,
@@ -451,9 +426,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
             state.hart.regs.write(entry.rd, val);
             registers.retire_scalar(&entry, false);
-            if sc_succeeded.is_some() {
-                registers.publish_decided(entry.phys_dst, val);
-            }
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -603,37 +575,20 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             break;
         }
 
-        // LR/SC reservation checks are deferred to commit so squashed insts can't corrupt them.
-        if let Some(lr_sc_rec) = entry.lr_sc {
-            match lr_sc_rec {
-                LrScRecord::Lr { paddr } => {
-                    state.set_reservation(paddr);
-                }
-                LrScRecord::Sc { .. } => {
-                    if sc_succeeded == Some(true) {
-                        state.clear_reservation();
-                    } else {
-                        store_buffer.cancel(entry.tag);
-                    }
-                }
-            }
+        // A reservation is set as its LR retires, so a squashed LR leaves none.
+        if let Some(LrScRecord::Lr { paddr }) = entry.lr_sc {
+            state.set_reservation(paddr);
         }
 
         if entry.ctrl.mem_write {
-            if let Some(paddr) = store_buffer.find_paddr(entry.tag) {
-                // RISC-V §8.2: a non-LR/SC store to the reservation set must
-                // fail any paired SC. Other harts' reservations break when
-                // the store is published (at drain for plain stores, here
-                // for SC and AMO).
-                if entry.lr_sc.is_none() && state.check_reservation(paddr) {
-                    state.clear_reservation();
-                }
-                if entry.ctrl.atomic_op != AtomicOp::None
-                    && is_pure_ram(state, paddr, entry.ctrl.width)
-                    && let Some(applied) = store_buffer.commit_applied(entry.tag)
-                {
-                    state.publish_write(applied.paddr, applied.data, applied.width);
-                }
+            // A hart's own store to its reservation set fails its SC, which
+            // the spec allows; other harts' reservations break when the
+            // store is performed. An SC or AMO already took effect in the
+            // cache and has left the store buffer.
+            if let Some(paddr) = store_buffer.find_paddr(entry.tag)
+                && state.check_reservation(paddr)
+            {
+                state.clear_reservation();
             }
             store_buffer.mark_committed(entry.tag);
         } else if crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op) {
@@ -697,37 +652,15 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     event
 }
 
-/// True when the LR or AMO at the ROB head took its value before another
-/// hart wrote its line, so what it would commit is stale.
-///
-/// An LR is stale on any such write: the reservation it would set covers
-/// the whole line. An AMO is stale only if the word it read has changed as
-/// well: a real core holds the line for its read-modify-write, so a write
-/// elsewhere in the line (or one that restored the same value) does not
-/// perturb the result, and treating it as stale would let harts hammering
-/// one lock word replay each other forever. Plain loads are not checked:
-/// RVWMO lets them keep the earlier value.
-fn observed_value_is_stale(
-    state: &CoreCtx<'_>,
-    head: &RobEntry,
-    store_buffer: &StoreBuffer,
-) -> bool {
+/// True when the LR at the ROB head read its line before another hart
+/// wrote it, so the reservation it would set is already broken. Plain loads
+/// are not checked: RVWMO lets them keep the earlier value.
+fn lr_read_a_stale_line(state: &CoreCtx<'_>, head: &RobEntry) -> bool {
     let Some(log) = state.memory.write_log() else { return false };
-    let Some(observed) = head.observed else { return false };
-    let reader = state.hart.hart_id;
-    match (head.lr_sc, head.ctrl.atomic_op) {
-        (Some(LrScRecord::Lr { paddr }), _) => log.written_by_other_since(paddr, reader, observed),
-        (_, AtomicOp::None | AtomicOp::Sc) => false,
-        (_, _) => {
-            let Some(paddr) = store_buffer.find_paddr(head.tag) else { return false };
-            if !log.written_by_other_since(paddr, reader, observed) {
-                return false;
-            }
-            let Some(current) = read_ram_word(state, paddr, head.ctrl.width) else { return false };
-            let current = memory2::sign_extend(current, head.ctrl.width, head.ctrl.signed_load);
-            head.result != Some(current)
-        }
-    }
+    let (Some(observed), Some(LrScRecord::Lr { paddr })) = (head.observed, head.lr_sc) else {
+        return false;
+    };
+    log.written_by_other_since(paddr, state.hart.hart_id, observed)
 }
 
 /// The PTE a hardware A/D update writes, or `None` when the PTE has changed
@@ -809,18 +742,7 @@ fn try_drain_one_store(
     store_buffer: &mut StoreBuffer,
 ) -> bool {
     let Some(write) = store_buffer.begin_write() else { return false };
-    let (paddr, data) = match write.resolution {
-        StoreResolution::Committed { paddr, data } => (paddr, data),
-        // An AMO's result was written by the L1D as part of its atomic
-        // access and published at commit; a failed SC wrote nothing.
-        StoreResolution::Applied { .. }
-        | StoreResolution::Pending
-        | StoreResolution::Ready { .. }
-        | StoreResolution::Cancelled => {
-            store_buffer.issue_write(write, &[]);
-            return true;
-        }
-    };
+    let (paddr, data) = (write.paddr, write.data);
 
     // MMIO, including the HTIF window over RAM, bypasses the WCB so its
     // device sees each store.
@@ -854,13 +776,12 @@ fn try_drain_one_store(
 
 /// True when `head` must not retire before every older store's write has
 /// completed: SFENCE.VMA (the walker must see earlier PTE stores), a CBO
-/// (it acts on the line after earlier writes), an atomic with `rl` (its
-/// write is published at commit), FENCE.I, and a FENCE whose predecessor
-/// set includes writes.
+/// (it acts on the line after earlier writes), FENCE.I, and a FENCE whose
+/// predecessor set includes writes. An atomic that needs older stores
+/// written waits for them before it issues.
 fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
         || head.ctrl.system_op.is_cbo()
-        || head.ctrl.release
         || (head.ctrl.system_op == SystemOp::Fence && fence_orders_stores(head.inst))
 }
 
@@ -1611,84 +1532,6 @@ mod tests {
         state.hart.privilege = PrivilegeMode::Supervisor;
 
         assert_eq!(check_interrupts(&state), Some(Trap::SupervisorExternalInterrupt));
-    }
-
-    /// Commits one cycle with an older store committed but not yet drained
-    /// and an AMO at the ROB head; returns whether the AMO retired.
-    fn amo_retires_behind_an_undrained_store(release: bool) -> bool {
-        let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-        let mut rob = Rob::new(4);
-        let mut store_buffer = StoreBuffer::new(4);
-        let mut vec_store_buffer = VecStoreBuffer::new(
-            4,
-            crate::core::pipeline::vec_store_buffer::VecStoreForwarding::Off,
-        );
-        let mut scoreboard = Scoreboard::new();
-        let older = RobTag(900);
-        assert!(store_buffer.allocate(older, MemWidth::Double));
-        store_buffer.resolve(
-            older,
-            crate::common::VirtAddr::new(0x8000_1000),
-            PhysAddr::new(0x8000_1000),
-            1,
-        );
-        store_buffer.mark_committed(older);
-        let ctrl = crate::core::pipeline::signals::ControlSignals {
-            atomic_op: AtomicOp::Swap,
-            release,
-            mem_read: true,
-            mem_write: true,
-            width: MemWidth::Double,
-            ..Default::default()
-        };
-        let amo = rob
-            .allocate(
-                0x1000,
-                0,
-                InstSize::Standard,
-                RegIdx::new(0),
-                false,
-                ctrl,
-                crate::core::pipeline::prf::PhysReg(0),
-                crate::core::pipeline::prf::PhysReg(0),
-                crate::common::InstSeq::default(),
-            )
-            .unwrap();
-        assert!(store_buffer.allocate(amo, MemWidth::Double));
-        store_buffer.resolve(
-            amo,
-            crate::common::VirtAddr::new(0x8000_2000),
-            PhysAddr::new(0x8000_2000),
-            1,
-        );
-        rob.complete(amo, 0);
-
-        let mut common = BackendCommon::default();
-        let event = commit_stage(
-            &mut state,
-            CommitResources {
-                common: &mut common,
-                rob: &mut rob,
-                store_buffer: &mut store_buffer,
-                vec_store_buffer: &mut vec_store_buffer,
-                width: 1,
-                registers: CommitRegisters::Scoreboard(&mut scoreboard),
-            },
-        );
-        assert!(event.is_none());
-        rob.is_empty()
-    }
-
-    #[test]
-    fn a_release_atomic_waits_for_older_stores_to_drain() {
-        assert!(!amo_retires_behind_an_undrained_store(true));
-    }
-
-    #[test]
-    fn an_atomic_without_release_does_not_wait_for_older_stores() {
-        assert!(amo_retires_behind_an_undrained_store(false));
     }
 
     #[test]

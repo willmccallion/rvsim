@@ -1,6 +1,6 @@
 //! A store-conditional executes non-speculatively at the head of the ROB
-//! and its result is decided when it retires, so a failing one returns 1
-//! without the pipeline refetching what follows it.
+//! and the cache decides its result as it performs it, so a failing one
+//! returns 1 without the pipeline refetching what follows it.
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;

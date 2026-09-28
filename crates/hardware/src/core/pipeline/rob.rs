@@ -324,18 +324,6 @@ impl Rob {
         }
     }
 
-    /// Marks an entry complete with a result only commit can decide (a
-    /// store-conditional's success): dependents keep waiting until it
-    /// retires.
-    pub fn complete_pending_commit(&mut self, tag: RobTag) {
-        if let Some(entry) = self.find_entry_mut(tag)
-            && entry.state != RobState::Faulted
-        {
-            entry.state = RobState::Completed;
-            entry.result = None;
-        }
-    }
-
     /// Records an entry's result the cycle its unit produces it, before the
     /// entry reaches writeback: the bypass a dependent reads from.
     pub fn forward(&mut self, tag: RobTag, result: u64) {

@@ -46,6 +46,17 @@ pub struct StageCtx<'a> {
     shared: &'a mut SharedState,
 }
 
+/// What a hardware A/D update found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PteUpdateOutcome {
+    /// The bits were set and this PTE written.
+    Written(u64),
+    /// The bits were already set.
+    AlreadySet,
+    /// The PTE has changed since the walk; the access must translate again.
+    Changed,
+}
+
 impl Deref for StageCtx<'_> {
     type Target = SharedState;
 
@@ -124,18 +135,21 @@ impl<'a> StageCtx<'a> {
         )
     }
 
-    /// Sets the A bit of a leaf PTE for the page-table walker, if the PTE
-    /// still holds the value the walk checked. Returns the PTE written, or
-    /// `None` when nothing was.
-    pub fn set_pte_accessed(&mut self, update: &PteUpdate) -> Option<u64> {
-        let addr = update.pte_addr.val();
-        let region = self.shared.bus.ram_region_for(addr, 8)?;
-        // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
-        let current = unsafe { region.ptr(addr).cast::<u64>().read_unaligned() };
-        let written = update.applied_to(current).filter(|&pte| pte != current)?;
-        let writer = Writer::Hart(self.hart.hart_id);
-        self.shared.publish_write(writer, update.pte_addr, written, MemWidth::Double);
-        Some(written)
+    /// Sets a leaf PTE's A/D bits as the hardware does, atomically with
+    /// the check that the PTE still holds the value its walk found.
+    pub fn apply_pte_update(&mut self, update: &PteUpdate) -> PteUpdateOutcome {
+        let Some(current) = self.shared.memory.read(update.pte_addr, 8) else {
+            return PteUpdateOutcome::Changed;
+        };
+        match update.applied_to(current) {
+            None => PteUpdateOutcome::Changed,
+            Some(pte) if pte == current => PteUpdateOutcome::AlreadySet,
+            Some(pte) => {
+                let writer = Writer::Hart(self.hart.hart_id);
+                self.shared.publish_write(writer, update.pte_addr, pte, MemWidth::Double);
+                PteUpdateOutcome::Written(pte)
+            }
+        }
     }
 
     /// Reads a CSR.

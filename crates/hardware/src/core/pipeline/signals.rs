@@ -592,6 +592,19 @@ impl ControlSignals {
         self.mem_write || crate::core::units::vpu::mem::is_vec_store(self.vec_op)
     }
 
+    /// True for an atomic that executes only as the oldest instruction,
+    /// once every older store has been written, and takes effect in the
+    /// cache: an AMO or SC (gem5's non-speculative atomics), or an LR with
+    /// `rl`, which must follow every older store.
+    #[must_use]
+    pub const fn performs_at_rob_head(&self) -> bool {
+        match self.atomic_op {
+            AtomicOp::None => false,
+            AtomicOp::Lr => self.release,
+            _ => true,
+        }
+    }
+
     /// True for a scalar instruction memory1 must translate: a load, a
     /// store, an atomic or a cache-block operation. It completes after the
     /// memory stages rather than when its unit finishes.

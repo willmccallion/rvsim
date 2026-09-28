@@ -32,6 +32,7 @@ use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};
 use crate::sim::state::memory::TranslateResult;
+use crate::sim::state::views::PteUpdateOutcome;
 
 /// Processes every packet currently in the engine's mailbox.
 pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCtx<'_>) {
@@ -250,12 +251,22 @@ fn set_accessed_bit<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     update: &PteUpdate,
 ) {
-    let Some(pte) = state.set_pte_accessed(update) else { return };
-    let common = pipeline.engine.common_mut();
+    if let PteUpdateOutcome::Written(pte) = state.apply_pte_update(update) {
+        send_pte_write(pipeline.engine.common_mut(), state, update.pte_addr, pte);
+    }
+}
+
+/// Sends the L1D the timing of a PTE the walker has already written.
+pub(crate) fn send_pte_write(
+    common: &mut BackendCommon,
+    state: &mut StageCtx<'_>,
+    pte_addr: PhysAddr,
+    pte: u64,
+) {
     let req_id = common.alloc_req_id();
     let _ = common
         .outstanding_stores
-        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr: update.pte_addr });
+        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr: pte_addr });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
     let cycle = state.cycle;
     state.events().schedule(
@@ -264,7 +275,7 @@ fn set_accessed_bit<E: ExecutionEngine>(
         ComponentId::Pipeline(pipeline_id),
         Packet::MemReq {
             req_id,
-            paddr: update.pte_addr,
+            paddr: pte_addr,
             vaddr: None,
             size: AccessSize::B8,
             op: MemOp::Write { data: WriteData::Small(pte), origin: WriteOrigin::Placed },

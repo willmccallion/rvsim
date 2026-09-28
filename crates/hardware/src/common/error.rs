@@ -305,13 +305,6 @@ pub enum LrScRecord {
         /// Physical address to reserve.
         paddr: crate::common::PhysAddr,
     },
-    /// SC: check the reservation at commit.  If valid, clear it and
-    /// let the store drain.  If invalid, the speculative SC result (0)
-    /// was wrong — cancel the store and flush from this instruction.
-    Sc {
-        /// Physical address to check reservation against.
-        paddr: crate::common::PhysAddr,
-    },
 }
 
 /// Result of a virtual-to-physical address translation operation.

@@ -17,13 +17,10 @@
 //!   ask the load queue whether a younger load has already executed with
 //!   stale data; surface the oldest violation back to the caller for
 //!   pipeline flush.
-//! - **SC:** resolve the store buffer and record `LrScRecord::Sc`; commit
-//!   checks the reservation and decides the result.
+//! - **SC / AMO:** the cache has performed it, so `load_data` is the SC's
+//!   result or the AMO's old value; free its store-buffer slot and squash
+//!   any younger load that already read the location.
 //! - **LR:** record `LrScRecord::Lr` so commit installs the reservation.
-//! - **AMO:** combine `load_data` (the old value) with `store_data`
-//!   (the register operand) through the AMO ALU and resolve the store
-//!   buffer with the new value; the old value is what the destination
-//!   register receives.
 //! - **Non-memory ops:** pass through untouched.
 
 use crate::common::error::LrScRecord;
@@ -32,7 +29,6 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::StoreBuffer;
-use crate::core::units::lsu::Lsu;
 use crate::sim::StageCtx;
 use crate::trace_fwd;
 use crate::trace_mem;
@@ -95,47 +91,22 @@ pub fn memory2_stage(
         let mut load_data = 0u64;
         let mut lr_sc: Option<LrScRecord> = None;
 
-        if mem.ctrl.atomic_op != AtomicOp::None {
-            // Atomic operation: load_data (from memory1's MemReq) holds the
-            // current value. Resolve / record / RMW based on op kind.
-            match mem.ctrl.atomic_op {
-                AtomicOp::Lr => {
-                    load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
-                    lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
-                }
-                AtomicOp::Sc => {
-                    // The SC has taken its line; commit decides its success
-                    // and result, and publishes or drops this write.
-                    store_buffer.resolve(mem.rob_tag, mem.vaddr, mem.paddr, mem.store_data);
-                    lr_sc = Some(LrScRecord::Sc { paddr: mem.paddr });
-                    if let Some(ref lq) = load_queue
-                        && let Some(violating_tag) =
-                            lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
-                    {
-                        merge_violation(&mut violation, (violating_tag, mem.pc));
-                    }
-                    load_data = 0;
-                }
-                _ => {
-                    // AMO: load_data is the old value; RMW gives new value.
-                    let old_val = mem.load_data;
-                    let new_val = Lsu::atomic_alu(
-                        mem.ctrl.atomic_op,
-                        old_val,
-                        mem.store_data,
-                        mem.ctrl.width,
-                    );
-                    store_buffer.resolve(mem.rob_tag, mem.vaddr, mem.paddr, new_val);
-                    if let Some(ref lq) = load_queue
-                        && let Some(violating_tag) =
-                            lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
-                    {
-                        merge_violation(&mut violation, (violating_tag, mem.pc));
-                    }
-                    // AMO returns the OLD value (sign-extended).
-                    load_data = sign_extend(old_val, mem.ctrl.width, mem.ctrl.signed_load);
-                }
+        if mem.ctrl.atomic_op == AtomicOp::Lr {
+            load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
+            lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
+        } else if mem.ctrl.atomic_op != AtomicOp::None {
+            // The cache has performed the SC or AMO: `load_data` is the SC's
+            // result or the AMO's old value, and nothing is left for the
+            // store buffer to write. A younger load that already read the
+            // location read it too early.
+            store_buffer.remove_performed(mem.rob_tag);
+            if let Some(ref lq) = load_queue
+                && let Some(violating_tag) =
+                    lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
+            {
+                merge_violation(&mut violation, (violating_tag, mem.pc));
             }
+            load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
         } else if mem.ctrl.mem_read {
             // Demand load. Sign / zero extend `load_data` (which memory1 or
             // mailbox-drain populated) and apply FP NaN-boxing.

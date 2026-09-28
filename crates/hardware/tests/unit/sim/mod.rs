@@ -12,6 +12,9 @@ pub mod dtb;
 /// Tests for RAM writes that bypass the harts' store paths.
 pub mod external_writes;
 
+/// Tests for accesses taking effect against the memory image.
+pub mod global_memory;
+
 /// Tests for the main execution loop and pipeline coordination.
 pub mod execution;
 

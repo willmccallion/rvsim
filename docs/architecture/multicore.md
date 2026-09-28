@@ -172,13 +172,19 @@ HSM parks and later lifts them for Linux.
 
 LR/SC reservations live in `GlobalMemory`, one slot per hart,
 because a store from *any* hart to a reserved line must invalidate that
-reservation. A published write breaks every other hart's reservation
-covering the line (the writer's own reservation is governed by the LR/SC
-pairing rules that already exist): where the cache performs it for plain
-stores, at commit for SC and AMO. AMOs read their old value at the memory side of the L1D as
-today and apply the result at commit after the write-log check above;
-with coherence enabled they require the line in the Modified state first,
-so the coherence transaction precedes the read.
+reservation. A write breaks every other hart's reservation covering the
+line when the cache performs it (the writer's own reservation is governed
+by the LR/SC pairing rules that already exist). An LR sets its hart's
+reservation when it retires.
+
+AMOs and store-conditionals are non-speculative, as in gem5: each issues
+only as the oldest instruction, once every older store has been written,
+sets its PTE's D bit, and takes effect in the L1D once the line is
+Modified. The cache performs an AMO's read-modify-write in one step and
+returns the old value; it performs an SC by checking and clearing the
+hart's reservation, writing only when it held, and returns 0 or 1. The
+result then retires like a load's. An LR with `rl` issues the same way,
+after every older store.
 
 ## Coherence
 
@@ -212,20 +218,15 @@ explicit:
   system serves it: at the writer's L1D once it holds the line Modified,
   which the coherence protocol grants only after invalidating every other
   copy, so no hart sees a store before its writer's cache performs it,
-  whatever order the cores tick in. SC and AMO publish at commit, at the
-  same instant as the reservation decision, and their store-buffer entry
-  then drains as timing only. Hardware A/D updates are written at once.
+  whatever order the cores tick in. An SC or AMO is written the same
+  way. Hardware A/D updates are written at once.
 - A load, LR or AMO response carries its bytes and the log sequence
   current when they were read.
 - At commit an LR whose line another hart has written after its stamp
   re-executes (everything from it is squashed and refetched), so a
-  reservation is never set on a stale value. An AMO re-executes only if
-  another hart wrote its line *and* the word it read has changed: a real
-  core holds the line for its read-modify-write, so a write elsewhere in
-  the line, or one that restored the same value, must not perturb it, and
-  replaying on every line write lets harts contending for one lock word
-  replay each other forever. Plain loads are not replayed in the in-order
-  pipeline: RVWMO lets them keep the earlier value.
+  reservation is never set on a stale value. Plain loads are not
+  replayed in the in-order pipeline: RVWMO lets them keep the earlier
+  value.
 - In the out-of-order pipeline a younger load that executed before an
   older load to the same line is squashed when the older load's response
   shows the line was written by another hart in between, the same rule

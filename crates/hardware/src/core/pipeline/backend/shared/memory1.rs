@@ -21,18 +21,20 @@
 //!     - SB partial overlap → move to `BackendCommon::mem1_replay` and retry
 //!       next cycle; the store it overlaps must drain first.
 //!     - SB miss → emit `MemReq` to L1D and park [`OutstandingLoad`].
-//!   - For **AMO / LR**: replay while any older store to the same address is
-//!     still resident in the SB. Otherwise emit `MemReq` and park.
+//!   - For **LR**: replay while any older store to the same address has not
+//!     been written. Otherwise emit `MemReq` and park.
+//!   - For **AMO / SC** (and an LR with `rl`), issued as the oldest
+//!     instruction: replay until every older store has been written, set
+//!     the PTE's D bit, then emit `MemReq` and park; the cache performs it.
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
-//!   - For **SC**: same as stores, plus an `AtomicOp::Sc` marker so memory2
-//!     records the deferred `LrScRecord::Sc`.
 
 use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
 use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
+use crate::core::pipeline::mailbox;
 use crate::core::pipeline::outstanding::{
     DelayedAccess, ForwardedLoad, LoadParts, OutstandingLoad, OutstandingWalk, PageTranslations,
     WalkContinuation,
@@ -47,6 +49,7 @@ use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
 use crate::sim::state::memory::TranslateResult;
+use crate::sim::state::views::PteUpdateOutcome;
 use crate::{trace_fwd, trace_mem};
 
 /// Outcome of processing a single `ExMem1Entry`.
@@ -313,19 +316,19 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     if is_atomic {
-        if ex.ctrl.atomic_op == AtomicOp::Sc {
-            // As a store it follows every older store to memory; it then
-            // takes the line for writing, and commit decides its success.
-            if engine.store_buffer().has_committed_stores()
-                || engine.vec_store_buffer().has_committed_stores()
-                || state.core().wcb.has_pending()
-            {
+        if ex.ctrl.performs_at_rob_head() {
+            // It follows every older store to memory, sets its PTE's D bit
+            // as its translation completes, then takes effect in the cache.
+            if older_stores_pending(state, engine) {
                 return EntryOutcome::Replay(ex);
             }
-            emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates, true);
+            if !apply_dirty_updates(state, engine, dirty_updates) {
+                return EntryOutcome::Replay(ex);
+            }
+            emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE, true);
             return EntryOutcome::Done;
         }
-        // LR / AMO: wait for older stores to this address to drain.
+        // LR: wait for older stores to this address to drain.
         if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
             || state.core_mut().wcb.request_send(paddr, size as usize)
         {
@@ -447,6 +450,33 @@ fn translate_cbo<E: ExecutionEngine>(
         .mem1_mem2_mut()
         .push(Mem1Mem2Entry { dirty_updates, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) });
     EntryOutcome::Done
+}
+
+/// True while a committed store has yet to finish writing.
+fn older_stores_pending<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &E) -> bool {
+    engine.store_buffer().has_committed_stores()
+        || engine.vec_store_buffer().has_committed_stores()
+        || state.core().wcb.has_pending()
+}
+
+/// Sets the D bits an atomic's translation needs before it takes effect.
+/// Returns false when a PTE changed since its walk, so the access must
+/// translate again.
+fn apply_dirty_updates<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    updates: DirtyUpdates,
+) -> bool {
+    for update in updates.iter() {
+        match state.apply_pte_update(update) {
+            PteUpdateOutcome::Changed => return false,
+            PteUpdateOutcome::Written(pte) => {
+                mailbox::send_pte_write(engine.common_mut(), state, update.pte_addr, pte);
+            }
+            PteUpdateOutcome::AlreadySet => {}
+        }
+    }
+    true
 }
 
 /// True when `[paddr, paddr + size)` is not plain RAM: a device register,
@@ -643,7 +673,7 @@ fn emit_load_req<E: ExecutionEngine>(
         );
     }
 
-    let side_effecting = matches!(target, ComponentId::Bus);
+    let side_effecting = matches!(target, ComponentId::Bus) || ex.ctrl.performs_at_rob_head();
     let parts = low_bytes.map_or(LoadParts::Whole(None), |low| LoadParts::Split {
         low_bytes: low as u8,
         low: None,
