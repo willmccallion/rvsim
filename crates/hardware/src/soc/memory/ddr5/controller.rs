@@ -354,7 +354,7 @@ impl Ddr5Controller {
             self.pending_responses.push(ScheduledResponse::for_request(
                 &request,
                 now + frontend,
-                MemRespData::Small(0),
+                Payload::acknowledging(&request),
             ));
             if merges {
                 sc.counters.writes_merged += 1;
@@ -1187,14 +1187,21 @@ impl Ddr5Controller {
         }
     }
 
-    fn service_buffer(&self, request: &PendingReq) -> MemRespData {
+    fn service_buffer(&self, request: &PendingReq) -> Payload {
+        if request.op.takes_effect_when_served(request.size) {
+            return Payload::Perform {
+                paddr: request.paddr,
+                size: request.size,
+                op: request.op.clone(),
+            };
+        }
         let offset = (request.paddr.val().saturating_sub(self.base.val())) as usize;
-        match &request.op {
+        Payload::Ready(match &request.op {
             MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                 read_from_buffer(&self.buffer, offset, request.size)
             }
             MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
-        }
+        })
     }
 
     fn bank_index(&self, bg: BankGroupId, bank: u8) -> usize {
@@ -1236,6 +1243,10 @@ impl Ddr5Controller {
             );
         }
         for resp in self.pending_responses.drain(..) {
+            let data = match resp.payload {
+                Payload::Ready(data) => data,
+                Payload::Perform { paddr, size, op } => ctx.memory.perform(paddr, size, &op),
+            };
             ctx.scheduler.schedule(
                 clock.to_cpu(resp.fire_at),
                 resp.target,
@@ -1243,7 +1254,7 @@ impl Ddr5Controller {
                 Packet::MemResp {
                     req_id: resp.req_id,
                     line_addr: resp.line_addr,
-                    data: resp.data,
+                    data,
                     hit_level: resp.hit_level,
                     state: MesiState::Exclusive,
                 },
@@ -1321,11 +1332,31 @@ struct EmittedCommand {
     fire_at: u64,
 }
 
+/// What a response carries: data read already, or a hart's access that
+/// takes effect as the response leaves, in the cycle its burst completes.
+#[derive(Clone, Debug)]
+enum Payload {
+    Ready(MemRespData),
+    Perform { paddr: PhysAddr, size: AccessSize, op: MemOp },
+}
+
+impl Payload {
+    /// The answer to a write admitted to the write queue: a hart's store
+    /// takes effect there, where later reads of the line are served from.
+    fn acknowledging(request: &PendingReq) -> Self {
+        if request.op.takes_effect_when_served(request.size) {
+            Self::Perform { paddr: request.paddr, size: request.size, op: request.op.clone() }
+        } else {
+            Self::Ready(MemRespData::Small(0))
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ScheduledResponse {
     req_id: ReqId,
     line_addr: LineAddr,
-    data: MemRespData,
+    payload: Payload,
     hit_level: HitLevel,
     /// DRAM clock at which the response leaves the controller.
     fire_at: u64,
@@ -1333,11 +1364,11 @@ struct ScheduledResponse {
 }
 
 impl ScheduledResponse {
-    const fn for_request(request: &PendingReq, fire_at: u64, data: MemRespData) -> Self {
+    const fn for_request(request: &PendingReq, fire_at: u64, payload: Payload) -> Self {
         Self {
             req_id: request.req_id,
             line_addr: request.line,
-            data,
+            payload,
             hit_level: HitLevel::Dram,
             fire_at,
             target: request.source,
@@ -1366,23 +1397,10 @@ const fn column_lead(t: &crate::soc::memory::ddr5::timing::Ddr5Timing, is_read: 
 }
 
 fn read_from_buffer(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> MemRespData {
-    match size {
-        AccessSize::B1 => MemRespData::Small(u64::from(buffer.read_u8(offset))),
-        AccessSize::B2 => {
-            let s = buffer.read_slice(offset, 2);
-            MemRespData::Small(u64::from(u16::from_le_bytes([s[0], s[1]])))
-        }
-        AccessSize::B4 => {
-            let s = buffer.read_slice(offset, 4);
-            MemRespData::Small(u64::from(u32::from_le_bytes([s[0], s[1], s[2], s[3]])))
-        }
-        AccessSize::B8 => {
-            let s = buffer.read_slice(offset, 8);
-            MemRespData::Small(u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
-        }
-        AccessSize::Line => {
-            let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
-            MemRespData::Line(s.to_vec().into_boxed_slice())
-        }
+    if size == AccessSize::Line {
+        let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
+        return MemRespData::Line(s.to_vec().into_boxed_slice());
     }
+    let bytes = buffer.read_slice(offset, size.bytes());
+    MemRespData::Small(bytes.iter().rev().fold(0, |value, &byte| (value << 8) | u64::from(byte)))
 }

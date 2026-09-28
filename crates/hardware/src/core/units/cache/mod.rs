@@ -487,6 +487,7 @@ impl Cache {
         at: u64,
         hit_level: HitLevel,
         state: MesiState,
+        data: MemRespData,
     ) {
         ctx.scheduler.schedule(
             at,
@@ -495,11 +496,26 @@ impl Cache {
             Packet::MemResp {
                 req_id,
                 line_addr: self.line_of(paddr.val()),
-                data: MemRespData::Small(0),
+                data,
                 hit_level,
                 state,
             },
         );
+    }
+
+    /// Makes a hart's access take effect as this cache serves it and returns
+    /// what it read; line traffic from the level above only moves permission.
+    fn serve(
+        paddr: PhysAddr,
+        size: AccessSize,
+        op: &MemOp,
+        ctx: &mut HandleCtx<'_>,
+    ) -> MemRespData {
+        if op.takes_effect_when_served(size) {
+            ctx.memory.perform(paddr, size, op)
+        } else {
+            MemRespData::Small(0)
+        }
     }
 
     fn on_request(&mut self, req: BlockedRequest, ctx: &mut HandleCtx<'_>) {
@@ -541,6 +557,7 @@ impl Cache {
             ctx.stats.counter(self.stat_paths.hits).inc();
             let hit_level = self.hit_level();
             let granted = self.lines[index].state;
+            let data = Self::serve(req.paddr, req.size, &req.op, ctx);
             self.respond(
                 ctx,
                 req.source,
@@ -549,6 +566,7 @@ impl Cache {
                 ctx.cycle + self.latency,
                 hit_level,
                 granted,
+                data,
             );
             self.note_upper_copy(index, req.source);
             if self.upstream_inclusion == InclusionPolicy::Exclusive
@@ -674,6 +692,7 @@ impl Cache {
             ctx.cycle + self.latency,
             hit_level,
             MesiState::Invalid,
+            MemRespData::Small(0),
         );
         let line = self.line_of(addr);
         // A clean writeback is an eviction notice. A dirty one may also be
@@ -775,6 +794,7 @@ impl Cache {
                     ctx.cycle + self.latency,
                     self.hit_level(),
                     MesiState::Invalid,
+                    MemRespData::Small(0),
                 );
                 if self.pending_probes.iter().any(|p| p.line == line) {
                     self.note_probe_writeback(line, dirty, ctx);
@@ -855,6 +875,7 @@ impl Cache {
         // pays before the waiting requests are answered.
         let answered_at = ctx.cycle + self.latency;
         for target in &mshr.targets {
+            let data = Self::serve(target.paddr, target.size, &target.op, ctx);
             self.respond(
                 ctx,
                 target.source,
@@ -863,6 +884,7 @@ impl Cache {
                 answered_at,
                 hit_level,
                 installed,
+                data,
             );
         }
         self.serve_deferred(mshr.line, mshr.deferred, installed, hit_level, ctx);
@@ -894,6 +916,7 @@ impl Cache {
         let answered_at = ctx.cycle + self.latency;
         for target in &deferred {
             self.note_upper_copy(index, target.source);
+            let data = Self::serve(target.paddr, target.size, &target.op, ctx);
             self.respond(
                 ctx,
                 target.source,
@@ -902,6 +925,7 @@ impl Cache {
                 answered_at,
                 hit_level,
                 MesiState::Modified,
+                data,
             );
         }
     }

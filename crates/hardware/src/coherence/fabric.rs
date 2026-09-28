@@ -616,7 +616,7 @@ impl CoherenceFabric {
         let to = self.parked_requests.remove(index).requester;
         let bytes = match data {
             MemRespData::Line(line) => line.len(),
-            MemRespData::Small(_) => 8,
+            MemRespData::Small(_) | MemRespData::Performed { .. } => 8,
         };
         self.parked_responses.push(Parked { txn, requester: to, packet: Some(packet) });
         self.interconnect.send(now, Node::Home, CoherenceMsg::NoSnpData { txn, line, to, bytes });

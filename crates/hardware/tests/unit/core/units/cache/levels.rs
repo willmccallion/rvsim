@@ -20,8 +20,10 @@ use rvsim_core::sim::packet::{
 };
 use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
+use rvsim_core::soc::memory::RamRegion;
 
 const LATENCY: u64 = 2;
+const RAM_BYTES: usize = 0x1_0000;
 const SELF: ComponentId = ComponentId::Cache(CacheId::new(0));
 const DOWNSTREAM: ComponentId = ComponentId::Cache(CacheId::new(1));
 const UPSTREAM: ComponentId = ComponentId::Cache(CacheId::new(2));
@@ -55,6 +57,8 @@ struct Bench {
     cache: Cache,
     queue: EventQueue,
     stats: Stats,
+    /// Backs `memory`, which points into it.
+    ram: Vec<u8>,
     memory: GlobalMemory,
     config: Config,
     cycle: u64,
@@ -62,11 +66,14 @@ struct Bench {
 
 impl Bench {
     fn new(cache: Cache) -> Self {
+        let mut ram = vec![0u8; RAM_BYTES];
+        let region = RamRegion::new(ram.as_mut_ptr(), 0, RAM_BYTES as u64);
         Self {
             cache,
             queue: EventQueue::new(),
             stats: Stats::new(),
-            memory: GlobalMemory::new(None, 1, 64),
+            ram,
+            memory: GlobalMemory::new(Some(region), 1, 64),
             config: Config::default(),
             cycle: 100,
         }
@@ -111,6 +118,12 @@ impl Bench {
             addr,
             MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
         );
+    }
+
+    /// Puts `value` in RAM at `addr`, behind the cache's back.
+    fn set_ram(&mut self, addr: u64, value: u64) {
+        let at = addr as usize;
+        self.ram[at..at + 8].copy_from_slice(&value.to_le_bytes());
     }
 
     /// Everything scheduled so far, in delivery order.
@@ -200,6 +213,20 @@ impl Bench {
     }
 }
 
+/// The values the responses to `target` carry, as `(req_id, value)`.
+fn values_read_by(events: &[Event], target: ComponentId) -> Vec<(ReqId, u64)> {
+    events
+        .iter()
+        .filter(|e| e.target == target)
+        .filter_map(|e| match &e.packet {
+            Packet::MemResp { req_id, data: MemRespData::Performed { value, .. }, .. } => {
+                Some((*req_id, *value))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 fn responses_to(events: &[Event], target: ComponentId) -> Vec<(ReqId, u64)> {
     events
         .iter()
@@ -264,6 +291,31 @@ fn a_second_miss_to_the_same_line_joins_the_mshr() {
         responses_to(&events, PIPELINE).into_iter().map(|(id, _)| id).collect();
     assert_eq!(answered, vec![ReqId::new(1), ReqId::new(2)]);
     assert!(bench.cache.duplicate_lines().is_empty());
+}
+
+#[test]
+fn a_hit_reads_memory_when_it_is_served_not_when_it_is_answered() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Read);
+    bench.set_ram(0x1000, 0xAA);
+
+    bench.read(2, 0x1000);
+    bench.set_ram(0x1000, 0xBB);
+
+    assert_eq!(values_read_by(&bench.drain(), PIPELINE), vec![(ReqId::new(2), 0xAA)]);
+}
+
+#[test]
+fn a_miss_reads_memory_when_its_fill_arrives() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.set_ram(0x1000, 0xAA);
+    bench.read(1, 0x1000);
+    let fetch = bench.downstream_requests();
+
+    bench.set_ram(0x1000, 0xBB);
+    bench.fill(fetch[0].0, 0x1000);
+
+    assert_eq!(values_read_by(&bench.drain(), PIPELINE), vec![(ReqId::new(1), 0xBB)]);
 }
 
 #[test]

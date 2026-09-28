@@ -14,6 +14,7 @@ use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
+use crate::sim::state::global_memory::GlobalMemory;
 use crate::soc::memory::buffer::DramBuffer;
 
 /// Cache-line size used when building `LineAddr` from a `PhysAddr`.
@@ -105,7 +106,7 @@ impl SimpleController {
 impl Handle for SimpleController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let data = service_request(&self.buffer, self.base, paddr, size, &op);
+            let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
             let started = ctx.cycle.max(self.busy_until);
             self.busy_until = started + self.bandwidth.occupancy(size.bytes() as u64);
             ctx.scheduler.schedule(
@@ -271,7 +272,7 @@ impl Handle for DramController {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let latency = self.compute_latency(paddr.val(), ctx.cycle);
-            let data = service_request(&self.buffer, self.base, paddr, size, &op);
+            let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
             ctx.scheduler.schedule(
                 ctx.cycle + latency,
                 source,
@@ -305,52 +306,33 @@ pub trait MemoryController: Handle + Send + Sync + std::fmt::Debug {
 impl MemoryController for SimpleController {}
 impl MemoryController for DramController {}
 
-/// Reads or writes the underlying buffer for a memory request and returns the
-/// response payload.
-///
-/// Writes do not touch the backing buffer here: scalar/vector store drains
-/// at commit and CBO routines write the bytes into `RamRegion` directly so
-/// subsequent loads via the RAM fast path see the new value immediately. The
-/// `MemReq` packet still flows through the cache + bus + controller chain
-/// for cache-state and latency accounting; this function returns a zero ack
-/// payload for the response.
+/// Serves a request at the controller: a hart's access takes effect in
+/// `memory` now; a line read returns the line.
 fn service_request(
     buffer: &Arc<DramBuffer>,
     base: PhysAddr,
     paddr: PhysAddr,
     size: AccessSize,
     op: &MemOp,
+    memory: &mut GlobalMemory,
 ) -> MemRespData {
+    if op.takes_effect_when_served(size) {
+        return memory.perform(paddr, size, op);
+    }
     let offset = (paddr.val().saturating_sub(base.val())) as usize;
     match op {
-        MemOp::Read | MemOp::ReadOwn | MemOp::Fetch => read_response(buffer, offset, size),
-        MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
-        MemOp::Atomic { .. } => {
-            // Atomic semantics are resolved upstream (LR/SC reservation, AMO
-            // round-trip in the LSU). The controller serves the load value.
+        MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
             read_response(buffer, offset, size)
         }
+        MemOp::Write { .. } | MemOp::Writeback { .. } => MemRespData::Small(0),
     }
 }
 
 fn read_response(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> MemRespData {
-    match size {
-        AccessSize::B1 => MemRespData::Small(u64::from(buffer.read_u8(offset))),
-        AccessSize::B2 => {
-            let s = buffer.read_slice(offset, 2);
-            MemRespData::Small(u64::from(u16::from_le_bytes([s[0], s[1]])))
-        }
-        AccessSize::B4 => {
-            let s = buffer.read_slice(offset, 4);
-            MemRespData::Small(u64::from(u32::from_le_bytes([s[0], s[1], s[2], s[3]])))
-        }
-        AccessSize::B8 => {
-            let s = buffer.read_slice(offset, 8);
-            MemRespData::Small(u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
-        }
-        AccessSize::Line => {
-            let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
-            MemRespData::Line(s.to_vec().into_boxed_slice())
-        }
+    if size == AccessSize::Line {
+        let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
+        return MemRespData::Line(s.to_vec().into_boxed_slice());
     }
+    let bytes = buffer.read_slice(offset, size.bytes());
+    MemRespData::Small(bytes.iter().rev().fold(0, |value, &byte| (value << 8) | u64::from(byte)))
 }

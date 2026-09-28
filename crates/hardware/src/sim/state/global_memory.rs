@@ -7,6 +7,7 @@
 use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
+use crate::sim::packet::{AccessSize, MemOp, MemRespData};
 use crate::soc::memory::RamRegion;
 
 /// RAM with the reservations and write log that go with it.
@@ -69,6 +70,27 @@ impl GlobalMemory {
             unsafe { *ram.ptr(paddr.val() + i as u64) = (data >> (8 * i)) as u8 };
         }
         self.note_write(writer, paddr);
+    }
+
+    /// Makes a hart's access take effect on the `size` bytes at `paddr`
+    /// now, where the memory system serves it (see
+    /// [`MemOp::takes_effect_when_served`]), and returns what it read.
+    pub fn perform(&mut self, paddr: PhysAddr, size: AccessSize, op: &MemOp) -> MemRespData {
+        match op {
+            MemOp::Read | MemOp::Atomic { .. } => self.performed(self.read(paddr, size.bytes())),
+            MemOp::ReadOwn | MemOp::Write { .. } | MemOp::Fetch | MemOp::Writeback { .. } => {
+                MemRespData::Small(0)
+            }
+        }
+    }
+
+    /// A response carrying `value` (zero outside RAM), stamped with the
+    /// write order it reflects.
+    fn performed(&self, value: Option<u64>) -> MemRespData {
+        MemRespData::Performed {
+            value: value.unwrap_or(0),
+            observed: self.write_log.as_ref().map(WriteLog::now),
+        }
     }
 
     /// Records a write that bypassed [`Self::write`] (the loader, a

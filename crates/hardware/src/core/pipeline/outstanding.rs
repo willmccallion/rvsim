@@ -11,6 +11,8 @@
 use crate::common::{LineAddr, PhysAddr, TranslationResult, VirtAddr};
 use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
 use crate::core::units::mmu::ptw::WalkState;
+use crate::sim::packet::MemRespData;
+use crate::sim::state::write_log::WriteSeq;
 
 /// One instruction-fetch group: the instructions fetch1 produced in a single
 /// cycle, all from one cache line.
@@ -56,9 +58,78 @@ pub struct OutstandingLoad {
     /// The access reads a device, so it was issued non-speculatively from
     /// the ROB head and must complete before anything pre-empts it.
     pub side_effecting: bool,
-    /// Cache requests still to be answered: two for an access that
-    /// straddles a line, otherwise one.
-    pub parts_outstanding: u8,
+    /// What the access's cache requests have read so far.
+    pub parts: LoadParts,
+}
+
+/// What one request of a load read, when the memory system served it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartRead {
+    /// The bytes read, zero-extended.
+    pub value: u64,
+    /// The write order they reflect; `None` with a single hart or from a
+    /// device.
+    pub observed: Option<WriteSeq>,
+}
+
+impl PartRead {
+    /// What a response to one of the load's requests carries.
+    #[must_use]
+    pub const fn of(data: &MemRespData) -> Self {
+        match data {
+            MemRespData::Performed { value, observed } => {
+                Self { value: *value, observed: *observed }
+            }
+            MemRespData::Small(value) => Self { value: *value, observed: None },
+            MemRespData::Line(_) => Self { value: 0, observed: None },
+        }
+    }
+}
+
+/// The reads of a load's requests: one, or two for an access that
+/// straddles a cache line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadParts {
+    /// The access lies in one line.
+    Whole(Option<PartRead>),
+    /// The access straddles a line boundary with `low_bytes` bytes below it.
+    Split {
+        /// Bytes of the access in the first line.
+        low_bytes: u8,
+        /// The first line's read.
+        low: Option<PartRead>,
+        /// The second line's read.
+        high: Option<PartRead>,
+    },
+}
+
+impl LoadParts {
+    /// Records the read of the request for the second line when `high`,
+    /// else of the (first) line.
+    pub const fn record(&mut self, high: bool, read: PartRead) {
+        match self {
+            Self::Whole(whole) => *whole = Some(read),
+            Self::Split { low, .. } if !high => *low = Some(read),
+            Self::Split { high: slot, .. } => *slot = Some(read),
+        }
+    }
+
+    /// The whole access's read once every request has answered. A split
+    /// read reflects the earlier of its two parts' write orders.
+    #[must_use]
+    pub fn assembled(&self) -> Option<PartRead> {
+        match *self {
+            Self::Whole(read) => read,
+            Self::Split { low_bytes, low: Some(low), high: Some(high) } => Some(PartRead {
+                value: low.value | (high.value << (8 * u32::from(low_bytes))),
+                observed: match (low.observed, high.observed) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                },
+            }),
+            Self::Split { .. } => None,
+        }
+    }
 }
 
 /// A memory access that already holds translations, from an L2 TLB hit or a

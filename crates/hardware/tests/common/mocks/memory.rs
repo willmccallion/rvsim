@@ -68,16 +68,9 @@ impl MockMemory {
 
 impl Handle for MockMemory {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        use rvsim_core::sim::packet::AccessSize;
         if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
             let offset = paddr.val().saturating_sub(self.base);
-            let width: usize = match size {
-                AccessSize::B1 => 1,
-                AccessSize::B2 => 2,
-                AccessSize::B4 => 4,
-                AccessSize::B8 => 8,
-                AccessSize::Line => 64,
-            };
+            let width = size.bytes();
             let value = match op {
                 MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                     self.read_bytes(offset, width)

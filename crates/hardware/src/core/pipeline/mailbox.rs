@@ -25,15 +25,13 @@ use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{
-    DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk,
+    DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk, PartRead,
     StoreOwner, WalkContinuation,
 };
-use crate::core::pipeline::signals::MemWidth;
 use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};
 use crate::sim::state::memory::TranslateResult;
-use crate::sim::state::write_log::WriteLog;
 
 /// Processes every packet currently in the engine's mailbox.
 pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCtx<'_>) {
@@ -44,12 +42,14 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         };
 
         if let Some(walk) = pipeline.engine.common_mut().outstanding_walks.remove(&req_id) {
-            complete_walk(pipeline, state, walk);
+            complete_walk(pipeline, state, walk, &data);
         } else if let Some(fetch) = pipeline.engine.common_mut().outstanding_fetches.remove(&req_id)
         {
             buffer_fetch(pipeline, fetch);
-        } else if let Some(load) = take_completed_load(pipeline.engine.common_mut(), req_id) {
-            complete_load(pipeline, state, load, &data);
+        } else if let Some((load, read)) =
+            take_completed_load(pipeline.engine.common_mut(), req_id, &data)
+        {
+            complete_load(pipeline, state, load, read);
         } else if let Some(store) = pipeline.engine.common_mut().outstanding_stores.remove(&req_id)
         {
             acknowledge_write(pipeline, store.owner, req_id);
@@ -79,16 +79,19 @@ fn acknowledge_write<E: ExecutionEngine>(
     }
 }
 
-/// Accounts one answered part of the load `req_id` belongs to and returns
-/// the load once every part has answered.
-fn take_completed_load(common: &mut BackendCommon, req_id: ReqId) -> Option<OutstandingLoad> {
-    let primary = common.load_parts.remove(&req_id).unwrap_or(req_id);
+/// Records what the part of a load `req_id` answered read, and returns the
+/// load with its whole read once every part has answered.
+fn take_completed_load(
+    common: &mut BackendCommon,
+    req_id: ReqId,
+    data: &MemRespData,
+) -> Option<(OutstandingLoad, PartRead)> {
+    let (primary, high) =
+        common.load_parts.remove(&req_id).map_or((req_id, false), |primary| (primary, true));
     let load = common.outstanding_loads.get_mut(&primary)?;
-    load.parts_outstanding = load.parts_outstanding.saturating_sub(1);
-    if load.parts_outstanding > 0 {
-        return None;
-    }
-    common.outstanding_loads.remove(&primary)
+    load.parts.record(high, PartRead::of(data));
+    let read = load.parts.assembled()?;
+    common.outstanding_loads.remove(&primary).map(|load| (load, read))
 }
 
 /// Inserts a returned fetch group into the reorder buffer at its
@@ -104,19 +107,17 @@ fn buffer_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, group: Outstandi
     let _ = common.fetch_reorder.insert(group.fetch_seq, group);
 }
 
-/// Reads the load's raw bytes from RAM (fast path) or the device-supplied
-/// `MemResp` payload (MMIO) and pushes a `Mem1Mem2Entry` into the M1→M2
-/// latch. Memory2 handles sign-extension, AMO RMW, and SB resolution.
+/// Pushes a load with what it read when the memory system served it (or
+/// the device's answer) into the M1→M2 latch. Memory2 handles
+/// sign-extension, AMO RMW, and SB resolution.
 fn complete_load<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
     state: &StageCtx<'_>,
     load: OutstandingLoad,
-    resp_data: &MemRespData,
+    read: PartRead,
 ) {
     let entry = load.entry;
     let paddr = load.paddr;
-    let load_raw = read_load_bytes(state, paddr.val(), entry.ctrl.width, resp_data);
-    let observed = state.memory.write_log().map(WriteLog::now);
     let cycle = state.cycle;
 
     if let Some(log) = state.memory.write_log()
@@ -128,10 +129,10 @@ fn complete_load<E: ExecutionEngine>(
     }
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        load_data: load_raw,
+        load_data: read.value,
         complete_cycle: cycle,
         dirty_updates: load.dirty_updates,
-        observed,
+        observed: read.observed,
         ..Mem1Mem2Entry::from_execute(entry, load.vaddr, paddr)
     });
 }
@@ -142,8 +143,9 @@ fn complete_walk<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
     state: &mut StageCtx<'_>,
     walk: OutstandingWalk,
+    data: &MemRespData,
 ) {
-    let raw_pte = read_pte_bytes(state, walk.pte_addr);
+    let raw_pte = PartRead::of(data).value;
     let bus_transit = state.bus.calculate_transit_time(8);
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
     let outcome = state.translate_continue(walk.state, raw_pte, bus_transit);
@@ -266,52 +268,6 @@ fn set_accessed_bit<E: ExecutionEngine>(
             op: MemOp::Write { data: WriteData::Small(pte), origin: WriteOrigin::Placed },
         },
     );
-}
-
-/// Reads a 64-bit PTE from the RAM fast path. RISC-V doesn't permit page
-/// tables in MMIO, so the read is always backed by DRAM.
-fn read_pte_bytes(state: &StageCtx<'_>, pte_addr: PhysAddr) -> u64 {
-    let raw = pte_addr.val();
-    state.bus.ram_region().filter(|r| r.contains(raw, 8)).map_or(0u64, |r| {
-        // SAFETY: `RamRegion::contains(raw, 8)` bounds-checks the access.
-        unsafe { r.ptr(raw).cast::<u64>().read_unaligned() }
-    })
-}
-
-/// Reads the raw bytes of a load. RAM accesses use the fast-path pointer;
-/// MMIO loads take their data from the device's `MemResp` payload.
-fn read_load_bytes(
-    state: &StageCtx<'_>,
-    paddr: u64,
-    width: MemWidth,
-    resp_data: &MemRespData,
-) -> u64 {
-    let size = match width {
-        MemWidth::Byte => 1u64,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => 0,
-    };
-    if size > 0
-        && let Some(r) = state.bus.ram_region_for(paddr, size)
-    {
-        // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds.
-        return unsafe {
-            let ptr = r.ptr(paddr);
-            match width {
-                MemWidth::Byte => u64::from(*ptr),
-                MemWidth::Half => u64::from(ptr.cast::<u16>().read_unaligned()),
-                MemWidth::Word => u64::from(ptr.cast::<u32>().read_unaligned()),
-                MemWidth::Double => ptr.cast::<u64>().read_unaligned(),
-                MemWidth::Nop => 0,
-            }
-        };
-    }
-    match resp_data {
-        MemRespData::Small(v) => *v,
-        MemRespData::Line(_) => 0,
-    }
 }
 
 /// Emits a PTE read request to the L1 data cache.

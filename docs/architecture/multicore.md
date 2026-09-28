@@ -185,7 +185,10 @@ so the coherence transaction precedes the read.
 ### Data versus timing
 
 Functional data lives in one place: RAM, written when a store is
-published and read at load response. Caches hold tags, states and
+published and read when a load is served: at the first cache holding the
+line with the permission the access needs (a hit when it arrives, a miss
+when its fill does), or at the memory controller when no cache serves it,
+as gem5's cache satisfies a request. Caches hold tags, states and
 dirtiness, not data. This is what makes the model deterministic and simple
 to reason about: the coherence protocol changes *when* an access completes
 and *which* caches still hold a line, never *what* value a load returns.
@@ -196,8 +199,8 @@ buffer per core, as now.
 
 Because caches hold no data, a hit on a line that another hart has just
 written returns the new RAM value even though the invalidation has not
-arrived yet, and a value read at load response can be overwritten by
-another hart before the reading instruction commits. Neither can be
+arrived yet, and a value a load read can be overwritten by another hart
+before the reading instruction commits. Neither can be
 detected by the protocol, so the pipeline makes the visibility instant
 explicit:
 
@@ -209,8 +212,8 @@ explicit:
   buffer is invisible to other harts, as in hardware); SC and AMO publish
   at commit, at the same instant as the reservation decision, and their
   store-buffer entry then drains as timing only.
-- A load, LR or AMO response is stamped with the log sequence current
-  when its bytes were read.
+- A load, LR or AMO response carries its bytes and the log sequence
+  current when they were read.
 - At commit an LR whose line another hart has written after its stamp
   re-executes (everything from it is squashed and refetched), so a
   reservation is never set on a stale value. An AMO re-executes only if

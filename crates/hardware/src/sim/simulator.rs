@@ -393,7 +393,7 @@ impl Simulator {
                 && rid == req_id
             {
                 return match data {
-                    MemRespData::Small(v) => v,
+                    MemRespData::Small(value) | MemRespData::Performed { value, .. } => value,
                     MemRespData::Line(_) => 0,
                 };
             }

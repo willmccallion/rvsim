@@ -34,7 +34,7 @@ use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::ExecutionEngine;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
 use crate::core::pipeline::outstanding::{
-    DelayedAccess, ForwardedLoad, OutstandingLoad, OutstandingWalk, PageTranslations,
+    DelayedAccess, ForwardedLoad, LoadParts, OutstandingLoad, OutstandingWalk, PageTranslations,
     WalkContinuation,
 };
 use crate::core::pipeline::rob::{RobState, RobTag};
@@ -588,22 +588,25 @@ fn emit_load_req<E: ExecutionEngine>(
 
     let target = mmio_or_l1d(state, engine, paddr, access_size);
     let line_bytes = state.core().l1_d_cache.line_bytes() as u64;
+    let width_bytes = ex.ctrl.width.bytes();
     let second_line = (!matches!(target, ComponentId::Bus)
-        && unaligned::crosses_cache_line(paddr.val(), ex.ctrl.width.bytes(), line_bytes))
+        && unaligned::crosses_cache_line(paddr.val(), width_bytes, line_bytes))
     .then(|| PhysAddr::new((paddr.val() | (line_bytes - 1)) + 1));
+    let low_bytes = second_line.map(|second| second.val() - paddr.val());
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
 
     let cycle = state.cycle;
+    let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
     state.events().schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: access_size, op },
+        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: first_size, op },
     );
     // The bytes past the line boundary are a second cache access.
-    if let Some(second) = second_line {
+    if let (Some(second), Some(low)) = (second_line, low_bytes) {
         let common = engine.common_mut();
         let second_id = common.alloc_req_id();
         let _ = common.load_parts.insert(second_id, req_id);
@@ -615,24 +618,21 @@ fn emit_load_req<E: ExecutionEngine>(
                 req_id: second_id,
                 paddr: second,
                 vaddr: Some(vaddr),
-                size: access_size,
+                size: AccessSize::of_bytes((width_bytes - low) as usize),
                 op: MemOp::Read,
             },
         );
     }
 
     let side_effecting = matches!(target, ComponentId::Bus);
-    let parts_outstanding = if second_line.is_some() { 2 } else { 1 };
+    let parts = low_bytes.map_or(LoadParts::Whole(None), |low| LoadParts::Split {
+        low_bytes: low as u8,
+        low: None,
+        high: None,
+    });
     let _ = engine.common_mut().outstanding_loads.insert(
         req_id,
-        OutstandingLoad {
-            entry: ex,
-            paddr,
-            vaddr,
-            dirty_updates,
-            side_effecting,
-            parts_outstanding,
-        },
+        OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, side_effecting, parts },
     );
 }
 
@@ -687,14 +687,7 @@ fn mmio_or_l1d<E: ExecutionEngine>(
     paddr: PhysAddr,
     size: AccessSize,
 ) -> ComponentId {
-    let size_bytes = match size {
-        AccessSize::B1 => 1u64,
-        AccessSize::B2 => 2,
-        AccessSize::B4 => 4,
-        AccessSize::B8 => 8,
-        AccessSize::Line => 64,
-    };
-    if state.bus.ram_region_for(paddr.val(), size_bytes).is_some() {
+    if state.bus.ram_region_for(paddr.val(), size.bytes() as u64).is_some() {
         ComponentId::Cache(engine.common().l1_d_id)
     } else {
         ComponentId::Bus

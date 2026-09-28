@@ -151,6 +151,7 @@ impl Clint {
             AccessSize::B4 => (window >> shift) & 0xFFFF_FFFF,
             AccessSize::B2 => (window >> shift) & 0xFFFF,
             AccessSize::B1 => (window >> shift) & 0xFF,
+            AccessSize::Part(_) => 0,
         }
     }
 
@@ -193,7 +194,7 @@ impl Clint {
                 self.write_word(aligned + 4, (val >> 32) as u32);
             }
             AccessSize::B4 => self.write_word(offset, val as u32),
-            AccessSize::B1 | AccessSize::B2 | AccessSize::Line => {}
+            AccessSize::B1 | AccessSize::B2 | AccessSize::Part(_) | AccessSize::Line => {}
         }
     }
 }

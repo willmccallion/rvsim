@@ -12,6 +12,7 @@
 use crate::coherence::messages::CoherenceMsg;
 use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
+use crate::sim::state::write_log::WriteSeq;
 
 /// Width of a single memory access in bytes.
 ///
@@ -28,6 +29,9 @@ pub enum AccessSize {
     B4,
     /// 8-byte access.
     B8,
+    /// The bytes (1 to 7) of an access that fall on one side of the cache
+    /// line boundary it straddles.
+    Part(u8),
     /// One cache line.
     Line,
 }
@@ -41,7 +45,20 @@ impl AccessSize {
             Self::B2 => 2,
             Self::B4 => 4,
             Self::B8 => 8,
+            Self::Part(bytes) => bytes as usize,
             Self::Line => 64,
+        }
+    }
+
+    /// The size of an access of `bytes` (at most 8) bytes.
+    #[must_use]
+    pub const fn of_bytes(bytes: usize) -> Self {
+        match bytes {
+            1 => Self::B1,
+            2 => Self::B2,
+            4 => Self::B4,
+            8 => Self::B8,
+            other => Self::Part(other as u8),
         }
     }
 }
@@ -61,6 +78,15 @@ pub enum WriteData {
 pub enum MemRespData {
     /// Small inline payload (up to 8 bytes).
     Small(u64),
+    /// What a hart's access read when the memory system served it: a
+    /// load's bytes, an AMO's old value, or a store-conditional's result.
+    Performed {
+        /// The value, zero-extended.
+        value: u64,
+        /// Position in the order of RAM writes the value reflects; kept only
+        /// when more than one hart can write.
+        observed: Option<WriteSeq>,
+    },
     /// A full cache line.
     Line(Box<[u8]>),
 }
@@ -140,6 +166,22 @@ pub enum MemOp {
         /// Whether the line was modified.
         dirty: bool,
     },
+}
+
+impl MemOp {
+    /// True for an access that takes effect where the memory system serves
+    /// it, as gem5's cache satisfies a request: at the first cache holding
+    /// the line with the permission the access needs, or at the memory
+    /// controller when no cache does. Line fills and writebacks between
+    /// levels only move permission and timing.
+    #[must_use]
+    pub const fn takes_effect_when_served(&self, size: AccessSize) -> bool {
+        match self {
+            Self::Read => !matches!(size, AccessSize::Line),
+            Self::Atomic { .. } => true,
+            Self::ReadOwn | Self::Write { .. } | Self::Fetch | Self::Writeback { .. } => false,
+        }
+    }
 }
 
 /// Cache level at which a request was satisfied.
