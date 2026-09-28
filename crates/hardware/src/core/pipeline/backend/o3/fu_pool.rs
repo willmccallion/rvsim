@@ -519,7 +519,16 @@ impl FuPool {
 
     /// A unit of `fu_type` free at cycle `now`, if there is one.
     pub fn free_unit(&self, fu_type: FuType, now: u64) -> Option<FreeUnit> {
-        self.units.iter().position(|u| u.fu_type == fu_type && u.is_free(now)).map(FreeUnit)
+        self.free_units(fu_type, now).next()
+    }
+
+    /// Every unit of `fu_type` free at cycle `now`.
+    pub fn free_units(&self, fu_type: FuType, now: u64) -> impl Iterator<Item = FreeUnit> + '_ {
+        self.units
+            .iter()
+            .enumerate()
+            .filter(move |(_, u)| u.fu_type == fu_type && u.is_free(now))
+            .map(|(index, _)| FreeUnit(index))
     }
 
     /// Occupies `unit` for one instruction issued at cycle `now` and returns

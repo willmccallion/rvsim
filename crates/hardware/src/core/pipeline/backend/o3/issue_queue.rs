@@ -9,6 +9,7 @@
 //!   selected for execution (up to `width`).
 
 use crate::common::RegIdx;
+use crate::core::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
@@ -140,8 +141,37 @@ pub struct IssueQueueEntry {
 pub struct SelectedEntry {
     /// The instruction with resolved operand values.
     pub entry: RenameIssueEntry,
-    /// The memory dependency state from dispatch (must be preserved on re-dispatch).
-    pub mem_dep: MemDepState,
+    /// Its functional unit class.
+    pub fu_type: FuType,
+    /// The free unit reserved for it.
+    pub unit: FreeUnit,
+}
+
+/// What issue may use in one cycle.
+#[derive(Clone, Copy, Debug)]
+pub struct IssueBudget<'a> {
+    /// Instructions issued per cycle.
+    pub width: usize,
+    /// Loads issued per cycle.
+    pub load_ports: usize,
+    /// Stores issued per cycle.
+    pub store_ports: usize,
+    /// The functional units, whose free ones the selected instructions take.
+    pub units: &'a FuPool,
+    /// The cycle.
+    pub now: u64,
+    /// The memory pipeline cannot take a memory op this cycle.
+    pub memory_blocked: bool,
+}
+
+/// The instructions [`IssueQueue::select`] chose, and how many ready ones
+/// it passed over because every unit of their class was busy.
+#[derive(Debug, Default)]
+pub struct Selection {
+    /// Chosen instructions, oldest first.
+    pub entries: Vec<SelectedEntry>,
+    /// Ready instructions left waiting for a functional unit.
+    pub unit_stalls: usize,
 }
 
 /// CAM-style issue queue with wakeup and oldest-first select.
@@ -303,10 +333,12 @@ impl IssueQueue {
         }
     }
 
-    /// Select up to `width` ready entries, oldest first (lowest `rob_tag.0`).
+    /// Selects up to `budget.width` ready entries, oldest first (lowest
+    /// `rob_tag.0`), as gem5's instruction scheduler does.
     ///
     /// Selected entries have their `rv1/rv2/rv3` fields populated from the
-    /// resolved operand values. The slots are freed.
+    /// resolved operand values and carry the free functional unit reserved
+    /// for them. The slots are freed.
     ///
     /// Memory dependencies are checked via the cached [`MemDepState`] set at
     /// dispatch time, rather than re-querying the predictor every cycle.
@@ -314,16 +346,16 @@ impl IssueQueue {
     /// System/CSR instructions are serializing: they must not issue until all
     /// older ROB entries have completed.
     ///
-    /// Memory port limits: at most `load_ports` loads and `store_ports` stores
-    /// are issued per cycle, modeling finite LSU bandwidth.
+    /// A ready entry is passed over, and a younger one considered in its
+    /// place, when every unit of its class is busy, when it is a load or
+    /// store beyond the cycle's load or store ports, or when it is a memory
+    /// op while the memory pipeline is blocked.
     pub fn select(
         &mut self,
-        width: usize,
+        budget: &IssueBudget<'_>,
         store_buffer: &StoreBuffer,
         rob: &Rob,
-        load_ports: usize,
-        store_ports: usize,
-    ) -> Vec<SelectedEntry> {
+    ) -> Selection {
         let mut ready_indices: Vec<usize> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if let Some(iq) = slot {
@@ -390,23 +422,34 @@ impl IssueQueue {
 
         ready_indices.sort_by_key(|&i| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
 
-        let mut result: Vec<SelectedEntry> = Vec::with_capacity(width);
+        let mut selection = Selection::default();
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
+        let mut units_taken = [0usize; FU_TYPE_COUNT];
         for &idx in &ready_indices {
-            if result.len() >= width {
+            if selection.entries.len() >= budget.width {
                 break;
             }
             let Some(slot) = self.slots[idx].as_ref() else { continue };
             let ctrl = &slot.entry.ctrl;
             let is_load = ctrl.mem_read;
             let is_store = ctrl.mem_write;
-            if is_load && loads_issued >= load_ports {
+            if is_load && loads_issued >= budget.load_ports {
                 continue;
             }
-            if is_store && stores_issued >= store_ports {
+            if is_store && stores_issued >= budget.store_ports {
                 continue;
             }
+            let fu_type = FuType::classify(ctrl);
+            if budget.memory_blocked && fu_type == FuType::Mem {
+                continue;
+            }
+            let taken = &mut units_taken[fu_type as usize];
+            let Some(unit) = budget.units.free_units(fu_type, budget.now).nth(*taken) else {
+                selection.unit_stalls += 1;
+                continue;
+            };
+            *taken += 1;
 
             let Some(iq) = self.slots[idx].take() else { continue };
             self.count -= 1;
@@ -417,7 +460,6 @@ impl IssueQueue {
                 stores_issued += 1;
             }
 
-            let mem_dep = iq.mem_dep;
             let mut entry = iq.entry;
             if entry.trap.is_none() {
                 debug_assert!(
@@ -436,10 +478,10 @@ impl IssueQueue {
                 entry.rv2 = Self::resolve_value(&iq.src2);
                 entry.rv3 = Self::resolve_value(&iq.src3);
             }
-            result.push(SelectedEntry { entry, mem_dep });
+            selection.entries.push(SelectedEntry { entry, fu_type, unit });
         }
 
-        result
+        selection
     }
 
     /// The operand value at select time; `NotReady` only for faulted
@@ -617,6 +659,94 @@ mod tests {
         }
     }
 
+    /// Selects at cycle 0 with more address units than any test issues.
+    fn select(
+        iq: &mut IssueQueue,
+        width: usize,
+        store_buffer: &StoreBuffer,
+        rob: &Rob,
+        load_ports: usize,
+        store_ports: usize,
+    ) -> Vec<SelectedEntry> {
+        use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
+        let units = FuPool::new(&FuConfig { num_mem: 8, ..FuConfig::default() });
+        let budget = IssueBudget {
+            width,
+            load_ports,
+            store_ports,
+            units: &units,
+            now: 0,
+            memory_blocked: false,
+        };
+        iq.select(&budget, store_buffer, rob).entries
+    }
+
+    /// A ready entry for `rob_tag` executing `ctrl`.
+    fn ready_entry(rob_tag: u32, ctrl: ControlSignals) -> IssueQueueEntry {
+        IssueQueueEntry {
+            entry: RenameIssueEntry { ctrl, ..make_entry(rob_tag) },
+            src1: ready_operand(0),
+            src2: ready_operand(0),
+            src3: ready_operand(0),
+            vec_src1: VecOperandState::default(),
+            vec_src2: VecOperandState::default(),
+            vec_src3: VecOperandState::default(),
+            mem_dep: MemDepState::None,
+            mask_phys: VecPhysReg::ZERO,
+            mask_ready: true,
+            needs_mask: false,
+        }
+    }
+
+    #[test]
+    fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
+        use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
+        use crate::core::pipeline::signals::AluOp;
+        let mut units = FuPool::new(&FuConfig { num_int_div: 1, ..FuConfig::default() });
+        let busy_divider = units.free_unit(FuType::IntDiv, 0).expect("a divider");
+        let _ = units.acquire(busy_divider, 0);
+        let mut iq = IssueQueue::new(8);
+        iq.slots[0] =
+            Some(ready_entry(1, ControlSignals { alu: AluOp::Div, ..Default::default() }));
+        iq.slots[1] = Some(ready_entry(2, ControlSignals::default()));
+        iq.count = 2;
+        let budget = IssueBudget {
+            width: 1,
+            load_ports: 1,
+            store_ports: 1,
+            units: &units,
+            now: 1,
+            memory_blocked: false,
+        };
+
+        let selection = iq.select(&budget, &StoreBuffer::new(4), &Rob::new(8));
+
+        let issued: Vec<u32> = selection.entries.iter().map(|e| e.entry.rob_tag.0).collect();
+        assert_eq!((issued, selection.unit_stalls), (vec![2], 1));
+    }
+
+    #[test]
+    fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
+        let units = FuPool::new(&crate::core::pipeline::backend::o3::fu_pool::FuConfig::default());
+        let mut iq = IssueQueue::new(8);
+        iq.slots[0] = Some(ready_entry(1, ControlSignals { mem_read: true, ..Default::default() }));
+        iq.slots[1] = Some(ready_entry(2, ControlSignals::default()));
+        iq.count = 2;
+        let budget = IssueBudget {
+            width: 1,
+            load_ports: 1,
+            store_ports: 1,
+            units: &units,
+            now: 0,
+            memory_blocked: true,
+        };
+
+        let selection = iq.select(&budget, &StoreBuffer::new(4), &Rob::new(8));
+
+        let issued: Vec<u32> = selection.entries.iter().map(|e| e.entry.rob_tag.0).collect();
+        assert_eq!(issued, vec![2]);
+    }
+
     fn ready_operand(value: u64) -> OperandState {
         OperandState::ready(PhysReg(0), None, value)
     }
@@ -656,7 +786,8 @@ mod tests {
         });
         iq.count = 1;
 
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rob_tag.0, 1);
         assert_eq!(selected[0].entry.rv1, 42);
@@ -687,14 +818,16 @@ mod tests {
         iq.count = 1;
 
         // Not ready yet
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 0);
 
         // Wakeup with phys reg 5
         iq.wakeup_phys(p5, 999);
 
         // Now should be selectable
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rv1, 999);
     }
@@ -723,7 +856,8 @@ mod tests {
         // Wakeup with tag 5
         iq.wakeup(RobTag(5), 999);
 
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rv1, 999);
     }
@@ -751,14 +885,16 @@ mod tests {
         iq.count = 3;
 
         // Select width=2 should get tags 1 and 2 (oldest first)
-        let selected = iq.select(2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 2, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].entry.rob_tag.0, 1);
         assert_eq!(selected[1].entry.rob_tag.0, 2);
         assert_eq!(iq.len(), 1);
 
         // Remaining is tag 3
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
+        let selected =
+            select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rob_tag.0, 3);
     }
@@ -905,9 +1041,9 @@ mod tests {
         });
         iq.count = 1;
 
-        assert!(iq.select(4, &StoreBuffer::new(4), &rob, 2, 1).is_empty());
+        assert!(select(&mut iq, 4, &StoreBuffer::new(4), &rob, 2, 1).is_empty());
         rob.complete(amo_tag, 0);
-        assert_eq!(iq.select(4, &StoreBuffer::new(4), &rob, 2, 1).len(), 1);
+        assert_eq!(select(&mut iq, 4, &StoreBuffer::new(4), &rob, 2, 1).len(), 1);
     }
 
     #[test]
@@ -942,7 +1078,7 @@ mod tests {
         iq.count = 5;
 
         // With load_ports=2, store_ports=1, width=4: should get 2 loads + 1 store = 3
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
+        let selected = select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
         assert_eq!(selected.len(), 3);
         // Oldest first: tags 1 (load), 2 (load), 4 (store)
         assert_eq!(selected[0].entry.rob_tag.0, 1);
@@ -956,7 +1092,7 @@ mod tests {
         assert_eq!(iq.len(), 2);
 
         // Next cycle: should get remaining load + store
-        let selected = iq.select(4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
+        let selected = select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), 2, 1);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].entry.rob_tag.0, 3);
         assert_eq!(selected[1].entry.rob_tag.0, 5);

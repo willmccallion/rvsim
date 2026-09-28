@@ -40,7 +40,7 @@ use crate::core::units::vpu::types::{ElemIdx, NumLanes, VRegIdx, VecPhysReg, Vle
 use crate::sim::CoreCtx;
 
 use self::fu_pool::{FuPool, FuType};
-use self::issue_queue::IssueQueue;
+use self::issue_queue::{IssueBudget, IssueQueue, SelectedEntry};
 
 /// A result a functional unit is still producing. Its dependents wake, and
 /// its ROB entry completes, when `complete_cycle` arrives.
@@ -684,56 +684,28 @@ impl ExecutionEngine for O3Engine {
         }
 
         {
-            let issued = self.issue_queue.select(
-                self.issue_width,
-                &self.store_buffer,
-                &self.rob,
-                self.load_ports,
-                self.store_ports,
-            );
+            let budget = IssueBudget {
+                width: self.issue_width,
+                load_ports: self.load_ports,
+                store_ports: self.store_ports,
+                units: &self.fu_pool,
+                now,
+                memory_blocked: mem_backpressured,
+            };
+            let selection = self.issue_queue.select(&budget, &self.store_buffer, &self.rob);
+            let stalled_fu = selection.unit_stalls > 0;
+            state
+                .shared
+                .stats
+                .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
+                .add(selection.unit_stalls as u64);
 
             let mut issued_count = 0;
-            let mut stalled_fu = false;
 
-            for selected in issued {
-                let entry = selected.entry;
-                let mem_dep = selected.mem_dep;
-                let fu_type = FuType::classify(&entry.ctrl);
+            for selected in selection.entries {
+                let SelectedEntry { entry, fu_type, unit, .. } = selected;
                 let rob_tag = entry.rob_tag;
                 let is_mem_instr = entry.ctrl.mem_read || entry.ctrl.mem_write;
-
-                // Backpressure blocks memory ops only; ALU/branch continue freely.
-                if mem_backpressured && fu_type == FuType::Mem {
-                    let ok = self.issue_queue.dispatch(
-                        entry,
-                        &self.rob,
-                        &state.stage(),
-                        Some(&self.prf),
-                        Some(&self.vec_prf),
-                        mem_dep,
-                    );
-                    debug_assert!(ok, "re-dispatch after mem backpressure failed");
-                    continue;
-                }
-
-                let Some(unit) = self.fu_pool.free_unit(fu_type, now) else {
-                    state
-                        .shared
-                        .stats
-                        .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
-                        .inc();
-                    stalled_fu = true;
-                    let ok = self.issue_queue.dispatch(
-                        entry,
-                        &self.rob,
-                        &state.stage(),
-                        Some(&self.prf),
-                        Some(&self.vec_prf),
-                        mem_dep,
-                    );
-                    debug_assert!(ok, "re-dispatch after FU stall failed");
-                    continue;
-                };
 
                 if is_mem_instr {
                     self.mdp.issued(rob_tag);
