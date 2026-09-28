@@ -398,6 +398,21 @@ fn test_csr_stval() {
 }
 
 #[test]
+fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
+    let config = Config::default();
+    let mut sim = rvsim_core::Simulator::build(&config, "");
+    let mtime = rvsim_core::common::PhysAddr::new(config.system.clint_base + 0xBFF8);
+    sim.probe_mem_store(mtime, 5000, 8);
+    let mut state = sim.state.core_ctx(0);
+    state.csr_write(csr::MENVCFG, csr::MENVCFG_STCE);
+    state.csr_write(csr::STIMECMP, 4000);
+
+    state.pre_tick(rvsim_core::soc::interconnect::HartIrqs::default());
+
+    assert_ne!(state.csr_read(csr::MIP) & csr::MIP_STIP, 0, "time 5000 is past stimecmp 4000");
+}
+
+#[test]
 fn test_csr_stimecmp_clears_stip() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);

@@ -120,13 +120,11 @@ impl CoreCtx<'_> {
             mip &= !csr::MIP_SEIP;
         }
 
-        // STIP management: when Sstc is enabled, hardware compares mtime
-        // against stimecmp.  When Sstc is NOT active (the common case —
-        // OpenSBI injects STIP via `csrw mip`), leave STIP entirely under
-        // software control so that M-mode timer handlers work correctly.
+        // STIP management: when Sstc is enabled, hardware compares `time`
+        // (the CLINT's mtime) against stimecmp. Without it, OpenSBI injects
+        // STIP via `csrw mip`, so STIP stays under software control.
         if (self.hart.csrs.menvcfg & csr::MENVCFG_STCE) != 0 {
-            let mtime = self.cycle / self.config.system.clint_divider;
-            if mtime >= self.hart.csrs.stimecmp {
+            if self.bus.mtime() >= self.hart.csrs.stimecmp {
                 mip |= csr::MIP_STIP;
             } else {
                 mip &= !csr::MIP_STIP;
