@@ -44,6 +44,14 @@ impl SharedState {
 }
 
 impl CoreCtx<'_> {
+    /// Counts a cycle an idle core spends in WFI without ticking its
+    /// pipeline: the commit stage's zero-retire and WFI counts.
+    pub fn count_idle_cycle(&mut self) {
+        let paths = &self.core.stat_paths;
+        self.shared.stats.counter(paths.commit.retire_hist_zero).inc();
+        self.shared.stats.counter(paths.pipeline.cycles_wfi).inc();
+    }
+
     /// Per-hart work at the top of a cycle, before the clock advances:
     /// hang detection and folding this hart's interrupt lines into `mip`.
     pub fn pre_tick(&mut self, irqs: HartIrqs) {

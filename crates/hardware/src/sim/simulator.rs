@@ -36,6 +36,9 @@ pub struct Simulator {
     /// Privilege mode of each hart at the start of the current tick, kept
     /// between ticks to avoid reallocating.
     prev_privileges: Vec<PrivilegeMode>,
+    /// Count an idle core's cycle instead of ticking its pipeline. The
+    /// result is the same; tests turn it off to check that.
+    pub skip_idle_cores: bool,
 }
 
 unsafe impl Send for Simulator {}
@@ -52,7 +55,7 @@ impl Simulator {
             pipeline.restart_fetch_at(ctx.hart.pc);
         }
         let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
-        Self { state, prev_privileges }
+        Self { state, prev_privileges, skip_idle_cores: true }
     }
 
     /// Convenience constructor: builds the exit-signal `Arc`, the `SimState`,
@@ -160,6 +163,10 @@ impl Simulator {
         self.drain_events();
         if run_cycle {
             for core in 0..self.core_count() {
+                if self.skip_idle_cores && self.core_is_idle(core) {
+                    self.state.core_ctx(core).count_idle_cycle();
+                    continue;
+                }
                 self.scoped_to_hart(core, |sim| {
                     let (pipeline, mut ctx) = sim.state.pipeline_ctx(core);
                     pipeline.tick(&mut ctx);
@@ -186,6 +193,12 @@ impl Simulator {
             self.state.apply_sim_op(op);
         }
         Ok(())
+    }
+
+    fn core_is_idle(&self, core: usize) -> bool {
+        let hart = self.state.topology.cores[core].hart_ids[0];
+        let units = &self.state.cores[core];
+        units.pipeline.is_idle(&self.state.harts[hart.as_index()], &units.units)
     }
 
     /// Runs `f` inside `core`'s hart span with the trace armed for that

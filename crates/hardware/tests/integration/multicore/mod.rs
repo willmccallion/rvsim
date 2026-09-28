@@ -2,4 +2,5 @@
 
 pub mod amo_counter;
 pub mod coherence;
+pub mod idle_skip;
 pub mod spinlock;

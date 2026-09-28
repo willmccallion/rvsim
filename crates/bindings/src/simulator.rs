@@ -257,6 +257,19 @@ impl PySimulator {
         PyStats::new(self.inner.state.stats.clone(), cycles, instructions_retired, epoch)
     }
 
+    /// Whether idle cores (waiting in WFI with nothing in flight) have their
+    /// cycles counted instead of ticked. On by default; results are the
+    /// same either way, so this exists to check that.
+    #[getter]
+    const fn skip_idle_cores(&self) -> bool {
+        self.inner.skip_idle_cores
+    }
+
+    #[setter]
+    fn set_skip_idle_cores(&mut self, skip: bool) {
+        self.inner.skip_idle_cores = skip;
+    }
+
     /// Zero every stat; cycles and instructions in summaries count from here.
     fn reset_stats(&mut self) {
         self.inner.state.reset_stats();

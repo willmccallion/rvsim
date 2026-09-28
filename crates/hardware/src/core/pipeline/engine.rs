@@ -500,6 +500,34 @@ impl<E: ExecutionEngine> Pipeline<E> {
 }
 
 impl<E: ExecutionEngine> Pipeline<E> {
+    /// Whether a tick this cycle would only count an idle cycle: the hart
+    /// waits in WFI with no enabled interrupt pending, and nothing is in
+    /// flight in the pipeline, its store buffers or the write-combining
+    /// buffer. What the frontend fetched past the WFI may stay: the
+    /// frontend does not tick while the hart waits.
+    pub fn is_idle(&self, hart: &crate::core::Hart, units: &crate::core::CoreUnits) -> bool {
+        let common = self.engine.common();
+        hart.wfi_waiting
+            && hart.csrs.mip & hart.csrs.mie == 0
+            && self.engine.rob().is_empty()
+            && self.engine.store_buffer().is_empty()
+            && self.engine.vec_store_buffer().is_empty()
+            && !units.wcb.has_pending()
+            && matches!(common.trap, TrapProgress::None)
+            && common.pending_squash.is_none()
+            && common.mailbox.is_empty()
+            && common.outstanding_fetches.is_empty()
+            && common.outstanding_loads.is_empty()
+            && common.outstanding_stores.is_empty()
+            && common.outstanding_walks.is_empty()
+            && common.forwarded_loads.is_empty()
+            && common.commit_notices.is_empty()
+            && common.fetch_reorder.is_empty()
+            && !common.fetch_walk_pending
+            && self.rename_output.is_empty()
+            && self.redirect.is_none()
+    }
+
     /// Run one cycle of the entire pipeline.
     ///
     /// Order:
@@ -599,6 +627,14 @@ impl PipelineDispatch {
                 rename_output: Latch::new(STAGE_DELAY),
                 redirect: None,
             })),
+        }
+    }
+
+    /// See [`Pipeline::is_idle`].
+    pub fn is_idle(&self, hart: &crate::core::Hart, units: &crate::core::CoreUnits) -> bool {
+        match self {
+            Self::InOrder(p) => p.is_idle(hart, units),
+            Self::OutOfOrder(p) => p.is_idle(hart, units),
         }
     }
 
