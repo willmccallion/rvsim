@@ -91,15 +91,24 @@ impl<E: ExecutionEngine> Frontend<E> {
         {
             let vector = engine.vector_config(&state.hart().csrs);
             let mut decoded = Vec::new();
-            let ended_at_vsetvl = decode::decode_stage(
+            let outcome = decode::decode_stage(
                 state,
                 fetched,
                 &mut decoded,
                 engine.has_register_renaming(),
                 vector,
             );
-            engine.common_mut().vector_config_unresolved = ended_at_vsetvl;
+            engine.common_mut().vector_config_unresolved = outcome.ended_at_vsetvl;
             self.decode_rename.push(now, decoded);
+            if let Some(pc) = outcome.redirect {
+                // What was fetched after the redirecting instruction is
+                // wrong-path; fetch restarts at `pc` next cycle.
+                self.fetch2_decode.clear();
+                self.fetch1_fetch2.clear();
+                engine.common_mut().drop_fetches();
+                self.fetch_pc = pc;
+                return;
+            }
         }
 
         if self.fetch2_decode.is_empty()

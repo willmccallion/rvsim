@@ -1,6 +1,7 @@
 //! Integration tests for the RISC-V emulator.
 
 pub mod amo_cache_access;
+pub mod btb_frontend;
 pub mod btb_training;
 pub mod bus_occupancy;
 pub mod cbo_translation;

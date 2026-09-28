@@ -28,10 +28,6 @@ pub struct Retired {
 
 /// A predictor of branch direction with speculatively updated histories.
 pub trait DirectionPredictor {
-    /// Whether the predictor has its own indirect target predictor, which
-    /// then keeps indirect jump targets out of the BTB.
-    const HAS_INDIRECT_PREDICTOR: bool = false;
-
     /// What one prediction left behind: the state it read and the histories
     /// before it, enough to train at commit and to undo it on a squash.
     type History;

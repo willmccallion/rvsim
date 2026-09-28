@@ -153,6 +153,9 @@ stat_paths! {
         spec_hits: "bp.spec.hits",
         /// Speculative branches whose prediction was wrong.
         spec_mispredicts: "bp.spec.mispredicts",
+        /// Times decode redirected fetch: a control instruction the BTB
+        /// missed, a stale BTB target, or a BTB entry for a non-branch.
+        decode_redirects: "bp.decode_redirects",
         /// Derived: committed prediction accuracy (hits / (hits+mispredicts)).
         committed_accuracy: "bp.committed.accuracy",
         /// Derived: speculative prediction accuracy.

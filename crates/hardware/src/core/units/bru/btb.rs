@@ -4,6 +4,36 @@
 //! flow instructions. It allows the fetch stage to predict the target of a
 //! branch or jump before the instruction is decoded.
 
+/// The kind of control instruction a BTB entry records: what fetch learns
+/// about the instruction at a PC before it has been decoded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BranchKind {
+    /// A conditional branch.
+    #[default]
+    Conditional,
+    /// A direct jump (`jal`); `call` when it links a return address.
+    Jump {
+        /// Pushes a return address.
+        call: bool,
+    },
+    /// An indirect jump (`jalr`).
+    Indirect {
+        /// Pops a return address.
+        returns: bool,
+        /// Pushes a return address.
+        call: bool,
+    },
+}
+
+/// What a BTB hit tells fetch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BtbHit {
+    /// The last target the instruction went to.
+    pub target: u64,
+    /// The kind of control instruction.
+    pub kind: BranchKind,
+}
+
 /// An entry in the Branch Target Buffer.
 #[derive(Clone, Copy, Debug, Default)]
 struct BtbEntry {
@@ -11,6 +41,8 @@ struct BtbEntry {
     tag: u64,
     /// The predicted target address.
     target: u64,
+    /// The kind of control instruction at the tagged PC.
+    kind: BranchKind,
     /// Indicates if this entry contains valid data.
     valid: bool,
 }
@@ -53,38 +85,41 @@ impl Btb {
         ((pc >> 2) as usize) & (self.num_sets - 1)
     }
 
-    /// Looks up a target address for the given program counter.
-    ///
-    /// Searches all ways in the indexed set for a tag match.
-    ///
-    /// # Returns
-    ///
-    /// The predicted target address if a valid entry exists and the tag matches,
-    /// otherwise `None`.
-    pub fn lookup(&self, pc: u64) -> Option<u64> {
+    /// The entry for the control instruction at `pc`, if the BTB holds one.
+    pub fn lookup(&self, pc: u64) -> Option<BtbHit> {
         let set = self.set_index(pc);
         let base = set * self.ways;
-        for w in 0..self.ways {
-            let e = &self.table[base + w];
-            if e.valid && e.tag == pc {
-                return Some(e.target);
-            }
-        }
-        None
+        self.table[base..base + self.ways]
+            .iter()
+            .find(|e| e.valid && e.tag == pc)
+            .map(|e| BtbHit { target: e.target, kind: e.kind })
     }
 
-    /// Updates the BTB with a new target address for a specific program counter.
+    /// Drops the entry for `pc`: the instruction there is not the control
+    /// instruction the BTB recorded.
+    pub fn invalidate(&mut self, pc: u64) {
+        let set = self.set_index(pc);
+        let base = set * self.ways;
+        for e in &mut self.table[base..base + self.ways] {
+            if e.valid && e.tag == pc {
+                e.valid = false;
+            }
+        }
+    }
+
+    /// Records the control instruction at `pc`: its kind and latest target.
     ///
     /// If the tag already exists in the set, updates it in place. Otherwise,
     /// replaces the first invalid entry or uses round-robin replacement.
-    pub fn update(&mut self, pc: u64, target: u64) {
+    pub fn update(&mut self, pc: u64, target: u64, kind: BranchKind) {
         let set = self.set_index(pc);
         let base = set * self.ways;
+        let entry = BtbEntry { tag: pc, target, kind, valid: true };
 
         for w in 0..self.ways {
             let e = &mut self.table[base + w];
             if e.valid && e.tag == pc {
-                e.target = target;
+                *e = entry;
                 return;
             }
         }
@@ -92,13 +127,13 @@ impl Btb {
         for w in 0..self.ways {
             let e = &mut self.table[base + w];
             if !e.valid {
-                *e = BtbEntry { tag: pc, target, valid: true };
+                *e = entry;
                 return;
             }
         }
 
         let victim = self.replace_ptr[set] as usize % self.ways;
         self.replace_ptr[set] = ((victim + 1) % self.ways) as u8;
-        self.table[base + victim] = BtbEntry { tag: pc, target, valid: true };
+        self.table[base + victim] = entry;
     }
 }

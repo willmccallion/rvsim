@@ -506,6 +506,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(bp.committed_mispredicts, Meta::events("branch predictions wrong (committed)"));
     s.register(bp.spec_hits, Meta::events("branch predictions correct (speculative)"));
     s.register(bp.spec_mispredicts, Meta::events("branch predictions wrong (speculative)"));
+    s.register(bp.decode_redirects, Meta::events("fetch redirects from decode"));
 
     let mdp = &c.mdp;
     s.register(mdp.predictions_bypass, Meta::events("MDP predicted bypass"));

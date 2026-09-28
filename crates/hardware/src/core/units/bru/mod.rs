@@ -104,6 +104,33 @@ impl BranchPredictorWrapper {
         dispatch!(self, unit => unit.squash_after(keep));
     }
 
+    /// What the BTB holds for the control instruction at `pc`.
+    #[must_use]
+    pub fn btb_lookup(&self, pc: u64) -> Option<btb::BtbHit> {
+        dispatch!(self, unit => unit.btb_lookup(pc))
+    }
+
+    /// True when fetch predicted instruction `seq`.
+    #[must_use]
+    pub fn is_predicted(&self, seq: InstSeq) -> bool {
+        dispatch!(self, unit => unit.is_predicted(seq))
+    }
+
+    /// See [`unit::BranchPredUnit::discover`].
+    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> (Option<u64>, bool) {
+        dispatch!(self, unit => unit.discover(seq, pc, inst))
+    }
+
+    /// See [`unit::BranchPredUnit::correct_target`].
+    pub fn correct_target(&mut self, seq: InstSeq, target: u64) {
+        dispatch!(self, unit => unit.correct_target(seq, target));
+    }
+
+    /// See [`unit::BranchPredUnit::forget`].
+    pub fn forget(&mut self, seq: InstSeq, pc: u64) {
+        dispatch!(self, unit => unit.forget(seq, pc));
+    }
+
     /// See [`BranchPredUnit::squash_all`].
     pub fn squash_all(&mut self) {
         dispatch!(self, unit => unit.squash_all());

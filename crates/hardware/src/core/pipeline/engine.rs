@@ -416,6 +416,24 @@ impl BackendCommon {
         };
     }
 
+    /// Drops every fetch in flight: line requests, fetch walks, completed
+    /// groups waiting to drain and any fetch hold. Responses for them that
+    /// arrive later are discarded rather than entering the new fetch stream.
+    pub fn drop_fetches(&mut self) {
+        self.outstanding_fetches.clear();
+        self.outstanding_walks.retain(|_, walk| {
+            !matches!(
+                walk.continuation,
+                crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
+            )
+        });
+        self.fetch_reorder.clear();
+        self.fetch_walk_pending = false;
+        self.fetch_resume_pc = None;
+        self.fetch_hold_until = 0;
+        self.next_emit_fetch_seq = self.next_fetch_seq;
+    }
+
     /// True while an instruction fetch is still waiting on the memory
     /// system: a fetch `MemReq` without its response, a completed fetch
     /// held in the reorder buffer behind an older one, or a fetch parked on
@@ -517,21 +535,8 @@ impl<E: ExecutionEngine> Pipeline<E> {
         self.frontend.flush();
         self.rename_output.clear();
         let common = self.engine.common_mut();
-        common.outstanding_fetches.clear();
-        common.outstanding_walks.retain(|_, walk| {
-            !matches!(
-                walk.continuation,
-                crate::core::pipeline::outstanding::WalkContinuation::Fetch { .. }
-            )
-        });
-        common.fetch_reorder.clear();
-        common.fetch_walk_pending = false;
-        common.fetch_resume_pc = None;
-        common.fetch_hold_until = 0;
+        common.drop_fetches();
         common.vector_config_unresolved = false;
-        // Straggler responses for pre-flush fetches are dropped rather than
-        // entering the post-flush fetch stream.
-        common.next_emit_fetch_seq = common.next_fetch_seq;
     }
 
     /// Flush the pipeline and write its committed stores to memory; fetch

@@ -14,6 +14,7 @@ use crate::core::pipeline::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
     VecSrcEncoding, VectorOp,
 };
+use crate::core::units::bru::ControlInst;
 use crate::core::units::vpu::types::{Sew, VRegIdx, VectorConfig};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::{Decoded, InstructionBits};
@@ -1377,9 +1378,10 @@ pub fn decode_stage(
     output: &mut Vec<IdExEntry>,
     has_register_renaming: bool,
     vector: VectorConfig,
-) -> bool {
+) -> DecodeOutcome {
     let mut consumed_count = 0;
     let mut ended_at_vsetvl = false;
+    let mut redirect = None;
     let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(state.config.pipeline.width);
 
     for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
@@ -1503,7 +1505,7 @@ pub fn decode_stage(
 
         let has_trap = trap.is_some();
 
-        output.push(IdExEntry {
+        let mut decoded = IdExEntry {
             pc: if_entry.pc,
             inst,
             inst_size: if_entry.inst_size,
@@ -1521,11 +1523,15 @@ pub fn decode_stage(
             pred_taken: if_entry.pred_taken,
             pred_target: if_entry.pred_target,
             seq: if_entry.seq,
-        });
+        };
+        if !has_trap {
+            redirect = check_fetch_prediction(state, &mut decoded);
+        }
+        output.push(decoded);
 
         consumed_count += 1;
 
-        if has_trap {
+        if has_trap || redirect.is_some() {
             break;
         }
         if ctrl.vec_op.is_config() {
@@ -1535,5 +1541,68 @@ pub fn decode_stage(
     }
 
     let _ = input.drain(..consumed_count);
-    ended_at_vsetvl
+    DecodeOutcome { ended_at_vsetvl, redirect }
+}
+
+/// What a cycle of decode found beyond the instructions it decoded.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DecodeOutcome {
+    /// Decode stopped after a `vsetvl`, whose result later instructions
+    /// are decoded under.
+    pub ended_at_vsetvl: bool,
+    /// Fetch went the wrong way after the last decoded instruction and must
+    /// restart here; what was fetched after it is discarded.
+    pub redirect: Option<u64>,
+}
+
+/// Checks the prediction fetch made for `entry` from the BTB alone against
+/// what the encoding shows, as a real front end's decode does, and returns
+/// where fetch must restart when the path it fetched is wrong: a control
+/// instruction the BTB missed is predicted here, a stale BTB target is
+/// corrected, and a BTB entry for an instruction that is not a control
+/// instruction is dropped.
+fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<u64> {
+    let size = entry.inst_size.as_u64();
+    let fallthrough = entry.pc.wrapping_add(size);
+    let fetched_next = if entry.pred_taken { entry.pred_target } else { fallthrough };
+    let control = ControlInst::from_encoding(entry.pc, size, entry.inst);
+    let predictor = &mut state.core_mut().branch_predictor;
+    let predicted_by_fetch = predictor.is_predicted(entry.seq);
+
+    let redirect = match (control, predicted_by_fetch) {
+        (None, false) => None,
+        (None, true) => {
+            predictor.forget(entry.seq, entry.pc);
+            entry.pred_taken = false;
+            entry.pred_target = 0;
+            Some(fallthrough)
+        }
+        (Some(control), true) => {
+            let direct_target = match control {
+                ControlInst::Branch { target } | ControlInst::Jump { target, .. } => Some(target),
+                ControlInst::IndirectJump { .. } => None,
+            };
+            let must_take = matches!(control, ControlInst::Jump { .. });
+            let fixed_target = direct_target.filter(|&target| {
+                (entry.pred_taken && entry.pred_target != target)
+                    || (must_take && !entry.pred_taken)
+            });
+            fixed_target.inspect(|&target| {
+                predictor.correct_target(entry.seq, target);
+                entry.pred_taken = true;
+                entry.pred_target = target;
+            })
+        }
+        (Some(control), false) => {
+            let (target, squashed_younger) = predictor.discover(entry.seq, entry.pc, control);
+            entry.pred_taken = target.is_some();
+            entry.pred_target = target.unwrap_or(0);
+            let next = target.unwrap_or(fallthrough);
+            (squashed_younger || next != fetched_next).then_some(next)
+        }
+    };
+    if redirect.is_some() {
+        state.counter(state.core().stat_paths.bp.decode_redirects).inc();
+    }
+    redirect
 }

@@ -26,20 +26,15 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::constants::{
-    COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE, OPCODE_MASK, RD_MASK, RD_SHIFT,
-    RS1_MASK, RS1_SHIFT,
-};
-use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, RegIdx, Trap, VirtAddr};
+use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
+use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, Trap, VirtAddr};
 use crate::common::{InstSeq, InstSize};
 use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::ControlInst;
-use crate::isa::abi;
-use crate::isa::decode::{decode_b_type_imm, decode_j_type_imm};
-use crate::isa::rv64i::opcodes;
+use crate::core::units::bru::btb::BranchKind;
 use crate::isa::rvc::expand::expand;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
@@ -138,46 +133,31 @@ struct ControlFlowPrediction {
     kind: Option<&'static str>,
 }
 
-/// Predicts an instruction's control flow from its encoding, the way a
-/// predecoded fetch line lets a real front end: a direct branch or jump
-/// takes its target from the immediate, a return pops the RAS, an indirect
-/// jump asks the BTB, and a call pushes its return address at once.
+/// Predicts where fetch goes after the instruction at `pc` from what the
+/// BTB records there, as a real front end does before the instruction is
+/// decoded: an instruction the BTB misses is fetched past as if it did not
+/// branch, and decode finds it. A BTB hit predicts the recorded kind of
+/// control instruction; a call pushes its return address at once.
 fn predict_control_flow(
     state: &mut StageCtx<'_>,
     seq: InstSeq,
     pc: u64,
     size: InstSize,
-    inst: u32,
 ) -> ControlFlowPrediction {
-    let opcode = inst & OPCODE_MASK;
-    let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
-    let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);
-    let rd_link = rd == abi::REG_RA || rd == abi::REG_T0;
-    let rs1_link = rs1 == abi::REG_RA || rs1 == abi::REG_T0;
-    let link = rd_link.then(|| pc.wrapping_add(size.as_u64()));
-    let (control, kind) = match opcode {
-        opcodes::OP_BRANCH => {
-            let target = pc.wrapping_add(decode_b_type_imm(inst) as u64);
-            (ControlInst::Branch { target }, "branch")
-        }
-        opcodes::OP_JAL => {
-            let target = pc.wrapping_add(decode_j_type_imm(inst) as u64);
-            (ControlInst::Jump { target, link }, if rd_link { "call" } else { "jump" })
-        }
-        opcodes::OP_JALR => {
-            let returns = rs1_link && (!rd_link || rd != rs1);
-            let kind = if returns {
-                "return"
-            } else if rd_link {
-                "indirect-call"
-            } else {
-                "indirect"
-            };
-            (ControlInst::IndirectJump { returns, link }, kind)
-        }
-        _ => return ControlFlowPrediction { target: None, stop: false, kind: None },
+    let predictor = &mut state.core_mut().branch_predictor;
+    let Some(hit) = predictor.btb_lookup(pc) else {
+        return ControlFlowPrediction { target: None, stop: false, kind: None };
     };
-    let target = state.core_mut().branch_predictor.predict(seq, pc, control);
+    let control = ControlInst::from_btb(hit, pc.wrapping_add(size.as_u64()));
+    let kind = match hit.kind {
+        BranchKind::Conditional => "branch",
+        BranchKind::Jump { call: true } => "call",
+        BranchKind::Jump { call: false } => "jump",
+        BranchKind::Indirect { returns: true, .. } => "return",
+        BranchKind::Indirect { call: true, .. } => "indirect-call",
+        BranchKind::Indirect { .. } => "indirect",
+    };
+    let target = predictor.predict(seq, pc, control);
     let stop = target.is_some() || !matches!(control, ControlInst::Branch { .. });
     ControlFlowPrediction { target, stop, kind: Some(kind) }
 }
@@ -490,7 +470,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             (upper_half as u32) << 16 | (half_word as u32)
         };
 
-        let prediction = predict_control_flow(state, seq, current_pc, step, full_inst);
+        let prediction = predict_control_flow(state, seq, current_pc, step);
         if let Some(target) = prediction.target {
             next_pc_calc = target;
             pred_taken = true;
