@@ -21,6 +21,20 @@ struct TageEntry {
 /// each entry's prediction bit clear and its hysteresis bit set.
 const BASE_WEAKLY_NOT_TAKEN: i8 = -1;
 
+/// Seed of the generator allocation draws from.
+const RANDOM_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// Moves `ctr` one step toward `up`, within `[min, max]`.
+const fn saturating_step(ctr: i8, up: bool, min: i8, max: i8) -> i8 {
+    if up {
+        if ctr < max { ctr + 1 } else { ctr }
+    } else if ctr > min {
+        ctr - 1
+    } else {
+        ctr
+    }
+}
+
 /// Branches the path history holds, as gem5's `pathHistBits`.
 const PATH_HISTORY_BITS: usize = 16;
 
@@ -54,6 +68,8 @@ pub struct TagePrediction {
     base_index: usize,
     /// Bank of the longest matching entry.
     provider: Option<usize>,
+    /// Bank of the next longest matching entry.
+    alt: Option<usize>,
     /// The longest match's prediction, or the base's without one.
     provider_taken: bool,
     /// The next longest match's prediction, or the base's without one.
@@ -89,8 +105,12 @@ pub struct TageCore {
     use_alt_on_na_ctr: i8,
     /// Low bit of each recent branch's `pc >> 2`, youngest in bit 0.
     path_history: u16,
-    clock_counter: u32,
-    reset_interval: u32,
+    /// Counts updates; the useful bits age each time it passes a multiple
+    /// of `reset_interval` (gem5's `tCounter`).
+    update_count: u64,
+    reset_interval: u64,
+    /// Chooses among the tables an allocation may start at.
+    random: u64,
 }
 
 impl TageCore {
@@ -131,8 +151,11 @@ impl TageCore {
             tables,
             use_alt_on_na_ctr: 0,
             path_history: 0,
-            clock_counter: 0,
-            reset_interval: config.reset_interval,
+            // Half a period in, as gem5's initialTCounterValue (2^17) is for
+            // its 2^18-update period.
+            update_count: u64::from(config.reset_interval / 2),
+            reset_interval: u64::from(config.reset_interval.max(1)),
+            random: RANDOM_SEED,
         }
     }
 
@@ -190,6 +213,7 @@ impl TageCore {
             tags,
             base_index,
             provider,
+            alt,
             provider_taken: provider_ctr >= 0,
             alt_taken: alt_ctr >= 0,
             provider_weak,
@@ -198,79 +222,104 @@ impl TageCore {
     }
 
     /// Trains the entries `prediction` read with the branch's outcome, and
-    /// allocates a longer-history entry when it was wrong.
+    /// allocates a longer-history entry when it was wrong, as
+    /// `TAGEBase::condBranchUpdate` does.
     pub fn update(&mut self, taken: bool, prediction: &TagePrediction) {
-        self.clock_counter += 1;
-        if self.clock_counter >= self.reset_interval {
-            self.clock_counter = 0;
-            for table in &mut self.tables {
-                for entry in table {
-                    entry.u >>= 1;
-                }
-            }
-        }
-
-        let TagePrediction { indices, tags, base_index, provider, .. } = *prediction;
-        let (prov_taken, alt_taken) = (prediction.provider_taken, prediction.alt_taken);
-        if prediction.provider_weak && prov_taken != alt_taken {
-            if alt_taken == taken {
-                self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr + 1).min(7);
-            } else {
-                self.use_alt_on_na_ctr = (self.use_alt_on_na_ctr - 1).max(-8);
-            }
-        }
         let num_banks = self.tables.len();
-        let provider_mispred = prov_taken != taken;
-        let tage_mispred = prediction.taken() != taken;
-
-        if let Some(bank) = provider {
-            let e = &mut self.tables[bank][indices[bank]];
-            if taken {
-                if e.ctr < 3 {
-                    e.ctr += 1;
-                }
-            } else if e.ctr > -4 {
-                e.ctr -= 1;
+        let mut allocate = prediction.taken() != taken
+            && prediction.provider.is_none_or(|bank| bank + 1 < num_banks);
+        if prediction.provider.is_some() && prediction.provider_weak {
+            // A new entry that was right needs no longer one.
+            if prediction.provider_taken == taken {
+                allocate = false;
             }
-            if !provider_mispred && (alt_taken != taken) && e.u < 3 {
-                e.u += 1;
-            }
-            if provider_mispred && e.u > 0 {
-                e.u -= 1;
-            }
-        } else {
-            let b = &mut self.base[base_index];
-            if taken {
-                if *b < 1 {
-                    *b += 1;
-                }
-            } else if *b > -2 {
-                *b -= 1;
+            if prediction.provider_taken != prediction.alt_taken {
+                let alt_right = prediction.alt_taken == taken;
+                self.use_alt_on_na_ctr = saturating_step(self.use_alt_on_na_ctr, alt_right, -8, 7);
             }
         }
+        let choice = self.next_random();
+        if allocate {
+            self.allocate(taken, prediction, choice);
+        }
+        self.age_useful_bits();
+        self.train(taken, prediction);
+    }
 
-        if tage_mispred {
-            let start_bank = provider.map_or(0, |bank| bank + 1);
-            if start_bank < num_banks {
-                let mut allocated = false;
-                for bank in start_bank..num_banks {
-                    let e = &mut self.tables[bank][indices[bank]];
-                    if e.u == 0 {
-                        e.tag = tags[bank];
-                        e.ctr = if taken { 0 } else { -1 };
-                        e.u = 1;
-                        allocated = true;
-                        break;
-                    }
-                }
-                if !allocated {
-                    let banks = self.tables[start_bank..].iter_mut();
-                    for (table, &index) in banks.zip(&indices[start_bank..num_banks]) {
-                        table[index].u = table[index].u.saturating_sub(1);
-                    }
-                }
+    /// Takes one entry in a table longer than the provider's for the
+    /// branch, as `TAGEBase::handleAllocAndUReset` does: it starts at one
+    /// of the next three tables, chosen at random so entries do not
+    /// ping-pong, and when none from there is free it frees that one.
+    fn allocate(&mut self, taken: bool, prediction: &TagePrediction, choice: u64) {
+        let num_banks = self.tables.len();
+        let TagePrediction { indices, tags, .. } = *prediction;
+        let first = prediction.provider.map_or(0, |bank| bank + 1);
+        let free = |table: &Vec<TageEntry>, bank: usize| table[indices[bank]].u == 0;
+        let any_free = (first..num_banks).any(|bank| free(&self.tables[bank], bank));
+        let skips = choice & ((1 << (num_banks - first - 1)) - 1);
+        let start = first + usize::from(skips & 1 != 0) + usize::from(skips & 0b11 == 0b11);
+        if !any_free {
+            self.tables[start][indices[start]].u = 0;
+        }
+        if let Some(bank) = (start..num_banks).find(|&bank| free(&self.tables[bank], bank)) {
+            let entry = &mut self.tables[bank][indices[bank]];
+            entry.tag = tags[bank];
+            entry.ctr = if taken { 0 } else { -1 };
+        }
+    }
+
+    /// Halves every useful bit once per `reset_interval` updates.
+    fn age_useful_bits(&mut self) {
+        self.update_count += 1;
+        if self.update_count.is_multiple_of(self.reset_interval) {
+            for entry in self.tables.iter_mut().flatten() {
+                entry.u >>= 1;
             }
         }
+    }
+
+    /// Trains the provider, and the alternate too while the provider has
+    /// not proved useful, as `TAGEBase::handleTAGEUpdate` does.
+    fn train(&mut self, taken: bool, prediction: &TagePrediction) {
+        let TagePrediction { indices, base_index, provider, alt, .. } = *prediction;
+        let Some(bank) = provider else {
+            self.train_base(base_index, taken);
+            return;
+        };
+        let entry = &mut self.tables[bank][indices[bank]];
+        entry.ctr = saturating_step(entry.ctr, taken, -4, 3);
+        if entry.u == 0 {
+            match alt {
+                Some(alt) => {
+                    let alt_entry = &mut self.tables[alt][indices[alt]];
+                    alt_entry.ctr = saturating_step(alt_entry.ctr, taken, -4, 3);
+                }
+                None => self.train_base(base_index, taken),
+            }
+        }
+        if prediction.taken() != prediction.alt_taken {
+            let entry = &mut self.tables[bank][indices[bank]];
+            entry.u = if prediction.taken() == taken {
+                (entry.u + 1).min(3)
+            } else {
+                entry.u.saturating_sub(1)
+            };
+        }
+    }
+
+    fn train_base(&mut self, index: usize, taken: bool) {
+        self.base[index] = saturating_step(self.base[index], taken, -2, 1);
+    }
+
+    /// The next value of a xorshift generator: gem5 draws from a Mersenne
+    /// twister, and a fixed seed keeps runs reproducible.
+    const fn next_random(&mut self) -> u64 {
+        let mut x = self.random;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.random = x;
+        x
     }
 
     /// The index of `pc` in tagged `bank` (0-based), as `TAGEBase::gindex`
@@ -420,6 +469,84 @@ mod tests {
         let other_path = tage.predict(pc);
 
         assert_ne!(one_path.indices, other_path.indices);
+    }
+
+    /// A prediction that read entry `bank * 16` in every table, with the
+    /// given provider, alternate and predictions.
+    fn prediction(
+        provider: Option<usize>,
+        alt: Option<usize>,
+        provider_taken: bool,
+        alt_taken: bool,
+        taken: bool,
+    ) -> TagePrediction {
+        let mut indices = [0usize; MAX_BANKS];
+        let mut tags = [0u16; MAX_BANKS];
+        for bank in 0..4 {
+            indices[bank] = bank * 16;
+            tags[bank] = 0x55 + bank as u16;
+        }
+        TagePrediction {
+            indices,
+            tags,
+            base_index: 0,
+            provider,
+            alt,
+            provider_taken,
+            alt_taken,
+            provider_weak: true,
+            meta: TageScMeta {
+                conf: TageConfLevel::None,
+                provider_bank: provider.map_or(0, |bank| bank + 1),
+                alt_bank_present: alt.is_some(),
+                pred_taken: taken,
+                pred_ctr: 0,
+            },
+        }
+    }
+
+    fn allocated_banks(tage: &TageCore, prediction: &TagePrediction) -> Vec<usize> {
+        (0..4)
+            .filter(|&bank| {
+                tage.tables[bank][prediction.indices[bank]].tag == prediction.tags[bank]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_mispredict_with_no_free_entry_frees_one_of_the_next_three_tables() {
+        let mut tage = TageCore::new(&test_config());
+        let wrong = prediction(None, None, true, true, true);
+        for bank in 0..4 {
+            tage.tables[bank][wrong.indices[bank]].u = 3;
+        }
+
+        tage.update(false, &wrong);
+
+        let taken = allocated_banks(&tage, &wrong);
+        assert_eq!(taken.len(), 1, "one entry allocated");
+        assert!(taken[0] <= 2, "among the next three tables, got {}", taken[0]);
+    }
+
+    #[test]
+    fn a_weak_new_entry_that_was_right_allocates_nothing() {
+        let mut tage = TageCore::new(&test_config());
+        // The alternate overrode a new provider that was right.
+        let overridden = prediction(Some(0), None, false, true, true);
+
+        tage.update(false, &overridden);
+
+        assert!(allocated_banks(&tage, &overridden).is_empty());
+    }
+
+    #[test]
+    fn the_alternate_trains_while_the_provider_has_not_proved_useful() {
+        let mut tage = TageCore::new(&test_config());
+        let p = prediction(Some(1), Some(0), true, true, true);
+
+        tage.update(false, &p);
+
+        assert_eq!(tage.tables[0][p.indices[0]].ctr, -1, "the alternate moved toward not taken");
     }
 
     #[test]
