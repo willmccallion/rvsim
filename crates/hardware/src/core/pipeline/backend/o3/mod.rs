@@ -273,7 +273,10 @@ impl O3Engine {
         match squash.redirect.cause {
             SquashCause::Branch => state.shared.stats.counter(paths.flushes_branch).inc(),
             SquashCause::System => state.shared.stats.counter(paths.flushes_system).inc(),
-            SquashCause::MemoryOrder | SquashCause::Coherence => {}
+            SquashCause::MemoryOrder => {
+                state.shared.stats.counter(paths.flushes_mem_violations).inc();
+            }
+            SquashCause::Coherence => {}
         }
 
         self.serialization.squash(|tag| squash.squashes(tag));
@@ -600,11 +603,6 @@ impl ExecutionEngine for O3Engine {
             let violation_pc = self.rob.find_entry(violating_tag).map_or(state.hart.pc, |e| e.pc);
             let cause = if let Some(store_pc) = store_pc {
                 self.mdp.violation(violation_pc, store_pc);
-                state
-                    .shared
-                    .stats
-                    .counter(state.core.stat_paths.pipeline.flushes_mem_violations)
-                    .inc();
                 SquashCause::MemoryOrder
             } else {
                 state.shared.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();

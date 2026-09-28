@@ -32,6 +32,7 @@ pub mod misaligned_target;
 pub mod mmio_loads;
 pub mod multicore;
 pub mod page_crossing;
+pub mod pipeline_stats;
 pub mod squash_history;
 pub mod stage_widths;
 pub mod store_completion;
