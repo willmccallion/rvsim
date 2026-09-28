@@ -1606,6 +1606,54 @@ pub struct TageConfig {
     /// Width of each `USE_ALT_ON_NA` counter.
     #[serde(default = "TageConfig::default_use_alt_bits")]
     pub use_alt_bits: u32,
+
+    /// Width of each tagged entry's useful counter.
+    #[serde(default = "TageConfig::default_useful_bits")]
+    pub useful_bits: u32,
+
+    /// Most entries one misprediction allocates.
+    #[serde(default = "TageConfig::default_max_allocations")]
+    pub max_allocations: usize,
+
+    /// How a misprediction takes new entries and how useful bits age.
+    #[serde(default)]
+    pub allocation: TageAllocation,
+
+    /// Which entries a committed branch trains.
+    #[serde(default)]
+    pub update: TageUpdate,
+}
+
+/// How TAGE allocates entries for a misprediction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TageAllocation {
+    /// `TAGEBase`: free entries from one of the next three tables up,
+    /// forcing one free when none is; useful bits halve every
+    /// `reset_interval` updates.
+    #[default]
+    TageBase,
+    /// CBP-5 TAGE-SC-L: pairs of tables from a randomised start, decaying
+    /// strong unuseful entries it passes; useful bits halve once the
+    /// allocations that found no free entry outweigh those that did by
+    /// `reset_interval`. A branch the final prediction got right allocates
+    /// one time in 32.
+    Cbp5,
+}
+
+/// Which entries TAGE trains on a committed branch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TageUpdate {
+    /// `TAGEBase`: the provider, the alternate while the provider is not
+    /// useful, and the provider's useful bit when it and the alternate
+    /// disagree.
+    #[default]
+    TageBase,
+    /// CBP-5 TAGE-SC-L: the alternate only when a weak provider is wrong;
+    /// a provider turning weak, or right beside a saturated right
+    /// alternate, loses its useful bit.
+    Cbp5,
 }
 
 impl Default for TageConfig {
@@ -1618,6 +1666,10 @@ impl Default for TageConfig {
             tag_widths: Self::default_tag_widths(),
             use_alt_counters: Self::default_use_alt_counters(),
             use_alt_bits: Self::default_use_alt_bits(),
+            useful_bits: Self::default_useful_bits(),
+            max_allocations: Self::default_max_allocations(),
+            allocation: TageAllocation::default(),
+            update: TageUpdate::default(),
         }
     }
 }
@@ -1658,6 +1710,14 @@ impl TageConfig {
 
     const fn default_use_alt_bits() -> u32 {
         4
+    }
+
+    const fn default_useful_bits() -> u32 {
+        2
+    }
+
+    const fn default_max_allocations() -> usize {
+        1
     }
 }
 
@@ -2355,6 +2415,16 @@ pub enum ConfigError {
     /// 64 bytes, the widest access within the smallest allowed line.
     #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
     VectorMemWidth(usize),
+    /// Useful counters must fit a `u8` and allocations must take an entry.
+    #[error(
+        "tage useful_bits {useful_bits} must be in 1..=8 and max_allocations {max_allocations} at least 1"
+    )]
+    TageAllocation {
+        /// Configured useful counter width.
+        useful_bits: u32,
+        /// Configured allocations per misprediction.
+        max_allocations: usize,
+    },
     /// `USE_ALT_ON_NA` counters must exist and fit an `i8`.
     #[error("tage use_alt_counters {counters} must be at least 1 and use_alt_bits {bits} in 2..=8")]
     TageUseAlt {
@@ -2438,6 +2508,12 @@ impl Config {
             return Err(ConfigError::TageUseAlt {
                 counters: tage.use_alt_counters,
                 bits: tage.use_alt_bits,
+            });
+        }
+        if !(1..=8).contains(&tage.useful_bits) || tage.max_allocations == 0 {
+            return Err(ConfigError::TageAllocation {
+                useful_bits: tage.useful_bits,
+                max_allocations: tage.max_allocations,
             });
         }
         self.pipeline.sc.validate()?;

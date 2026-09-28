@@ -6,7 +6,7 @@
 
 use super::sc_types::{TageConfLevel, TageScMeta};
 use super::tagged_bank::{GeoBankSet, MAX_BANKS};
-use crate::config::TageConfig;
+use crate::config::{TageAllocation, TageConfig, TageUpdate};
 use crate::core::units::bru::Ghr;
 
 /// An entry in a TAGE tagged bank.
@@ -20,6 +20,10 @@ struct TageEntry {
 /// The bimodal's starting counter, weakly not taken: `TAGEBase` starts
 /// each entry's prediction bit clear and its hysteresis bit set.
 const BASE_WEAKLY_NOT_TAKEN: i8 = -1;
+
+/// The 3-bit tagged counter range.
+const TAGGED_MIN: i8 = -4;
+const TAGGED_MAX: i8 = 3;
 
 /// The bimodal's 2-bit counter range.
 const BASE_MIN: i8 = -2;
@@ -129,10 +133,15 @@ pub struct TageCore {
     use_alt_bits: u32,
     /// Low bit of each recent branch's `pc >> 2`, youngest in bit 0.
     path_history: u16,
-    /// Counts updates; the useful bits age each time it passes a multiple
-    /// of `reset_interval` (gem5's `tCounter`).
-    update_count: u64,
-    reset_interval: u64,
+    /// gem5's `tCounter`: counts updates under `TAGEBase` allocation, or
+    /// allocations that found no free entry less those that did under
+    /// CBP-5; the useful bits age as it reaches `reset_interval`.
+    useful_reset_counter: i64,
+    reset_interval: i64,
+    useful_max: u8,
+    max_allocations: usize,
+    allocation: TageAllocation,
+    update: TageUpdate,
     /// Chooses among the tables an allocation may start at.
     random: u64,
 }
@@ -176,10 +185,13 @@ impl TageCore {
             use_alt_on_na: vec![0; config.use_alt_counters.max(1)],
             use_alt_bits: config.use_alt_bits,
             path_history: 0,
-            // Half a period in, as gem5's initialTCounterValue (2^17) is for
-            // its 2^18-update period.
-            update_count: u64::from(config.reset_interval / 2),
-            reset_interval: u64::from(config.reset_interval.max(1)),
+            // Half a period in, as gem5's initialTCounterValue is.
+            useful_reset_counter: i64::from(config.reset_interval / 2),
+            reset_interval: i64::from(config.reset_interval.max(1)),
+            useful_max: ((1u32 << config.useful_bits) - 1) as u8,
+            max_allocations: config.max_allocations,
+            allocation: config.allocation,
+            update: config.update,
             random: RANDOM_SEED,
         }
     }
@@ -271,9 +283,10 @@ impl TageCore {
     }
 
     /// Trains the entries `prediction` read with the branch's outcome, and
-    /// allocates a longer-history entry when it was wrong, as
-    /// `TAGEBase::condBranchUpdate` does.
-    pub fn update(&mut self, taken: bool, prediction: &TagePrediction) {
+    /// allocates longer-history entries when it was wrong, as
+    /// `TAGEBase::condBranchUpdate` does. `final_taken` is the prediction
+    /// fetch followed, which the CBP-5 allocation also weighs.
+    pub fn update(&mut self, taken: bool, prediction: &TagePrediction, final_taken: bool) {
         let num_banks = self.tables.len();
         let mut allocate = prediction.taken() != taken
             && prediction.provider.is_none_or(|bank| bank + 1 < num_banks);
@@ -289,19 +302,34 @@ impl TageCore {
                 *ctr = saturating_step(*ctr, alt_right, min, max);
             }
         }
-        let choice = self.next_random();
-        if allocate {
-            self.allocate(taken, prediction, choice);
+        match self.allocation {
+            TageAllocation::TageBase => {
+                let choice = self.next_random();
+                if allocate {
+                    self.allocate_after_provider(taken, prediction, choice);
+                }
+                self.age_useful_bits_periodically();
+            }
+            TageAllocation::Cbp5 => {
+                if allocate && final_taken == taken && self.next_random() & 31 != 0 {
+                    allocate = false;
+                }
+                if allocate {
+                    self.allocate_in_pairs(taken, prediction);
+                }
+            }
         }
-        self.age_useful_bits();
-        self.train(taken, prediction);
+        match self.update {
+            TageUpdate::TageBase => self.train(taken, prediction),
+            TageUpdate::Cbp5 => self.train_cbp5(taken, prediction),
+        }
     }
 
-    /// Takes one entry in a table longer than the provider's for the
-    /// branch, as `TAGEBase::handleAllocAndUReset` does: it starts at one
-    /// of the next three tables, chosen at random so entries do not
-    /// ping-pong, and when none from there is free it frees that one.
-    fn allocate(&mut self, taken: bool, prediction: &TagePrediction, choice: u64) {
+    /// Takes free entries in tables longer than the provider's, as
+    /// `TAGEBase::handleAllocAndUReset` does: it starts at one of the next
+    /// three tables, chosen at random so entries do not ping-pong, and when
+    /// none from there is free it frees that one.
+    fn allocate_after_provider(&mut self, taken: bool, prediction: &TagePrediction, choice: u64) {
         let num_banks = self.tables.len();
         let TagePrediction { indices, tags, .. } = *prediction;
         let first = prediction.provider.map_or(0, |bank| bank + 1);
@@ -312,20 +340,75 @@ impl TageCore {
         if !any_free {
             self.tables[start][indices[start]].u = 0;
         }
-        if let Some(bank) = (start..num_banks).find(|&bank| free(&self.tables[bank], bank)) {
+        let mut allocated = 0;
+        for bank in start..num_banks {
+            if allocated == self.max_allocations {
+                break;
+            }
             let entry = &mut self.tables[bank][indices[bank]];
-            entry.tag = tags[bank];
-            entry.ctr = if taken { 0 } else { -1 };
+            if entry.u == 0 {
+                entry.tag = tags[bank];
+                entry.ctr = if taken { 0 } else { -1 };
+                allocated += 1;
+            }
         }
     }
 
-    /// Halves every useful bit once per `reset_interval` updates.
-    fn age_useful_bits(&mut self) {
-        self.update_count += 1;
-        if self.update_count.is_multiple_of(self.reset_interval) {
-            for entry in self.tables.iter_mut().flatten() {
-                entry.u >>= 1;
+    /// Halves every useful counter once per `reset_interval` updates.
+    fn age_useful_bits_periodically(&mut self) {
+        self.useful_reset_counter += 1;
+        if self.useful_reset_counter % self.reset_interval == 0 {
+            self.halve_useful_bits();
+        }
+    }
+
+    fn halve_useful_bits(&mut self) {
+        for entry in self.tables.iter_mut().flatten() {
+            entry.u >>= 1;
+        }
+    }
+
+    /// CBP-5's allocation (`TAGE_SC_L_TAGE_64KB::handleAllocAndUReset`):
+    /// walks the tables above the provider two at a time from a start one
+    /// or (one time in four) two pairs up, taking an unuseful entry that is
+    /// not strongly biased and skipping the next pair after each, and
+    /// decaying the strong ones it passes. Useful entries in the way count
+    /// against it; once they outweigh the allocations by `reset_interval`,
+    /// every useful counter halves.
+    fn allocate_in_pairs(&mut self, taken: bool, prediction: &TagePrediction) {
+        let num_banks = self.tables.len();
+        let TagePrediction { indices, tags, .. } = *prediction;
+        let provider = prediction.provider.map_or(0, |bank| bank + 1);
+        let pairs_up = if self.next_random() & 127 < 32 { 2 } else { 1 };
+        let mut pair = ((provider + 2 * pairs_up - 1) & !1) ^ (self.next_random() & 1) as usize;
+        let (mut penalty, mut allocated) = (0i64, 0usize);
+        while pair < num_banks && allocated < self.max_allocations {
+            for bank in [pair, pair ^ 1] {
+                if bank >= num_banks {
+                    continue;
+                }
+                let entry = &mut self.tables[bank][indices[bank]];
+                if entry.u != 0 {
+                    penalty += 1;
+                } else if centred_magnitude(entry.ctr) <= 3 {
+                    entry.tag = tags[bank];
+                    entry.ctr = if taken { 0 } else { -1 };
+                    allocated += 1;
+                    pair += 2;
+                    break;
+                } else if entry.ctr > 0 {
+                    entry.ctr -= 1;
+                } else {
+                    entry.ctr += 1;
+                }
             }
+            pair += 2;
+        }
+        self.useful_reset_counter =
+            (self.useful_reset_counter + penalty - 2 * allocated as i64).max(0);
+        if self.useful_reset_counter >= self.reset_interval {
+            self.halve_useful_bits();
+            self.useful_reset_counter = 0;
         }
     }
 
@@ -338,23 +421,63 @@ impl TageCore {
             return;
         };
         let entry = &mut self.tables[bank][indices[bank]];
-        entry.ctr = saturating_step(entry.ctr, taken, -4, 3);
+        entry.ctr = saturating_step(entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
         if entry.u == 0 {
             match alt {
                 Some(alt) => {
                     let alt_entry = &mut self.tables[alt][indices[alt]];
-                    alt_entry.ctr = saturating_step(alt_entry.ctr, taken, -4, 3);
+                    alt_entry.ctr = saturating_step(alt_entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
                 }
                 None => self.train_base(base_index, taken),
             }
         }
         if prediction.taken() != prediction.alt_taken {
+            let useful_max = self.useful_max;
             let entry = &mut self.tables[bank][indices[bank]];
             entry.u = if prediction.taken() == taken {
-                (entry.u + 1).min(3)
+                (entry.u + 1).min(useful_max)
             } else {
                 entry.u.saturating_sub(1)
             };
+        }
+    }
+
+    /// CBP-5's training (`TAGE_SC_L_TAGE_64KB::handleTAGEUpdate`): the
+    /// alternate learns only when a weak provider is wrong; a provider
+    /// that turns weak, or that was right beside a saturated right
+    /// alternate, loses its usefulness, which it gains by being right
+    /// where the alternate was wrong.
+    fn train_cbp5(&mut self, taken: bool, prediction: &TagePrediction) {
+        let TagePrediction {
+            indices, base_index, provider, alt, provider_taken, alt_taken, ..
+        } = *prediction;
+        let Some(bank) = provider else {
+            self.train_base(base_index, taken);
+            return;
+        };
+        let weak = centred_magnitude(self.tables[bank][indices[bank]].ctr) == 1;
+        if weak && provider_taken != taken {
+            match alt {
+                Some(alt) => {
+                    let alt_entry = &mut self.tables[alt][indices[alt]];
+                    alt_entry.ctr = saturating_step(alt_entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
+                }
+                None => self.train_base(base_index, taken),
+            }
+        }
+        let alt_saturated =
+            alt.is_some_and(|alt| centred_magnitude(self.tables[alt][indices[alt]].ctr) == 7);
+        let useful_max = self.useful_max;
+        let entry = &mut self.tables[bank][indices[bank]];
+        entry.ctr = saturating_step(entry.ctr, taken, TAGGED_MIN, TAGGED_MAX);
+        if centred_magnitude(entry.ctr) == 1 {
+            entry.u = 0;
+        }
+        if alt_taken == taken && alt_saturated && entry.u == 1 && provider_taken == taken {
+            entry.u = 0;
+        }
+        if provider_taken != alt_taken && provider_taken == taken && entry.u < useful_max {
+            entry.u += 1;
         }
     }
 
@@ -494,7 +617,7 @@ mod tests {
                 tage.speculate(0x8000_0000, true, &ghr);
                 ghr.push(true);
             }
-            tage.update(false, &prediction);
+            tage.update(false, &prediction, prediction.taken());
         }
         tage.repair(&at_prediction, 0);
 
@@ -522,7 +645,7 @@ mod tests {
         assert_ne!(one_path.indices, other_path.indices);
     }
 
-    /// A prediction that read entry `bank * 16` in every table, with the
+    /// A prediction that read entry `bank * 16` in every bank, with the
     /// given provider, alternate and predictions.
     fn prediction(
         provider: Option<usize>,
@@ -533,7 +656,7 @@ mod tests {
     ) -> TagePrediction {
         let mut indices = [0usize; MAX_BANKS];
         let mut tags = [0u16; MAX_BANKS];
-        for bank in 0..4 {
+        for bank in 0..MAX_BANKS {
             indices[bank] = bank * 16;
             tags[bank] = 0x55 + bank as u16;
         }
@@ -558,7 +681,7 @@ mod tests {
     }
 
     fn allocated_banks(tage: &TageCore, prediction: &TagePrediction) -> Vec<usize> {
-        (0..4)
+        (0..tage.tables.len())
             .filter(|&bank| {
                 tage.tables[bank][prediction.indices[bank]].tag == prediction.tags[bank]
             })
@@ -573,7 +696,7 @@ mod tests {
             tage.tables[bank][wrong.indices[bank]].u = 3;
         }
 
-        tage.update(false, &wrong);
+        tage.update(false, &wrong, wrong.taken());
 
         let taken = allocated_banks(&tage, &wrong);
         assert_eq!(taken.len(), 1, "one entry allocated");
@@ -586,7 +709,7 @@ mod tests {
         // The alternate overrode a new provider that was right.
         let overridden = prediction(Some(0), None, false, true, true);
 
-        tage.update(false, &overridden);
+        tage.update(false, &overridden, overridden.taken());
 
         assert!(allocated_banks(&tage, &overridden).is_empty());
     }
@@ -596,7 +719,7 @@ mod tests {
         let mut tage = TageCore::new(&test_config());
         let p = prediction(Some(1), Some(0), true, true, true);
 
-        tage.update(false, &p);
+        tage.update(false, &p, p.taken());
 
         assert_eq!(tage.tables[0][p.indices[0]].ctr, -1, "the alternate moved toward not taken");
     }
@@ -610,7 +733,7 @@ mod tests {
         // Train not-taken heavily.
         for _ in 0..50 {
             let prediction = tage.predict(pc);
-            tage.update(false, &prediction);
+            tage.update(false, &prediction, prediction.taken());
         }
 
         assert!(!tage.predict(pc).taken(), "Should predict not-taken after heavy training");
@@ -642,5 +765,87 @@ mod tests {
         let tage = TageCore::new(&test_config());
 
         assert_eq!(tage.use_alt_index(Some(3), true), 0);
+    }
+
+    fn cbp5_config() -> TageConfig {
+        TageConfig {
+            num_banks: 8,
+            table_size: 256,
+            history_lengths: vec![4, 6, 10, 16, 25, 40, 64, 100],
+            tag_widths: vec![9; 8],
+            useful_bits: 1,
+            max_allocations: 2,
+            allocation: TageAllocation::Cbp5,
+            update: TageUpdate::Cbp5,
+            ..TageConfig::default()
+        }
+    }
+
+    #[test]
+    fn cbp5_allocates_up_to_max_allocations_skipping_a_pair_after_each() {
+        let mut tage = TageCore::new(&cbp5_config());
+        let wrong = prediction(None, None, true, true, true);
+
+        tage.update(false, &wrong, true);
+
+        let taken = allocated_banks(&tage, &wrong);
+        assert_eq!(taken.len(), 2, "allocated {taken:?}");
+        assert!(taken[1] - taken[0] >= 3, "a pair skipped between {taken:?}");
+    }
+
+    #[test]
+    fn cbp5_allocates_rarely_when_the_final_prediction_was_right() {
+        let mut tage = TageCore::new(&cbp5_config());
+        let tage_wrong = prediction(None, None, true, true, true);
+        let mut allocations = 0;
+
+        for _ in 0..320 {
+            tage.update(false, &tage_wrong, false);
+            for bank in allocated_banks(&tage, &tage_wrong) {
+                tage.tables[bank][tage_wrong.indices[bank]].tag = 0;
+                allocations += 1;
+            }
+        }
+
+        assert!((1..=40).contains(&allocations), "{allocations} allocations in 320");
+    }
+
+    #[test]
+    fn cbp5_decays_a_strong_unuseful_entry_instead_of_replacing_it() {
+        let mut tage = TageCore::new(&cbp5_config());
+        let wrong = prediction(None, None, true, true, true);
+        for bank in 0..8 {
+            tage.tables[bank][wrong.indices[bank]].ctr = 3;
+        }
+
+        tage.update(false, &wrong, true);
+
+        assert!(allocated_banks(&tage, &wrong).is_empty());
+        let ctrs: Vec<i8> = (0..8).map(|bank| tage.tables[bank][wrong.indices[bank]].ctr).collect();
+        assert!(ctrs.contains(&2) && ctrs.iter().all(|&ctr| ctr >= 2), "{ctrs:?}");
+    }
+
+    #[test]
+    fn cbp5_a_provider_turning_weak_loses_its_usefulness() {
+        let mut tage = TageCore::new(&cbp5_config());
+        let p = prediction(Some(1), Some(0), true, true, true);
+        let provider = &mut tage.tables[1][p.indices[1]];
+        provider.ctr = 1;
+        provider.u = 1;
+
+        tage.update(false, &p, true);
+
+        assert_eq!(tage.tables[1][p.indices[1]].u, 0);
+    }
+
+    #[test]
+    fn cbp5_a_strong_provider_that_was_wrong_leaves_the_alternate_alone() {
+        let mut tage = TageCore::new(&cbp5_config());
+        let p = prediction(Some(1), Some(0), true, true, true);
+        tage.tables[1][p.indices[1]].ctr = 3;
+
+        tage.update(false, &p, true);
+
+        assert_eq!(tage.tables[0][p.indices[0]].ctr, 0);
     }
 }

@@ -68,6 +68,16 @@ def _parse_cycles(s) -> int:
 _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 
 
+_TAGE_RULES = ("tage_base", "cbp5")
+
+
+def _tage_rule(rule: str, name: str) -> str:
+    """Check a TAGE ``allocation`` or ``update`` rule name."""
+    if rule not in _TAGE_RULES:
+        raise ValueError(f"TAGE {name} must be one of {_TAGE_RULES}, got {rule!r}")
+    return rule
+
+
 def _validate_history_lengths(lengths: List[int], name: str) -> None:
     """Validate that no history length exceeds the GHR capacity."""
     max_len = max(lengths) if lengths else 0
@@ -100,10 +110,18 @@ class BranchPredictor:
             tag_widths: Optional[List[int]] = None,
             use_alt_counters: int = 1,
             use_alt_bits: int = 4,
+            useful_bits: int = 2,
+            max_allocations: int = 1,
+            allocation: str = "tage_base",
+            update: str = "tage_base",
         ):
             self.num_banks = num_banks
             self.use_alt_counters = use_alt_counters
             self.use_alt_bits = use_alt_bits
+            self.useful_bits = useful_bits
+            self.max_allocations = max_allocations
+            self.allocation = _tage_rule(allocation, "allocation")
+            self.update = _tage_rule(update, "update")
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
@@ -225,7 +243,9 @@ class BranchPredictor:
         and Indirect Target TAGE into a single high-accuracy predictor.
 
         The TAGE parameters are shared with the standalone TAGE config;
-        the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``).
+        the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``,
+        CBP-5 ``allocation`` and ``update`` with 1-bit useful counters, two
+        allocations, and a ``reset_interval`` of 1024 allocation penalties).
         The loop predictor, SC and ITTAGE have their own sub-configs; the
         loop predictor and SC defaults are Seznec's 64KB TAGE-SC-L (CBP-5).
         The SC's GEHL components are ``BranchPredictor.ScGehl`` and
@@ -237,11 +257,15 @@ class BranchPredictor:
             # TAGE parameters
             num_banks: int = 8,
             table_size: int = 2048,
-            reset_interval: int = 256_000,
+            reset_interval: int = 1024,
             history_lengths: Optional[List[int]] = None,
             tag_widths: Optional[List[int]] = None,
             use_alt_counters: int = 16,
             use_alt_bits: int = 5,
+            useful_bits: int = 1,
+            max_allocations: int = 2,
+            allocation: str = "cbp5",
+            update: str = "cbp5",
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -298,6 +322,10 @@ class BranchPredictor:
             )
             self.use_alt_counters = use_alt_counters
             self.use_alt_bits = use_alt_bits
+            self.useful_bits = useful_bits
+            self.max_allocations = max_allocations
+            self.allocation = _tage_rule(allocation, "allocation")
+            self.update = _tage_rule(update, "update")
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
             self.loop_tag_bits = loop_tag_bits

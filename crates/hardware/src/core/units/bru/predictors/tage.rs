@@ -86,7 +86,7 @@ impl DirectionPredictor for TagePredictor {
         if retired.class == BranchClass::Conditional
             && let Some(prediction) = &history.prediction
         {
-            self.tage.update(retired.taken, prediction);
+            self.tage.update(retired.taken, prediction, prediction.taken());
         }
     }
 }

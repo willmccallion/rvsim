@@ -115,7 +115,7 @@ BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
     # TAGE parameters
     num_banks=8,
     table_size=2048,
-    reset_interval=256_000,
+    reset_interval=1024,  # CBP-5: allocation penalties before useful bits halve
     history_lengths=[5, 15, 44, 130, 380, 1024, 2048, 4096],
     tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
     # Loop predictor (2^log_size entries, 2^log_assoc ways)

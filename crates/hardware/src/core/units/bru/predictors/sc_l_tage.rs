@@ -111,7 +111,7 @@ impl ScLTagePredictor {
     fn train_direction(&mut self, pc: u64, taken: bool, prediction: &ConditionalPrediction) {
         self.sc.update(&prediction.sc, taken);
         self.loop_pred.commit(pc, taken, prediction.tage.taken(), prediction.sc.taken());
-        self.tage.update(taken, &prediction.tage);
+        self.tage.update(taken, &prediction.tage, prediction.sc.taken());
     }
 }
 

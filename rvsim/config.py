@@ -321,6 +321,10 @@ def _bp_sub_dict(bp) -> dict:
             "tag_widths": bp.tag_widths,
             "use_alt_counters": bp.use_alt_counters,
             "use_alt_bits": bp.use_alt_bits,
+            "useful_bits": bp.useful_bits,
+            "max_allocations": bp.max_allocations,
+            "allocation": bp.allocation,
+            "update": bp.update,
         }
     if isinstance(bp, BranchPredictor.Perceptron):
         return {
@@ -690,6 +694,10 @@ _TAGE_DEFAULTS = {
     "tag_widths": [8, 8, 9, 9, 10, 10, 11, 11],
     "use_alt_counters": 1,
     "use_alt_bits": 4,
+    "useful_bits": 2,
+    "max_allocations": 1,
+    "allocation": "tage_base",
+    "update": "tage_base",
 }
 
 _PERCEPTRON_DEFAULTS = {
