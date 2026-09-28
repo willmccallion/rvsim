@@ -96,7 +96,7 @@ impl DirectionPredictor for PerceptronPredictor {
     type History = PerceptronHistory;
 
     /// Predicts taken when the perceptron output (dot product) is non-negative.
-    fn lookup(&self, pc: u64) -> (bool, PerceptronHistory) {
+    fn lookup(&self, pc: u64, _target: u64) -> (bool, PerceptronHistory) {
         let output = self.output(self.index(pc, self.ghr), self.ghr);
         (output >= 0, PerceptronHistory { ghr: self.ghr, output })
     }
@@ -154,7 +154,7 @@ mod tests {
         let mut bp =
             PerceptronPredictor::new(&PerceptronConfig { history_length: 8, table_bits: 6 });
         let pc = 0x1000;
-        let (_, history) = bp.lookup(pc);
+        let (_, history) = bp.lookup(pc, 0);
         let base = bp.index(pc, 0) * bp.row_size;
         bp.table[base] = 50;
         for weight in &mut bp.table[base + 1..base + bp.row_size] {

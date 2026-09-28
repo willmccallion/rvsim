@@ -105,7 +105,7 @@ const fn train(counter: &mut u8, taken: bool) {
 impl DirectionPredictor for TournamentPredictor {
     type History = TournamentHistory;
 
-    fn lookup(&self, pc: u64) -> (bool, TournamentHistory) {
+    fn lookup(&self, pc: u64, _target: u64) -> (bool, TournamentHistory) {
         let table_index = self.local_history_index(pc);
         let history = self.local_counter_index(self.local_history_table[table_index]);
         let local_taken = predicts_taken(self.local_counters[history]);
@@ -191,11 +191,11 @@ mod tests {
     fn squashing_a_branch_restores_its_local_history() {
         let mut bp = predictor();
         let pc = 0x8000_0010;
-        let (_, older) = bp.lookup(pc);
+        let (_, older) = bp.lookup(pc, 0);
         bp.update_histories(pc, true, &older);
         let before = bp.local_history_table[bp.local_history_index(pc)];
 
-        let (_, younger) = bp.lookup(pc);
+        let (_, younger) = bp.lookup(pc, 0);
         bp.update_histories(pc, true, &younger);
         bp.squash(&younger);
 
@@ -206,7 +206,7 @@ mod tests {
     fn correcting_a_branch_shifts_its_real_outcome_into_both_histories() {
         let mut bp = predictor();
         let pc = 0x8000_0010;
-        let (predicted, history) = bp.lookup(pc);
+        let (predicted, history) = bp.lookup(pc, 0);
         bp.update_histories(pc, predicted, &history);
 
         bp.correct(pc, !predicted, &history);

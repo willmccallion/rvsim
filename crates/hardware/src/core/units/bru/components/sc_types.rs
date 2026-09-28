@@ -1,53 +1,47 @@
-//! Strong types for the Statistical Corrector interface.
-//!
-//! Prevents parameter mix-ups between TAGE and SC by using newtypes
-//! for confidence levels, metadata, and sum values.
+//! What TAGE tells the statistical corrector about its prediction.
 
-/// TAGE confidence level, derived from the provider counter.
+/// How confident TAGE's longest match is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TageConfLevel {
-    /// Counter at max: |2*ctr+1| >= 7 (ctr == 3 or -4 for 3-bit).
+    /// A saturated counter.
     High,
-    /// Counter at mid: |2*ctr+1| == 5 (ctr == 2 or -3).
+    /// A tagged counter one step from saturation, `|2*ctr+1| == 5`.
     Medium,
-    /// Counter at weak: |2*ctr+1| == 1 (ctr == 0 or -1).
+    /// A weak tagged counter, or an unsaturated bimodal one.
     Low,
-    /// Everything else.
+    /// A tagged counter between weak and medium, `|2*ctr+1| == 3`.
     None,
 }
 
 impl TageConfLevel {
-    /// Derive confidence level from a signed TAGE counter value.
-    pub const fn from_ctr(ctr: i8) -> Self {
-        // Manual abs since i8::abs() is not const-stable.
-        let abs_ctr = if ctr < 0 { -(ctr as i32) } else { ctr as i32 };
-        let centered = (2 * abs_ctr + 1) as u32;
-        match centered {
+    /// The confidence of a 3-bit tagged provider counter.
+    pub const fn from_tagged_ctr(ctr: i8) -> Self {
+        let centred = (2 * ctr as i32 + 1).unsigned_abs();
+        match centred {
             c if c >= 7 => Self::High,
             5 => Self::Medium,
             1 => Self::Low,
             _ => Self::None,
         }
     }
+
+    /// The confidence of the bimodal when it provides the prediction.
+    pub const fn from_bimodal(saturated: bool) -> Self {
+        if saturated { Self::High } else { Self::Low }
+    }
 }
 
-/// Metadata from TAGE passed to the SC for bias indexing and override decisions.
-#[derive(Clone, Copy, Debug)]
+/// TAGE's prediction as the statistical corrector indexes and decides by it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TageScMeta {
-    /// Confidence level derived from the TAGE provider counter.
+    /// Confidence of the longest match (or the bimodal without one).
     pub conf: TageConfLevel,
-    /// Provider bank index (0 = bimodal base, 1+ = tagged bank).
+    /// Provider bank (0 = bimodal base, 1+ = tagged bank).
     pub provider_bank: usize,
     /// Whether an alternate tagged bank matched.
     pub alt_bank_present: bool,
-    /// Effective TAGE prediction direction (after `USE_ALT_ON_NA`).
+    /// TAGE's prediction, after `USE_ALT_ON_NA`.
     pub pred_taken: bool,
-    /// Effective TAGE counter value (provider or alt after `USE_ALT_ON_NA`).
-    /// Used by SC to seed the sum with TAGE confidence.
-    pub pred_ctr: i8,
+    /// The longest match and the alternate predict differently.
+    pub provider_disagrees_with_alt: bool,
 }
-
-/// The SC's sum value -- kept as a distinct type to prevent confusing
-/// it with raw counter values or thresholds.
-#[derive(Clone, Copy, Debug)]
-pub struct ScSum(pub i32);

@@ -103,7 +103,6 @@ PIPELINES = [
                                        loop_log_size=9, reset_interval=500_000,
                                        history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
                                        tag_widths=[9, 9, 10, 10, 11, 11, 12, 12],
-                                       sc_num_tables=6, sc_table_size=1024,
                                        ittage_num_banks=8, ittage_table_size=512,
                                    ))),
 

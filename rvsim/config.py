@@ -336,26 +336,28 @@ def _bp_sub_dict(bp) -> dict:
 
 def _sc_sub_dict(bp) -> dict:
     """Return the SC sub-config dict for ScLTage."""
-    if isinstance(bp, BranchPredictor.ScLTage):
-        return {
-            "num_tables": bp.sc_num_tables,
-            "table_size": bp.sc_table_size,
-            "history_lengths": bp.sc_history_lengths,
-            "counter_bits": bp.sc_counter_bits,
-            "bias_table_size": bp.sc_bias_table_size,
-            "bias_counter_bits": bp.sc_bias_counter_bits,
-            "initial_threshold": bp.sc_initial_threshold,
-            "per_pc_threshold_bits": bp.sc_per_pc_threshold_bits,
-        }
+    if not isinstance(bp, BranchPredictor.ScLTage):
+        bp = BranchPredictor.ScLTage()
     return {
-        "num_tables": 6,
-        "table_size": 512,
-        "history_lengths": [0, 2, 4, 8, 12, 16],
-        "counter_bits": 3,
-        "bias_table_size": 256,
-        "bias_counter_bits": 6,
-        "initial_threshold": 35,
-        "per_pc_threshold_bits": 6,
+        "log_bias": bp.sc_log_bias,
+        "counter_bits": bp.sc_counter_bits,
+        "weight_bits": bp.sc_weight_bits,
+        "bias_weight_init": bp.sc_bias_weight_init,
+        "chooser_bits": bp.sc_chooser_bits,
+        "threshold_bits": bp.sc_threshold_bits,
+        "initial_threshold": bp.sc_initial_threshold,
+        "per_pc_threshold_bits": bp.sc_per_pc_threshold_bits,
+        "per_pc_threshold_width": bp.sc_per_pc_threshold_width,
+        "initial_per_pc_threshold": bp.sc_initial_per_pc_threshold,
+        "threshold_weight_step": bp.sc_threshold_weight_step,
+        "halve_short_tables": bp.sc_halve_short_tables,
+        "imli_counter_bits": bp.sc_imli_counter_bits,
+        "global": bp.sc_global.to_dict(),
+        "backward": bp.sc_backward.to_dict(),
+        "path": bp.sc_path.to_dict(),
+        "local": [local.to_dict() for local in bp.sc_local],
+        "imli": bp.sc_imli.to_dict(),
+        "imli_history": bp.sc_imli_history.to_dict(),
     }
 
 

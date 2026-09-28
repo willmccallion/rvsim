@@ -151,7 +151,7 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         let mut ras = RasHistory::default();
         let (target, direction) = match inst {
             ControlInst::Branch { target } => {
-                let (taken, direction) = self.direction.lookup(pc);
+                let (taken, direction) = self.direction.lookup(pc, target);
                 (taken.then_some(target), direction)
             }
             ControlInst::Jump { target, link } => {

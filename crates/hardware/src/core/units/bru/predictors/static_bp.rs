@@ -19,7 +19,7 @@ impl StaticPredictor {
 impl DirectionPredictor for StaticPredictor {
     type History = ();
 
-    fn lookup(&self, _pc: u64) -> (bool, ()) {
+    fn lookup(&self, _pc: u64, _target: u64) -> (bool, ()) {
         (false, ())
     }
 

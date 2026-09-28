@@ -51,7 +51,7 @@ impl TagePredictor {
 impl DirectionPredictor for TagePredictor {
     type History = TageHistory;
 
-    fn lookup(&self, pc: u64) -> (bool, TageHistory) {
+    fn lookup(&self, pc: u64, _target: u64) -> (bool, TageHistory) {
         let prediction = self.tage.predict(pc);
         (prediction.taken(), self.snapshot(Some(prediction)))
     }
@@ -109,14 +109,14 @@ mod tests {
     fn squashing_younger_predictions_restores_the_history_they_shifted() {
         let mut tage = TagePredictor::new(&test_config());
         for i in 0u64..20 {
-            let (_, history) = tage.lookup(0x8000_1000 + i * 4);
+            let (_, history) = tage.lookup(0x8000_1000 + i * 4, 0);
             tage.update_histories(0, i % 2 == 0, &history);
         }
         let before = tage.spec_ghr;
 
         let mut squashed = Vec::new();
         for _ in 0..30 {
-            let (_, history) = tage.lookup(0x2000);
+            let (_, history) = tage.lookup(0x2000, 0);
             tage.update_histories(0x2000, true, &history);
             squashed.push(history);
         }

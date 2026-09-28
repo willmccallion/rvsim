@@ -1,365 +1,526 @@
-//! Statistical Corrector (SC) predictor.
+//! Seznec's statistical corrector, as the CBP-5 TAGE-SC-L and gem5's
+//! `StatisticalCorrector` build it.
 //!
-//! Faithful implementation of Seznec's CBP-5 Statistical Corrector design.
-//! Features: 3 bias tables (PC-indexed with confidence/direction), GEHL tables,
-//! multi-tier override logic with FirstH/SecondH choosers, and two-level
-//! (global + per-PC) dynamic threshold adaptation.
-//!
-//! Hot-path data uses fixed-size arrays and flattened counter tables to avoid
-//! heap indirection during predict/update.
+//! Three bias tables and a set of GEHL components each vote a sum of
+//! centred counters, scaled by a learnt per-component weight. When the
+//! total disagrees with the prediction before it (TAGE's, or the loop
+//! predictor's), two choosers keyed on TAGE's confidence and the total's
+//! magnitude decide which to follow. The histories the components read
+//! advance speculatively with each predicted conditional branch; a
+//! prediction keeps the values it read, which restore them on a squash and
+//! index the same counters when it trains.
 
-use crate::config::ScConfig;
-use crate::core::units::bru::Ghr;
+use super::sc_types::{TageConfLevel, TageScMeta};
+use crate::config::{GehlConfig, LocalGehlConfig, MAX_LOCAL_HISTORIES, ScConfig};
 
-use super::sc_types::{ScSum, TageConfLevel, TageScMeta};
-
-/// Maximum number of GEHL tables. Covers all realistic configs (Seznec uses 4-6).
-const MAX_SC_TABLES: usize = 8;
-
-/// Clamps a value to fit within a signed counter of the given bit width.
-#[inline]
-fn clamp_counter(val: i32, bits: usize) -> i8 {
-    let max = (1i32 << (bits - 1)) - 1;
-    let min = -(1i32 << (bits - 1));
-    val.clamp(min, max) as i8
+/// `ctr` one step toward `up`, saturating as a signed `bits`-wide counter.
+const fn stepped(ctr: i32, up: bool, bits: u32) -> i32 {
+    let max = (1 << (bits - 1)) - 1;
+    let min = -(1 << (bits - 1));
+    if up {
+        if ctr < max { ctr + 1 } else { ctr }
+    } else if ctr > min {
+        ctr - 1
+    } else {
+        ctr
+    }
 }
 
-/// Statistical Corrector predictor.
-///
-/// GEHL counter tables are stored in a single flat `Vec<i8>` indexed as
-/// `[table * table_size + entry]` to eliminate double indirection.
+fn step(ctr: &mut i8, up: bool, bits: u32) {
+    *ctr = stepped(i32::from(*ctr), up, bits) as i8;
+}
+
+const fn centred(ctr: i8) -> i32 {
+    2 * ctr as i32 + 1
+}
+
+/// The low `bits` bits set.
+const fn low_mask(bits: u32) -> u64 {
+    if bits >= 64 { u64::MAX } else { (1 << bits) - 1 }
+}
+
+/// `pc ^ (pc >> 2)`, the PC hash the per-PC tables share.
+const fn pc_hash(pc: u64) -> u64 {
+    pc ^ (pc >> 2)
+}
+
+/// The history a GEHL component hashes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    Global,
+    Backward,
+    Path,
+    Local(usize),
+    Imli,
+    ImliHistory,
+}
+
+/// The corrector's histories as one branch read them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ScHistories {
+    global: u64,
+    backward: u64,
+    path: u64,
+    local: [u64; MAX_LOCAL_HISTORIES],
+    imli_count: u32,
+    imli_history: u64,
+}
+
+impl ScHistories {
+    const fn of(&self, source: Source) -> u64 {
+        match source {
+            Source::Global => self.global,
+            Source::Backward => self.backward,
+            Source::Path => self.path,
+            Source::Local(i) => self.local[i],
+            Source::Imli => self.imli_count as u64,
+            Source::ImliHistory => self.imli_history,
+        }
+    }
+}
+
+/// A GEHL component: one counter table per history length.
+#[derive(Debug)]
+struct Gehl {
+    source: Source,
+    lengths: Vec<u32>,
+    tables: Vec<Vec<i8>>,
+    weights: Vec<i8>,
+}
+
+impl Gehl {
+    fn new(source: Source, config: &GehlConfig, halve_short_tables: bool, weights: usize) -> Self {
+        let count = config.lengths.len();
+        let tables = (0..count)
+            .map(|table| {
+                let halved = halve_short_tables && table + 2 >= count;
+                Self::initial_table(1 << (config.log_entries - u32::from(halved)))
+            })
+            .collect();
+        Self {
+            source,
+            lengths: config.lengths.clone(),
+            tables,
+            weights: vec![config.weight_init; weights],
+        }
+    }
+
+    /// gem5's `initGEHLTable`: even entries start at -1, odd ones at 0.
+    fn initial_table(entries: usize) -> Vec<i8> {
+        (0..entries).map(|j| if j % 2 == 0 && j + 1 < entries { -1 } else { 0 }).collect()
+    }
+
+    /// The PC the component hashes: the backward-history component also
+    /// hashes the prediction before the corrector.
+    fn hashed_pc(&self, pc: u64, before_sc: bool) -> u64 {
+        if self.source == Source::Backward { (pc << 1) + u64::from(before_sc) } else { pc }
+    }
+
+    /// `StatisticalCorrector::gIndex`.
+    fn index(&self, table: usize, pc: u64, history: u64) -> usize {
+        let h = history & low_mask(self.lengths[table]);
+        let i = table as u32;
+        let hash = pc
+            ^ h
+            ^ (h >> (8 - i))
+            ^ (h >> (16 - 2 * i))
+            ^ (h >> (24 - 3 * i))
+            ^ (h >> (32 - 3 * i))
+            ^ (h >> (40 - 4 * i));
+        hash as usize & (self.tables[table].len() - 1)
+    }
+
+    /// The weighted vote, `StatisticalCorrector::gPredict`.
+    fn vote(&self, pc: u64, before_sc: bool, histories: &ScHistories, weight: usize) -> i32 {
+        let (pc, history) = (self.hashed_pc(pc, before_sc), histories.of(self.source));
+        let sum: i32 = (0..self.tables.len())
+            .map(|table| centred(self.tables[table][self.index(table, pc, history)]))
+            .sum();
+        (1 + i32::from(self.weights[weight] >= 0)) * sum
+    }
+
+    /// `StatisticalCorrector::gUpdate`: trains the counters and moves the
+    /// weight when this component's vote decided the total's sign.
+    fn train(&mut self, prediction: &ScPrediction, taken: bool, weight: usize, bits: &Widths) {
+        let pc = self.hashed_pc(prediction.pc, prediction.before_sc);
+        let history = prediction.histories.of(self.source);
+        let mut sum = 0;
+        for table in 0..self.tables.len() {
+            let index = self.index(table, pc, history);
+            let ctr = &mut self.tables[table][index];
+            sum += centred(*ctr);
+            step(ctr, taken, bits.counter);
+        }
+        let weight = &mut self.weights[weight];
+        let others = prediction.sum - i32::from(*weight >= 0) * sum;
+        if (others + sum >= 0) != (others >= 0) {
+            step(weight, (sum >= 0) == taken, bits.weight);
+        }
+    }
+
+    /// Whether this component's weight raises the threshold.
+    fn weight_counts_in_threshold(&self) -> bool {
+        self.source != Source::ImliHistory
+    }
+}
+
+/// Per-branch local histories.
+#[derive(Debug)]
+struct LocalHistories {
+    histories: Vec<u64>,
+    index_shift: u32,
+    mix_pc: bool,
+}
+
+impl LocalHistories {
+    fn new(config: &LocalGehlConfig) -> Self {
+        Self {
+            histories: vec![0; config.histories],
+            index_shift: config.index_shift,
+            mix_pc: config.mix_pc,
+        }
+    }
+
+    const fn entry(&self, pc: u64) -> usize {
+        (pc ^ (pc >> self.index_shift)) as usize & (self.histories.len() - 1)
+    }
+
+    fn get(&self, pc: u64) -> u64 {
+        self.histories[self.entry(pc)]
+    }
+
+    fn push(&mut self, pc: u64, taken: bool) {
+        let entry = self.entry(pc);
+        let pushed = (self.histories[entry] << 1) | u64::from(taken);
+        self.histories[entry] = if self.mix_pc { pushed ^ (pc & 15) } else { pushed };
+    }
+
+    fn restore(&mut self, pc: u64, history: u64) {
+        let entry = self.entry(pc);
+        self.histories[entry] = history;
+    }
+}
+
+/// Counter widths the corrector saturates at.
+#[derive(Clone, Copy, Debug)]
+struct Widths {
+    counter: u32,
+    weight: u32,
+    chooser: u32,
+    threshold: u32,
+    per_pc_threshold: u32,
+}
+
+/// Where a branch's per-PC state lives.
+#[derive(Clone, Copy, Debug)]
+struct Keys {
+    bias: usize,
+    bias_sk: usize,
+    bias_bank: usize,
+    per_pc_threshold: usize,
+    weight: usize,
+}
+
+/// What a corrector prediction read and decided, carried to commit.
+#[derive(Clone, Copy, Debug)]
+pub struct ScPrediction {
+    pc: u64,
+    /// The branch goes backward when taken.
+    backward: bool,
+    histories: ScHistories,
+    tage: TageScMeta,
+    before_sc: bool,
+    sum: i32,
+    threshold: i32,
+    taken: bool,
+}
+
+impl ScPrediction {
+    /// The final prediction.
+    #[must_use]
+    pub const fn taken(&self) -> bool {
+        self.taken
+    }
+}
+
+/// Seznec's statistical corrector.
 #[derive(Debug)]
 pub struct StatCorrector {
-    /// Flattened GEHL counter tables: `num_tables * table_size` entries.
-    counters: Vec<i8>,
-    /// Number of active GEHL tables.
-    num_tables: usize,
-    /// History lengths for each GEHL table (fixed array).
-    hist_lengths: [usize; MAX_SC_TABLES],
-    /// Entries per GEHL table.
-    table_size: usize,
-    /// Number of bits for GEHL table indexing.
-    table_bits: usize,
-    /// Mask for indexing the GEHL tables.
-    table_mask: usize,
-    /// GEHL counter bit width.
-    counter_bits: usize,
-
-    /// Primary bias table: indexed by `PC ^ low_conf ^ pred_direction`.
     bias: Vec<i8>,
-    /// Secondary bias table (SK): indexed by `PC ^ high_conf ^ pred_direction`.
     bias_sk: Vec<i8>,
-    /// Bank bias table: indexed by composite hash of `PC`, bank, conf, alt, direction.
     bias_bank: Vec<i8>,
-    /// Bias table mask.
-    bias_mask: usize,
-    /// Bias counter bit width.
-    bias_counter_bits: usize,
-
-    /// Global threshold, stored `<<3` for sub-integer precision. Init = `initial_threshold << 3`.
-    update_threshold: i32,
-    /// Per-PC threshold adjustments (signed, -8..7 range by default).
-    per_pc_threshold: Vec<i8>,
-    /// Mask for per-PC threshold table indexing.
-    per_pc_threshold_mask: usize,
-
-    /// `FirstH` chooser: selects SC vs TAGE in the medium-confidence zone.
-    first_h: i8,
-    /// `SecondH` chooser: selects SC vs TAGE in the high-confidence narrow zone.
-    second_h: i8,
+    bias_weights: Vec<i8>,
+    log_bias: u32,
+    gehls: Vec<Gehl>,
+    /// In eighths.
+    threshold: i32,
+    per_pc_thresholds: Vec<i32>,
+    threshold_weight_step: i32,
+    /// `FirstH`: whether to follow the corrector against medium-confidence
+    /// TAGE when its sum is small; negative follows it.
+    first_chooser: i8,
+    /// `SecondH`: the same against high-confidence TAGE.
+    second_chooser: i8,
+    widths: Widths,
+    global: u64,
+    backward: u64,
+    locals: Vec<LocalHistories>,
+    imli_count: u32,
+    imli_max: u32,
+    /// One history per IMLI count.
+    imli_histories: Vec<u64>,
 }
 
 impl StatCorrector {
-    /// Creates a new Statistical Corrector from config.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `num_tables` exceeds `MAX_SC_TABLES`.
+    /// Creates a corrector from a validated config.
     pub fn new(config: &ScConfig) -> Self {
-        assert!(
-            config.num_tables <= MAX_SC_TABLES,
-            "SC: {} tables exceeds MAX_SC_TABLES ({MAX_SC_TABLES})",
-            config.num_tables,
-        );
-
-        let table_size = config.table_size.next_power_of_two();
-        let table_bits = table_size.trailing_zeros() as usize;
-
-        let mut hist_lengths = [0usize; MAX_SC_TABLES];
-        for (i, &hl) in config.history_lengths.iter().enumerate().take(config.num_tables) {
-            hist_lengths[i] = hl;
-        }
-
-        let bias_size = config.bias_table_size.next_power_of_two();
-        let bias_mask = bias_size - 1;
-
-        let per_pc_size = 1usize << config.per_pc_threshold_bits;
-        let per_pc_mask = per_pc_size - 1;
-
+        let weights = 1 << (config.per_pc_threshold_bits / 2);
+        let halve = config.halve_short_tables;
+        let named = [
+            (Source::Global, &config.global),
+            (Source::Backward, &config.backward),
+            (Source::Path, &config.path),
+            (Source::Imli, &config.imli),
+            (Source::ImliHistory, &config.imli_history),
+        ];
+        let locals =
+            config.local.iter().enumerate().map(|(i, local)| (Source::Local(i), &local.gehl));
+        let gehls = named
+            .into_iter()
+            .chain(locals)
+            .filter(|(_, gehl)| !gehl.lengths.is_empty())
+            .map(|(source, gehl)| Gehl::new(source, gehl, halve, weights))
+            .collect();
+        let (bias, bias_sk, bias_bank) = Self::initial_bias(config.log_bias, config.counter_bits);
         Self {
-            counters: vec![0i8; config.num_tables * table_size],
-            num_tables: config.num_tables,
-            hist_lengths,
-            table_size,
-            table_bits,
-            table_mask: table_size - 1,
-            counter_bits: config.counter_bits,
-
-            bias: vec![0i8; bias_size],
-            bias_sk: vec![0i8; bias_size],
-            bias_bank: vec![0i8; bias_size],
-            bias_mask,
-            bias_counter_bits: config.bias_counter_bits,
-
-            update_threshold: (config.initial_threshold as i32) << 3,
-            per_pc_threshold: vec![0i8; per_pc_size],
-            per_pc_threshold_mask: per_pc_mask,
-
-            first_h: -1,
-            second_h: -1,
+            bias,
+            bias_sk,
+            bias_bank,
+            bias_weights: vec![config.bias_weight_init; weights],
+            log_bias: config.log_bias,
+            gehls,
+            threshold: config.initial_threshold << 3,
+            per_pc_thresholds: vec![
+                config.initial_per_pc_threshold;
+                1 << config.per_pc_threshold_bits
+            ],
+            threshold_weight_step: config.threshold_weight_step,
+            first_chooser: 0,
+            second_chooser: 0,
+            widths: Widths {
+                counter: config.counter_bits,
+                weight: config.weight_bits,
+                chooser: config.chooser_bits,
+                threshold: config.threshold_bits,
+                per_pc_threshold: config.per_pc_threshold_width,
+            },
+            global: 0,
+            backward: 0,
+            locals: config.local.iter().map(LocalHistories::new).collect(),
+            imli_count: 0,
+            imli_max: (1 << config.imli_counter_bits) - 1,
+            imli_histories: vec![0; 1 << config.imli_counter_bits],
         }
     }
 
-    /// Returns the counter value at `(table, idx)`.
-    #[inline]
-    fn counter(&self, table: usize, idx: usize) -> i8 {
-        self.counters[table * self.table_size + idx]
+    /// `StatisticalCorrector::initBias`: the entries for each prediction
+    /// before the corrector start agreeing with it, strongly where the
+    /// index's confidence bit is clear for `bias` and set for `bias_sk`.
+    fn initial_bias(log_bias: u32, counter_bits: u32) -> (Vec<i8>, Vec<i8>, Vec<i8>) {
+        let max = ((1 << (counter_bits - 1)) - 1) as i8;
+        let min = -max - 1;
+        let bias = |j: usize| [min, max, -1, 0][j & 3];
+        let bias_sk = |j: usize| [min >> 2, max >> 2, min, max][j & 3];
+        let entries = 0..1usize << log_bias;
+        (
+            entries.clone().map(bias).collect(),
+            entries.clone().map(bias_sk).collect(),
+            entries.map(bias).collect(),
+        )
     }
 
-    /// Returns a mutable reference to the counter at `(table, idx)`.
-    #[inline]
-    fn counter_mut(&mut self, table: usize, idx: usize) -> &mut i8 {
-        &mut self.counters[table * self.table_size + idx]
-    }
-
-    /// Computes the GEHL table index using word-level XOR-fold of GHR bits.
-    #[inline]
-    const fn table_index(&self, pc: u64, ghr: &Ghr, table: usize) -> usize {
-        let pc_hash = (pc >> 2) as usize;
-        let hl = self.hist_lengths[table];
-        if hl == 0 {
-            return pc_hash & self.table_mask;
-        }
-
-        let mask = if hl >= 64 { u64::MAX } else { (1u64 << hl) - 1 };
-        let hist_bits = ghr.val() & mask;
-
-        let mut h = hist_bits;
-        let mut shift = self.table_bits;
-        while shift < hl {
-            h ^= hist_bits >> shift;
-            shift += self.table_bits;
-        }
-
-        (pc_hash ^ h as usize) & self.table_mask
-    }
-
-    #[inline]
-    const fn bias_index(&self, pc: u64, meta: &TageScMeta) -> usize {
-        let pc_hash = (pc >> 2) as usize;
-        let low_conf = matches!(meta.conf, TageConfLevel::Low | TageConfLevel::None) as usize;
-        let pred_inter = meta.pred_taken as usize;
-        (pc_hash ^ (low_conf << 1) ^ pred_inter) & self.bias_mask
-    }
-
-    #[inline]
-    fn bias_sk_index(&self, pc: u64, meta: &TageScMeta) -> usize {
-        let pc_hash = (pc >> 2) as usize;
-        let high_conf = (meta.conf == TageConfLevel::High) as usize;
-        let pred_inter = meta.pred_taken as usize;
-        (pc_hash ^ (high_conf << 1) ^ pred_inter) & self.bias_mask
-    }
-
-    #[inline]
-    fn bias_bank_index(&self, pc: u64, meta: &TageScMeta) -> usize {
-        let pc_hash = (pc >> 2) as usize;
-        let high_conf = (meta.conf == TageConfLevel::High) as usize;
-        let low_conf = matches!(meta.conf, TageConfLevel::Low | TageConfLevel::None) as usize;
-        let alt_present = meta.alt_bank_present as usize;
-        let pred_inter = meta.pred_taken as usize;
-        let bank_bits = meta.provider_bank & 0xF;
-        (pc_hash ^ bank_bits ^ (high_conf << 4) ^ (low_conf << 5) ^ (alt_present << 6) ^ pred_inter)
-            & self.bias_mask
-    }
-
-    /// Computes the effective threshold for override decisions.
-    #[inline]
-    fn effective_threshold(&self, pc: u64) -> i32 {
-        let base = self.update_threshold >> 3;
-        let pc_adj = self.per_pc_threshold[(pc >> 2) as usize & self.per_pc_threshold_mask] as i32;
-        base + pc_adj
-    }
-
-    /// Returns `true` if SC would override TAGE given the sum and meta.
-    #[cfg(test)]
-    pub fn would_override(
+    /// Corrects `before_sc`, the prediction TAGE (or the loop predictor)
+    /// made for the conditional branch at `pc` that goes to `target`.
+    /// `path` is TAGE's path history.
+    pub fn predict(
         &self,
         pc: u64,
-        sc_taken: bool,
-        meta: &TageScMeta,
-        sc_sum: ScSum,
-    ) -> bool {
-        let thres = self.effective_threshold(pc);
-        let sum_abs = sc_sum.0.abs();
-        self.override_decision(sc_taken, meta, sum_abs, thres)
-    }
-
-    /// Multi-tier override decision. Returns `true` if SC should override TAGE.
-    ///
-    /// Implements Seznec's tiered confidence zones:
-    /// - SC agrees with TAGE: no override
-    /// - SC disagrees + High conf + |sum| < thres/4: revert to TAGE
-    /// - SC disagrees + High conf + thres/4 <= |sum| < thres/2: `SecondH` chooser
-    /// - SC disagrees + Medium conf + |sum| < thres/4: `FirstH` chooser
-    /// - SC disagrees + |sum| < thres: revert to TAGE
-    /// - SC disagrees + |sum| >= thres: use SC
-    const fn override_decision(
-        &self,
-        sc_taken: bool,
-        meta: &TageScMeta,
-        sum_abs: i32,
-        thres: i32,
-    ) -> bool {
-        if sc_taken == meta.pred_taken {
-            return false;
+        target: u64,
+        path: u64,
+        tage: TageScMeta,
+        before_sc: bool,
+    ) -> ScPrediction {
+        let histories = self.histories(pc, path);
+        let keys = self.keys(pc, &tage, before_sc);
+        let bias_sum = centred(self.bias[keys.bias])
+            + centred(self.bias_sk[keys.bias_sk])
+            + centred(self.bias_bank[keys.bias_bank]);
+        let mut sum = (1 + i32::from(self.bias_weights[keys.weight] >= 0)) * bias_sum;
+        for gehl in &self.gehls {
+            sum += gehl.vote(pc, before_sc, &histories, keys.weight);
         }
-
-        if sum_abs >= thres {
-            return true;
-        }
-
-        let quarter = thres / 4;
-        let half = thres / 2;
-
-        match meta.conf {
-            TageConfLevel::High => {
-                if sum_abs < quarter {
-                    false
-                } else if sum_abs < half {
-                    self.second_h >= 0
-                } else {
-                    false
-                }
-            }
-            TageConfLevel::Medium => {
-                if sum_abs < quarter {
-                    self.first_h >= 0
-                } else {
-                    false
-                }
-            }
-            _ => false,
+        let threshold = self.threshold(&keys);
+        ScPrediction {
+            pc,
+            backward: target < pc,
+            histories,
+            tage,
+            before_sc,
+            sum,
+            threshold,
+            taken: self.choose(tage.conf, before_sc, sum, threshold),
         }
     }
 
-    /// Computes the SC prediction. Returns `(corrected_prediction, ScSum)`.
-    ///
-    /// Sum = weighted centered TAGE counter (seed) + centered bias counters
-    ///       (3 tables) + centered GEHL counters.
-    /// Seeding with the TAGE counter ensures SC must overcome TAGE confidence
-    /// to override. Weight of 3 matches the number of bias tables, ensuring
-    /// the TAGE term provides meaningful pushback against bias-driven overrides.
-    pub fn predict(&self, pc: u64, ghr: &Ghr, meta: &TageScMeta) -> (bool, ScSum) {
-        let mut sum: i32 = 2 * (meta.pred_ctr as i32) + 1;
-
-        let bi = self.bias_index(pc, meta);
-        sum += 2 * (self.bias[bi] as i32) + 1;
-
-        let bsi = self.bias_sk_index(pc, meta);
-        sum += 2 * (self.bias_sk[bsi] as i32) + 1;
-
-        let bbi = self.bias_bank_index(pc, meta);
-        sum += 2 * (self.bias_bank[bbi] as i32) + 1;
-
-        for t in 0..self.num_tables {
-            let idx = self.table_index(pc, ghr, t);
-            sum += 2 * (self.counter(t, idx) as i32) + 1;
-        }
-
+    /// Follows the corrector's sign where it disagrees, unless TAGE is
+    /// confident and the sum small enough that the choosers say not to.
+    const fn choose(&self, conf: TageConfLevel, before_sc: bool, sum: i32, threshold: i32) -> bool {
         let sc_taken = sum >= 0;
-        let thres = self.effective_threshold(pc);
-
-        let corrected = if self.override_decision(sc_taken, meta, sum.abs(), thres) {
-            sc_taken
-        } else {
-            meta.pred_taken
+        if sc_taken == before_sc {
+            return before_sc;
+        }
+        let magnitude = sum.abs();
+        let use_sc = match conf {
+            TageConfLevel::High if magnitude < threshold / 4 => false,
+            TageConfLevel::High if magnitude < threshold / 2 => self.second_chooser < 0,
+            TageConfLevel::Medium if magnitude < threshold / 4 => self.first_chooser < 0,
+            _ => true,
         };
-
-        (corrected, ScSum(sum))
+        if use_sc { sc_taken } else { before_sc }
     }
 
-    /// Updates the SC tables at commit time.
-    pub fn update(&mut self, pc: u64, ghr: &Ghr, taken: bool, meta: &TageScMeta, sc_sum: ScSum) {
-        let sum = sc_sum.0;
-        let sc_taken = sum >= 0;
-        let thres = self.effective_threshold(pc);
-        let sum_abs = sum.abs();
-
-        let quarter = thres / 4;
-        let half = thres / 2;
-
-        if sc_taken != meta.pred_taken {
-            if meta.conf == TageConfLevel::High && sum_abs >= quarter && sum_abs < half {
-                if sc_taken == taken {
-                    self.second_h = (self.second_h + 1).min(63);
-                } else {
-                    self.second_h = (self.second_h - 1).max(-64);
-                }
-            }
-            if meta.conf == TageConfLevel::Medium && sum_abs < quarter {
-                if sc_taken == taken {
-                    self.first_h = (self.first_h + 1).min(63);
-                } else {
-                    self.first_h = (self.first_h - 1).max(-64);
-                }
-            }
+    fn histories(&self, pc: u64, path: u64) -> ScHistories {
+        let mut local = [0; MAX_LOCAL_HISTORIES];
+        for (history, table) in local.iter_mut().zip(&self.locals) {
+            *history = table.get(pc);
         }
-
-        if sc_taken != meta.pred_taken {
-            let pc_idx = (pc >> 2) as usize & self.per_pc_threshold_mask;
-            if sc_taken == taken {
-                self.update_threshold = (self.update_threshold - 1).max(0);
-                self.per_pc_threshold[pc_idx] = (self.per_pc_threshold[pc_idx] - 1).max(-16);
-            } else {
-                self.update_threshold = (self.update_threshold + 1).min(511);
-                self.per_pc_threshold[pc_idx] = (self.per_pc_threshold[pc_idx] + 1).min(15);
-            }
+        ScHistories {
+            global: self.global,
+            backward: self.backward,
+            path,
+            local,
+            imli_count: self.imli_count,
+            imli_history: self.imli_histories[self.imli_count as usize],
         }
+    }
 
-        let sc_pred = if self.override_decision(sc_taken, meta, sum_abs, thres) {
-            sc_taken
-        } else {
-            meta.pred_taken
-        };
+    fn keys(&self, pc: u64, tage: &TageScMeta, before_sc: bool) -> Keys {
+        let low = u64::from(tage.conf == TageConfLevel::Low);
+        let high = u64::from(tage.conf == TageConfLevel::High);
+        let before = u64::from(before_sc);
+        let bias_bit = u64::from(tage.provider_disagrees_with_alt);
+        let bias_mask = low_mask(self.log_bias);
+        let bias = (((pc_hash(pc) << 1) ^ (low & bias_bit)) << 1) + before;
+        let bias_sk = ((((pc ^ (pc >> (self.log_bias - 2))) << 1) ^ high) << 1) + before;
+        let bias_bank = before
+            + ((((tage.provider_bank + 1) / 4) as u64) << 4)
+            + (high << 1)
+            + (low << 2)
+            + (u64::from(tage.alt_bank_present) << 3)
+            + (pc_hash(pc) << 7);
+        Keys {
+            bias: (bias & bias_mask) as usize,
+            bias_sk: (bias_sk & bias_mask) as usize,
+            bias_bank: (bias_bank & bias_mask) as usize,
+            per_pc_threshold: pc_hash(pc) as usize & (self.per_pc_thresholds.len() - 1),
+            weight: pc_hash(pc) as usize & (self.bias_weights.len() - 1),
+        }
+    }
 
-        let should_train = sc_pred != taken || sum_abs < thres;
-        if !should_train {
+    /// The global threshold, the branch's own adjustment, and a step per
+    /// component whose weight is doubling its vote.
+    fn threshold(&self, keys: &Keys) -> i32 {
+        let doubled = |weights: &[i8]| i32::from(weights[keys.weight] >= 0);
+        let doubled_components: i32 = doubled(&self.bias_weights)
+            + self
+                .gehls
+                .iter()
+                .filter(|gehl| gehl.weight_counts_in_threshold())
+                .map(|gehl| doubled(&gehl.weights))
+                .sum::<i32>();
+        (self.threshold >> 3)
+            + self.per_pc_thresholds[keys.per_pc_threshold]
+            + self.threshold_weight_step * doubled_components
+    }
+
+    /// Shifts the histories by a predicted conditional branch's direction.
+    pub fn speculate(&mut self, prediction: &ScPrediction, taken: bool) {
+        let count = self.imli_count as usize;
+        self.imli_histories[count] = (self.imli_histories[count] << 1) | u64::from(taken);
+        self.global = (self.global << 1) | u64::from(taken);
+        for local in &mut self.locals {
+            local.push(prediction.pc, taken);
+        }
+        if prediction.backward {
+            self.imli_count = if taken { (self.imli_count + 1).min(self.imli_max) } else { 0 };
+        }
+        self.backward = (self.backward << 1) | u64::from(taken && prediction.backward);
+    }
+
+    /// Undoes [`Self::speculate`] for a squashed prediction; squashed
+    /// predictions are undone youngest first.
+    pub fn squash(&mut self, prediction: &ScPrediction) {
+        let read = &prediction.histories;
+        self.global = read.global;
+        self.backward = read.backward;
+        self.imli_count = read.imli_count;
+        self.imli_histories[read.imli_count as usize] = read.imli_history;
+        for (local, &history) in self.locals.iter_mut().zip(&read.local) {
+            local.restore(prediction.pc, history);
+        }
+    }
+
+    /// Trains on a committed branch: `StatisticalCorrector::condBranchUpdate`.
+    pub fn update(&mut self, prediction: &ScPrediction, taken: bool) {
+        let keys = self.keys(prediction.pc, &prediction.tage, prediction.before_sc);
+        let sc_taken = prediction.sum >= 0;
+        if sc_taken != prediction.before_sc {
+            self.train_choosers(prediction, taken);
+        }
+        if sc_taken == taken && prediction.sum.abs() >= prediction.threshold {
             return;
         }
-
-        let bbits = self.bias_counter_bits;
-        let bi = self.bias_index(pc, meta);
-        let v = self.bias[bi] as i32;
-        self.bias[bi] =
-            if taken { clamp_counter(v + 1, bbits) } else { clamp_counter(v - 1, bbits) };
-
-        let bsi = self.bias_sk_index(pc, meta);
-        let v = self.bias_sk[bsi] as i32;
-        self.bias_sk[bsi] =
-            if taken { clamp_counter(v + 1, bbits) } else { clamp_counter(v - 1, bbits) };
-
-        let bbi = self.bias_bank_index(pc, meta);
-        let v = self.bias_bank[bbi] as i32;
-        self.bias_bank[bbi] =
-            if taken { clamp_counter(v + 1, bbits) } else { clamp_counter(v - 1, bbits) };
-
-        let bits = self.counter_bits;
-        for t in 0..self.num_tables {
-            let idx = self.table_index(pc, ghr, t);
-            let ctr = self.counter(t, idx) as i32;
-            *self.counter_mut(t, idx) =
-                if taken { clamp_counter(ctr + 1, bits) } else { clamp_counter(ctr - 1, bits) };
+        let wrong = sc_taken != taken;
+        self.threshold = stepped(self.threshold, wrong, self.widths.threshold);
+        let per_pc = &mut self.per_pc_thresholds[keys.per_pc_threshold];
+        *per_pc = stepped(*per_pc, wrong, self.widths.per_pc_threshold);
+        self.train_bias(&keys, prediction.sum, taken);
+        let widths = self.widths;
+        for gehl in &mut self.gehls {
+            gehl.train(prediction, taken, keys.weight, &widths);
         }
+    }
+
+    /// Moves each chooser toward TAGE when TAGE was right in the zone
+    /// that chooser decides.
+    fn train_choosers(&mut self, prediction: &ScPrediction, taken: bool) {
+        let magnitude = prediction.sum.abs();
+        let threshold = prediction.threshold;
+        let tage_right = prediction.before_sc == taken;
+        let bits = self.widths.chooser;
+        let second_zone =
+            magnitude < threshold && magnitude < threshold / 2 && magnitude >= threshold / 4;
+        if prediction.tage.conf == TageConfLevel::High && second_zone {
+            step(&mut self.second_chooser, tage_right, bits);
+        }
+        if prediction.tage.conf == TageConfLevel::Medium && magnitude < threshold / 4 {
+            step(&mut self.first_chooser, tage_right, bits);
+        }
+    }
+
+    fn train_bias(&mut self, keys: &Keys, sum: i32, taken: bool) {
+        let bias_sum = centred(self.bias[keys.bias])
+            + centred(self.bias_sk[keys.bias_sk])
+            + centred(self.bias_bank[keys.bias_bank]);
+        let weight = &mut self.bias_weights[keys.weight];
+        let others = sum - i32::from(*weight >= 0) * bias_sum;
+        if (others + bias_sum >= 0) != (others >= 0) {
+            step(weight, (bias_sum >= 0) == taken, self.widths.weight);
+        }
+        let bits = self.widths.counter;
+        step(&mut self.bias[keys.bias], taken, bits);
+        step(&mut self.bias_sk[keys.bias_sk], taken, bits);
+        step(&mut self.bias_bank[keys.bias_bank], taken, bits);
     }
 }
 
@@ -367,99 +528,129 @@ impl StatCorrector {
 mod tests {
     use super::*;
 
-    fn test_config() -> ScConfig {
-        ScConfig {
-            num_tables: 4,
-            table_size: 64,
-            history_lengths: vec![0, 2, 4, 8],
-            counter_bits: 3,
-            bias_table_size: 256,
-            bias_counter_bits: 6,
-            initial_threshold: 35,
-            per_pc_threshold_bits: 6,
-        }
-    }
+    const PC: u64 = 0x8000_1004;
+    const FORWARD: u64 = PC + 0x40;
+    const BACKWARD: u64 = PC - 0x40;
 
-    fn default_meta(pred_taken: bool) -> TageScMeta {
+    fn tage(conf: TageConfLevel, pred_taken: bool) -> TageScMeta {
         TageScMeta {
-            conf: TageConfLevel::Low,
-            provider_bank: 0,
-            alt_bank_present: false,
+            conf,
+            provider_bank: 3,
+            alt_bank_present: true,
             pred_taken,
-            pred_ctr: if pred_taken { 0 } else { -1 },
+            provider_disagrees_with_alt: false,
+        }
+    }
+
+    fn predict(sc: &StatCorrector, target: u64, tage: TageScMeta) -> ScPrediction {
+        sc.predict(PC, target, 0, tage, tage.pred_taken)
+    }
+
+    #[test]
+    fn an_untrained_corrector_keeps_the_prediction_before_it() {
+        let sc = StatCorrector::new(&ScConfig::default());
+
+        for before in [false, true] {
+            let prediction = predict(&sc, FORWARD, tage(TageConfLevel::Low, before));
+
+            assert_eq!(prediction.taken(), before);
         }
     }
 
     #[test]
-    fn test_sc_initial_prediction_follows_base() {
-        let sc = StatCorrector::new(&test_config());
-        let ghr = Ghr::with_len(64);
-        let meta = default_meta(true);
+    fn a_branch_tage_keeps_getting_wrong_is_corrected() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let wrong = tage(TageConfLevel::Low, true);
 
-        // With all-zero counters, each centered counter contributes 2*0+1 = 1.
-        // Total = 3 bias + 4 GEHL = 7, which is positive (sc_taken = true)
-        // but well below threshold ~35, so SC should NOT override.
-        let (pred, _sum) = sc.predict(0x1000, &ghr, &meta);
-        assert!(pred, "SC should follow TAGE when counters are zero (sum << threshold)");
-    }
-
-    #[test]
-    fn test_sc_untrained_never_overrides() {
-        let sc = StatCorrector::new(&test_config());
-        let ghr = Ghr::with_len(64);
-
-        // Even when TAGE predicts not-taken, untrained SC should not override.
-        // Sum = 7 (all +1 centered), |7| < 35 threshold, so no override.
-        let meta = default_meta(false);
-        let (pred, sum) = sc.predict(0x1000, &ghr, &meta);
-        assert!(!pred, "SC should follow TAGE not-taken when untrained");
-        // Sum should be positive (7) but below threshold.
-        assert!(sum.0 > 0, "Sum should be positive from centered counters");
-        assert!(sum.0 < 35, "Sum should be well below threshold");
-    }
-
-    #[test]
-    fn test_sc_can_correct() {
-        let config = test_config();
-        let mut sc = StatCorrector::new(&config);
-        let ghr = Ghr::with_len(64);
-        let pc = 0x1000u64;
-        let meta = default_meta(true);
-
-        // Train SC heavily: branch is always not-taken but TAGE predicts taken.
-        for _ in 0..200 {
-            let (_pred, sum) = sc.predict(pc, &ghr, &meta);
-            sc.update(pc, &ghr, false, &meta, sum);
+        for _ in 0..64 {
+            let prediction = predict(&sc, FORWARD, wrong);
+            sc.speculate(&prediction, false);
+            sc.update(&prediction, false);
         }
 
-        let (pred, _sum) = sc.predict(pc, &ghr, &meta);
-        assert!(!pred, "SC should correct weak base prediction after heavy training");
+        assert!(!predict(&sc, FORWARD, wrong).taken());
     }
 
     #[test]
-    fn test_sc_threshold_stability() {
-        // Regression test: threshold must not drain toward zero when TAGE is
-        // mostly correct. Run 1000 branches where TAGE is correct ~90% of the
-        // time. Threshold should stay above initial/2.
-        let config = test_config();
-        let initial_threshold = (config.initial_threshold as i32) << 3;
-        let mut sc = StatCorrector::new(&config);
-        let ghr = Ghr::with_len(64);
+    fn a_small_sum_does_not_overrule_confident_tage() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let prediction = predict(&sc, FORWARD, tage(TageConfLevel::High, true));
+        sc.second_chooser = -1;
 
-        for i in 0u64..1000 {
-            let pc = 0x1000 + (i % 16) * 4;
-            // TAGE predicts taken; branch is taken ~90% of the time.
-            let taken = i % 10 != 0;
-            let meta = default_meta(true);
-            let (_pred, sum) = sc.predict(pc, &ghr, &meta);
-            sc.update(pc, &ghr, taken, &meta, sum);
+        let taken = sc.choose(TageConfLevel::High, true, -1, prediction.threshold);
+
+        assert!(taken, "|sum| below a quarter of the threshold keeps TAGE");
+    }
+
+    #[test]
+    fn a_squash_restores_every_history() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        for i in 0..20 {
+            let prediction = predict(&sc, BACKWARD, meta);
+            sc.speculate(&prediction, i % 3 != 0);
+        }
+        let before = sc.histories(PC, 0);
+
+        let mut squashed = Vec::new();
+        for i in 0..10 {
+            let target = if i % 2 == 0 { BACKWARD } else { FORWARD };
+            let prediction = predict(&sc, target, meta);
+            sc.speculate(&prediction, i % 4 != 0);
+            squashed.push(prediction);
+        }
+        for prediction in squashed.iter().rev() {
+            sc.squash(prediction);
         }
 
-        assert!(
-            sc.update_threshold >= initial_threshold / 2,
-            "Threshold drained to {} (initial was {}); adaptation is too aggressive",
-            sc.update_threshold,
-            initial_threshold,
-        );
+        assert_eq!(sc.histories(PC, 0), before);
+    }
+
+    #[test]
+    fn the_imli_counter_counts_taken_backward_branches_until_the_loop_exits() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+
+        for _ in 0..5 {
+            let prediction = predict(&sc, BACKWARD, meta);
+            sc.speculate(&prediction, true);
+        }
+        let forward = predict(&sc, FORWARD, meta);
+        sc.speculate(&forward, true);
+        let counted = sc.imli_count;
+        let exit = predict(&sc, BACKWARD, meta);
+        sc.speculate(&exit, false);
+
+        assert_eq!((counted, sc.imli_count), (5, 0));
+    }
+
+    #[test]
+    fn training_reaches_the_counters_the_prediction_read() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        let prediction = predict(&sc, BACKWARD, meta);
+        sc.speculate(&prediction, false);
+        let mut younger = Vec::new();
+        for _ in 0..8 {
+            let later = predict(&sc, BACKWARD, meta);
+            sc.speculate(&later, true);
+            younger.push(later);
+        }
+
+        sc.update(&prediction, false);
+        for later in younger.iter().rev() {
+            sc.squash(later);
+        }
+        sc.squash(&prediction);
+        let again = predict(&sc, BACKWARD, meta);
+
+        assert!(again.sum < prediction.sum, "{} then {}", prediction.sum, again.sum);
+    }
+
+    #[test]
+    fn stepped_counters_saturate_at_their_width() {
+        assert_eq!(stepped(31, true, 6), 31);
+        assert_eq!(stepped(-32, false, 6), -32);
+        assert_eq!(stepped(0, true, 6), 1);
     }
 }

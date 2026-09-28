@@ -32,8 +32,9 @@ pub trait DirectionPredictor {
     /// before it, enough to train at commit and to undo it on a squash.
     type History;
 
-    /// Predicts a conditional branch's direction (gem5's `lookup`).
-    fn lookup(&self, pc: u64) -> (bool, Self::History);
+    /// Predicts the direction of the conditional branch at `pc` that goes
+    /// to `target` when taken (gem5's `lookup`).
+    fn lookup(&self, pc: u64, target: u64) -> (bool, Self::History);
 
     /// The record for a jump, whose direction is not predicted.
     fn unconditional(&self, pc: u64) -> Self::History;

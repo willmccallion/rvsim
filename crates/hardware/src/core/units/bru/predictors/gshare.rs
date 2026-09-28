@@ -70,7 +70,7 @@ impl DirectionPredictor for GSharePredictor {
     type History = GShareHistory;
 
     /// Predicts taken when the 2-bit counter at the hashed index is 2 or 3.
-    fn lookup(&self, pc: u64) -> (bool, GShareHistory) {
+    fn lookup(&self, pc: u64, _target: u64) -> (bool, GShareHistory) {
         let taken = self.pht[Self::index(pc, self.ghr)] >= 2;
         (taken, GShareHistory { ghr: self.ghr })
     }

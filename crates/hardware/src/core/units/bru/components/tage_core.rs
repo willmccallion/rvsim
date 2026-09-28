@@ -21,6 +21,10 @@ struct TageEntry {
 /// each entry's prediction bit clear and its hysteresis bit set.
 const BASE_WEAKLY_NOT_TAKEN: i8 = -1;
 
+/// The bimodal's 2-bit counter range.
+const BASE_MIN: i8 = -2;
+const BASE_MAX: i8 = 1;
+
 /// Seed of the generator allocation draws from.
 const RANDOM_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
@@ -201,12 +205,17 @@ impl TageCore {
         let provider_weak = provider.is_some() && (provider_ctr == 0 || provider_ctr == -1);
         let pred_ctr =
             if provider_weak && self.use_alt_on_na_ctr >= 0 { alt_ctr } else { provider_ctr };
+        let conf = if provider.is_some() {
+            TageConfLevel::from_tagged_ctr(provider_ctr)
+        } else {
+            TageConfLevel::from_bimodal(base_ctr == BASE_MIN || base_ctr == BASE_MAX)
+        };
         let meta = TageScMeta {
-            conf: TageConfLevel::from_ctr(pred_ctr),
+            conf,
             provider_bank: provider.map_or(0, |b| b + 1),
             alt_bank_present: alt.is_some(),
             pred_taken: pred_ctr >= 0,
-            pred_ctr,
+            provider_disagrees_with_alt: (provider_ctr >= 0) != (alt_ctr >= 0),
         };
         TagePrediction {
             indices,
@@ -308,7 +317,7 @@ impl TageCore {
     }
 
     fn train_base(&mut self, index: usize, taken: bool) {
-        self.base[index] = saturating_step(self.base[index], taken, -2, 1);
+        self.base[index] = saturating_step(self.base[index], taken, BASE_MIN, BASE_MAX);
     }
 
     /// The next value of a xorshift generator: gem5 draws from a Mersenne
@@ -499,7 +508,7 @@ mod tests {
                 provider_bank: provider.map_or(0, |bank| bank + 1),
                 alt_bank_present: alt.is_some(),
                 pred_taken: taken,
-                pred_ctr: 0,
+                provider_disagrees_with_alt: provider_taken != alt_taken,
             },
         }
     }

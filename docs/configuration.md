@@ -121,10 +121,17 @@ BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
     # Loop predictor (2^log_size entries, 2^log_assoc ways)
     loop_log_size=5,
     loop_log_assoc=2,
-    # Statistical corrector
-    sc_num_tables=6,
-    sc_table_size=512,
-    sc_counter_bits=3,
+    # Statistical corrector (defaults: Seznec's 64KB TAGE-SC-L)
+    sc_counter_bits=6,
+    sc_backward=BranchPredictor.ScGehl([40, 24, 10], log_entries=10, weight_init=7),
+    sc_path=BranchPredictor.ScGehl([25, 16, 9], log_entries=9, weight_init=7),
+    sc_local=[
+        BranchPredictor.ScLocalGehl(256, index_shift=2, lengths=[11, 6, 3], log_entries=10),
+        BranchPredictor.ScLocalGehl(16, index_shift=5, lengths=[16, 11, 6], log_entries=9, mix_pc=True),
+        BranchPredictor.ScLocalGehl(16, index_shift=10, lengths=[9, 4], log_entries=10),
+    ],
+    sc_imli=BranchPredictor.ScGehl([8], log_entries=8, weight_init=7),
+    sc_imli_history=BranchPredictor.ScGehl([10, 4], log_entries=9, weight_init=0),
     # Indirect target TAGE
     ittage_num_banks=8,
     ittage_table_size=256,

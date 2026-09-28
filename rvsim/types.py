@@ -150,6 +150,70 @@ class BranchPredictor:
                 f"local_pred_bits={self.local_pred_bits})"
             )
 
+    class ScGehl:
+        """One statistical corrector GEHL component: a counter table per
+        history length (longest first), each ``2**log_entries`` entries.
+        No lengths turns the component off."""
+
+        def __init__(
+            self,
+            lengths: Optional[List[int]] = None,
+            log_entries: int = 0,
+            weight_init: int = 0,
+        ):
+            self.lengths = list(lengths) if lengths is not None else []
+            self.log_entries = log_entries
+            self.weight_init = weight_init
+
+        def to_dict(self) -> dict:
+            return {
+                "lengths": self.lengths,
+                "log_entries": self.log_entries,
+                "weight_init": self.weight_init,
+            }
+
+        def __repr__(self) -> str:
+            return (
+                f"BranchPredictor.ScGehl(lengths={self.lengths}, "
+                f"log_entries={self.log_entries}, weight_init={self.weight_init})"
+            )
+
+    class ScLocalGehl:
+        """A statistical corrector GEHL over per-branch local histories:
+        ``histories`` of them (a power of two), a branch's at
+        ``(pc ^ (pc >> index_shift)) % histories``; ``mix_pc`` XORs the
+        branch's ``pc & 15`` into each update."""
+
+        def __init__(
+            self,
+            histories: int,
+            index_shift: int,
+            lengths: List[int],
+            log_entries: int,
+            weight_init: int = 7,
+            mix_pc: bool = False,
+        ):
+            self.histories = histories
+            self.index_shift = index_shift
+            self.mix_pc = mix_pc
+            self.gehl = BranchPredictor.ScGehl(lengths, log_entries, weight_init)
+
+        def to_dict(self) -> dict:
+            return {
+                "histories": self.histories,
+                "index_shift": self.index_shift,
+                "mix_pc": self.mix_pc,
+                "gehl": self.gehl.to_dict(),
+            }
+
+        def __repr__(self) -> str:
+            return (
+                f"BranchPredictor.ScLocalGehl(histories={self.histories}, "
+                f"index_shift={self.index_shift}, lengths={self.gehl.lengths}, "
+                f"log_entries={self.gehl.log_entries}, "
+                f"weight_init={self.gehl.weight_init}, mix_pc={self.mix_pc})"
+            )
+
     class ScLTage:
         """SC-L-TAGE + ITTAGE composed predictor.
 
@@ -158,7 +222,9 @@ class BranchPredictor:
 
         The TAGE parameters are shared with the standalone TAGE config.
         The loop predictor, SC and ITTAGE have their own sub-configs; the
-        loop defaults follow Seznec's TAGE-SC-L (32 entries, 4 ways a set).
+        loop predictor and SC defaults are Seznec's 64KB TAGE-SC-L (CBP-5).
+        The SC's GEHL components are ``BranchPredictor.ScGehl`` and
+        ``BranchPredictor.ScLocalGehl`` values; ``None`` takes the default.
         """
 
         def __init__(
@@ -186,14 +252,25 @@ class BranchPredictor:
             loop_long_loop_confidence: bool = True,
             loop_optional_age_increment: bool = True,
             # SC parameters
-            sc_num_tables: int = 6,
-            sc_table_size: int = 512,
-            sc_history_lengths: Optional[List[int]] = None,
-            sc_counter_bits: int = 3,
-            sc_bias_table_size: int = 256,
-            sc_bias_counter_bits: int = 6,
+            sc_log_bias: int = 8,
+            sc_counter_bits: int = 6,
+            sc_weight_bits: int = 6,
+            sc_bias_weight_init: int = 4,
+            sc_chooser_bits: int = 7,
+            sc_threshold_bits: int = 12,
             sc_initial_threshold: int = 35,
             sc_per_pc_threshold_bits: int = 6,
+            sc_per_pc_threshold_width: int = 8,
+            sc_initial_per_pc_threshold: int = 0,
+            sc_threshold_weight_step: int = 12,
+            sc_halve_short_tables: bool = True,
+            sc_imli_counter_bits: int = 8,
+            sc_global: Optional["BranchPredictor.ScGehl"] = None,
+            sc_backward: Optional["BranchPredictor.ScGehl"] = None,
+            sc_path: Optional["BranchPredictor.ScGehl"] = None,
+            sc_local: Optional[List["BranchPredictor.ScLocalGehl"]] = None,
+            sc_imli: Optional["BranchPredictor.ScGehl"] = None,
+            sc_imli_history: Optional["BranchPredictor.ScGehl"] = None,
             # ITTAGE parameters
             ittage_num_banks: int = 8,
             ittage_table_size: int = 256,
@@ -227,18 +304,39 @@ class BranchPredictor:
             self.loop_optional_age_reset = loop_optional_age_reset
             self.loop_long_loop_confidence = loop_long_loop_confidence
             self.loop_optional_age_increment = loop_optional_age_increment
-            self.sc_num_tables = sc_num_tables
-            self.sc_table_size = sc_table_size
-            self.sc_history_lengths = (
-                sc_history_lengths
-                if sc_history_lengths is not None
-                else [0, 2, 4, 8, 12, 16]
-            )
+            gehl = BranchPredictor.ScGehl
+            local = BranchPredictor.ScLocalGehl
+            self.sc_log_bias = sc_log_bias
             self.sc_counter_bits = sc_counter_bits
-            self.sc_bias_table_size = sc_bias_table_size
-            self.sc_bias_counter_bits = sc_bias_counter_bits
+            self.sc_weight_bits = sc_weight_bits
+            self.sc_bias_weight_init = sc_bias_weight_init
+            self.sc_chooser_bits = sc_chooser_bits
+            self.sc_threshold_bits = sc_threshold_bits
             self.sc_initial_threshold = sc_initial_threshold
             self.sc_per_pc_threshold_bits = sc_per_pc_threshold_bits
+            self.sc_per_pc_threshold_width = sc_per_pc_threshold_width
+            self.sc_initial_per_pc_threshold = sc_initial_per_pc_threshold
+            self.sc_threshold_weight_step = sc_threshold_weight_step
+            self.sc_halve_short_tables = sc_halve_short_tables
+            self.sc_imli_counter_bits = sc_imli_counter_bits
+            self.sc_global = sc_global if sc_global is not None else gehl()
+            self.sc_backward = (
+                sc_backward if sc_backward is not None else gehl([40, 24, 10], 10, 7)
+            )
+            self.sc_path = sc_path if sc_path is not None else gehl([25, 16, 9], 9, 7)
+            self.sc_local = (
+                list(sc_local)
+                if sc_local is not None
+                else [
+                    local(256, 2, [11, 6, 3], 10),
+                    local(16, 5, [16, 11, 6], 9, mix_pc=True),
+                    local(16, 10, [9, 4], 10),
+                ]
+            )
+            self.sc_imli = sc_imli if sc_imli is not None else gehl([8], 8, 7)
+            self.sc_imli_history = (
+                sc_imli_history if sc_imli_history is not None else gehl([10, 4], 9, 0)
+            )
             self.ittage_num_banks = ittage_num_banks
             self.ittage_table_size = ittage_table_size
             self.ittage_history_lengths = (
@@ -261,7 +359,7 @@ class BranchPredictor:
             return (
                 f"BranchPredictor.ScLTage(num_banks={self.num_banks}, "
                 f"table_size={self.table_size}, "
-                f"sc_num_tables={self.sc_num_tables}, "
+                f"sc_local={len(self.sc_local)}, "
                 f"ittage_num_banks={self.ittage_num_banks})"
             )
 

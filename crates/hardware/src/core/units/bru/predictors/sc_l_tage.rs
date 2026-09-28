@@ -16,12 +16,10 @@ use crate::core::units::bru::Ghr;
 use crate::core::units::bru::components::{
     ittage::Ittage,
     loop_predictor::{LoopPrediction, LoopPredictor},
-    sc_types::ScSum,
-    sc_types::TageScMeta,
-    stat_corrector::StatCorrector,
+    stat_corrector::{ScPrediction, StatCorrector},
     tage_core::{TageCore, TagePrediction},
 };
-use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{DirectionPredictor, Retired};
 
 /// SC-L-TAGE + ITTAGE composed predictor.
 #[derive(Debug)]
@@ -46,15 +44,16 @@ pub struct ScLTageHistory {
     ghr: Ghr,
     /// The TAGE path history before the prediction.
     path: u16,
-    /// The TAGE entries a conditional branch's prediction read.
-    tage: Option<TagePrediction>,
-    /// The loop entry a conditional branch's prediction read.
-    loop_prediction: Option<LoopPrediction>,
-    /// The direction fetch was sent down.
-    predicted: bool,
-    /// The TAGE metadata and SC sum the statistical corrector decided
-    /// with; `None` when the loop predictor overrode it or for a jump.
-    sc: Option<(TageScMeta, ScSum)>,
+    /// What a conditional branch's prediction read.
+    conditional: Option<ConditionalPrediction>,
+}
+
+/// The entries each direction component read for a conditional branch.
+#[derive(Clone, Copy, Debug)]
+struct ConditionalPrediction {
+    tage: TagePrediction,
+    loop_prediction: LoopPrediction,
+    sc: ScPrediction,
 }
 
 impl ScLTagePredictor {
@@ -99,65 +98,59 @@ impl ScLTagePredictor {
         self.commit_ghr.push(taken);
     }
 
-    fn train_direction(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
-        let Some(prediction) = &history.tage else { return };
-        self.loop_pred.commit(pc, taken, prediction.taken(), history.predicted);
-        self.tage.update(taken, prediction);
-        let meta = prediction.meta();
-        let (sc_meta, sc_sum) = history.sc.unwrap_or_else(|| {
-            let (_taken, sum) = self.sc.predict(pc, &self.commit_ghr, &meta);
-            (meta, sum)
-        });
-        self.sc.update(pc, &self.commit_ghr, taken, &sc_meta, sc_sum);
+    fn speculate_conditional(&mut self, prediction: &ConditionalPrediction, taken: bool) {
+        self.loop_pred.speculate(&prediction.loop_prediction, taken);
+        self.sc.speculate(&prediction.sc, taken);
+    }
+
+    fn squash_conditional(&mut self, prediction: &ConditionalPrediction) {
+        self.loop_pred.squash(&prediction.loop_prediction);
+        self.sc.squash(&prediction.sc);
+    }
+
+    fn train_direction(&mut self, pc: u64, taken: bool, prediction: &ConditionalPrediction) {
+        self.sc.update(&prediction.sc, taken);
+        self.loop_pred.commit(pc, taken, prediction.tage.taken(), prediction.sc.taken());
+        self.tage.update(taken, &prediction.tage);
     }
 }
 
 impl DirectionPredictor for ScLTagePredictor {
     type History = ScLTageHistory;
 
-    fn lookup(&self, pc: u64) -> (bool, ScLTageHistory) {
-        let prediction = self.tage.predict(pc);
+    fn lookup(&self, pc: u64, target: u64) -> (bool, ScLTageHistory) {
+        let tage = self.tage.predict(pc);
         let loop_prediction = self.loop_pred.predict(pc);
         let before_sc = match loop_prediction.confident() {
             Some(loop_taken) if self.loop_pred.in_use() => loop_taken,
-            _ => prediction.taken(),
+            _ => tage.taken(),
         };
-        let meta = TageScMeta { pred_taken: before_sc, ..prediction.meta() };
-        let (sc_taken, sc_sum) = self.sc.predict(pc, &self.spec_ghr, &meta);
+        let path = u64::from(self.tage.path_history());
+        let sc = self.sc.predict(pc, target, path, tage.meta(), before_sc);
         let history = ScLTageHistory {
             ghr: self.spec_ghr,
             path: self.spec_path,
-            tage: Some(prediction),
-            loop_prediction: Some(loop_prediction),
-            predicted: sc_taken,
-            sc: Some((meta, sc_sum)),
+            conditional: Some(ConditionalPrediction { tage, loop_prediction, sc }),
         };
-        (sc_taken, history)
+        (sc.taken(), history)
     }
 
     fn unconditional(&self, _pc: u64) -> ScLTageHistory {
-        ScLTageHistory {
-            ghr: self.spec_ghr,
-            path: self.spec_path,
-            tage: None,
-            loop_prediction: None,
-            predicted: true,
-            sc: None,
-        }
+        ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, conditional: None }
     }
 
     fn update_histories(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
         self.push_speculative(pc, taken);
-        if let Some(loop_prediction) = &history.loop_prediction {
-            self.loop_pred.speculate(loop_prediction, taken);
+        if let Some(prediction) = &history.conditional {
+            self.speculate_conditional(prediction, taken);
         }
     }
 
     fn squash(&mut self, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
         self.spec_path = history.path;
-        if let Some(loop_prediction) = &history.loop_prediction {
-            self.loop_pred.squash(loop_prediction);
+        if let Some(prediction) = &history.conditional {
+            self.squash_conditional(prediction);
         }
     }
 
@@ -170,15 +163,15 @@ impl DirectionPredictor for ScLTagePredictor {
         self.spec_path = history.path;
         self.repair_speculative();
         self.push_speculative(pc, taken);
-        if let Some(loop_prediction) = &history.loop_prediction {
-            self.loop_pred.squash(loop_prediction);
-            self.loop_pred.speculate(loop_prediction, taken);
+        if let Some(prediction) = &history.conditional {
+            self.squash_conditional(prediction);
+            self.speculate_conditional(prediction, taken);
         }
     }
 
     fn commit(&mut self, pc: u64, retired: Retired, history: &ScLTageHistory) {
-        if retired.class == BranchClass::Conditional {
-            self.train_direction(pc, retired.taken, history);
+        if let Some(prediction) = &history.conditional {
+            self.train_direction(pc, retired.taken, prediction);
         }
         if let Some(target) = retired.indirect_target {
             self.ittage.update(pc, target, &history.ghr);
@@ -194,6 +187,7 @@ impl DirectionPredictor for ScLTagePredictor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::units::bru::direction::BranchClass;
 
     fn test_tage_config() -> TageConfig {
         TageConfig {
@@ -202,19 +196,6 @@ mod tests {
             reset_interval: 100_000,
             history_lengths: vec![5, 15, 44, 130],
             tag_widths: vec![9, 9, 10, 10],
-        }
-    }
-
-    fn test_sc_config() -> ScConfig {
-        ScConfig {
-            num_tables: 4,
-            table_size: 64,
-            history_lengths: vec![0, 2, 4, 8],
-            counter_bits: 3,
-            bias_table_size: 256,
-            bias_counter_bits: 6,
-            initial_threshold: 35,
-            per_pc_threshold_bits: 6,
         }
     }
 
@@ -231,16 +212,17 @@ mod tests {
     fn predictor() -> ScLTagePredictor {
         ScLTagePredictor::new(
             &test_tage_config(),
-            &test_sc_config(),
+            &ScConfig::default(),
             &test_ittage_config(),
             &LoopConfig::default(),
         )
     }
 
     #[test]
-    fn an_untrained_branch_is_predicted_taken() {
-        let (taken, _) = predictor().lookup(0x8000_1000);
-        assert!(taken, "Base counter 0 should predict taken (>= 0)");
+    fn an_untrained_branch_follows_the_weakly_not_taken_bimodal() {
+        let (taken, _) = predictor().lookup(0x8000_1004, 0x8000_1040);
+
+        assert!(!taken);
     }
 
     #[test]
@@ -253,7 +235,7 @@ mod tests {
         let before = pred.spec_ghr;
         let mut squashed = Vec::new();
         for _ in 0..10 {
-            let (_, history) = pred.lookup(0x2000);
+            let (_, history) = pred.lookup(0x2000, 0x2040);
             pred.update_histories(0x2000, true, &history);
             squashed.push(history);
         }
