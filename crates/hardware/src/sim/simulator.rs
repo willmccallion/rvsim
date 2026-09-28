@@ -85,8 +85,9 @@ pub struct Simulator {
     /// Privilege mode of each hart at the start of the current tick, kept
     /// between ticks to avoid reallocating.
     prev_privileges: Vec<PrivilegeMode>,
-    /// Count an idle core's cycle instead of ticking its pipeline. The
-    /// result is the same; tests turn it off to check that.
+    /// Count an idle core's cycle instead of ticking its pipeline, and skip
+    /// the cycles in which the whole system only waits. The result is the
+    /// same; tests turn it off to check that.
     pub skip_idle_cores: bool,
 }
 

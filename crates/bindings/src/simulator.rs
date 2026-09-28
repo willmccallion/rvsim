@@ -274,8 +274,9 @@ impl PySimulator {
     }
 
     /// Whether idle cores (waiting in WFI with nothing in flight) have their
-    /// cycles counted instead of ticked. On by default; results are the
-    /// same either way, so this exists to check that.
+    /// cycles counted instead of ticked, and cycles in which the whole
+    /// system only waits for a timer or device are skipped. On by default;
+    /// results are the same either way, so this exists to check that.
     #[getter]
     const fn skip_idle_cores(&self) -> bool {
         self.inner.skip_idle_cores
