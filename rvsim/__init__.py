@@ -4,7 +4,10 @@ rvsim simulator Python API.
 A Python-first interface to the cycle-accurate RISC-V simulator:
 1. **Configuration:** ``Config``, ``Cache``, ``BranchPredictor``, ``MemDepPredictor``, etc.
 2. **Execution:** ``Simulator``.
-3. **Experiments:** ``Environment``, ``Result``.
+3. **Experiments:** ``Environment``, ``Result``; ``Session`` for phased
+   runs (fast-forward, switch configuration, measure) with the stop points
+   ``Cycles``, ``Instructions``, ``Pc``, ``Marker``, ``Console``, ``Exit``,
+   ``When`` and ``LOGIN_SHELL``.
 4. **Statistics:** ``Stats``, ``Table``.
 5. **ISA:** ``reg``, ``csr``, ``Disassemble``.
 6. **Pipeline:** ``PipelineSnapshot`` (from ``cpu.pipeline_snapshot()``).
@@ -21,7 +24,22 @@ from .experiment import Environment, Result
 from .isa import Disassemble, csr, reg
 from .objects import Instruction, Simulator
 from .pipeline import PipelineSnapshot
+from .session import Region, Session, WorkloadEnded
 from .stats import Stats, Table
+from .stops import (
+    LOGIN_SHELL,
+    AnyOf,
+    Console,
+    Cycles,
+    Exit,
+    Instructions,
+    LoginShell,
+    Marker,
+    Pc,
+    Stop,
+    Stopped,
+    When,
+)
 from .sweep import Sweep, SweepResults
 from .types import (
     Backend,
@@ -59,7 +77,9 @@ for _name in (
     "isa",
     "objects",
     "pipeline",
+    "session",
     "stats",
+    "stops",
     "sweep",
     "types",
     "_core",
@@ -97,6 +117,21 @@ __all__ = [
     "PipelineSnapshot",
     "Environment",
     "Result",
+    "Session",
+    "Region",
+    "WorkloadEnded",
+    "Stop",
+    "Stopped",
+    "Cycles",
+    "Instructions",
+    "Pc",
+    "Marker",
+    "Console",
+    "Exit",
+    "When",
+    "AnyOf",
+    "LoginShell",
+    "LOGIN_SHELL",
     "Stats",
     "Table",
     "reg",
