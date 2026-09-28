@@ -14,10 +14,13 @@ const CHAIN_LEN: u32 = 20;
 const DONE_REG: usize = 2;
 const DONE_VALUE: u64 = 7;
 
+/// A single-issue core whose writeback ports never hold a result back, so
+/// only the unit latency shows.
 fn config(backend: BackendType, int_mul_latency: u64) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.fu_config.int_mul_latency = int_mul_latency;
+    config.pipeline.writeback_width = Some(8);
     config
 }
 

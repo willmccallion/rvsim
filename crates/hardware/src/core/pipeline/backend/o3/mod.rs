@@ -87,6 +87,9 @@ pub struct O3Engine {
     issue_width: usize,
     /// Instructions retired per cycle.
     commit_width: usize,
+    /// Results written back per cycle (gem5's `wbWidth`); the rest wait
+    /// for a later cycle's slots.
+    writeback_width: usize,
     /// Maximum loads issued per cycle.
     pub load_ports: usize,
     /// Maximum stores issued per cycle.
@@ -164,6 +167,7 @@ impl O3Engine {
             rename_width: config.pipeline.rename_width(),
             issue_width: config.pipeline.issue_width(),
             commit_width: config.pipeline.commit_width(),
+            writeback_width: config.pipeline.writeback_width(),
             load_ports: config.pipeline.load_ports,
             store_ports: config.pipeline.store_ports,
             execute_mem1: Vec::with_capacity(config.pipeline.width),
@@ -365,6 +369,22 @@ impl O3Engine {
         }
     }
 
+    /// Takes up to `slots` of the results finished by `now`, earliest
+    /// finished and then oldest first; the rest wait for later slots.
+    fn take_finished_results(&mut self, now: u64, slots: usize) -> Vec<PendingResult> {
+        let (mut finished, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending_results)
+            .into_iter()
+            .partition(|p| p.complete_cycle <= now);
+        finished.sort_by(|a, b| {
+            a.complete_cycle
+                .cmp(&b.complete_cycle)
+                .then_with(|| a.entry.rob_tag.age_cmp(b.entry.rob_tag))
+        });
+        self.pending_results = waiting;
+        self.pending_results.extend(finished.split_off(slots.min(finished.len())));
+        finished
+    }
+
     /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.
     fn issue_vec_mem_waves(&mut self) {
         for inflight in &mut self.vec_mem_inflight {
@@ -490,6 +510,10 @@ impl ExecutionEngine for O3Engine {
             self.mem2_wb = scalar_wb;
         }
 
+        let mut writeback_slots = self.writeback_width;
+        let later_mem_results = self.mem2_wb.split_off(self.mem2_wb.len().min(writeback_slots));
+        writeback_slots -= self.mem2_wb.len();
+
         // Snapshot completing wakeups before writeback so dependents can wake via PRF.
         let wb_wakeups: Vec<_> = self
             .mem2_wb
@@ -514,7 +538,6 @@ impl ExecutionEngine for O3Engine {
             self.issue_queue.wakeup_phys(*rd_phys, *val);
         }
 
-        let wb_before = self.mem2_wb.len();
         let mem_violation = memory2::memory2_stage(
             &mut state.stage(),
             &mut self.mem1_mem2,
@@ -525,7 +548,7 @@ impl ExecutionEngine for O3Engine {
         );
 
         // Stores that resolve in memory2: store-conditionals, AMOs, vectors.
-        for entry in &self.mem2_wb[wb_before..] {
+        for entry in &self.mem2_wb {
             if entry.ctrl.mem_write
                 && (entry.ctrl.atomic_op != AtomicOp::None || entry.vec_mem.is_some())
                 && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
@@ -533,6 +556,8 @@ impl ExecutionEngine for O3Engine {
                 self.issue_queue.wakeup_mem_dep(&[store_tag]);
             }
         }
+        let memory2_results = std::mem::replace(&mut self.mem2_wb, later_mem_results);
+        self.mem2_wb.extend(memory2_results);
 
         // Packet-based memory1 always accepts work and parks loads in
         // `common.outstanding_loads`. Backpressure comes from the L1D's
@@ -596,42 +621,34 @@ impl ExecutionEngine for O3Engine {
         }
 
         {
-            let mut i = 0;
-            while i < self.pending_results.len() {
-                if self.pending_results[i].complete_cycle <= now {
-                    let pr = self.pending_results.swap_remove(i);
-                    let entry = pr.entry;
-                    let fu_type = pr.fu_type;
+            let finished = self.take_finished_results(now, writeback_slots);
+            writeback_slots -= finished.len();
+            for pr in finished {
+                let entry = pr.entry;
+                let fu_type = pr.fu_type;
 
-                    state
-                        .shared
-                        .stats
-                        .counter(state.core.stat_paths.fu.all[fu_type as usize])
-                        .inc();
+                state.shared.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).inc();
 
-                    if let Some(trap) = entry.trap {
-                        let stage =
-                            entry.exception_stage.unwrap_or(crate::common::ExceptionStage::Execute);
-                        self.rob.fault(entry.rob_tag, trap, stage);
-                    } else {
-                        let val = if entry.ctrl.control_flow == ControlFlow::Jump {
-                            entry.pc.wrapping_add(entry.inst_size.as_u64())
-                        } else {
-                            entry.alu
-                        };
-                        if entry.fp_flags != 0 {
-                            self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
-                        }
-                        if let Some(info) = entry.sfence_vma {
-                            self.rob.set_sfence_vma(entry.rob_tag, info);
-                        }
-                        // CSR writes deferred to commit so speculative state isn't observed on trap.
-                        self.rob.complete(entry.rob_tag, val);
-                        self.prf.write(entry.rd_phys, val);
-                        self.issue_queue.wakeup_phys(entry.rd_phys, val);
-                    }
+                if let Some(trap) = entry.trap {
+                    let stage =
+                        entry.exception_stage.unwrap_or(crate::common::ExceptionStage::Execute);
+                    self.rob.fault(entry.rob_tag, trap, stage);
                 } else {
-                    i += 1;
+                    let val = if entry.ctrl.control_flow == ControlFlow::Jump {
+                        entry.pc.wrapping_add(entry.inst_size.as_u64())
+                    } else {
+                        entry.alu
+                    };
+                    if entry.fp_flags != 0 {
+                        self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
+                    }
+                    if let Some(info) = entry.sfence_vma {
+                        self.rob.set_sfence_vma(entry.rob_tag, info);
+                    }
+                    // CSR writes deferred to commit so speculative state isn't observed on trap.
+                    self.rob.complete(entry.rob_tag, val);
+                    self.prf.write(entry.rd_phys, val);
+                    self.issue_queue.wakeup_phys(entry.rd_phys, val);
                 }
             }
         }
@@ -672,7 +689,8 @@ impl ExecutionEngine for O3Engine {
                     vp.wakeup_fired = true;
                 }
                 // Some vl=0 ops reach full_complete before first_group_ready; wake here too.
-                if now >= vp.full_complete {
+                if now >= vp.full_complete && writeback_slots > 0 {
+                    writeback_slots -= 1;
                     if !vp.wakeup_fired {
                         for j in 0..vp.vd_count as usize {
                             self.vec_prf.mark_ready(vp.vd_phys[j]);

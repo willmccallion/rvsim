@@ -1214,6 +1214,11 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub commit_width: Option<usize>,
 
+    /// Results written back (waking dependents and completing in the ROB)
+    /// per cycle in the out-of-order backend; `width` when unset.
+    #[serde(default)]
+    pub writeback_width: Option<usize>,
+
     /// Branch predictor type
     #[serde(default)]
     pub branch_predictor: BranchPredictor,
@@ -1367,6 +1372,12 @@ impl PipelineConfig {
         Self::stage_width(self.commit_width, self.width)
     }
 
+    /// Results written back per cycle.
+    #[must_use]
+    pub const fn writeback_width(&self) -> usize {
+        Self::stage_width(self.writeback_width, self.width)
+    }
+
     /// Cycles between execute resolving a redirect and the squash into it.
     #[must_use]
     pub const fn redirect_latency(&self) -> u64 {
@@ -1493,6 +1504,7 @@ impl Default for PipelineConfig {
             rename_width: None,
             issue_width: None,
             commit_width: None,
+            writeback_width: None,
             branch_predictor: BranchPredictor::default(),
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,

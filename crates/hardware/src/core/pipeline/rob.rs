@@ -64,6 +64,12 @@ impl RobTag {
     pub const fn is_older_or_eq(self, other: Self) -> bool {
         !other.is_older_than(self)
     }
+
+    /// Orders in-flight tags oldest first.
+    #[must_use]
+    pub fn age_cmp(self, other: Self) -> std::cmp::Ordering {
+        (self.0.wrapping_sub(other.0).cast_signed()).cmp(&0)
+    }
 }
 
 /// Lifecycle state of an ROB entry.

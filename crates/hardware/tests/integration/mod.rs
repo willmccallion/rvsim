@@ -44,5 +44,6 @@ pub mod unmapped_access;
 pub mod vector_config;
 pub mod vector_pipeline;
 pub mod wfi_wake;
+pub mod writeback_width;
 pub mod xret_squash;
 pub mod zicboz;

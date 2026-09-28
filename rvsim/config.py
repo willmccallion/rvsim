@@ -74,6 +74,7 @@ class Config:
         rename_width: Optional[int] = None,
         issue_width: Optional[int] = None,
         commit_width: Optional[int] = None,
+        writeback_width: Optional[int] = None,
         trap_latency: int = 13,
         redirect_latency: Optional[int] = None,
         branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
@@ -138,6 +139,7 @@ class Config:
         self.rename_width = rename_width
         self.issue_width = issue_width
         self.commit_width = commit_width
+        self.writeback_width = writeback_width
         self.trap_latency = trap_latency
         self.redirect_latency = redirect_latency
         self.branch_predictor = branch_predictor
@@ -783,6 +785,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
         "rename_width": cfg.rename_width,
         "issue_width": cfg.issue_width,
         "commit_width": cfg.commit_width,
+        "writeback_width": cfg.writeback_width,
         "trap_latency": cfg.trap_latency,
         "redirect_latency": cfg.redirect_latency,
         "branch_predictor": _bp_name(bp),
