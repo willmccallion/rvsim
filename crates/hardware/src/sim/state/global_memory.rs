@@ -7,7 +7,7 @@
 use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
-use crate::sim::packet::{AccessSize, MemOp, MemRespData};
+use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin};
 use crate::soc::memory::RamRegion;
 
 /// RAM with the reservations and write log that go with it.
@@ -72,12 +72,33 @@ impl GlobalMemory {
         self.note_write(writer, paddr);
     }
 
+    /// Writes the bytes of the line at `line` that `mask` selects, as
+    /// `writer`. Outside RAM nothing is written.
+    fn write_line(&mut self, writer: Writer, line: PhysAddr, bytes: &[u8], mask: u64) {
+        let Some(ram) = self.ram.filter(|ram| ram.contains(line.val(), bytes.len() as u64)) else {
+            return;
+        };
+        for (i, byte) in bytes.iter().enumerate().filter(|&(i, _)| mask >> i & 1 == 1) {
+            // SAFETY: `contains` bounds-checked the whole line.
+            unsafe { *ram.ptr(line.val() + i as u64) = *byte };
+        }
+        self.note_write(writer, line);
+    }
+
     /// Makes a hart's access take effect on the `size` bytes at `paddr`
     /// now, where the memory system serves it (see
     /// [`MemOp::takes_effect_when_served`]), and returns what it read.
     pub fn perform(&mut self, paddr: PhysAddr, size: AccessSize, op: &MemOp) -> MemRespData {
         match op {
             MemOp::Read | MemOp::Atomic { .. } => self.performed(self.read(paddr, size.bytes())),
+            MemOp::Write { data, origin: WriteOrigin::Hart(hart) } => {
+                let writer = Writer::Hart(*hart);
+                match data {
+                    WriteData::Small(value) => self.write(writer, paddr, *value, size.bytes()),
+                    WriteData::Line { bytes, mask } => self.write_line(writer, paddr, bytes, *mask),
+                }
+                MemRespData::Small(0)
+            }
             MemOp::ReadOwn | MemOp::Write { .. } | MemOp::Fetch | MemOp::Writeback { .. } => {
                 MemRespData::Small(0)
             }

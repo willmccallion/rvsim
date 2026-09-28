@@ -85,7 +85,8 @@ pub struct InOrderEngine {
     /// Vector memory instructions in flight, with the element micro-ops
     /// not yet in the memory pipeline.
     vec_mem_inflight: Vec<VecMemInflight>,
-    /// Buffered element data of vector stores, published at commit.
+    /// Buffered element data of vector stores, written to memory after
+    /// commit.
     vec_store_buffer: VecStoreBuffer,
     /// Execute → Memory1 latch.
     pub execute_mem1: Vec<ExMem1Entry>,
@@ -410,6 +411,7 @@ impl ExecutionEngine for InOrderEngine {
                 self.issue_width,
                 &self.rob,
                 &self.store_buffer,
+                &self.vec_store_buffer,
                 &mut state.stage(),
                 &mut self.fu_pool,
                 now,
@@ -472,13 +474,14 @@ impl ExecutionEngine for InOrderEngine {
         self.common.flush_predictions(&mut state.core.branch_predictor);
     }
 
-    fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
-        commit::drain_all_committed(
+    fn send_committed_write(&mut self, state: &mut CoreCtx<'_>) -> bool {
+        commit::send_one_write(
             state,
             &mut self.common,
             &mut self.store_buffer,
             &mut self.vec_store_buffer,
         );
+        commit::committed_writes_pending(state, &self.store_buffer, &self.vec_store_buffer)
     }
 
     fn vec_store_buffer(&self) -> &VecStoreBuffer {

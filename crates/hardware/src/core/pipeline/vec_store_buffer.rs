@@ -41,6 +41,7 @@ use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
 use crate::sim::CoreCtx;
 use crate::sim::components::ReqId;
+use crate::sim::packet::WriteOrigin;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
@@ -288,6 +289,17 @@ impl VecStoreBuffer {
             .is_some_and(|e| e.expected_elements == Some(e.resolved_elements))
     }
 
+    /// True when a vector store older than `rob_tag` has elements whose
+    /// addresses are not yet known, so a load cannot tell whether it
+    /// overlaps.
+    pub fn has_unresolved_store_before(&self, rob_tag: RobTag) -> bool {
+        self.entries.iter().any(|e| {
+            e.valid
+                && e.rob_tag.is_older_than(rob_tag)
+                && e.expected_elements != Some(e.resolved_elements)
+        })
+    }
+
     /// Forwarding check for a younger load. Policy-dependent — see module doc.
     pub fn forward_load(
         &self,
@@ -475,26 +487,6 @@ impl VecStoreBuffer {
         }
     }
 
-    /// Writes every committed store's remaining lines at once and frees all
-    /// committed entries without waiting for acknowledgements. Only for
-    /// emptying the pipeline to take a checkpoint.
-    pub fn drain_all_committed(
-        &mut self,
-        state: &mut CoreCtx<'_>,
-        common: &mut crate::core::pipeline::engine::BackendCommon,
-    ) {
-        while let Some(idx) = self.oldest_drainable_entry_index() {
-            let line = self.entries[idx].lines.remove(0);
-            let _ = write_line_to_memory(state, common, &line, StoreOwner::Untracked);
-        }
-        for entry in &mut self.entries {
-            if entry.valid && entry.committed {
-                entry.valid = false;
-                entry.pending_writes.clear();
-            }
-        }
-    }
-
     /// Drops entries strictly newer than `keep_tag`. Older entries (whether
     /// committed or not) survive. Used on partial flush — branch
     /// misprediction or memory-ordering violation.
@@ -520,7 +512,7 @@ impl VecStoreBuffer {
     }
 
     /// Drops every entry, committed or not. Intended only for callers that
-    /// have already drained committed work to memory (`drain_all_committed`).
+    /// have already drained committed work to memory.
     pub fn flush_all(&mut self) {
         for entry in &mut self.entries {
             entry.valid = false;
@@ -603,9 +595,8 @@ fn write_line_to_memory(
     requests
 }
 
-/// Publishes a single VSB-drained write and emits its `MemReq` (op = Write),
-/// returning the request. MMIO addresses fall through the packet path only
-/// (no RAM-backed write).
+/// Emits the `MemReq` (op = Write) of a single VSB-drained write, returning
+/// the request.
 fn issue_drained_write(
     state: &mut CoreCtx<'_>,
     common: &mut crate::core::pipeline::engine::BackendCommon,
@@ -616,7 +607,7 @@ fn issue_drained_write(
 ) -> Option<ReqId> {
     use crate::core::pipeline::outstanding::OutstandingStore;
     use crate::sim::components::ComponentId;
-    use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData, WriteOrigin};
+    use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 
     let access_size = match width {
         MemWidth::Byte => AccessSize::B1,
@@ -626,13 +617,11 @@ fn issue_drained_write(
         MemWidth::Nop => return None,
     };
 
-    state.publish_write(paddr, data, width);
-
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
     let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr });
-    let hart = state.hart.hart_id;
+    let origin = WriteOrigin::Hart(state.hart.hart_id);
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -643,7 +632,7 @@ fn issue_drained_write(
             paddr,
             vaddr: None,
             size: access_size,
-            op: MemOp::Write { data: WriteData::Small(data), origin: WriteOrigin::Hart(hart) },
+            op: MemOp::Write { data: WriteData::Small(data), origin },
         },
     );
     Some(req_id)

@@ -23,6 +23,7 @@ use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::RamRegion;
 
 const LATENCY: u64 = 2;
+const HART: WriteOrigin = WriteOrigin::Hart(HartId::new(0));
 const RAM_BYTES: usize = 0x1_0000;
 const SELF: ComponentId = ComponentId::Cache(CacheId::new(0));
 const DOWNSTREAM: ComponentId = ComponentId::Cache(CacheId::new(1));
@@ -118,6 +119,12 @@ impl Bench {
             addr,
             MemOp::Write { data: WriteData::Small(1), origin: WriteOrigin::Hart(HartId::new(0)) },
         );
+    }
+
+    /// The 8 bytes of RAM at `addr`.
+    fn ram_value(&self, addr: u64) -> u64 {
+        let at = addr as usize;
+        u64::from_le_bytes(self.ram[at..at + 8].try_into().expect("8 bytes"))
     }
 
     /// Puts `value` in RAM at `addr`, behind the cache's back.
@@ -316,6 +323,43 @@ fn a_miss_reads_memory_when_its_fill_arrives() {
     bench.fill(fetch[0].0, 0x1000);
 
     assert_eq!(values_read_by(&bench.drain(), PIPELINE), vec![(ReqId::new(1), 0xBB)]);
+}
+
+#[test]
+fn a_store_that_hits_writes_memory_as_it_is_served() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Write { data: WriteData::Small(0), origin: HART });
+
+    bench.request(2, 0x1000, MemOp::Write { data: WriteData::Small(0xAB), origin: HART });
+
+    assert_eq!(bench.ram_value(0x1000), 0xAB);
+}
+
+#[test]
+fn a_store_that_misses_writes_memory_only_when_its_line_arrives() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.request(1, 0x1000, MemOp::Write { data: WriteData::Small(0xAB), origin: HART });
+    let fetch = bench.downstream_requests();
+    assert_eq!(bench.ram_value(0x1000), 0, "nothing written while the line is fetched");
+
+    bench.fill(fetch[0].0, 0x1000);
+
+    assert_eq!(bench.ram_value(0x1000), 0xAB);
+}
+
+#[test]
+fn a_write_whose_bytes_are_already_placed_does_not_write_memory() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Read);
+    bench.set_ram(0x1000, 0x11);
+
+    bench.request(
+        2,
+        0x1000,
+        MemOp::Write { data: WriteData::Small(0xAB), origin: WriteOrigin::Placed },
+    );
+
+    assert_eq!(bench.ram_value(0x1000), 0x11);
 }
 
 #[test]

@@ -69,8 +69,14 @@ impl AccessSize {
 pub enum WriteData {
     /// Up to 8 bytes packed into a `u64` (low-order bytes used per `AccessSize`).
     Small(u64),
-    /// A full cache line (typically 64 bytes).
-    Line(Box<[u8]>),
+    /// A cache line's bytes, of which those whose bit is set in `mask` are
+    /// written.
+    Line {
+        /// The line's bytes.
+        bytes: Box<[u8]>,
+        /// Which bytes the write covers, bit `i` for byte `i`.
+        mask: u64,
+    },
 }
 
 /// Response data payload for a load.
@@ -178,7 +184,7 @@ impl MemOp {
     pub const fn takes_effect_when_served(&self, size: AccessSize) -> bool {
         match self {
             Self::Read => !matches!(size, AccessSize::Line),
-            Self::Atomic { .. } => true,
+            Self::Atomic { .. } | Self::Write { origin: WriteOrigin::Hart(_), .. } => true,
             Self::ReadOwn | Self::Write { .. } | Self::Fetch | Self::Writeback { .. } => false,
         }
     }
@@ -399,7 +405,7 @@ mod tests {
         let w = WriteData::Small(0x12_34_56_78);
         match w {
             WriteData::Small(v) => assert_eq!(v, 0x12_34_56_78),
-            WriteData::Line(_) => panic!("wrong variant"),
+            WriteData::Line { .. } => panic!("wrong variant"),
         }
     }
 

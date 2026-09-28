@@ -1,188 +1,234 @@
-//! Write Combining Buffer (WCB) for store coalescing.
+//! Write-combining buffer (WCB): a merging write buffer between the store
+//! buffer and the L1D.
 //!
-//! Sequential stores to adjacent bytes within the same cache line are coalesced
-//! into a single WCB entry before being drained to the L1D cache. This reduces
-//! L1D write port pressure for sequential store patterns (e.g., memcpy, struct init).
+//! A committed store leaving the store buffer merges into the entry for its
+//! line instead of writing the L1D itself, so sequential stores (memcpy,
+//! struct initialisation) reach the cache as one line write. An entry holds
+//! its bytes until it is sent, and the hart's own loads read them from it:
 //!
-//! The WCB sits between the store buffer drain path and L1D:
-//! ```text
-//! Store Buffer → drain_one() → WCB → drain to L1D → write to RAM
-//! ```
+//! - when a store for another line needs its slot (the LRU entry goes);
+//! - once every byte of its line is written;
+//! - when a load needs bytes it holds only some of;
+//! - when the store buffers leave the L1D write port idle, which is also
+//!   how it empties before anything that waits for older stores.
 //!
-//! An entry is drained when:
-//! 1. It is full (all bytes in the cache line have been written).
-//! 2. It is evicted (all entries are occupied and a new line needs an entry).
-//! 3. A FENCE instruction forces all entries to drain.
-//! 4. A load hits the same cache line (not modeled here — loads bypass the WCB
-//!    via the store buffer forwarding path which is upstream).
+//! A sent line is ordered ahead of any later access to it at the L1D, so it
+//! no longer forwards; it is tracked until acknowledged so barriers can
+//! wait for it.
 
-/// A single WCB entry covering one cache line.
-#[derive(Clone, Debug)]
-struct WcbEntry {
-    /// Cache-line-aligned physical address of this entry.
-    line_addr: u64,
-    /// Byte-level valid mask. Bit `i` is set if byte `i` has been written.
-    valid_mask: u64,
-    /// Data buffer (up to 64 bytes, cache-line sized).
-    data: [u8; 64],
-    /// Whether this entry is occupied.
-    active: bool,
-    /// LRU counter (lower = older = next eviction candidate).
-    lru_counter: u64,
+use crate::common::PhysAddr;
+use crate::core::pipeline::store_buffer::ForwardResult;
+use crate::sim::components::ReqId;
+
+/// Largest span one entry covers: its byte mask is a `u64`.
+const MAX_ENTRY_BYTES: usize = 64;
+
+/// The bytes one entry has gathered for a line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WcbLine {
+    /// Physical address of the first byte the entry covers.
+    pub line_addr: u64,
+    /// The entry's bytes; those not in `mask` are meaningless.
+    pub data: [u8; MAX_ENTRY_BYTES],
+    /// Which bytes have been written, bit `i` for byte `i`.
+    pub mask: u64,
 }
 
-impl Default for WcbEntry {
-    fn default() -> Self {
-        Self { line_addr: 0, valid_mask: 0, data: [0; 64], active: false, lru_counter: 0 }
+impl WcbLine {
+    const fn empty(line_addr: u64) -> Self {
+        Self { line_addr, data: [0; MAX_ENTRY_BYTES], mask: 0 }
     }
 }
 
-/// A pending drain request returned by the WCB to the caller.
+/// A slot gathering stores for one line.
 #[derive(Clone, Debug)]
-pub struct WcbDrain {
-    /// Cache-line-aligned physical address.
-    pub line_addr: u64,
+struct WcbEntry {
+    line: WcbLine,
+    /// Access sequence of the last merge (larger is more recent).
+    last_use: u64,
+    /// A load needs this line written before it can read memory.
+    send_requested: bool,
 }
 
-/// Write Combining Buffer with configurable entry count.
+/// Write-combining buffer with a configurable number of entries.
 #[derive(Debug)]
 pub struct WriteCombiningBuffer {
-    entries: Vec<WcbEntry>,
-    line_bytes: usize,
-    /// Monotonically increasing counter for LRU tracking.
-    access_counter: u64,
+    slots: Vec<Option<WcbEntry>>,
+    entry_bytes: usize,
+    next_use: u64,
+    /// Lines sent to the L1D and not yet acknowledged.
+    in_flight: Vec<ReqId>,
 }
 
 impl WriteCombiningBuffer {
-    /// Creates a new WCB with the given number of entries and cache line size.
-    ///
-    /// A capacity of 0 disables the WCB (all stores pass through directly).
+    /// A WCB of `capacity` entries, each covering one `line_bytes` line (at
+    /// most 64 bytes of it). A capacity of 0 disables the WCB and stores
+    /// write the L1D themselves.
     pub fn new(capacity: usize, line_bytes: usize) -> Self {
-        let safe_line = if line_bytes == 0 { 64 } else { line_bytes };
-        Self {
-            entries: vec![WcbEntry::default(); capacity],
-            line_bytes: safe_line,
-            access_counter: 0,
-        }
+        let entry_bytes = if line_bytes == 0 { 64 } else { line_bytes.min(MAX_ENTRY_BYTES) };
+        Self { slots: vec![None; capacity], entry_bytes, next_use: 0, in_flight: Vec::new() }
     }
 
     /// Returns true if the WCB is disabled (0 entries).
     #[inline]
     pub const fn is_disabled(&self) -> bool {
-        self.entries.is_empty()
+        self.slots.is_empty()
     }
 
-    /// Merges a store into the WCB.
-    ///
-    /// If the store's cache line already has an active WCB entry, the bytes are
-    /// merged into it (coalesced). Otherwise, a new entry is allocated — evicting
-    /// the LRU entry if necessary.
-    ///
-    /// Returns `Some(WcbDrain)` if an entry was evicted to make room, meaning the
-    /// caller should drain that entry through the cache hierarchy. Returns `None`
-    /// if the store was absorbed without eviction.
-    pub fn merge_store(
-        &mut self,
-        paddr: crate::common::PhysAddr,
-        data: u64,
-        width_bytes: usize,
-    ) -> Option<WcbDrain> {
-        if self.entries.is_empty() {
-            return None;
+    /// Bytes one entry covers.
+    #[must_use]
+    pub const fn entry_bytes(&self) -> usize {
+        self.entry_bytes
+    }
+
+    const fn entry_base(&self, addr: u64) -> u64 {
+        addr & !(self.entry_bytes as u64 - 1)
+    }
+
+    const fn full_mask(&self) -> u64 {
+        if self.entry_bytes >= 64 { u64::MAX } else { (1 << self.entry_bytes) - 1 }
+    }
+
+    /// Merges `bytes` bytes of `data` at `paddr`, which must lie in one
+    /// entry's span of an enabled buffer. Returns the line whose slot the
+    /// store took, which the caller must send.
+    #[must_use]
+    pub fn merge_store(&mut self, paddr: PhysAddr, data: u64, bytes: usize) -> Option<WcbLine> {
+        debug_assert!(!self.is_disabled(), "merge into a disabled WCB");
+        let base = self.entry_base(paddr.val());
+        debug_assert!(
+            paddr.val() - base + bytes as u64 <= self.entry_bytes as u64,
+            "store spans two WCB entries"
+        );
+        let offset = (paddr.val() - base) as usize;
+        self.next_use += 1;
+        let now = self.next_use;
+        let index = self
+            .slots
+            .iter()
+            .position(|slot| slot.as_ref().is_some_and(|e| e.line.line_addr == base))
+            .or_else(|| self.slots.iter().position(Option::is_none));
+        let (index, evicted) = if let Some(index) = index {
+            (index, None)
+        } else {
+            let lru = self.least_recently_used()?;
+            (lru, self.slots[lru].take().map(|entry| entry.line))
+        };
+        let entry = self.slots[index].get_or_insert_with(|| WcbEntry {
+            line: WcbLine::empty(base),
+            last_use: now,
+            send_requested: false,
+        });
+        entry.last_use = now;
+        for (i, byte) in data.to_le_bytes().iter().take(bytes).enumerate() {
+            entry.line.data[offset + i] = *byte;
+            entry.line.mask |= 1 << (offset + i);
         }
+        evicted
+    }
 
-        let raw = paddr.val();
-        let line_mask = !(self.line_bytes as u64 - 1);
-        let line_addr = raw & line_mask;
-        let offset = (raw - line_addr) as usize;
+    fn least_recently_used(&self) -> Option<usize> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| slot.as_ref().map(|entry| (i, entry.last_use)))
+            .min_by_key(|&(_, last_use)| last_use)
+            .map(|(i, _)| i)
+    }
 
-        self.access_counter += 1;
+    /// Forwards to a load of `bytes` bytes at `paddr` the bytes the buffer
+    /// holds. A load it covers only partly waits, and its line is marked to
+    /// be sent so the load can then read the cache.
+    pub fn forward_load(&mut self, paddr: PhysAddr, bytes: usize) -> ForwardResult {
+        let base = self.entry_base(paddr.val());
+        let offset = (paddr.val() - base) as usize;
+        if offset + bytes > self.entry_bytes {
+            return if self.request_send(paddr, bytes) {
+                ForwardResult::Stall
+            } else {
+                ForwardResult::Miss
+            };
+        }
+        let Some(entry) =
+            self.slots.iter_mut().flatten().find(|entry| entry.line.line_addr == base)
+        else {
+            return ForwardResult::Miss;
+        };
+        let wanted = if bytes >= 64 { u64::MAX } else { ((1u64 << bytes) - 1) << offset };
+        let held = entry.line.mask & wanted;
+        if held == 0 {
+            return ForwardResult::Miss;
+        }
+        if held != wanted {
+            entry.send_requested = true;
+            return ForwardResult::Stall;
+        }
+        let value = entry.line.data[offset..offset + bytes]
+            .iter()
+            .rev()
+            .fold(0u64, |value, &byte| (value << 8) | u64::from(byte));
+        ForwardResult::Hit(value)
+    }
 
-        for entry in &mut self.entries {
-            if entry.active && entry.line_addr == line_addr {
-                Self::write_bytes(entry, offset, data, width_bytes);
-                entry.lru_counter = self.access_counter;
-                return None;
+    /// Marks every line holding any of the `bytes` bytes at `paddr` to be
+    /// sent, for an access that must follow them to the cache. Returns
+    /// whether there was one.
+    pub fn request_send(&mut self, paddr: PhysAddr, bytes: usize) -> bool {
+        let start = paddr.val();
+        let end = start + bytes as u64;
+        let span = self.entry_bytes as u64;
+        let mut overlapped = false;
+        for entry in self.slots.iter_mut().flatten() {
+            let line_start = entry.line.line_addr;
+            let covered = (0..span).filter(|&i| entry.line.mask >> i & 1 == 1).any(|i| {
+                let byte = line_start + i;
+                byte >= start && byte < end
+            });
+            if covered {
+                entry.send_requested = true;
+                overlapped = true;
             }
         }
-
-        for entry in &mut self.entries {
-            if !entry.active {
-                entry.active = true;
-                entry.line_addr = line_addr;
-                entry.valid_mask = 0;
-                entry.data = [0; 64];
-                Self::write_bytes(entry, offset, data, width_bytes);
-                entry.lru_counter = self.access_counter;
-                return None;
-            }
-        }
-
-        let lru_idx = self.find_lru();
-        let evicted_addr = self.entries[lru_idx].line_addr;
-
-        self.entries[lru_idx].line_addr = line_addr;
-        self.entries[lru_idx].valid_mask = 0;
-        self.entries[lru_idx].data = [0; 64];
-        Self::write_bytes(&mut self.entries[lru_idx], offset, data, width_bytes);
-        self.entries[lru_idx].lru_counter = self.access_counter;
-
-        Some(WcbDrain { line_addr: evicted_addr })
+        overlapped
     }
 
-    /// Flushes all active WCB entries, returning their addresses.
-    ///
-    /// Called on FENCE instructions or pipeline flush to ensure all pending
-    /// writes become visible.
-    pub fn flush_all(&mut self) -> Vec<WcbDrain> {
-        let mut drains = Vec::new();
-        for entry in &mut self.entries {
-            if entry.active {
-                drains.push(WcbDrain { line_addr: entry.line_addr });
-                entry.active = false;
-            }
-        }
-        drains
+    /// Takes a line that must go now: one a load is waiting for, or one
+    /// that is fully written.
+    pub fn take_urgent(&mut self) -> Option<WcbLine> {
+        let full = self.full_mask();
+        let index = self.slots.iter().position(|slot| {
+            slot.as_ref().is_some_and(|entry| entry.send_requested || entry.line.mask == full)
+        })?;
+        self.slots[index].take().map(|entry| entry.line)
     }
 
-    /// Checks if the WCB has an active entry for the given cache line address.
-    ///
-    /// Used to ensure cache accesses don't miss data sitting in the WCB.
-    #[inline]
-    pub fn contains_line(&self, line_addr: u64) -> bool {
-        self.entries.iter().any(|e| e.active && e.line_addr == line_addr)
+    /// Takes the least recently merged line, to send while the write port
+    /// is idle.
+    pub fn take_oldest(&mut self) -> Option<WcbLine> {
+        let index = self.least_recently_used()?;
+        self.slots[index].take().map(|entry| entry.line)
     }
 
-    /// Returns the number of active entries.
-    #[inline]
+    /// Records that `req` carries a sent line.
+    pub fn sent(&mut self, req: ReqId) {
+        self.in_flight.push(req);
+    }
+
+    /// The L1D acknowledged `req`.
+    pub fn acked(&mut self, req: ReqId) {
+        self.in_flight.retain(|pending| *pending != req);
+    }
+
+    /// True while a store is held or a sent line is unacknowledged.
+    #[must_use]
+    pub fn has_pending(&self) -> bool {
+        !self.in_flight.is_empty() || self.slots.iter().any(Option::is_some)
+    }
+
+    /// Lines holding stores.
+    #[must_use]
     pub fn active_count(&self) -> usize {
-        self.entries.iter().filter(|e| e.active).count()
-    }
-
-    /// Writes `width_bytes` of data into the entry at the given offset.
-    fn write_bytes(entry: &mut WcbEntry, offset: usize, data: u64, width_bytes: usize) {
-        let bytes = data.to_le_bytes();
-        let end = (offset + width_bytes).min(64);
-        for i in offset..end {
-            let byte_idx = i - offset;
-            if byte_idx < 8 {
-                entry.data[i] = bytes[byte_idx];
-                entry.valid_mask |= 1u64 << i;
-            }
-        }
-    }
-
-    /// Finds the index of the LRU (least recently used) entry.
-    fn find_lru(&self) -> usize {
-        let mut min_counter = u64::MAX;
-        let mut min_idx = 0;
-        for (i, entry) in self.entries.iter().enumerate() {
-            if entry.active && entry.lru_counter < min_counter {
-                min_counter = entry.lru_counter;
-                min_idx = i;
-            }
-        }
-        min_idx
+        self.slots.iter().flatten().count()
     }
 }
 
@@ -190,76 +236,75 @@ impl WriteCombiningBuffer {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::PhysAddr;
 
-    #[test]
-    fn test_disabled_wcb() {
-        let mut wcb = WriteCombiningBuffer::new(0, 64);
-        assert!(wcb.is_disabled());
-        assert!(wcb.merge_store(PhysAddr::new(0x1000), 42, 4).is_none());
+    fn wcb(capacity: usize) -> WriteCombiningBuffer {
+        WriteCombiningBuffer::new(capacity, 64)
     }
 
     #[test]
-    fn test_coalesce_same_line() {
-        let mut wcb = WriteCombiningBuffer::new(4, 64);
-        // First store to line 0x1000..0x103F
+    fn stores_to_one_line_share_an_entry() {
+        let mut wcb = wcb(4);
         assert!(wcb.merge_store(PhysAddr::new(0x1000), 0xAA, 1).is_none());
-        assert_eq!(wcb.active_count(), 1);
-        // Second store to same line, different offset
         assert!(wcb.merge_store(PhysAddr::new(0x1008), 0xBB, 1).is_none());
-        assert_eq!(wcb.active_count(), 1); // coalesced
+        assert_eq!(wcb.active_count(), 1);
     }
 
     #[test]
-    fn test_different_lines_allocate_new_entries() {
-        let mut wcb = WriteCombiningBuffer::new(4, 64);
-        assert!(wcb.merge_store(PhysAddr::new(0x1000), 1, 4).is_none());
-        assert!(wcb.merge_store(PhysAddr::new(0x1040), 2, 4).is_none());
-        assert!(wcb.merge_store(PhysAddr::new(0x1080), 3, 4).is_none());
-        assert_eq!(wcb.active_count(), 3);
-    }
+    fn a_store_to_a_new_line_evicts_the_least_recently_merged_one() {
+        let mut wcb = wcb(2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
+        let _ = wcb.merge_store(PhysAddr::new(0x1040), 2, 4);
+        let _ = wcb.merge_store(PhysAddr::new(0x1004), 3, 4);
 
-    #[test]
-    fn test_eviction_on_full() {
-        let mut wcb = WriteCombiningBuffer::new(2, 64);
-        assert!(wcb.merge_store(PhysAddr::new(0x1000), 1, 4).is_none());
-        assert!(wcb.merge_store(PhysAddr::new(0x1040), 2, 4).is_none());
-        // Third line should evict the LRU (0x1000)
-        let drain = wcb.merge_store(PhysAddr::new(0x1080), 3, 4);
-        assert!(drain.is_some());
-        assert_eq!(drain.unwrap().line_addr, 0x1000);
+        let evicted = wcb.merge_store(PhysAddr::new(0x1080), 4, 4).unwrap();
+
+        assert_eq!(evicted.line_addr, 0x1040);
+        assert_eq!(evicted.mask, 0xF);
         assert_eq!(wcb.active_count(), 2);
     }
 
     #[test]
-    fn test_flush_all() {
-        let mut wcb = WriteCombiningBuffer::new(4, 64);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
-        wcb.merge_store(PhysAddr::new(0x1040), 2, 4);
-        let drains = wcb.flush_all();
-        assert_eq!(drains.len(), 2);
-        assert_eq!(wcb.active_count(), 0);
+    fn a_load_it_covers_reads_the_merged_bytes() {
+        let mut wcb = wcb(2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1000), 0x1122, 2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1002), 0x3344, 2);
+
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 4), ForwardResult::Hit(0x3344_1122));
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1004), 4), ForwardResult::Miss);
     }
 
     #[test]
-    fn test_lru_updates_on_access() {
-        let mut wcb = WriteCombiningBuffer::new(2, 64);
-        // Allocate two lines
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 4); // counter=1
-        wcb.merge_store(PhysAddr::new(0x1040), 2, 4); // counter=2
-        // Touch 0x1000 again (coalesce), making it MRU (counter=3)
-        wcb.merge_store(PhysAddr::new(0x1004), 3, 4);
-        // Now 0x1040 (counter=2) is LRU — evict it
-        let drain = wcb.merge_store(PhysAddr::new(0x1080), 4, 4);
-        assert!(drain.is_some());
-        assert_eq!(drain.unwrap().line_addr, 0x1040);
+    fn a_load_it_covers_partly_waits_and_gets_the_line_sent() {
+        let mut wcb = wcb(2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1000), 0x11, 1);
+
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 2), ForwardResult::Stall);
+        let sent = wcb.take_urgent().unwrap();
+
+        assert_eq!(sent.line_addr, 0x1000);
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 2), ForwardResult::Miss);
     }
 
     #[test]
-    fn test_contains_line() {
-        let mut wcb = WriteCombiningBuffer::new(4, 64);
-        wcb.merge_store(PhysAddr::new(0x1008), 1, 4);
-        assert!(wcb.contains_line(0x1000));
-        assert!(!wcb.contains_line(0x1040));
+    fn a_fully_written_line_is_sent_at_once() {
+        let mut wcb = wcb(2);
+        for offset in (0..64).step_by(8) {
+            let _ = wcb.merge_store(PhysAddr::new(0x2000 + offset), offset, 8);
+        }
+
+        assert_eq!(wcb.take_urgent().map(|line| line.mask), Some(u64::MAX));
+    }
+
+    #[test]
+    fn a_sent_line_is_pending_until_acknowledged() {
+        let mut wcb = wcb(2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
+        let _ = wcb.take_oldest().unwrap();
+        wcb.sent(ReqId::new(7));
+        assert!(wcb.has_pending());
+
+        wcb.acked(ReqId::new(7));
+
+        assert!(!wcb.has_pending());
     }
 }

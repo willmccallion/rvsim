@@ -162,6 +162,8 @@ pub enum StoreOwner {
     /// A vector store, which keeps its vector-store-buffer entry until
     /// every write of it is acknowledged.
     VecStoreBuffer,
+    /// A line the write-combining buffer sent, which barriers wait for.
+    WriteCombining,
     /// A write nothing waits for: a line writeback, a PTE update, a CBO's
     /// writes, or a store written at once for a checkpoint.
     Untracked,

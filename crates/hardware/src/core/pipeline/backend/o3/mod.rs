@@ -1153,13 +1153,14 @@ impl ExecutionEngine for O3Engine {
         self.rename_one(state, id)
     }
 
-    fn drain_committed_stores(&mut self, state: &mut CoreCtx<'_>) {
-        commit::drain_all_committed(
+    fn send_committed_write(&mut self, state: &mut CoreCtx<'_>) -> bool {
+        commit::send_one_write(
             state,
             &mut self.common,
             &mut self.store_buffer,
             &mut self.vec_store_buffer,
         );
+        commit::committed_writes_pending(state, &self.store_buffer, &self.vec_store_buffer)
     }
 
     fn execute_mem1_mut(&mut self) -> &mut Vec<crate::core::pipeline::latches::ExMem1Entry> {

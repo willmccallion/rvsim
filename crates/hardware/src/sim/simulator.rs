@@ -63,20 +63,40 @@ impl Simulator {
         Self::new(SimState::new(config, disk_path, exit_signal))
     }
 
-    /// Discards every core's speculative work, writes its committed stores
-    /// to RAM and leaves each hart at its committed PC: the self-contained
-    /// architectural state a checkpoint records. Like gem5's drain, it
+    /// Discards every core's speculative work, leaves each hart at its
+    /// committed PC, and runs the memory system until every committed store
+    /// has taken effect: the self-contained architectural state a
+    /// checkpoint records. Like gem5's drain, it takes simulated time and
     /// perturbs the timing of a run that continues afterwards.
     pub fn drain(&mut self) {
         for core in 0..self.core_count() {
             let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
-            pipeline.drain(&mut ctx);
+            pipeline.flush(&mut ctx);
         }
+        while self.drain_writes_for_a_cycle() {}
         let shared = &mut self.state.shared;
         shared.bus.drain_devices();
         for (paddr, len) in shared.bus.take_dma_writes() {
             shared.memory.record_external_write_range(paddr, len);
         }
+    }
+
+    /// Runs one cycle of the memory system in which each drained core sends
+    /// its next committed write. Returns whether any core still has one
+    /// outstanding.
+    fn drain_writes_for_a_cycle(&mut self) -> bool {
+        self.state.advance_cycle();
+        self.drain_events();
+        let mut pending = false;
+        for core in 0..self.core_count() {
+            let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
+            pending |= pipeline.drain_writes(&mut ctx);
+        }
+        self.drain_events();
+        self.tick_mem_controller();
+        self.tick_fabric();
+        self.drain_events();
+        pending
     }
 
     /// Number of cores.

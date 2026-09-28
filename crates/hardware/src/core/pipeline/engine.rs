@@ -75,8 +75,10 @@ pub trait ExecutionEngine {
     /// Flush all speculative state. Committed stores in the store buffer remain.
     fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
 
-    /// Write every committed store still buffered to memory.
-    fn drain_committed_stores(&mut self, state: &mut crate::sim::CoreCtx<'_>);
+    /// Sends the next write of a committed store still buffered, as the
+    /// commit stage does each cycle. Returns whether any committed store's
+    /// write has yet to be acknowledged.
+    fn send_committed_write(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool;
 
     /// The vector configuration an instruction decoded now runs under: the
     /// result of the youngest executed `vsetvl` still in the ROB, else the
@@ -539,11 +541,12 @@ impl<E: ExecutionEngine> Pipeline<E> {
         common.vector_config_unresolved = false;
     }
 
-    /// Flush the pipeline and write its committed stores to memory; fetch
-    /// restarts at the hart's architectural PC.
-    pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
-        self.flush(state);
-        self.engine.drain_committed_stores(state);
+    /// One cycle of draining a flushed pipeline: takes the memory system's
+    /// acknowledgements and sends the next committed store's write. Returns
+    /// whether any committed store has yet to finish writing.
+    pub fn drain_writes(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool {
+        crate::core::pipeline::mailbox::drain(self, &mut state.stage());
+        self.engine.send_committed_write(state)
     }
 
     /// Flush the entire pipeline; fetch restarts at the hart's
@@ -641,11 +644,11 @@ impl PipelineDispatch {
         }
     }
 
-    /// See [`Pipeline::drain`].
-    pub fn drain(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+    /// See [`Pipeline::drain_writes`].
+    pub fn drain_writes(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool {
         match self {
-            Self::InOrder(p) => p.drain(state),
-            Self::OutOfOrder(p) => p.drain(state),
+            Self::InOrder(p) => p.drain_writes(state),
+            Self::OutOfOrder(p) => p.drain_writes(state),
         }
     }
 

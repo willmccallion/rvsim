@@ -170,12 +170,12 @@ HSM parks and later lifts them for Linux.
 
 ## Atomics and reservations
 
-LR/SC reservations live in `SharedState::reservations`, one slot per hart,
+LR/SC reservations live in `GlobalMemory`, one slot per hart,
 because a store from *any* hart to a reserved line must invalidate that
 reservation. A published write breaks every other hart's reservation
 covering the line (the writer's own reservation is governed by the LR/SC
-pairing rules that already exist): at drain for plain stores, at commit
-for SC and AMO. AMOs read their old value at the memory side of the L1D as
+pairing rules that already exist): where the cache performs it for plain
+stores, at commit for SC and AMO. AMOs read their old value at the memory side of the L1D as
 today and apply the result at commit after the write-log check above;
 with coherence enabled they require the line in the Modified state first,
 so the coherence transaction precedes the read.
@@ -204,14 +204,17 @@ before the reading instruction commits. Neither can be
 detected by the protocol, so the pipeline makes the visibility instant
 explicit:
 
-- Every RAM write goes through `SharedState::publish_write`: the bytes
-  land in RAM, every other hart's reservation on the line is broken, and
-  the write is recorded in the **write log**, a per-line `(sequence,
-  writer)` table that exists only when the system has more than one hart.
-  Plain stores publish when they drain from the store buffer (a store
-  buffer is invisible to other harts, as in hardware); SC and AMO publish
-  at commit, at the same instant as the reservation decision, and their
-  store-buffer entry then drains as timing only.
+- Every RAM write goes through `GlobalMemory`: the bytes land in RAM,
+  every other hart's reservation on the line is broken, and the write is
+  recorded in the **write log**, a per-line `(sequence, writer)` table
+  that exists only when the system has more than one hart. A plain store
+  (scalar, vector or a write-combining line) is written where the memory
+  system serves it: at the writer's L1D once it holds the line Modified,
+  which the coherence protocol grants only after invalidating every other
+  copy, so no hart sees a store before its writer's cache performs it,
+  whatever order the cores tick in. SC and AMO publish at commit, at the
+  same instant as the reservation decision, and their store-buffer entry
+  then drains as timing only. Hardware A/D updates are written at once.
 - A load, LR or AMO response carries its bytes and the log sequence
   current when they were read.
 - At commit an LR whose line another hart has written after its stamp

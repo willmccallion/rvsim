@@ -79,10 +79,13 @@ impl Handle for MockMemory {
                     self.write_bytes(offset, width, v);
                     0
                 }
-                MemOp::Write { data: WriteData::Line(bytes), .. } => {
-                    let idx = offset as usize;
-                    let end = (idx + bytes.len()).min(self.data.len());
-                    self.data[idx..end].copy_from_slice(&bytes[..end - idx]);
+                MemOp::Write { data: WriteData::Line { bytes, mask }, .. } => {
+                    let base = offset as usize;
+                    for (i, byte) in bytes.iter().enumerate() {
+                        if mask >> i & 1 == 1 && base + i < self.data.len() {
+                            self.data[base + i] = *byte;
+                        }
+                    }
                     0
                 }
                 MemOp::Writeback { .. } => 0,

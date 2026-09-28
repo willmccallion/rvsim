@@ -507,27 +507,6 @@ impl StoreBuffer {
         }
     }
 
-    /// Frees every committed store whether or not its write was sent or
-    /// acknowledged, returning the ones never sent so the caller can write
-    /// them at once. For a checkpoint drain, where the pipeline is emptied
-    /// and no acknowledgement will be waited for.
-    pub fn release_all_committed(&mut self) -> Vec<StoreBufferEntry> {
-        let mut unsent = Vec::new();
-        while self.count > 0 {
-            let head = &mut self.entries[self.head];
-            if !head.valid || !head.resolution.is_committed() {
-                break;
-            }
-            if head.write == WriteProgress::Unsent {
-                unsent.push(head.clone());
-            }
-            head.valid = false;
-            self.head = (self.head + 1) % self.entries.len();
-            self.count -= 1;
-        }
-        unsent
-    }
-
     /// Flushes speculative (non-committed) entries. Committed entries remain.
     pub fn flush_speculative(&mut self) {
         if self.count == 0 {
@@ -741,20 +720,6 @@ mod tests {
         let _ = sb.write_acked(ReqId::new(2));
 
         assert_eq!((after_one, sb.len()), (1, 0));
-    }
-
-    #[test]
-    fn releasing_all_committed_stores_returns_the_unsent_ones() {
-        let mut sb = StoreBuffer::new(4);
-        committed_store(&mut sb, 1, 0x1000, 1);
-        committed_store(&mut sb, 2, 0x2000, 2);
-        let first = sb.begin_write().expect("first store");
-        sb.issue_write(first, &[ReqId::new(1)]);
-
-        let unsent: Vec<RobTag> = sb.release_all_committed().iter().map(|e| e.rob_tag).collect();
-
-        assert_eq!(unsent, vec![RobTag(2)]);
-        assert!(sb.is_empty());
     }
 
     #[test]

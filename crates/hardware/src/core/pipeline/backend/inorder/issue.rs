@@ -17,6 +17,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{AtomicOp, SystemOp, VectorOp};
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::sim::StageCtx;
 use crate::trace_issue;
@@ -87,6 +88,7 @@ impl InOrderIssueUnit {
         width: usize,
         rob: &Rob,
         store_buffer: &StoreBuffer,
+        vec_store_buffer: &VecStoreBuffer,
         state: &mut StageCtx<'_>,
         fu_pool: &mut FuPool,
         now: u64,
@@ -138,7 +140,10 @@ impl InOrderIssueUnit {
             }
 
             // Loads need older store addresses resolved or forwarding can miss an overlap.
-            if entry.ctrl.mem_read && store_buffer.has_unresolved_store_before(entry.rob_tag) {
+            if entry.ctrl.mem_read
+                && (store_buffer.has_unresolved_store_before(entry.rob_tag)
+                    || vec_store_buffer.has_unresolved_store_before(entry.rob_tag))
+            {
                 break;
             }
 

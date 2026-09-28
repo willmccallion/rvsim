@@ -31,6 +31,7 @@ use crate::core::pipeline::signals::{AluOp, AtomicOp, ControlFlow, MemWidth, Sys
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreResolution, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
+use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
 use crate::core::units::cache::DirtyLine;
 use crate::core::units::lsu::unaligned;
 use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
@@ -334,7 +335,9 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         // A barrier retires once every older store's write has completed.
-        if waits_for_older_stores(head) && older_stores_pending(store_buffer, vec_store_buffer) {
+        if waits_for_older_stores(head)
+            && older_stores_pending(store_buffer, vec_store_buffer, &state.core.wcb)
+        {
             break;
         }
 
@@ -648,14 +651,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if entry.ctrl.system_op == SystemOp::FenceI {
-            flush_wcb(state, common);
             // Older stores have completed (stall above); refills see them.
             let _ = state.core.l1_i_cache.invalidate_all();
             // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
-        } else if entry.ctrl.system_op == SystemOp::Fence && fence_orders_stores(entry.inst) {
-            flush_wcb(state, common);
         }
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
@@ -693,10 +693,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         _ => state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_three_plus).inc(),
     }
 
-    // One drain per cycle: fall through to VSB if scalar SB has nothing committed.
-    if !try_drain_one_store(state, common, store_buffer) {
-        let _ = vec_store_buffer.drain_one_committed(state, common);
-    }
+    send_one_write(state, common, store_buffer, vec_store_buffer);
     event
 }
 
@@ -825,31 +822,24 @@ fn try_drain_one_store(
         }
     };
 
-    // Only pure RAM addresses go through the WCB coalesce path. HTIF and
-    // other MMIO overlays must bypass it so the per-store MemReq carries the
-    // original data to the device (WCB drain packets carry zero data).
+    // MMIO, including the HTIF window over RAM, bypasses the WCB so its
+    // device sees each store.
     let width_bytes = width_to_bytes(write.width);
     let pure_ram = is_pure_ram(state, paddr, write.width);
 
     let requests = if !state.core.wcb.is_disabled() && pure_ram {
-        // Publish now so subsequent loads via the fast path see the new
-        // value while the WCB coalesces dirty-line accounting; the WCB
-        // drain only signals the line was dirty, it doesn't carry data.
-        // The WCB takes the store, so the store buffer is done with it.
-        state.publish_write(paddr, data, write.width);
-        for (part_paddr, part_data, part_bytes) in line_parts(state, paddr, data, width_bytes) {
-            let evicted = state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
-            if evicted.is_none() {
-                state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
-            }
-            if let Some(drain) = evicted {
-                emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-                state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+        let span = state.core.wcb.entry_bytes();
+        for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width_bytes, span) {
+            match state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
+                Some(evicted) => send_wcb_line(state, common, &evicted),
+                None => state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
             }
         }
         Vec::new()
     } else {
-        write_store_to_memory(state, common, paddr, data, write.width, StoreOwner::StoreBuffer)
+        let hart = WriteOrigin::Hart(state.hart.hart_id);
+        let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
+        emit_store_write_packet(state, common, paddr, data, write.width, store)
     };
     store_buffer.issue_write(write, &requests);
     trace_commit!(state.config.general.trace_instructions;
@@ -881,43 +871,84 @@ const fn fence_orders_stores(inst: u32) -> bool {
 }
 
 /// True while a committed scalar or vector store has not finished writing.
-fn older_stores_pending(store_buffer: &StoreBuffer, vec_store_buffer: &VecStoreBuffer) -> bool {
-    store_buffer.has_committed_stores() || vec_store_buffer.has_committed_stores()
+fn older_stores_pending(
+    store_buffer: &StoreBuffer,
+    vec_store_buffer: &VecStoreBuffer,
+    wcb: &WriteCombiningBuffer,
+) -> bool {
+    store_buffer.has_committed_stores()
+        || vec_store_buffer.has_committed_stores()
+        || wcb.has_pending()
 }
 
-/// Writes every committed store to memory at once and frees them without
-/// waiting for acknowledgements, then flushes the WCB. Only for emptying the
-/// pipeline to take a checkpoint; in normal execution stores drain one per
-/// cycle and barriers wait for them.
-pub(crate) fn drain_all_committed(
+/// Sends this cycle's write to the L1D: a line the WCB must send now, else
+/// the oldest committed scalar store, else a vector store's line, else, the
+/// port being idle, the WCB's oldest line.
+pub(crate) fn send_one_write(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
     vec_store_buffer: &mut VecStoreBuffer,
 ) {
-    for store in store_buffer.release_all_committed() {
-        if let StoreResolution::Committed { paddr, data } = store.resolution {
-            let _ = write_store_to_memory(
-                state,
-                common,
-                paddr,
-                data,
-                store.width,
-                StoreOwner::Untracked,
-            );
-        }
+    if !send_urgent_wcb_line(state, common)
+        && !try_drain_one_store(state, common, store_buffer)
+        && !vec_store_buffer.drain_one_committed(state, common)
+    {
+        send_oldest_wcb_line(state, common);
     }
-    vec_store_buffer.drain_all_committed(state, common);
-    flush_wcb(state, common);
 }
 
-/// Flushes all WCB entries by emitting write-back `MemReq` packets.
-fn flush_wcb(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
-    let drains = state.core.wcb.flush_all();
-    for drain in drains {
-        emit_line_writeback(state, common, PhysAddr::new(drain.line_addr));
-        state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+/// True while a committed store has yet to finish writing.
+pub(crate) fn committed_writes_pending(
+    state: &CoreCtx<'_>,
+    store_buffer: &StoreBuffer,
+    vec_store_buffer: &VecStoreBuffer,
+) -> bool {
+    older_stores_pending(store_buffer, vec_store_buffer, &state.core.wcb)
+}
+
+/// Sends a line the WCB must write now. Returns whether one went.
+fn send_urgent_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon) -> bool {
+    let Some(line) = state.core.wcb.take_urgent() else { return false };
+    send_wcb_line(state, common, &line);
+    true
+}
+
+/// Sends the WCB's least recently merged line, if it holds one.
+fn send_oldest_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
+    if let Some(line) = state.core.wcb.take_oldest() {
+        send_wcb_line(state, common, &line);
     }
+}
+
+/// Writes a WCB line to the L1D as the hart's store, taking effect where
+/// the cache serves it.
+fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &WcbLine) {
+    let span = state.core.wcb.entry_bytes();
+    let req_id = common.alloc_req_id();
+    let paddr = PhysAddr::new(line.line_addr);
+    let _ = common
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { owner: StoreOwner::WriteCombining, paddr });
+    state.core.wcb.sent(req_id);
+    state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+    let hart = state.hart.hart_id;
+    let cycle = state.cycle;
+    state.event_queue.schedule(
+        cycle,
+        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Pipeline(common.pipeline_id),
+        Packet::MemReq {
+            req_id,
+            paddr,
+            vaddr: None,
+            size: AccessSize::Line,
+            op: MemOp::Write {
+                data: WriteData::Line { bytes: line.data[..span].into(), mask: line.mask },
+                origin: WriteOrigin::Hart(hart),
+            },
+        },
+    );
 }
 
 /// Emits a dirty-line writeback to the L1D for a line the pipeline drained
@@ -1005,17 +1036,11 @@ fn cboz_write(state: &mut CoreCtx<'_>, common: &mut BackendCommon, block_paddr: 
     }
 }
 
-/// Publishes a store's data and emits its `MemReq` (op = Write).
-///
-/// Data dimension: for RAM-backed addresses the bytes are published now so
-/// subsequent loads via the RAM fast path see the new value. MMIO addresses
-/// are not backed by RAM, so the device's `Handle::handle` runs the side
-/// effect when the packet reaches it.
-///
-/// Latency / state dimension: a `Packet::MemReq` flows through the cache
-/// hierarchy regardless so the L1D dirty bit, MSHR, write-combining buffer,
-/// memory-controller accounting, and outstanding-store ack all see the
-/// store at the right time.
+/// Writes a store's bytes to RAM at once and emits its `MemReq`s for their
+/// timing only: for writes the hardware makes at a single instant (a
+/// page-table D-bit update, `cbo.zero`) and for a checkpoint drain, which
+/// does not wait for the memory system. An MMIO address is left to the
+/// device the packet reaches.
 fn write_store_to_memory(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
@@ -1028,43 +1053,57 @@ fn write_store_to_memory(
         return Vec::new();
     }
     state.publish_write(paddr, data, width);
-    emit_store_write_packet(state, common, paddr, data, width, owner)
+    emit_store_write_packet(state, common, paddr, data, width, StoreWrite::placed(owner))
 }
 
-/// Emits the `MemReq`s (op = Write) for a store whose data is already
-/// published: the timing side of [`write_store_to_memory`]. A RAM store
-/// straddling a cache line is one write per line. Returns the requests.
+/// Emits the `MemReq`s (op = Write) carrying a store, one per cache line a
+/// RAM store touches. Returns the requests.
 fn emit_store_write_packet(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
-    owner: StoreOwner,
+    write: StoreWrite,
 ) -> Vec<ReqId> {
     if width == MemWidth::Nop {
         return Vec::new();
     }
-    let write = StoreWrite { width, owner };
+    let width_bytes = width.bytes() as usize;
     if !is_pure_ram(state, paddr, width) {
-        return emit_store_write_packet_to(state, common, paddr, data, write, ComponentId::Bus)
-            .into_iter()
-            .collect();
+        let target = ComponentId::Bus;
+        return vec![emit_store_write_packet_to(
+            state,
+            common,
+            paddr,
+            data,
+            width_bytes,
+            write,
+            target,
+        )];
     }
     let l1d = ComponentId::Cache(common.l1_d_id);
-    line_parts(state, paddr, data, width.bytes() as usize)
+    line_parts(state, paddr, data, width_bytes)
         .into_iter()
-        .filter_map(|(part_paddr, part_data, _)| {
-            emit_store_write_packet_to(state, common, part_paddr, part_data, write, l1d)
+        .map(|(part_paddr, part_data, part_bytes)| {
+            emit_store_write_packet_to(state, common, part_paddr, part_data, part_bytes, write, l1d)
         })
         .collect()
 }
 
-/// A write's width and the buffer its acknowledgement goes back to.
+/// Whose write a store's requests carry and the buffer their
+/// acknowledgements go back to.
 #[derive(Clone, Copy)]
 struct StoreWrite {
-    width: MemWidth,
+    origin: WriteOrigin,
     owner: StoreOwner,
+}
+
+impl StoreWrite {
+    /// A write whose bytes are already in RAM.
+    const fn placed(owner: StoreOwner) -> Self {
+        Self { origin: WriteOrigin::Placed, owner }
+    }
 }
 
 /// The byte ranges of a store's data that fall in each cache line it
@@ -1075,11 +1114,22 @@ fn line_parts(
     data: u64,
     width_bytes: usize,
 ) -> Vec<(PhysAddr, u64, usize)> {
-    let line_bytes = state.core.l1_d_cache.line_bytes() as u64;
-    if !unaligned::crosses_cache_line(paddr.val(), width_bytes as u64, line_bytes) {
+    span_parts(paddr, data, width_bytes, state.core.l1_d_cache.line_bytes())
+}
+
+/// The byte ranges of a store's data that fall in each aligned `span`-byte
+/// block it touches: `(address, data shifted to start there, bytes)`.
+fn span_parts(
+    paddr: PhysAddr,
+    data: u64,
+    width_bytes: usize,
+    span: usize,
+) -> Vec<(PhysAddr, u64, usize)> {
+    let span = span as u64;
+    if !unaligned::crosses_cache_line(paddr.val(), width_bytes as u64, span) {
         return vec![(paddr, data, width_bytes)];
     }
-    let second = (paddr.val() | (line_bytes - 1)) + 1;
+    let second = (paddr.val() | (span - 1)) + 1;
     let first_bytes = (second - paddr.val()) as usize;
     vec![
         (paddr, data, first_bytes),
@@ -1087,27 +1137,21 @@ fn line_parts(
     ]
 }
 
-/// Emits one `MemReq` (op = Write) to `target` and returns its request.
+/// Emits one `MemReq` (op = Write) of `bytes` bytes to `target` and returns
+/// its request.
 fn emit_store_write_packet_to(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
+    bytes: usize,
     write: StoreWrite,
     target: ComponentId,
-) -> Option<ReqId> {
-    let access_size = match write.width {
-        MemWidth::Byte => AccessSize::B1,
-        MemWidth::Half => AccessSize::B2,
-        MemWidth::Word => AccessSize::B4,
-        MemWidth::Double => AccessSize::B8,
-        MemWidth::Nop => return None,
-    };
+) -> ReqId {
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
     let _ =
         common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner, paddr });
-    let hart = state.hart.hart_id;
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -1117,11 +1161,11 @@ fn emit_store_write_packet_to(
             req_id,
             paddr,
             vaddr: None,
-            size: access_size,
-            op: MemOp::Write { data: WriteData::Small(data), origin: WriteOrigin::Hart(hart) },
+            size: AccessSize::of_bytes(bytes),
+            op: MemOp::Write { data: WriteData::Small(data), origin: write.origin },
         },
     );
-    Some(req_id)
+    req_id
 }
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,

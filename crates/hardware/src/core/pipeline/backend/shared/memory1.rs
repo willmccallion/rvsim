@@ -318,6 +318,7 @@ fn process_entry<E: ExecutionEngine>(
             // takes the line for writing, and commit decides its success.
             if engine.store_buffer().has_committed_stores()
                 || engine.vec_store_buffer().has_committed_stores()
+                || state.core().wcb.has_pending()
             {
                 return EntryOutcome::Replay(ex);
             }
@@ -325,7 +326,9 @@ fn process_entry<E: ExecutionEngine>(
             return EntryOutcome::Done;
         }
         // LR / AMO: wait for older stores to this address to drain.
-        if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag) {
+        if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
+            || state.core_mut().wcb.request_send(paddr, size as usize)
+        {
             return EntryOutcome::Replay(ex);
         }
         if reads_a_device(state, paddr, size) && !is_rob_head(engine, ex.rob_tag) {
@@ -342,15 +345,7 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Replay(ex);
     }
 
-    // Demand load: try store-buffer forwarding first, from scalar stores
-    // and then from vector stores still in their buffer.
-    let forwarded = match engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag) {
-        ForwardResult::Miss => {
-            engine.vec_store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag)
-        }
-        scalar => scalar,
-    };
-    match forwarded {
+    match forward_from_pending_stores(state, engine, &ex, paddr, size as usize) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
             EntryOutcome::Done
@@ -361,6 +356,30 @@ fn process_entry<E: ExecutionEngine>(
             EntryOutcome::Done
         }
     }
+}
+
+/// Forwards to a load from the stores before it that have not reached the
+/// cache: the store buffer's, which are the youngest, then the vector store
+/// buffer's, then the write-combining buffer's. A load whose bytes both of
+/// the last two hold waits, since their order is not known, and the WCB's
+/// line is sent.
+fn forward_from_pending_stores<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &E,
+    ex: &ExMem1Entry,
+    paddr: PhysAddr,
+    bytes: usize,
+) -> ForwardResult {
+    let scalar = engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag);
+    if scalar != ForwardResult::Miss {
+        return scalar;
+    }
+    let wcb = &mut state.core_mut().wcb;
+    let vector = engine.vec_store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag);
+    if vector == ForwardResult::Miss {
+        return wcb.forward_load(paddr, bytes);
+    }
+    if wcb.request_send(paddr, bytes) { ForwardResult::Stall } else { vector }
 }
 
 /// Translates a cache-block operation's block and passes its physical

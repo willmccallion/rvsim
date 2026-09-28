@@ -52,7 +52,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             complete_load(pipeline, state, load, read);
         } else if let Some(store) = pipeline.engine.common_mut().outstanding_stores.remove(&req_id)
         {
-            acknowledge_write(pipeline, store.owner, req_id);
+            acknowledge_write(pipeline, state, store.owner, req_id);
         }
     }
 
@@ -67,6 +67,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
 /// Tells the buffer a write came from that the memory system has taken it.
 fn acknowledge_write<E: ExecutionEngine>(
     pipeline: &mut Pipeline<E>,
+    state: &mut StageCtx<'_>,
     owner: StoreOwner,
     req: ReqId,
 ) {
@@ -75,6 +76,7 @@ fn acknowledge_write<E: ExecutionEngine>(
             let _ = pipeline.engine.store_buffer_mut().write_acked(req);
         }
         StoreOwner::VecStoreBuffer => pipeline.engine.vec_store_buffer_mut().write_acked(req),
+        StoreOwner::WriteCombining => state.core_mut().wcb.acked(req),
         StoreOwner::Untracked => {}
     }
 }
