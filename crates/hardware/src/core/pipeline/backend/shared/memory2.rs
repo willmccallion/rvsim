@@ -144,8 +144,8 @@ pub fn memory2_stage(
                 );
             }
             if let Some(ref mut lq) = load_queue {
-                let elem = mem.vec_mem.as_ref().map(|v| v.elem_idx);
-                lq.fill_data(mem.rob_tag, elem, load_data, mem.observed);
+                let micro_op = mem.vec_mem.as_ref().map(|v| v.micro_op);
+                lq.fill_data(mem.rob_tag, micro_op, load_data, mem.observed);
             }
         } else if mem.ctrl.mem_write {
             // A scalar store resolved in memory1; a vector store element

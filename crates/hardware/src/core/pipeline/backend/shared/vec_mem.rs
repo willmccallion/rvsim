@@ -5,7 +5,7 @@
 use std::collections::VecDeque;
 
 use crate::common::error::ExceptionStage;
-use crate::core::pipeline::latches::{ExMem1Entry, Mem2WbEntry, VecMemElement};
+use crate::core::pipeline::latches::{ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemElement};
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::signals::{MemWidth, VectorOp};
 use crate::core::units::vpu::mem::VecMemAddrOp;
@@ -69,12 +69,14 @@ pub fn micro_ops_for(
 ) -> VecDeque<VecMemMicroOp> {
     addresses
         .into_iter()
-        .map(|mop| {
+        .enumerate()
+        .map(|(index, mop)| {
             let mut ctrl = parent.ctrl;
             ctrl.mem_read = !is_store;
             ctrl.mem_write = is_store;
             ctrl.width = mem_width_from_eew_bytes(mop.eew.bytes());
             let element = VecMemElement {
+                micro_op: MicroOpIdx::new(index),
                 elem_idx: mop.elem_idx,
                 eew: mop.eew,
                 vd_phys: mop.vd_phys,
@@ -154,4 +156,34 @@ pub fn retire_element(
         rob.complete(wb.rob_tag, 0);
     }
     ElementRetired { write_data, completed }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::VirtAddr;
+    use crate::core::units::vpu::types::Sew;
+
+    fn field(elem: usize, vaddr: u64) -> VecMemAddrOp {
+        VecMemAddrOp {
+            vaddr: VirtAddr::new(vaddr),
+            store_data: 0,
+            elem_idx: ElemIdx::new(elem),
+            eew: Sew::E32,
+            vd_phys: VecPhysReg::ZERO,
+        }
+    }
+
+    #[test]
+    fn the_fields_of_one_segment_element_are_different_micro_ops() {
+        let parent = ExMem1Entry::default();
+        let addresses = vec![field(0, 0x1000), field(0, 0x1004), field(1, 0x1008)];
+
+        let micro_ops: Vec<MicroOpIdx> = micro_ops_for(&parent, addresses, false)
+            .iter()
+            .filter_map(|m| m.entry.vec_mem.as_ref().map(|v| v.micro_op))
+            .collect();
+
+        assert_eq!(micro_ops, vec![MicroOpIdx::new(0), MicroOpIdx::new(1), MicroOpIdx::new(2)]);
+    }
 }

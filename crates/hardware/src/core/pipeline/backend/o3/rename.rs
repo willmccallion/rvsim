@@ -176,8 +176,8 @@ impl O3Engine {
         } else {
             true
         };
-        let load_slot_allocated =
-            !id.ctrl.mem_read || self.load_queue.allocate(rob_tag, id.ctrl.width, None);
+        let load_slot_allocated = !id.ctrl.mem_read
+            || self.load_queue.allocate(rob_tag, id.ctrl.width.bytes() as usize, None);
         debug_assert!(
             store_slot_allocated && load_slot_allocated,
             "has_slots_for checked the memory slots"

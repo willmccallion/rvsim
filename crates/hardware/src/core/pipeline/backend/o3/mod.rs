@@ -16,7 +16,7 @@ use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
 use crate::core::pipeline::backend::shared::vec_mem::{
-    VecMemInflight, VecMemMicroOp, mem_width_from_eew_bytes, micro_ops_for, retire_element,
+    VecMemInflight, VecMemMicroOp, micro_ops_for, retire_element,
 };
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::checkpoint::CheckpointTable;
@@ -390,8 +390,8 @@ impl O3Engine {
         for inflight in &mut self.vec_mem_inflight {
             while let Some(front) = inflight.pending_micro_ops.front() {
                 if !front.is_store {
-                    let w = mem_width_from_eew_bytes(front.eew.bytes());
-                    if !self.load_queue.allocate(front.entry.rob_tag, w, Some(front.elem_idx)) {
+                    let micro_op = front.entry.vec_mem.as_ref().map(|v| v.micro_op);
+                    if !self.load_queue.allocate(front.entry.rob_tag, front.eew.bytes(), micro_op) {
                         break;
                     }
                 }
@@ -504,7 +504,7 @@ impl ExecutionEngine for O3Engine {
                         self.vec_prf.write_element(vme.vd_phys, local, vme.eew, wb.load_data);
                     }
                     if !vme.is_store {
-                        self.load_queue.deallocate_elem(wb.rob_tag, vme.elem_idx);
+                        self.load_queue.deallocate_micro_op(wb.rob_tag, vme.micro_op);
                     }
                     // Fire chaining wakeup only on full completion: dependents bulk-read all elements.
                     if retired.completed

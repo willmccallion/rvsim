@@ -77,6 +77,20 @@ impl<T> Latch<T> {
     }
 }
 
+/// A vector memory micro-op's position among its instruction's micro-ops,
+/// which tells apart the accesses of one instruction (a segment's fields
+/// share their element index).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MicroOpIdx(usize);
+
+impl MicroOpIdx {
+    /// The micro-op at `index`.
+    #[must_use]
+    pub const fn new(index: usize) -> Self {
+        Self(index)
+    }
+}
+
 /// Metadata for a vector memory element micro-op flowing through Memory1/Memory2.
 ///
 /// The parent vec mem instruction is identified by the `rob_tag` already
@@ -84,6 +98,8 @@ impl<T> Latch<T> {
 /// so no extra parent index is needed here.
 #[derive(Clone, Debug)]
 pub struct VecMemElement {
+    /// This micro-op among its instruction's micro-ops.
+    pub micro_op: MicroOpIdx,
     /// Element index within the vector register (for writeback targeting).
     pub elem_idx: ElemIdx,
     /// Effective element width for this access.

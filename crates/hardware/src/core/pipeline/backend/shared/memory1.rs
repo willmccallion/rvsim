@@ -285,8 +285,8 @@ fn process_entry<E: ExecutionEngine>(
     if ex.ctrl.mem_read
         && let Some(lq) = engine.load_queue_mut()
     {
-        let elem = ex.vec_mem.as_ref().map(|v| v.elem_idx);
-        lq.fill_address(ex.rob_tag, elem, VirtAddr::new(ex.alu), paddr);
+        let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
+        lq.fill_address(ex.rob_tag, micro_op, VirtAddr::new(ex.alu), paddr);
     }
 
     // 6. Operation dispatch.
