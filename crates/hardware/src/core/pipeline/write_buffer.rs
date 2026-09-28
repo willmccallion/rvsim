@@ -12,9 +12,10 @@
 //! - when the store buffers leave the L1D write port idle, which is also
 //!   how it empties before anything that waits for older stores.
 //!
-//! A sent line is ordered ahead of any later access to it at the L1D, so it
-//! no longer forwards; it is tracked until acknowledged so barriers can
-//! wait for it.
+//! A sent line keeps forwarding until the L1D acknowledges that it has
+//! written it, as a store-buffer entry does: the cache may still serve a
+//! load from its old copy of the line while it fetches write permission.
+//! Barriers wait for the acknowledgements too.
 
 use crate::common::PhysAddr;
 use crate::core::pipeline::store_buffer::ForwardResult;
@@ -56,8 +57,15 @@ pub struct WriteCombiningBuffer {
     slots: Vec<Option<WcbEntry>>,
     entry_bytes: usize,
     next_use: u64,
-    /// Lines sent to the L1D and not yet acknowledged.
-    in_flight: Vec<ReqId>,
+    /// Lines sent to the L1D and not yet acknowledged, oldest first.
+    in_flight: Vec<SentLine>,
+}
+
+/// A line sent to the L1D, whose write it has not yet acknowledged.
+#[derive(Clone, Debug)]
+struct SentLine {
+    req: ReqId,
+    line: WcbLine,
 }
 
 impl WriteCombiningBuffer {
@@ -137,54 +145,58 @@ impl WriteCombiningBuffer {
     }
 
     /// Forwards to a load of `bytes` bytes at `paddr` the bytes the buffer
-    /// holds. A load it covers only partly waits, and its line is marked to
-    /// be sent so the load can then read the cache.
+    /// holds, the newest store's for each byte. A load it covers only partly
+    /// waits, and the lines it is waiting for are marked to be sent.
     pub fn forward_load(&mut self, paddr: PhysAddr, bytes: usize) -> ForwardResult {
-        let base = self.entry_base(paddr.val());
-        let offset = (paddr.val() - base) as usize;
-        if offset + bytes > self.entry_bytes {
-            return if self.request_send(paddr, bytes) {
-                ForwardResult::Stall
-            } else {
-                ForwardResult::Miss
-            };
+        let mut value = 0u64;
+        let mut found = 0;
+        for i in 0..bytes {
+            if let Some(byte) = self.newest_byte(paddr.val() + i as u64) {
+                value |= u64::from(byte) << (8 * i);
+                found += 1;
+            }
         }
-        let Some(entry) =
-            self.slots.iter_mut().flatten().find(|entry| entry.line.line_addr == base)
-        else {
-            return ForwardResult::Miss;
-        };
-        let wanted = if bytes >= 64 { u64::MAX } else { ((1u64 << bytes) - 1) << offset };
-        let held = entry.line.mask & wanted;
-        if held == 0 {
+        if found == 0 {
             return ForwardResult::Miss;
         }
-        if held != wanted {
-            entry.send_requested = true;
-            return ForwardResult::Stall;
+        if found == bytes {
+            return ForwardResult::Hit(value);
         }
-        let value = entry.line.data[offset..offset + bytes]
-            .iter()
-            .rev()
-            .fold(0u64, |value, &byte| (value << 8) | u64::from(byte));
-        ForwardResult::Hit(value)
+        let _ = self.request_send(paddr, bytes);
+        ForwardResult::Stall
     }
 
-    /// Marks every line holding any of the `bytes` bytes at `paddr` to be
-    /// sent, for an access that must follow them to the cache. Returns
-    /// whether there was one.
+    /// The byte at `addr` from the newest store the buffer holds for it: a
+    /// line still merging, else the most recently sent line.
+    fn newest_byte(&self, addr: u64) -> Option<u8> {
+        let in_line = |line: &WcbLine| {
+            let offset = addr.checked_sub(line.line_addr)?;
+            (offset < self.entry_bytes as u64 && line.mask >> offset & 1 == 1)
+                .then(|| line.data[offset as usize])
+        };
+        self.slots
+            .iter()
+            .flatten()
+            .find_map(|entry| in_line(&entry.line))
+            .or_else(|| self.in_flight.iter().rev().find_map(|sent| in_line(&sent.line)))
+    }
+
+    /// Marks every merging line holding any of the `bytes` bytes at `paddr`
+    /// to be sent, for an access that must follow them to the cache.
+    /// Returns whether any held or unacknowledged store covers one of them.
     pub fn request_send(&mut self, paddr: PhysAddr, bytes: usize) -> bool {
         let start = paddr.val();
         let end = start + bytes as u64;
         let span = self.entry_bytes as u64;
-        let mut overlapped = false;
-        for entry in self.slots.iter_mut().flatten() {
-            let line_start = entry.line.line_addr;
-            let covered = (0..span).filter(|&i| entry.line.mask >> i & 1 == 1).any(|i| {
-                let byte = line_start + i;
+        let covers = |line: &WcbLine| {
+            (0..span).filter(|&i| line.mask >> i & 1 == 1).any(|i| {
+                let byte = line.line_addr + i;
                 byte >= start && byte < end
-            });
-            if covered {
+            })
+        };
+        let mut overlapped = self.in_flight.iter().any(|sent| covers(&sent.line));
+        for entry in self.slots.iter_mut().flatten() {
+            if covers(&entry.line) {
                 entry.send_requested = true;
                 overlapped = true;
             }
@@ -209,14 +221,15 @@ impl WriteCombiningBuffer {
         self.slots[index].take().map(|entry| entry.line)
     }
 
-    /// Records that `req` carries a sent line.
-    pub fn sent(&mut self, req: ReqId) {
-        self.in_flight.push(req);
+    /// Records that `req` carries `line`, which keeps forwarding until the
+    /// L1D has written it.
+    pub fn sent(&mut self, req: ReqId, line: WcbLine) {
+        self.in_flight.push(SentLine { req, line });
     }
 
-    /// The L1D acknowledged `req`.
+    /// The L1D acknowledged `req`: its line has been written.
     pub fn acked(&mut self, req: ReqId) {
-        self.in_flight.retain(|pending| *pending != req);
+        self.in_flight.retain(|sent| sent.req != req);
     }
 
     /// True while a store is held or a sent line is unacknowledged.
@@ -282,7 +295,7 @@ mod tests {
         let sent = wcb.take_urgent().unwrap();
 
         assert_eq!(sent.line_addr, 0x1000);
-        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 2), ForwardResult::Miss);
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 1), ForwardResult::Miss);
     }
 
     #[test]
@@ -296,15 +309,17 @@ mod tests {
     }
 
     #[test]
-    fn a_sent_line_is_pending_until_acknowledged() {
+    fn a_sent_line_forwards_and_is_pending_until_acknowledged() {
         let mut wcb = wcb(2);
         let _ = wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
-        let _ = wcb.take_oldest().unwrap();
-        wcb.sent(ReqId::new(7));
+        let line = wcb.take_oldest().unwrap();
+        wcb.sent(ReqId::new(7), line);
         assert!(wcb.has_pending());
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 8), ForwardResult::Hit(1));
 
         wcb.acked(ReqId::new(7));
 
         assert!(!wcb.has_pending());
+        assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 8), ForwardResult::Miss);
     }
 }

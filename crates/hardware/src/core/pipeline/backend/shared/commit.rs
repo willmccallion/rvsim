@@ -930,7 +930,7 @@ fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &Wcb
     let _ = common
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::WriteCombining, paddr });
-    state.core.wcb.sent(req_id);
+    state.core.wcb.sent(req_id, line.clone());
     state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
     let hart = state.hart.hart_id;
     let cycle = state.cycle;

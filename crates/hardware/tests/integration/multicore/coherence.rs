@@ -260,3 +260,41 @@ fn cores_without_caches_take_no_part_in_coherence() {
     assert_eq!(fabric_stat(&system, "coherence.ha.snoops_sent"), 0);
     assert!(fabric_stat(&system, "coherence.ha.requests.non_coherent") > 0);
 }
+
+/// Hart 0 bumps a word that shares a line with the code every hart runs, so
+/// its L1D holds the line Shared, and reloads it at once; the exit code is
+/// the reloaded value minus the stored one.
+fn reload_of_a_word_in_the_code_line() -> Vec<u32> {
+    const WORD_INDEX: i32 = 14;
+    const OFFSET_FROM_T0: i32 = (WORD_INDEX - 2) * 4;
+    let i = InstructionBuilder::new;
+    let mut code = vec![
+        i().csrrs(T5, MHARTID, 0).build(),
+        i().bne(T5, 0, (10 - 1) * 4).build(),
+        i().auipc(T0, 0).build(),
+        i().lw(A1, T0, OFFSET_FROM_T0).build(),
+        i().addi(A1, A1, 1).build(),
+        i().sw(T0, A1, OFFSET_FROM_T0).build(),
+        i().lw(A2, T0, OFFSET_FROM_T0).build(),
+        i().sub(A0, A2, A1).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+        i().jal(0, 0).build(),
+    ];
+    code.resize(WORD_INDEX as usize, i().nop().build());
+    code.push(0x41);
+    code
+}
+
+#[test]
+fn a_reload_sees_its_write_combined_store_while_the_line_is_shared() {
+    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+        let mut config = cached(2, backend);
+        config.cache.wcb_entries = 4;
+        let mut system = MultiHart::with_config(&config, &reload_of_a_word_in_the_code_line());
+
+        let exit = system.run_until_exit(20_000);
+
+        assert_eq!(exit, Some(0), "{backend:?}");
+    }
+}
