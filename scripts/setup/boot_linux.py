@@ -28,15 +28,8 @@ import sys
 import tarfile
 import urllib.request
 
-from rvsim import (
-    Cache,
-    Coherence,
-    HomeAgent,
-    Interconnect,
-    MemoryController,
-    Simulator,
-    presets,
-)
+from rvsim import Simulator, presets
+from rvsim.presets import INTERCONNECTS
 
 BUILDROOT_VER = "2024.08"
 BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.gz"
@@ -151,55 +144,6 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-INTERCONNECTS = {
-    "crossbar": Interconnect.Crossbar,
-    "ring": Interconnect.Ring,
-    "mesh": Interconnect.Mesh,
-    "torus": Interconnect.Torus,
-    "hypercube": Interconnect.Hypercube,
-}
-
-
-def memory_controller(kind: str, speed_bin: str):
-    """The DDR5 controller at ``speed_bin``, or the preset's row-buffer DRAM model."""
-    if kind == "ddr5":
-        return MemoryController.DDR5(speed_bin=speed_bin, channels=4)
-    return presets.fast().memory_controller
-
-
-def config(
-    hart_count: int = 8,
-    memory: str = "ddr5",
-    speed_bin: str = "5600B",
-    interconnect: str = "mesh",
-):
-    """The Linux boot system.
-
-    Starts from the ``fast`` preset and overrides the system addresses and
-    memory-map settings that must match the device tree. ``hart_count``
-    harts boot through OpenSBI's HSM into an SMP kernel; with more than
-    one hart the private caches are kept coherent by a snoop-filter home
-    agent over ``interconnect``. ``memory`` is ``ddr5`` (JEDEC command-level
-    timing at ``speed_bin``) or ``dram`` (the preset's row-buffer model).
-    """
-    return presets.fast().replace(
-        ram_size=256 * 1024 * 1024,
-        ram_base=0x80000000,
-        uart_base=0x10000000,
-        disk_base=0x10001000,
-        clint_base=0x02000000,
-        syscon_base=0x00100000,
-        kernel_offset=0x200000,
-        clint_divider=1,
-        hart_count=hart_count,
-        coherence=Coherence(
-            home_agent=HomeAgent.SnoopFilter(),
-            interconnect=INTERCONNECTS[interconnect](),
-        ),
-        memory_controller=memory_controller(memory, speed_bin),
-    )
-
-
 def main():
     root = repo_root()
     linux_dir = os.path.join(root, "software", "linux")
@@ -270,7 +214,13 @@ def main():
 
     os.chdir(root)
 
-    cfg = config(args.harts, args.memory, args.speed_bin, args.interconnect)
+    cfg = presets.linux(
+        args.harts,
+        memory=args.memory,
+        speed_bin=args.speed_bin,
+        interconnect=args.interconnect,
+        real_time=False,
+    )
     print(
         f"[boot_linux] Booting {args.harts} hart(s), {args.interconnect} interconnect, "
         f"{args.memory}{' ' + args.speed_bin if args.memory == 'ddr5' else ''} memory..."

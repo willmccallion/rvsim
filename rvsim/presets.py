@@ -1,12 +1,13 @@
 """
 Built-in configuration presets.
 
-Two presets are provided:
-
 - ``basic`` — modest 4-wide OoO core, small caches, good for quick runs.
 - ``fast``  — Apple M4 P-core class: 8-wide OoO at 4.4 GHz, 630-entry ROB,
   192KB L1I, 128KB L1D, 4MB L2, 36MB L3, the 64KB TAGE-SC-L with ITTAGE,
   4 unified FP/SIMD pipes, and DRAM controller.
+- ``linux`` — a multi-core ``fast`` system with the memory map the
+  bundled Linux image expects, kept coherent over an interconnect, with
+  DDR5 memory.
 
 Usage from the CLI::
 
@@ -24,14 +25,28 @@ from .types import (
     Backend,
     BranchPredictor,
     Cache,
+    Coherence,
     Fu,
+    HomeAgent,
+    Interconnect,
     MemDepPredictor,
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
 )
 
-__all__ = ["basic", "fast", "PRESETS"]
+__all__ = ["basic", "fast", "linux", "PRESETS"]
+
+#: The device tree's ``timebase-frequency``, in MHz.
+LINUX_TIMEBASE_MHZ = 10
+
+INTERCONNECTS = {
+    "crossbar": Interconnect.Crossbar,
+    "ring": Interconnect.Ring,
+    "mesh": Interconnect.Mesh,
+    "torus": Interconnect.Torus,
+    "hypercube": Interconnect.Hypercube,
+}
 
 
 def basic() -> Config:
@@ -181,6 +196,56 @@ def fast() -> Config:
         ),
         bus_width=8,
         bus_latency=1,
+    )
+
+
+def linux(
+    harts: int = 8,
+    *,
+    memory: str = "ddr5",
+    speed_bin: str = "5600B",
+    interconnect: str = "mesh",
+    real_time: bool = True,
+) -> Config:
+    """The ``fast`` core in a system that boots the bundled Linux image.
+
+    ``harts`` harts boot through OpenSBI's HSM into an SMP kernel; with
+    more than one, the private caches are kept coherent by a snoop-filter
+    home agent over ``interconnect`` (``crossbar``, ``ring``, ``mesh``,
+    ``torus`` or ``hypercube``). ``memory`` is ``ddr5`` (JEDEC
+    command-level timing at ``speed_bin``, four channels) or ``dram`` (the
+    ``fast`` preset's row-buffer model).
+
+    With ``real_time`` the CLINT ticks at the device tree's 10 MHz
+    timebase, so the guest's clock keeps time with the modelled one.
+    Without it the CLINT ticks every cycle: guest time runs
+    ``cpu_clock_mhz / 10`` times fast, which shortens a boot's sleeps and
+    timeouts but floods measurements with timer interrupts.
+    """
+    base = fast()
+    if interconnect not in INTERCONNECTS:
+        raise ValueError(f"interconnect must be one of {sorted(INTERCONNECTS)}, got {interconnect!r}")
+    if memory == "ddr5":
+        controller = MemoryController.DDR5(speed_bin=speed_bin, channels=4)
+    elif memory == "dram":
+        controller = base.memory_controller
+    else:
+        raise ValueError(f"memory must be 'ddr5' or 'dram', got {memory!r}")
+    return base.replace(
+        ram_size=256 * 1024 * 1024,
+        ram_base=0x80000000,
+        uart_base=0x10000000,
+        disk_base=0x10001000,
+        clint_base=0x02000000,
+        syscon_base=0x00100000,
+        kernel_offset=0x200000,
+        clint_divider=base.cpu_clock_mhz // LINUX_TIMEBASE_MHZ if real_time else 1,
+        hart_count=harts,
+        coherence=Coherence(
+            home_agent=HomeAgent.SnoopFilter(),
+            interconnect=INTERCONNECTS[interconnect](),
+        ),
+        memory_controller=controller,
     )
 
 
