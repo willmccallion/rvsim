@@ -427,9 +427,7 @@ impl SimState {
     /// is cloned into bus-resident devices (`SysCon`, HTIF) so they can
     /// write the harness termination value when triggered.
     pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
-        use crate::core::arch::csr::{
-            MISA_DEFAULT_RV64IMAFDC, MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT, Misa,
-        };
+        use crate::core::arch::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
         use crate::isa::abi;
 
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
@@ -529,8 +527,7 @@ impl SimState {
         bus.attach_ram(MemCtrlId::new(0), ram_region);
 
         // --- Hart architectural state ----------------------------------
-        let configured_misa =
-            config.pipeline.misa_override.map_or(MISA_DEFAULT_RV64IMAFDC, Misa::bits);
+        let configured_misa = config.misa().bits();
 
         let direct_mode = config.general.direct_mode;
 

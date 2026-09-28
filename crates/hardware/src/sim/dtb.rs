@@ -190,7 +190,7 @@ impl Phandles {
 /// - PLIC at 0x0c000000 with M- and S-mode contexts for every hart
 /// - UART at `uart_base`
 /// - `VirtIO` block device at `disk_base`
-/// - One `cpu@N` per hart (rv64imafdc ISA, SV39 MMU) and a `cpu-map`
+/// - One `cpu@N` per hart (the ISA string of its `misa`, SV39 MMU) and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let ram_base = config.system.ram_base;
     let ram_size = config.memory.ram_size as u64;
@@ -237,7 +237,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_reg_1_0(hart);
         b.prop_string("status", "okay");
         b.prop_string("compatible", "riscv");
-        b.prop_string("riscv,isa", "rv64imafdc");
+        b.prop_string("riscv,isa", &config.misa().isa_string());
         b.prop_string("mmu-type", "riscv,sv39");
         b.prop_u32("phandle", phandles.cpu(hart));
 

@@ -638,11 +638,50 @@ pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_112D;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Misa(u64);
 
+/// The single-letter extensions an ISA string can name, in canonical order.
+const ISA_LETTERS: [(char, u64); 7] = [
+    ('i', MISA_EXT_I),
+    ('m', MISA_EXT_M),
+    ('a', MISA_EXT_A),
+    ('f', MISA_EXT_F),
+    ('d', MISA_EXT_D),
+    ('c', MISA_EXT_C),
+    ('v', MISA_EXT_V),
+];
+
 impl Misa {
+    /// RV64IMAFDC with S and U, plus V when `with_v`.
+    #[must_use]
+    pub const fn rv64imafdc(with_v: bool) -> Self {
+        if with_v {
+            Self(MISA_DEFAULT_RV64IMAFDC | MISA_EXT_V)
+        } else {
+            Self(MISA_DEFAULT_RV64IMAFDC)
+        }
+    }
+
     /// The register value.
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
+    }
+
+    /// True when V is set.
+    #[must_use]
+    pub const fn has_v(self) -> bool {
+        self.0 & MISA_EXT_V != 0
+    }
+
+    /// The lowercase ISA string naming these extensions, e.g. `rv64imafdcv`.
+    #[must_use]
+    pub fn isa_string(self) -> String {
+        let mut isa = String::from("rv64");
+        for (letter, bit) in ISA_LETTERS {
+            if self.0 & bit != 0 {
+                isa.push(letter);
+            }
+        }
+        isa
     }
 }
 

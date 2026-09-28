@@ -165,3 +165,14 @@ fn phandles_never_collide() {
     seen.dedup();
     assert_eq!(seen.len(), count);
 }
+
+#[test]
+fn the_isa_string_is_the_harts_misa() {
+    let default_isa = tree_for(1).child("cpus").child("cpu@0").props["riscv,isa"].clone();
+    let mut config = Config::default();
+    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
+    let without_c =
+        parse(&generate_dtb(&config)).child("cpus").child("cpu@0").props["riscv,isa"].clone();
+
+    assert_eq!((default_isa, without_c), (b"rv64imafdcv\0".to_vec(), b"rv64imafd\0".to_vec()));
+}

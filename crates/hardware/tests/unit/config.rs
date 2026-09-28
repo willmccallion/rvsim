@@ -1079,3 +1079,33 @@ fn test_custom_dram_timings() {
     assert_eq!(config.memory.row_miss_latency, 200);
     assert_eq!(config.memory.tlb_size, 64);
 }
+
+#[test]
+fn the_default_hart_reports_v_when_it_implements_the_full_vector_extension() {
+    let config = Config::default();
+
+    assert_eq!(
+        config.misa().bits() & rvsim_core::core::arch::csr::MISA_EXT_V,
+        rvsim_core::core::arch::csr::MISA_EXT_V
+    );
+}
+
+#[test]
+fn a_hart_below_v_s_minimum_vlen_or_elen_does_not_report_v() {
+    let mut short = Config::default();
+    short.pipeline.vlen = 64;
+    let mut narrow = Config::default();
+    narrow.isa.vector.elen = 32;
+
+    let v = |config: &Config| config.misa().bits() & rvsim_core::core::arch::csr::MISA_EXT_V;
+    assert_eq!((v(&short), v(&narrow)), (0, 0));
+}
+
+#[test]
+fn a_misa_override_claiming_v_needs_the_full_vector_extension() {
+    let mut config = Config::default();
+    config.pipeline.vlen = 64;
+    config.pipeline.misa_override = Some("RV64GCV".parse().expect("valid ISA string"));
+
+    assert!(config.validate().is_err());
+}

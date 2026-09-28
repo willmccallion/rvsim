@@ -1973,6 +1973,14 @@ pub enum ConfigError {
     /// The Simple controller's bandwidth must be positive.
     #[error("simple_bandwidth_gib_s must be a positive number")]
     SimpleBandwidth,
+    /// `misa_override` sets V, which needs VLEN >= 128 and ELEN = 64.
+    #[error("misa_override sets V, but vlen {vlen} / elen {elen} is not the full V extension")]
+    VWithoutFullVector {
+        /// Configured VLEN in bits.
+        vlen: usize,
+        /// Configured ELEN in bits.
+        elen: usize,
+    },
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -1986,6 +1994,21 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// The hart's `misa`: the override when one is given, otherwise
+    /// RV64IMAFDC plus V when the vector unit is the full V extension.
+    #[must_use]
+    pub fn misa(&self) -> crate::core::arch::csr::Misa {
+        self.pipeline
+            .misa_override
+            .unwrap_or_else(|| crate::core::arch::csr::Misa::rv64imafdc(self.implements_full_v()))
+    }
+
+    /// True when the vector unit meets V's minimum: VLEN >= 128 (Zvl128b)
+    /// and ELEN = 64 (Zve64d).
+    const fn implements_full_v(&self) -> bool {
+        self.pipeline.vlen >= 128 && self.isa.vector.elen == 64
+    }
+
     /// Checks the combinations the simulator cannot build.
     ///
     /// # Errors
@@ -2003,6 +2026,12 @@ impl Config {
         let sets = (self.pipeline.btb_size / ways).max(1);
         if !sets.is_power_of_two() {
             return Err(ConfigError::BtbSets { size: self.pipeline.btb_size, ways, sets });
+        }
+        if self.misa().has_v() && !self.implements_full_v() {
+            return Err(ConfigError::VWithoutFullVector {
+                vlen: self.pipeline.vlen,
+                elen: self.isa.vector.elen,
+            });
         }
         if self.memory.simple_bandwidth_bytes_per_second().is_none() {
             return Err(ConfigError::SimpleBandwidth);

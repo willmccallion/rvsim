@@ -37,3 +37,10 @@ fn strings_the_hart_cannot_implement_are_rejected() {
         assert!(parse(isa).is_err(), "{isa} should be rejected");
     }
 }
+
+#[test]
+fn misa_formats_back_to_a_canonical_lowercase_isa_string() {
+    let misa: Misa = "RV64GCV".parse().expect("valid ISA string");
+
+    assert_eq!(misa.isa_string(), "rv64imafdcv");
+}
