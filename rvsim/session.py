@@ -118,6 +118,17 @@ def _file_digest(path: str) -> str:
     return _file_digests[identity]
 
 
+_ECHOED_COMMAND_END = re.compile(r"\$\?\r?\n")
+
+
+def _typed_command_output(console: str) -> str:
+    """What a command typed as ``...; echo TOKEN $?`` printed, given the
+    console from where it was typed: everything after the terminal's echo
+    of the line, which it may have wrapped."""
+    echo_end = _ECHOED_COMMAND_END.search(console)
+    return console[echo_end.end() :] if echo_end else ""
+
+
 def _guest_view_differences(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
     return [
         f"{field}: {a[section][field]!r} vs {b[section][field]!r}"
@@ -757,11 +768,7 @@ class Session:
         return start, start + 1
 
     def _command_output(self, start: int, match: "re.Match[str]") -> str:
-        """What a typed command printed: the console after its echoed
-        command line, up to ``match``."""
-        typed = self._console[start : match.start()]
-        _, newline, output = typed.partition("\n")
-        return output if newline else ""
+        return _typed_command_output(self._console[start : match.start()])
 
     def _measure_command(self, command: str, name: str, began: float) -> Region:
         self._require_shell()

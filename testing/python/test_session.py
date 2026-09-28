@@ -23,6 +23,7 @@ from rvsim import (
     When,
     WorkloadEnded,
 )
+from rvsim.session import _typed_command_output
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGIONS = os.path.join(ROOT, "software", "bin", "programs", "regions.elf")
@@ -304,6 +305,16 @@ class Measurement(SessionTestCase):
 
         self.assertIn("core0.commit.op.alu", record["stats"])
         self.assertEqual(record["console"], SETUP_LINE)
+
+
+class TypedCommandOutput(unittest.TestCase):
+    def test_the_echoed_command_line_is_dropped_even_when_the_terminal_wrapped_it(self):
+        console = "rvsim run 1099511627776 1099511627777 dhrystone; echo __rvsim_109951162\r\n7776__ $?\r\nDhrystone\r\n"
+
+        self.assertEqual(_typed_command_output(console), "Dhrystone\r\n")
+
+    def test_nothing_was_printed_before_the_echo_finished(self):
+        self.assertEqual(_typed_command_output("echo __rvsim_1__ "), "")
 
 
 if __name__ == "__main__":
