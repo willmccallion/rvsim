@@ -52,22 +52,22 @@ const fn signed_range(bits: u32) -> (i8, i8) {
 
 /// `TAGEBase::F`: folds the low `size` bits of path history `path` into a
 /// `table_bits`-wide value, rotated by `bank` so each table hashes it
-/// differently.
+/// differently. Banks at or past `table_bits` are not rotated, and the bits
+/// above the table width are rotated unmasked, as gem5 does for a path
+/// wider than twice the table width.
 const fn fold_path(path: u32, size: usize, bank: usize, table_bits: usize) -> u32 {
-    let mask = (1u32 << table_bits) - 1;
-    let path = path & ((1u32 << size) - 1);
-    let high = rotate_left(path >> table_bits, bank, table_bits);
-    rotate_left((path & mask) ^ high, bank, table_bits)
+    let mask = (1u64 << table_bits) - 1;
+    let path = path as u64 & ((1u64 << size) - 1);
+    let high = rotate_by_bank(path >> table_bits, bank, table_bits);
+    rotate_by_bank((path & mask) ^ high, bank, table_bits) as u32
 }
 
-/// Rotates the `width`-bit `value` left by `amount` bits.
-const fn rotate_left(value: u32, amount: usize, width: usize) -> u32 {
-    let mask = (1u32 << width) - 1;
-    let shift = amount % width;
-    if shift == 0 {
-        value & mask
+/// `F`'s rotation of `value` by `bank` within `table_bits`.
+const fn rotate_by_bank(value: u64, bank: usize, table_bits: usize) -> u64 {
+    if bank < table_bits {
+        ((value << bank) & ((1 << table_bits) - 1)) + (value >> (table_bits - bank))
     } else {
-        ((value << shift) & mask) | ((value & mask) >> (width - shift))
+        value
     }
 }
 
@@ -641,6 +641,12 @@ mod tests {
         assert_eq!(fold_path(0xABCD, 16, 1, 11), 0x7CE);
         assert_eq!(fold_path(0xABCD, 16, 2, 11), 0x665);
         assert_eq!(fold_path(0xABCD, 5, 1, 11), fold_path(0xD, 5, 1, 11));
+    }
+
+    #[test]
+    fn a_wide_path_folds_as_tagebase_f_does() {
+        assert_eq!(fold_path(0x5AB_CDEF, 27, 3, 10), 0x1F);
+        assert_eq!(fold_path(0x5AB_CDEF, 27, 12, 10), 0x16B1C);
     }
 
     #[test]
