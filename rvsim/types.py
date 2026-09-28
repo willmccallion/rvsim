@@ -127,6 +127,8 @@ class BranchPredictor:
             update: str = "tage_base",
             history: str = "direction",
             path_history_bits: int = 16,
+            bimodal_entries: Optional[int] = None,
+            bimodal_hysteresis_share_log: int = 2,
         ):
             self.num_banks = num_banks
             self.use_alt_counters = use_alt_counters
@@ -137,6 +139,8 @@ class BranchPredictor:
             self.update = _tage_rule(update, "update")
             self.history = _tage_history_mode(history)
             self.path_history_bits = path_history_bits
+            self.bimodal_entries = bimodal_entries
+            self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
@@ -286,6 +290,8 @@ class BranchPredictor:
             update: str = "cbp5",
             history: str = "pc_bits",
             path_history_bits: int = 27,
+            bimodal_entries: Optional[int] = 8192,
+            bimodal_hysteresis_share_log: int = 2,
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -348,6 +354,8 @@ class BranchPredictor:
             self.update = _tage_rule(update, "update")
             self.history = _tage_history_mode(history)
             self.path_history_bits = path_history_bits
+            self.bimodal_entries = bimodal_entries
+            self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
             self.loop_tag_bits = loop_tag_bits

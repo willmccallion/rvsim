@@ -1630,6 +1630,15 @@ pub struct TageConfig {
     /// Bits of path history the tables hash.
     #[serde(default = "TageConfig::default_path_history_bits")]
     pub path_history_bits: u32,
+
+    /// Bimodal entries, a power of two; `table_size` when absent.
+    #[serde(default)]
+    pub bimodal_entries: Option<usize>,
+
+    /// `2^bimodal_hysteresis_share_log` bimodal entries share one
+    /// hysteresis bit, as `TAGEBase`'s `logRatioBiModalHystEntries`.
+    #[serde(default = "TageConfig::default_bimodal_hysteresis_share_log")]
+    pub bimodal_hysteresis_share_log: u32,
 }
 
 /// What each control instruction shifts into TAGE's global history.
@@ -1692,6 +1701,8 @@ impl Default for TageConfig {
             update: TageUpdate::default(),
             history: TageHistoryMode::default(),
             path_history_bits: Self::default_path_history_bits(),
+            bimodal_entries: None,
+            bimodal_hysteresis_share_log: Self::default_bimodal_hysteresis_share_log(),
         }
     }
 }
@@ -1744,6 +1755,16 @@ impl TageConfig {
 
     const fn default_path_history_bits() -> u32 {
         16
+    }
+
+    const fn default_bimodal_hysteresis_share_log() -> u32 {
+        2
+    }
+
+    /// The bimodal's entries.
+    #[must_use]
+    pub fn bimodal_entries(&self) -> usize {
+        self.bimodal_entries.unwrap_or(self.table_size)
     }
 }
 
@@ -2444,6 +2465,15 @@ pub enum ConfigError {
     /// 64 bytes, the widest access within the smallest allowed line.
     #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
     VectorMemWidth(usize),
+    /// A bimodal that is not a power of two or shares one hysteresis bit
+    /// among more entries than it has.
+    #[error("tage bimodal_entries {entries} must be a power of two of at least 2^{share_log}")]
+    TageBimodal {
+        /// Configured entries.
+        entries: usize,
+        /// Configured sharing.
+        share_log: u32,
+    },
     /// A path history wider than 31 bits.
     #[error("tage path_history_bits {0} must be in 1..=31")]
     TagePathBits(u32),
@@ -2543,6 +2573,13 @@ impl Config {
             return Err(ConfigError::TageUseAlt {
                 counters: tage.use_alt_counters,
                 bits: tage.use_alt_bits,
+            });
+        }
+        let bimodal = tage.bimodal_entries();
+        if !bimodal.is_power_of_two() || (bimodal >> tage.bimodal_hysteresis_share_log) == 0 {
+            return Err(ConfigError::TageBimodal {
+                entries: bimodal,
+                share_log: tage.bimodal_hysteresis_share_log,
             });
         }
         if !(1..=31).contains(&tage.path_history_bits) {

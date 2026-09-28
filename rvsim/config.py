@@ -327,6 +327,8 @@ def _bp_sub_dict(bp) -> dict:
             "update": bp.update,
             "history": bp.history,
             "path_history_bits": bp.path_history_bits,
+            "bimodal_entries": bp.bimodal_entries,
+            "bimodal_hysteresis_share_log": bp.bimodal_hysteresis_share_log,
         }
     if isinstance(bp, BranchPredictor.Perceptron):
         return {
@@ -702,6 +704,8 @@ _TAGE_DEFAULTS = {
     "update": "tage_base",
     "history": "direction",
     "path_history_bits": 16,
+    "bimodal_entries": None,
+    "bimodal_hysteresis_share_log": 2,
 }
 
 _PERCEPTRON_DEFAULTS = {

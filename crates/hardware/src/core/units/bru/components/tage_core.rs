@@ -17,17 +17,9 @@ struct TageEntry {
     u: u8,
 }
 
-/// The bimodal's starting counter, weakly not taken: `TAGEBase` starts
-/// each entry's prediction bit clear and its hysteresis bit set.
-const BASE_WEAKLY_NOT_TAKEN: i8 = -1;
-
 /// The 3-bit tagged counter range.
 const TAGGED_MIN: i8 = -4;
 const TAGGED_MAX: i8 = 3;
-
-/// The bimodal's 2-bit counter range.
-const BASE_MIN: i8 = -2;
-const BASE_MAX: i8 = 1;
 
 /// Seed of the generator allocation draws from.
 const RANDOM_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -79,6 +71,50 @@ const fn rotate_left(value: u32, amount: usize, width: usize) -> u32 {
     }
 }
 
+/// `TAGEBase`'s bimodal: a prediction bit per entry and a hysteresis bit
+/// shared by `2^share_log` neighbouring entries, which together act as a
+/// 2-bit counter. Every entry starts weakly not taken.
+#[derive(Debug)]
+struct Bimodal {
+    prediction: Vec<bool>,
+    hysteresis: Vec<bool>,
+    share_log: u32,
+}
+
+impl Bimodal {
+    fn new(entries: usize, share_log: u32) -> Self {
+        Self {
+            prediction: vec![false; entries],
+            hysteresis: vec![true; entries >> share_log],
+            share_log,
+        }
+    }
+
+    const fn mask(&self) -> usize {
+        self.prediction.len() - 1
+    }
+
+    /// The entry's prediction and shared hysteresis as a counter from -2
+    /// (strongly not taken) to 1 (strongly taken).
+    fn counter(&self, index: usize) -> i8 {
+        let state = (u8::from(self.prediction[index]) << 1)
+            | u8::from(self.hysteresis[index >> self.share_log]);
+        state as i8 - 2
+    }
+
+    const fn saturated(counter: i8) -> bool {
+        counter == -2 || counter == 1
+    }
+
+    /// `TAGEBase::baseUpdate`.
+    fn train(&mut self, index: usize, taken: bool) {
+        let state = self.counter(index) + 2;
+        let state = if taken { (state + 1).min(3) } else { (state - 1).max(0) };
+        self.prediction[index] = state >> 1 != 0;
+        self.hysteresis[index >> self.share_log] = state & 1 != 0;
+    }
+}
+
 /// What a TAGE prediction read: the entries its branch trains at commit,
 /// as gem5's `TAGEBase::BranchInfo` carries them.
 #[derive(Clone, Copy, Debug)]
@@ -121,7 +157,7 @@ impl TagePrediction {
 /// `update()`. CSR management is delegated to the internal `GeoBankSet`.
 #[derive(Debug)]
 pub struct TageCore {
-    base: Vec<i8>,
+    bimodal: Bimodal,
     histories: TageHistories,
     table_bits: usize,
     hist_lengths: Vec<usize>,
@@ -179,7 +215,7 @@ impl TageCore {
         );
 
         Self {
-            base: vec![BASE_WEAKLY_NOT_TAKEN; config.table_size],
+            bimodal: Bimodal::new(config.bimodal_entries(), config.bimodal_hysteresis_share_log),
             histories,
             table_bits,
             hist_lengths: hist_lengths.clone(),
@@ -213,19 +249,19 @@ impl TageCore {
             indices[bank] = self.index(pc, bank);
             tags[bank] = self.tag(pc, bank);
         }
-        let base_index = ((pc >> 2) as usize) & self.table_mask();
+        let base_index = ((pc >> 2) as usize) & self.bimodal.mask();
 
         let mut matching =
             (0..num_banks).rev().filter(|&b| self.tables[b][indices[b]].tag == tags[b]);
         let provider = matching.next();
         let alt = matching.next();
 
-        let base_ctr = self.base[base_index];
+        let base_ctr = self.bimodal.counter(base_index);
         let ctr_of =
             |bank: Option<usize>| bank.map_or(base_ctr, |b| self.tables[b][indices[b]].ctr);
         let (provider_ctr, alt_ctr) = (ctr_of(provider), ctr_of(alt));
         let provider_weak = provider.is_some() && (provider_ctr == 0 || provider_ctr == -1);
-        let base_saturated = base_ctr == BASE_MIN || base_ctr == BASE_MAX;
+        let base_saturated = Bimodal::saturated(base_ctr);
         let alt_confident = alt.map_or(base_saturated, |_| centred_magnitude(alt_ctr) > 1);
         let use_alt_index = self.use_alt_index(provider, alt_confident);
         let pred_ctr = if provider_weak && self.use_alt_on_na[use_alt_index] >= 0 {
@@ -471,7 +507,7 @@ impl TageCore {
     }
 
     fn train_base(&mut self, index: usize, taken: bool) {
-        self.base[index] = saturating_step(self.base[index], taken, BASE_MIN, BASE_MAX);
+        self.bimodal.train(index, taken);
     }
 
     /// The next value of a xorshift generator: gem5 draws from a Mersenne
@@ -822,5 +858,18 @@ mod tests {
         tage.update(false, &p, true);
 
         assert_eq!(tage.tables[0][p.indices[0]].ctr, 0);
+    }
+
+    #[test]
+    fn neighbouring_bimodal_entries_share_a_hysteresis_bit() {
+        let mut bimodal = Bimodal::new(16, 2);
+        bimodal.train(0, true);
+        bimodal.train(0, true);
+        let neighbour_before = bimodal.counter(1);
+
+        bimodal.train(0, false);
+
+        assert_eq!((neighbour_before, bimodal.counter(1)), (-1, -2));
+        assert_eq!(bimodal.counter(4), -1, "entry 4 has its own hysteresis bit");
     }
 }

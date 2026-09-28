@@ -70,7 +70,6 @@ def branch_predictor(bp: dict):
                 maxHist=bp["max_hist"],
                 tagTableTagWidths=[0] + bp["tag_widths"],
                 logTagTableSizes=[bp["log_table_size"]] * (bp["tables"] + 1),
-                logRatioBiModalHystEntries=0,
                 logUResetPeriod=bp["log_u_reset"],
             ),
             **common,

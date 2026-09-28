@@ -107,7 +107,7 @@ Configurable parameters: `history_length`, `table_bits`.
 
 Uses multiple tagged tables with geometrically increasing history lengths:
 
-- **Base predictor** — simple bimodal table (always consulted)
+- **Base predictor** — TAGEBase's bimodal: a prediction bit per entry and a hysteresis bit shared by `2^bimodal_hysteresis_share_log` entries (default 4), `bimodal_entries` of them (default `table_size`; SC-L-TAGE defaults to 8192)
 - **Tagged tables** — each table uses a different history length (default: 5, 11, 22, 44, 89, 178, 356, 712 for 8 banks). Entries are tagged with a hash of the PC and history to avoid aliasing.
 - **Longest match wins** — the prediction comes from the table with the longest matching history
 - **USE_ALT_ON_NA** — meta-counter that learns whether newly allocated (weak) provider entries should be trusted or whether the alternate (second-longest match) prediction is better. When the provider entry's counter is weak (0 or -1) and the meta-counter is non-negative, the alternate prediction is used instead.

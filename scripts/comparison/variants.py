@@ -34,7 +34,8 @@ BASE = {
 }
 
 # gem5's TAGE with rvsim's table shape: eight tagged tables of 2048 entries
-# over a 2048-entry bimodal, 3-bit counters, 2-bit useful bits, a useful
+# over a 2048-entry bimodal sharing a hysteresis bit between four entries
+# (gem5's default), 3-bit counters, 2-bit useful bits, a useful
 # reset every 2^18 updates, and gem5's geometric history lengths.
 TAGE = {
     "kind": "tage",
