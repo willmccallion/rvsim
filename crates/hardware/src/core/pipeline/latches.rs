@@ -12,6 +12,7 @@ use crate::common::{InstSeq, InstSize, PhysAddr, RegIdx, VirtAddr};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::ControlSignals;
+use crate::core::units::vpu::mem::VecMemAddrOp;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 use crate::sim::state::write_log::WriteSeq;
 
@@ -91,23 +92,83 @@ impl MicroOpIdx {
     }
 }
 
-/// Metadata for a vector memory element micro-op flowing through Memory1/Memory2.
+/// A vector memory micro-op flowing through Memory1/Memory2.
 ///
 /// The parent vec mem instruction is identified by the `rob_tag` already
 /// carried on the surrounding `ExMem1Entry` / `Mem1Mem2Entry` / `Mem2WbEntry`,
 /// so no extra parent index is needed here.
 #[derive(Clone, Debug)]
-pub struct VecMemElement {
+pub struct VecMemAccess {
     /// This micro-op among its instruction's micro-ops.
     pub micro_op: MicroOpIdx,
-    /// Element index within the vector register (for writeback targeting).
-    pub elem_idx: ElemIdx,
-    /// Effective element width for this access.
-    pub eew: Sew,
-    /// Destination physical vector register for this element's data.
-    pub vd_phys: VecPhysReg,
     /// Whether this is a store (vs load).
     pub is_store: bool,
+    /// What the micro-op accesses.
+    pub target: VecMemTarget,
+}
+
+impl VecMemAccess {
+    /// Bytes the micro-op reads or writes.
+    #[must_use]
+    pub fn bytes(&self) -> usize {
+        match &self.target {
+            VecMemTarget::Element { eew, .. } => eew.bytes(),
+            VecMemTarget::Span(span) => span.bytes(),
+        }
+    }
+}
+
+/// What a vector memory micro-op accesses.
+#[derive(Clone, Debug)]
+pub enum VecMemTarget {
+    /// One element, or one field of a segment element.
+    Element {
+        /// Element index within the vector register group.
+        elem_idx: ElemIdx,
+        /// Effective element width for this access.
+        eew: Sew,
+        /// Destination physical vector register for this element's data.
+        vd_phys: VecPhysReg,
+    },
+    /// Contiguous element accesses the vector memory datapath moves at once.
+    Span(Box<VecMemSpan>),
+}
+
+/// Naturally aligned element accesses of one instruction that lie in one
+/// datapath-width window, and so in one line and one page: one memory
+/// access.
+#[derive(Clone, Debug)]
+pub struct VecMemSpan {
+    /// The element accesses in address order, each with the micro-op it
+    /// becomes when the span is taken apart.
+    pub elements: Vec<(MicroOpIdx, VecMemAddrOp)>,
+    /// The bytes a load's access read, once the memory system served it
+    /// or a store forwarded them.
+    pub data: Option<Box<[u8]>>,
+}
+
+impl VecMemSpan {
+    /// The address of the span's first byte.
+    #[must_use]
+    pub fn vaddr(&self) -> VirtAddr {
+        self.elements.first().map_or(VirtAddr::new(0), |(_, first)| first.vaddr)
+    }
+
+    /// Bytes from the first element's first byte to the last element's last.
+    #[must_use]
+    pub fn bytes(&self) -> usize {
+        let (Some((_, first)), Some((_, last))) = (self.elements.first(), self.elements.last())
+        else {
+            return 0;
+        };
+        (last.vaddr.val() - first.vaddr.val()) as usize + last.eew.bytes()
+    }
+
+    /// Where an element access's bytes start within the span.
+    #[must_use]
+    pub fn offset_of(&self, element: &VecMemAddrOp) -> usize {
+        (element.vaddr.val() - self.vaddr().val()) as usize
+    }
 }
 
 /// Entry in the IF/ID pipeline latch (Fetch to Decode stage).
@@ -365,7 +426,7 @@ pub struct ExMem1Entry {
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (None for scalar ops).
-    pub vec_mem: Option<VecMemElement>,
+    pub vec_mem: Option<VecMemAccess>,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -416,7 +477,7 @@ pub struct Mem1Mem2Entry {
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (flows through from `ExMem1Entry`).
-    pub vec_mem: Option<VecMemElement>,
+    pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when `load_data` was read from RAM; `None` for
     /// values that came from the store buffer or an MMIO device, and in
     /// single-hart systems.
@@ -449,7 +510,7 @@ impl ExMem1Entry {
 impl Mem1Mem2Entry {
     /// Carries `ex`, its trap included, into memory2 at `vaddr`/`paddr`
     /// with nothing loaded yet.
-    pub const fn from_execute(ex: ExMem1Entry, vaddr: VirtAddr, paddr: PhysAddr) -> Self {
+    pub fn from_execute(ex: ExMem1Entry, vaddr: VirtAddr, paddr: PhysAddr) -> Self {
         Self {
             rob_tag: ex.rob_tag,
             pc: ex.pc,
@@ -510,7 +571,7 @@ pub struct Mem2WbEntry {
     /// Deferred LR/SC reservation action for commit-time application.
     pub lr_sc: Option<LrScRecord>,
     /// Vector memory element metadata (flows through from `ExMem1Entry`).
-    pub vec_mem: Option<VecMemElement>,
+    pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
     pub observed: Option<WriteSeq>,
 }

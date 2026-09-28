@@ -110,6 +110,7 @@ class Config:
         # Vector ISA
         vlen: int = 128,
         num_vec_lanes: Optional[int] = None,
+        vector_mem_width: Optional[int] = None,
         # General
         trace: bool = False,
         initial_sp: Optional[int] = None,
@@ -178,6 +179,7 @@ class Config:
         # Vector ISA
         self.vlen = vlen
         self.num_vec_lanes = num_vec_lanes
+        self.vector_mem_width = vector_mem_width
 
         # General
         self.trace = trace
@@ -806,6 +808,8 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
     }
     if cfg.num_vec_lanes is not None:
         pipeline["num_vec_lanes"] = cfg.num_vec_lanes
+    if cfg.vector_mem_width is not None:
+        pipeline["vector_mem_width"] = cfg.vector_mem_width
 
     return {
         "general": general,

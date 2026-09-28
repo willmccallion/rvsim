@@ -33,7 +33,9 @@ use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
 use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::ExecutionEngine;
-use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry};
+use crate::core::pipeline::latches::{
+    ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
+};
 use crate::core::pipeline::mailbox;
 use crate::core::pipeline::outstanding::{
     DelayedAccess, ForwardedLoad, LoadParts, OutstandingLoad, OutstandingWalk, PageTranslations,
@@ -42,8 +44,8 @@ use crate::core::pipeline::outstanding::{
 use crate::core::pipeline::rob::{RobState, RobTag};
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::ForwardResult;
+use crate::core::pipeline::vec_store_buffer::SpanForward;
 use crate::core::units::lsu::unaligned;
-use crate::core::units::vpu::types::ElemIdx;
 use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
@@ -67,6 +69,9 @@ enum EntryOutcome {
     ParkedWalk,
     /// The translation hit the L2 TLB; the op continues after its latency.
     Delayed(DelayedAccess),
+    /// A vector span met a fault, a trigger or a device, which its elements
+    /// must meet one by one.
+    Expand(ExMem1Entry),
 }
 
 /// What memory1 resolved this cycle, for the engine to act on.
@@ -77,6 +82,8 @@ pub struct Memory1Outcome {
     /// The oldest younger load a resolving store found had already read
     /// the location, and that store's PC.
     pub violation: Option<(RobTag, u64)>,
+    /// Vector spans to take apart into their elements.
+    pub expanded_spans: Vec<ExMem1Entry>,
 }
 
 /// Executes the Memory1 stage.
@@ -104,11 +111,11 @@ pub fn memory1_stage<E: ExecutionEngine>(
             true
         }
     });
-    let mut translations: Vec<(RobTag, Option<ElemIdx>, PageTranslations)> = ready
+    let mut translations: Vec<(RobTag, Option<MicroOpIdx>, PageTranslations)> = ready
         .iter()
         .map(|a| {
-            let elem = a.entry.vec_mem.as_ref().map(|v| v.elem_idx);
-            (a.entry.rob_tag, elem, a.translations.clone())
+            let micro_op = a.entry.vec_mem.as_ref().map(|v| v.micro_op);
+            (a.entry.rob_tag, micro_op, a.translations.clone())
         })
         .collect();
     entries.extend(ready.into_iter().map(|a| a.entry));
@@ -120,10 +127,10 @@ pub fn memory1_stage<E: ExecutionEngine>(
     let mut iter = entries.into_iter();
 
     while let Some(ex) = iter.next() {
-        let elem = ex.vec_mem.as_ref().map(|v| v.elem_idx);
+        let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
         let translated = translations
             .iter()
-            .position(|(tag, e, _)| *tag == ex.rob_tag && *e == elem)
+            .position(|(tag, m, _)| *tag == ex.rob_tag && *m == micro_op)
             .map(|i| translations.swap_remove(i).2)
             .unwrap_or_default();
         match process_entry(state, engine, ex, translated, &mut outcome) {
@@ -133,6 +140,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
                 engine.common_mut().mem1_replay.push(ex);
             }
             EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
+            EntryOutcome::Expand(span) => outcome.expanded_spans.push(span),
             EntryOutcome::ParkedWalk => {
                 input.extend(iter);
                 return outcome;
@@ -169,6 +177,9 @@ fn process_entry<E: ExecutionEngine>(
 
     if ex.ctrl.system_op.is_cbo() {
         return translate_cbo(state, engine, ex, translated.first, resolved);
+    }
+    if ex.vec_mem.as_ref().is_some_and(|access| matches!(access.target, VecMemTarget::Span(_))) {
+        return process_span(state, engine, ex, translated.first);
     }
 
     let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
@@ -207,32 +218,15 @@ fn process_entry<E: ExecutionEngine>(
     // 4. Translation. An L2 TLB hit refills the L1 and costs its latency
     // before the access continues; the L1 TLB answers in the same cycle.
     let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
-    let outcome = translated.first.map_or_else(
-        || state.translate(VirtAddr::new(ex.alu), access_type, size),
-        TranslateResult::Ready,
-    );
-    let first = match outcome {
-        TranslateResult::Ready(r) => {
-            if let Some(trap) = r.trap {
-                push_trap(engine, ex, trap, ExceptionStage::Memory);
-                return EntryOutcome::Done;
-            }
-            if r.cycles > 0 {
-                let first = Some(TranslationResult { cycles: 0, ..r });
-                let translations = PageTranslations { first, second: None };
-                return EntryOutcome::Delayed(DelayedAccess {
-                    ready_cycle: state.cycle + r.cycles,
-                    entry: ex,
-                    translations,
-                });
-            }
-            r
-        }
-        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
-            park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
-            return EntryOutcome::ParkedWalk;
-        }
-    };
+    let (ex, first) =
+        match translate_first_page(state, engine, ex, translated.first, access_type, size) {
+            FirstPage::Translated(ex, first) => (ex, first),
+            FirstPage::Waiting(waiting) => return waiting,
+        };
+    if let Some(trap) = first.trap {
+        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        return EntryOutcome::Done;
+    }
     let paddr = first.paddr;
 
     // 4b. A misaligned access that spills into the next page translates
@@ -344,6 +338,118 @@ fn process_entry<E: ExecutionEngine>(
             EntryOutcome::Done
         }
     }
+}
+
+/// How translating the page of an access's first byte came out.
+enum FirstPage {
+    /// The access with its translation, whose fault the caller raises.
+    Translated(ExMem1Entry, TranslationResult),
+    /// The access waits: out an L2 TLB hit's latency, or on a walk.
+    Waiting(EntryOutcome),
+}
+
+/// Translates the page of `ex`'s first byte, unless `known` already has.
+fn translate_first_page<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    known: Option<TranslationResult>,
+    access_type: AccessType,
+    size: u64,
+) -> FirstPage {
+    let outcome = known.map_or_else(
+        || state.translate(VirtAddr::new(ex.alu), access_type, size),
+        TranslateResult::Ready,
+    );
+    match outcome {
+        TranslateResult::Ready(r) if r.trap.is_none() && r.cycles > 0 => {
+            let first = Some(TranslationResult { cycles: 0, ..r });
+            FirstPage::Waiting(EntryOutcome::Delayed(DelayedAccess {
+                ready_cycle: state.cycle + r.cycles,
+                entry: ex,
+                translations: PageTranslations { first, second: None },
+            }))
+        }
+        TranslateResult::Ready(r) => FirstPage::Translated(ex, r),
+        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+            park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
+            FirstPage::Waiting(EntryOutcome::ParkedWalk)
+        }
+    }
+}
+
+/// Processes a vector span: one translation, then one access for all its
+/// elements. A span that meets a fault, a trigger or a device goes back to
+/// be taken apart, so each element meets it on its own.
+fn process_span<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    known: Option<TranslationResult>,
+) -> EntryOutcome {
+    let Some(access) = ex.vec_mem.as_ref() else { return EntryOutcome::Expand(ex) };
+    let VecMemTarget::Span(span) = &access.target else { return EntryOutcome::Expand(ex) };
+    let (is_store, micro_op, vaddr, bytes) =
+        (access.is_store, access.micro_op, span.vaddr(), span.bytes());
+    let triggered = span.elements.iter().any(|(_, element)| {
+        let address = element.vaddr.val();
+        if is_store {
+            state.check_store_trigger(address)
+        } else {
+            state.check_load_trigger(address)
+        }
+    });
+    if triggered {
+        return EntryOutcome::Expand(ex);
+    }
+
+    let access_type = if is_store { AccessType::Write } else { AccessType::Read };
+    let (ex, first) =
+        match translate_first_page(state, engine, ex, known, access_type, bytes as u64) {
+            FirstPage::Translated(ex, first) => (ex, first),
+            FirstPage::Waiting(waiting) => return waiting,
+        };
+    let paddr = first.paddr;
+    if first.trap.is_some() || reads_a_device(state, paddr, bytes as u64) {
+        return EntryOutcome::Expand(ex);
+    }
+    let dirty_updates = DirtyUpdates::of(first.dirty_update, None);
+    if is_store {
+        push_resolved_store(engine, ex, paddr, vaddr, dirty_updates);
+        return EntryOutcome::Done;
+    }
+
+    if let Some(lq) = engine.load_queue_mut() {
+        lq.fill_address(ex.rob_tag, Some(micro_op), vaddr, paddr);
+    }
+    match forward_span_from_pending_stores(state, engine, &ex, paddr, bytes) {
+        SpanForward::Hit(data) => {
+            push_forwarded_span(state, engine, ex, paddr, vaddr, data);
+            EntryOutcome::Done
+        }
+        SpanForward::Stall => EntryOutcome::Replay(ex),
+        SpanForward::Miss => {
+            emit_span_read(state, engine, ex, paddr, vaddr, bytes);
+            EntryOutcome::Done
+        }
+    }
+}
+
+/// [`forward_from_pending_stores`] for a vector span: only a vector store
+/// holding every byte forwards, and any other store it overlaps must be
+/// written first.
+fn forward_span_from_pending_stores<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &E,
+    ex: &ExMem1Entry,
+    paddr: PhysAddr,
+    bytes: usize,
+) -> SpanForward {
+    if engine.store_buffer().overlaps_older_store(paddr, bytes, ex.rob_tag) {
+        return SpanForward::Stall;
+    }
+    let vector = engine.vec_store_buffer().forward_span(paddr, bytes, ex.rob_tag);
+    if state.core_mut().wcb.request_send(paddr, bytes) { SpanForward::Stall } else { vector }
 }
 
 /// Forwards to a load from the stores before it that have not reached the
@@ -606,6 +712,63 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
         .common_mut()
         .forwarded_loads
         .push(ForwardedLoad { ready_cycle: state.cycle + latency.max(1), entry });
+}
+
+/// Parks a vector span a store forwarded, which arrives after the load
+/// pipeline's latency like a scalar forward.
+fn push_forwarded_span<E: ExecutionEngine>(
+    state: &StageCtx<'_>,
+    engine: &mut E,
+    mut ex: ExMem1Entry,
+    paddr: PhysAddr,
+    vaddr: VirtAddr,
+    data: Box<[u8]>,
+) {
+    if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) = ex.vec_mem.as_mut() {
+        span.data = Some(data);
+    }
+    let latency =
+        if state.core().l1_d_cache.is_enabled() { state.core().l1_d_cache.latency } else { 1 };
+    let entry =
+        Mem1Mem2Entry { sb_forwarded: true, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) };
+    engine
+        .common_mut()
+        .forwarded_loads
+        .push(ForwardedLoad { ready_cycle: state.cycle + latency.max(1), entry });
+}
+
+/// Issues a vector span's read of its `bytes` bytes to the L1D and parks it.
+fn emit_span_read<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    paddr: PhysAddr,
+    vaddr: VirtAddr,
+    bytes: usize,
+) {
+    let common = engine.common_mut();
+    let req_id = common.alloc_req_id();
+    let target = ComponentId::Cache(common.l1_d_id);
+    let pipeline = ComponentId::Pipeline(common.pipeline_id);
+    let size = AccessSize::Span(bytes as u8);
+    let cycle = state.cycle;
+    state.events().schedule(
+        cycle,
+        target,
+        pipeline,
+        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size, op: MemOp::Read },
+    );
+    let _ = engine.common_mut().outstanding_loads.insert(
+        req_id,
+        OutstandingLoad {
+            entry: ex,
+            paddr,
+            vaddr,
+            dirty_updates: DirtyUpdates::NONE,
+            side_effecting: false,
+            parts: LoadParts::Whole(None),
+        },
+    );
 }
 
 /// Issues a `MemReq` for a load / LR / AMO and parks the entry.

@@ -6,6 +6,10 @@
 use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
 use crate::core::pipeline::engine::BackendType;
 use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
+
+/// The widest unit-stride vector access: one 64-byte line, the smallest
+/// line every cache level must have.
+pub const MAX_VECTOR_MEM_WIDTH: usize = CBOZ_BLOCK_SIZE as usize;
 use serde::Deserialize;
 
 /// Default configuration constants for the simulator.
@@ -1338,6 +1342,11 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub num_vec_lanes: Option<usize>,
 
+    /// Bytes one unit-stride vector memory access moves: the vector memory
+    /// datapath width. Defaults to one register, VLEN/8, up to a line.
+    #[serde(default)]
+    pub vector_mem_width: Option<usize>,
+
     /// Vector Physical Register File size (O3 backend).
     #[serde(default = "PipelineConfig::default_prf_vpr_size")]
     pub prf_vpr_size: usize,
@@ -1470,6 +1479,13 @@ impl PipelineConfig {
         self.num_vec_lanes.unwrap_or_else(|| (self.vlen / 64).max(1))
     }
 
+    /// Bytes one unit-stride vector access moves: `vector_mem_width`, or one
+    /// register (VLEN/8) up to the widest access a line allows.
+    #[must_use]
+    pub fn vector_mem_width_bytes(&self) -> usize {
+        self.vector_mem_width.unwrap_or_else(|| (self.vlen / 8).min(MAX_VECTOR_MEM_WIDTH))
+    }
+
     const fn default_load_ports() -> usize {
         defaults::LOAD_PORTS
     }
@@ -1546,6 +1562,7 @@ impl Default for PipelineConfig {
             store_set: StoreSetConfig::default(),
             vlen: 128,
             num_vec_lanes: None,
+            vector_mem_width: None,
             prf_vpr_size: 64,
             vec_chaining: true,
             vec_store_buffer_size: defaults::VEC_STORE_BUFFER_SIZE,
@@ -2074,6 +2091,10 @@ pub enum ConfigError {
         /// Its line size.
         line_bytes: usize,
     },
+    /// A vector memory access width that is not a power of two from 8 to
+    /// 64 bytes, the widest access within the smallest allowed line.
+    #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
+    VectorMemWidth(usize),
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -2140,6 +2161,12 @@ impl Config {
             if cache.enabled && line_bytes != 0 && (line_bytes as u64) < CBOZ_BLOCK_SIZE {
                 return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes });
             }
+        }
+        let vector_mem_width = self.pipeline.vector_mem_width_bytes();
+        if !vector_mem_width.is_power_of_two()
+            || !(8..=MAX_VECTOR_MEM_WIDTH).contains(&vector_mem_width)
+        {
+            return Err(ConfigError::VectorMemWidth(vector_mem_width));
         }
         Ok(())
     }

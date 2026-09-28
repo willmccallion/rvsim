@@ -351,6 +351,33 @@ impl StoreBuffer {
         ForwardResult::Miss
     }
 
+    /// True when a resolved store older than `load_rob_tag` writes any of
+    /// the `bytes` bytes at `paddr`. A vector access, which no scalar store
+    /// can supply whole, waits for such a store to be written.
+    #[must_use]
+    pub fn overlaps_older_store(
+        &self,
+        paddr: PhysAddr,
+        bytes: usize,
+        load_rob_tag: RobTag,
+    ) -> bool {
+        let load_start = paddr.val();
+        let load_end = load_start + bytes as u64;
+        self.entries.iter().any(|entry| {
+            if !entry.valid || !entry.rob_tag.is_older_than(load_rob_tag) {
+                return false;
+            }
+            match entry.resolution {
+                StoreResolution::Pending => false,
+                StoreResolution::Ready { paddr: store_paddr, data }
+                | StoreResolution::Committed { paddr: store_paddr, data } => {
+                    let (store_start, store_end) = data.span(store_paddr, entry.width);
+                    load_start < store_end && load_end > store_start
+                }
+            }
+        })
+    }
+
     /// Checks whether any store buffer entry older than `rob_tag` has an
     /// unresolved address. Used by the issue queue to prevent loads from
     /// issuing before older stores have their addresses resolved.

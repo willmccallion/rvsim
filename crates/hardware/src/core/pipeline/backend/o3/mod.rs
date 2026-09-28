@@ -16,7 +16,8 @@ use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
 use crate::core::pipeline::backend::shared::vec_mem::{
-    VecMemInflight, VecMemMicroOp, micro_ops_for, retire_element,
+    VecMemInflight, VecMemMicroOp, expand_span, micro_ops_for, moves_in_spans, plan_accesses,
+    retire_access,
 };
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::checkpoint::CheckpointTable;
@@ -389,11 +390,14 @@ impl O3Engine {
     fn issue_vec_mem_waves(&mut self) {
         for inflight in &mut self.vec_mem_inflight {
             while let Some(front) = inflight.pending_micro_ops.front() {
-                if !front.is_store {
-                    let micro_op = front.entry.vec_mem.as_ref().map(|v| v.micro_op);
-                    if !self.load_queue.allocate(front.entry.rob_tag, front.eew.bytes(), micro_op) {
-                        break;
-                    }
+                if !front.is_store
+                    && !self.load_queue.allocate(
+                        front.entry.rob_tag,
+                        front.bytes,
+                        Some(front.micro_op),
+                    )
+                {
+                    break;
                 }
                 let Some(mop) = inflight.pending_micro_ops.pop_front() else { break };
                 self.vec_mem_pending.push_back(mop);
@@ -495,13 +499,12 @@ impl ExecutionEngine for O3Engine {
             for wb in vec_entries {
                 if let Some(ref vme) = wb.vec_mem {
                     let retired =
-                        retire_element(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
-                    if retired.write_data {
-                        let vlen_bits = self.vec_prf.vlen().bits();
-                        let eew_bits = vme.eew.bytes() * 8;
-                        let elems_per_reg = if eew_bits > 0 { vlen_bits / eew_bits } else { 1 };
-                        let local = ElemIdx::new(vme.elem_idx.as_usize() % elems_per_reg);
-                        self.vec_prf.write_element(vme.vd_phys, local, vme.eew, wb.load_data);
+                        retire_access(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
+                    let vlen_bits = self.vec_prf.vlen().bits();
+                    for write in retired.writes {
+                        let elems_per_reg = (vlen_bits / (write.eew.bytes() * 8)).max(1);
+                        let local = ElemIdx::new(write.elem_idx.as_usize() % elems_per_reg);
+                        self.vec_prf.write_element(write.vd_phys, local, write.eew, write.value);
                     }
                     if !vme.is_store {
                         self.load_queue.deallocate_micro_op(wb.rob_tag, vme.micro_op);
@@ -565,6 +568,14 @@ impl ExecutionEngine for O3Engine {
         let mut input = std::mem::take(&mut self.execute_mem1);
         let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         self.execute_mem1.extend(input);
+        for span in resolved.expanded_spans {
+            let (rob_tag, is_load) = (span.rob_tag, span.ctrl.mem_read);
+            if let Some(micro_op) = expand_span(&span, &mut self.vec_mem_inflight)
+                && is_load
+            {
+                self.load_queue.deallocate_micro_op(rob_tag, micro_op);
+            }
+        }
         for store_tag in resolved.resolved_stores {
             if let Some(tag) = self.mdp.store_resolved(store_tag) {
                 self.issue_queue.wakeup_mem_dep(&[tag]);
@@ -983,21 +994,25 @@ impl ExecutionEngine for O3Engine {
                         });
                     } else {
                         // Build all micro-ops up front; issue_vec_mem_waves releases them in waves.
-                        let total = micro_ops.len();
-                        let all_micro_ops = micro_ops_for(&ex_result, micro_ops, is_store);
+                        let elements = micro_ops.len();
+                        let width = state.config.pipeline.vector_mem_width_bytes();
+                        let planned = plan_accesses(micro_ops, moves_in_spans(vec_op), width);
+                        let all_micro_ops = micro_ops_for(&ex_result, planned, is_store);
 
                         if is_store {
-                            self.vec_store_buffer.set_expected_elements(ex_result.rob_tag, total);
+                            self.vec_store_buffer
+                                .set_expected_elements(ex_result.rob_tag, elements);
                         }
 
                         self.vec_mem_inflight.push(VecMemInflight {
                             rob_tag: ex_result.rob_tag,
-                            remaining: total,
+                            remaining: all_micro_ops.len(),
                             vd_phys: vd_phys_arr,
                             vd_count,
                             wakeup_fired: false,
                             pending_micro_ops: all_micro_ops,
                             trimmed_at: None,
+                            fault: None,
                         });
                     }
 

@@ -23,8 +23,10 @@
 //! - **LR:** record `LrScRecord::Lr` so commit installs the reservation.
 //! - **Non-memory ops:** pass through untouched.
 
+use crate::common::PhysAddr;
 use crate::common::error::LrScRecord;
-use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry};
+use crate::core::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
+use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::signals::{AtomicOp, MemWidth};
@@ -150,20 +152,20 @@ pub fn memory2_stage(
         } else if mem.ctrl.mem_write {
             // A scalar store resolved in memory1; a vector store element
             // resolves here and checks the load queue for ordering violations.
-            if mem.vec_mem.is_some() {
+            for (paddr, data, width) in vector_store_elements(&mem) {
                 if let Some(vsb) = vec_store_buffer.as_deref_mut() {
-                    vsb.resolve_element(mem.rob_tag, mem.paddr, mem.store_data, mem.ctrl.width);
+                    vsb.resolve_element(mem.rob_tag, paddr, data, width);
                 }
                 if let Some(ref lq) = load_queue
                     && let Some(violating_tag) =
-                        lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
+                        lq.check_ordering_violation(paddr, width, mem.rob_tag)
                 {
                     trace_fwd!(state.config.general.trace_instructions;
                         event           = "violation",
                         store_pc        = %crate::trace::Hex(mem.pc),
                         store_tag       = mem.rob_tag.0,
-                        paddr           = %crate::trace::Hex(mem.paddr.val()),
-                        width           = ?mem.ctrl.width,
+                        paddr           = %crate::trace::Hex(paddr.val()),
+                        width           = ?width,
                         violation_flush = violating_tag.0,
                         "M2: memory ordering VIOLATION — younger load executed with stale data"
                     );
@@ -202,6 +204,23 @@ pub fn memory2_stage(
     }
 
     violation
+}
+
+/// The element writes a vector store micro-op resolves: its own, or each
+/// of its span's at its place in the span. A scalar store has none here.
+fn vector_store_elements(mem: &Mem1Mem2Entry) -> Vec<(PhysAddr, u64, MemWidth)> {
+    let Some(access) = mem.vec_mem.as_ref() else { return Vec::new() };
+    match &access.target {
+        VecMemTarget::Element { .. } => vec![(mem.paddr, mem.store_data, mem.ctrl.width)],
+        VecMemTarget::Span(span) => span
+            .elements
+            .iter()
+            .map(|(_, element)| {
+                let paddr = PhysAddr::new(mem.paddr.val() + span.offset_of(element) as u64);
+                (paddr, element.store_data, mem_width_from_eew_bytes(element.eew.bytes()))
+            })
+            .collect(),
+    }
 }
 
 const fn merge_violation(slot: &mut Option<(RobTag, u64)>, new: (RobTag, u64)) {

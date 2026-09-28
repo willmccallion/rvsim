@@ -354,11 +354,15 @@ impl Rob {
         self.peek_head().is_some_and(|head| head.tag == tag)
     }
 
-    /// Records the element a vector memory instruction faulted on.
-    pub fn set_fault_vstart(&mut self, tag: RobTag, element: u64) {
+    /// Faults a vector memory instruction at `element`, where its trap
+    /// sets `vstart`.
+    pub fn fault_element(&mut self, tag: RobTag, trap: Trap, stage: ExceptionStage, element: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
-            && entry.fault_vstart.is_none()
+            && entry.state != RobState::Faulted
         {
+            entry.state = RobState::Faulted;
+            entry.trap = Some(trap);
+            entry.exception_stage = Some(stage);
             entry.fault_vstart = Some(element);
         }
     }

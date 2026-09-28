@@ -9,7 +9,7 @@
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
 use crate::common::{LineAddr, PhysAddr, TranslationResult, VirtAddr};
-use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry};
+use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry, VecMemAccess, VecMemTarget};
 use crate::core::units::mmu::ptw::WalkState;
 use crate::sim::packet::MemRespData;
 use crate::sim::state::write_log::WriteSeq;
@@ -62,6 +62,17 @@ pub struct OutstandingLoad {
     pub parts: LoadParts,
 }
 
+impl OutstandingLoad {
+    /// Gives a vector span load the bytes its access read.
+    pub fn set_span_data(&mut self, bytes: Box<[u8]>) {
+        if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) =
+            self.entry.vec_mem.as_mut()
+        {
+            span.data = Some(bytes);
+        }
+    }
+}
+
 /// What one request of a load read, when the memory system served it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PartRead {
@@ -81,9 +92,8 @@ impl PartRead {
                 Self { value: *value, observed: *observed }
             }
             MemRespData::Small(value) => Self { value: *value, observed: None },
-            MemRespData::Line(_) | MemRespData::PerformedBytes { .. } => {
-                Self { value: 0, observed: None }
-            }
+            MemRespData::PerformedBytes { observed, .. } => Self { value: 0, observed: *observed },
+            MemRespData::Line(_) => Self { value: 0, observed: None },
         }
     }
 }

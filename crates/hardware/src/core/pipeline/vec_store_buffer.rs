@@ -57,6 +57,17 @@ pub enum VecStoreForwarding {
     Off,
 }
 
+/// What the vector store buffer can do for a vector load's span.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpanForward {
+    /// One store holds all its bytes: the load takes them.
+    Hit(Box<[u8]>),
+    /// No store touches it: the load reads memory.
+    Miss,
+    /// A store holds some of its bytes: the load waits for its write.
+    Stall,
+}
+
 /// One cache-line-aligned buffer inside a VSB entry.
 ///
 /// `valid_mask` bit `i` set ⇔ `data[i]` was written by a resolved element
@@ -375,6 +386,50 @@ impl VecStoreBuffer {
                 self.forward_load_stall(load_line, load_byte_mask, load_rob_tag)
             }
             VecStoreForwarding::Off => self.forward_load_off(load_rob_tag),
+        }
+    }
+
+    /// Forwarding check for a vector load's span of `bytes` bytes at
+    /// `paddr`, which lies in one line. Under `ByteMask` the youngest older
+    /// store touching the span decides: it forwards when it holds every
+    /// byte, and otherwise the load waits for it to be written.
+    #[must_use]
+    pub fn forward_span(&self, paddr: PhysAddr, bytes: usize, load_rob_tag: RobTag) -> SpanForward {
+        let line_addr = paddr.val() & !(VSB_LINE_BYTES as u64 - 1);
+        let offset = (paddr.val() - line_addr) as usize;
+        let span_mask =
+            if bytes >= VSB_LINE_BYTES { u64::MAX } else { ((1u64 << bytes) - 1) << offset };
+        let older =
+            self.entries.iter().filter(|e| e.valid && e.rob_tag.is_older_than(load_rob_tag));
+        match self.forwarding {
+            VecStoreForwarding::Off => {
+                if older.count() > 0 {
+                    SpanForward::Stall
+                } else {
+                    SpanForward::Miss
+                }
+            }
+            VecStoreForwarding::Stall => {
+                let touches = older
+                    .flat_map(|e| &e.lines)
+                    .any(|line| line.line_addr == line_addr && line.valid_mask & span_mask != 0);
+                if touches { SpanForward::Stall } else { SpanForward::Miss }
+            }
+            VecStoreForwarding::ByteMask => {
+                let youngest = older
+                    .filter_map(|e| {
+                        let line = e.lines.iter().find(|l| l.line_addr == line_addr)?;
+                        (line.valid_mask & span_mask != 0).then_some((e.rob_tag, line))
+                    })
+                    .reduce(|a, b| if b.0.is_newer_than(a.0) { b } else { a });
+                match youngest {
+                    None => SpanForward::Miss,
+                    Some((_, line)) if line.valid_mask & span_mask == span_mask => {
+                        SpanForward::Hit(line.data[offset..offset + bytes].into())
+                    }
+                    Some(_) => SpanForward::Stall,
+                }
+            }
         }
     }
 

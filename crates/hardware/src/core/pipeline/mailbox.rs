@@ -47,9 +47,12 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         } else if let Some(fetch) = pipeline.engine.common_mut().outstanding_fetches.remove(&req_id)
         {
             buffer_fetch(pipeline, fetch);
-        } else if let Some((load, read)) =
+        } else if let Some((mut load, read)) =
             take_completed_load(pipeline.engine.common_mut(), req_id, &data)
         {
+            if let MemRespData::PerformedBytes { bytes, .. } = data {
+                load.set_span_data(bytes);
+            }
             complete_load(pipeline, state, load, read);
         } else if let Some(store) = pipeline.engine.common_mut().outstanding_stores.remove(&req_id)
         {

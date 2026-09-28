@@ -20,7 +20,7 @@ use crate::core::pipeline::backend::shared::commit::{
 };
 use crate::core::pipeline::backend::shared::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::vec_mem::{
-    VecMemInflight, micro_ops_for, retire_element,
+    VecMemInflight, expand_span, micro_ops_for, moves_in_spans, plan_accesses, retire_access,
 };
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
@@ -239,23 +239,26 @@ impl InOrderEngine {
             return;
         }
         let parent = ExMem1Entry::from_issue(entry, entry.rv1, entry.rv2);
-        let total = addresses.len();
-        let micro_ops = micro_ops_for(&parent, addresses, is_store);
+        let elements = addresses.len();
+        let width = state.config.pipeline.vector_mem_width_bytes();
+        let planned = plan_accesses(addresses, moves_in_spans(vec_op), width);
+        let micro_ops = micro_ops_for(&parent, planned, is_store);
         if is_store {
-            self.vec_store_buffer.set_expected_elements(entry.rob_tag, total);
+            self.vec_store_buffer.set_expected_elements(entry.rob_tag, elements);
         }
         self.vec_mem_inflight.push(VecMemInflight {
             rob_tag: entry.rob_tag,
-            remaining: total,
+            remaining: micro_ops.len(),
             vd_phys: vd_regs,
             vd_count,
             wakeup_fired: false,
             pending_micro_ops: micro_ops,
             trimmed_at: None,
+            fault: None,
         });
     }
 
-    /// Moves element micro-ops into the memory pipeline, as many per cycle
+    /// Moves vector memory micro-ops into the memory pipeline, as many per cycle
     /// as the load and store ports allow.
     fn issue_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
         let mut loads_left = state.config.pipeline.load_ports;
@@ -273,25 +276,25 @@ impl InOrderEngine {
         }
     }
 
-    /// Retires the element micro-ops that reached writeback: a load's
+    /// Retires the vector memory micro-ops that reached writeback: a load's
     /// element data is filed on its ROB entry for commit to land, and the
-    /// instruction completes with its last element.
+    /// instruction completes with its last micro-op.
     fn retire_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
         let entries = std::mem::take(&mut self.mem2_wb);
         for wb in entries {
-            let Some(element) = wb.vec_mem.as_ref() else {
+            let Some(access) = wb.vec_mem.as_ref() else {
                 self.mem2_wb.push(wb);
                 continue;
             };
-            let retired = retire_element(&wb, element, &mut self.vec_mem_inflight, &mut self.rob);
-            if retired.write_data {
-                let vlen_bits = state.hart.regs.vpr().vlen().bits();
-                let elems_per_reg = (vlen_bits / (element.eew.bytes() * 8)).max(1);
+            let retired = retire_access(&wb, access, &mut self.vec_mem_inflight, &mut self.rob);
+            let vlen_bits = state.hart.regs.vpr().vlen().bits();
+            for value in retired.writes {
+                let elems_per_reg = (vlen_bits / (value.eew.bytes() * 8)).max(1);
                 let write = ElementWrite {
-                    reg: VRegIdx::new(element.vd_phys.as_u16() as u8),
-                    index: ElemIdx::new(element.elem_idx.as_usize() % elems_per_reg),
-                    eew: element.eew,
-                    data: wb.load_data,
+                    reg: VRegIdx::new(value.vd_phys.as_u16() as u8),
+                    index: ElemIdx::new(value.elem_idx.as_usize() % elems_per_reg),
+                    eew: value.eew,
+                    data: value.value,
                 };
                 self.rob.push_vec_element_write(wb.rob_tag, write);
             }
@@ -394,10 +397,13 @@ impl ExecutionEngine for InOrderEngine {
         // and parks parked loads into self.common.outstanding_loads. SB
         // forwards and stores resolve straight into mem1_mem2.
         let mut input = std::mem::take(&mut self.execute_mem1);
-        let _ = memory1::memory1_stage(&mut state.stage(), self, &mut input);
+        let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         // Ops behind an unresolved translation walk go back; ops waiting on
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
+        for span in resolved.expanded_spans {
+            let _ = expand_span(&span, &mut self.vec_mem_inflight);
+        }
 
         // Skip issue+execute when M1 hasn't drained, so we don't overwrite held entries.
         let backpressured = !self.execute_mem1.is_empty();
