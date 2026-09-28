@@ -6,4 +6,5 @@ pub mod loop_predictor;
 pub mod sc_types;
 pub mod stat_corrector;
 pub mod tage_core;
+pub mod tage_history;
 pub mod tagged_bank;

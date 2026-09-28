@@ -3,7 +3,7 @@
 //! Predicts every conditional branch not taken. Jumps still take their
 //! targets from the BTB and the return address stack in the prediction unit.
 
-use crate::core::units::bru::direction::{DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{DirectionPredictor, Jump, Retired};
 
 /// Static Branch Predictor structure.
 #[derive(Debug, Default)]
@@ -23,7 +23,7 @@ impl DirectionPredictor for StaticPredictor {
         (false, ())
     }
 
-    fn unconditional(&self, _pc: u64) {}
+    fn unconditional(&self, _pc: u64, _jump: Jump) {}
 
     fn update_histories(&mut self, _pc: u64, _taken: bool, _history: &()) {}
 

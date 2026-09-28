@@ -69,6 +69,15 @@ _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 
 
 _TAGE_RULES = ("tage_base", "cbp5")
+_TAGE_HISTORY_MODES = ("direction", "pc_bits")
+_TAGE_MAX_HISTORY = 8192  # Must match MAX_TAGE_HISTORY in config.rs
+
+
+def _tage_history_mode(mode: str) -> str:
+    """Check a TAGE ``history`` mode name."""
+    if mode not in _TAGE_HISTORY_MODES:
+        raise ValueError(f"TAGE history must be one of {_TAGE_HISTORY_MODES}, got {mode!r}")
+    return mode
 
 
 def _tage_rule(rule: str, name: str) -> str:
@@ -78,14 +87,16 @@ def _tage_rule(rule: str, name: str) -> str:
     return rule
 
 
-def _validate_history_lengths(lengths: List[int], name: str) -> None:
-    """Validate that no history length exceeds the GHR capacity."""
+def _validate_history_lengths(
+    lengths: List[int], name: str, capacity: int = _GHR_MAX_BITS
+) -> None:
+    """Validate that no history length exceeds the history's capacity."""
     max_len = max(lengths) if lengths else 0
-    if max_len > _GHR_MAX_BITS:
+    if max_len > capacity:
         raise ValueError(
             f"{name}: maximum history length {max_len} exceeds the "
-            f"GHR capacity of {_GHR_MAX_BITS} bits. "
-            f"All history lengths must be <= {_GHR_MAX_BITS}."
+            f"history capacity of {capacity} bits. "
+            f"All history lengths must be <= {capacity}."
         )
 
 
@@ -114,6 +125,8 @@ class BranchPredictor:
             max_allocations: int = 1,
             allocation: str = "tage_base",
             update: str = "tage_base",
+            history: str = "direction",
+            path_history_bits: int = 16,
         ):
             self.num_banks = num_banks
             self.use_alt_counters = use_alt_counters
@@ -122,6 +135,8 @@ class BranchPredictor:
             self.max_allocations = max_allocations
             self.allocation = _tage_rule(allocation, "allocation")
             self.update = _tage_rule(update, "update")
+            self.history = _tage_history_mode(history)
+            self.path_history_bits = path_history_bits
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
@@ -132,7 +147,9 @@ class BranchPredictor:
             self.tag_widths = (
                 tag_widths if tag_widths is not None else [8, 8, 9, 9, 10, 10, 11, 11]
             )
-            _validate_history_lengths(self.history_lengths, "TAGE history_lengths")
+            _validate_history_lengths(
+                self.history_lengths, "TAGE history_lengths", _TAGE_MAX_HISTORY
+            )
 
         def __repr__(self) -> str:
             return (
@@ -245,7 +262,8 @@ class BranchPredictor:
         The TAGE parameters are shared with the standalone TAGE config;
         the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``,
         CBP-5 ``allocation`` and ``update`` with 1-bit useful counters, two
-        allocations, and a ``reset_interval`` of 1024 allocation penalties).
+        allocations, a ``reset_interval`` of 1024 allocation penalties, and
+        ``pc_bits`` history with a 27-bit path over lengths from 6 to 3000).
         The loop predictor, SC and ITTAGE have their own sub-configs; the
         loop predictor and SC defaults are Seznec's 64KB TAGE-SC-L (CBP-5).
         The SC's GEHL components are ``BranchPredictor.ScGehl`` and
@@ -266,6 +284,8 @@ class BranchPredictor:
             max_allocations: int = 2,
             allocation: str = "cbp5",
             update: str = "cbp5",
+            history: str = "pc_bits",
+            path_history_bits: int = 27,
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -315,10 +335,10 @@ class BranchPredictor:
             self.history_lengths = (
                 history_lengths
                 if history_lengths is not None
-                else [5, 11, 22, 44, 89, 178, 356, 712]
+                else [6, 15, 35, 86, 209, 508, 1235, 3000]
             )
             self.tag_widths = (
-                tag_widths if tag_widths is not None else [8, 8, 9, 9, 10, 10, 11, 11]
+                tag_widths if tag_widths is not None else [8, 8, 8, 12, 12, 12, 12, 12]
             )
             self.use_alt_counters = use_alt_counters
             self.use_alt_bits = use_alt_bits
@@ -326,6 +346,8 @@ class BranchPredictor:
             self.max_allocations = max_allocations
             self.allocation = _tage_rule(allocation, "allocation")
             self.update = _tage_rule(update, "update")
+            self.history = _tage_history_mode(history)
+            self.path_history_bits = path_history_bits
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
             self.loop_tag_bits = loop_tag_bits
@@ -387,7 +409,9 @@ class BranchPredictor:
                 else [9, 9, 10, 10, 11, 11, 12, 12]
             )
             self.ittage_reset_interval = ittage_reset_interval
-            _validate_history_lengths(self.history_lengths, "ScLTage history_lengths")
+            _validate_history_lengths(
+                self.history_lengths, "ScLTage history_lengths", _TAGE_MAX_HISTORY
+            )
             _validate_history_lengths(
                 self.ittage_history_lengths, "ScLTage ittage_history_lengths"
             )

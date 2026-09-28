@@ -5,9 +5,9 @@
 //! compose those on top.
 
 use super::sc_types::{TageConfLevel, TageScMeta};
-use super::tagged_bank::{GeoBankSet, MAX_BANKS};
+use super::tage_history::{HistoryBranch, HistoryCheckpoint, TageHistories};
+use super::tagged_bank::MAX_BANKS;
 use crate::config::{TageAllocation, TageConfig, TageUpdate};
-use crate::core::units::bru::Ghr;
 
 /// An entry in a TAGE tagged bank.
 #[derive(Clone, Copy, Debug, Default)]
@@ -57,9 +57,6 @@ const fn signed_range(bits: u32) -> (i8, i8) {
     let max = ((1i32 << (bits - 1)) - 1) as i8;
     (-max - 1, max)
 }
-
-/// Branches the path history holds, as gem5's `pathHistBits`.
-const PATH_HISTORY_BITS: usize = 16;
 
 /// `TAGEBase::F`: folds the low `size` bits of path history `path` into a
 /// `table_bits`-wide value, rotated by `bank` so each table hashes it
@@ -125,14 +122,16 @@ impl TagePrediction {
 #[derive(Debug)]
 pub struct TageCore {
     base: Vec<i8>,
-    geo_banks: GeoBankSet,
+    histories: TageHistories,
+    table_bits: usize,
+    hist_lengths: Vec<usize>,
+    tag_widths: Vec<usize>,
+    path_history_bits: usize,
     tables: Vec<Vec<TageEntry>>,
     /// `USE_ALT_ON_NA`: whether a weak (newly allocated) provider defers
     /// to the alternate prediction; non-negative defers.
     use_alt_on_na: Vec<i8>,
     use_alt_bits: u32,
-    /// Low bit of each recent branch's `pc >> 2`, youngest in bit 0.
-    path_history: u16,
     /// gem5's `tCounter`: counts updates under `TAGEBase` allocation, or
     /// allocations that found no free entry less those that did under
     /// CBP-5; the useful bits age as it reaches `reset_interval`.
@@ -152,7 +151,7 @@ impl TageCore {
     /// # Panics
     ///
     /// Panics if `table_size` is not a power of two, or if `history_lengths`
-    /// and `tag_widths` have different lengths, or max history exceeds 1024.
+    /// and `tag_widths` have different lengths or more than `MAX_BANKS`.
     pub fn new(config: &TageConfig) -> Self {
         assert!(config.table_size.is_power_of_two(), "TAGE table size must be power of 2");
 
@@ -162,29 +161,33 @@ impl TageCore {
 
         assert_eq!(hist_lengths.len(), num_banks);
         assert_eq!(tag_widths.len(), num_banks);
+        assert!(num_banks <= MAX_BANKS, "TAGE: {num_banks} banks exceeds {MAX_BANKS}");
 
         let table_bits = config.table_size.trailing_zeros() as usize;
-        let max_hist = *hist_lengths.iter().max().unwrap_or(&64);
-
-        assert!(
-            max_hist <= 1024,
-            "TAGE: max history length {max_hist} exceeds GHR capacity of 1024 bits.",
-        );
 
         let mut tables = Vec::with_capacity(num_banks);
         for _ in 0..num_banks {
             tables.push(vec![TageEntry::default(); config.table_size]);
         }
 
-        let geo_banks = GeoBankSet::new(hist_lengths, tag_widths, table_bits);
+        let histories = TageHistories::new(
+            hist_lengths,
+            tag_widths,
+            table_bits,
+            config.path_history_bits,
+            config.history,
+        );
 
         Self {
             base: vec![BASE_WEAKLY_NOT_TAKEN; config.table_size],
-            geo_banks,
+            histories,
+            table_bits,
+            hist_lengths: hist_lengths.clone(),
+            tag_widths: tag_widths.clone(),
+            path_history_bits: config.path_history_bits as usize,
             tables,
             use_alt_on_na: vec![0; config.use_alt_counters.max(1)],
             use_alt_bits: config.use_alt_bits,
-            path_history: 0,
             // Half a period in, as gem5's initialTCounterValue is.
             useful_reset_counter: i64::from(config.reset_interval / 2),
             reset_interval: i64::from(config.reset_interval.max(1)),
@@ -196,22 +199,8 @@ impl TageCore {
         }
     }
 
-    /// Maximum history length needed for the GHR.
-    pub fn max_history(&self) -> usize {
-        let mut max = 0;
-        for i in 0..self.geo_banks.num_banks() {
-            let hl = self.geo_banks.hist_length(i);
-            if hl > max {
-                max = hl;
-            }
-        }
-        max
-    }
-
-    /// Table mask for base predictor indexing.
-    #[inline]
-    pub const fn table_mask(&self) -> usize {
-        self.geo_banks.table_mask()
+    const fn table_mask(&self) -> usize {
+        (1 << self.table_bits) - 1
     }
 
     /// Predicts the branch at `pc` from the speculative history, recording
@@ -224,7 +213,7 @@ impl TageCore {
             indices[bank] = self.index(pc, bank);
             tags[bank] = self.tag(pc, bank);
         }
-        let base_index = ((pc >> 2) as usize) & self.geo_banks.table_mask();
+        let base_index = ((pc >> 2) as usize) & self.table_mask();
 
         let mut matching =
             (0..num_banks).rev().filter(|&b| self.tables[b][indices[b]].tag == tags[b]);
@@ -500,46 +489,49 @@ impl TageCore {
     /// hashes it: the PC, a shifted copy of it, the folded global history
     /// and the folded path history.
     fn index(&self, pc: u64, bank: usize) -> usize {
-        let table_bits = self.geo_banks.table_bits();
+        let table_bits = self.table_bits;
         let gem5_bank = bank + 1;
         let shifted_pc = (pc >> 2) as u32;
-        let (index_fold, _, _) = self.geo_banks.folds(bank);
-        let path_bits = self.geo_banks.hist_length(bank).min(PATH_HISTORY_BITS);
+        let [index_fold, _, _] = self.histories.folds(bank);
+        let path_bits = self.hist_lengths[bank].min(self.path_history_bits);
         let hash = shifted_pc
             ^ (shifted_pc >> (table_bits.abs_diff(gem5_bank) + 1))
             ^ index_fold as u32
-            ^ fold_path(u32::from(self.path_history), path_bits, gem5_bank, table_bits);
-        hash as usize & self.geo_banks.table_mask()
+            ^ fold_path(self.histories.path(), path_bits, gem5_bank, table_bits);
+        hash as usize & self.table_mask()
     }
 
     /// The tag of `pc` in tagged `bank` (0-based), as `TAGEBase::gtag`
     /// forms it from the PC and two folds of the global history.
-    const fn tag(&self, pc: u64, bank: usize) -> u16 {
-        let width = self.geo_banks.tag_width(bank);
-        let (_, tag_fold, short_tag_fold) = self.geo_banks.folds(bank);
+    fn tag(&self, pc: u64, bank: usize) -> u16 {
+        let width = self.tag_widths[bank];
+        let [_, tag_fold, short_tag_fold] = self.histories.folds(bank);
         let tag = (pc >> 2) ^ tag_fold ^ (short_tag_fold << 1);
         (tag & ((1 << width) - 1)) as u16
     }
 
-    /// Shifts a branch at `pc` with direction `taken` into the speculative
-    /// global and path histories. Must be called BEFORE the caller's
-    /// `ghr.push()`.
-    #[inline]
-    pub fn speculate(&mut self, pc: u64, taken: bool, ghr: &Ghr) {
-        self.geo_banks.update_csrs(taken, ghr);
-        self.path_history = (self.path_history << 1) | ((pc >> 2) & 1) as u16;
+    /// Shifts the control instruction at `pc` going `taken` into the
+    /// speculative histories.
+    pub fn speculate(&mut self, pc: u64, taken: bool, branch: HistoryBranch) {
+        self.histories.speculate(pc, taken, branch);
     }
 
-    /// The speculative path history, for a branch to restore on a squash.
+    /// The histories before the next instruction's update, which a squash
+    /// of that instruction restores.
     #[must_use]
-    pub const fn path_history(&self) -> u16 {
-        self.path_history
+    pub fn checkpoint(&self) -> HistoryCheckpoint {
+        self.histories.checkpoint()
     }
 
-    /// Restores the speculative histories a squash returns to.
-    pub fn repair(&mut self, ghr: &Ghr, path_history: u16) {
-        self.geo_banks.recompute_all(ghr);
-        self.path_history = path_history;
+    /// Returns the speculative histories to `checkpoint`.
+    pub fn restore(&mut self, checkpoint: &HistoryCheckpoint) {
+        self.histories.restore(checkpoint);
+    }
+
+    /// The speculative path history.
+    #[must_use]
+    pub const fn path_history(&self) -> u32 {
+        self.histories.path()
     }
 }
 
@@ -569,57 +561,41 @@ mod tests {
     }
 
     #[test]
-    fn test_speculate_and_repair() {
-        let config = test_config();
-        let mut tage = TageCore::new(&config);
-        let max_hist = tage.max_history();
-        let mut ghr = Ghr::with_len(max_hist);
+    fn restoring_a_checkpoint_restores_the_prediction() {
+        let mut tage = TageCore::new(&test_config());
         let pc = 0x8000_1234u64;
-
         for i in 0u64..50 {
-            let taken = i % 3 != 0;
-            tage.speculate(0x8000_0000, taken, &ghr);
-            ghr.push(taken);
+            tage.speculate(0x8000_0000, i % 3 != 0, HistoryBranch::Conditional);
         }
-
-        let snapshot = ghr;
+        let checkpoint = tage.checkpoint();
         let saved = tage.predict(pc);
 
-        // Diverge.
         for _ in 0..30 {
-            tage.speculate(0x8000_0000, true, &ghr);
-            ghr.push(true);
+            tage.speculate(0x8000_0000, true, HistoryBranch::Conditional);
         }
+        tage.restore(&checkpoint);
 
-        // Repair.
-        ghr = snapshot;
-        tage.repair(&ghr, 0);
-        let restored = tage.predict(pc);
-        assert_eq!(saved.taken(), restored.taken());
+        assert_eq!(tage.predict(pc).indices, saved.indices);
     }
 
     #[test]
     fn a_branch_trains_the_entries_its_prediction_read() {
         let mut tage = TageCore::new(&test_config());
-        let mut ghr = Ghr::with_len(tage.max_history());
         for i in 0u64..40 {
-            tage.speculate(0x8000_0000 + 4 * i, i % 3 == 0, &ghr);
-            ghr.push(i % 3 == 0);
+            tage.speculate(0x8000_0000 + 4 * i, i % 3 == 0, HistoryBranch::Conditional);
         }
-        let at_prediction = ghr;
+        let at_prediction = tage.checkpoint();
         let pc = 0x8000_2040u64;
 
         for _ in 0..30 {
-            ghr = at_prediction;
-            tage.repair(&ghr, 0);
+            tage.restore(&at_prediction);
             let prediction = tage.predict(pc);
             for _ in 0..8 {
-                tage.speculate(0x8000_0000, true, &ghr);
-                ghr.push(true);
+                tage.speculate(0x8000_0000, true, HistoryBranch::Conditional);
             }
             tage.update(false, &prediction, prediction.taken());
         }
-        tage.repair(&at_prediction, 0);
+        tage.restore(&at_prediction);
 
         assert!(!tage.predict(pc).taken(), "trained under the history it predicted with");
     }
@@ -634,12 +610,11 @@ mod tests {
     #[test]
     fn the_path_history_separates_branches_with_the_same_global_history() {
         let mut tage = TageCore::new(&test_config());
-        let ghr = Ghr::with_len(tage.max_history());
         let pc = 0x8000_2040u64;
 
-        tage.repair(&ghr, 0b1010);
+        tage.histories.set_path(0b1010);
         let one_path = tage.predict(pc);
-        tage.repair(&ghr, 0b0101);
+        tage.histories.set_path(0b0101);
         let other_path = tage.predict(pc);
 
         assert_ne!(one_path.indices, other_path.indices);

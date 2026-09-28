@@ -15,6 +15,15 @@ pub enum BranchClass {
     Unconditional,
 }
 
+/// A jump, whose direction is not predicted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Jump {
+    /// A direct jump (`jal`).
+    Direct,
+    /// An indirect jump (`jalr`).
+    Indirect,
+}
+
 /// A committed control instruction as a predictor trains on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Retired {
@@ -36,8 +45,8 @@ pub trait DirectionPredictor {
     /// to `target` when taken (gem5's `lookup`).
     fn lookup(&self, pc: u64, target: u64) -> (bool, Self::History);
 
-    /// The record for a jump, whose direction is not predicted.
-    fn unconditional(&self, pc: u64) -> Self::History;
+    /// The record for the jump at `pc`, whose direction is not predicted.
+    fn unconditional(&self, pc: u64, jump: Jump) -> Self::History;
 
     /// Shifts the speculative histories by the predicted direction.
     fn update_histories(&mut self, pc: u64, taken: bool, history: &Self::History);

@@ -1622,6 +1622,26 @@ pub struct TageConfig {
     /// Which entries a committed branch trains.
     #[serde(default)]
     pub update: TageUpdate,
+
+    /// What each control instruction shifts into the global history.
+    #[serde(default)]
+    pub history: TageHistoryMode,
+
+    /// Bits of path history the tables hash.
+    #[serde(default = "TageConfig::default_path_history_bits")]
+    pub path_history_bits: u32,
+}
+
+/// What each control instruction shifts into TAGE's global history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TageHistoryMode {
+    /// `TAGEBase`: its direction, and one PC bit of path.
+    #[default]
+    Direction,
+    /// TAGE-SC-L: two bits of its PC hashed with its direction (three for
+    /// an indirect jump), each with a path bit hashed from its PC.
+    PcBits,
 }
 
 /// How TAGE allocates entries for a misprediction.
@@ -1670,6 +1690,8 @@ impl Default for TageConfig {
             max_allocations: Self::default_max_allocations(),
             allocation: TageAllocation::default(),
             update: TageUpdate::default(),
+            history: TageHistoryMode::default(),
+            path_history_bits: Self::default_path_history_bits(),
         }
     }
 }
@@ -1718,6 +1740,10 @@ impl TageConfig {
 
     const fn default_max_allocations() -> usize {
         1
+    }
+
+    const fn default_path_history_bits() -> u32 {
+        16
     }
 }
 
@@ -1857,6 +1883,9 @@ pub enum ScConfigError {
     #[error("{0} local histories is not a power of two")]
     LocalHistories(usize),
 }
+
+/// Longest TAGE history, in history bits.
+pub const MAX_TAGE_HISTORY: usize = 1 << 13;
 
 /// Most tables in one statistical corrector GEHL component.
 pub const MAX_GEHL_TABLES: usize = 8;
@@ -2415,6 +2444,12 @@ pub enum ConfigError {
     /// 64 bytes, the widest access within the smallest allowed line.
     #[error("vector_mem_width {0} must be a power of two from 8 to {MAX_VECTOR_MEM_WIDTH} bytes")]
     VectorMemWidth(usize),
+    /// A path history wider than 31 bits.
+    #[error("tage path_history_bits {0} must be in 1..=31")]
+    TagePathBits(u32),
+    /// A TAGE history longer than the history buffer is sized for.
+    #[error("tage history length {0} exceeds {MAX_TAGE_HISTORY}")]
+    TageHistoryLength(usize),
     /// Useful counters must fit a `u8` and allocations must take an entry.
     #[error(
         "tage useful_bits {useful_bits} must be in 1..=8 and max_allocations {max_allocations} at least 1"
@@ -2509,6 +2544,14 @@ impl Config {
                 counters: tage.use_alt_counters,
                 bits: tage.use_alt_bits,
             });
+        }
+        if !(1..=31).contains(&tage.path_history_bits) {
+            return Err(ConfigError::TagePathBits(tage.path_history_bits));
+        }
+        if let Some(&length) =
+            tage.history_lengths.iter().find(|&&length| length > MAX_TAGE_HISTORY)
+        {
+            return Err(ConfigError::TageHistoryLength(length));
         }
         if !(1..=8).contains(&tage.useful_bits) || tage.max_allocations == 0 {
             return Err(ConfigError::TageAllocation {

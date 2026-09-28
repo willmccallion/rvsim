@@ -325,6 +325,8 @@ def _bp_sub_dict(bp) -> dict:
             "max_allocations": bp.max_allocations,
             "allocation": bp.allocation,
             "update": bp.update,
+            "history": bp.history,
+            "path_history_bits": bp.path_history_bits,
         }
     if isinstance(bp, BranchPredictor.Perceptron):
         return {
@@ -698,6 +700,8 @@ _TAGE_DEFAULTS = {
     "max_allocations": 1,
     "allocation": "tage_base",
     "update": "tage_base",
+    "history": "direction",
+    "path_history_bits": 16,
 }
 
 _PERCEPTRON_DEFAULTS = {

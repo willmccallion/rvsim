@@ -5,7 +5,7 @@
 //! prediction is the dot product of the weights and the history vector.
 
 use crate::config::PerceptronConfig;
-use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
 /// Coefficient used to calculate the training threshold.
 const THETA_COEFF: f64 = 1.93;
@@ -101,7 +101,7 @@ impl DirectionPredictor for PerceptronPredictor {
         (output >= 0, PerceptronHistory { ghr: self.ghr, output })
     }
 
-    fn unconditional(&self, _pc: u64) -> PerceptronHistory {
+    fn unconditional(&self, _pc: u64, _jump: Jump) -> PerceptronHistory {
         PerceptronHistory { ghr: self.ghr, output: 0 }
     }
 

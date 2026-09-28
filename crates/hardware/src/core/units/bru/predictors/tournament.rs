@@ -9,7 +9,7 @@
 //! prediction read.
 
 use crate::config::TournamentConfig;
-use crate::core::units::bru::direction::{DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{DirectionPredictor, Jump, Retired};
 
 /// Instruction address bits below the local history index (gem5's
 /// `instShiftAmt`).
@@ -121,7 +121,7 @@ impl DirectionPredictor for TournamentPredictor {
         (if use_global { global_taken } else { local_taken }, record)
     }
 
-    fn unconditional(&self, _pc: u64) -> TournamentHistory {
+    fn unconditional(&self, _pc: u64, _jump: Jump) -> TournamentHistory {
         TournamentHistory {
             global_history: self.global_history,
             local_taken: true,
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn a_jump_trains_the_global_counter_for_its_history_as_taken() {
         let mut bp = predictor();
-        let record = bp.unconditional(0x8000_0010);
+        let record = bp.unconditional(0x8000_0010, Jump::Direct);
 
         bp.commit(
             0x8000_0010,

@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 
 use crate::common::InstSeq;
 use crate::core::units::bru::btb::{BranchKind, Btb, BtbHit};
-use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 use crate::core::units::bru::ras::{Ras, RasHistory};
 
 /// A control instruction as the predictor sees it: from its BTB entry at
@@ -158,7 +158,7 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
                 if let Some(link) = link {
                     self.ras.push(link, &mut ras);
                 }
-                (Some(target), self.direction.unconditional(pc))
+                (Some(target), self.direction.unconditional(pc, Jump::Direct))
             }
             ControlInst::IndirectJump { returns, link } => {
                 let target = if returns {
@@ -171,7 +171,7 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
                 if let Some(link) = link {
                     self.ras.push(link, &mut ras);
                 }
-                (target, self.direction.unconditional(pc))
+                (target, self.direction.unconditional(pc, Jump::Indirect))
             }
         };
         let taken = target.is_some();

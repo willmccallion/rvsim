@@ -18,15 +18,16 @@ use crate::core::units::bru::components::{
     loop_predictor::{LoopPrediction, LoopPredictor},
     stat_corrector::{ScPrediction, StatCorrector},
     tage_core::{TageCore, TagePrediction},
+    tage_history::{HistoryBranch, HistoryCheckpoint},
 };
-use crate::core::units::bru::direction::{DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{DirectionPredictor, Jump, Retired};
 
 /// SC-L-TAGE + ITTAGE composed predictor.
 #[derive(Debug)]
 pub struct ScLTagePredictor {
+    /// ITTAGE's speculative global history.
     spec_ghr: Ghr,
-    /// The TAGE path history a squash returns to.
-    spec_path: u16,
+    /// ITTAGE's committed global history.
     commit_ghr: Ghr,
 
     /// Shared TAGE direction core.
@@ -40,10 +41,11 @@ pub struct ScLTagePredictor {
 /// What an SC-L-TAGE prediction was made with.
 #[derive(Clone, Copy, Debug)]
 pub struct ScLTageHistory {
-    /// The speculative global history before the prediction.
+    /// ITTAGE's speculative global history before the prediction.
     ghr: Ghr,
-    /// The TAGE path history before the prediction.
-    path: u16,
+    /// TAGE's histories before the prediction.
+    checkpoint: HistoryCheckpoint,
+    branch: HistoryBranch,
     /// What a conditional branch's prediction read.
     conditional: Option<ConditionalPrediction>,
 }
@@ -64,30 +66,30 @@ impl ScLTagePredictor {
         ittage_config: &IttageConfig,
         loop_config: &LoopConfig,
     ) -> Self {
-        let tage = TageCore::new(tage_config);
-        let max_hist = tage.max_history();
-
+        let ittage_history = ittage_config.history_lengths.iter().copied().max().unwrap_or(0);
         Self {
-            spec_ghr: Ghr::with_len(max_hist),
-            spec_path: 0,
-            commit_ghr: Ghr::with_len(max_hist),
-            tage,
+            spec_ghr: Ghr::with_len(ittage_history),
+            commit_ghr: Ghr::with_len(ittage_history),
+            tage: TageCore::new(tage_config),
             loop_pred: LoopPredictor::new(loop_config),
             sc: StatCorrector::new(sc_config),
             ittage: Ittage::new(ittage_config),
         }
     }
 
-    fn push_speculative(&mut self, pc: u64, taken: bool) {
-        self.tage.speculate(pc, taken, &self.spec_ghr);
+    fn push_speculative(&mut self, pc: u64, taken: bool, branch: HistoryBranch) {
+        self.tage.speculate(pc, taken, branch);
         self.ittage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
-        self.spec_path = self.tage.path_history();
     }
 
-    fn repair_speculative(&mut self) {
-        self.tage.repair(&self.spec_ghr, self.spec_path);
-        self.ittage.repair_history(&self.spec_ghr);
+    fn record(&self, branch: HistoryBranch) -> ScLTageHistory {
+        ScLTageHistory {
+            ghr: self.spec_ghr,
+            checkpoint: self.tage.checkpoint(),
+            branch,
+            conditional: None,
+        }
     }
 
     /// Advances the committed history. Must follow every read of the
@@ -127,20 +129,17 @@ impl DirectionPredictor for ScLTagePredictor {
         };
         let path = u64::from(self.tage.path_history());
         let sc = self.sc.predict(pc, target, path, tage.meta(), before_sc);
-        let history = ScLTageHistory {
-            ghr: self.spec_ghr,
-            path: self.spec_path,
-            conditional: Some(ConditionalPrediction { tage, loop_prediction, sc }),
-        };
+        let mut history = self.record(HistoryBranch::Conditional);
+        history.conditional = Some(ConditionalPrediction { tage, loop_prediction, sc });
         (sc.taken(), history)
     }
 
-    fn unconditional(&self, _pc: u64) -> ScLTageHistory {
-        ScLTageHistory { ghr: self.spec_ghr, path: self.spec_path, conditional: None }
+    fn unconditional(&self, _pc: u64, jump: Jump) -> ScLTageHistory {
+        self.record(HistoryBranch::from(jump))
     }
 
     fn update_histories(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
-        self.push_speculative(pc, taken);
+        self.push_speculative(pc, taken, history.branch);
         if let Some(prediction) = &history.conditional {
             self.speculate_conditional(prediction, taken);
         }
@@ -148,21 +147,21 @@ impl DirectionPredictor for ScLTagePredictor {
 
     fn squash(&mut self, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
-        self.spec_path = history.path;
+        self.tage.restore(&history.checkpoint);
         if let Some(prediction) = &history.conditional {
             self.squash_conditional(prediction);
         }
     }
 
     fn squash_done(&mut self) {
-        self.repair_speculative();
+        self.ittage.repair_history(&self.spec_ghr);
     }
 
     fn correct(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
-        self.spec_path = history.path;
-        self.repair_speculative();
-        self.push_speculative(pc, taken);
+        self.tage.restore(&history.checkpoint);
+        self.ittage.repair_history(&self.spec_ghr);
+        self.push_speculative(pc, taken, history.branch);
         if let Some(prediction) = &history.conditional {
             self.squash_conditional(prediction);
             self.speculate_conditional(prediction, taken);
@@ -230,10 +229,10 @@ mod tests {
     fn squashing_younger_predictions_restores_the_history_they_shifted() {
         let mut pred = predictor();
         for i in 0u64..20 {
-            let history = pred.unconditional(0x1000 + i * 4);
+            let history = pred.unconditional(0x1000 + i * 4, Jump::Direct);
             pred.update_histories(0x1000 + i * 4, i % 2 == 0, &history);
         }
-        let before = pred.spec_ghr;
+        let before = (pred.spec_ghr, pred.tage.checkpoint());
         let mut squashed = Vec::new();
         for _ in 0..10 {
             let (_, history) = pred.lookup(0x2000, 0x2040);
@@ -246,7 +245,7 @@ mod tests {
         }
         pred.squash_done();
 
-        assert_eq!(pred.spec_ghr, before);
+        assert_eq!((pred.spec_ghr, pred.tage.checkpoint()), before);
     }
 
     #[test]
@@ -254,7 +253,7 @@ mod tests {
         let mut pred = predictor();
         let pc = 0x8000_2000u64;
         let target = 0x8000_5000u64;
-        let history = pred.unconditional(pc);
+        let history = pred.unconditional(pc, Jump::Indirect);
 
         pred.commit(
             pc,

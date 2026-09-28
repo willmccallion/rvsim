@@ -14,7 +14,7 @@
 //! - **Best Case:** Correlated branches where outcome depends on recent history
 //! - **Worst Case:** Uncorrelated branches or history length too short/long for pattern
 
-use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
 /// Size of the Pattern History Table (2^12 entries).
 const TABLE_BITS: usize = 12;
@@ -75,7 +75,7 @@ impl DirectionPredictor for GSharePredictor {
         (taken, GShareHistory { ghr: self.ghr })
     }
 
-    fn unconditional(&self, _pc: u64) -> GShareHistory {
+    fn unconditional(&self, _pc: u64, _jump: Jump) -> GShareHistory {
         GShareHistory { ghr: self.ghr }
     }
 

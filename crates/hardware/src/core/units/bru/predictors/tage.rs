@@ -6,45 +6,33 @@
 //! composed predictor only.
 
 use crate::config::TageConfig;
-use crate::core::units::bru::Ghr;
 use crate::core::units::bru::components::tage_core::{TageCore, TagePrediction};
-use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Retired};
+use crate::core::units::bru::components::tage_history::{HistoryBranch, HistoryCheckpoint};
+use crate::core::units::bru::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
 /// TAGE Predictor structure.
 #[derive(Debug)]
 pub struct TagePredictor {
-    spec_ghr: Ghr,
-    /// The path history a squash returns to.
-    spec_path: u16,
     tage: TageCore,
 }
 
-/// The speculative global history a TAGE prediction was made with, and for
-/// a conditional branch the entries it read.
+/// The histories a TAGE prediction was made with, and for a conditional
+/// branch the entries it read.
 #[derive(Clone, Copy, Debug)]
 pub struct TageHistory {
-    ghr: Ghr,
-    path: u16,
+    checkpoint: HistoryCheckpoint,
+    branch: HistoryBranch,
     prediction: Option<TagePrediction>,
 }
 
 impl TagePredictor {
     /// Creates a new TAGE Predictor based on configuration.
     pub fn new(config: &TageConfig) -> Self {
-        let tage = TageCore::new(config);
-        let max_hist = tage.max_history();
-
-        Self { spec_ghr: Ghr::with_len(max_hist), spec_path: 0, tage }
+        Self { tage: TageCore::new(config) }
     }
 
-    fn push_speculative(&mut self, pc: u64, taken: bool) {
-        self.tage.speculate(pc, taken, &self.spec_ghr);
-        self.spec_ghr.push(taken);
-        self.spec_path = self.tage.path_history();
-    }
-
-    const fn snapshot(&self, prediction: Option<TagePrediction>) -> TageHistory {
-        TageHistory { ghr: self.spec_ghr, path: self.spec_path, prediction }
+    fn record(&self, branch: HistoryBranch, prediction: Option<TagePrediction>) -> TageHistory {
+        TageHistory { checkpoint: self.tage.checkpoint(), branch, prediction }
     }
 }
 
@@ -53,31 +41,24 @@ impl DirectionPredictor for TagePredictor {
 
     fn lookup(&self, pc: u64, _target: u64) -> (bool, TageHistory) {
         let prediction = self.tage.predict(pc);
-        (prediction.taken(), self.snapshot(Some(prediction)))
+        (prediction.taken(), self.record(HistoryBranch::Conditional, Some(prediction)))
     }
 
-    fn unconditional(&self, _pc: u64) -> TageHistory {
-        self.snapshot(None)
+    fn unconditional(&self, _pc: u64, jump: Jump) -> TageHistory {
+        self.record(HistoryBranch::from(jump), None)
     }
 
-    fn update_histories(&mut self, pc: u64, taken: bool, _history: &TageHistory) {
-        self.push_speculative(pc, taken);
+    fn update_histories(&mut self, pc: u64, taken: bool, history: &TageHistory) {
+        self.tage.speculate(pc, taken, history.branch);
     }
 
     fn squash(&mut self, history: &TageHistory) {
-        self.spec_ghr = history.ghr;
-        self.spec_path = history.path;
-    }
-
-    fn squash_done(&mut self) {
-        self.tage.repair(&self.spec_ghr, self.spec_path);
+        self.tage.restore(&history.checkpoint);
     }
 
     fn correct(&mut self, pc: u64, taken: bool, history: &TageHistory) {
-        self.spec_ghr = history.ghr;
-        self.spec_path = history.path;
-        self.tage.repair(&self.spec_ghr, self.spec_path);
-        self.push_speculative(pc, taken);
+        self.tage.restore(&history.checkpoint);
+        self.tage.speculate(pc, taken, history.branch);
     }
 
     /// Trains the entries the prediction read, as gem5 trains those its
@@ -113,7 +94,7 @@ mod tests {
             let (_, history) = tage.lookup(0x8000_1000 + i * 4, 0);
             tage.update_histories(0, i % 2 == 0, &history);
         }
-        let before = tage.spec_ghr;
+        let before = tage.tage.checkpoint();
 
         let mut squashed = Vec::new();
         for _ in 0..30 {
@@ -124,8 +105,7 @@ mod tests {
         for history in squashed.iter().rev() {
             tage.squash(history);
         }
-        tage.squash_done();
 
-        assert_eq!(tage.spec_ghr, before);
+        assert_eq!(tage.tage.checkpoint(), before);
     }
 }
