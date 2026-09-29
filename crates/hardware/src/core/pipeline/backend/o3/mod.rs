@@ -979,6 +979,10 @@ impl ExecutionEngine for O3Engine {
                         }
                     }
 
+                    if is_store {
+                        self.vec_store_buffer
+                            .set_expected_elements(ex_result.rob_tag, micro_ops.len());
+                    }
                     if micro_ops.is_empty() {
                         // VL=0 / vill=1: route through vec_pending so destination physregs surface ready.
                         let startup = self.fu_pool.startup_latency(fu_type);
@@ -994,15 +998,9 @@ impl ExecutionEngine for O3Engine {
                         });
                     } else {
                         // Build all micro-ops up front; issue_vec_mem_waves releases them in waves.
-                        let elements = micro_ops.len();
                         let width = state.config.pipeline.vector_mem_width_bytes();
                         let planned = plan_accesses(micro_ops, moves_in_spans(vec_op), width);
                         let all_micro_ops = micro_ops_for(&ex_result, planned, is_store);
-
-                        if is_store {
-                            self.vec_store_buffer
-                                .set_expected_elements(ex_result.rob_tag, elements);
-                        }
 
                         self.vec_mem_inflight.push(VecMemInflight {
                             rob_tag: ex_result.rob_tag,

@@ -50,6 +50,7 @@ pub mod vector_config;
 pub mod vector_pipeline;
 pub mod vector_spans;
 pub mod vector_store_drain;
+pub mod vector_store_empty;
 pub mod wfi_wake;
 pub mod write_combining;
 pub mod writeback_width;

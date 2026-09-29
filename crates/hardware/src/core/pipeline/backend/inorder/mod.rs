@@ -234,18 +234,17 @@ impl InOrderEngine {
             &vd_regs,
             vd_count,
         );
+        if is_store {
+            self.vec_store_buffer.set_expected_elements(entry.rob_tag, addresses.len());
+        }
         if addresses.is_empty() {
             self.rob.complete(entry.rob_tag, 0);
             return;
         }
         let parent = ExMem1Entry::from_issue(entry, entry.rv1, entry.rv2);
-        let elements = addresses.len();
         let width = state.config.pipeline.vector_mem_width_bytes();
         let planned = plan_accesses(addresses, moves_in_spans(vec_op), width);
         let micro_ops = micro_ops_for(&parent, planned, is_store);
-        if is_store {
-            self.vec_store_buffer.set_expected_elements(entry.rob_tag, elements);
-        }
         self.vec_mem_inflight.push(VecMemInflight {
             rob_tag: entry.rob_tag,
             remaining: micro_ops.len(),
