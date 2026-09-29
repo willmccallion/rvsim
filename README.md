@@ -150,7 +150,7 @@ cpu.save("checkpoint.bin")
 
 ## Analysis Scripts
 
-Ready-to-run design-space exploration in `scripts/analysis/`:
+Ready-to-run design-space exploration in `examples/analysis/`:
 
 | Script | Description |
 |--------|-------------|
@@ -164,9 +164,9 @@ Ready-to-run design-space exploration in `scripts/analysis/`:
 | `inst_mix.py` | Instruction class breakdown |
 
 ```bash
-rvsim scripts/analysis/branch_predict.py
-rvsim scripts/analysis/cache_sweep.py --sizes 4KB 8KB 16KB 32KB 64KB
-rvsim scripts/analysis/o3_inorder.py --widths 1 2 4
+rvsim examples/analysis/branch_predict.py
+rvsim examples/analysis/cache_sweep.py --sizes 4KB 8KB 16KB 32KB 64KB
+rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 ```
 
 ## Building from Source
@@ -191,7 +191,7 @@ a mesh and a DDR5-5600 memory subsystem.
 ```bash
 make -C software linux              # Build kernel + rootfs via Buildroot
 make run-linux                      # Boot 8 SMP cores (login: root, no password)
-rvsim scripts/setup/boot_linux.py --harts 1   # Single core
+rvsim tools/boot_linux.py --harts 1   # Single core
 ```
 
 ## Documentation

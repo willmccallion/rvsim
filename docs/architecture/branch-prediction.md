@@ -141,4 +141,4 @@ Here's a representative comparison on the included benchmarks (width=1, default 
 | TAGE | 73.2% | 0.58 | 1.21× |
 | SC-L-TAGE | 84.1% | 0.66 | 1.29× |
 
-SC-L-TAGE provides the highest accuracy by combining TAGE with statistical correction and loop prediction. On `qsort`, SC-L-TAGE achieves 82.5% accuracy and 0.67 IPC versus standalone TAGE's 71.2% and 0.58 IPC — a 15.8% IPC improvement. Run `scripts/analysis/branch_predict.py` to regenerate numbers for your workloads.
+SC-L-TAGE provides the highest accuracy by combining TAGE with statistical correction and loop prediction. On `qsort`, SC-L-TAGE achieves 82.5% accuracy and 0.67 IPC versus standalone TAGE's 71.2% and 0.58 IPC — a 15.8% IPC improvement. Run `examples/analysis/branch_predict.py` to regenerate numbers for your workloads.

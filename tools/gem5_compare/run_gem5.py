@@ -6,7 +6,7 @@ to results/gem5.json.
 Each run is a separate gem5 process, since gem5 allows one Root per process.
 
 Usage:
-    python scripts/comparison/run_gem5.py [variant ...]
+    python tools/gem5_compare/run_gem5.py [variant ...]
 
 Runs every variant in variants.VARIANTS when none are named. Requires
 gem5.opt on PATH, or GEM5_BIN set.
@@ -81,7 +81,7 @@ def main():
     variants = sys.argv[1:] or list(VARIANTS)
     binaries = sorted(PROGRAMS.glob("*.elf"))
     if not binaries:
-        sys.exit(f"error: no programs in {PROGRAMS}; run scripts/comparison/programs/build.sh")
+        sys.exit(f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh")
 
     jobs = [(v, b) for v in variants for b in binaries]
     results: dict = {v: {} for v in variants}

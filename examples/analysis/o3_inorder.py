@@ -2,9 +2,9 @@
 """Measure IPC scaling across pipeline widths for InOrder and OutOfOrder backends.
 
 Usage:
-    .venv/bin/python scripts/analysis/o3_inorder.py
-    .venv/bin/python scripts/analysis/o3_inorder.py --widths 1 2 4
-    .venv/bin/python scripts/analysis/o3_inorder.py --programs mandelbrot qsort
+    .venv/bin/python examples/analysis/o3_inorder.py
+    .venv/bin/python examples/analysis/o3_inorder.py --widths 1 2 4
+    .venv/bin/python examples/analysis/o3_inorder.py --programs mandelbrot qsort
 """
 
 import argparse

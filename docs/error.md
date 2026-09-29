@@ -7,10 +7,10 @@ Measured 2026-09-27 at commit `056c862` with `make compare-gem5`.
 
 Both simulators run the microbenchmarks in `examples/benchmarks/microbenchmarks`
 (binaries in `software/bin/benchmarks`) on the P550-like machine that
-`scripts/comparison/gem5_single.py` builds: 3-wide, 72-entry ROB, Tournament
+`tools/gem5_compare/gem5_single.py` builds: 3-wide, 72-entry ROB, Tournament
 predictor, 32 KiB L1s, 256 KiB L2, 1.4 GHz. rvsim uses `p550_config` in
-`scripts/comparison/run_rvsim.py`, which copies every gem5 parameter and
-default it can express. `scripts/comparison/README.md` lists the ones it
+`tools/gem5_compare/run_rvsim.py`, which copies every gem5 parameter and
+default it can express. `tools/gem5_compare/README.md` lists the ones it
 cannot.
 
 Error is `(rvsim cycles - gem5 cycles) / gem5 cycles`, over the whole
@@ -42,7 +42,7 @@ Across these 14 programs:
 
 ## Caveats
 
-- The gem5 numbers are the stored `scripts/comparison/results/gem5.json`,
+- The gem5 numbers are the stored `tools/gem5_compare/results/gem5.json`,
   recorded 2026-05-03. No gem5 binary is built on this machine, so they were
   not rerun. The binaries were rebuilt since then, but both simulators retire
   the same instruction counts to within 0.4% (a few hundred startup

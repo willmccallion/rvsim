@@ -4,10 +4,10 @@ Run rvsim on the comparison programs under every variant and save the stats
 to results/rvsim.json.
 
 Usage:
-    python scripts/comparison/run_rvsim.py [variant ...]
+    python tools/gem5_compare/run_rvsim.py [variant ...]
 
 Runs every variant in variants.VARIANTS when none are named. The programs
-come from scripts/comparison/programs/build.sh.
+come from tools/gem5_compare/programs/build.sh.
 """
 
 import json
@@ -153,7 +153,7 @@ def main():
     variants = sys.argv[1:] or list(VARIANTS)
     binaries = sorted(PROGRAMS.glob("*.elf"))
     if not binaries:
-        sys.exit(f"error: no programs in {PROGRAMS}; run scripts/comparison/programs/build.sh")
+        sys.exit(f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh")
 
     jobs = [(v, b) for v in variants for b in binaries]
     results: dict = {v: {} for v in variants}

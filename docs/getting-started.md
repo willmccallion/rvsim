@@ -58,7 +58,7 @@ print(f"Instructions: {result.stats['instructions_retired']:,}")
 rvsim can run Python scripts directly:
 
 ```bash
-rvsim scripts/analysis/branch_predict.py
+rvsim examples/analysis/branch_predict.py
 ```
 
 Or run a binary with default settings:

@@ -3,7 +3,7 @@
 Compare rvsim and gem5 results.
 
 Usage:
-    python scripts/comparison/compare.py
+    python tools/gem5_compare/compare.py
 
 Reads results/rvsim.json and results/gem5.json (variant -> program -> stats)
 and prints, per variant, each program's stats on both sides, then the

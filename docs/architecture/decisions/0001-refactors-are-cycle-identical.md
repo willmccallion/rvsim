@@ -7,10 +7,10 @@ change.
 **Decision.** A structural commit must not change timing. Every such commit
 is gated on:
 
-- `scripts/diag/cycle_baseline.py --compare <baseline>`: 216 program and
+- `tools/diag/cycle_baseline.py --compare <baseline>`: 216 program and
   configuration pairs must match in cycles, retired instructions and exit
   code;
-- `scripts/diag/linux_baseline.py --hart-count 1 --limit 20000000`: the
+- `tools/diag/linux_baseline.py --hart-count 1 --limit 20000000`: the
   retired-instruction count at a fixed cycle budget must match;
 - `cargo test`, `cargo clippy --workspace --all-targets`, riscv-tests,
   the vector suite, the multi-core suite and the Python tests.

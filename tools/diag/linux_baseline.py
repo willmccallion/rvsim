@@ -6,8 +6,8 @@ identify the boot trajectory exactly, so two builds that agree here are
 cycle-identical over the whole budget.
 
 Usage:
-    python scripts/diag/linux_baseline.py --out base.json
-    python scripts/diag/linux_baseline.py --compare base.json
+    python tools/diag/linux_baseline.py --out base.json
+    python tools/diag/linux_baseline.py --compare base.json
 """
 
 import argparse
@@ -17,7 +17,6 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 from rvsim import Simulator, presets  # noqa: E402
 

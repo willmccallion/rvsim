@@ -6,10 +6,10 @@ same machine, and compares cycles, branch mispredictions and cache misses.
 ## Usage
 
 ```bash
-bash scripts/comparison/programs/build.sh     # -> tests/builds/compare-programs/*.elf
-python scripts/comparison/run_rvsim.py [variant ...]
-GEM5_BIN=path/to/gem5.opt python scripts/comparison/run_gem5.py [variant ...]
-python scripts/comparison/compare.py
+bash tools/gem5_compare/programs/build.sh     # -> tests/builds/compare-programs/*.elf
+python tools/gem5_compare/run_rvsim.py [variant ...]
+GEM5_BIN=path/to/gem5.opt python tools/gem5_compare/run_gem5.py [variant ...]
+python tools/gem5_compare/compare.py
 ```
 
 `make compare-gem5` does all four; without `GEM5_BIN` it compares with the

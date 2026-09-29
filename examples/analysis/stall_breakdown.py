@@ -2,8 +2,8 @@
 """Show pipeline stall breakdown (memory, control, data) across configurations.
 
 Usage:
-    .venv/bin/python scripts/analysis/stall_breakdown.py
-    .venv/bin/python scripts/analysis/stall_breakdown.py --widths 1 2 4
+    .venv/bin/python examples/analysis/stall_breakdown.py
+    .venv/bin/python examples/analysis/stall_breakdown.py --widths 1 2 4
 """
 
 import argparse

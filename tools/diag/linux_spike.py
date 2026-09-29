@@ -11,11 +11,11 @@ traces will eventually diverge when the kernel starts probing different
 devices, but any *early* divergence points to a real ISA bug.
 
 Usage (from repo root, must have built with `maturin develop --release --features commit-log`):
-    .venv/bin/python scripts/setup/linux_spike.py                  # full run
-    .venv/bin/python scripts/setup/linux_spike.py --skip-spike     # reuse cached spike log
-    .venv/bin/python scripts/setup/linux_spike.py --spike-only     # only generate spike trace
-    .venv/bin/python scripts/setup/linux_spike.py --limit 5000000  # limit rvsim cycles
-    .venv/bin/python scripts/setup/linux_spike.py --context 20     # show 20 lines of context
+    .venv/bin/python tools/diag/linux_spike.py                  # full run
+    .venv/bin/python tools/diag/linux_spike.py --skip-spike     # reuse cached spike log
+    .venv/bin/python tools/diag/linux_spike.py --spike-only     # only generate spike trace
+    .venv/bin/python tools/diag/linux_spike.py --limit 5000000  # limit rvsim cycles
+    .venv/bin/python tools/diag/linux_spike.py --context 20     # show 20 lines of context
 """
 
 import argparse

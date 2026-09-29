@@ -2,8 +2,8 @@
 """Show instruction mix breakdown for each program.
 
 Usage:
-    .venv/bin/python scripts/analysis/inst_mix.py
-    .venv/bin/python scripts/analysis/inst_mix.py --programs mandelbrot raytracer
+    .venv/bin/python examples/analysis/inst_mix.py
+    .venv/bin/python examples/analysis/inst_mix.py --programs mandelbrot raytracer
 """
 
 import argparse

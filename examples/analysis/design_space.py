@@ -8,7 +8,7 @@ Sweeps two parameters using parallel execution:
 Utilizes `rvsim.Sweep` for parallel execution.
 
 Usage:
-  rvsim scripts/analysis/design_space.py [binary]
+  rvsim examples/analysis/design_space.py [binary]
 """
 
 import argparse

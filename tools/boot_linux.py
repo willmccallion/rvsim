@@ -5,10 +5,10 @@ Download Buildroot, build Linux (kernel + rootfs + OpenSBI), then boot in the si
 Everything runs under software/linux: download, build, and artifacts (output/).
 Run from repo root:
 
-  sim script scripts/setup/boot_linux.py            # build if needed, then boot
-  sim script scripts/setup/boot_linux.py --no-boot  # only download & build
-  sim script scripts/setup/boot_linux.py --no-build # boot only (fail if no Image)
-  sim script scripts/setup/boot_linux.py --rebuild --no-boot  # rebuild after package changes
+  sim script tools/boot_linux.py            # build if needed, then boot
+  sim script tools/boot_linux.py --no-boot  # only download & build
+  sim script tools/boot_linux.py --no-build # boot only (fail if no Image)
+  sim script tools/boot_linux.py --rebuild --no-boot  # rebuild after package changes
 
 The root filesystem carries the benchmark suite (CoreMark, CoreMark-PRO,
 Dhrystone, Whetstone, lmbench, mbw, ramspeed, stress-ng, STREAM, perf) and
@@ -64,7 +64,7 @@ BR2_PACKAGE_LINUX_TOOLS_PERF=y
 
 
 def repo_root():
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def download_buildroot(linux_dir: str, buildroot_dir: str) -> None:

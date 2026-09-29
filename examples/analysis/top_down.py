@@ -8,40 +8,24 @@ Categorizes execution cycles into four main buckets:
 4. Backend Bound (Stalls due to dependencies or memory latency)
 
 Usage:
-  rvsim scripts/analysis/top_down.py [binary]
-  rvsim scripts/analysis/top_down.py --config m1
+  rvsim examples/analysis/top_down.py [binary]
+  rvsim examples/analysis/top_down.py --config m1
 """
 
 import argparse
-import importlib.util
 import os
-import sys
 from pathlib import Path
 
-from rvsim import Simulator, Stats
+from rvsim import Simulator, Stats, presets
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_BENCH = _ROOT / "scripts" / "benchmarks"
-
-
-def _load_config_module(name: str):
-    """Load a benchmark config module by directory name."""
-    path = _BENCH / name / "config.py"
-    spec = importlib.util.spec_from_file_location(f"{name}.config", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-p550_config = _load_config_module("p550").p550_config
-m1_config = _load_config_module("m1").m1_config
-cortex_a72_config = _load_config_module("cortex_a72").cortex_a72_config
 
 CONFIGS = {
-    "p550": p550_config,
-    "m1": m1_config,
-    "a72": cortex_a72_config,
+    "p550": presets.p550,
+    "m1": presets.m1,
+    "a72": presets.cortex_a72,
 }
+
 
 def analyze_top_down(stats, width):
     """

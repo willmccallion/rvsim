@@ -2,7 +2,7 @@
 Run gem5 on a single binary. Invoked by run_gem5.py as a subprocess.
 
 Usage:
-    gem5.opt scripts/comparison/gem5_single.py <binary.elf> <m5out_dir> <variant>
+    gem5.opt tools/gem5_compare/gem5_single.py <binary.elf> <m5out_dir> <variant>
 
 <variant> names an entry of variants.VARIANTS; the machine is built from it
 exactly as run_rvsim.py builds rvsim's.

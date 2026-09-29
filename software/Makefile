@@ -154,10 +154,10 @@ coremark: dirs $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
 		-o $(COREMARK_ELF)
 	@echo "  -> $(COREMARK_ELF)"
 
-# --- Linux (download Buildroot + build via scripts/setup/boot_linux.py) ---
+# --- Linux (download Buildroot + build via tools/boot_linux.py) ---
 linux:
 	@echo "[Software] Building Linux (download + build in $(LINUX_DIR))..."
-	@cd .. && python3 scripts/setup/boot_linux.py --no-boot
+	@cd .. && python3 tools/boot_linux.py --no-boot
 
 # --- Disk Image ---
 disk: $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS) $(MULTICORE_ELFS)

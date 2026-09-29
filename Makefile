@@ -142,19 +142,19 @@ test-python: python
 	.venv/bin/python -m unittest discover -s tests/python
 
 # Runs gem5 only when it is available; otherwise compares with the stored
-# scripts/comparison/results/gem5.json.
+# tools/gem5_compare/results/gem5.json.
 GEM5_BIN ?= $(shell command -v gem5.opt)
 compare-gem5: python
-	bash scripts/comparison/programs/build.sh
+	bash tools/gem5_compare/programs/build.sh
 	@printf "$(GREEN)Running rvsim on the comparison set…$(RESET)\n"
-	$(PYTHON) scripts/comparison/run_rvsim.py
+	$(PYTHON) tools/gem5_compare/run_rvsim.py
 	@if [ -n "$(GEM5_BIN)" ]; then \
 		printf "$(GREEN)Running gem5…$(RESET)\n"; \
-		GEM5_BIN="$(GEM5_BIN)" $(PYTHON) scripts/comparison/run_gem5.py; \
+		GEM5_BIN="$(GEM5_BIN)" $(PYTHON) tools/gem5_compare/run_gem5.py; \
 	else \
 		printf "$(BOLD)gem5.opt not found; comparing with the stored gem5 results.$(RESET)\n"; \
 	fi
-	$(PYTHON) scripts/comparison/compare.py
+	$(PYTHON) tools/gem5_compare/compare.py
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"
@@ -300,7 +300,7 @@ run-example: software
 HARTS ?= 8
 run-linux:
 	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s) with DDR5-5600 over a mesh…$(RESET)\n"
-	.venv/bin/rvsim scripts/setup/boot_linux.py --harts $(HARTS)
+	.venv/bin/rvsim tools/boot_linux.py --harts $(HARTS)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Profiling

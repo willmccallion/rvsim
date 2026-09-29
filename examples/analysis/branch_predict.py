@@ -2,9 +2,9 @@
 """Compare branch predictor accuracy and IPC impact at a fixed pipeline width.
 
 Usage:
-    .venv/bin/python scripts/analysis/branch_predict.py
-    .venv/bin/python scripts/analysis/branch_predict.py --width 4
-    .venv/bin/python scripts/analysis/branch_predict.py --programs maze qsort --width 2
+    .venv/bin/python examples/analysis/branch_predict.py
+    .venv/bin/python examples/analysis/branch_predict.py --width 4
+    .venv/bin/python examples/analysis/branch_predict.py --programs maze qsort --width 2
 """
 
 import argparse

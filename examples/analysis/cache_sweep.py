@@ -2,9 +2,9 @@
 """Sweep L1 D-cache size and measure miss rate / IPC impact.
 
 Usage:
-    .venv/bin/python scripts/analysis/cache_sweep.py
-    .venv/bin/python scripts/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB
-    .venv/bin/python scripts/analysis/cache_sweep.py --programs qsort --ways 1 2 4
+    .venv/bin/python examples/analysis/cache_sweep.py
+    .venv/bin/python examples/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB
+    .venv/bin/python examples/analysis/cache_sweep.py --programs qsort --ways 1 2 4
 """
 
 import argparse

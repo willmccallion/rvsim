@@ -2,9 +2,9 @@
 """Measure IPC scaling across pipeline widths for a fixed branch predictor.
 
 Usage:
-    .venv/bin/python scripts/analysis/width_scaling.py
-    .venv/bin/python scripts/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
-    .venv/bin/python scripts/analysis/width_scaling.py --programs mandelbrot qsort
+    .venv/bin/python examples/analysis/width_scaling.py
+    .venv/bin/python examples/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
+    .venv/bin/python examples/analysis/width_scaling.py --programs mandelbrot qsort
 """
 
 import argparse

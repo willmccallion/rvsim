@@ -7,9 +7,9 @@ count and exit code of each pair, which is what "cycle-identical" means for a
 single-core configuration.
 
 Usage:
-    python scripts/diag/cycle_baseline.py --out baseline.json
-    python scripts/diag/cycle_baseline.py --compare baseline.json [--out new.json]
-    python scripts/diag/cycle_baseline.py --programs qsort,maze --configs "o3 w4"
+    python tools/diag/cycle_baseline.py --out baseline.json
+    python tools/diag/cycle_baseline.py --compare baseline.json [--out new.json]
+    python tools/diag/cycle_baseline.py --programs qsort,maze --configs "o3 w4"
 """
 
 import argparse

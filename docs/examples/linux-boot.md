@@ -23,7 +23,7 @@ The build takes about 15-30 minutes on first run (cached after that).
 ### Using the boot script
 
 ```bash
-make run-linux                       # or: rvsim scripts/setup/boot_linux.py
+make run-linux                       # or: rvsim tools/boot_linux.py
 ```
 
 The default system is the showcase configuration: eight out-of-order cores
@@ -34,10 +34,10 @@ DDR5-5600 with JEDEC command timing. Linux brings up all eight CPUs and runs
 the BusyBox userspace on them.
 
 ```bash
-rvsim scripts/setup/boot_linux.py --harts 1                  # single core
-rvsim scripts/setup/boot_linux.py --harts 2 --interconnect ring
-rvsim scripts/setup/boot_linux.py --memory dram              # row-buffer DRAM model
-rvsim scripts/setup/boot_linux.py --speed-bin 4800B          # slower DDR5 bin
+rvsim tools/boot_linux.py --harts 1                  # single core
+rvsim tools/boot_linux.py --harts 2 --interconnect ring
+rvsim tools/boot_linux.py --memory dram              # row-buffer DRAM model
+rvsim tools/boot_linux.py --speed-bin 4800B          # slower DDR5 bin
 ```
 
 A four-core boot to the login prompt takes longer than a single-core one,

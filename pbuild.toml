@@ -134,7 +134,7 @@ command     = [".venv/bin/rvsim", "-f", "software/bin/benchmarks/qsort.elf"]
 group       = "Run"
 description = "Boot Linux (requires build-linux first)"
 type        = "task"
-command     = ["rvsim", "scripts/setup/boot_linux.py"]
+command     = ["rvsim", "tools/boot_linux.py"]
 
 # ── Documentation ─────────────────────────────────────────────────────────────
 

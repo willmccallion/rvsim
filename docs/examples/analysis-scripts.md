@@ -1,21 +1,21 @@
 # Analysis Scripts
 
-The `scripts/analysis/` directory contains ready-to-run design-space exploration scripts. Each script uses the `Sweep` API to run parallel experiments and print comparison tables.
+The `examples/analysis/` directory contains ready-to-run design-space exploration scripts. Each script uses the `Sweep` API to run parallel experiments and print comparison tables.
 
 ## Running Scripts
 
 All scripts can be run with the `rvsim` CLI:
 
 ```bash
-rvsim scripts/analysis/branch_predict.py
-rvsim scripts/analysis/cache_sweep.py --sizes 4KB 8KB 16KB 32KB
-rvsim scripts/analysis/o3_inorder.py --widths 1 2 4
+rvsim examples/analysis/branch_predict.py
+rvsim examples/analysis/cache_sweep.py --sizes 4KB 8KB 16KB 32KB
+rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 ```
 
 Or directly with Python:
 
 ```bash
-.venv/bin/python scripts/analysis/branch_predict.py
+.venv/bin/python examples/analysis/branch_predict.py
 ```
 
 !!! note "Prerequisites"
@@ -33,8 +33,8 @@ Or directly with Python:
 Compares all six branch predictors across multiple workloads.
 
 ```bash
-rvsim scripts/analysis/branch_predict.py
-rvsim scripts/analysis/branch_predict.py --width 4 --programs maze qsort
+rvsim examples/analysis/branch_predict.py
+rvsim examples/analysis/branch_predict.py --width 4 --programs maze qsort
 ```
 
 **Metrics:** cycles, IPC, branch accuracy, mispredictions, correct predictions
@@ -55,8 +55,8 @@ rvsim scripts/analysis/branch_predict.py --width 4 --programs maze qsort
 Sweeps L1 data cache size and measures miss rate and IPC impact.
 
 ```bash
-rvsim scripts/analysis/cache_sweep.py
-rvsim scripts/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB --ways 8
+rvsim examples/analysis/cache_sweep.py
+rvsim examples/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB --ways 8
 ```
 
 **Metrics:** cycles, IPC, dcache hits, dcache misses
@@ -66,8 +66,8 @@ rvsim scripts/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB --ways 8
 Multi-dimensional sweep across pipeline width and L1D cache size.
 
 ```bash
-rvsim scripts/analysis/design_space.py
-rvsim scripts/analysis/design_space.py software/bin/programs/maze.elf
+rvsim examples/analysis/design_space.py
+rvsim examples/analysis/design_space.py software/bin/programs/maze.elf
 ```
 
 **Sweep dimensions:** width (1, 2, 4, 8) × L1D size (16KB, 32KB, 64KB, 128KB) = 16 configurations
@@ -79,8 +79,8 @@ rvsim scripts/analysis/design_space.py software/bin/programs/maze.elf
 Compares the out-of-order and in-order backends at different pipeline widths.
 
 ```bash
-rvsim scripts/analysis/o3_inorder.py
-rvsim scripts/analysis/o3_inorder.py --widths 1 2 4 8
+rvsim examples/analysis/o3_inorder.py
+rvsim examples/analysis/o3_inorder.py --widths 1 2 4 8
 ```
 
 **Metrics:** IPC, cycles, instructions retired, data stalls, memory stalls, control stalls
@@ -99,8 +99,8 @@ rvsim scripts/analysis/o3_inorder.py --widths 1 2 4 8
 Measures how IPC scales with superscalar width using a fixed predictor.
 
 ```bash
-rvsim scripts/analysis/width_scaling.py
-rvsim scripts/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
+rvsim examples/analysis/width_scaling.py
+rvsim examples/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
 ```
 
 **Metrics:** cycles, IPC, branch accuracy, mispredictions
@@ -110,7 +110,7 @@ rvsim scripts/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
 Breaks down stall cycles into memory, control (misprediction), and data (RAW hazard) categories.
 
 ```bash
-rvsim scripts/analysis/stall_breakdown.py
+rvsim examples/analysis/stall_breakdown.py
 ```
 
 **Metrics per program:** cycles, IPC, control stalls, data stalls, memory stalls
@@ -125,8 +125,8 @@ Top-down microarchitecture analysis using the standard four-category breakdown:
 - **Frontend Bound**: cycles where the frontend can't deliver instructions
 
 ```bash
-rvsim scripts/analysis/top_down.py
-rvsim scripts/analysis/top_down.py software/bin/programs/maze.elf
+rvsim examples/analysis/top_down.py
+rvsim examples/analysis/top_down.py software/bin/programs/maze.elf
 ```
 
 ### inst_mix.py
@@ -134,7 +134,7 @@ rvsim scripts/analysis/top_down.py software/bin/programs/maze.elf
 Instruction class breakdown showing the distribution of ALU, load, store, branch, system, and FP instructions.
 
 ```bash
-rvsim scripts/analysis/inst_mix.py
+rvsim examples/analysis/inst_mix.py
 ```
 
 ---
