@@ -16,5 +16,11 @@ pub mod execute;
 /// A decoded instruction with its operand values.
 pub mod inst;
 
+/// What memory instructions compute from the data they access.
+pub mod memory;
+
 /// Control signals an instruction decodes to.
 pub mod signals;
+
+/// What vector configuration instructions establish.
+pub mod vector;

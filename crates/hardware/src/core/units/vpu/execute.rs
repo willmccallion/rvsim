@@ -8,8 +8,8 @@
 //! returns the side effects for commit-time application.
 
 use crate::common::Trap;
+use crate::core::exec::inst::Inst;
 use crate::core::exec::signals::{VecSrcEncoding, VectorOp};
-use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;
@@ -22,13 +22,13 @@ use crate::isa::rvv::encoding as v_enc;
 /// Shift ops (vsll, vsrl, vsra, vnsrl, vnsra, vnclip, vnclip, vssrl, vssra)
 /// use an unsigned 5-bit immediate per RVV 1.0 §11.7, while other OPIVI
 /// instructions use a sign-extended immediate.
-const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
-    match id.ctrl.vec_src_encoding {
-        VecSrcEncoding::VV => VecOperand::Vector(id.ctrl.vs1),
-        VecSrcEncoding::VX | VecSrcEncoding::VF => VecOperand::Scalar(id.rv1),
+const fn build_operand1(inst: &Inst) -> VecOperand {
+    match inst.ctrl.vec_src_encoding {
+        VecSrcEncoding::VV => VecOperand::Vector(inst.ctrl.vs1),
+        VecSrcEncoding::VX | VecSrcEncoding::VF => VecOperand::Scalar(inst.rv1),
         VecSrcEncoding::VI => {
             let uses_uimm = matches!(
-                id.ctrl.vec_op,
+                inst.ctrl.vec_op,
                 VectorOp::VSll
                     | VectorOp::VSrl
                     | VectorOp::VSra
@@ -49,16 +49,16 @@ const fn build_operand1(id: &RenameIssueEntry) -> VecOperand {
             );
             if uses_uimm {
                 // vror.vi splits a 6-bit imm as bit26 (zimm6hi) + bits[19:15] (zimm6lo).
-                let imm = if matches!(id.ctrl.vec_op, VectorOp::VRor) {
-                    let lo = v_enc::uimm5(id.inst);
-                    let hi = ((id.inst >> 26) & 1) as u64;
+                let imm = if matches!(inst.ctrl.vec_op, VectorOp::VRor) {
+                    let lo = v_enc::uimm5(inst.bits);
+                    let hi = ((inst.bits >> 26) & 1) as u64;
                     ((hi << 5) | lo) as i64
                 } else {
-                    v_enc::uimm5(id.inst) as i64
+                    v_enc::uimm5(inst.bits) as i64
                 };
                 VecOperand::Immediate(imm)
             } else {
-                VecOperand::Immediate(v_enc::simm5(id.inst))
+                VecOperand::Immediate(v_enc::simm5(inst.bits))
             }
         }
         VecSrcEncoding::None => VecOperand::Scalar(0),
@@ -185,31 +185,31 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     frm: u64,
     elen: usize,
     zvfh: bool,
-    id: &RenameIssueEntry,
+    inst: &Inst,
 ) -> Result<VecOpResult, Trap> {
     debug_assert!(
         !matches!(
-            id.ctrl.vec_op,
+            inst.ctrl.vec_op,
             VectorOp::Vsetvli | VectorOp::Vsetivli | VectorOp::Vsetvl | VectorOp::None
         ),
         "execute_vec_op_on called with vsetvl/None"
     );
     debug_assert!(
-        !mem::is_vec_load(id.ctrl.vec_op) && !mem::is_vec_store(id.ctrl.vec_op),
+        !mem::is_vec_load(inst.ctrl.vec_op) && !mem::is_vec_store(inst.ctrl.vec_op),
         "execute_vec_op_on called with memory op — use generate_element_addrs_vrf instead"
     );
 
-    check_vill(id.inst, vtype_bits, elen)?;
+    check_vill(inst.bits, vtype_bits, elen)?;
     let vtype = parse_vtype_with_elen(vtype_bits, elen);
-    check_widening_lmul(id.inst, id.ctrl.vec_op, vtype.vlmul)?;
+    check_widening_lmul(inst.bits, inst.ctrl.vec_op, vtype.vlmul)?;
 
     let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm, frm, elen, zvfh);
-    ctx.vm = id.ctrl.vm;
-    let operand1 = build_operand1(id);
-    let vec_op = id.ctrl.vec_op;
+    ctx.vm = inst.ctrl.vm;
+    let operand1 = build_operand1(inst);
+    let vec_op = inst.ctrl.vec_op;
 
     if fpu::is_vec_fp(vec_op) {
-        let result = fpu::vec_fp_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, operand1, &ctx);
+        let result = fpu::vec_fp_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, operand1, &ctx);
         return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: result.fp_flags.bits() as u8,
@@ -218,9 +218,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     }
 
     if reduction::is_reduction(vec_op) {
-        let operand1_ref = VecOperand::Vector(id.ctrl.vs1);
+        let operand1_ref = VecOperand::Vector(inst.ctrl.vs1);
         let result =
-            reduction::vec_reduce(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1_ref, &ctx);
+            reduction::vec_reduce(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1_ref, &ctx);
         return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: result.fp_flags.bits() as u8,
@@ -229,7 +229,8 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     }
 
     if mask::is_mask_op(vec_op) {
-        let result = mask::vec_mask_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
+        let result =
+            mask::vec_mask_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1, &ctx);
         return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: 0,
@@ -239,7 +240,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
 
     if permute::is_permute(vec_op) {
         let result =
-            permute::vec_permute_execute(vec_op, vpr, id.ctrl.vd, id.ctrl.vs2, &operand1, &ctx);
+            permute::vec_permute_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1, &ctx);
         return Ok(VecOpResult {
             scalar_result: result.scalar_result.unwrap_or(0),
             fp_flags: 0,
@@ -251,13 +252,13 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         crypto::execute_crypto(
             vec_op,
             vpr,
-            id.ctrl.vd,
-            id.ctrl.vs2,
-            id.ctrl.vs1,
+            inst.ctrl.vd,
+            inst.ctrl.vs2,
+            inst.ctrl.vs1,
             ctx.vstart,
             ctx.vl,
-            id.inst,
-            id.ctrl.vec_broadcast_vs2,
+            inst.bits,
+            inst.ctrl.vec_broadcast_vs2,
         );
         return Ok(VecOpResult { scalar_result: 0, fp_flags: 0, vxsat: false });
     }
@@ -265,8 +266,8 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     let result = vec_execute(
         vec_op,
         vpr,
-        id.ctrl.vd,
-        id.ctrl.vs2,
+        inst.ctrl.vd,
+        inst.ctrl.vs2,
         operand1,
         ctx.sew,
         ctx.vl,
@@ -274,7 +275,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         ctx.vma,
         ctx.vta,
         ctx.vlmul,
-        id.ctrl.vm,
+        inst.ctrl.vm,
         ctx.vxrm,
     );
 

@@ -25,6 +25,7 @@
 
 use crate::common::PhysAddr;
 use crate::common::error::LrScRecord;
+use crate::core::exec::memory::load_result;
 use crate::core::exec::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
@@ -94,7 +95,7 @@ pub fn memory2_stage(
         let mut lr_sc: Option<LrScRecord> = None;
 
         if mem.ctrl.atomic_op == AtomicOp::Lr {
-            load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
+            load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
             lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
         } else if mem.ctrl.atomic_op != AtomicOp::None {
             // The cache has performed the SC or AMO: `load_data` is the SC's
@@ -108,7 +109,7 @@ pub fn memory2_stage(
             {
                 merge_violation(&mut violation, (violating_tag, mem.pc));
             }
-            load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
+            load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
         } else if mem.ctrl.mem_read {
             // Demand load. Sign / zero extend `load_data` (which memory1 or
             // mailbox-drain populated) and apply FP NaN-boxing.
@@ -224,42 +225,5 @@ const fn merge_violation(slot: &mut Option<(RobTag, u64)>, new: (RobTag, u64)) {
         None => *slot = Some(new),
         Some((existing, _)) if new.0.is_older_than(*existing) => *slot = Some(new),
         _ => {}
-    }
-}
-
-/// The value a load writes to its destination: `raw` sign- or
-/// zero-extended to its width, and NaN-boxed when it is a narrower
-/// floating-point value.
-pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool) -> u64 {
-    let value = sign_extend(raw, width, signed);
-    if !fp_dest {
-        return value;
-    }
-    match width {
-        MemWidth::Word => value | 0xFFFF_FFFF_0000_0000,
-        MemWidth::Half => (value & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000,
-        _ => value,
-    }
-}
-
-/// Sign / zero-extends a raw load value according to the access width and
-/// the signed-load control bit.
-pub(crate) const fn sign_extend(raw: u64, width: MemWidth, signed: bool) -> u64 {
-    if signed {
-        match width {
-            MemWidth::Byte => (raw as u8 as i8) as i64 as u64,
-            MemWidth::Half => (raw as u16 as i16) as i64 as u64,
-            MemWidth::Word => (raw as u32 as i32) as i64 as u64,
-            MemWidth::Double => raw,
-            MemWidth::Nop => 0,
-        }
-    } else {
-        match width {
-            MemWidth::Byte => raw & 0xFF,
-            MemWidth::Half => raw & 0xFFFF,
-            MemWidth::Word => raw & 0xFFFF_FFFF,
-            MemWidth::Double => raw,
-            MemWidth::Nop => 0,
-        }
     }
 }

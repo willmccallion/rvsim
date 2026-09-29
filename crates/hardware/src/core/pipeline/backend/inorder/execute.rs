@@ -172,7 +172,7 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         csrs.frm,
         vector.elen,
         vector.zvfh,
-        id,
+        &id.exec_inst(),
     )?;
     rob.set_vec_writes(id.rob_tag, shadow.into_writes());
     if result.fp_flags != 0 {

@@ -859,7 +859,7 @@ impl ExecutionEngine for O3Engine {
                             entry.vec_frm,
                             state.config.isa.vector.elen,
                             state.config.isa.vector.zvfh,
-                            &entry,
+                            &entry.exec_inst(),
                         )
                     };
 
