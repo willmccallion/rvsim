@@ -4,10 +4,10 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::core::exec::signals::VectorOp;
 use crate::core::pipeline::backend::shared::execute::{
-    SystemEffect, evaluate, fault, next_pc, operands, propagate_trap, resolve_control_flow,
-    system_effect, unit_disabled,
+    fault, next_pc, propagate_trap, resolve_control_flow,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -95,7 +95,7 @@ fn execute_one(
         return executed;
     }
 
-    if unit_disabled(state, id) {
+    if unit_disabled(state, &id.exec_inst()) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 
@@ -114,8 +114,9 @@ fn execute_one(
         };
     }
 
-    let (op_a, op_b) = operands(id);
-    let (alu_out, fp_flags) = evaluate(state, id, op_a, op_b);
+    let inst = id.exec_inst();
+    let (op_a, op_b) = operands(&inst);
+    let (alu_out, fp_flags) = evaluate(state, &inst, op_a, op_b);
     let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
         Ok(redirect) => redirect,
         Err(trap) => return faulted(state, id, trap),
@@ -130,7 +131,7 @@ fn execute_system(
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    Some(match system_effect(state, id) {
+    Some(match system_effect(state, &id.exec_inst()) {
         SystemEffect::NotSystem => return None,
         SystemEffect::Trap(trap) => faulted(state, id, trap),
         // FENCE.I's I-cache flush waits for commit, so older stores are
@@ -149,7 +150,7 @@ fn execute_system(
         SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
         SystemEffect::Csr(access) => {
             if let Some(update) = access.update {
-                rob.set_csr_update(id.rob_tag, update);
+                rob.set_csr_update(id.rob_tag, update.into());
             }
             (ExMem1Entry::from_issue(id, access.old, id.rv2), Some(refetch_after(id)))
         }

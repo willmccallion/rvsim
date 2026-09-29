@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{CsrAddr, InstSeq, InstSize, RegIdx};
+use crate::core::exec::execute::CsrWrite;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
@@ -95,6 +96,12 @@ pub struct CsrUpdate {
     pub new_val: u64,
     /// Whether this CSR write has already been applied (e.g. at complete time for O3).
     pub applied: bool,
+}
+
+impl From<CsrWrite> for CsrUpdate {
+    fn from(write: CsrWrite) -> Self {
+        Self { addr: write.addr, old_val: write.old, new_val: write.new, applied: false }
+    }
 }
 
 /// A single entry in the Reorder Buffer.

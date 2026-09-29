@@ -20,7 +20,7 @@
 
 use crate::common::constants::PAGE_SHIFT;
 use crate::common::{ExceptionStage, PhysAddr, PteUpdate, TranslationResult};
-use crate::core::pipeline::backend::shared::cbo;
+use crate::core::exec::cbo;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;

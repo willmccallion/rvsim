@@ -15,10 +15,10 @@ mod rename;
 
 use crate::common::error::{ExceptionStage, Trap};
 use crate::config::Config;
+use crate::core::exec::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
-use crate::core::pipeline::backend::shared::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, micro_ops_for, moves_in_spans, plan_accesses, retire_access,
 };
@@ -195,7 +195,7 @@ impl InOrderEngine {
         use crate::core::units::vpu::mem::{
             check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
         };
-        if unit_disabled(&state.stage(), entry) {
+        if unit_disabled(&state.stage(), &entry.exec_inst()) {
             let trap = Trap::IllegalInstruction(entry.inst);
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;

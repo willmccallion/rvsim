@@ -31,8 +31,8 @@
 
 use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
+use crate::core::exec::cbo;
 use crate::core::exec::signals::{AtomicOp, MemWidth};
-use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,

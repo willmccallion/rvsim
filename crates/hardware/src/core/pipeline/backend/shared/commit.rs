@@ -10,8 +10,8 @@
 use crate::common::{LrScRecord, PhysAddr, PteUpdate, RegIdx, Trap};
 use crate::core::arch::csr;
 use crate::core::arch::vpr::Vpr;
+use crate::core::exec::cbo::CboEffect;
 use crate::core::exec::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
-use crate::core::pipeline::backend::shared::cbo::CboEffect;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;

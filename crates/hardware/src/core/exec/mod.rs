@@ -4,5 +4,14 @@
 //! these functions, so what an instruction does is defined once and only
 //! when and how fast it happens differs between engines.
 
+/// Cache-block operations (Zicbom, Zicboz): which may run, and what they do.
+pub mod cbo;
+
+/// What executing an instruction computes and decides.
+pub mod execute;
+
+/// A decoded instruction with its operand values.
+pub mod inst;
+
 /// Control signals an instruction decodes to.
 pub mod signals;

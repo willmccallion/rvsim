@@ -9,6 +9,7 @@
 
 use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{InstSeq, InstSize, PhysAddr, RegIdx, VirtAddr};
+use crate::core::exec::inst::Inst;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
@@ -394,6 +395,28 @@ pub struct RenameIssueEntry {
     pub vec_vxrm: u64,
     /// `frm` (FP rounding mode) CSR captured at dispatch time.
     pub vec_frm: u64,
+}
+
+impl RenameIssueEntry {
+    /// The instruction and operand values, as the shared execute
+    /// semantics take them.
+    #[must_use]
+    pub const fn exec_inst(&self) -> Inst {
+        Inst {
+            pc: self.pc,
+            bits: self.inst,
+            size: self.inst_size,
+            rd: self.rd,
+            rs1: self.rs1,
+            rs2: self.rs2,
+            rs3: self.rs3,
+            imm: self.imm,
+            rv1: self.rv1,
+            rv2: self.rv2,
+            rv3: self.rv3,
+            ctrl: self.ctrl,
+        }
+    }
 }
 
 /// Entry from Execute -> Memory1 latch.
