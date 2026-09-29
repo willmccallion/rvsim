@@ -5,7 +5,7 @@ use crate::exec::compute::vector::mem::{
     check_vec_mem_emul, element_accesses, is_vec_store, vec_mem_dst_count,
 };
 use crate::isa::rvv::{VRegIdx, parse_vtype};
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, moves_in_spans, plan_accesses, route_to_phys,
 };

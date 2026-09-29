@@ -18,8 +18,7 @@ merged.
 | `docs/` | The documentation site, including architecture notes and decision records. |
 
 A module in `rvsim-core` may depend only on the layers listed before it in
-`lib.rs`, apart from the one exception described there. Put new code in the
-lowest layer that has everything it needs.
+`lib.rs`. Put new code in the lowest layer that has everything it needs.
 
 ## Building
 

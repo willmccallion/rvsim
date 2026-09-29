@@ -2,7 +2,7 @@
 
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::{AluOp, SystemOp, VectorOp};
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 
 /// Updates instruction statistics based on the committed entry.
 pub(super) fn update_instruction_stats(

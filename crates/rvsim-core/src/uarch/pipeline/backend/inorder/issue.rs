@@ -13,8 +13,8 @@
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::reg::RegIdx;
-use crate::system::StageCtx;
 use crate::trace_issue;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;

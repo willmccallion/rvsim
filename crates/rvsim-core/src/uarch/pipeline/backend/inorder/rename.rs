@@ -8,8 +8,8 @@
 use super::InOrderEngine;
 use crate::exec::compute::vector::mem::is_vec_store;
 use crate::exec::inst::Inst;
-use crate::system::StageCtx;
 use crate::trace_rename;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::prf::PhysReg;

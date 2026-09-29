@@ -6,6 +6,8 @@
 
 pub mod bpred;
 
+pub mod ctx;
+
 pub mod mdp;
 
 pub mod mmu;
@@ -30,7 +32,7 @@ use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
 ///
 /// The pipeline is kept apart from the units so it can run with the units,
 /// its hart and the uncore borrowed through a
-/// [`CoreCtx`](crate::system::CoreCtx).
+/// [`CoreCtx`](crate::uarch::ctx::CoreCtx).
 #[derive(Debug)]
 pub struct Core {
     /// The core's functional units.

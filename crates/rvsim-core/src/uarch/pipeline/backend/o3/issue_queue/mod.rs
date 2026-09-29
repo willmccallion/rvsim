@@ -10,7 +10,7 @@
 
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::reg::RegIdx;
-use crate::system::StageCtx;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::latches::RenameIssueEntry;

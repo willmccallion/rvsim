@@ -1,7 +1,7 @@
 //! `vsetvl` execution shared by the backends.
 
 use crate::exec::vector::vector_config;
-use crate::system::StageCtx;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::rob::Rob;
 

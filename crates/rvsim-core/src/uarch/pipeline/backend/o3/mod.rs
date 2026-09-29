@@ -17,7 +17,7 @@ mod squash;
 
 use crate::config::Config;
 use crate::isa::rvv::Vlen;
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
@@ -205,7 +205,7 @@ impl O3Engine {
     /// Copy initial architectural register values into the identity-mapped PRF slots.
     ///
     /// Must be called after CPU register init but before the first pipeline tick.
-    pub fn sync_arch_regs(&mut self, state: &crate::system::CoreCtx<'_>) {
+    pub fn sync_arch_regs(&mut self, state: &crate::uarch::ctx::CoreCtx<'_>) {
         use crate::isa::reg::RegIdx;
         use crate::isa::rvv::VRegIdx;
         use crate::uarch::pipeline::rename::prf::PhysReg;
@@ -348,7 +348,7 @@ impl ExecutionEngine for O3Engine {
 
     fn rename(
         &mut self,
-        state: &mut crate::system::StageCtx<'_>,
+        state: &mut crate::uarch::ctx::StageCtx<'_>,
         id: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
         self.rename_one(state, id)

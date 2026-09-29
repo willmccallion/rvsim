@@ -197,7 +197,7 @@ pub struct OutstandingStore {
 /// access info). `pte_addr` is the physical address of the PTE the walker
 /// is currently waiting on — the drain stage reads its 64-bit value from
 /// the RAM fast path before handing it to
-/// [`CoreCtx::translate_continue`](crate::system::CoreCtx::translate_continue).
+/// [`CoreCtx::translate_continue`](crate::uarch::ctx::CoreCtx::translate_continue).
 /// `continuation` says what to do once the walk completes.
 #[derive(Clone, Debug)]
 pub struct OutstandingWalk {

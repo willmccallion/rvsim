@@ -8,8 +8,8 @@ use crate::exec::compute::vector::shadow::ShadowVpr;
 use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
-use crate::system::StageCtx;
 use crate::trace_execute;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };

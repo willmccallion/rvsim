@@ -20,7 +20,7 @@ use crate::exec::execute::unit_disabled;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -514,7 +514,7 @@ impl ExecutionEngine for InOrderEngine {
 
     fn rename(
         &mut self,
-        state: &mut crate::system::StageCtx<'_>,
+        state: &mut crate::uarch::ctx::StageCtx<'_>,
         id: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
         self.rename_one(state, id)

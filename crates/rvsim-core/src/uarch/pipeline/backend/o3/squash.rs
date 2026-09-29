@@ -2,7 +2,7 @@
 //! pending squash, and squashing a load that read memory too early.
 
 use crate::isa::rvv::VRegIdx;
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     self, CommitEvent, CommitRegisters, CommitResources,
 };

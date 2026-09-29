@@ -11,4 +11,4 @@ pub mod loader;
 pub mod simulator;
 pub mod state;
 
-pub use self::state::{CoreCtx, StageCtx, SystemState};
+pub use self::state::SystemState;

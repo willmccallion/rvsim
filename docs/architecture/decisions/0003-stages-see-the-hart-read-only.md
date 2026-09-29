@@ -6,7 +6,7 @@ in-order backend wrote vector results into the architectural registers at
 execute, and fetch kept its PC on the hart.
 
 **Decision.** Stages from fetch through writeback receive a `StageCtx`
-(`sim/state/views.rs`). It reads the hart, drives the core's units (TLBs,
+(`uarch/ctx/stage.rs`). It reads the hart, drives the core's units (TLBs,
 predictor, caches), and exposes only `counter()` and `events()` of the
 uncore. Commit, traps and the engine's redirects use `CoreCtx`, which can
 write the hart. Before the split, the offending writes were moved: vector

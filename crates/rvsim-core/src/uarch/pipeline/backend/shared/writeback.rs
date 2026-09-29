@@ -8,9 +8,9 @@
 //! records).
 
 use crate::exec::signals::ControlFlow;
-use crate::system::StageCtx;
 use crate::trace_trap;
 use crate::trace_writeback;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::Mem2WbEntry;
 use crate::uarch::pipeline::rob::Rob;

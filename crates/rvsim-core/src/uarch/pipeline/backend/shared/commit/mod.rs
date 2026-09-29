@@ -19,7 +19,7 @@ use crate::common::PhysAddr;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::VRegIdx;
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::BackendCommon;
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;

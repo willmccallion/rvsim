@@ -4,7 +4,7 @@
 
 use crate::exec::signals::ControlFlow;
 use crate::isa::rvv::ElemIdx;
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::{expand_span, retire_access};
 use crate::uarch::pipeline::backend::shared::{memory1, memory2, writeback};
 

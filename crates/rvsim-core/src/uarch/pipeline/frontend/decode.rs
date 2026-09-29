@@ -11,8 +11,8 @@ use crate::exec::inst::Inst;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
-use crate::system::StageCtx;
 use crate::uarch::bpred::ControlInst;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
 

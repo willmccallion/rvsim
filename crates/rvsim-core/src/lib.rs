@@ -1,8 +1,6 @@
 //! Cycle-level RV64GC + RVV 1.0 system simulator.
 //!
-//! The modules are layered; each depends only on those before it, except
-//! that the pipelines in [`uarch`] run on the per-core views [`system`]
-//! defines:
+//! The modules are layered; each depends only on those before it:
 //!
 //! 1. [`common`]: addresses, identifiers, access kinds and tracing.
 //! 2. [`isa`]: what the ISA defines: encodings, CSRs, fields, vocabulary.
@@ -10,8 +8,8 @@
 //! 4. [`arch`]: architectural state: harts, registers, CSRs, traps, PMP.
 //! 5. [`exec`]: instruction semantics every engine shares.
 //! 6. [`sim`]: the simulation kernel: events, packets, memory image, stats.
-//! 7. [`soc`]: the bus, coherence fabric, memory controllers and devices.
-//! 8. [`uarch`]: the timing model of a core.
+//! 7. [`soc`]: the uncore: bus, caches, coherence, memory controllers, devices.
+//! 8. [`uarch`]: the timing model of a core and the views it runs on.
 //! 9. [`system`]: the whole system: `Simulator`, its state, checkpoints.
 
 pub mod common;
@@ -46,7 +44,9 @@ pub use crate::isa::csr::CsrAddr;
 pub use crate::isa::reg::RegIdx;
 /// Everything outside the cores: bus, devices, LLC, RAM, clock and stats.
 pub use crate::soc::uncore::Uncore;
+/// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
+pub use crate::system::SystemState;
 /// Top-level simulator; owns the `SystemState` and pipeline side-by-side.
 pub use crate::system::simulator::Simulator;
-/// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
-pub use crate::system::{CoreCtx, StageCtx, SystemState};
+/// The views a pipeline works on: commit's and every other stage's.
+pub use crate::uarch::ctx::{CoreCtx, StageCtx};

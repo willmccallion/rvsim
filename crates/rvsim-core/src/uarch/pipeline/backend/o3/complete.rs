@@ -2,7 +2,7 @@
 //! back, completing their ROB entries and waking their dependents.
 
 use crate::exec::signals::ControlFlow;
-use crate::system::CoreCtx;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPhysRegFile};
 
