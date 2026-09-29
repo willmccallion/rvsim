@@ -3,17 +3,15 @@
 //! This stage performs arithmetic, branch resolution, and system instruction
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
-use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::backend::shared::execute::{
-    csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
-    propagate_trap, resolve_control_flow, unit_disabled,
+    SystemEffect, evaluate, fault, next_pc, operands, propagate_trap, resolve_control_flow,
+    system_effect, unit_disabled,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::{SystemOp, VectorOp};
+use crate::core::pipeline::signals::VectorOp;
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::core::units::vpu::execute::execute_vec_op_on;
 use crate::core::units::vpu::shadow::ShadowVpr;
@@ -132,50 +130,30 @@ fn execute_system(
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    if let Some(trap) = privileged_op_fault(state, id) {
-        return Some(faulted(state, id, trap));
-    }
-    match id.ctrl.system_op {
-        SystemOp::None | SystemOp::Fence => None,
+    Some(match system_effect(state, id) {
+        SystemEffect::NotSystem => return None,
+        SystemEffect::Trap(trap) => faulted(state, id, trap),
         // FENCE.I's I-cache flush waits for commit, so older stores are
         // visible before the refill.
-        SystemOp::FenceI | SystemOp::Mret | SystemOp::Sret | SystemOp::Wfi => {
-            Some((ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id))))
-        }
+        SystemEffect::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id))),
         // The TLB flush waits for commit, after the store buffer drains.
-        SystemOp::SfenceVma => {
-            let sfence_vma = SfenceVmaInfo {
-                rs1_idx: id.rs1,
-                rs2_idx: id.rs2,
-                rs1_val: id.rv1,
-                rs2_val: id.rv2,
-            };
+        SystemEffect::SfenceVma(sfence_vma) => {
             let result = ExMem1Entry {
                 sfence_vma: Some(sfence_vma),
                 ..ExMem1Entry::from_issue(id, 0, id.rv2)
             };
-            Some((result, Some(refetch_after(id))))
+            (result, Some(refetch_after(id)))
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
-        SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
-            let hart = state.hart();
-            Some(match cbo::gate(&hart.csrs, hart.privilege, id.ctrl.system_op, id.inst) {
-                Ok(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
-                Err(trap) => faulted(state, id, trap),
-            })
-        }
-        SystemOp::Ecall => Some(faulted(state, id, ecall_trap(state))),
-        SystemOp::Csr => Some(match csr_access(state, id) {
-            Ok(access) => {
-                if let Some(update) = access.update {
-                    rob.set_csr_update(id.rob_tag, update);
-                }
-                (ExMem1Entry::from_issue(id, access.old, id.rv2), Some(refetch_after(id)))
+        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
+        SystemEffect::Csr(access) => {
+            if let Some(update) = access.update {
+                rob.set_csr_update(id.rob_tag, update);
             }
-            Err(trap) => faulted(state, id, trap),
-        }),
-    }
+            (ExMem1Entry::from_issue(id, access.old, id.rv2), Some(refetch_after(id)))
+        }
+    })
 }
 
 /// Executes a vector instruction against a shadow of the architectural

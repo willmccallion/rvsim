@@ -4,10 +4,11 @@
 //! privilege and CSR checks that decide whether a system instruction faults.
 //! Each backend decides for itself which instructions redirect fetch.
 
-use crate::common::CsrAddr;
 use crate::common::error::{ExceptionStage, Trap};
+use crate::common::{CsrAddr, SfenceVmaInfo};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::pipeline::backend::shared::cbo::{self, CboEffect};
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
 use crate::core::pipeline::signals::{
@@ -165,6 +166,55 @@ pub const fn ecall_trap(state: &StageCtx<'_>) -> Trap {
         PrivilegeMode::User => Trap::EnvironmentCallFromUMode,
         PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
         PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
+    }
+}
+
+/// What executing a system instruction does, whatever engine executes it.
+#[derive(Clone, Debug)]
+pub enum SystemEffect {
+    /// Not a system instruction, or FENCE, which orders memory at issue and
+    /// retirement rather than here.
+    NotSystem,
+    /// The instruction traps.
+    Trap(Trap),
+    /// FENCE.I, MRET, SRET or WFI: the effect waits for retirement.
+    AtRetire,
+    /// SFENCE.VMA: the translations it names are flushed at retirement.
+    SfenceVma(SfenceVmaInfo),
+    /// A permitted cache-block operation on the block at `rs1`.
+    Cbo(CboEffect),
+    /// A permitted CSR access.
+    Csr(CsrAccess),
+}
+
+/// What the system instruction `id` does at the current privilege level.
+pub fn system_effect(state: &StageCtx<'_>, id: &RenameIssueEntry) -> SystemEffect {
+    if let Some(trap) = privileged_op_fault(state, id) {
+        return SystemEffect::Trap(trap);
+    }
+    match id.ctrl.system_op {
+        SystemOp::None | SystemOp::Fence => SystemEffect::NotSystem,
+        SystemOp::FenceI | SystemOp::Mret | SystemOp::Sret | SystemOp::Wfi => {
+            SystemEffect::AtRetire
+        }
+        SystemOp::SfenceVma => SystemEffect::SfenceVma(SfenceVmaInfo {
+            rs1_idx: id.rs1,
+            rs2_idx: id.rs2,
+            rs1_val: id.rv1,
+            rs2_val: id.rv2,
+        }),
+        SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
+            let hart = state.hart();
+            match cbo::gate(&hart.csrs, hart.privilege, id.ctrl.system_op, id.inst) {
+                Ok(effect) => SystemEffect::Cbo(effect),
+                Err(trap) => SystemEffect::Trap(trap),
+            }
+        }
+        SystemOp::Ecall => SystemEffect::Trap(ecall_trap(state)),
+        SystemOp::Csr => match csr_access(state, id) {
+            Ok(access) => SystemEffect::Csr(access),
+            Err(trap) => SystemEffect::Trap(trap),
+        },
     }
 }
 

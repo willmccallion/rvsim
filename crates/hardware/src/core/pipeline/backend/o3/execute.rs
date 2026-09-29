@@ -4,12 +4,10 @@
 //! [`shared::execute`](crate::core::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
-use crate::common::SfenceVmaInfo;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::core::pipeline::backend::shared::cbo;
 use crate::core::pipeline::backend::shared::execute::{
-    csr_access, ecall_trap, evaluate, fault, next_pc, operands, privileged_op_fault,
-    propagate_trap, resolve_control_flow, unit_disabled,
+    SystemEffect, evaluate, fault, next_pc, operands, propagate_trap, resolve_control_flow,
+    system_effect, unit_disabled,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -104,36 +102,27 @@ fn execute_system(
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    if let Some(trap) = privileged_op_fault(state, id) {
-        return Some(faulted(state, id, trap));
-    }
-    let executed = match id.ctrl.system_op {
-        SystemOp::None | SystemOp::Fence => return None,
+    let executed = match system_effect(state, id) {
+        SystemEffect::NotSystem => return None,
+        SystemEffect::Trap(trap) => faulted(state, id, trap),
         // FENCE.I's I-cache flush waits for commit, so older stores are
         // visible before the refill.
-        SystemOp::FenceI | SystemOp::Wfi => {
-            (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)))
-        }
-        SystemOp::Mret | SystemOp::Sret => {
-            trace_trap!(state.config.general.trace_instructions;
-                event     = "return",
-                pc        = %crate::trace::Hex(id.pc),
-                rob_tag   = id.rob_tag.0,
-                insn      = ?id.ctrl.system_op,
-                priv_mode = ?state.hart().privilege,
-                mstatus   = %crate::trace::Hex(state.hart().csrs.mstatus),
-                "EX: xRET queued (privilege restore deferred to commit)"
-            );
+        SystemEffect::AtRetire => {
+            if matches!(id.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
+                trace_trap!(state.config.general.trace_instructions;
+                    event     = "return",
+                    pc        = %crate::trace::Hex(id.pc),
+                    rob_tag   = id.rob_tag.0,
+                    insn      = ?id.ctrl.system_op,
+                    priv_mode = ?state.hart().privilege,
+                    mstatus   = %crate::trace::Hex(state.hart().csrs.mstatus),
+                    "EX: xRET queued (privilege restore deferred to commit)"
+                );
+            }
             (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)))
         }
         // Commit drains the store buffer, flushes the TLBs and squashes.
-        SystemOp::SfenceVma => {
-            let sfence_vma = SfenceVmaInfo {
-                rs1_idx: id.rs1,
-                rs2_idx: id.rs2,
-                rs1_val: id.rv1,
-                rs2_val: id.rv2,
-            };
+        SystemEffect::SfenceVma(sfence_vma) => {
             let result = ExMem1Entry {
                 sfence_vma: Some(sfence_vma),
                 ..ExMem1Entry::from_issue(id, 0, id.rv2)
@@ -142,25 +131,15 @@ fn execute_system(
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
-        SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
-            let hart = state.hart();
-            match cbo::gate(&hart.csrs, hart.privilege, id.ctrl.system_op, id.inst) {
-                Ok(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
-                Err(trap) => faulted(state, id, trap),
+        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
+        // Nothing younger is renamed until this commits (serialize-after),
+        // so the write needs no squash.
+        SystemEffect::Csr(access) => {
+            if let Some(update) = access.update {
+                rob.set_csr_update(id.rob_tag, update);
             }
+            (ExMem1Entry::from_issue(id, access.old, id.rv2), None)
         }
-        SystemOp::Ecall => faulted(state, id, ecall_trap(state)),
-        SystemOp::Csr => match csr_access(state, id) {
-            // Nothing younger is renamed until this commits (serialize-after),
-            // so the write needs no squash.
-            Ok(access) => {
-                if let Some(update) = access.update {
-                    rob.set_csr_update(id.rob_tag, update);
-                }
-                (ExMem1Entry::from_issue(id, access.old, id.rv2), None)
-            }
-            Err(trap) => faulted(state, id, trap),
-        },
     };
     Some(executed)
 }
