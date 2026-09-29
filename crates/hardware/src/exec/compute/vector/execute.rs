@@ -7,12 +7,12 @@
 //! `VecPrfView` on the O3 backend, a `ShadowVpr` on the in-order one) and
 //! returns the side effects for commit-time application.
 
-use crate::exec::compute::vector::alu::{VecExecCtx, VecOperand, vec_execute};
+use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand, vec_execute};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, mem, permute, reduction};
 use crate::exec::inst::Inst;
 use crate::isa::encoding::rvv::encoding as v_enc;
-use crate::isa::fp::RoundingMode;
+use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::{VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Vlmul, Vxrm, parse_vtype_with_elen};
@@ -120,20 +120,6 @@ const fn check_widening_lmul(inst: u32, op: VectorOp, vlmul: Vlmul) -> Result<()
     Ok(())
 }
 
-/// Side effects produced by a deferred vector execution.
-///
-/// These are NOT applied to CSRs immediately. The O3 backend stores them in
-/// the ROB and applies them at commit time.
-#[derive(Clone, Debug, Default)]
-pub struct VecOpResult {
-    /// Scalar result value (vsetvl -> new vl; vmv.x.s/vcpop.m/vfirst.m -> scalar).
-    pub scalar_result: u64,
-    /// FP exception flags (IEEE 754 NV/DZ/OF/UF/NX bits).
-    pub fp_flags: u8,
-    /// Fixed-point saturation flag (vxsat).
-    pub vxsat: bool,
-}
-
 /// Build execution context from raw CSR values (no `SystemState` reference needed).
 const fn build_ctx_from_csrs(
     vtype_bits: u64,
@@ -186,7 +172,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     elen: usize,
     zvfh: bool,
     inst: &Inst,
-) -> Result<VecOpResult, Trap> {
+) -> Result<VecExecResult, Trap> {
     debug_assert!(
         !matches!(
             inst.ctrl.vec_op,
@@ -210,41 +196,31 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
 
     if fpu::is_vec_fp(vec_op) {
         let result = fpu::vec_fp_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, operand1, &ctx);
-        return Ok(VecOpResult {
-            scalar_result: result.scalar_result.unwrap_or(0),
-            fp_flags: result.fp_flags.bits() as u8,
-            vxsat: false,
-        });
+        return Ok(VecExecResult { vxsat: false, ..result });
     }
 
     if reduction::is_reduction(vec_op) {
         let operand1_ref = VecOperand::Vector(inst.ctrl.vs1);
         let result =
             reduction::vec_reduce(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1_ref, &ctx);
-        return Ok(VecOpResult {
-            scalar_result: result.scalar_result.unwrap_or(0),
-            fp_flags: result.fp_flags.bits() as u8,
-            vxsat: false,
-        });
+        return Ok(VecExecResult { vxsat: false, ..result });
     }
 
     if mask::is_mask_op(vec_op) {
         let result =
             mask::vec_mask_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1, &ctx);
-        return Ok(VecOpResult {
-            scalar_result: result.scalar_result.unwrap_or(0),
-            fp_flags: 0,
-            vxsat: false,
+        return Ok(VecExecResult {
+            scalar_result: result.scalar_result,
+            ..VecExecResult::default()
         });
     }
 
     if permute::is_permute(vec_op) {
         let result =
             permute::vec_permute_execute(vec_op, vpr, inst.ctrl.vd, inst.ctrl.vs2, &operand1, &ctx);
-        return Ok(VecOpResult {
-            scalar_result: result.scalar_result.unwrap_or(0),
-            fp_flags: 0,
-            vxsat: false,
+        return Ok(VecExecResult {
+            scalar_result: result.scalar_result,
+            ..VecExecResult::default()
         });
     }
 
@@ -260,7 +236,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
             inst.bits,
             inst.ctrl.vec_broadcast_vs2,
         );
-        return Ok(VecOpResult { scalar_result: 0, fp_flags: 0, vxsat: false });
+        return Ok(VecExecResult::default());
     }
 
     let result = vec_execute(
@@ -279,9 +255,5 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         ctx.vxrm,
     );
 
-    Ok(VecOpResult {
-        scalar_result: result.scalar_result.unwrap_or(0),
-        fp_flags: 0,
-        vxsat: result.vxsat,
-    })
+    Ok(VecExecResult { fp_flags: FpFlags::NONE, ..result })
 }

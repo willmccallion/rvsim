@@ -8,7 +8,7 @@
 use rvsim_core::SystemState;
 use rvsim_core::common::{AccessType, VirtAddr};
 use rvsim_core::config::Config;
-use rvsim_core::system::state::memory::TranslateResult;
+use rvsim_core::uarch::mmu::TranslateOutcome;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::default();
@@ -24,7 +24,7 @@ fn test_translate_direct_mode_valid_address() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
 
@@ -42,7 +42,7 @@ fn test_translate_direct_mode_different_addresses() {
 
     for addr in test_addrs {
         let vaddr = VirtAddr::new(addr);
-        let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+        let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
             panic!("NeedPte not expected in direct mode")
         };
         assert_eq!(result.paddr.val(), addr);
@@ -56,7 +56,7 @@ fn test_translate_direct_mode_fetch_access() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert_eq!(result.trap, None);
@@ -69,7 +69,7 @@ fn test_translate_direct_mode_write_access() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert_eq!(result.trap, None);
@@ -82,7 +82,7 @@ fn test_translate_preserves_translation_cost() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert_eq!(result.cycles, 0);
@@ -96,7 +96,7 @@ fn test_translate_multiple_calls() {
 
     for _ in 0..5 {
         let vaddr = VirtAddr::new(0x8000_0000);
-        let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+        let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
             panic!("NeedPte not expected in direct mode")
         };
         assert_eq!(result.paddr.val(), 0x8000_0000);
@@ -110,7 +110,7 @@ fn test_translate_invalid_address_fetch() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert!(result.trap.is_some());
@@ -123,7 +123,7 @@ fn test_translate_invalid_address_read() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert!(result.trap.is_some());
@@ -136,7 +136,7 @@ fn test_translate_invalid_address_write() {
     state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
         panic!("NeedPte not expected in direct mode")
     };
     assert!(result.trap.is_some());
@@ -151,7 +151,7 @@ fn test_translate_with_direct_mode_false() {
     let vaddr = VirtAddr::new(0x8000_0000);
     // In M-mode with no paging (default SATP=Bare), translation completes
     // immediately and identity-maps. Walks only fire under Sv39+.
-    let TranslateResult::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
+    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
         panic!("M-mode + Bare should not require a walk")
     };
     assert!(result.trap.is_some() || result.paddr.val() == 0x8000_0000);

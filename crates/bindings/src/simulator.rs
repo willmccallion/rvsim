@@ -704,7 +704,7 @@ impl PySimulator {
     ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
     fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::system::state::memory::TranslateResult;
+        use rvsim_core::uarch::mmu::TranslateOutcome;
         // The Python binding can't park on a TLB miss, so we walk the PTW
         // synchronously here — emit each PTE MemReq, drain it inline, and
         // continue. This is an FFI-boundary helper; pipeline stages never
@@ -713,7 +713,7 @@ impl PySimulator {
             self.inner.state.core_ctx(0).translate(VirtAddr::new(vaddr), AccessType::Read, 8);
         loop {
             match outcome {
-                TranslateResult::Ready(result) => {
+                TranslateOutcome::Ready(result) => {
                     if let Some(trap) = result.trap {
                         return Err(pyo3::exceptions::PyValueError::new_err(format!(
                             "translation failed for VA {vaddr:#x}: {trap:?}"
@@ -721,7 +721,7 @@ impl PySimulator {
                     }
                     return Ok(result.paddr.val());
                 }
-                TranslateResult::NeedPte { pte_addr, state } => {
+                TranslateOutcome::NeedPte { pte_addr, state } => {
                     let raw_pte = self.inner.probe_mem_load(pte_addr, 8);
                     outcome = self.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
                 }

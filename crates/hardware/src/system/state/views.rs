@@ -10,7 +10,6 @@
 
 use std::ops::Deref;
 
-use super::memory::TranslateResult;
 use super::write_log::Writer;
 use super::{Uncore, csr, memory};
 use crate::arch::Hart;
@@ -23,6 +22,7 @@ use crate::sim::events::EventQueue;
 use crate::sim::stats::Counter;
 use crate::sim::stats::paths::HartPaths;
 use crate::uarch::CoreUnits;
+use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
 
 /// A stage's view of its core: the hart read-only, the micro-architecture
@@ -136,7 +136,12 @@ impl<'a> StageCtx<'a> {
     }
 
     /// Begins (or completes) translation of a virtual address.
-    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
+    pub fn translate(
+        &mut self,
+        vaddr: VirtAddr,
+        access: AccessType,
+        size: u64,
+    ) -> TranslateOutcome {
         memory::translate(self.core, self.hart, self.uncore, vaddr, access, size)
     }
 
@@ -146,7 +151,7 @@ impl<'a> StageCtx<'a> {
         state: WalkState,
         raw_pte: u64,
         bus_transit_cycles: u64,
-    ) -> TranslateResult {
+    ) -> TranslateOutcome {
         memory::translate_continue(
             self.core,
             self.hart,

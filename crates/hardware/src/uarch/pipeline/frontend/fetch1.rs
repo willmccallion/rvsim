@@ -5,7 +5,7 @@
 //! the current architectural PC, all inside one cache line. For each PC it:
 //!
 //! 1. Translates the virtual address via `state.translate`. On
-//!    [`TranslateResult::NeedPte`] it parks the instruction under an
+//!    [`TranslateOutcome::NeedPte`] it parks the instruction under an
 //!    [`OutstandingWalk`] with [`WalkContinuation::Fetch`] and emits a
 //!    `MemReq` for the first PTE.
 //! 2. Reads the instruction half-word from the RAM fast path so the
@@ -34,11 +34,11 @@ use crate::isa::rvc::expand;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::system::StageCtx;
-use crate::system::state::memory::TranslateResult;
 use crate::trace_branch;
 use crate::trace_fetch;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::bpred::btb::BranchKind;
+use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
@@ -346,19 +346,19 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let translated = if fetch_trap.is_none() {
             state.translate(VirtAddr::new(current_pc), AccessType::Fetch, 2)
         } else {
-            TranslateResult::Ready(crate::arch::translation::TranslationResult::success(
+            TranslateOutcome::Ready(crate::arch::translation::TranslationResult::success(
                 PhysAddr::new(0),
                 0,
             ))
         };
 
         let (paddr, trap) = match translated {
-            TranslateResult::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
+            TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
                 hold_fetch(state, engine, current_pc, r.cycles);
                 break;
             }
-            TranslateResult::Ready(r) => (r.paddr, r.trap),
-            TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+            TranslateOutcome::Ready(r) => (r.paddr, r.trap),
+            TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
                 let pending = Fetch1Fetch2Entry {
                     pc: current_pc,
                     paddr: PhysAddr::new(0),
@@ -421,11 +421,11 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
             let upper_phys = if crosses_page {
                 match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
-                    TranslateResult::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
+                    TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
                         hold_fetch(state, engine, current_pc, r.cycles);
                         break;
                     }
-                    TranslateResult::Ready(r) => {
+                    TranslateOutcome::Ready(r) => {
                         if let Some(trap) = r.trap {
                             trace_fetch!(state.config.general.trace_instructions;
                                 pc           = %crate::sim::trace::Hex(current_pc),
@@ -443,7 +443,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                         }
                         r.paddr
                     }
-                    TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+                    TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
                         let pending = Fetch1Fetch2Entry {
                             pc: current_pc,
                             paddr,

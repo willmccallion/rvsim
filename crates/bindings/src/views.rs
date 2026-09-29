@@ -269,7 +269,7 @@ pub struct VirtualMemory {
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::system::state::memory::TranslateResult;
+        use rvsim_core::uarch::mmu::TranslateOutcome;
 
         let mut cpu = self.cpu.borrow_mut(py);
         // FFI-boundary translate: synchronously drive the walk inline,
@@ -278,7 +278,7 @@ impl VirtualMemory {
             cpu.inner.state.core_ctx(0).translate(VirtAddr::new(addr), AccessType::Read, 8);
         let paddr = loop {
             match outcome {
-                TranslateResult::Ready(result) => {
+                TranslateOutcome::Ready(result) => {
                     if let Some(trap) = result.trap {
                         return Err(pyo3::exceptions::PyValueError::new_err(format!(
                             "translation failed for VA {addr:#x}: {trap:?}"
@@ -286,7 +286,7 @@ impl VirtualMemory {
                     }
                     break result.paddr;
                 }
-                TranslateResult::NeedPte { pte_addr, state } => {
+                TranslateOutcome::NeedPte { pte_addr, state } => {
                     let raw_pte = cpu.inner.probe_mem_load(pte_addr, 8);
                     outcome = cpu.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
                 }

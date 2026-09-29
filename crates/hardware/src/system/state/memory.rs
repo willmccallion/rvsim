@@ -15,26 +15,6 @@ use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
 
-/// Outcome of [`SystemState::translate`] / [`SystemState::translate_continue`].
-///
-/// Mirrors [`TranslateOutcome`] but lifted onto `SystemState` so callers don't
-/// import the MMU module directly.
-#[derive(Clone, Debug)]
-pub enum TranslateResult {
-    /// Translation finished (success or fault). The cycle field of the
-    /// inner `TranslationResult` carries any PMP / TLB latency that
-    /// applies before the access begins.
-    Ready(TranslationResult),
-    /// Caller must issue a `MemReq` for `pte_addr`, stash `state`, and
-    /// resume via [`SystemState::translate_continue`] when the response arrives.
-    NeedPte {
-        /// Address of the next PTE to read.
-        pte_addr: PhysAddr,
-        /// Walk state to stash until the response arrives.
-        state: WalkState,
-    },
-}
-
 /// Begins (or completes) translation of a virtual address.
 pub(super) fn translate(
     core: &mut CoreUnits,
@@ -43,7 +23,7 @@ pub(super) fn translate(
     vaddr: VirtAddr,
     access: AccessType,
     size: u64,
-) -> TranslateResult {
+) -> TranslateOutcome {
     if uncore.direct_mode {
         let paddr = PhysAddr::new(vaddr.val());
 
@@ -57,19 +37,19 @@ pub(super) fn translate(
             is_machine,
         );
         if pmp_result != PmpResult::Allow {
-            return TranslateResult::Ready(TranslationResult::fault(
+            return TranslateOutcome::Ready(TranslationResult::fault(
                 fault_for(access, vaddr.val()),
                 0,
             ));
         }
 
         if !uncore.bus.is_valid_address(paddr) {
-            return TranslateResult::Ready(TranslationResult::fault(
+            return TranslateOutcome::Ready(TranslationResult::fault(
                 fault_for(access, vaddr.val()),
                 0,
             ));
         }
-        return TranslateResult::Ready(TranslationResult::success(paddr, 0));
+        return TranslateOutcome::Ready(TranslationResult::success(paddr, 0));
     }
 
     let effective_priv = if access != AccessType::Fetch
@@ -97,7 +77,7 @@ pub(super) fn translate_continue(
     state: WalkState,
     raw_pte: u64,
     bus_transit_cycles: u64,
-) -> TranslateResult {
+) -> TranslateOutcome {
     let vaddr = state.vaddr;
     let access = state.access;
     let effective_priv = state.privilege;
@@ -121,7 +101,7 @@ fn finalize_outcome(
     access: AccessType,
     size: u64,
     effective_priv: crate::isa::privileged::PrivilegeMode,
-) -> TranslateResult {
+) -> TranslateOutcome {
     match outcome {
         TranslateOutcome::Ready(mut result) => {
             if result.trap.is_none() {
@@ -140,17 +120,20 @@ fn finalize_outcome(
                         TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
                 }
             }
-            TranslateResult::Ready(result)
+            TranslateOutcome::Ready(result)
         }
-        TranslateOutcome::NeedPte { pte_addr, state } => {
-            TranslateResult::NeedPte { pte_addr, state }
-        }
+        need_pte @ TranslateOutcome::NeedPte { .. } => need_pte,
     }
 }
 
 impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
-    pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
+    pub fn translate(
+        &mut self,
+        vaddr: VirtAddr,
+        access: AccessType,
+        size: u64,
+    ) -> TranslateOutcome {
         translate(self.core, self.hart, self.uncore, vaddr, access, size)
     }
 
@@ -160,7 +143,7 @@ impl CoreCtx<'_> {
         state: WalkState,
         raw_pte: u64,
         bus_transit_cycles: u64,
-    ) -> TranslateResult {
+    ) -> TranslateOutcome {
         translate_continue(self.core, self.hart, self.uncore, state, raw_pte, bus_transit_cycles)
     }
 }
@@ -187,17 +170,17 @@ mod tests {
 
         let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
         match result {
-            TranslateResult::Ready(r) => {
+            TranslateOutcome::Ready(r) => {
                 assert_eq!(r.paddr.val(), 0x8000_0000);
                 assert!(r.trap.is_none());
             }
-            TranslateResult::NeedPte { .. } => panic!("direct mode should be Ready"),
+            TranslateOutcome::NeedPte { .. } => panic!("direct mode should be Ready"),
         }
 
         let result = state.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
         match result {
-            TranslateResult::Ready(r) => assert!(r.trap.is_some()),
-            TranslateResult::NeedPte { .. } => panic!("direct mode should be Ready"),
+            TranslateOutcome::Ready(r) => assert!(r.trap.is_some()),
+            TranslateOutcome::NeedPte { .. } => panic!("direct mode should be Ready"),
         }
     }
 }

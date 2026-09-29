@@ -878,8 +878,8 @@ impl ExecutionEngine for O3Engine {
                         }
                     };
 
-                    if vec_result.fp_flags != 0 {
-                        self.rob.set_fp_flags(ex_result.rob_tag, vec_result.fp_flags);
+                    if !vec_result.fp_flags.is_empty() {
+                        self.rob.set_fp_flags(ex_result.rob_tag, vec_result.fp_flags.bits());
                     }
                     if vec_result.vxsat {
                         self.rob.set_vxsat(ex_result.rob_tag, true);
@@ -902,7 +902,7 @@ impl ExecutionEngine for O3Engine {
                         });
                     } else {
                         let mut scalar_result_entry = ex_result.clone();
-                        scalar_result_entry.alu = vec_result.scalar_result;
+                        scalar_result_entry.alu = vec_result.scalar_result.unwrap_or(0);
                         self.pending_results.push(PendingResult {
                             entry: scalar_result_entry,
                             complete_cycle,

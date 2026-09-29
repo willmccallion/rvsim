@@ -9,7 +9,7 @@
 //!   the ALU pass-through.
 //! - **Memory ops** — perform alignment + load/store trigger checks, then
 //!   translate the virtual address.
-//!   - On a [`TranslateResult::NeedPte`], park the entry under an
+//!   - On a [`TranslateOutcome::NeedPte`], park the entry under an
 //!     [`OutstandingWalk`] with [`WalkContinuation::LoadStore`] and emit a
 //!     `MemReq` for the PTE. When the walk completes the mailbox drain
 //!     hands the entry back here with the walk's translation.
@@ -39,8 +39,8 @@ use crate::isa::privileged::Trap;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::system::StageCtx;
-use crate::system::state::memory::TranslateResult;
 use crate::system::state::views::PteUpdateOutcome;
+use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{
@@ -239,10 +239,10 @@ fn process_entry<E: ExecutionEngine>(
     if let Some(second_va) = misaligned::second_page_start(ex.alu, size) {
         let outcome = translated.second.map_or_else(
             || state.translate(VirtAddr::new(second_va), access_type, 1),
-            TranslateResult::Ready,
+            TranslateOutcome::Ready,
         );
         match outcome {
-            TranslateResult::Ready(r) => {
+            TranslateOutcome::Ready(r) => {
                 if let Some(trap) = r.trap {
                     push_trap(engine, ex, trap, ExceptionStage::Memory);
                     return EntryOutcome::Done;
@@ -268,7 +268,7 @@ fn process_entry<E: ExecutionEngine>(
                 }
                 second_dirty_update = r.dirty_update;
             }
-            TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+            TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
                 let translations = PageTranslations { first: Some(first), second: None };
                 park_walk(state, engine, walk_state, pte_addr, ex, translations);
                 return EntryOutcome::ParkedWalk;
@@ -362,10 +362,10 @@ fn translate_first_page<E: ExecutionEngine>(
 ) -> FirstPage {
     let outcome = known.map_or_else(
         || state.translate(VirtAddr::new(ex.alu), access_type, size),
-        TranslateResult::Ready,
+        TranslateOutcome::Ready,
     );
     match outcome {
-        TranslateResult::Ready(r) if r.trap.is_none() && r.cycles > 0 => {
+        TranslateOutcome::Ready(r) if r.trap.is_none() && r.cycles > 0 => {
             let first = Some(TranslationResult { cycles: 0, ..r });
             FirstPage::Waiting(EntryOutcome::Delayed(DelayedAccess {
                 ready_cycle: state.cycle + r.cycles,
@@ -373,8 +373,8 @@ fn translate_first_page<E: ExecutionEngine>(
                 translations: PageTranslations { first, second: None },
             }))
         }
-        TranslateResult::Ready(r) => FirstPage::Translated(ex, r),
-        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::Ready(r) => FirstPage::Translated(ex, r),
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
             park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
             FirstPage::Waiting(EntryOutcome::ParkedWalk)
         }
@@ -508,10 +508,10 @@ fn translate_cbo<E: ExecutionEngine>(
 
     let outcome = translated.map_or_else(
         || state.translate(VirtAddr::new(block), effect.access(), CBOZ_BLOCK_SIZE),
-        TranslateResult::Ready,
+        TranslateOutcome::Ready,
     );
     let (paddr, dirty_update) = match outcome {
-        TranslateResult::Ready(r) => {
+        TranslateOutcome::Ready(r) => {
             if let Some(trap) = r.trap {
                 push_trap(engine, ex, cbo::as_store_fault(trap, tval), ExceptionStage::Memory);
                 return EntryOutcome::Done;
@@ -526,7 +526,7 @@ fn translate_cbo<E: ExecutionEngine>(
             }
             (r.paddr, r.dirty_update)
         }
-        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
             park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
             return EntryOutcome::ParkedWalk;
         }

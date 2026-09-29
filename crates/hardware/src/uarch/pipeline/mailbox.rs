@@ -24,8 +24,8 @@ use crate::exec::cbo;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};
 use crate::system::StageCtx;
-use crate::system::state::memory::TranslateResult;
 use crate::system::state::views::PteUpdateOutcome;
+use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
@@ -172,13 +172,13 @@ fn complete_walk<E: ExecutionEngine>(
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
     let outcome = state.translate_continue(walk.state, raw_pte, bus_transit);
     match outcome {
-        TranslateResult::Ready(result) => {
+        TranslateOutcome::Ready(result) => {
             if let Some(update) = result.accessed_update {
                 set_accessed_bit(pipeline, state, &update);
             }
             dispatch_walk_continuation(pipeline, state, walk.continuation, walked_page, result);
         }
-        TranslateResult::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
             let common = pipeline.engine.common_mut();
             let req_id = common.alloc_req_id();
             let _ = common.outstanding_walks.insert(

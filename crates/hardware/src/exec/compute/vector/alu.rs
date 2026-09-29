@@ -32,12 +32,13 @@ pub enum VecOperand {
     Immediate(i64),
 }
 
-/// Result of a vector ALU operation.
-#[derive(Debug)]
+/// What executing a vector instruction produced besides its register writes.
+#[derive(Debug, Default)]
 pub struct VecExecResult {
     /// Fixed-point saturation flag (OR of all element saturations).
     pub vxsat: bool,
-    /// Scalar result for instructions that write rd (reserved for future use).
+    /// Scalar result for instructions that write `rd` (`vmv.x.s`, `vcpop.m`,
+    /// `vfirst.m`).
     pub scalar_result: Option<u64>,
     /// Accumulated floating-point exception flags (OR of all elements).
     pub fp_flags: crate::isa::fp::FpFlags,
