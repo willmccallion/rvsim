@@ -1,6 +1,6 @@
 use rvsim_core::exec::signals::ControlSignals;
 use rvsim_core::isa::reg::RegIdx;
-use rvsim_core::uarch::pipeline::latches::{ExMemEntry, IdExEntry, IfIdEntry, MemWbEntry};
+use rvsim_core::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
 
 pub struct IfIdBuilder(IfIdEntry);
 
@@ -87,92 +87,6 @@ impl IdExBuilder {
     }
 
     pub fn build(self) -> IdExEntry {
-        self.0
-    }
-}
-
-pub struct ExMemBuilder(ExMemEntry);
-
-impl Default for ExMemBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ExMemBuilder {
-    pub fn new() -> Self {
-        Self(ExMemEntry::default())
-    }
-
-    pub fn pc(mut self, pc: u64) -> Self {
-        self.0.pc = pc;
-        self
-    }
-
-    pub fn alu_result(mut self, res: u64) -> Self {
-        self.0.alu = res;
-        self
-    }
-
-    pub fn store_data(mut self, data: u64) -> Self {
-        self.0.store_data = data;
-        self
-    }
-
-    pub fn rd(mut self, rd: usize) -> Self {
-        self.0.rd = RegIdx::new(rd as u8);
-        self
-    }
-
-    pub fn control(mut self, ctrl: ControlSignals) -> Self {
-        self.0.ctrl = ctrl;
-        self
-    }
-
-    pub fn build(self) -> ExMemEntry {
-        self.0
-    }
-}
-
-pub struct MemWbBuilder(MemWbEntry);
-
-impl Default for MemWbBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MemWbBuilder {
-    pub fn new() -> Self {
-        Self(MemWbEntry::default())
-    }
-
-    pub fn pc(mut self, pc: u64) -> Self {
-        self.0.pc = pc;
-        self
-    }
-
-    pub fn rd(mut self, rd: usize) -> Self {
-        self.0.rd = RegIdx::new(rd as u8);
-        self
-    }
-
-    pub fn alu_result(mut self, res: u64) -> Self {
-        self.0.alu = res;
-        self
-    }
-
-    pub fn load_data(mut self, data: u64) -> Self {
-        self.0.load_data = data;
-        self
-    }
-
-    pub fn control(mut self, ctrl: ControlSignals) -> Self {
-        self.0.ctrl = ctrl;
-        self
-    }
-
-    pub fn build(self) -> MemWbEntry {
         self.0
     }
 }

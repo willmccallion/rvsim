@@ -9,7 +9,7 @@
 //!
 //! Reference: RISC-V ISA Specification, Volume I, Chapters 2.4 and 7.
 
-use rvsim_core::exec::compute::alu::Alu;
+use rvsim_core::exec::compute::alu;
 use rvsim_core::isa::op::AluOp;
 
 const ZERO: u64 = 0;
@@ -30,7 +30,7 @@ const HIGH_BIT_32: u64 = 0x8000_0000;
 
 /// Execute an ALU operation. Thin wrapper to keep test lines short.
 fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    Alu::execute(op, a, b, 0, is32)
+    alu::execute(op, a, b, 0, is32)
 }
 
 /// Sign-extend a 32-bit value to 64 bits (what every *W instruction must do).

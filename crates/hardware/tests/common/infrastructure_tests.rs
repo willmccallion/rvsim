@@ -1,5 +1,5 @@
 use super::builder::instruction::InstructionBuilder;
-use super::builder::pipeline_state::{ExMemBuilder, IdExBuilder, IfIdBuilder, MemWbBuilder};
+use super::builder::pipeline_state::{IdExBuilder, IfIdBuilder};
 use super::harness::TestContext;
 use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
@@ -271,24 +271,6 @@ fn idex_builder_full_chain() {
     assert_eq!(entry.inst.rd, RegIdx::new(3));
     assert_eq!(entry.inst.imm, 42);
     assert!(entry.inst.ctrl.reg_write);
-}
-
-#[test]
-fn exmem_builder() {
-    let entry = ExMemBuilder::new().pc(0x3000).alu_result(0xCAFE).store_data(0xBEEF).rd(5).build();
-    assert_eq!(entry.pc, 0x3000);
-    assert_eq!(entry.alu, 0xCAFE);
-    assert_eq!(entry.store_data, 0xBEEF);
-    assert_eq!(entry.rd, RegIdx::new(5));
-}
-
-#[test]
-fn memwb_builder() {
-    let entry = MemWbBuilder::new().pc(0x4000).rd(7).alu_result(0x1234).load_data(0x5678).build();
-    assert_eq!(entry.pc, 0x4000);
-    assert_eq!(entry.rd, RegIdx::new(7));
-    assert_eq!(entry.alu, 0x1234);
-    assert_eq!(entry.load_data, 0x5678);
 }
 
 #[test]

@@ -21,117 +21,107 @@ pub mod shifts;
 
 use crate::isa::op::AluOp;
 
-/// Arithmetic Logic Unit (ALU) for integer operations.
+/// Executes an integer ALU operation.
 ///
-/// Implements all RISC-V integer arithmetic and logical operations
-/// including addition, subtraction, shifts, comparisons, and
-/// multiply/divide operations from the I and M extensions.
-#[derive(Debug)]
-pub struct Alu;
+/// Dispatches to the appropriate submodule based on the operation type.
+/// Supports both 32-bit and 64-bit operations based on the `is32` flag.
+///
+/// # Arguments
+///
+/// * `op`   - The ALU operation to perform
+/// * `a`    - First operand (64-bit value)
+/// * `b`    - Second operand (64-bit value, also used as shift amount)
+/// * `_c`   - Third operand (currently unused, reserved for future use)
+/// * `is32` - If true, perform 32-bit operation (RV32 mode)
+///
+/// # Returns
+///
+/// The 64-bit result of the ALU operation. For 32-bit operations,
+/// the result is sign-extended to 64 bits.
+///
+/// # Examples
+///
+/// ```
+/// use rvsim_core::exec::compute::alu;
+/// use rvsim_core::isa::op::AluOp;
+///
+/// // 64-bit addition
+/// let result = alu::execute(AluOp::Add, 42, 8, 0, false);
+/// assert_eq!(result, 50);
+///
+/// // 32-bit addition with sign extension
+/// let result = alu::execute(AluOp::Add, 0xFFFFFFFF, 1, 0, true);
+/// assert_eq!(result, 0); // Wraps to 0 and sign-extends
+///
+/// // Logical shift left
+/// let result = alu::execute(AluOp::Sll, 0x1, 4, 0, false);
+/// assert_eq!(result, 0x10);
+///
+/// // Signed comparison
+/// let result = alu::execute(AluOp::Slt, -5_i64 as u64, 10, 0, false);
+/// assert_eq!(result, 1); // -5 < 10
+///
+/// // Unsigned division
+/// let result = alu::execute(AluOp::Divu, 100, 7, 0, false);
+/// assert_eq!(result, 14);
+/// ```
+pub const fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
+    match op {
+        AluOp::Add
+        | AluOp::Sub
+        | AluOp::Mul
+        | AluOp::Mulh
+        | AluOp::Mulhsu
+        | AluOp::Mulhu
+        | AluOp::Div
+        | AluOp::Divu
+        | AluOp::Rem
+        | AluOp::Remu => arithmetic::execute(op, a, b, is32),
 
-impl Alu {
-    /// Executes an integer ALU operation.
-    ///
-    /// Dispatches to the appropriate submodule based on the operation type.
-    /// Supports both 32-bit and 64-bit operations based on the `is32` flag.
-    ///
-    /// # Arguments
-    ///
-    /// * `op`   - The ALU operation to perform
-    /// * `a`    - First operand (64-bit value)
-    /// * `b`    - Second operand (64-bit value, also used as shift amount)
-    /// * `_c`   - Third operand (currently unused, reserved for future use)
-    /// * `is32` - If true, perform 32-bit operation (RV32 mode)
-    ///
-    /// # Returns
-    ///
-    /// The 64-bit result of the ALU operation. For 32-bit operations,
-    /// the result is sign-extended to 64 bits.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rvsim_core::exec::compute::alu::Alu;
-    /// use rvsim_core::isa::op::AluOp;
-    ///
-    /// // 64-bit addition
-    /// let result = Alu::execute(AluOp::Add, 42, 8, 0, false);
-    /// assert_eq!(result, 50);
-    ///
-    /// // 32-bit addition with sign extension
-    /// let result = Alu::execute(AluOp::Add, 0xFFFFFFFF, 1, 0, true);
-    /// assert_eq!(result, 0); // Wraps to 0 and sign-extends
-    ///
-    /// // Logical shift left
-    /// let result = Alu::execute(AluOp::Sll, 0x1, 4, 0, false);
-    /// assert_eq!(result, 0x10);
-    ///
-    /// // Signed comparison
-    /// let result = Alu::execute(AluOp::Slt, -5_i64 as u64, 10, 0, false);
-    /// assert_eq!(result, 1); // -5 < 10
-    ///
-    /// // Unsigned division
-    /// let result = Alu::execute(AluOp::Divu, 100, 7, 0, false);
-    /// assert_eq!(result, 14);
-    /// ```
-    pub const fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
-        match op {
-            AluOp::Add
-            | AluOp::Sub
-            | AluOp::Mul
-            | AluOp::Mulh
-            | AluOp::Mulhsu
-            | AluOp::Mulhu
-            | AluOp::Div
-            | AluOp::Divu
-            | AluOp::Rem
-            | AluOp::Remu => arithmetic::execute(op, a, b, is32),
-
-            AluOp::Or | AluOp::And | AluOp::Xor | AluOp::Slt | AluOp::Sltu => {
-                logic::execute(op, a, b, is32)
-            }
-
-            AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, is32),
-
-            AluOp::Sh1Add
-            | AluOp::Sh2Add
-            | AluOp::Sh3Add
-            | AluOp::AddUw
-            | AluOp::Sh1AddUw
-            | AluOp::Sh2AddUw
-            | AluOp::Sh3AddUw
-            | AluOp::SlliUw
-            | AluOp::Andn
-            | AluOp::Orn
-            | AluOp::Xnor
-            | AluOp::Clz
-            | AluOp::Ctz
-            | AluOp::Cpop
-            | AluOp::Max
-            | AluOp::Maxu
-            | AluOp::Min
-            | AluOp::Minu
-            | AluOp::SextB
-            | AluOp::SextH
-            | AluOp::Rol
-            | AluOp::Ror
-            | AluOp::OrcB
-            | AluOp::Rev8
-            | AluOp::Clmul
-            | AluOp::Clmulh
-            | AluOp::Clmulr
-            | AluOp::Bclr
-            | AluOp::Bext
-            | AluOp::Binv
-            | AluOp::Bset
-            | AluOp::Brev8
-            | AluOp::Pack
-            | AluOp::Packh
-            | AluOp::Packw
-            | AluOp::Xperm4
-            | AluOp::Xperm8 => bitmanip::execute(op, a, b, is32),
-
-            _ => 0,
+        AluOp::Or | AluOp::And | AluOp::Xor | AluOp::Slt | AluOp::Sltu => {
+            logic::execute(op, a, b, is32)
         }
+
+        AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, is32),
+
+        AluOp::Sh1Add
+        | AluOp::Sh2Add
+        | AluOp::Sh3Add
+        | AluOp::AddUw
+        | AluOp::Sh1AddUw
+        | AluOp::Sh2AddUw
+        | AluOp::Sh3AddUw
+        | AluOp::SlliUw
+        | AluOp::Andn
+        | AluOp::Orn
+        | AluOp::Xnor
+        | AluOp::Clz
+        | AluOp::Ctz
+        | AluOp::Cpop
+        | AluOp::Max
+        | AluOp::Maxu
+        | AluOp::Min
+        | AluOp::Minu
+        | AluOp::SextB
+        | AluOp::SextH
+        | AluOp::Rol
+        | AluOp::Ror
+        | AluOp::OrcB
+        | AluOp::Rev8
+        | AluOp::Clmul
+        | AluOp::Clmulh
+        | AluOp::Clmulr
+        | AluOp::Bclr
+        | AluOp::Bext
+        | AluOp::Binv
+        | AluOp::Bset
+        | AluOp::Brev8
+        | AluOp::Pack
+        | AluOp::Packh
+        | AluOp::Packw
+        | AluOp::Xperm4
+        | AluOp::Xperm8 => bitmanip::execute(op, a, b, is32),
+
+        _ => 0,
     }
 }

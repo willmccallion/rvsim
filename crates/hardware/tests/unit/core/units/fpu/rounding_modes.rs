@@ -1,17 +1,18 @@
 //! RISC-V Rounding Mode tests.
 //!
-//! These tests verify that `Fpu::execute_with_rm()` correctly applies
+//! These tests verify that `fpu::execute_with_rm()` correctly applies
 //! each of the five RISC-V rounding modes.
 
-use rvsim_core::exec::compute::fpu::Fpu;
+use rvsim_core::exec::compute::fpu;
+use rvsim_core::exec::compute::fpu::nan_handling::box_f32;
 use rvsim_core::isa::fp::RoundingMode;
 use rvsim_core::isa::op::AluOp;
 
 /// Helper: box two f32 values, execute with rounding mode, unbox result.
 fn fadd_f32_rm(a: f32, b: f32, rm: RoundingMode) -> f32 {
-    let ba = Fpu::box_f32(a);
-    let bb = Fpu::box_f32(b);
-    let result = Fpu::execute_with_rm(AluOp::FAdd, ba, bb, 0, true, rm);
+    let ba = box_f32(a);
+    let bb = box_f32(b);
+    let result = fpu::execute_with_rm(AluOp::FAdd, ba, bb, 0, true, rm);
     f32::from_bits(result as u32)
 }
 
@@ -97,8 +98,8 @@ fn rounding_mode_from_bits_dynamic() {
 
 #[test]
 fn rounding_mode_irrelevant_for_comparisons() {
-    let a = Fpu::box_f32(1.0);
-    let b = Fpu::box_f32(2.0);
+    let a = box_f32(1.0);
+    let b = box_f32(2.0);
     // FEq should return the same result regardless of rounding mode
     for rm in [
         RoundingMode::Rne,
@@ -107,7 +108,7 @@ fn rounding_mode_irrelevant_for_comparisons() {
         RoundingMode::Rup,
         RoundingMode::Rmm,
     ] {
-        let result = Fpu::execute_with_rm(AluOp::FEq, a, b, 0, true, rm);
+        let result = fpu::execute_with_rm(AluOp::FEq, a, b, 0, true, rm);
         assert_eq!(result, 0, "FEq(1.0, 2.0) should be 0 for all rounding modes");
     }
 }
@@ -115,8 +116,8 @@ fn rounding_mode_irrelevant_for_comparisons() {
 #[test]
 fn rounding_mode_irrelevant_for_sign_injection() {
     #[allow(clippy::approx_constant)]
-    let pos = Fpu::box_f32(3.14);
-    let neg = Fpu::box_f32(-1.0);
+    let pos = box_f32(3.14);
+    let neg = box_f32(-1.0);
     for rm in [
         RoundingMode::Rne,
         RoundingMode::Rtz,
@@ -124,7 +125,7 @@ fn rounding_mode_irrelevant_for_sign_injection() {
         RoundingMode::Rup,
         RoundingMode::Rmm,
     ] {
-        let result = Fpu::execute_with_rm(AluOp::FSgnJ, pos, neg, 0, true, rm);
+        let result = fpu::execute_with_rm(AluOp::FSgnJ, pos, neg, 0, true, rm);
         let res_f32 = f32::from_bits(result as u32);
         assert!(res_f32.is_sign_negative(), "FSgnJ(+, -) should produce negative");
         #[allow(clippy::approx_constant)]

@@ -221,56 +221,6 @@ pub struct IdExEntry {
     pub seq: InstSeq,
 }
 
-/// Entry in the EX/MEM pipeline latch (Execute to Memory stage).
-///
-/// Contains execution results, including ALU outputs and memory operation parameters.
-#[derive(Clone, Default, Debug)]
-pub struct ExMemEntry {
-    /// Program counter of the instruction.
-    pub pc: u64,
-    /// 32-bit instruction encoding.
-    pub inst: u32,
-    /// Size of the instruction in bytes.
-    pub inst_size: InstSize,
-    /// Destination register index (rd).
-    pub rd: RegIdx,
-    /// ALU computation result or address for memory operations.
-    pub alu: u64,
-    /// Data to be stored (for store instructions).
-    pub store_data: u64,
-    /// Control signals for downstream pipeline stages.
-    pub ctrl: ControlSignals,
-    /// Trap that occurred during execute, if any.
-    pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was first detected.
-    pub exception_stage: Option<ExceptionStage>,
-}
-
-/// Entry in the MEM/WB pipeline latch (Memory to Writeback stage).
-///
-/// Contains memory stage results, including loaded data and final register write values.
-#[derive(Clone, Default, Debug)]
-pub struct MemWbEntry {
-    /// Program counter of the instruction.
-    pub pc: u64,
-    /// 32-bit instruction encoding.
-    pub inst: u32,
-    /// Size of the instruction in bytes.
-    pub inst_size: InstSize,
-    /// Destination register index (rd).
-    pub rd: RegIdx,
-    /// ALU computation result (for non-load instructions).
-    pub alu: u64,
-    /// Data loaded from memory (for load instructions).
-    pub load_data: u64,
-    /// Control signals for the writeback stage.
-    pub ctrl: ControlSignals,
-    /// Trap that occurred during memory access, if any.
-    pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was first detected.
-    pub exception_stage: Option<ExceptionStage>,
-}
-
 /// Entry in Fetch1 -> Fetch2 latch.
 ///
 /// Carries PC and I-TLB/branch prediction results from PC generation

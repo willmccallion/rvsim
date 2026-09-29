@@ -13,7 +13,7 @@
 //! Note: AND, OR, XOR have no *W variants in the base ISA — they always
 //! operate on full XLEN bits. SLT/SLTU likewise have no *W variants.
 
-use rvsim_core::exec::compute::alu::Alu;
+use rvsim_core::exec::compute::alu;
 use rvsim_core::isa::op::AluOp;
 
 const ZERO: u64 = 0;
@@ -30,7 +30,7 @@ const LOW_BYTE: u64 = 0xFF;
 const HIGH_BYTE: u64 = 0xFF00_0000_0000_0000;
 
 fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    Alu::execute(op, a, b, 0, is32)
+    alu::execute(op, a, b, 0, is32)
 }
 
 #[test]

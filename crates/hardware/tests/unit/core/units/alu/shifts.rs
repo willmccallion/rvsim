@@ -13,7 +13,7 @@
 //!
 //! Reference: RISC-V ISA Specification, Volume I, Chapter 2.4.
 
-use rvsim_core::exec::compute::alu::Alu;
+use rvsim_core::exec::compute::alu;
 use rvsim_core::isa::op::AluOp;
 
 const ZERO: u64 = 0;
@@ -26,7 +26,7 @@ const I64_MIN: u64 = i64::MIN as u64; // 0x8000_0000_0000_0000
 const I32_MIN_SEXT: u64 = i32::MIN as i64 as u64; // 0xFFFF_FFFF_8000_0000
 
 fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    Alu::execute(op, a, b, 0, is32)
+    alu::execute(op, a, b, 0, is32)
 }
 
 fn sext32(val: u32) -> u64 {

@@ -6,9 +6,10 @@
 use crate::arch::translation::SfenceVmaInfo;
 use crate::arch::{Hart, csr};
 use crate::exec::cbo::{self, CboEffect};
-use crate::exec::compute::alu::Alu;
-use crate::exec::compute::fpu::Fpu;
+use crate::exec::compute::alu;
+use crate::exec::compute::fpu;
 use crate::exec::compute::vector::fpu::is_vec_fp;
+use crate::exec::execute::fpu::nan_handling::box_f32;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{OpASrc, OpBSrc};
 use crate::exec::state::ArchState;
@@ -368,19 +369,19 @@ pub fn compute_alu(
     match alu_op {
         AluOp::FCvtSW if !is_f16 => on_host_fpu(rm, || {
             let v = black_box(op_a as i32);
-            if is_rv32 { Fpu::box_f32(v as f32) } else { f64::from(v).to_bits() }
+            if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
         }),
         AluOp::FCvtSWU if !is_f16 => on_host_fpu(rm, || {
             let v = black_box(op_a as u32);
-            if is_rv32 { Fpu::box_f32(v as f32) } else { f64::from(v).to_bits() }
+            if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
         }),
         AluOp::FCvtSL if !is_f16 => on_host_fpu(rm, || {
             let v = black_box(op_a as i64);
-            if is_rv32 { Fpu::box_f32(v as f32) } else { (v as f64).to_bits() }
+            if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
         }),
         AluOp::FCvtSLU if !is_f16 => on_host_fpu(rm, || {
             let v = black_box(op_a);
-            if is_rv32 { Fpu::box_f32(v as f32) } else { (v as f64).to_bits() }
+            if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
         }),
         AluOp::FCvtSD if !is_f16 => {
             on_host_fpu(rm, || box_f32_canon(black_box(f64::from_bits(op_a)) as f32))
@@ -396,7 +397,7 @@ pub fn compute_alu(
             let value = if is_f16 {
                 box_f16(op_a as u16)
             } else if is_rv32 {
-                Fpu::box_f32(f32::from_bits(op_a as u32))
+                box_f32(f32::from_bits(op_a as u32))
             } else {
                 op_a
             };
@@ -404,10 +405,10 @@ pub fn compute_alu(
         }
         _ if is_fp_op(alu_op) => {
             let (result, fp_flags) =
-                Fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
+                fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
             (result, fp_flags.bits())
         }
-        _ => (Alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0),
+        _ => (alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0),
     }
 }
 

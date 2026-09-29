@@ -5,7 +5,7 @@
 //! given.
 
 use crate::arch::translation::SfenceVmaInfo;
-use crate::arch::trap::TrapHandler;
+use crate::arch::trap::irq_to_trap;
 use crate::arch::{Hart, csr};
 use crate::common::{Asid, PAGE_SHIFT, VPN_MASK, Vpn};
 use crate::exec::compute::vector::shadow::VectorWrites;
@@ -49,7 +49,7 @@ pub fn pending_interrupt(hart: &Hart) -> Option<Trap> {
                 PrivilegeMode::Supervisor => s_global_ie,
                 PrivilegeMode::User => false,
             };
-        (below || enabled_here).then(|| TrapHandler::irq_to_trap(bit))
+        (below || enabled_here).then(|| irq_to_trap(bit))
     };
 
     // Interrupts destined for M-mode are taken before any destined for S-mode.
