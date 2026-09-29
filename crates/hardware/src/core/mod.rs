@@ -7,10 +7,14 @@
 /// Architecture-specific components (CSRs, register files, privilege modes, traps).
 pub mod arch;
 
+/// What each instruction does, shared by every engine that runs
+/// instructions: decode, execute semantics and retirement.
+pub mod exec;
+
 /// Per-thread RISC-V architectural state.
 pub mod hart;
 
-/// Instruction pipeline implementation (10-stage, latches, signals).
+/// Instruction pipeline implementation (stages and latches).
 pub mod pipeline;
 
 /// Execution units (ALU, FPU, LSU, MMU, branch predictor, cache, prefetcher).

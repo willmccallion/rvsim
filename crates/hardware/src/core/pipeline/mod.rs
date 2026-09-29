@@ -18,9 +18,6 @@ pub mod latches;
 /// Reorder buffer for in-order commit.
 pub mod rob;
 
-/// Control signals generated during instruction decode.
-pub mod signals;
-
 /// Tag-based register scoreboard.
 pub mod scoreboard;
 

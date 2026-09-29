@@ -9,11 +9,11 @@
 
 use crate::common::RegIdx;
 use crate::common::error::{ExceptionStage, Trap};
-use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
-use crate::core::pipeline::signals::{
+use crate::core::exec::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
     VecSrcEncoding, VectorOp,
 };
+use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
 use crate::core::units::vpu::types::{Sew, VRegIdx, VectorConfig};
 use crate::isa::decode::decode as instruction_decode;

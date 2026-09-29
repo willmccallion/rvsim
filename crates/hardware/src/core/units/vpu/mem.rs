@@ -5,7 +5,7 @@
 //! run through the memory stages as micro-ops.
 
 use crate::common::{Trap, VirtAddr};
-use crate::core::pipeline::signals::{ControlSignals, VectorOp};
+use crate::core::exec::signals::{ControlSignals, VectorOp};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{
     ElemIdx, Emul, Nf, Sew, VRegIdx, VecPhysReg, VtypeFields, parse_vtype,

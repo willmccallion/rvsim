@@ -13,9 +13,9 @@ use std::collections::HashMap;
 
 use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{CsrAddr, InstSeq, InstSize, RegIdx};
+use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
 use crate::core::units::vpu::types::VecPhysReg;
 use crate::core::units::vpu::types::VectorConfig;
@@ -845,7 +845,7 @@ impl Rob {
                 if is_load && entry.ctrl.acquire && entry.state == RobState::Issued {
                     return true;
                 }
-                if entry.ctrl.system_op == crate::core::pipeline::signals::SystemOp::Fence {
+                if entry.ctrl.system_op == crate::core::exec::signals::SystemOp::Fence {
                     let succ_bits = ((entry.inst >> 20) & 0xF) as u8;
                     let succ_r = succ_bits & 0b0010 != 0;
                     let succ_w = succ_bits & 0b0001 != 0;
@@ -866,8 +866,8 @@ impl Rob {
 mod tests {
     use super::*;
     use crate::common::{CsrAddr, RegIdx};
+    use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::prf::PhysReg;
-    use crate::core::pipeline::signals::ControlSignals;
 
     fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
         ControlSignals { reg_write, fp_reg_write, ..Default::default() }
@@ -1070,7 +1070,7 @@ mod tests {
         let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
         let fence_ctrl = ControlSignals {
-            system_op: crate::core::pipeline::signals::SystemOp::Fence,
+            system_op: crate::core::exec::signals::SystemOp::Fence,
             ..Default::default()
         };
 
@@ -1100,7 +1100,7 @@ mod tests {
 
         // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
         let fence_ctrl = ControlSignals {
-            system_op: crate::core::pipeline::signals::SystemOp::Fence,
+            system_op: crate::core::exec::signals::SystemOp::Fence,
             ..Default::default()
         };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
@@ -1121,7 +1121,7 @@ mod tests {
     fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
         let mut rob = Rob::new(8);
         let acquire_ctrl = ControlSignals {
-            atomic_op: crate::core::pipeline::signals::AtomicOp::Swap,
+            atomic_op: crate::core::exec::signals::AtomicOp::Swap,
             acquire: true,
             mem_read: true,
             mem_write: true,
@@ -1143,11 +1143,11 @@ mod tests {
     fn a_fence_waits_for_an_older_vector_store() {
         let mut rob = Rob::new(8);
         let vector_store = ControlSignals {
-            vec_op: crate::core::pipeline::signals::VectorOp::VStoreUnit,
+            vec_op: crate::core::exec::signals::VectorOp::VStoreUnit,
             ..Default::default()
         };
         let fence_ctrl = ControlSignals {
-            system_op: crate::core::pipeline::signals::SystemOp::Fence,
+            system_op: crate::core::exec::signals::SystemOp::Fence,
             ..Default::default()
         };
         let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
@@ -1164,7 +1164,7 @@ mod tests {
 
         // FENCE.TSO = FENCE rw,rw
         let fence_ctrl = ControlSignals {
-            system_op: crate::core::pipeline::signals::SystemOp::Fence,
+            system_op: crate::core::exec::signals::SystemOp::Fence,
             ..Default::default()
         };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };

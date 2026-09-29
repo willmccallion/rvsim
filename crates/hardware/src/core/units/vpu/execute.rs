@@ -8,8 +8,8 @@
 //! returns the side effects for commit-time application.
 
 use crate::common::Trap;
+use crate::core::exec::signals::{VecSrcEncoding, VectorOp};
 use crate::core::pipeline::latches::RenameIssueEntry;
-use crate::core::pipeline::signals::{VecSrcEncoding, VectorOp};
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;

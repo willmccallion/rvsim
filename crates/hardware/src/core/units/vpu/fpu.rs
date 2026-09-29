@@ -18,7 +18,7 @@
 
 #![allow(clippy::float_cmp)]
 
-use crate::core::pipeline::signals::VectorOp;
+use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::half::{
     CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16,

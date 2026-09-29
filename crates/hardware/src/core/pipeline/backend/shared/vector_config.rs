@@ -1,8 +1,8 @@
 //! `vsetvl` execution shared by the backends.
 
+use crate::core::exec::signals::VectorOp;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::VectorOp;
 use crate::core::units::vpu::types::{VectorConfig, Vlen};
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::isa::rvv::encoding as v_enc;

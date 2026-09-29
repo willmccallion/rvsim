@@ -37,8 +37,8 @@ use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
+use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
-use crate::core::pipeline::signals::ControlFlow;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]

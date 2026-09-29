@@ -12,7 +12,7 @@
 //!
 //! Reference: RISC-V ISA Spec Volume I, Chapter 8 (A Extension).
 
-use rvsim_core::core::pipeline::signals::{AtomicOp, MemWidth};
+use rvsim_core::core::exec::signals::{AtomicOp, MemWidth};
 use rvsim_core::core::units::lsu::atomic::atomic_alu;
 
 // 64-bit boundaries

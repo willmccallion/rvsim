@@ -7,7 +7,7 @@
 //! All 32-bit (`is32 == true`) results are sign-extended from bit 31 to
 //! 64 bits, per the RISC-V spec (§2.4, §7.1, §7.2).
 
-use crate::core::pipeline::signals::AluOp;
+use crate::core::exec::signals::AluOp;
 
 const WORD_BITS: u32 = 32;
 

@@ -14,7 +14,7 @@ use super::memory::TranslateResult;
 use super::write_log::Writer;
 use super::{SharedState, csr, memory};
 use crate::common::{AccessType, CsrAddr, PteUpdate, VirtAddr};
-use crate::core::pipeline::signals::MemWidth;
+use crate::core::exec::signals::MemWidth;
 use crate::core::units::mmu::ptw::WalkState;
 use crate::core::{CoreUnits, Hart};
 use crate::sim::events::EventQueue;

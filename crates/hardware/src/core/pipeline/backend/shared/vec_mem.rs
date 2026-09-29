@@ -12,11 +12,11 @@
 use std::collections::VecDeque;
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::exec::signals::{MemWidth, VectorOp};
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::{MemWidth, VectorOp};
 use crate::core::units::vpu::mem::VecMemAddrOp;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 

@@ -16,7 +16,7 @@
 //! - Fixed-point scaling: smul, ssrl, ssra
 //! - Extension: zero/sign-extend at various ratios
 
-use crate::core::pipeline::signals::VectorOp;
+use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::types::{

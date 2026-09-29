@@ -36,8 +36,8 @@
 //! SVE, and AVX-512.
 
 use crate::common::PhysAddr;
+use crate::core::exec::signals::MemWidth;
 use crate::core::pipeline::rob::RobTag;
-use crate::core::pipeline::signals::MemWidth;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
 use crate::sim::components::ReqId;
 

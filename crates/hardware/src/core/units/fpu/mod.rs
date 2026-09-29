@@ -25,7 +25,7 @@ pub mod exception_flags;
 /// Half-precision (Zfh) helpers and software rounding.
 pub mod half;
 
-use crate::core::pipeline::signals::AluOp;
+use crate::core::exec::signals::AluOp;
 
 use self::exception_flags::FpFlags;
 use self::half::{
@@ -686,7 +686,7 @@ impl Fpu {
     ///
     /// ```
     /// use rvsim_core::core::units::fpu::Fpu;
-    /// use rvsim_core::core::pipeline::signals::AluOp;
+    /// use rvsim_core::core::exec::signals::AluOp;
     ///
     /// // Single-precision addition with NaN boxing
     /// let a = Fpu::box_f32(2.5_f32);

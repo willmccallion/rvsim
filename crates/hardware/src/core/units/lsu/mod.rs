@@ -12,7 +12,7 @@ pub mod ordering;
 
 pub mod unaligned;
 
-use crate::core::pipeline::signals::{AtomicOp, MemWidth};
+use crate::core::exec::signals::{AtomicOp, MemWidth};
 
 /// Load/Store Unit (LSU) for memory operations.
 ///

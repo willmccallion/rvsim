@@ -7,7 +7,7 @@
 //! Supports both 32-bit (Word) and 64-bit (Double) widths. All 32-bit
 //! results are sign-extended from bit 31 to 64 bits.
 
-use crate::core::pipeline::signals::{AtomicOp, MemWidth};
+use crate::core::exec::signals::{AtomicOp, MemWidth};
 
 /// Performs an atomic ALU operation for AMO instructions.
 ///

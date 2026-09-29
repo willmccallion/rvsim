@@ -8,12 +8,10 @@ use crate::common::error::{ExceptionStage, Trap};
 use crate::common::{CsrAddr, SfenceVmaInfo};
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::exec::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
 use crate::core::pipeline::backend::shared::cbo::{self, CboEffect};
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, CsrUpdate, Rob};
-use crate::core::pipeline::signals::{
-    AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp,
-};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
 use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;

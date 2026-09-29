@@ -6,7 +6,7 @@
 //!
 //! Default latencies are Skylake-class values matching real hardware.
 
-use crate::core::pipeline::signals::{AluOp, ControlFlow, ControlSignals, VectorOp};
+use crate::core::exec::signals::{AluOp, ControlFlow, ControlSignals, VectorOp};
 use serde::Deserialize;
 
 /// Identifies which type of functional unit an instruction uses.
@@ -99,7 +99,7 @@ impl FuType {
 
         if ctrl.mem_read
             || ctrl.mem_write
-            || ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None
+            || ctrl.atomic_op != crate::core::exec::signals::AtomicOp::None
         {
             return Self::Mem;
         }
@@ -563,7 +563,7 @@ impl FuPool {
         vl: usize,
         lanes: usize,
     ) -> u64 {
-        use crate::core::pipeline::signals::VecSrcEncoding;
+        use crate::core::exec::signals::VecSrcEncoding;
         use crate::core::units::vpu::{lane_model, reduction};
 
         let startup = self.startup_latency(fu_type);

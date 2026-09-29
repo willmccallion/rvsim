@@ -9,9 +9,9 @@
 
 use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
 use crate::common::{InstSeq, InstSize, PhysAddr, RegIdx, VirtAddr};
+use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
-use crate::core::pipeline::signals::ControlSignals;
 use crate::core::units::vpu::mem::VecMemAddrOp;
 use crate::core::units::vpu::types::{ElemIdx, Sew, VecPhysReg};
 use crate::sim::state::write_log::WriteSeq;

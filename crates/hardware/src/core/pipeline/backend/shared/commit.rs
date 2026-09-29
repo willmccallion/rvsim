@@ -10,6 +10,7 @@
 use crate::common::{LrScRecord, PhysAddr, PteUpdate, RegIdx, Trap};
 use crate::core::arch::csr;
 use crate::core::arch::vpr::Vpr;
+use crate::core::exec::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::backend::shared::cbo::CboEffect;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
@@ -20,7 +21,6 @@ use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::{Rob, RobEntry, RobState, RobTag};
 use crate::core::pipeline::scoreboard::Scoreboard;
-use crate::core::pipeline::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::{StoreBuffer, StoreData, width_to_bytes};
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
@@ -1393,10 +1393,8 @@ mod tests {
         );
         let mut scoreboard = Scoreboard::new();
 
-        let ctrl = crate::core::pipeline::signals::ControlSignals {
-            reg_write: true,
-            ..Default::default()
-        };
+        let ctrl =
+            crate::core::exec::signals::ControlSignals { reg_write: true, ..Default::default() };
 
         let tag = rob
             .allocate(

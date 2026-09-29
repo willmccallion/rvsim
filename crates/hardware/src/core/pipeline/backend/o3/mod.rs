@@ -12,6 +12,7 @@ mod rename;
 mod serialize;
 
 use crate::config::Config;
+use crate::core::exec::signals::{AtomicOp, ControlFlow};
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -28,7 +29,6 @@ use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rename_map::RenameMap;
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::{AtomicOp, ControlFlow};
 use crate::core::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
@@ -1037,8 +1037,7 @@ impl ExecutionEngine for O3Engine {
             for entry in entries {
                 let is_load = entry.ctrl.mem_read;
                 let is_store = entry.ctrl.uses_store_buffer();
-                let is_atomic =
-                    entry.ctrl.atomic_op != crate::core::pipeline::signals::AtomicOp::None;
+                let is_atomic = entry.ctrl.atomic_op != crate::core::exec::signals::AtomicOp::None;
                 let mem_dep =
                     self.mdp.dispatch(entry.pc, entry.rob_tag, is_load, is_store, is_atomic);
                 let ok = self.issue_queue.dispatch(

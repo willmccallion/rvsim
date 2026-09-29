@@ -25,11 +25,11 @@
 
 use crate::common::PhysAddr;
 use crate::common::error::LrScRecord;
+use crate::core::exec::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
-use crate::core::pipeline::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::sim::StageCtx;
 use crate::trace_fwd;

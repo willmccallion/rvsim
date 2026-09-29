@@ -3,7 +3,7 @@
 //! These tests verify that `Fpu::execute_with_rm()` correctly applies
 //! each of the five RISC-V rounding modes.
 
-use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::exec::signals::AluOp;
 use rvsim_core::core::units::fpu::Fpu;
 use rvsim_core::core::units::fpu::rounding_modes::RoundingMode;
 

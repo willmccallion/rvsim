@@ -7,10 +7,10 @@
 //! 16`) sees the previous producer.
 
 use super::O3Engine;
+use crate::core::exec::signals::{ControlFlow, VectorOp};
 use crate::core::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
-use crate::core::pipeline::signals::{ControlFlow, VectorOp};
 use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };

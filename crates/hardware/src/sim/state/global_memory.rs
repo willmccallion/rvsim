@@ -7,7 +7,7 @@
 use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
-use crate::core::pipeline::signals::{self, MemWidth};
+use crate::core::exec::signals::{self, MemWidth};
 use crate::core::units::lsu::atomic;
 use crate::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData, WriteData, WriteOrigin};
 use crate::soc::memory::RamRegion;

@@ -8,7 +8,7 @@
 //! The main entry point [`vec_permute_execute`] dispatches to the appropriate
 //! operation based on the [`VectorOp`] variant.
 
-use crate::core::pipeline::signals::VectorOp;
+use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;

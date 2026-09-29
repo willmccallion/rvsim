@@ -4,6 +4,7 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::exec::signals::VectorOp;
 use crate::core::pipeline::backend::shared::execute::{
     SystemEffect, evaluate, fault, next_pc, operands, propagate_trap, resolve_control_flow,
     system_effect, unit_disabled,
@@ -11,7 +12,6 @@ use crate::core::pipeline::backend::shared::execute::{
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::pipeline::signals::VectorOp;
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::core::units::vpu::execute::execute_vec_op_on;
 use crate::core::units::vpu::shadow::ShadowVpr;

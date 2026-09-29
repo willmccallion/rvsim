@@ -7,7 +7,7 @@
 //! for RV32, per RISC-V spec §2.4. All 32-bit results are sign-extended
 //! from bit 31 to 64 bits.
 
-use crate::core::pipeline::signals::AluOp;
+use crate::core::exec::signals::AluOp;
 
 const SHAMT_MASK_RV64: u64 = 0x3f;
 

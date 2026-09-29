@@ -9,11 +9,11 @@
 //!   selected for execution (up to `width`).
 
 use crate::common::RegIdx;
+use crate::core::exec::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
-use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
@@ -616,10 +616,10 @@ fn resolve_operand_legacy(
 mod tests {
     use super::*;
     use crate::common::{InstSize, RegIdx};
+    use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
-    use crate::core::pipeline::signals::ControlSignals;
 
     fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         RenameIssueEntry {
@@ -705,8 +705,8 @@ mod tests {
 
     #[test]
     fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
+        use crate::core::exec::signals::AluOp;
         use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
-        use crate::core::pipeline::signals::AluOp;
         let mut units = FuPool::new(&FuConfig { num_int_div: 1, ..FuConfig::default() });
         let busy_divider = units.free_unit(FuType::IntDiv, 0).expect("a divider");
         let _ = units.acquire(busy_divider, 0);
@@ -1002,14 +1002,14 @@ mod tests {
     fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         let mut rob = Rob::new(8);
         let acquire = ControlSignals {
-            atomic_op: crate::core::pipeline::signals::AtomicOp::Swap,
+            atomic_op: crate::core::exec::signals::AtomicOp::Swap,
             acquire: true,
             mem_read: true,
             mem_write: true,
             ..Default::default()
         };
         let vector_load = ControlSignals {
-            vec_op: crate::core::pipeline::signals::VectorOp::VLoadUnit,
+            vec_op: crate::core::exec::signals::VectorOp::VLoadUnit,
             ..Default::default()
         };
         let alloc = |rob: &mut Rob, ctrl| {

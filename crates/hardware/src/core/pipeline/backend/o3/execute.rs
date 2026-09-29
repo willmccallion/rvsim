@@ -5,6 +5,7 @@
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
 use crate::common::error::{ExceptionStage, Trap};
+use crate::core::exec::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::backend::shared::execute::{
     SystemEffect, evaluate, fault, next_pc, operands, propagate_trap, resolve_control_flow,
     system_effect, unit_disabled,
@@ -12,7 +13,6 @@ use crate::core::pipeline::backend::shared::execute::{
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::Rob;
-use crate::core::pipeline::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::sim::StageCtx;
 use crate::{trace_execute, trace_trap};
@@ -150,7 +150,7 @@ mod tests {
     use super::*;
     use crate::common::{InstSize, RegIdx};
     use crate::config::Config;
-    use crate::core::pipeline::signals::{ControlFlow, ControlSignals, OpBSrc};
+    use crate::core::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
 
     #[test]
     fn test_execute_one_normal() {

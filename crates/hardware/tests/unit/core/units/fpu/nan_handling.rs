@@ -1,4 +1,4 @@
-use rvsim_core::core::pipeline::signals::AluOp;
+use rvsim_core::core::exec::signals::AluOp;
 use rvsim_core::core::units::fpu::Fpu;
 
 #[test]

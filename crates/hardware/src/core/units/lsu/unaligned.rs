@@ -113,8 +113,8 @@ pub const fn store_misaligned_trap(addr: u64) -> Trap {
 /// # Returns
 ///
 /// The size in bytes (0 for Nop, 1/2/4/8 for actual operations)
-pub const fn width_to_bytes(width: crate::core::pipeline::signals::MemWidth) -> u64 {
-    use crate::core::pipeline::signals::MemWidth;
+pub const fn width_to_bytes(width: crate::core::exec::signals::MemWidth) -> u64 {
+    use crate::core::exec::signals::MemWidth;
     match width {
         MemWidth::Nop => 0,
         MemWidth::Byte => 1,
