@@ -173,13 +173,13 @@ fmt:
 	@printf "$(GREEN)Formatting Rust code…$(RESET)\n"
 	$(CARGO) fmt --all
 	@printf "$(GREEN)Formatting Python code…$(RESET)\n"
-	$(PYTHON) -m ruff format rvsim/*.py
+	$(PYTHON) -m ruff format rvsim tests examples tools
 
 fmt-check:
 	@printf "$(GREEN)Checking Rust formatting…$(RESET)\n"
 	$(CARGO) fmt --all -- --check
 	@printf "$(GREEN)Checking Python formatting…$(RESET)\n"
-	$(PYTHON) -m ruff format --check rvsim/*.py
+	$(PYTHON) -m ruff format --check rvsim tests examples tools
 
 lint: fmt-check clippy
 

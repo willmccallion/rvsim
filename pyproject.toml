@@ -30,3 +30,6 @@ manifest-path = "crates/rvsim-bindings/Cargo.toml"
 features = ["extension", "commit-log"]
 module-name = "rvsim._core"
 include = ["LICENSE-APACHE", "LICENSE-MIT"]
+
+[tool.ruff]
+extend-exclude = ["tests/builds", "third_party"]
