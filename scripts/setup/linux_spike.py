@@ -167,14 +167,11 @@ def generate_spike_trace(spike_limit):
 def run_rvsim_trace(cycle_limit):
     """Boot Linux in rvsim with commit logging, return parsed trace."""
     # Import here so the script can show --help without building
+    from rvsim import presets
     from rvsim._core import Simulator
     from rvsim.config import _config_to_dict
 
-    # Use the same linux boot config
-    sys.path.insert(0, os.path.join(ROOT, "scripts", "setup"))
-    from boot_linux import config as linux_config
-
-    cfg = linux_config()
+    cfg = presets.linux()
     config_dict = _config_to_dict(cfg)
 
     fd, log_path = tempfile.mkstemp(suffix=".log", prefix="rvsim_linux_")

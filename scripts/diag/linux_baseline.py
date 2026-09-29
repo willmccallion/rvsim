@@ -19,8 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
-from rvsim import Simulator  # noqa: E402
-from setup.boot_linux import config as linux_config  # noqa: E402
+from rvsim import Simulator, presets  # noqa: E402
 
 
 def main():
@@ -32,7 +31,7 @@ def main():
     args = ap.parse_args()
 
     out_dir = os.path.join(ROOT, "software", "linux", "output")
-    cfg = linux_config().replace(uart_quiet=True, hart_count=args.hart_count)
+    cfg = presets.linux().replace(uart_quiet=True, hart_count=args.hart_count)
     os.chdir(ROOT)
     sim = Simulator(cfg, kernel=os.path.join(out_dir, "Image"), disk=os.path.join(out_dir, "disk.img"))
     exit_code = sim.run(limit=args.limit, stats_sections=None)

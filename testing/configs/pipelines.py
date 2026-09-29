@@ -14,8 +14,8 @@ import os
 import sys
 
 # The reference machine configs live under scripts/benchmarks/<name>/config.py
-# and scripts/setup/boot_linux.py. Pull them in via path manipulation so the
-# runners don't have to.
+# (the Linux one is rvsim.presets.linux). Pull them in via path manipulation so
+# the runners don't have to.
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts", "benchmarks"))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts"))
@@ -33,11 +33,11 @@ from rvsim import (  # noqa: E402
     MemoryController,
     Prefetcher,
     ReplacementPolicy,
+    presets,
 )
 from cortex_a72.config import cortex_a72_config  # noqa: E402
 from m1.config import m1_config  # noqa: E402
 from p550.config import p550_config  # noqa: E402
-from setup.boot_linux import config as linux_config  # noqa: E402
 
 # fmt: off
 PIPELINES = [
@@ -399,6 +399,6 @@ PIPELINES = [
 
     ("ref p550",            p550_config()),
     ("ref m1",              m1_config()),
-    ("ref linux",           linux_config()),
+    ("ref linux",           presets.linux()),
 ]
 # fmt: on

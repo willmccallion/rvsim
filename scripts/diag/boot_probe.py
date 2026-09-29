@@ -4,8 +4,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup"))
 
-from setup.boot_linux import config as linux_config
-from rvsim import Simulator
+from rvsim import Simulator, presets
 
 LIMIT = int(os.environ.get("PROBE_CYCLES", "10000000"))
 PROGRESS = int(os.environ.get("PROBE_PROGRESS", "1000000"))
@@ -15,7 +14,7 @@ image = os.path.join(repo, "software/linux/output/Image")
 disk = os.path.join(repo, "software/linux/output/disk.img")
 
 print(f"[probe] limit={LIMIT:,}  progress={PROGRESS:,}", flush=True)
-sim = Simulator(linux_config(), kernel=image, disk=disk)
+sim = Simulator(presets.linux(), kernel=image, disk=disk)
 
 exit_code = sim.run(limit=LIMIT, progress=PROGRESS, stats_sections=None)
 
