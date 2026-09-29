@@ -1,6 +1,6 @@
 use crate::common::mocks::memory::MockMemory;
-use rvsim_core::SimState;
 use rvsim_core::Simulator;
+use rvsim_core::SystemState;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::{Config, MemoryController};
 use rvsim_core::isa::reg::RegIdx;
@@ -37,19 +37,19 @@ impl TestContext {
         config.system.bus_latency = 0;
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let state = rvsim_core::SimState::new(&config, "", exit_signal);
+        let state = rvsim_core::SystemState::new(&config, "", exit_signal);
         let sim = Simulator::new(state);
 
         Self { sim }
     }
 
     /// Convenience accessor for the CPU.
-    pub fn cpu(&self) -> &SimState {
+    pub fn cpu(&self) -> &SystemState {
         &self.sim.state
     }
 
     /// Mutable convenience accessor for the CPU.
-    pub fn cpu_mut(&mut self) -> &mut SimState {
+    pub fn cpu_mut(&mut self) -> &mut SystemState {
         &mut self.sim.state
     }
 

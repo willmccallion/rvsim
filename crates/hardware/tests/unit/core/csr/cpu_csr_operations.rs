@@ -4,15 +4,15 @@
 //! including side effects like TLB flushes, interrupt inhibition, and
 //! synchronization between MSTATUS and SSTATUS.
 
-use rvsim_core::SimState;
+use rvsim_core::SystemState;
 use rvsim_core::arch::csr;
 use rvsim_core::config::Config;
 use rvsim_core::isa::csr::CsrAddr;
 
 /// Helper function to create a test CPU instance.
-fn create_test_cpu() -> SimState {
+fn create_test_cpu() -> SystemState {
     let config = Config::default();
-    SimState::build(&config, "")
+    SystemState::build(&config, "")
 }
 
 #[test]
@@ -109,10 +109,10 @@ fn test_csr_read_write_mepc() {
 }
 
 /// A hart built without the C extension, so IALIGN=32.
-fn create_test_cpu_without_c() -> SimState {
+fn create_test_cpu_without_c() -> SystemState {
     let mut config = Config::default();
     config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
-    SimState::build(&config, "")
+    SystemState::build(&config, "")
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn menvcfg_keeps_only_the_fields_of_implemented_extensions() {
 fn menvcfg_adue_is_writable_on_a_svadu_hart() {
     let mut config = Config::default();
     config.isa.svadu = true;
-    let mut sys = SimState::build(&config, "");
+    let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);
 
     state.csr_write(csr::MENVCFG, u64::MAX);
@@ -484,7 +484,7 @@ fn test_csr_satp_sv57_accepted_by_default() {
 fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
     let mut config = Config::default();
     config.memory.paging_mode_max = csr::PagingMode::Sv39;
-    let mut sys = SimState::build(&config, "");
+    let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);
 
     // Sv48 is above the cap → coerce to Bare; PPN preserved.

@@ -261,13 +261,13 @@ impl Simulator {
             saved.apply(hart);
         }
         for (hart, saved) in state.harts.iter().zip(&header.harts) {
-            let reservations = state.shared.memory.reservations_mut();
+            let reservations = state.uncore.memory.reservations_mut();
             match saved.reservation {
                 Some(line) => reservations.set(hart.hart_id, PhysAddr::new(line)),
                 None => reservations.clear(hart.hart_id),
             }
         }
-        state.shared.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
+        state.uncore.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all();
@@ -277,9 +277,9 @@ impl Simulator {
             units.mmu.itlb.flush();
             units.mmu.l2_tlb.flush();
         }
-        state.shared.l3_cache.invalidate_all();
+        state.uncore.l3_cache.invalidate_all();
         state.mem_controller.resume_at(header.cycle);
-        if let Some(coherence) = &mut state.shared.coherence {
+        if let Some(coherence) = &mut state.uncore.coherence {
             coherence.forget_cached_lines();
         }
         self.state.reset_stats();

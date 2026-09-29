@@ -1,6 +1,6 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
-use super::{CoreCtx, SharedState};
+use super::{CoreCtx, Uncore};
 use crate::arch::{Hart, csr};
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::Trap;
@@ -10,8 +10,8 @@ use crate::isa::privileged::Trap;
 /// software bit takes part in a CSRRS/CSRRC (privileged spec §3.1.9):
 /// otherwise clearing another bit while the line is high would set
 /// the software bit and leave SEIP pending for good.
-pub(super) fn read_for_update(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
-    let value = read(hart, shared, addr);
+pub(super) fn read_for_update(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
+    let value = read(hart, uncore, addr);
     if addr.as_u32() != csr::MIP.as_u32() {
         return value;
     }
@@ -20,7 +20,7 @@ pub(super) fn read_for_update(hart: &Hart, shared: &SharedState, addr: CsrAddr) 
 }
 
 /// Reads a value from a Control and Status Register (CSR).
-pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
+pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
     let raw = addr.as_u32();
     match raw {
         x if x == csr::FFLAGS.as_u32() => hart.csrs.fflags & 0x1F,
@@ -59,7 +59,7 @@ pub(super) fn read(hart: &Hart, shared: &SharedState, addr: CsrAddr) -> u64 {
         x if x == csr::MENVCFG.as_u32() => hart.csrs.menvcfg,
         x if x == csr::SENVCFG.as_u32() => hart.csrs.senvcfg,
         x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => hart.csrs.mcycle,
-        x if x == csr::TIME.as_u32() => shared.bus.mtime(),
+        x if x == csr::TIME.as_u32() => uncore.bus.mtime(),
         x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => hart.csrs.minstret,
         x if x == csr::MCOUNTINHIBIT.as_u32() => hart.csrs.mcountinhibit,
         x if x == csr::PMPCFG0.as_u32() => {
@@ -120,12 +120,12 @@ impl CoreCtx<'_> {
 
     /// The value a CSR read-modify-write starts from; see [`read_for_update`].
     pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        read_for_update(self.hart, self.shared, addr)
+        read_for_update(self.hart, self.uncore, addr)
     }
 
     /// Reads a value from a Control and Status Register (CSR).
     pub fn csr_read(&self, addr: CsrAddr) -> u64 {
-        read(self.hart, self.shared, addr)
+        read(self.hart, self.uncore, addr)
     }
 
     /// Writes a value to a Control and Status Register (CSR).
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_mstatus() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn mstatus_reads_sd_when_only_the_vector_state_is_dirty() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, csr::MSTATUS_VS_DIRTY);
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_fcsr() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::FCSR, 0xFF);

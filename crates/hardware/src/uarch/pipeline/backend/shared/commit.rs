@@ -171,7 +171,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     common.deliver_commit_notices(&mut state.core.branch_predictor, now);
 
     if let TrapProgress::Pending(pending) = &common.trap {
-        state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
         if state.cycle < pending.taken_at {
             return None;
         }
@@ -203,7 +203,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                     priv_mode  = ?state.hart.privilege,
                     "CM: interrupt detected — pipeline drained"
                 );
-                state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+                state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
                 return schedule_trap(state, common, interrupt_trap, epc);
             }
         } else if state.hart.wfi_waiting {
@@ -212,12 +212,12 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             // refetched when it wakes.
             let pending = state.hart.csrs.mip;
             let enabled = state.hart.csrs.mie;
-            state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
             if (pending & enabled) != 0 {
                 state.hart.wfi_waiting = false;
                 return Some(CommitEvent::SquashAfter(state.hart.pc));
             }
-            state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
+            state.uncore.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
             return event;
         } else {
             common.trap = TrapProgress::None;
@@ -225,7 +225,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     }
 
     if event.is_some() {
-        state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
         return event;
     }
 
@@ -297,7 +297,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if head.state == RobState::Completed && lr_read_a_stale_line(state, head) {
-            state.shared.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
+            state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
             trace_trap!(state.config.general.trace_instructions;
                 event   = "coherence-reexecute",
                 pc      = %crate::sim::trace::Hex(head.pc),
@@ -397,9 +397,9 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 "CM: branch retired"
             );
             if entry.bp_outcome.mispredicted {
-                state.shared.stats.counter(state.core.stat_paths.bp.committed_mispredicts).inc();
+                state.uncore.stats.counter(state.core.stat_paths.bp.committed_mispredicts).inc();
             } else {
-                state.shared.stats.counter(state.core.stat_paths.bp.committed_hits).inc();
+                state.uncore.stats.counter(state.core.stat_paths.bp.committed_hits).inc();
             }
         }
 
@@ -612,13 +612,13 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         common.note_committed(seq, state.cycle);
     }
     if retired_count == 0 && rob_empty_at_start {
-        state.shared.stats.counter(state.core.stat_paths.pipeline.cycles_rob_empty).inc();
+        state.uncore.stats.counter(state.core.stat_paths.pipeline.cycles_rob_empty).inc();
     }
     match retired_count.min(3) {
-        0 => state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc(),
-        1 => state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_one).inc(),
-        2 => state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_two).inc(),
-        _ => state.shared.stats.counter(state.core.stat_paths.commit.retire_hist_three_plus).inc(),
+        0 => state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc(),
+        1 => state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_one).inc(),
+        2 => state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_two).inc(),
+        _ => state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_three_plus).inc(),
     }
 
     send_one_write(state, common, store_buffer, vec_store_buffer);
@@ -759,7 +759,7 @@ fn send_data_store(
     {
         match state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
             Some(evicted) => send_wcb_line(state, common, &evicted),
-            None => state.shared.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
+            None => state.uncore.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
         }
     }
     Vec::new()
@@ -881,7 +881,7 @@ fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon, line: &Wcb
         StoreOwner::WriteCombining,
     );
     state.core.wcb.sent(req_id, line.clone());
-    state.shared.stats.counter(state.core.stat_paths.wcb.drains).inc();
+    state.uncore.stats.counter(state.core.stat_paths.wcb.drains).inc();
 }
 
 /// Writes the next line of a committed vector store: to RAM as one masked
@@ -1084,20 +1084,20 @@ fn update_instruction_stats(
 
     if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
-            state.shared.stats.counter(state.core.stat_paths.commit.fp_load).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.fp_load).inc();
         } else {
-            state.shared.stats.counter(state.core.stat_paths.commit.op_load).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.op_load).inc();
         }
     } else if entry.ctrl.mem_write {
         if entry.ctrl.rs2_fp {
-            state.shared.stats.counter(state.core.stat_paths.commit.fp_store).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.fp_store).inc();
         } else {
-            state.shared.stats.counter(state.core.stat_paths.commit.op_store).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.op_store).inc();
         }
     } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
-        state.shared.stats.counter(state.core.stat_paths.commit.op_branch).inc();
+        state.uncore.stats.counter(state.core.stat_paths.commit.op_branch).inc();
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
-        state.shared.stats.counter(state.core.stat_paths.commit.op_system).inc();
+        state.uncore.stats.counter(state.core.stat_paths.commit.op_system).inc();
     } else {
         match entry.ctrl.alu {
             AluOp::FAdd
@@ -1128,15 +1128,15 @@ fn update_instruction_stats(
             | AluOp::FCvtHD
             | AluOp::FMvToX
             | AluOp::FMvToF => {
-                state.shared.stats.counter(state.core.stat_paths.commit.fp_arith).inc();
+                state.uncore.stats.counter(state.core.stat_paths.commit.fp_arith).inc();
             }
             AluOp::FDiv | AluOp::FSqrt => {
-                state.shared.stats.counter(state.core.stat_paths.commit.fp_div_sqrt).inc();
+                state.uncore.stats.counter(state.core.stat_paths.commit.fp_div_sqrt).inc();
             }
             AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => {
-                state.shared.stats.counter(state.core.stat_paths.commit.fp_fma).inc();
+                state.uncore.stats.counter(state.core.stat_paths.commit.fp_fma).inc();
             }
-            _ => state.shared.stats.counter(state.core.stat_paths.commit.op_alu).inc(),
+            _ => state.uncore.stats.counter(state.core.stat_paths.commit.op_alu).inc(),
         }
     }
 }
@@ -1152,7 +1152,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VLoadStride
         | VectorOp::VLoadIndexOrd
         | VectorOp::VLoadIndexUnord => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_load).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_load).inc();
         }
         VectorOp::VStoreUnit
         | VectorOp::VStoreMask
@@ -1160,7 +1160,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VStoreStride
         | VectorOp::VStoreIndexOrd
         | VectorOp::VStoreIndexUnord => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_store).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_store).inc();
         }
         VectorOp::VAdd
         | VectorOp::VSub
@@ -1246,7 +1246,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
         | VectorOp::VWRedSum => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_int).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_int).inc();
         }
         VectorOp::VFAdd
         | VectorOp::VFSub
@@ -1318,7 +1318,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VFRedMin
         | VectorOp::VFWRedOSum
         | VectorOp::VFWRedUSum => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_fp).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_fp).inc();
         }
         VectorOp::Vsetvli
         | VectorOp::Vsetivli
@@ -1379,7 +1379,7 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
         | VectorOp::VSm4K
         | VectorOp::VGhsh
         | VectorOp::VGmul => {
-            state.shared.stats.counter(state.core.stat_paths.commit.vec_misc).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_misc).inc();
         }
     }
 }
@@ -1394,7 +1394,7 @@ mod tests {
     #[test]
     fn test_commit_stage_normal() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let mut rob = Rob::new(4);

@@ -22,7 +22,7 @@ use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::Packet;
-use crate::system::state::SimState;
+use crate::system::state::SystemState;
 use crate::system::topology::{CacheSlot, PrivateCache};
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use std::sync::Arc;
@@ -81,7 +81,7 @@ const MAX_QUIET_SKIP: u64 = 1 << 32;
 #[derive(Debug)]
 pub struct Simulator {
     /// The whole system: harts, cores and their pipelines, and the uncore.
-    pub state: SimState,
+    pub state: SystemState,
     /// Privilege mode of each hart at the start of the current tick, kept
     /// between ticks to avoid reallocating.
     prev_privileges: Vec<PrivilegeMode>,
@@ -95,11 +95,11 @@ unsafe impl Send for Simulator {}
 unsafe impl Sync for Simulator {}
 
 impl Simulator {
-    /// Wraps an existing `SimState`, pointing each core's fetch at its
+    /// Wraps an existing `SystemState`, pointing each core's fetch at its
     /// hart's PC. Use this when the caller needs to interleave setup between
     /// state construction and the first tick (e.g. loading an ELF image and
     /// registering HTIF, which set the reset PC).
-    pub fn new(mut state: SimState) -> Self {
+    pub fn new(mut state: SystemState) -> Self {
         for core in 0..state.cores.len() {
             let (pipeline, ctx) = state.pipeline_ctx(core);
             pipeline.restart_fetch_at(ctx.hart.pc);
@@ -108,12 +108,12 @@ impl Simulator {
         Self { state, prev_privileges, skip_idle_cores: true }
     }
 
-    /// Convenience constructor: builds the exit-signal `Arc`, the `SimState`,
+    /// Convenience constructor: builds the exit-signal `Arc`, the `SystemState`,
     /// and the `Simulator` together. Use this when the caller doesn't need
     /// to touch the state between construction and pipeline start.
     pub fn build(config: &Config, disk_path: &str) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(SimState::new(config, disk_path, exit_signal))
+        Self::new(SystemState::new(config, disk_path, exit_signal))
     }
 
     /// Discards every core's speculative work, leaves each hart at its
@@ -127,10 +127,10 @@ impl Simulator {
             pipeline.flush(&mut ctx);
         }
         while self.drain_writes_for_a_cycle() {}
-        let shared = &mut self.state.shared;
-        shared.bus.drain_devices();
-        for (paddr, len) in shared.bus.take_dma_writes() {
-            shared.memory.record_external_write_range(paddr, len);
+        let uncore = &mut self.state.uncore;
+        uncore.bus.drain_devices();
+        for (paddr, len) in uncore.bus.take_dma_writes() {
+            uncore.memory.record_external_write_range(paddr, len);
         }
     }
 
@@ -249,7 +249,7 @@ impl Simulator {
             && state.panic_detected_at_cycle.is_none()
             && state.event_queue.is_empty()
             && state.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))
-            && !(stop.guest_breaks && state.shared.pending_break.is_some())
+            && !(stop.guest_breaks && state.uncore.pending_break.is_some())
             && !(stop.console_output && state.bus.console_has_output())
             && !state.harts.iter().any(|hart| stop.pcs.contains(&hart.pc));
         if !settled || !(0..self.core_count()).all(|core| self.core_is_idle(core)) {
@@ -274,16 +274,16 @@ impl Simulator {
             self.state.core_ctx(core).skip_quiet_cycles(cycles);
         }
         self.state.cycle += cycles;
-        let shared = &mut self.state.shared;
+        let uncore = &mut self.state.uncore;
         let mut ctx = HandleCtx {
-            scheduler: &mut shared.event_queue,
-            stats: &mut shared.stats,
-            memory: &mut shared.memory,
-            config: &shared.config,
-            cycle: shared.cycle,
+            scheduler: &mut uncore.event_queue,
+            stats: &mut uncore.stats,
+            memory: &mut uncore.memory,
+            config: &uncore.config,
+            cycle: uncore.cycle,
             self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
         };
-        shared.mem_controller.skip_quiet(&mut ctx);
+        uncore.mem_controller.skip_quiet(&mut ctx);
     }
 
     fn stop_reason(
@@ -296,7 +296,7 @@ impl Simulator {
             return Some(StopReason::Exited(code));
         }
         if stop.guest_breaks
-            && let Some(label) = self.state.shared.pending_break.take()
+            && let Some(label) = self.state.uncore.pending_break.take()
         {
             return Some(StopReason::GuestBreak { label });
         }
@@ -405,16 +405,16 @@ impl Simulator {
     }
 
     fn tick_mem_controller(&mut self) {
-        let shared = &mut self.state.shared;
+        let uncore = &mut self.state.uncore;
         let mut ctx = HandleCtx {
-            scheduler: &mut shared.event_queue,
-            stats: &mut shared.stats,
-            memory: &mut shared.memory,
-            config: &shared.config,
-            cycle: shared.cycle,
+            scheduler: &mut uncore.event_queue,
+            stats: &mut uncore.stats,
+            memory: &mut uncore.memory,
+            config: &uncore.config,
+            cycle: uncore.cycle,
             self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
         };
-        shared.mem_controller.tick(&mut ctx);
+        uncore.mem_controller.tick(&mut ctx);
     }
 
     /// Dispatches every event with `fire_at <= self.state.cycle`.
@@ -438,59 +438,59 @@ impl Simulator {
                 dispatch_to_cache(&mut self.state, id, packet, source);
             }
             ComponentId::Bus => {
-                let shared = &mut self.state.shared;
+                let uncore = &mut self.state.uncore;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut shared.event_queue,
-                    stats: &mut shared.stats,
-                    memory: &mut shared.memory,
-                    config: &shared.config,
-                    cycle: shared.cycle,
+                    scheduler: &mut uncore.event_queue,
+                    stats: &mut uncore.stats,
+                    memory: &mut uncore.memory,
+                    config: &uncore.config,
+                    cycle: uncore.cycle,
                     self_id: ComponentId::Bus,
                 };
-                shared.bus.handle(packet, source, &mut ctx);
-                for (paddr, len) in shared.bus.take_dma_writes() {
-                    shared.memory.record_external_write_range(paddr, len);
+                uncore.bus.handle(packet, source, &mut ctx);
+                for (paddr, len) in uncore.bus.take_dma_writes() {
+                    uncore.memory.record_external_write_range(paddr, len);
                 }
             }
             ComponentId::MemCtrl(id) => {
-                let shared = &mut self.state.shared;
+                let uncore = &mut self.state.uncore;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut shared.event_queue,
-                    stats: &mut shared.stats,
-                    memory: &mut shared.memory,
-                    config: &shared.config,
-                    cycle: shared.cycle,
+                    scheduler: &mut uncore.event_queue,
+                    stats: &mut uncore.stats,
+                    memory: &mut uncore.memory,
+                    config: &uncore.config,
+                    cycle: uncore.cycle,
                     self_id: ComponentId::MemCtrl(id),
                 };
-                shared.mem_controller.handle(packet, source, &mut ctx);
+                uncore.mem_controller.handle(packet, source, &mut ctx);
             }
             ComponentId::Fabric => {
-                let shared = &mut self.state.shared;
-                if let Some(fabric) = shared.coherence.as_mut() {
+                let uncore = &mut self.state.uncore;
+                if let Some(fabric) = uncore.coherence.as_mut() {
                     let mut ctx = HandleCtx {
-                        scheduler: &mut shared.event_queue,
-                        stats: &mut shared.stats,
-                        memory: &mut shared.memory,
-                        config: &shared.config,
-                        cycle: shared.cycle,
+                        scheduler: &mut uncore.event_queue,
+                        stats: &mut uncore.stats,
+                        memory: &mut uncore.memory,
+                        config: &uncore.config,
+                        cycle: uncore.cycle,
                         self_id: ComponentId::Fabric,
                     };
                     fabric.handle(packet, source, &mut ctx);
                 }
             }
             ComponentId::Device(id) => {
-                let shared = &mut self.state.shared;
+                let uncore = &mut self.state.uncore;
                 let mut ctx = HandleCtx {
-                    scheduler: &mut shared.event_queue,
-                    stats: &mut shared.stats,
-                    memory: &mut shared.memory,
-                    config: &shared.config,
-                    cycle: shared.cycle,
+                    scheduler: &mut uncore.event_queue,
+                    stats: &mut uncore.stats,
+                    memory: &mut uncore.memory,
+                    config: &uncore.config,
+                    cycle: uncore.cycle,
                     self_id: ComponentId::Device(id),
                 };
-                shared.bus.handle_device(id, packet, source, &mut ctx);
-                for (paddr, len) in shared.bus.take_dma_writes() {
-                    shared.memory.record_external_write_range(paddr, len);
+                uncore.bus.handle_device(id, packet, source, &mut ctx);
+                for (paddr, len) in uncore.bus.take_dma_writes() {
+                    uncore.memory.record_external_write_range(paddr, len);
                 }
             }
             ComponentId::Hart(_) | ComponentId::Core(_) => {
@@ -502,14 +502,14 @@ impl Simulator {
     /// Advances the coherence fabric one cycle: moves messages through the
     /// interconnect and lets the home agent act on what arrived.
     fn tick_fabric(&mut self) {
-        let shared = &mut self.state.shared;
-        let Some(fabric) = shared.coherence.as_mut() else { return };
+        let uncore = &mut self.state.uncore;
+        let Some(fabric) = uncore.coherence.as_mut() else { return };
         let mut ctx = HandleCtx {
-            scheduler: &mut shared.event_queue,
-            stats: &mut shared.stats,
-            memory: &mut shared.memory,
-            config: &shared.config,
-            cycle: shared.cycle,
+            scheduler: &mut uncore.event_queue,
+            stats: &mut uncore.stats,
+            memory: &mut uncore.memory,
+            config: &uncore.config,
+            cycle: uncore.cycle,
             self_id: ComponentId::Fabric,
         };
         fabric.tick(&mut ctx);
@@ -597,16 +597,16 @@ impl Simulator {
         let req_id = ReqId::new(u64::MAX);
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
-        let shared = &mut self.state.shared;
+        let uncore = &mut self.state.uncore;
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
-            memory: &mut shared.memory,
-            config: &shared.config,
-            cycle: shared.cycle,
+            memory: &mut uncore.memory,
+            config: &uncore.config,
+            cycle: uncore.cycle,
             self_id: ComponentId::Bus,
         };
-        let _ = shared.bus.probe_device(
+        let _ = uncore.bus.probe_device(
             Packet::MemReq { req_id, paddr, vaddr: None, size: access_size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
@@ -626,19 +626,19 @@ impl Simulator {
 }
 
 /// Dispatches a packet to the cache identified by `id`.
-fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: ComponentId) {
+fn dispatch_to_cache(state: &mut SystemState, id: CacheId, packet: Packet, source: ComponentId) {
     let self_id = ComponentId::Cache(id);
     let Some(slot) = state.topology.locate_cache(id) else { return };
     // Split-borrow: the HandleCtx borrows the uncore's event queue, stats
     // and config while the cache itself comes from a core or from the
     // uncore's LLC field.
-    let SimState { cores, shared, .. } = state;
-    let cycle = shared.cycle;
+    let SystemState { cores, uncore, .. } = state;
+    let cycle = uncore.cycle;
     let mut ctx = HandleCtx {
-        scheduler: &mut shared.event_queue,
-        stats: &mut shared.stats,
-        memory: &mut shared.memory,
-        config: &shared.config,
+        scheduler: &mut uncore.event_queue,
+        stats: &mut uncore.stats,
+        memory: &mut uncore.memory,
+        config: &uncore.config,
         cycle,
         self_id,
     };
@@ -652,6 +652,6 @@ fn dispatch_to_cache(state: &mut SimState, id: CacheId, packet: Packet, source: 
             };
             cache.handle(packet, source, &mut ctx);
         }
-        CacheSlot::Llc => shared.l3_cache.handle(packet, source, &mut ctx),
+        CacheSlot::Llc => uncore.l3_cache.handle(packet, source, &mut ctx),
     }
 }

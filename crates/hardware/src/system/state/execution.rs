@@ -1,6 +1,6 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
-use super::{CoreCtx, SharedState};
+use super::{CoreCtx, Uncore};
 use crate::arch::csr;
 use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, SimError, VPN_MASK, Vpn};
 use crate::isa::encoding::privileged::WFI;
@@ -15,7 +15,7 @@ const HANG_DETECTION_THRESHOLD: u64 = 5000;
 /// Cycles between progress reports.
 const STATUS_UPDATE_INTERVAL: u64 = 5_000_000;
 
-impl SharedState {
+impl Uncore {
     /// Uncore work at the top of a cycle: exit and kernel-panic checks, then
     /// one tick of every bus device, which samples every hart's interrupt
     /// lines. Returns `false` when a device has requested exit and the
@@ -51,8 +51,8 @@ impl CoreCtx<'_> {
     /// pipeline: the commit stage's zero-retire and WFI counts.
     pub fn count_idle_cycle(&mut self) {
         let paths = &self.core.stat_paths;
-        self.shared.stats.counter(paths.commit.retire_hist_zero).inc();
-        self.shared.stats.counter(paths.pipeline.cycles_wfi).inc();
+        self.uncore.stats.counter(paths.commit.retire_hist_zero).inc();
+        self.uncore.stats.counter(paths.pipeline.cycles_wfi).inc();
     }
 
     /// Credits `cycles` cycles an idle core spends waiting with the whole
@@ -61,7 +61,7 @@ impl CoreCtx<'_> {
     /// counts.
     pub fn skip_quiet_cycles(&mut self, cycles: u64) {
         let hart_idx = self.hart.hart_id.as_index();
-        let debug = &mut self.shared.per_hart_debug[hart_idx];
+        let debug = &mut self.uncore.per_hart_debug[hart_idx];
         debug.same_pc_count = debug.same_pc_count.saturating_add(cycles);
         self.hart.csrs.count_cycles(cycles);
         let hart_paths = self.hart_paths();
@@ -71,7 +71,7 @@ impl CoreCtx<'_> {
             PrivilegeMode::Machine => hart_paths.cycles_machine,
         };
         let paths = &self.core.stat_paths;
-        let stats = &mut self.shared.stats;
+        let stats = &mut self.uncore.stats;
         stats.counter(mode_cycles).add(cycles);
         stats.counter(paths.pipeline.cycles_total).add(cycles);
         stats.counter(paths.commit.retire_hist_zero).add(cycles);
@@ -82,7 +82,7 @@ impl CoreCtx<'_> {
     /// hang detection and folding this hart's interrupt lines into `mip`.
     pub fn pre_tick(&mut self, irqs: HartIrqs) {
         let hart_idx = self.hart.hart_id.as_index();
-        let debug = &mut self.shared.per_hart_debug[hart_idx];
+        let debug = &mut self.uncore.per_hart_debug[hart_idx];
         if self.hart.pc == debug.last_pc {
             debug.same_pc_count += 1;
             if debug.same_pc_count == HANG_DETECTION_THRESHOLD {
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn test_track_mode_cycles() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let paths = state.hart_paths();
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn test_post_tick_zero_reg() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.regs.write(reg::REG_ZERO, 42);

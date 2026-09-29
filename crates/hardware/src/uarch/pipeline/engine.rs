@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
         let config = crate::config::Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let frontend = Frontend::new(state.hart.pc);

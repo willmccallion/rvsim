@@ -1,7 +1,7 @@
 //! System state: every hart's architectural state, every core's private
 //! micro-architecture, and the shared uncore.
 //!
-//! `SimState` owns the whole system. Pipelines never see it; they work on a
+//! `SystemState` owns the whole system. Pipelines never see it; they work on a
 //! [`CoreCtx`] view that borrows one hart, one core and the shared uncore,
 //! so a core cannot reach another core's state by construction. See
 //! `docs/architecture/multicore.md`.
@@ -109,7 +109,7 @@ impl TraceControl {
 
 /// The uncore: everything shared by all cores.
 #[derive(Debug)]
-pub struct SharedState {
+pub struct Uncore {
     /// What the trace macros print; see [`TraceControl`].
     pub trace: TraceControl,
     /// Component identifiers for the whole system.
@@ -190,36 +190,36 @@ pub struct StatsDump {
 
 /// The whole system: harts, cores, and the uncore.
 #[derive(Debug)]
-pub struct SimState {
+pub struct SystemState {
     /// Architectural state per hardware thread, indexed by `HartId`.
     pub harts: Vec<Hart>,
     /// Private micro-architecture per core, indexed by `CoreId`.
     pub cores: Vec<Core>,
     /// The uncore.
-    pub shared: SharedState,
+    pub uncore: Uncore,
 }
 
-unsafe impl Send for SimState {}
-unsafe impl Sync for SimState {}
+unsafe impl Send for SystemState {}
+unsafe impl Sync for SystemState {}
 
-impl Deref for SimState {
-    type Target = SharedState;
+impl Deref for SystemState {
+    type Target = Uncore;
 
-    fn deref(&self) -> &SharedState {
-        &self.shared
+    fn deref(&self) -> &Uncore {
+        &self.uncore
     }
 }
 
-impl DerefMut for SimState {
-    fn deref_mut(&mut self) -> &mut SharedState {
-        &mut self.shared
+impl DerefMut for SystemState {
+    fn deref_mut(&mut self) -> &mut Uncore {
+        &mut self.uncore
     }
 }
 
 /// What a pipeline works on: its hart, its core, and the uncore.
 ///
-/// Built by [`SimState::core_ctx`] from disjoint borrows. Derefs to
-/// [`SharedState`] so uncore fields read as `ctx.bus`, `ctx.event_queue`.
+/// Built by [`SystemState::core_ctx`] from disjoint borrows. Derefs to
+/// [`Uncore`] so uncore fields read as `ctx.bus`, `ctx.event_queue`.
 #[derive(Debug)]
 pub struct CoreCtx<'a> {
     /// The hart the pipeline is executing.
@@ -227,20 +227,20 @@ pub struct CoreCtx<'a> {
     /// The pipeline's private micro-architecture.
     pub core: &'a mut CoreUnits,
     /// The uncore.
-    pub shared: &'a mut SharedState,
+    pub uncore: &'a mut Uncore,
 }
 
 impl Deref for CoreCtx<'_> {
-    type Target = SharedState;
+    type Target = Uncore;
 
-    fn deref(&self) -> &SharedState {
-        self.shared
+    fn deref(&self) -> &Uncore {
+        self.uncore
     }
 }
 
 impl DerefMut for CoreCtx<'_> {
-    fn deref_mut(&mut self) -> &mut SharedState {
-        self.shared
+    fn deref_mut(&mut self) -> &mut Uncore {
+        self.uncore
     }
 }
 
@@ -249,46 +249,46 @@ impl CoreCtx<'_> {
     /// the core and the uncore's stats and event queue mutable.
     #[inline]
     pub const fn stage(&mut self) -> StageCtx<'_> {
-        StageCtx::new(self.hart, self.core, self.shared)
+        StageCtx::new(self.hart, self.core, self.uncore)
     }
 
     /// Stat paths of the hart this view executes.
     #[inline]
     #[must_use]
     pub fn hart_paths(&self) -> HartPaths {
-        self.shared.hart_stat_paths[self.hart.hart_id.as_index()]
+        self.uncore.hart_stat_paths[self.hart.hart_id.as_index()]
     }
 
     /// Sets a load reservation for this hart at `addr` (cache-line aligned).
     #[inline]
     pub fn set_reservation(&mut self, addr: PhysAddr) {
         let hart = self.hart.hart_id;
-        self.shared.memory.reservations_mut().set(hart, addr);
+        self.uncore.memory.reservations_mut().set(hart, addr);
     }
 
     /// Returns `true` when this hart holds a reservation covering `addr`.
     #[inline]
     pub fn check_reservation(&self, addr: PhysAddr) -> bool {
-        self.shared.memory.reservations().check(self.hart.hart_id, addr)
+        self.uncore.memory.reservations().check(self.hart.hart_id, addr)
     }
 
     /// Clears this hart's load reservation.
     #[inline]
     pub fn clear_reservation(&mut self) {
         let hart = self.hart.hart_id;
-        self.shared.memory.reservations_mut().clear(hart);
+        self.uncore.memory.reservations_mut().clear(hart);
     }
 
     /// Makes `data` visible at `paddr` as a write by this hart. See
-    /// [`SharedState::publish_write`].
+    /// [`Uncore::publish_write`].
     #[inline]
     pub fn publish_write(&mut self, paddr: PhysAddr, data: u64, width: MemWidth) {
         let writer = Writer::Hart(self.hart.hart_id);
-        self.shared.publish_write(writer, paddr, data, width);
+        self.uncore.publish_write(writer, paddr, data, width);
     }
 }
 
-impl SharedState {
+impl Uncore {
     /// Makes `data` visible at `paddr` as an immediate write by `writer`,
     /// for writes that do not travel through the memory system: an MMIO
     /// address is left to the device that receives the packet.
@@ -367,7 +367,7 @@ impl SharedState {
     }
 }
 
-impl SimState {
+impl SystemState {
     /// The execution view for core `core`: its first hart, its private
     /// micro-architecture, and the uncore.
     ///
@@ -375,11 +375,11 @@ impl SimState {
     ///
     /// Panics if `core` is not a valid core index.
     pub fn core_ctx(&mut self, core: usize) -> CoreCtx<'_> {
-        let hart_index = self.shared.topology.cores[core].hart_ids[0].as_index();
+        let hart_index = self.uncore.topology.cores[core].hart_ids[0].as_index();
         CoreCtx {
             hart: &mut self.harts[hart_index],
             core: &mut self.cores[core].units,
-            shared: &mut self.shared,
+            uncore: &mut self.uncore,
         }
     }
 
@@ -389,10 +389,10 @@ impl SimState {
     ///
     /// Panics if `core` is not a valid core index.
     pub fn pipeline_ctx(&mut self, core: usize) -> (&mut PipelineDispatch, CoreCtx<'_>) {
-        let hart_index = self.shared.topology.cores[core].hart_ids[0].as_index();
+        let hart_index = self.uncore.topology.cores[core].hart_ids[0].as_index();
         let Core { units, pipeline } = &mut self.cores[core];
         let ctx =
-            CoreCtx { hart: &mut self.harts[hart_index], core: units, shared: &mut self.shared };
+            CoreCtx { hart: &mut self.harts[hart_index], core: units, uncore: &mut self.uncore };
         (pipeline, ctx)
     }
 
@@ -410,8 +410,8 @@ impl SimState {
 
     /// Zeroes every stat and starts a new window here.
     pub fn reset_stats(&mut self) {
-        self.shared.stats.reset();
-        self.shared.stats_epoch =
+        self.uncore.stats.reset();
+        self.uncore.stats_epoch =
             StatsEpoch { cycle: self.cycle, instructions_retired: self.instructions_retired() };
     }
 
@@ -421,9 +421,9 @@ impl SimState {
             SimOp::ResetStats => self.reset_stats(),
             SimOp::DumpStats { label } => {
                 let (cycles, instructions_retired) = self.stats_window();
-                let stats = self.shared.stats.clone();
-                let epoch = self.shared.stats_epoch;
-                self.shared.stats_dumps.push(StatsDump {
+                let stats = self.uncore.stats.clone();
+                let epoch = self.uncore.stats_epoch;
+                self.uncore.stats_dumps.push(StatsDump {
                     label,
                     epoch,
                     stats,
@@ -431,7 +431,7 @@ impl SimState {
                     instructions_retired,
                 });
             }
-            SimOp::Break { label } => self.shared.pending_break = Some(label),
+            SimOp::Break { label } => self.uncore.pending_break = Some(label),
         }
     }
 
@@ -671,7 +671,7 @@ impl SimState {
         Self {
             harts,
             cores,
-            shared: SharedState {
+            uncore: Uncore {
                 trace: TraceControl {
                     armed: config.general.trace_instructions,
                     ..TraceControl::default()
@@ -743,7 +743,7 @@ mod tests {
     #[test]
     fn test_cpu_reservation() {
         let config = Config::default();
-        let mut sys = SimState::build(&config, "");
+        let mut sys = SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.set_reservation(PhysAddr::new(0x1000));
@@ -758,14 +758,14 @@ mod tests {
     #[test]
     fn test_cpu_dump_state_no_panic() {
         let config = Config::default();
-        let state = SimState::build(&config, "");
+        let state = SystemState::build(&config, "");
         state.dump_state();
     }
 
     #[test]
     fn test_cpu_take_exit() {
         let config = Config::default();
-        let state = SimState::build(&config, "");
+        let state = SystemState::build(&config, "");
 
         assert_eq!(state.take_exit(), None);
         state.signal_exit(42);
@@ -779,7 +779,7 @@ mod tests {
         let mut config = Config::default();
         config.general.direct_mode = true;
         config.system.hart_count = 3;
-        let sys = SimState::build(&config, "");
+        let sys = SystemState::build(&config, "");
         for (index, hart) in sys.harts.iter().enumerate() {
             assert_eq!(hart.regs.read(reg::REG_A0), index as u64);
             assert_eq!(hart.regs.read(reg::REG_A1), 3);
@@ -791,7 +791,7 @@ mod tests {
     fn every_core_gets_its_own_hart_and_caches() {
         let mut config = Config::default();
         config.system.hart_count = 2;
-        let sys = SimState::build(&config, "");
+        let sys = SystemState::build(&config, "");
         assert_eq!(sys.harts.len(), 2);
         assert_eq!(sys.cores.len(), 2);
         assert_eq!(sys.harts[1].hart_id, HartId::new(1));

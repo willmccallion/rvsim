@@ -12,4 +12,4 @@ pub mod simulator;
 pub mod state;
 pub mod topology;
 
-pub use self::state::{CoreCtx, SharedState, SimState, StageCtx};
+pub use self::state::{CoreCtx, StageCtx, SystemState, Uncore};

@@ -65,7 +65,7 @@ system, and the top-level subjects speak for themselves.
 
 "CPU" is ambiguous. gem5 uses it for the pipeline; RISC-V uses "hart" for the
 architectural state and "core" for the physical execution engine. Phase 3
-already removed the `Cpu` Rust type in favor of `SimState` (and, in Phase 5,
+already removed the `Cpu` Rust type in favor of `SystemState` (and, in Phase 5,
 `Core` + `Hart` structs). Reintroducing `cpu<N>` as a namespace label would
 undo that clarification.
 
@@ -113,7 +113,7 @@ stat_paths! {
 ```
 
 `CorePaths::new(CoreId(3))` leaks `"core3.commit.op.load"` and friends once;
-the `Core` keeps the struct, `SharedState` keeps one `HartPaths` per hart.
+the `Core` keeps the struct, `Uncore` keeps one `HartPaths` per hart.
 Writers use the field, not a string:
 
 ```rust

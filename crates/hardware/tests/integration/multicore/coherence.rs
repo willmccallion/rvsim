@@ -157,7 +157,7 @@ fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {
 }
 
 fn fabric_stat(system: &MultiHart, path: &str) -> u64 {
-    system.sim.state.shared.stats.get(path).unwrap_or(0.0) as u64
+    system.sim.state.uncore.stats.get(path).unwrap_or(0.0) as u64
 }
 
 fn check_all_programs(config: &Config, label: &str) {

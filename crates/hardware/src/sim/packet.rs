@@ -372,7 +372,7 @@ pub enum Packet {
     Probe {
         /// Line probed.
         line_addr: LineAddr,
-        /// Whether the line must be dropped or may be kept shared.
+        /// Whether the line must be dropped or may be kept uncore.
         kind: ProbeKind,
         /// Correlator the prober uses to collect the responses.
         txn: ReqId,

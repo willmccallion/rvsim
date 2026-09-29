@@ -116,7 +116,7 @@ impl InOrderEngine {
                 continue;
             }
             let done = self.pending.swap_remove(i);
-            state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
+            state.uncore.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.rob.forward(done.entry.rob_tag, forwarded_value(&done.entry));
             self.execute_mem1.push(done.entry);
         }
@@ -131,11 +131,11 @@ impl InOrderEngine {
         redirect: &mut Option<u64>,
     ) {
         let paths = &state.core.stat_paths.pipeline;
-        state.shared.stats.counter(paths.stalls_control).inc();
-        state.shared.stats.counter(paths.flushes_total).inc();
+        state.uncore.stats.counter(paths.stalls_control).inc();
+        state.uncore.stats.counter(paths.flushes_total).inc();
         match squash.redirect.cause {
-            SquashCause::Branch => state.shared.stats.counter(paths.flushes_branch).inc(),
-            SquashCause::System => state.shared.stats.counter(paths.flushes_system).inc(),
+            SquashCause::Branch => state.uncore.stats.counter(paths.flushes_branch).inc(),
+            SquashCause::System => state.uncore.stats.counter(paths.flushes_system).inc(),
             SquashCause::MemoryOrder | SquashCause::Coherence => {}
         }
 
@@ -425,7 +425,7 @@ impl ExecutionEngine for InOrderEngine {
                 self.common.pending_squash,
             );
             if issued.is_empty() && !self.issuer.is_empty() {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
+                state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
             let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
                 is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
@@ -564,7 +564,7 @@ mod tests {
         let config = Config::default();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         engine.flush(&mut state);

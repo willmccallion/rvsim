@@ -14,7 +14,7 @@ use super::{Meta, Stats};
 /// Renders the stats tree as a human-readable summary string.
 ///
 /// `cycles` and `instructions_retired` are passed in because they live on
-/// [`SimState`](crate::system::state::SimState), not in the tree itself. They're
+/// [`SystemState`](crate::system::state::SystemState), not in the tree itself. They're
 /// emitted first as a fixed header so the derived rates that follow have
 /// context.
 pub fn format(stats: &Stats, cycles: u64, instructions_retired: u64) -> String {

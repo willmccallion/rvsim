@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn test_execute_one_normal() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn propagated_trap_travels_with_the_result() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn test_execute_fence_i() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn fp_op_with_fs_off_carries_an_illegal_instruction_trap() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_execute_branch_misprediction() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn test_execute_jump_jalr() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 

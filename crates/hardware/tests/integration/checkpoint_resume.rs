@@ -114,7 +114,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     source
         .sim
         .state
-        .shared
+        .uncore
         .memory
         .reservations_mut()
         .set(HartId::new(0), PhysAddr::new(0x8000_2040));
@@ -129,7 +129,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     assert_eq!(hart.pmp.entries(), source.sim.state.harts[0].pmp.entries());
     assert_eq!(hart.privilege, PrivilegeMode::Supervisor);
     assert_eq!(hart.regs.vpr().bytes(), vector.as_slice());
-    let reservations = restored.sim.state.shared.memory.reservations();
+    let reservations = restored.sim.state.uncore.memory.reservations();
     assert_eq!(reservations.reserved(HartId::new(0)), Some(PhysAddr::new(0x8000_2040)));
 }
 
@@ -170,7 +170,7 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
         system
             .sim
             .state
-            .shared
+            .uncore
             .coherence
             .as_ref()
             .and_then(CoherenceFabric::tracked_lines)

@@ -49,12 +49,12 @@ makes the schedule trivially deterministic.
 
 ```
 Simulator
-├── state: SimState                    system state, owned once
+├── state: SystemState                    system state, owned once
 │   ├── harts:  Vec<Hart>              architectural state per hardware thread
 │   ├── cores:  Vec<Core>              one per core, indexed by CoreId
 │   │   ├── units: CoreUnits           L1I, L1D, L2, MMU, WCB, predictor
 │   │   └── pipeline: PipelineDispatch the in-order or O3 pipeline
-│   └── shared: SharedState            the uncore
+│   └── shared: Uncore            the uncore
 │       ├── topology: Topology         every component ID, derived from config
 │       ├── cycle: u64                 master cycle counter
 │       ├── event_queue: EventQueue    single ordered queue for all components
@@ -77,22 +77,22 @@ state. They receive one of two **views**:
 pub struct CoreCtx<'a> {              // commit, traps, the engine's redirects
     pub hart: &'a mut Hart,
     pub core: &'a mut CoreUnits,
-    pub shared: &'a mut SharedState,
+    pub shared: &'a mut Uncore,
 }
-impl Deref for CoreCtx<'_> { type Target = SharedState; }
+impl Deref for CoreCtx<'_> { type Target = Uncore; }
 impl DerefMut for CoreCtx<'_> {}
 
 pub struct StageCtx<'a> {             // fetch, decode, rename, issue, execute, memory, writeback
     hart: &'a Hart,                   // read-only
     core: &'a mut CoreUnits,          // TLBs, predictor, caches
-    shared: &'a mut SharedState,      // only `counter()` and `events()` are exposed
+    shared: &'a mut Uncore,      // only `counter()` and `events()` are exposed
 }
-impl Deref for StageCtx<'_> { type Target = SharedState; }
+impl Deref for StageCtx<'_> { type Target = Uncore; }
 ```
 
 The simulator builds one `CoreCtx` per core per tick from disjoint borrows
 of `harts[i]`, `cores[i].units` and `shared`, alongside `cores[i].pipeline`
-(`SimState::pipeline_ctx`); the engine hands each stage a
+(`SystemState::pipeline_ctx`); the engine hands each stage a
 `StageCtx` derived from it. Translation, CSR reads and trigger checks are
 methods on both; `trap`, `csr_write`, register writes, `publish_write`
 and reservation handling exist only on `CoreCtx`, so an execute-stage
@@ -377,7 +377,7 @@ increments a counter through a pre-resolved `&'static str`.
 Each stage is a set of small commits that leaves the tree working, with
 single-core configurations cycle-identical to the previous stage.
 
-1. **Arenas and views.** `SimState` becomes `harts` + `cores` + `shared`;
+1. **Arenas and views.** `SystemState` becomes `harts` + `cores` + `shared`;
    `CoreCtx` (later narrowed to `StageCtx` for every stage but commit)
    replaces the single-hart state in every stage; `Topology`
    assigns IDs; request IDs carry their pipeline; reservations and

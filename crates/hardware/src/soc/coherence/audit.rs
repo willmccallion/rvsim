@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use super::protocol::CoreSet;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::packet::MesiState;
-use crate::system::state::SimState;
+use crate::system::state::SystemState;
 
 /// One broken invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,9 +28,9 @@ const fn is_owner(state: MesiState) -> bool {
 
 /// Checks every invariant and returns what is broken (empty when all hold).
 #[must_use]
-pub fn audit(state: &SimState) -> Vec<Violation> {
+pub fn audit(state: &SystemState) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let Some(fabric) = state.shared.coherence.as_ref() else { return violations };
+    let Some(fabric) = state.uncore.coherence.as_ref() else { return violations };
 
     let mut in_flight: Vec<LineAddr> = fabric.lines_in_flight();
     for core in state.cores.iter().map(|core| &core.units) {

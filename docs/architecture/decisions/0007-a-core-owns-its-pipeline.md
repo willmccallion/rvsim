@@ -5,7 +5,7 @@
 
 **Decision.** `Core` is the per-core model: `units: CoreUnits` (caches,
 MMU, write-combining buffer, branch predictor) and `pipeline:
-PipelineDispatch`. `SimState::pipeline_ctx` hands out the pipeline together
+PipelineDispatch`. `SystemState::pipeline_ctx` hands out the pipeline together
 with a `CoreCtx` built from disjoint borrows of the hart, the units and the
 uncore. Pipelines are built with the state and pointed at the loaded PC when
 the `Simulator` is created.

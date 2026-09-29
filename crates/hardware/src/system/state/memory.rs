@@ -1,11 +1,11 @@
-//! Virtual-to-physical translation entry point on `SimState`.
+//! Virtual-to-physical translation entry point on `SystemState`.
 //!
 //! Wraps the MMU's event-driven [`Mmu::translate_async`](crate::uarch::mmu::Mmu::translate_async)
 //! and PMP checks. Pipeline stages call this; on a TLB hit / direct-mode
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
 
-use super::{CoreCtx, SharedState};
+use super::{CoreCtx, Uncore};
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
@@ -15,9 +15,9 @@ use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
 
-/// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
+/// Outcome of [`SystemState::translate`] / [`SystemState::translate_continue`].
 ///
-/// Mirrors [`TranslateOutcome`] but lifted onto `SimState` so callers don't
+/// Mirrors [`TranslateOutcome`] but lifted onto `SystemState` so callers don't
 /// import the MMU module directly.
 #[derive(Clone, Debug)]
 pub enum TranslateResult {
@@ -26,7 +26,7 @@ pub enum TranslateResult {
     /// applies before the access begins.
     Ready(TranslationResult),
     /// Caller must issue a `MemReq` for `pte_addr`, stash `state`, and
-    /// resume via [`SimState::translate_continue`] when the response arrives.
+    /// resume via [`SystemState::translate_continue`] when the response arrives.
     NeedPte {
         /// Address of the next PTE to read.
         pte_addr: PhysAddr,
@@ -39,12 +39,12 @@ pub enum TranslateResult {
 pub(super) fn translate(
     core: &mut CoreUnits,
     hart: &Hart,
-    shared: &SharedState,
+    uncore: &Uncore,
     vaddr: VirtAddr,
     access: AccessType,
     size: u64,
 ) -> TranslateResult {
-    if shared.direct_mode {
+    if uncore.direct_mode {
         let paddr = PhysAddr::new(vaddr.val());
 
         let is_machine = hart.privilege == crate::isa::privileged::PrivilegeMode::Machine;
@@ -63,7 +63,7 @@ pub(super) fn translate(
             ));
         }
 
-        if !shared.bus.is_valid_address(paddr) {
+        if !uncore.bus.is_valid_address(paddr) {
             return TranslateResult::Ready(TranslationResult::fault(
                 fault_for(access, vaddr.val()),
                 0,
@@ -86,14 +86,14 @@ pub(super) fn translate(
     let outcome =
         core.mmu.translate_async(vaddr, access, effective_priv, &hart.csrs, Some(&hart.pmp));
 
-    finalize_outcome(hart, shared, outcome, vaddr, access, size, effective_priv)
+    finalize_outcome(hart, uncore, outcome, vaddr, access, size, effective_priv)
 }
 
 /// Resumes a walk that was parked waiting on a PTE response.
 pub(super) fn translate_continue(
     core: &mut CoreUnits,
     hart: &Hart,
-    shared: &SharedState,
+    uncore: &Uncore,
     state: WalkState,
     raw_pte: u64,
     bus_transit_cycles: u64,
@@ -108,14 +108,14 @@ pub(super) fn translate_continue(
     let size = 8u64;
     let outcome =
         core.mmu.continue_walk(state, raw_pte, &hart.csrs, Some(&hart.pmp), bus_transit_cycles);
-    finalize_outcome(hart, shared, outcome, vaddr, access, size, effective_priv)
+    finalize_outcome(hart, uncore, outcome, vaddr, access, size, effective_priv)
 }
 
 /// Applies the post-translation PMP + bus-address checks shared by the
 /// initial translate and walk continuation paths.
 fn finalize_outcome(
     hart: &Hart,
-    shared: &SharedState,
+    uncore: &Uncore,
     outcome: TranslateOutcome,
     vaddr: VirtAddr,
     access: AccessType,
@@ -135,7 +135,7 @@ fn finalize_outcome(
                     matches!(access, AccessType::Fetch),
                     is_machine,
                 );
-                if pmp_result != PmpResult::Allow || !shared.bus.is_valid_address(result.paddr) {
+                if pmp_result != PmpResult::Allow || !uncore.bus.is_valid_address(result.paddr) {
                     result =
                         TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
                 }
@@ -151,7 +151,7 @@ fn finalize_outcome(
 impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
-        translate(self.core, self.hart, self.shared, vaddr, access, size)
+        translate(self.core, self.hart, self.uncore, vaddr, access, size)
     }
 
     /// Resumes a walk that was parked waiting on a PTE response.
@@ -161,7 +161,7 @@ impl CoreCtx<'_> {
         raw_pte: u64,
         bus_transit_cycles: u64,
     ) -> TranslateResult {
-        translate_continue(self.core, self.hart, self.shared, state, raw_pte, bus_transit_cycles)
+        translate_continue(self.core, self.hart, self.uncore, state, raw_pte, bus_transit_cycles)
     }
 }
 
@@ -182,7 +182,7 @@ mod tests {
     fn test_translate_direct_mode() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);

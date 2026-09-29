@@ -168,7 +168,7 @@ impl PySimulator {
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let disk = disk_path.unwrap_or_default();
         let exit_signal = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-        let mut cpu = rvsim_core::SimState::new(&config, &disk, exit_signal.clone());
+        let mut cpu = rvsim_core::SystemState::new(&config, &disk, exit_signal.clone());
 
         let mut elf_entry: Option<u64> = None;
         let mut tohost_addr: Option<u64> = None;

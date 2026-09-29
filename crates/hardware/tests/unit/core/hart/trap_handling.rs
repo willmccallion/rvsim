@@ -3,15 +3,15 @@
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
 
-use rvsim_core::SimState;
+use rvsim_core::SystemState;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
 use rvsim_core::isa::reg::RegIdx;
 
-fn create_test_cpu() -> SimState {
+fn create_test_cpu() -> SystemState {
     let config = Config::default();
-    let mut state = SimState::build(&config, "");
+    let mut state = SystemState::build(&config, "");
     state.direct_mode = false;
     state
 }

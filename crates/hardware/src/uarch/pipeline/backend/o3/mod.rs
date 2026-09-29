@@ -271,13 +271,13 @@ impl O3Engine {
         redirect: &mut Option<u64>,
     ) {
         let paths = &state.core.stat_paths.pipeline;
-        state.shared.stats.counter(paths.stalls_control).inc();
-        state.shared.stats.counter(paths.flushes_total).inc();
+        state.uncore.stats.counter(paths.stalls_control).inc();
+        state.uncore.stats.counter(paths.flushes_total).inc();
         match squash.redirect.cause {
-            SquashCause::Branch => state.shared.stats.counter(paths.flushes_branch).inc(),
-            SquashCause::System => state.shared.stats.counter(paths.flushes_system).inc(),
+            SquashCause::Branch => state.uncore.stats.counter(paths.flushes_branch).inc(),
+            SquashCause::System => state.uncore.stats.counter(paths.flushes_system).inc(),
             SquashCause::MemoryOrder => {
-                state.shared.stats.counter(paths.flushes_mem_violations).inc();
+                state.uncore.stats.counter(paths.flushes_mem_violations).inc();
             }
             SquashCause::Coherence => {}
         }
@@ -302,7 +302,7 @@ impl O3Engine {
             }
             self.rob.len()
         };
-        state.shared.stats.counter(paths.flushes_squashed_insns).add(squashed as u64);
+        state.uncore.stats.counter(paths.flushes_squashed_insns).add(squashed as u64);
 
         if let Some(keep_tag) = keep_tag {
             // flush_after, not flush: older un-issued IQ entries must survive or deadlock the pipeline.
@@ -346,7 +346,7 @@ impl O3Engine {
             self.rebuild_rename_map();
             self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
             state
-                .shared
+                .uncore
                 .stats
                 .counter(paths.stalls_rename_rebuild)
                 .add(surviving.div_ceil(self.width.max(1)) as u64);
@@ -371,7 +371,7 @@ impl O3Engine {
             .partition(|p| p.complete_cycle <= now);
         self.pending_addresses = waiting;
         for done in ready {
-            state.shared.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
+            state.uncore.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.execute_mem1.push(done.entry);
         }
     }
@@ -425,7 +425,7 @@ impl ExecutionEngine for O3Engine {
         // Squash recovery: ROB read ports are busy with reclaim / rename rebuild.
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
+            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
         }
 
         if let Some(squash) = self.common.take_due_squash(now) {
@@ -608,7 +608,7 @@ impl ExecutionEngine for O3Engine {
                 self.mdp.violation(violation_pc, store_pc);
                 SquashCause::MemoryOrder
             } else {
-                state.shared.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
+                state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
                 SquashCause::Coherence
             };
             // The violating load re-executes, so it does not survive either.
@@ -627,7 +627,7 @@ impl ExecutionEngine for O3Engine {
         let mem_backpressured = !self.execute_mem1.is_empty();
 
         if mem_backpressured {
-            state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
+            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
         }
 
         {
@@ -637,7 +637,7 @@ impl ExecutionEngine for O3Engine {
                 let entry = pr.entry;
                 let fu_type = pr.fu_type;
 
-                state.shared.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).inc();
+                state.uncore.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).inc();
 
                 if let Some(trap) = entry.trap {
                     let stage = entry
@@ -732,7 +732,7 @@ impl ExecutionEngine for O3Engine {
             let stalled_fu = selection.unit_stalls > 0;
             if stalled_fu {
                 state
-                    .shared
+                    .uncore
                     .stats
                     .counter(state.core.stat_paths.pipeline.stalls_fu_structural)
                     .inc();
@@ -1030,7 +1030,7 @@ impl ExecutionEngine for O3Engine {
             }
 
             if issued_count == 0 && !stalled_fu && !self.issue_queue.is_empty() {
-                state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
+                state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
         }
 
@@ -1056,24 +1056,24 @@ impl ExecutionEngine for O3Engine {
 
         let mdp_stats = self.mdp.stats();
         {
-            let bypass = state.shared.stats.counter(state.core.stat_paths.mdp.predictions_bypass);
+            let bypass = state.uncore.stats.counter(state.core.stat_paths.mdp.predictions_bypass);
             bypass.reset();
             bypass.add(mdp_stats.predictions_bypass);
         }
         {
             let wait_all =
-                state.shared.stats.counter(state.core.stat_paths.mdp.predictions_wait_all);
+                state.uncore.stats.counter(state.core.stat_paths.mdp.predictions_wait_all);
             wait_all.reset();
             wait_all.add(mdp_stats.predictions_wait_all);
         }
         {
             let wait_for =
-                state.shared.stats.counter(state.core.stat_paths.mdp.predictions_wait_for);
+                state.uncore.stats.counter(state.core.stat_paths.mdp.predictions_wait_for);
             wait_for.reset();
             wait_for.add(mdp_stats.predictions_wait_for);
         }
         {
-            let violations = state.shared.stats.counter(state.core.stat_paths.mdp.violations);
+            let violations = state.uncore.stats.counter(state.core.stat_paths.mdp.violations);
             violations.reset();
             violations.add(mdp_stats.violations);
         }
@@ -1211,7 +1211,7 @@ mod tests {
     #[test]
     fn test_o3_engine_new_and_flush() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let mut engine = O3Engine::new(
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn test_o3_engine_sync_arch_regs() {
         let config = Config::default();
-        let mut sys = crate::system::SimState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config, "");
         let state = sys.core_ctx(0);
         let mut engine = O3Engine::new(
             &config,

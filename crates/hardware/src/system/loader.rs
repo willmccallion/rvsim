@@ -7,7 +7,7 @@ use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::soc::bus::Bus;
-use crate::system::SimState;
+use crate::system::SystemState;
 use object::{Object, ObjectSymbol};
 use std::fs;
 
@@ -72,7 +72,7 @@ impl Firmware {
 ///
 /// Returns [`SimError::FileRead`] if any required binary file cannot be read from disk.
 pub fn setup_kernel_load(
-    state: &mut SimState,
+    state: &mut SystemState,
     config: &Config,
     boot: &KernelBoot,
 ) -> Result<(), SimError> {
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_setup_kernel_load_fallback() {
         let config = Config::default();
-        let mut state = SimState::build(&config, "");
+        let mut state = SystemState::build(&config, "");
 
         setup_kernel_load(&mut state, &config, &KernelBoot::default()).unwrap();
 

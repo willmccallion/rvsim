@@ -94,7 +94,7 @@ pub trait CoherenceProtocol: Send + Sync + std::fmt::Debug {
     ) -> Vec<(CoreId, SnoopKind)>;
 
     /// State the requester installs once the snoops are done.
-    /// `others_remain` says some other core keeps a (shared) copy.
+    /// `others_remain` says some other core keeps a (uncore) copy.
     fn grant(&self, kind: ReqKind, others_remain: bool) -> MesiState;
 
     /// State a snooped holder ends in.
@@ -119,7 +119,7 @@ impl CoherenceProtocol for Mesi {
         match kind {
             ReqKind::ReadShared => match holders.owner {
                 // Only an owner can hold data the memory side lacks, or an
-                // exclusive right that must become shared.
+                // exclusive right that must become uncore.
                 Some(owner) if owner != requester => vec![(owner, SnoopKind::Shared)],
                 _ => Vec::new(),
             },

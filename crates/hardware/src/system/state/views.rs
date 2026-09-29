@@ -12,7 +12,7 @@ use std::ops::Deref;
 
 use super::memory::TranslateResult;
 use super::write_log::Writer;
-use super::{SharedState, csr, memory};
+use super::{Uncore, csr, memory};
 use crate::arch::Hart;
 use crate::arch::translation::PteUpdate;
 use crate::common::{AccessType, VirtAddr};
@@ -47,7 +47,7 @@ use crate::uarch::mmu::ptw::WalkState;
 pub struct StageCtx<'a> {
     hart: &'a Hart,
     core: &'a mut CoreUnits,
-    shared: &'a mut SharedState,
+    uncore: &'a mut Uncore,
 }
 
 /// What a hardware A/D update found.
@@ -67,23 +67,23 @@ impl ArchState for StageCtx<'_> {
     }
 
     fn csr_read(&self, addr: CsrAddr) -> u64 {
-        csr::read(self.hart, self.shared, addr)
+        csr::read(self.hart, self.uncore, addr)
     }
 
     fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        csr::read_for_update(self.hart, self.shared, addr)
+        csr::read_for_update(self.hart, self.uncore, addr)
     }
 
     fn tracing(&self) -> bool {
-        self.shared.config.general.trace_instructions
+        self.uncore.config.general.trace_instructions
     }
 }
 
 impl Deref for StageCtx<'_> {
-    type Target = SharedState;
+    type Target = Uncore;
 
-    fn deref(&self) -> &SharedState {
-        self.shared
+    fn deref(&self) -> &Uncore {
+        self.uncore
     }
 }
 
@@ -91,9 +91,9 @@ impl<'a> StageCtx<'a> {
     pub(super) const fn new(
         hart: &'a Hart,
         core: &'a mut CoreUnits,
-        shared: &'a mut SharedState,
+        uncore: &'a mut Uncore,
     ) -> Self {
-        Self { hart, core, shared }
+        Self { hart, core, uncore }
     }
 
     /// The hart's architectural state.
@@ -119,25 +119,25 @@ impl<'a> StageCtx<'a> {
     /// The stat counter `stat`.
     #[inline]
     pub fn counter(&mut self, stat: crate::sim::stats::StatId) -> &mut Counter {
-        self.shared.stats.counter(stat)
+        self.uncore.stats.counter(stat)
     }
 
     /// The event queue, to schedule a packet.
     #[inline]
     pub const fn events(&mut self) -> &mut EventQueue {
-        &mut self.shared.event_queue
+        &mut self.uncore.event_queue
     }
 
     /// Stat paths of the hart this view executes.
     #[inline]
     #[must_use]
     pub fn hart_paths(&self) -> HartPaths {
-        self.shared.hart_stat_paths[self.hart.hart_id.as_index()]
+        self.uncore.hart_stat_paths[self.hart.hart_id.as_index()]
     }
 
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(&mut self, vaddr: VirtAddr, access: AccessType, size: u64) -> TranslateResult {
-        memory::translate(self.core, self.hart, self.shared, vaddr, access, size)
+        memory::translate(self.core, self.hart, self.uncore, vaddr, access, size)
     }
 
     /// Resumes a walk that was parked waiting on a PTE response.
@@ -150,7 +150,7 @@ impl<'a> StageCtx<'a> {
         memory::translate_continue(
             self.core,
             self.hart,
-            self.shared,
+            self.uncore,
             state,
             raw_pte,
             bus_transit_cycles,
@@ -160,7 +160,7 @@ impl<'a> StageCtx<'a> {
     /// Sets a leaf PTE's A/D bits as the hardware does, atomically with
     /// the check that the PTE still holds the value its walk found.
     pub fn apply_pte_update(&mut self, update: &PteUpdate) -> PteUpdateOutcome {
-        let Some(current) = self.shared.memory.read(update.pte_addr, 8) else {
+        let Some(current) = self.uncore.memory.read(update.pte_addr, 8) else {
             return PteUpdateOutcome::Changed;
         };
         match update.applied_to(current) {
@@ -168,7 +168,7 @@ impl<'a> StageCtx<'a> {
             Some(pte) if pte == current => PteUpdateOutcome::AlreadySet,
             Some(pte) => {
                 let writer = Writer::Hart(self.hart.hart_id);
-                self.shared.publish_write(writer, update.pte_addr, pte, MemWidth::Double);
+                self.uncore.publish_write(writer, update.pte_addr, pte, MemWidth::Double);
                 PteUpdateOutcome::Written(pte)
             }
         }
@@ -177,13 +177,13 @@ impl<'a> StageCtx<'a> {
     /// Reads a CSR.
     #[must_use]
     pub fn csr_read(&self, addr: CsrAddr) -> u64 {
-        csr::read(self.hart, self.shared, addr)
+        csr::read(self.hart, self.uncore, addr)
     }
 
     /// The value a CSR read-modify-write starts from.
     #[must_use]
     pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        csr::read_for_update(self.hart, self.shared, addr)
+        csr::read_for_update(self.hart, self.uncore, addr)
     }
 
     /// True when the hart implements the CSR at `addr`.
