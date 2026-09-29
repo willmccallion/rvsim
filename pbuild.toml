@@ -73,7 +73,7 @@ type        = "task"
 max_time    = "10m"
 commands    = [
     ["{{cargo}}", "test", "--workspace"],
-    [".venv/bin/rvsim", "scripts/run_riscv_tests.py"],
+    [".venv/bin/python", "tests/conformance/riscv_tests.py"],
 ]
 
 [test-coverage]
