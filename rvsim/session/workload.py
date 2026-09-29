@@ -6,13 +6,12 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from ..simulator import Simulator
 from .stops import Stopped
 
-
-_file_digests: Dict[Tuple[str, int, int], str] = {}
+_file_digests: dict[tuple[str, int, int], str] = {}
 
 
 def _digest_json(value: Any) -> str:
@@ -39,11 +38,11 @@ class Workload:
     kernel boot (``kernel`` through OpenSBI ``firmware``, with an optional
     ``disk`` and ``dtb``)."""
 
-    binary: Optional[str] = None
-    kernel: Optional[str] = None
-    firmware: Optional[str] = None
-    disk: Optional[str] = None
-    dtb: Optional[str] = None
+    binary: str | None = None
+    kernel: str | None = None
+    firmware: str | None = None
+    disk: str | None = None
+    dtb: str | None = None
 
     def __post_init__(self):
         if (self.binary is None) == (self.kernel is None):
@@ -66,7 +65,7 @@ class Workload:
     def is_kernel(self) -> bool:
         return self.kernel is not None
 
-    def files(self) -> Dict[str, str]:
+    def files(self) -> dict[str, str]:
         """Each file the workload loads, by role."""
         roles = ("binary", "kernel", "firmware", "disk", "dtb")
         return {
@@ -75,11 +74,11 @@ class Workload:
             if getattr(self, role) is not None
         }
 
-    def digests(self) -> Dict[str, str]:
+    def digests(self) -> dict[str, str]:
         """Each file's SHA-256, by role."""
         return {role: _file_digest(path) for role, path in self.files().items()}
 
-    def build(self, config: Dict[str, Any]) -> Simulator:
+    def build(self, config: dict[str, Any]) -> Simulator:
         return Simulator(
             config,
             binary=self.binary,
@@ -99,9 +98,9 @@ class Region:
     """The region's stats (a ``Stats``): only what happened inside it."""
     console: str
     """What the guest printed during the region."""
-    exit_code: Optional[int]
+    exit_code: int | None
     """The measured command's exit status, or the workload's exit code."""
-    stopped: Optional[Stopped]
+    stopped: Stopped | None
     """Where a region measured up to a stop ended."""
     host_seconds: float
 
@@ -117,7 +116,7 @@ class Region:
     def ipc(self) -> float:
         return self.stats.ipc
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable record of the region, every stat included."""
         return {
             "name": self.name,

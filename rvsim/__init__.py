@@ -15,16 +15,29 @@ A Python-first interface to the cycle-level RISC-V simulator:
 
 from importlib.metadata import (
     PackageNotFoundError as _PackageNotFoundError,
+)
+from importlib.metadata import (
     version as _metadata_version,
 )
 
 from . import presets
-from .config import Config
+from .config import (
+    Backend,
+    BranchPredictor,
+    Cache,
+    Coherence,
+    Config,
+    Fu,
+    HomeAgent,
+    Interconnect,
+    MemDepPredictor,
+    MemoryController,
+    Prefetcher,
+    ReplacementPolicy,
+)
 from .experiment import Environment, Result
 from .isa import Disassemble, csr, reg
-from .simulator import Instruction, PipelineSnapshot, Simulator
 from .session import Region, Session, WorkloadEnded
-from .stats import Stats, Table
 from .session.stops import (
     LOGIN_SHELL,
     AnyOf,
@@ -39,21 +52,9 @@ from .session.stops import (
     Stopped,
     When,
 )
+from .simulator import Instruction, PipelineSnapshot, Simulator
+from .stats import Stats, Table
 from .sweep import Sweep, SweepResults
-from .config import (
-    Backend,
-    BranchPredictor,
-    Cache,
-    Coherence,
-    Fu,
-    HomeAgent,
-    Interconnect,
-    MemDepPredictor,
-    MemoryController,
-    Prefetcher,
-    ReplacementPolicy,
-)
-
 
 try:
     __version__ = _metadata_version("rvsim")
@@ -71,46 +72,46 @@ def version() -> str:
 
 
 __all__ = [
-    "__version__",
-    "version",
-    "presets",
-    "Config",
-    "BranchPredictor",
-    "MemDepPredictor",
-    "ReplacementPolicy",
-    "Prefetcher",
-    "MemoryController",
+    "LOGIN_SHELL",
+    "AnyOf",
     "Backend",
+    "BranchPredictor",
     "Cache",
     "Coherence",
-    "HomeAgent",
-    "Interconnect",
-    "Fu",
-    "Simulator",
-    "Instruction",
-    "PipelineSnapshot",
+    "Config",
+    "Console",
+    "Cycles",
+    "Disassemble",
     "Environment",
+    "Exit",
+    "Fu",
+    "HomeAgent",
+    "Instruction",
+    "Instructions",
+    "Interconnect",
+    "LoginShell",
+    "Marker",
+    "MemDepPredictor",
+    "MemoryController",
+    "Pc",
+    "PipelineSnapshot",
+    "Prefetcher",
+    "Region",
+    "ReplacementPolicy",
     "Result",
     "Session",
-    "Region",
-    "WorkloadEnded",
+    "Simulator",
+    "Stats",
     "Stop",
     "Stopped",
-    "Cycles",
-    "Instructions",
-    "Pc",
-    "Marker",
-    "Console",
-    "Exit",
-    "When",
-    "AnyOf",
-    "LoginShell",
-    "LOGIN_SHELL",
-    "Stats",
-    "Table",
-    "reg",
-    "csr",
-    "Disassemble",
     "Sweep",
     "SweepResults",
+    "Table",
+    "When",
+    "WorkloadEnded",
+    "__version__",
+    "csr",
+    "presets",
+    "reg",
+    "version",
 ]

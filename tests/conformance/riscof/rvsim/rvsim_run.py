@@ -9,10 +9,10 @@ begin_signature and end_signature symbols, and writes it in the hex
 format riscof expects (one 32-bit word per line, big-endian hex).
 """
 
+import os
 import struct
 import subprocess
 import sys
-import os
 
 # Ensure rvsim is importable from the repo root
 REPO_ROOT = os.path.dirname(
@@ -22,9 +22,9 @@ REPO_ROOT = os.path.dirname(
 )
 sys.path.insert(0, REPO_ROOT)
 
-from rvsim import Config, Backend  # noqa: E402
-from rvsim._core import Simulator  # noqa: E402
-from rvsim.config._config import _config_to_dict  # noqa: E402
+from rvsim import Backend, Config
+from rvsim._core import Simulator
+from rvsim.config._config import _config_to_dict
 
 CYCLE_LIMIT = 2_000_000
 READELF = None
@@ -47,7 +47,9 @@ def get_symbol_addr(elf_path, symbol_name):
     if READELF is None:
         READELF = _find_readelf()
 
-    result = subprocess.run([READELF, "-s", elf_path], capture_output=True, text=True)
+    result = subprocess.run(
+        [READELF, "-s", elf_path], capture_output=True, text=True, check=True
+    )
     for line in result.stdout.splitlines():
         parts = line.split()
         if len(parts) >= 8 and parts[-1] == symbol_name:

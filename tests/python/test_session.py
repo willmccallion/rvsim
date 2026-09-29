@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from rvsim import (
+    LOGIN_SHELL,
     AnyOf,
     Backend,
     Config,
@@ -16,7 +17,6 @@ from rvsim import (
     Cycles,
     Exit,
     Instructions,
-    LOGIN_SHELL,
     Marker,
     Pc,
     Session,

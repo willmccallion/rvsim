@@ -78,6 +78,7 @@ def run_spike(elf_path, vlen, march, sig_path):
         capture_output=True,
         text=True,
         timeout=TIMEOUT_SEC,
+        check=False,
     )
     if not os.path.isfile(sig_path):
         return None, f"spike no sig (rc={res.returncode}): {res.stderr.strip()[:160]}"
@@ -95,6 +96,7 @@ def run_rvsim(elf_path, sig_path):
         capture_output=True,
         text=True,
         timeout=TIMEOUT_SEC,
+        check=False,
     )
     if res.returncode != 0:
         msg = (res.stderr or res.stdout).strip().splitlines()
@@ -114,35 +116,39 @@ def run_one(args):
     try:
         spike_sig, spike_err = run_spike(elf_path, vlen, march, spike_sig_path)
         if spike_sig is None:
-            return dict(name=name, status="skip", reason=spike_err)
+            return {"name": name, "status": "skip", "reason": spike_err}
 
         rvsim_sig, rvsim_err = run_rvsim(elf_path, rvsim_sig_path)
         if rvsim_sig is None:
             # rvsim crashed/panicked — count as fail with the error captured
-            return dict(
-                name=name,
-                status="error",
-                reason=rvsim_err,
-                seconds=round(time.time() - t0, 2),
-            )
+            return {
+                "name": name,
+                "status": "error",
+                "reason": rvsim_err,
+                "seconds": round(time.time() - t0, 2),
+            }
 
         if len(rvsim_sig) == len(spike_sig) and rvsim_sig == spike_sig:
-            return dict(name=name, status="pass", seconds=round(time.time() - t0, 2))
+            return {
+                "name": name,
+                "status": "pass",
+                "seconds": round(time.time() - t0, 2),
+            }
 
         n = min(len(rvsim_sig), len(spike_sig))
         diff_at = next((i for i in range(n) if rvsim_sig[i] != spike_sig[i]), n)
-        return dict(
-            name=name,
-            status="fail",
-            seconds=round(time.time() - t0, 2),
-            diff_at=diff_at,
-            spike_len=len(spike_sig),
-            rvsim_len=len(rvsim_sig),
-        )
+        return {
+            "name": name,
+            "status": "fail",
+            "seconds": round(time.time() - t0, 2),
+            "diff_at": diff_at,
+            "spike_len": len(spike_sig),
+            "rvsim_len": len(rvsim_sig),
+        }
     except subprocess.TimeoutExpired:
-        return dict(name=name, status="timeout", seconds=TIMEOUT_SEC)
+        return {"name": name, "status": "timeout", "seconds": TIMEOUT_SEC}
     except Exception as e:
-        return dict(name=name, status="error", reason=f"{type(e).__name__}: {e}")
+        return {"name": name, "status": "error", "reason": f"{type(e).__name__}: {e}"}
     finally:
         for p in (spike_sig_path, rvsim_sig_path):
             try:
@@ -219,11 +225,11 @@ def main():
                     r = fut.result()
                 except Exception as e:
                     elf = futs[fut]
-                    r = dict(
-                        name=os.path.basename(elf)[:-4],
-                        status="error",
-                        reason=f"{type(e).__name__}: {e}",
-                    )
+                    r = {
+                        "name": os.path.basename(elf)[:-4],
+                        "status": "error",
+                        "reason": f"{type(e).__name__}: {e}",
+                    }
                 results.append(r)
                 counts[r["status"]] = counts.get(r["status"], 0) + 1
                 mark = {

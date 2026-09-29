@@ -8,11 +8,10 @@ Provides callable namespace objects:
 
 import struct
 import sys
-from typing import List, Optional, Tuple
 
 from ._core import disassemble
 
-__all__ = ["Disassemble", "reg", "csr"]
+__all__ = ["Disassemble", "csr", "reg"]
 
 
 class Disassemble:
@@ -27,10 +26,10 @@ class Disassemble:
     """
 
     def __init__(self):
-        self._data: Optional[bytes] = None
+        self._data: bytes | None = None
         self._base: int = 0x8000_0000
         self._offset: int = 0
-        self._count: Optional[int] = None
+        self._count: int | None = None
 
     def binary(self, path: str) -> "Disassemble":
         with open(path, "rb") as f:
@@ -45,7 +44,7 @@ class Disassemble:
         self._base = addr
         return self
 
-    def at(self, addr: int, count: Optional[int] = None) -> "Disassemble":
+    def at(self, addr: int, count: int | None = None) -> "Disassemble":
         self._offset = addr - self._base
         self._count = count
         return self
@@ -57,7 +56,7 @@ class Disassemble:
     def inst(self, raw: int) -> str:
         return disassemble(raw)
 
-    def decode(self) -> List[Tuple[int, int, str]]:
+    def decode(self) -> list[tuple[int, int, str]]:
         if self._data is None:
             raise ValueError(
                 "No data to disassemble. Call .binary() or .bytes() first."

@@ -41,6 +41,7 @@ class Bench(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
+            check=False,
         )
 
     def test_list_names_each_benchmark_and_its_command(self):

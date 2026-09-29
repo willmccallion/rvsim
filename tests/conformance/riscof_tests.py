@@ -31,7 +31,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -97,9 +97,10 @@ def run_one(args):
             text=True,
             timeout=TIMEOUT_SEC,
             env=riscof_env,
+            check=False,
         )
     except subprocess.TimeoutExpired:
-        return dict(test=rel, pipeline=pipeline_label, status="timeout")
+        return {"test": rel, "pipeline": pipeline_label, "status": "timeout"}
     finally:
         pass
 
@@ -108,18 +109,18 @@ def run_one(args):
             os.remove(sig_out)
         except OSError:
             pass
-        return dict(test=rel, pipeline=pipeline_label, status="timeout")
+        return {"test": rel, "pipeline": pipeline_label, "status": "timeout"}
 
     if not os.path.isfile(sig_out):
         # Worker crashed/panicked before writing sig
         msg = (res.stderr or res.stdout).strip().splitlines()
         tail = " | ".join(msg[-3:])[:200]
-        return dict(
-            test=rel,
-            pipeline=pipeline_label,
-            status="error",
-            reason=f"rc={res.returncode}: {tail}",
-        )
+        return {
+            "test": rel,
+            "pipeline": pipeline_label,
+            "status": "error",
+            "reason": f"rc={res.returncode}: {tail}",
+        }
 
     try:
         with open(sig_out) as f:
@@ -133,12 +134,12 @@ def run_one(args):
             pass
 
     if dut_sig == ref:
-        return dict(
-            test=rel,
-            pipeline=pipeline_label,
-            status="pass",
-            seconds=round(time.time() - t0, 2),
-        )
+        return {
+            "test": rel,
+            "pipeline": pipeline_label,
+            "status": "pass",
+            "seconds": round(time.time() - t0, 2),
+        }
     # Find first differing line for the report
     dut_lines = dut_sig.splitlines()
     ref_lines = ref.splitlines()
@@ -150,13 +151,13 @@ def run_one(args):
         ),
         min(len(dut_lines), len(ref_lines)),
     )
-    return dict(
-        test=rel,
-        pipeline=pipeline_label,
-        status="fail",
-        diff_line=diff_at,
-        seconds=round(time.time() - t0, 2),
-    )
+    return {
+        "test": rel,
+        "pipeline": pipeline_label,
+        "status": "fail",
+        "diff_line": diff_at,
+        "seconds": round(time.time() - t0, 2),
+    }
 
 
 def main():
@@ -240,12 +241,12 @@ def main():
                     r = fut.result()
                 except Exception as e:
                     w = futs[fut]
-                    r = dict(
-                        test=w[0],
-                        pipeline=w[3],
-                        status="error",
-                        reason=f"{type(e).__name__}: {e}",
-                    )
+                    r = {
+                        "test": w[0],
+                        "pipeline": w[3],
+                        "status": "error",
+                        "reason": f"{type(e).__name__}: {e}",
+                    }
                 results.append(r)
                 counts[r["status"]] = counts.get(r["status"], 0) + 1
                 if r["status"] != "pass":

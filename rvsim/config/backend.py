@@ -137,7 +137,7 @@ class Fu:
         )
 
     # Default pool matching Skylake-class hardware
-    _DEFAULTS: "list"
+    _DEFAULTS: list
 
     def __init__(self, units=None):
         self.units = list(units) if units is not None else list(Fu._DEFAULTS)

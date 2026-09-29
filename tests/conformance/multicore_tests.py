@@ -23,7 +23,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -64,21 +64,22 @@ def run_one(args):
             text=True,
             timeout=TIMEOUT_SEC,
             env=env,
+            check=False,
         )
     except subprocess.TimeoutExpired:
-        return dict(test=name, pipeline=label, harts=harts, status="timeout")
+        return {"test": name, "pipeline": label, "harts": harts, "status": "timeout"}
     elapsed = round(time.time() - t0, 2)
     status = {0: "pass", 1: "fail", 124: "timeout"}.get(res.returncode, "error")
     tail = " | ".join((res.stdout + res.stderr).strip().splitlines()[-3:])[:300]
-    return dict(
-        test=name,
-        pipeline=label,
-        harts=harts,
-        status=status,
-        rc=res.returncode,
-        output=tail,
-        seconds=elapsed,
-    )
+    return {
+        "test": name,
+        "pipeline": label,
+        "harts": harts,
+        "status": status,
+        "rc": res.returncode,
+        "output": tail,
+        "seconds": elapsed,
+    }
 
 
 def main():

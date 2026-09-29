@@ -19,18 +19,12 @@ import re
 import sys
 import tempfile
 import time
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import (
+    TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    Iterator,
-    List,
-    Mapping,
-    Optional,
     TextIO,
-    Tuple,
-    Union,
 )
 
 from .. import _core, presets
@@ -52,8 +46,10 @@ from .stops import (
 )
 from .workload import Region, Workload, _digest_json
 
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
-ConfigLike = Union[Config, Dict[str, Any]]
+ConfigLike = Config | dict[str, Any]
 
 
 #: Native config fields the guest can observe; a switch keeps them.
@@ -104,7 +100,7 @@ class WorkloadEnded(RuntimeError):
         self.stopped = stopped
 
 
-def _native(config: ConfigLike) -> Dict[str, Any]:
+def _native(config: ConfigLike) -> dict[str, Any]:
     """The native config dict, with the console captured for the session."""
     native = copy.deepcopy(_config_to_dict(config))
     native["system"]["console"] = "captured"
@@ -122,7 +118,7 @@ def _typed_command_output(console: str) -> str:
     return console[echo_end.end() :] if echo_end else ""
 
 
-def _guest_view_differences(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
+def _guest_view_differences(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     return [
         f"{field}: {a[section][field]!r} vs {b[section][field]!r}"
         for section, field in _GUEST_VISIBLE
@@ -130,7 +126,7 @@ def _guest_view_differences(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
     ]
 
 
-def _repo_linux_dir() -> Optional[pathlib.Path]:
+def _repo_linux_dir() -> pathlib.Path | None:
     here = pathlib.Path(__file__).resolve().parent.parent.parent
     for root in (here, pathlib.Path.cwd()):
         candidate = root / "software" / "linux" / "output"
@@ -154,7 +150,7 @@ class FastForward:
     stop: Stop
     cached: bool
     """Whether the stop was restored from the cache instead of run to."""
-    checkpoint: Optional[str]
+    checkpoint: str | None
     """The cached checkpoint, when the fast-forward was cached."""
     cycle: int
     instructions: int
@@ -185,17 +181,17 @@ class Session:
 
     def __init__(
         self,
-        config: Optional[ConfigLike] = None,
+        config: ConfigLike | None = None,
         *,
-        binary: Optional[str] = None,
-        kernel: Optional[str] = None,
-        firmware: Optional[str] = None,
-        disk: Optional[str] = None,
-        dtb: Optional[str] = None,
-        fast_forward_config: Optional[ConfigLike] = None,
-        cache_dir: Optional[str] = None,
-        echo: Union[bool, TextIO] = False,
-        console_log: Optional[str] = None,
+        binary: str | None = None,
+        kernel: str | None = None,
+        firmware: str | None = None,
+        disk: str | None = None,
+        dtb: str | None = None,
+        fast_forward_config: ConfigLike | None = None,
+        cache_dir: str | None = None,
+        echo: bool | TextIO = False,
+        console_log: str | None = None,
         progress: bool = False,
     ):
         """
@@ -229,11 +225,11 @@ class Session:
     def _init(
         self,
         workload: Workload,
-        config: Optional[ConfigLike],
-        fast_forward_config: Optional[ConfigLike],
-        cache_dir: Optional[str],
-        echo: Union[bool, TextIO],
-        console_log: Optional[str],
+        config: ConfigLike | None,
+        fast_forward_config: ConfigLike | None,
+        cache_dir: str | None,
+        echo: bool | TextIO,
+        console_log: str | None,
         progress: bool,
     ) -> None:
         self.workload = workload
@@ -251,31 +247,31 @@ class Session:
                 + "; ".join(differences)
             )
         self._cache = _Cache(cache_dir or default_cache_dir())
-        self._echo: Optional[TextIO] = sys.stdout if echo is True else (echo or None)
-        self._log = open(console_log, "w") if console_log else None
+        self._echo: TextIO | None = sys.stdout if echo is True else (echo or None)
+        self._log = open(console_log, "w") if console_log else None  # noqa: SIM115 closed by close()
         self._progress = progress
-        self._sim: Optional[Simulator] = None
-        self._sim_config: Optional[Dict[str, Any]] = None
+        self._sim: Simulator | None = None
+        self._sim_config: dict[str, Any] | None = None
         self._console = ""
         self._cursor = 0
-        self._history: List[Dict[str, Any]] = []
-        self._untracked: Optional[str] = None
+        self._history: list[dict[str, Any]] = []
+        self._untracked: str | None = None
         self._next_label = _FIRST_LABEL
-        self._phase: Optional[str] = None
-        self.last_fast_forward: Optional[FastForward] = None
+        self._phase: str | None = None
+        self.last_fast_forward: FastForward | None = None
 
     @classmethod
     def linux(
         cls,
-        config: Optional[ConfigLike] = None,
+        config: ConfigLike | None = None,
         *,
-        harts: Optional[int] = None,
-        image_dir: Optional[str] = None,
-        kernel: Optional[str] = None,
-        firmware: Optional[str] = None,
-        disk: Optional[str] = None,
+        harts: int | None = None,
+        image_dir: str | None = None,
+        kernel: str | None = None,
+        firmware: str | None = None,
+        disk: str | None = None,
         **kwargs: Any,
-    ) -> "Session":
+    ) -> Session:
         """A session on the bundled Linux image (built by ``make linux``).
 
         ``config`` defaults to ``presets.linux(harts)``. Fast-forwards run
@@ -295,7 +291,7 @@ class Session:
                 "no software/linux/output found; build the image with `make linux`"
             )
 
-        def default(path: Optional[str], name: str) -> Optional[str]:
+        def default(path: str | None, name: str) -> str | None:
             if path is not None:
                 return path
             return str(directory / name) if directory is not None else None
@@ -317,8 +313,8 @@ class Session:
 
     @classmethod
     def resume(
-        cls, path: str, config: Optional[ConfigLike] = None, **kwargs: Any
-    ) -> "Session":
+        cls, path: str, config: ConfigLike | None = None, **kwargs: Any
+    ) -> Session:
         """A session continuing from a checkpoint :meth:`save` wrote, on
         ``config`` (the configuration it was saved on by default).
 
@@ -375,10 +371,10 @@ class Session:
 
     def run(
         self,
-        until: Optional[Stop] = None,
+        until: Stop | None = None,
         *,
-        every: Optional[int] = None,
-        on_every: Optional[Callable[["Session"], None]] = None,
+        every: int | None = None,
+        on_every: Callable[[Session], None] | None = None,
     ) -> Stopped:
         """Runs until ``until`` holds (the workload's end by default),
         calling ``on_every(session)`` every ``every`` cycles on the way."""
@@ -391,7 +387,7 @@ class Session:
             )
         return stop._drive(self)
 
-    def fast_forward(self, until: Stop, *, cache: bool = True) -> "Session":
+    def fast_forward(self, until: Stop, *, cache: bool = True) -> Session:
         """Gets to ``until`` quickly: restores it from the cache when this
         history has reached it before, else runs to it on the fast-forward
         configuration (and caches it). Either way the session continues
@@ -424,7 +420,7 @@ class Session:
         self._record_fast_forward(until, False, path, began)
         return self
 
-    def switch(self, config: ConfigLike) -> "Session":
+    def switch(self, config: ConfigLike) -> Session:
         """Continues on ``config``, which must show the guest the same
         system (harts, RAM, memory map, VLEN and ISA options). Caches,
         TLBs and predictors start cold."""
@@ -446,8 +442,8 @@ class Session:
         return self
 
     def warm_up(
-        self, until: Optional[Stop] = None, *, command: Optional[str] = None
-    ) -> "Session":
+        self, until: Stop | None = None, *, command: str | None = None
+    ) -> Session:
         """Runs unmeasured to ``until``, or through a shell ``command``, to
         warm caches and predictors before measuring."""
         if (until is None) == (command is None):
@@ -462,10 +458,10 @@ class Session:
 
     def measure(
         self,
-        command: Optional[str] = None,
+        command: str | None = None,
         *,
-        until: Optional[Stop] = None,
-        name: Optional[str] = None,
+        until: Stop | None = None,
+        name: str | None = None,
     ) -> Region:
         """Measures a shell ``command`` (Linux) or the run to ``until``.
 
@@ -484,7 +480,7 @@ class Session:
         self.sim.write_console(text)
         self._history.append({"send": text})
 
-    def expect(self, pattern: Union[str, "re.Pattern[str]"]) -> "re.Match[str]":
+    def expect(self, pattern: str | re.Pattern[str]) -> re.Match[str]:
         """Runs until the console prints ``pattern`` and returns the match.
 
         Raises :class:`WorkloadEnded` if the workload ends first."""
@@ -514,9 +510,7 @@ class Session:
         self._save(path)
         return path
 
-    def fork(
-        self, configs: Mapping[str, ConfigLike]
-    ) -> Iterator[Tuple[str, "Session"]]:
+    def fork(self, configs: Mapping[str, ConfigLike]) -> Iterator[tuple[str, Session]]:
         """Continues from this point once per configuration: yields
         ``(name, session)`` pairs, each an independent session on its
         config. This session is left as it was."""
@@ -543,13 +537,13 @@ class Session:
             self._log.close()
             self._log = None
 
-    def __enter__(self) -> "Session":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _run_on(self, config: Dict[str, Any]) -> None:
+    def _run_on(self, config: dict[str, Any]) -> None:
         """Makes ``config`` the running configuration, carrying the state
         over from the current one."""
         if self._sim is None:
@@ -589,7 +583,7 @@ class Session:
         )
 
     def _record_fast_forward(
-        self, until: Stop, cached: bool, path: Optional[str], began: float
+        self, until: Stop, cached: bool, path: str | None, began: float
     ) -> None:
         self.last_fast_forward = FastForward(
             stop=until,
@@ -615,10 +609,10 @@ class Session:
 
     def _run_primitives(
         self,
-        stops: Tuple[Stop, ...],
+        stops: tuple[Stop, ...],
         *,
-        every: Optional[int] = None,
-        on_every: Optional[Callable[["Session"], None]] = None,
+        every: int | None = None,
+        on_every: Callable[[Session], None] | None = None,
     ) -> Stopped:
         """Runs until one of ``stops`` holds; see :mod:`rvsim.session.stops`."""
         keys = [stop.key() for stop in stops]
@@ -644,9 +638,9 @@ class Session:
             self._log.flush()
 
     def _match_console(
-        self, consoles: List[Console]
-    ) -> Optional[Tuple[Console, "re.Match[str]"]]:
-        best: Optional[Tuple[Console, "re.Match[str]"]] = None
+        self, consoles: list[Console]
+    ) -> tuple[Console, re.Match[str]] | None:
+        best: tuple[Console, re.Match[str]] | None = None
         for console in consoles:
             match = console.regex.search(self._console, self._cursor)
             if match and (best is None or match.start() < best[1].start()):
@@ -661,12 +655,12 @@ class Session:
                 "commands need a Linux shell; measure a bare-metal run with until="
             )
 
-    def _take_labels(self) -> Tuple[int, int]:
+    def _take_labels(self) -> tuple[int, int]:
         start = self._next_label
         self._next_label += 2
         return start, start + 1
 
-    def _command_output(self, start: int, match: "re.Match[str]") -> str:
+    def _command_output(self, start: int, match: re.Match[str]) -> str:
         return _typed_command_output(self._console[start : match.start()])
 
     def _measure_command(self, command: str, name: str, began: float) -> Region:
@@ -732,7 +726,7 @@ class Session:
         os.replace(pending, path)
         os.replace(pending + ".json", path + ".json")
 
-    def _load(self, path: str, meta: Dict[str, Any]) -> None:
+    def _load(self, path: str, meta: dict[str, Any]) -> None:
         """Replaces the running state with a saved one, continuing on the
         session's configuration."""
         differences = _guest_view_differences(meta["config"], self._config)
@@ -765,9 +759,9 @@ class _Run:
     def __init__(
         self,
         session: Session,
-        stops: Tuple[Stop, ...],
-        every: Optional[int],
-        on_every: Optional[Callable[[Session], None]],
+        stops: tuple[Stop, ...],
+        every: int | None,
+        on_every: Callable[[Session], None] | None,
     ):
         self.session = session
         self.sim = session.sim
@@ -818,7 +812,7 @@ class _Run:
             **details,
         )
 
-    def _reached(self) -> Optional[Stopped]:
+    def _reached(self) -> Stopped | None:
         """A stop that holds without running further, if any."""
         matched = self.session._match_console(self.consoles)
         if matched is not None:
@@ -831,7 +825,7 @@ class _Run:
                 return self._stopped(stop)
         return None
 
-    def _stopped_by(self, reason: str, value: Optional[int]) -> Optional[Stopped]:
+    def _stopped_by(self, reason: str, value: int | None) -> Stopped | None:
         """The stop ``run_to``'s ``reason`` means, if it is one of ours."""
         if reason == "exit":
             return self._stopped(self.exit, exit_code=value)
@@ -846,7 +840,7 @@ class _Run:
                     return self._stopped(marker, label=value)
         return None
 
-    def _cycles_to_run(self) -> Optional[int]:
+    def _cycles_to_run(self) -> int | None:
         horizons = [target for target, _ in self.cycle_targets]
         horizons += [check for check, _ in self.whens]
         if self.next_every is not None:
@@ -858,13 +852,13 @@ class _Run:
             return None
         return max(1, min(horizons) - now)
 
-    def _instructions_to_run(self) -> Optional[int]:
+    def _instructions_to_run(self) -> int | None:
         if not self.instruction_targets:
             return None
         remaining = min(target for target, _ in self.instruction_targets)
         return max(1, remaining - self.sim.instructions_retired)
 
-    def _periodic(self) -> Optional[Stopped]:
+    def _periodic(self) -> Stopped | None:
         """Runs the callbacks that are due; a :class:`When` that holds
         stops the run."""
         now = self.sim.cycle

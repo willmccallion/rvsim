@@ -105,20 +105,14 @@ def build(linux_dir: str) -> int:
 
     print("[Linux] Configuring Buildroot...")
     r = subprocess.run(
-        ["make", "riscv_emu_defconfig"],
-        cwd=buildroot_dir,
-        env=env,
+        ["make", "riscv_emu_defconfig"], cwd=buildroot_dir, env=env, check=False
     )
     if r.returncode != 0:
         return r.returncode
 
     print("[Linux] Building (this may take a while)...")
     nproc = os.cpu_count() or 4
-    r = subprocess.run(
-        ["make", f"-j{nproc}"],
-        cwd=buildroot_dir,
-        env=env,
-    )
+    r = subprocess.run(["make", f"-j{nproc}"], cwd=buildroot_dir, env=env, check=False)
     if r.returncode != 0:
         return r.returncode
 
@@ -232,7 +226,7 @@ def main():
         return sim.run(
             limit=10_000_000_000
         )  # Add progress = ... to this if it seems to hang.
-    except Exception as e:
+    except RuntimeError as e:
         print(f"Simulation failed: {e}")
         return 1
     finally:

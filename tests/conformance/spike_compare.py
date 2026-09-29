@@ -32,7 +32,7 @@ ORACLE_DIR = os.path.join(ROOT, "tests", "builds", "spike-oracle")
 
 # Shared pipeline matrix.
 sys.path.insert(0, ROOT)
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402, F401
+from tests.conformance.configs.pipelines import PIPELINES
 
 # ── Test suites ──────────────────────────────────────────────────────────────
 SUITES = [
@@ -138,6 +138,7 @@ def generate_spike_oracle(tests):
             ["spike", "-l", "--isa=rv64gc", path],
             capture_output=True,
             timeout=30,
+            check=False,
         )
 
         if result.returncode != 0:

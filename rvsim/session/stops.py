@@ -9,49 +9,50 @@ ends if the workload does, reported as :class:`Exit`.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .session import Session
 
 __all__ = [
-    "Stop",
-    "Cycles",
-    "Instructions",
-    "Pc",
-    "Marker",
-    "Console",
-    "Exit",
-    "When",
-    "AnyOf",
-    "LoginShell",
     "LOGIN_SHELL",
+    "AnyOf",
+    "Console",
+    "Cycles",
+    "Exit",
+    "Instructions",
+    "LoginShell",
+    "Marker",
+    "Pc",
+    "Stop",
     "Stopped",
+    "When",
 ]
 
 
 class Stop:
     """Where a run stops."""
 
-    def __or__(self, other: "Stop") -> "AnyOf":
+    def __or__(self, other: Stop) -> AnyOf:
         return AnyOf(self, other)
 
-    def key(self) -> Optional[str]:
+    def key(self) -> str | None:
         """A stable description of the stop for checkpoint-cache keys, or
         ``None`` when it has none (a predicate, say)."""
         return None
 
-    def _primitives(self) -> Tuple["Stop", ...]:
+    def _primitives(self) -> tuple[Stop, ...]:
         """The conditions one run checks together."""
         return (self,)
 
-    def _drive(self, session: "Session") -> "Stopped":
+    def _drive(self, session: Session) -> Stopped:
         """Runs ``session`` until this stop holds."""
         return session._run_primitives(self._primitives())
 
 
-def _count(value: Union[int, float], what: str) -> int:
+def _count(value: float, what: str) -> int:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -65,7 +66,7 @@ class Cycles(Stop):
 
     count: int
 
-    def __init__(self, count: Union[int, float]):
+    def __init__(self, count: float):
         object.__setattr__(self, "count", _count(count, "Cycles"))
 
     def key(self) -> str:
@@ -78,7 +79,7 @@ class Instructions(Stop):
 
     count: int
 
-    def __init__(self, count: Union[int, float]):
+    def __init__(self, count: float):
         object.__setattr__(self, "count", _count(count, "Instructions"))
 
     def key(self) -> str:
@@ -90,7 +91,7 @@ class Pc(Stop):
     """When any hart's next instruction to retire is at one of
     ``addresses``."""
 
-    addresses: Tuple[int, ...]
+    addresses: tuple[int, ...]
 
     def __init__(self, *addresses: int):
         if not addresses:
@@ -107,7 +108,7 @@ class Marker(Stop):
     Linux, ``rvsim_break(label)`` from ``rvsim.h`` on bare metal. Any
     label stops the run when ``label`` is ``None``."""
 
-    label: Optional[int] = None
+    label: int | None = None
 
     def key(self) -> str:
         return f"marker={self.label}"
@@ -122,7 +123,7 @@ class Console(Stop):
     pattern: str
     flags: int
 
-    def __init__(self, pattern: Union[str, "re.Pattern[str]"], flags: int = 0):
+    def __init__(self, pattern: str | re.Pattern[str], flags: int = 0):
         if isinstance(pattern, re.Pattern):
             pattern, flags = pattern.pattern, pattern.flags | flags
         re.compile(pattern, flags)
@@ -130,7 +131,7 @@ class Console(Stop):
         object.__setattr__(self, "flags", flags)
 
     @property
-    def regex(self) -> "re.Pattern[str]":
+    def regex(self) -> re.Pattern[str]:
         return re.compile(self.pattern, self.flags)
 
     def key(self) -> str:
@@ -152,14 +153,14 @@ class When(Stop):
     name stands for the predicate, so it must change when the predicate
     does."""
 
-    predicate: Callable[["Session"], bool]
+    predicate: Callable[[Session], bool]
     every: int = 100_000
-    name: Optional[str] = None
+    name: str | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "every", _count(self.every, "When.every"))
 
-    def key(self) -> Optional[str]:
+    def key(self) -> str | None:
         return None if self.name is None else f"when={self.name}/{self.every}"
 
 
@@ -167,7 +168,7 @@ class When(Stop):
 class AnyOf(Stop):
     """Whichever of ``stops`` holds first."""
 
-    stops: Tuple[Stop, ...]
+    stops: tuple[Stop, ...]
 
     def __init__(self, *stops: Stop):
         flat = tuple(p for stop in stops for p in stop._primitives())
@@ -175,13 +176,13 @@ class AnyOf(Stop):
             raise ValueError("AnyOf takes at least one stop")
         object.__setattr__(self, "stops", flat)
 
-    def key(self) -> Optional[str]:
+    def key(self) -> str | None:
         keys = [stop.key() for stop in self.stops]
         if any(key is None for key in keys):
             return None
         return "any(" + ",".join(sorted(keys)) + ")"
 
-    def _primitives(self) -> Tuple[Stop, ...]:
+    def _primitives(self) -> tuple[Stop, ...]:
         return self.stops
 
 
@@ -192,19 +193,19 @@ class LoginShell(Stop):
     the shell ``prompt`` appears."""
 
     user: str = "root"
-    password: Optional[str] = None
+    password: str | None = None
     login: str = r"login: $"
     prompt: str = r"# $"
 
     def key(self) -> str:
         return f"login_shell(user={self.user!r},login={self.login!r},prompt={self.prompt!r})"
 
-    def _primitives(self) -> Tuple[Stop, ...]:
+    def _primitives(self) -> tuple[Stop, ...]:
         raise TypeError(
             "LoginShell is a sequence of console steps; it cannot be combined with |"
         )
 
-    def _drive(self, session: "Session") -> "Stopped":
+    def _drive(self, session: Session) -> Stopped:
         for step in self._steps():
             if isinstance(step, str):
                 session.send(step)
@@ -242,13 +243,13 @@ class Stopped:
     """The cycle count since the system started."""
     instructions: int
     """Instructions retired by every hart since the system started."""
-    exit_code: Optional[int] = None
+    exit_code: int | None = None
     """The workload's exit code, when it ended."""
-    hart: Optional[int] = None
+    hart: int | None = None
     """The hart that reached a :class:`Pc` stop."""
-    label: Optional[int] = None
+    label: int | None = None
     """The guest's label, for a :class:`Marker`."""
-    match: Optional["re.Match[str]"] = None
+    match: re.Match[str] | None = None
     """The console match, for a :class:`Console` or :class:`LoginShell`."""
 
     @property

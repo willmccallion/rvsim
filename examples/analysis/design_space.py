@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from rvsim import Sweep, Config, Cache, BranchPredictor
+from rvsim import BranchPredictor, Cache, Config, Sweep
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 

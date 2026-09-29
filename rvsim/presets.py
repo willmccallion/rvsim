@@ -23,14 +23,12 @@ Usage from Python::
     Simulator(cfg, binary="mandelbrot.elf").run()
 """
 
-from typing import Optional
-
-from .config import Config
 from .config import (
     Backend,
     BranchPredictor,
     Cache,
     Coherence,
+    Config,
     Fu,
     HomeAgent,
     Interconnect,
@@ -40,7 +38,7 @@ from .config import (
     ReplacementPolicy,
 )
 
-__all__ = ["basic", "fast", "linux", "cortex_a72", "m1", "p550", "PRESETS"]
+__all__ = ["PRESETS", "basic", "cortex_a72", "fast", "linux", "m1", "p550"]
 
 #: The device tree's ``timebase-frequency``, in MHz.
 LINUX_TIMEBASE_MHZ = 10
@@ -211,7 +209,7 @@ def linux(
     speed_bin: str = "5600B",
     interconnect: str = "mesh",
     real_time: bool = True,
-    core: Optional[Config] = None,
+    core: Config | None = None,
 ) -> Config:
     """``core`` (the ``fast`` preset by default) in a system that boots the
     bundled Linux image: its memory map, harts, coherence and memory

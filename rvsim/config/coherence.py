@@ -76,8 +76,13 @@ class Coherence:
 
     def __init__(
         self,
-        home_agent: "HomeAgent.Broadcast | HomeAgent.SnoopFilter | None" = None,
-        interconnect: "Interconnect.Crossbar | Interconnect.Ring | Interconnect.Mesh | Interconnect.Torus | Interconnect.Hypercube | None" = None,
+        home_agent: HomeAgent.Broadcast | HomeAgent.SnoopFilter | None = None,
+        interconnect: Interconnect.Crossbar
+        | Interconnect.Ring
+        | Interconnect.Mesh
+        | Interconnect.Torus
+        | Interconnect.Hypercube
+        | None = None,
         txn_entries: int = 32,
     ):
         self.protocol = "MESI"

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-
-from typing import List, Optional
-
-
 _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 
 
@@ -96,7 +92,7 @@ def _tage_rule(rule: str, name: str) -> str:
 
 
 def _validate_history_lengths(
-    lengths: List[int], name: str, capacity: int = _GHR_MAX_BITS
+    lengths: list[int], name: str, capacity: int = _GHR_MAX_BITS
 ) -> None:
     """Validate that no history length exceeds the history's capacity."""
     max_len = max(lengths) if lengths else 0
@@ -130,7 +126,7 @@ class BranchPredictor:
             short_factor: int,
             long_factor: int,
             first_long_bank: int,
-            enabled: List[bool],
+            enabled: list[bool],
         ):
             self.short_factor = short_factor
             self.long_factor = long_factor
@@ -158,8 +154,8 @@ class BranchPredictor:
             num_banks: int = 8,
             table_size: int = 2048,
             reset_interval: int = 256_000,
-            history_lengths: Optional[List[int]] = None,
-            tag_widths: Optional[List[int]] = None,
+            history_lengths: list[int] | None = None,
+            tag_widths: list[int] | None = None,
             use_alt_counters: int = 1,
             use_alt_bits: int = 4,
             useful_bits: int = 2,
@@ -168,10 +164,10 @@ class BranchPredictor:
             update: str = "tage_base",
             history: str = "direction",
             path_history_bits: int = 16,
-            bimodal_entries: Optional[int] = None,
+            bimodal_entries: int | None = None,
             bimodal_hysteresis_share_log: int = 2,
             hashing: str = "tage_base",
-            banking: Optional["BranchPredictor.TageBanking"] = None,
+            banking: BranchPredictor.TageBanking | None = None,
         ):
             self.num_banks = num_banks
             self.use_alt_counters = use_alt_counters
@@ -245,7 +241,7 @@ class BranchPredictor:
 
         def __init__(
             self,
-            lengths: Optional[List[int]] = None,
+            lengths: list[int] | None = None,
             log_entries: int = 0,
             weight_init: int = 0,
         ):
@@ -276,7 +272,7 @@ class BranchPredictor:
             self,
             histories: int,
             index_shift: int,
-            lengths: List[int],
+            lengths: list[int],
             log_entries: int,
             weight_init: int = 7,
             mix_pc: bool = False,
@@ -327,8 +323,8 @@ class BranchPredictor:
             num_banks: int = 36,
             table_size: int = 1024,
             reset_interval: int = 1024,
-            history_lengths: Optional[List[int]] = None,
-            tag_widths: Optional[List[int]] = None,
+            history_lengths: list[int] | None = None,
+            tag_widths: list[int] | None = None,
             use_alt_counters: int = 16,
             use_alt_bits: int = 5,
             useful_bits: int = 1,
@@ -337,10 +333,10 @@ class BranchPredictor:
             update: str = "cbp5",
             history: str = "pc_bits",
             path_history_bits: int = 27,
-            bimodal_entries: Optional[int] = 8192,
+            bimodal_entries: int | None = 8192,
             bimodal_hysteresis_share_log: int = 2,
             hashing: str = "tage_sc_l",
-            banking: Optional["BranchPredictor.TageBanking"] = None,
+            banking: BranchPredictor.TageBanking | None = None,
             # Loop predictor parameters
             loop_log_size: int = 5,
             loop_log_assoc: int = 2,
@@ -371,17 +367,17 @@ class BranchPredictor:
             sc_threshold_weight_step: int = 12,
             sc_halve_short_tables: bool = True,
             sc_imli_counter_bits: int = 8,
-            sc_global: Optional["BranchPredictor.ScGehl"] = None,
-            sc_backward: Optional["BranchPredictor.ScGehl"] = None,
-            sc_path: Optional["BranchPredictor.ScGehl"] = None,
-            sc_local: Optional[List["BranchPredictor.ScLocalGehl"]] = None,
-            sc_imli: Optional["BranchPredictor.ScGehl"] = None,
-            sc_imli_history: Optional["BranchPredictor.ScGehl"] = None,
+            sc_global: BranchPredictor.ScGehl | None = None,
+            sc_backward: BranchPredictor.ScGehl | None = None,
+            sc_path: BranchPredictor.ScGehl | None = None,
+            sc_local: list[BranchPredictor.ScLocalGehl] | None = None,
+            sc_imli: BranchPredictor.ScGehl | None = None,
+            sc_imli_history: BranchPredictor.ScGehl | None = None,
             # ITTAGE parameters
             ittage_num_banks: int = 8,
             ittage_table_size: int = 256,
-            ittage_history_lengths: Optional[List[int]] = None,
-            ittage_tag_widths: Optional[List[int]] = None,
+            ittage_history_lengths: list[int] | None = None,
+            ittage_tag_widths: list[int] | None = None,
             ittage_reset_interval: int = 256_000,
         ):
             self.num_banks = num_banks

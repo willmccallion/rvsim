@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import time
-from typing import Optional
+from typing import IO
 
 from rich.console import Console
 from rich.live import Live
@@ -15,7 +15,6 @@ from rich.table import Table
 from rich.text import Text
 
 from rvsim.stats import Stats
-
 
 # Cycles simulated per chunk between renders. Larger = faster sim, less responsive UI.
 _CHUNK = 200_000
@@ -122,21 +121,37 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
 
 
 def run_watch(
-    cpu, limit: Optional[int], binary: str, print_stats: bool = False
-) -> Optional[int]:
+    cpu, limit: int | None, binary: str, print_stats: bool = False
+) -> int | None:
     """Run *cpu* with a live-updating dashboard. Returns exit code."""
+    with tempfile.TemporaryFile() as captured:
+        exit_code = _run_live(cpu, limit, binary, captured)
+        captured.seek(0)
+        program_output = captured.read()
+    if program_output:
+        sys.stdout.buffer.write(program_output)
+        sys.stdout.buffer.flush()
+
+    if print_stats and exit_code is not None:
+        cpu.run(limit=0, stats_sections=[])
+
+    return exit_code
+
+
+def _run_live(cpu, limit: int | None, binary: str, captured: IO[bytes]) -> int | None:
+    """Runs *cpu* under the dashboard with fd 2 redirected into *captured*.
+
+    UART output is written to fd 2 from Rust, so the redirect is at the file
+    descriptor level; it keeps program output from interleaving with the TUI.
+    """
     console = Console()
     start = time.monotonic()
     cycles_run = 0
     exit_code = None
 
-    # Capture all program output (UART writes to fd 2 via Rust eprint!) into a
-    # temp file so it doesn't interleave with the TUI. We redirect at the OS
-    # file-descriptor level so the Rust side is also captured.
     stderr_fd = sys.stderr.fileno()
     saved_stderr_fd = os.dup(stderr_fd)
-    tmp = tempfile.TemporaryFile()
-    os.dup2(tmp.fileno(), stderr_fd)
+    os.dup2(captured.fileno(), stderr_fd)
 
     live = Live(console=console, refresh_per_second=4, screen=False)
     live.start()
@@ -166,19 +181,6 @@ def run_watch(
                 break
     finally:
         live.stop()
-        # Restore stderr fd before printing captured output.
         os.dup2(saved_stderr_fd, stderr_fd)
         os.close(saved_stderr_fd)
-
-    # Print any program output that was buffered during the run.
-    tmp.seek(0)
-    program_output = tmp.read()
-    tmp.close()
-    if program_output:
-        sys.stdout.buffer.write(program_output)
-        sys.stdout.buffer.flush()
-
-    if print_stats and exit_code is not None:
-        cpu.run(limit=0, stats_sections=[])
-
     return exit_code

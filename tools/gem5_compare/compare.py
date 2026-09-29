@@ -71,8 +71,8 @@ def print_variant(name: str, rv: dict, g5: dict) -> None:
 
 def print_worst(rv_all: dict, g5_all: dict, count: int = 25) -> None:
     gaps = []
-    for variant in rv_all:
-        for program, r in rv_all[variant].items():
+    for variant, programs in rv_all.items():
+        for program, r in programs.items():
             g = g5_all.get(variant, {}).get(program, {})
             gap = rel(r.get("cycles"), g.get("cycles"))
             if gap is not None:

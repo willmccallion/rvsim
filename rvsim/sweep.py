@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 __all__ = ["Sweep", "SweepResults"]
 
@@ -33,13 +33,13 @@ class SweepResults:
     Organised as ``results[binary_name][config_name] = Result``.
     """
 
-    data: Dict[str, Dict[str, Result]] = field(default_factory=dict)
+    data: dict[str, dict[str, Result]] = field(default_factory=dict)
 
     def compare(
         self,
         *,
-        metrics: Optional[List[str]] = None,
-        baseline: Optional[str] = None,
+        metrics: list[str] | None = None,
+        baseline: str | None = None,
         col_header: str = "",
     ) -> None:
         """Print a comparison table across all configs and binaries."""
@@ -47,7 +47,7 @@ class SweepResults:
             self.data, metrics=metrics, baseline=baseline, col_header=col_header
         )
 
-    def __getitem__(self, key: str) -> Dict[str, Result]:
+    def __getitem__(self, key: str) -> dict[str, Result]:
         return self.data[key]
 
     def __repr__(self) -> str:
@@ -76,8 +76,8 @@ class Sweep:
 
     def __init__(
         self,
-        binaries: List[str],
-        configs: Dict[str, Union[Config, Dict[str, Any]]],
+        binaries: list[str],
+        configs: dict[str, Config | dict[str, Any]],
     ):
         self.binaries = binaries
         self.configs = configs
@@ -86,8 +86,8 @@ class Sweep:
         self,
         *,
         parallel: bool = True,
-        limit: Optional[int] = None,
-        max_workers: Optional[int] = None,
+        limit: int | None = None,
+        max_workers: int | None = None,
     ) -> SweepResults:
         """Execute all (binary, config) combinations.
 
@@ -100,7 +100,7 @@ class Sweep:
             :class:`SweepResults` with per-binary, per-config results.
         """
         # Build work items
-        work: List[tuple] = []
+        work: list[tuple] = []
         for binary in self.binaries:
             for config_name, config in self.configs.items():
                 work.append((binary, config_name, config, limit))
@@ -113,7 +113,7 @@ class Sweep:
             raw_results = [_run_one(w) for w in work]
 
         # Organise into nested dict
-        data: Dict[str, Dict[str, Result]] = {}
+        data: dict[str, dict[str, Result]] = {}
         for binary, config_name, result in raw_results:
             bin_key = os.path.basename(binary)
             if bin_key not in data:

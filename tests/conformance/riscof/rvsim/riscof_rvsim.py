@@ -4,11 +4,11 @@ Compiles arch-tests and runs them on rvsim, extracting the signature
 region from simulator memory after execution.
 """
 
+import logging
 import os
 import sys
-import logging
 
-import riscof.utils as utils
+from riscof import utils
 from riscof.pluginTemplate import pluginTemplate
 
 logger = logging.getLogger()

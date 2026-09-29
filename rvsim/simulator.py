@@ -11,14 +11,17 @@ The simulator.
 
 from __future__ import annotations
 
-from typing import Optional, Union
+__all__ = ["Instruction", "PipelineSnapshot", "Simulator"]
 
-__all__ = ["Simulator", "Instruction", "PipelineSnapshot"]
+from typing import TYPE_CHECKING
 
 from ._core import Instruction, PipelineSnapshot
 from ._core import Simulator as _CoreSimulator
 from .config import Config
 from .config._config import _config_to_dict
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 class Simulator(_CoreSimulator):
@@ -35,15 +38,15 @@ class Simulator(_CoreSimulator):
 
     def __new__(
         cls,
-        config: Union[Config, dict, None] = None,
+        config: Config | dict | None = None,
         *,
-        binary: Optional[str] = None,
-        elf_data: Optional[bytes] = None,
-        kernel: Optional[str] = None,
-        firmware: Optional[str] = None,
-        disk: Optional[str] = None,
-        dtb: Optional[str] = None,
-    ) -> "Simulator":
+        binary: str | None = None,
+        elf_data: bytes | None = None,
+        kernel: str | None = None,
+        firmware: str | None = None,
+        disk: str | None = None,
+        dtb: str | None = None,
+    ) -> Self:
         if config is None:
             config_dict = _config_to_dict(Config())
         elif isinstance(config, Config):

@@ -12,7 +12,7 @@ import json
 import math
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from .. import presets
 from ..config import load_config
@@ -22,7 +22,7 @@ from ..session.stops import LOGIN_SHELL
 
 #: Shell commands on the bundled image, sized to finish in minutes of
 #: detailed simulation.
-LINUX_BENCHMARKS: Dict[str, str] = {
+LINUX_BENCHMARKS: dict[str, str] = {
     "coremark": "coremark 0x0 0x0 0x66 20 7 1 2000",
     "dhrystone": "dhrystone 200000",
     "whetstone": "whetstone 20",
@@ -43,7 +43,7 @@ _COLUMNS = (
 )
 
 
-def headline(region: Region) -> Dict[str, float]:
+def headline(region: Region) -> dict[str, float]:
     """The metrics the summary table shows for a region."""
     stats = region.stats
     kilo = region.instructions / 1000 if region.instructions else math.nan
@@ -112,7 +112,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.list:
@@ -135,7 +135,7 @@ def main(argv: List[str]) -> int:
     )
     session.fast_forward(until=LOGIN_SHELL, cache=not args.no_cache)
 
-    regions: Dict[str, Region] = {}
+    regions: dict[str, Region] = {}
     for name in names:
         command = LINUX_BENCHMARKS[name]
         if args.warm:
@@ -153,7 +153,7 @@ def main(argv: List[str]) -> int:
     return 0 if all(region.exit_code == 0 for region in regions.values()) else 1
 
 
-def _print_table(regions: Dict[str, Region]) -> None:
+def _print_table(regions: dict[str, Region]) -> None:
     from rich.console import Console
     from rich.table import Table
 
@@ -179,9 +179,9 @@ def _format(column: str, value: float) -> str:
 
 
 def _write_json(
-    path: str, args: argparse.Namespace, regions: Dict[str, Region]
+    path: str, args: argparse.Namespace, regions: dict[str, Region]
 ) -> None:
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "core": args.config or args.preset,
         "harts": args.harts,

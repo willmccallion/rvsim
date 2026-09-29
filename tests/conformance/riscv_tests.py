@@ -26,7 +26,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -71,27 +71,36 @@ def run_one(args):
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SEC,
+            check=False,
         )
     except subprocess.TimeoutExpired:
-        return dict(test=name, pipeline=pipeline_label, status="timeout")
+        return {"test": name, "pipeline": pipeline_label, "status": "timeout"}
     elapsed = round(time.time() - t0, 2)
 
     if res.returncode == 0:
-        return dict(test=name, pipeline=pipeline_label, status="pass", seconds=elapsed)
+        return {
+            "test": name,
+            "pipeline": pipeline_label,
+            "status": "pass",
+            "seconds": elapsed,
+        }
     if res.returncode == 124:
-        return dict(
-            test=name, pipeline=pipeline_label, status="timeout", seconds=elapsed
-        )
+        return {
+            "test": name,
+            "pipeline": pipeline_label,
+            "status": "timeout",
+            "seconds": elapsed,
+        }
     msg = (res.stderr or res.stdout).strip().splitlines()
     tail = " | ".join(msg[-3:])[:200]
-    return dict(
-        test=name,
-        pipeline=pipeline_label,
-        status="fail" if res.returncode == 1 else "error",
-        rc=res.returncode,
-        reason=tail,
-        seconds=elapsed,
-    )
+    return {
+        "test": name,
+        "pipeline": pipeline_label,
+        "status": "fail" if res.returncode == 1 else "error",
+        "rc": res.returncode,
+        "reason": tail,
+        "seconds": elapsed,
+    }
 
 
 def main():
@@ -173,12 +182,12 @@ def main():
                     r = fut.result()
                 except Exception as e:
                     w = futs[fut]
-                    r = dict(
-                        test=w[0],
-                        pipeline=w[2],
-                        status="error",
-                        reason=f"{type(e).__name__}: {e}",
-                    )
+                    r = {
+                        "test": w[0],
+                        "pipeline": w[2],
+                        "status": "error",
+                        "reason": f"{type(e).__name__}: {e}",
+                    }
                 results.append(r)
                 counts[r["status"]] = counts.get(r["status"], 0) + 1
                 if r["status"] != "pass":

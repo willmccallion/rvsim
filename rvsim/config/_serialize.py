@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from .backend import Backend, Fu
 from .branch import BranchPredictor, MemDepPredictor
@@ -249,11 +248,11 @@ def _mc_name(mc) -> str:
     raise TypeError(f"Unknown memory controller type: {type(mc)}")
 
 
-def _coherence_to_dict(c: Coherence) -> Dict[str, Any]:
+def _coherence_to_dict(c: Coherence) -> dict[str, Any]:
     """Serialize a Coherence object to the dict format the Rust backend expects."""
     home = c.home_agent
     if isinstance(home, HomeAgent.Broadcast):
-        home_dict: Dict[str, Any] = {"kind": "Broadcast"}
+        home_dict: dict[str, Any] = {"kind": "Broadcast"}
     elif isinstance(home, HomeAgent.SnoopFilter):
         home_dict = {
             "kind": "SnoopFilter",
@@ -420,9 +419,9 @@ def _backend_to_pipeline_fields(be) -> dict:
     }
 
 
-def _cache_to_dict(c: Cache) -> Dict[str, Any]:
+def _cache_to_dict(c: Cache) -> dict[str, Any]:
     """Serialize a Cache object to the dict format the Rust backend expects."""
-    d: Dict[str, Any] = {
+    d: dict[str, Any] = {
         "enabled": True,
         "size_bytes": c.size_bytes,
         "line_bytes": c.line_bytes,
@@ -477,10 +476,10 @@ _TOURNAMENT_DEFAULTS = {
 }
 
 
-def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
+def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
     """Produce the nested dict expected by the Rust backend."""
     # General
-    general: Dict[str, Any] = {
+    general: dict[str, Any] = {
         "trace_instructions": cfg.trace,
         "start_pc": _START_PC_DEFAULT,
         "direct_mode": True,
@@ -511,7 +510,7 @@ def _config_to_dict_impl(cfg: Config) -> Dict[str, Any]:
 
     # Memory — merge controller-specific params
     mc = cfg.memory_controller
-    memory: Dict[str, Any] = {
+    memory: dict[str, Any] = {
         "ram_size": cfg.ram_size,
         "controller": _mc_name(mc),
         "tlb_size": cfg.tlb_size,

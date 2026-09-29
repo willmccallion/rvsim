@@ -3,9 +3,8 @@ the nested dict the Rust core expects."""
 
 from __future__ import annotations
 
-
 import inspect
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ._serialize import _config_to_dict_impl
 from ._units import _parse_size
@@ -13,7 +12,6 @@ from .backend import Backend
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence
 from .memory import Cache, MemoryController, Prefetcher
-
 
 _PAGING_MODES = ("bare", "sv39", "sv48", "sv57")
 
@@ -49,17 +47,22 @@ class Config:
         self,
         # Pipeline
         width: int = 4,
-        fetch_width: Optional[int] = None,
-        decode_width: Optional[int] = None,
-        rename_width: Optional[int] = None,
-        issue_width: Optional[int] = None,
-        commit_width: Optional[int] = None,
-        writeback_width: Optional[int] = None,
+        fetch_width: int | None = None,
+        decode_width: int | None = None,
+        rename_width: int | None = None,
+        issue_width: int | None = None,
+        commit_width: int | None = None,
+        writeback_width: int | None = None,
         trap_latency: int = 13,
-        redirect_latency: Optional[int] = None,
-        branch_predictor: "BranchPredictor.Static | BranchPredictor.GShare | BranchPredictor.TAGE | BranchPredictor.Perceptron | BranchPredictor.Tournament" = BranchPredictor.TAGE(),
-        backend: "Backend.InOrder | Backend.OutOfOrder" = Backend.OutOfOrder(),
-        mem_dep_predictor: "MemDepPredictor.Blind | MemDepPredictor.StoreSet" = MemDepPredictor.StoreSet(),
+        redirect_latency: int | None = None,
+        branch_predictor: BranchPredictor.Static
+        | BranchPredictor.GShare
+        | BranchPredictor.TAGE
+        | BranchPredictor.Perceptron
+        | BranchPredictor.Tournament = BranchPredictor.TAGE(),
+        backend: Backend.InOrder | Backend.OutOfOrder = Backend.OutOfOrder(),
+        mem_dep_predictor: MemDepPredictor.Blind
+        | MemDepPredictor.StoreSet = MemDepPredictor.StoreSet(),
         btb_size: int = 4096,
         btb_ways: int = 4,
         ras_size: int = 32,
@@ -72,7 +75,7 @@ class Config:
             prefetcher=Prefetcher.Stride(degree=1, table_size=64),
         ),
         l2=Cache("256KB", ways=8, latency=10),
-        l3: Optional[Cache] = None,
+        l3: Cache | None = None,
         inclusion_policy: Any = Cache.NINE(),
         wcb_entries: int = 0,
         # Memory
@@ -89,11 +92,11 @@ class Config:
         svadu: bool = False,
         # Vector ISA
         vlen: int = 128,
-        num_vec_lanes: Optional[int] = None,
-        vector_mem_width: Optional[int] = None,
+        num_vec_lanes: int | None = None,
+        vector_mem_width: int | None = None,
         # General
         trace: bool = False,
-        initial_sp: Optional[int] = None,
+        initial_sp: int | None = None,
         # System (advanced)
         ram_base: int = 0x8000_0000,
         uart_base: int = 0x1000_0000,
@@ -107,13 +110,13 @@ class Config:
         clint_divider: int = 10,
         cpu_clock_mhz: int = 2400,
         device_latency_ns: int = 100,
-        device_latency_ns_overrides: Optional[Dict[str, int]] = None,
+        device_latency_ns_overrides: dict[str, int] | None = None,
         rtc_epoch_seconds: int = 1_767_225_600,
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
-        console: Optional[str] = None,
+        console: str | None = None,
         hart_count: int = 1,
-        coherence: Optional[Coherence] = None,
+        coherence: Coherence | None = None,
     ):
         # Pipeline
         self.width = width
@@ -190,11 +193,11 @@ class Config:
         self.hart_count = hart_count
         self.coherence = coherence if coherence is not None else Coherence()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
         return _config_to_dict_impl(self)
 
-    def replace(self, **kwargs) -> "Config":
+    def replace(self, **kwargs) -> Config:
         """Return a new Config with the given fields overridden.
 
         Example::
@@ -234,16 +237,16 @@ class Config:
 _CONSOLES = ("stdout", "stderr", "quiet", "captured")
 
 
-def _config_to_dict(config) -> Dict[str, Any]:
+def _config_to_dict(config) -> dict[str, Any]:
     """Normalize config to a dict for the Rust backend. Accepts Config or plain dict."""
-    if hasattr(config, "to_dict") and callable(getattr(config, "to_dict")):
+    if hasattr(config, "to_dict") and callable(config.to_dict):
         return config.to_dict()
     if isinstance(config, dict):
         return config
     raise TypeError("config must be Config or dict")
 
 
-def load_config(path: str) -> "Config":
+def load_config(path: str) -> Config:
     """Load a :class:`Config` from a Python file.
 
     The module is imported and the first of these is used as the entry point:
@@ -268,10 +271,10 @@ def load_config(path: str) -> "Config":
         entry = getattr(mod, name)
         return entry() if callable(entry) else entry
     if hasattr(mod, "config"):
-        entry = getattr(mod, "config")
+        entry = mod.config
         return entry() if callable(entry) else entry
     if hasattr(mod, "get_config"):
-        return getattr(mod, "get_config")()
+        return mod.get_config()
 
     raise AttributeError(
         f"could not find config entry point in {path}. "

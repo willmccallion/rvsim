@@ -79,6 +79,7 @@ def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
         capture_output=True,
         text=True,
         timeout=1800,
+        check=False,
     )
     (m5out / "run.log").write_text(result.stdout + result.stderr)
     stats_file = m5out / "stats.txt"

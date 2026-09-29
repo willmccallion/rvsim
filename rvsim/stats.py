@@ -11,8 +11,9 @@ from __future__ import annotations
 import math
 import re
 import sys
+from collections.abc import Sequence
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 __all__ = ["Stats", "Table"]
 
@@ -32,7 +33,7 @@ class Stats(dict):
         result.stats.query("miss_rate")
     """
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         super().__init__(data)
 
     @classmethod
@@ -43,7 +44,7 @@ class Stats(dict):
         becomes a key, and the run-level ``cycles``, ``instructions_retired``
         and ``ipc`` are added under their short names.
         """
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             path: _as_count_if_whole(path, core.get(path))
             for path in core.query("**").paths()
         }
@@ -70,7 +71,7 @@ class Stats(dict):
         return Stats(matches)
 
     @staticmethod
-    def tabulate(rows: Dict[str, Stats], *, title: str = "") -> Table:
+    def tabulate(rows: dict[str, Stats], *, title: str = "") -> Table:
         """Build a comparison table from labeled :class:`Stats` objects.
 
         Each *Stats* is typically a ``.query()`` result, so all share similar
@@ -222,7 +223,7 @@ def _is_rate(metric: str) -> bool:
     return _leaf(metric) in _RATE_LEAVES
 
 
-def _better(metric: str) -> Optional[_Better]:
+def _better(metric: str) -> _Better | None:
     """Which direction is an improvement for *metric*, if it has one."""
     leaf = _leaf(metric)
     if leaf in _HIGHER_IS_BETTER_LEAVES:
@@ -239,14 +240,14 @@ def _sibling(metric: str, leaf: str) -> str:
     return f"{prefix}.{leaf}"
 
 
-def _sum_of(stats_list: Sequence[Stats], key: str) -> Optional[float]:
+def _sum_of(stats_list: Sequence[Stats], key: str) -> float | None:
     values = [s.get(key) for s in stats_list]
     if any(not isinstance(v, (int, float)) for v in values):
         return None
     return float(sum(values))
 
 
-def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> Optional[float]:
+def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> float | None:
     """*metric* over several runs, as if they were one run.
 
     IPC and CPI are weighted by instructions retired; an accuracy or miss
@@ -274,7 +275,7 @@ def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> Optional[float]
     return sum(v * w for v, w in zip(values, weights)) / total_weight
 
 
-def _ratio(numerator: Optional[float], other: Optional[float]) -> Optional[float]:
+def _ratio(numerator: float | None, other: float | None) -> float | None:
     """``numerator / (numerator + other)``, as the simulator derives it."""
     if numerator is None or other is None:
         return None
@@ -283,7 +284,7 @@ def _ratio(numerator: Optional[float], other: Optional[float]) -> Optional[float
 
 
 def _format_table(
-    headers: List[str], rows: List[List[str]], align: Optional[List[str]] = None
+    headers: list[str], rows: list[list[str]], align: list[str] | None = None
 ) -> str:
     """Render an ASCII table. align: list of '<' or '>' per column."""
     ncols = len(headers)
@@ -311,16 +312,16 @@ class Table:
     """Rendered comparison table.  Created by :func:`tabulate`, displayed via
     ``print()`` or REPL auto-repr."""
 
-    __slots__ = ("__labels", "__metrics", "__grid", "__title", "__col_header")
+    __slots__ = ("__col_header", "__grid", "__labels", "__metrics", "__title")
 
     def __dir__(self):
         return []
 
     def __init__(
         self,
-        labels: List[str],
-        metrics: List[str],
-        grid: List[List[str]],
+        labels: list[str],
+        metrics: list[str],
+        grid: list[list[str]],
         title: str,
         col_header: str = "",
     ):
@@ -343,10 +344,10 @@ class Table:
         # Partition labels/rows into data rows and speedup rows.
         # Speedup rows are those that follow the sentinel row whose first cell
         # starts with "vs " (inserted by _compare_matrix).
-        data_labels: List[str] = []
-        data_grid: List[List[str]] = []
-        speedup_labels: List[str] = []
-        speedup_grid: List[List[str]] = []
+        data_labels: list[str] = []
+        data_grid: list[list[str]] = []
+        speedup_labels: list[str] = []
+        speedup_grid: list[list[str]] = []
         in_speedup = False
         for label, cells in zip(self.__labels, self.__grid):
             if label.startswith("baseline "):
@@ -411,10 +412,10 @@ class Table:
 
 
 def _compare_flat(
-    results: Dict[str, Any],
+    results: dict[str, Any],
     *,
-    metrics: Optional[List[str]] = None,
-    baseline: Optional[str] = None,
+    metrics: list[str] | None = None,
+    baseline: str | None = None,
     col_header: str = "",
 ) -> None:
     """Compare single-binary, multiple-config results."""
@@ -435,7 +436,7 @@ def _compare_flat(
             show_metrics = sorted(all_stat_keys)
 
     headers = [col_header or "metric"] + config_names
-    rows: List[List[str]] = []
+    rows: list[list[str]] = []
     for m in show_metrics:
         row = [m]
         for cfg_name in config_names:
@@ -451,7 +452,7 @@ def _compare_flat(
 
     plain = _format_table(headers, rows)
 
-    speedup_rows: List[List[str]] = []
+    speedup_rows: list[list[str]] = []
     if baseline is not None and baseline in results:
         base_stats = results[baseline].stats
         for m in show_metrics:
@@ -506,15 +507,15 @@ def _compare_flat(
 
 
 def _compare_matrix(
-    results: Dict[str, Dict[str, Any]],
+    results: dict[str, dict[str, Any]],
     *,
-    metrics: Optional[List[str]] = None,
-    baseline: Optional[str] = None,
+    metrics: list[str] | None = None,
+    baseline: str | None = None,
     col_header: str = "",
 ) -> None:
     """Compare multi-binary x multi-config matrix."""
     binary_names = list(results.keys())
-    config_names: List[str] = []
+    config_names: list[str] = []
     for bdict in results.values():
         for k in bdict:
             if k not in config_names:
@@ -529,13 +530,13 @@ def _compare_matrix(
         metrics = ["ipc", "cycles"]
 
     for metric in metrics:
-        labels: List[str] = []
-        grid: List[List[str]] = []
-        values_per_config: Dict[str, List[float]] = {c: [] for c in config_names}
+        labels: list[str] = []
+        grid: list[list[str]] = []
+        values_per_config: dict[str, list[float]] = {c: [] for c in config_names}
 
         for bname in binary_names:
             labels.append(bname)
-            row: List[str] = []
+            row: list[str] = []
             for cname in config_names:
                 r = results[bname].get(cname)
                 if r is None:
@@ -547,7 +548,7 @@ def _compare_matrix(
                     values_per_config[cname].append(float(v))
             grid.append(row)
 
-        agg_cells: List[str] = []
+        agg_cells: list[str] = []
         for cname in config_names:
             runs = [
                 results[b][cname].stats for b in binary_names if cname in results[b]
@@ -578,7 +579,7 @@ def _compare_matrix(
                 bv = r_base.stats.get(metric, 0)
                 if not isinstance(bv, (int, float)) or bv == 0:
                     continue
-                speedup_row: List[str] = []
+                speedup_row: list[str] = []
                 for cname in config_names:
                     r = results[bname].get(cname)
                     if r is None:
@@ -594,9 +595,9 @@ def _compare_matrix(
                 grid.append(speedup_row)
 
             # Aggregate speedup: geomean of per-binary speedups
-            agg_row: List[str] = []
+            agg_row: list[str] = []
             for cname in config_names:
-                ratios: List[float] = []
+                ratios: list[float] = []
                 for bname in binary_names:
                     r_base = results[bname].get(baseline)
                     r = results[bname].get(cname)

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ._units import _parse_size
 
@@ -139,10 +138,10 @@ class MemoryController:
             scheduler: str = "FrFcfs",
             refresh: str = "AllBank",
             address_mapping: str = "RoRaBaChCo",
-            power_down_idle_ns: Optional[int] = None,
+            power_down_idle_ns: int | None = None,
             ecc: str = "None",
-            patrol_scrub_ns: Optional[int] = None,
-            timing: Optional[Dict[str, int]] = None,
+            patrol_scrub_ns: int | None = None,
+            timing: dict[str, int] | None = None,
         ):
             self.speed_bin = speed_bin
             self.channels = channels
@@ -167,7 +166,7 @@ class MemoryController:
             self.patrol_scrub_ns = patrol_scrub_ns
             self.timing = dict(timing) if timing else {}
 
-        def to_dict(self) -> Dict[str, Any]:
+        def to_dict(self) -> dict[str, Any]:
             return {
                 "speed_bin": self.speed_bin,
                 "channels": self.channels,
@@ -224,12 +223,22 @@ class Cache:
 
     def __init__(
         self,
-        size: "str | int" = "4KB",
-        line: "str | int" = "64B",
+        size: str | int = "4KB",
+        line: str | int = "64B",
         ways: int = 1,
-        policy: "ReplacementPolicy.LRU | ReplacementPolicy.PLRU | ReplacementPolicy.FIFO | ReplacementPolicy.Random | ReplacementPolicy.MRU | None" = None,
+        policy: ReplacementPolicy.LRU
+        | ReplacementPolicy.PLRU
+        | ReplacementPolicy.FIFO
+        | ReplacementPolicy.Random
+        | ReplacementPolicy.MRU
+        | None = None,
         latency: int = 1,
-        prefetcher: "Prefetcher.Off | Prefetcher.NextLine | Prefetcher.Stride | Prefetcher.Stream | Prefetcher.Tagged | None" = None,
+        prefetcher: Prefetcher.Off
+        | Prefetcher.NextLine
+        | Prefetcher.Stride
+        | Prefetcher.Stream
+        | Prefetcher.Tagged
+        | None = None,
         mshr_count: int = 0,
         write_buffers: int = 0,
         targets_per_mshr: int = 0,
@@ -258,7 +267,7 @@ class Cache:
 
 
 # Disabled cache dict for levels set to None
-_DISABLED_CACHE_DICT: Dict[str, Any] = {
+_DISABLED_CACHE_DICT: dict[str, Any] = {
     "enabled": False,
     "size_bytes": 4096,
     "line_bytes": 64,
@@ -271,7 +280,7 @@ _DISABLED_CACHE_DICT: Dict[str, Any] = {
 }
 
 
-_DISABLED_CACHE_DICT_ZERO: Dict[str, Any] = {
+_DISABLED_CACHE_DICT_ZERO: dict[str, Any] = {
     "enabled": False,
     "size_bytes": 0,
     "line_bytes": 0,

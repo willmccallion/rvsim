@@ -8,7 +8,7 @@ import io
 import unittest
 
 from rvsim import Result, Stats
-from rvsim.stats import _aggregate_rate, _better, _Better
+from rvsim.stats import _aggregate_rate, _Better, _better
 
 
 def run(**stats):

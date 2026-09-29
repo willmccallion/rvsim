@@ -4,11 +4,11 @@ Compiles arch-tests and runs them on Spike, using its built-in +signature
 flag to dump the signature region to a file.
 """
 
+import logging
 import os
 import shutil
-import logging
 
-import riscof.utils as utils
+from riscof import utils
 from riscof.pluginTemplate import pluginTemplate
 
 logger = logging.getLogger()

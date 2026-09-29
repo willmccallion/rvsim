@@ -19,9 +19,9 @@ import sys
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from rvsim import Config, Backend  # noqa: E402
-from rvsim._core import Simulator  # noqa: E402
-from rvsim.config._config import _config_to_dict  # noqa: E402
+from rvsim import Backend, Config
+from rvsim._core import Simulator
+from rvsim.config._config import _config_to_dict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
@@ -98,6 +98,7 @@ def main():
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     if not os.path.isfile(sig_path):
         sys.exit(

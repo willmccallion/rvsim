@@ -208,8 +208,11 @@ def main() -> None:
 
     from importlib.metadata import (
         PackageNotFoundError as _PkgNotFound,
+    )
+    from importlib.metadata import (
         version as _meta_version,
     )
+
     from ..config._units import _parse_cycles
 
     def _rvsim_version() -> str:
@@ -353,6 +356,7 @@ def main() -> None:
 
     if args.watch:
         import io
+
         from .watch import run_watch
 
         # Suppress setup chatter so it doesn't appear above the dashboard.

@@ -28,10 +28,12 @@ from gem5.resources.resource import BinaryResource
 from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 from m5.objects import (
-    BadAddr,
-    FUPool,
     FP_ALU,
+    TAGE,
+    TAGE_SC_L_64KB,
+    BadAddr,
     FP_MultDiv,
+    FUPool,
     IntALU,
     IntMultDiv,
     L2XBar,
@@ -39,15 +41,12 @@ from m5.objects import (
     RiscvO3CPU,
     SIMD_Unit,
     SystemXBar,
-    TAGE,
-    TAGE_SC_L_64KB,
     TAGEBase,
     TaggedPrefetcher,
     TournamentBP,
     WritePort,
 )
 from m5.params import NULL
-
 from variants import CLOCK_MHZ, VARIANTS, VECTOR_UNITS, VLEN
 
 # One core clock in ticks (picoseconds), as gem5 rounds the clock period.
@@ -59,7 +58,7 @@ binary = Path(sys.argv[1])
 m5out = sys.argv[2]
 variant = VARIANTS[sys.argv[3]]
 
-import m5  # noqa: E402
+import m5
 
 m5.options.outdir = m5out
 
@@ -68,7 +67,7 @@ def branch_predictor(bp: dict):
     """The variant's predictor. Indirect targets come from the BTB and a
     taken prediction needs a BTB hit, as in rvsim's front end, where fetch
     knows a branch only through the BTB and decode redirects for the rest."""
-    common = dict(indirectBranchPred=NULL, requiresBTBHit=True)
+    common = {"indirectBranchPred": NULL, "requiresBTBHit": True}
     if bp["kind"] == "tournament":
         return TournamentBP(
             localPredictorSize=2 ** bp["local_pred_bits"],

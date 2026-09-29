@@ -25,9 +25,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from rvsim._core import Simulator  # noqa: E402
-from rvsim.config._config import _config_to_dict  # noqa: E402
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
+from rvsim._core import Simulator
+from rvsim.config._config import _config_to_dict
+from tests.conformance.configs.pipelines import PIPELINES
 
 CYCLE_LIMIT = int(os.environ.get("RVSIM_CYCLE_LIMIT", "10000000"))
 READELF = "riscv64-elf-readelf"

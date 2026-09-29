@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 from .. import _core
-
 
 _META_FORMAT = 1
 
@@ -40,7 +39,7 @@ class _Cache:
         return _read_meta(path)["checkpoint_version"] == _core.CHECKPOINT_VERSION
 
 
-def _read_meta(path: str) -> Dict[str, Any]:
+def _read_meta(path: str) -> dict[str, Any]:
     with open(path + ".json") as f:
         meta = json.load(f)
     if meta.get("format") != _META_FORMAT:

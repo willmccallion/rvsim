@@ -10,15 +10,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 __all__ = ["Environment", "Result"]
 
 from .config import Config
 from .config._config import _config_to_dict
-from .stats import Stats, _compare_flat, _compare_matrix
-
 from .simulator import Simulator
+from .stats import Stats, _compare_flat, _compare_matrix
 
 
 @dataclass
@@ -28,23 +27,23 @@ class Environment:
     binary: str
     """Path to the RISC-V binary (bare-metal)."""
 
-    config: Optional[Union[Config, Dict[str, Any]]] = None
+    config: Config | dict[str, Any] | None = None
     """Config or dict. If None, uses Config() defaults."""
 
-    disk: Optional[str] = None
+    disk: str | None = None
     """Optional disk image path."""
 
     load_addr: int = 0x8000_0000
     """Load address for the binary."""
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Returns the config as a dict for the Rust backend."""
         if self.config is not None:
             return _config_to_dict(self.config)
         return Config().to_dict()
 
     def run(
-        self, quiet: bool = True, limit: Optional[int] = None, progress: int = 0
+        self, quiet: bool = True, limit: int | None = None, progress: int = 0
     ) -> Result:
         """
         Run the simulation and return a :class:`Result`.
@@ -111,7 +110,7 @@ class Result:
         """``True`` if the program exited with code 0."""
         return self.exit_code == 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON-serializable dict for saving and comparison."""
         return {
             "exit_code": self.exit_code,
@@ -122,10 +121,10 @@ class Result:
 
     @staticmethod
     def compare(
-        results: Dict[str, Any],
+        results: dict[str, Any],
         *,
-        metrics: Optional[List[str]] = None,
-        baseline: Optional[str] = None,
+        metrics: list[str] | None = None,
+        baseline: str | None = None,
         col_header: str = "",
     ) -> None:
         """

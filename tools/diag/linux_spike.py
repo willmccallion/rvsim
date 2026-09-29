@@ -226,6 +226,7 @@ def try_disasm(pc, inst):
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         os.unlink(tmp)
         for line in result.stdout.splitlines():
@@ -235,7 +236,7 @@ def try_disasm(pc, inst):
                 if len(parts) >= 3:
                     return parts[2].strip()
         return ""
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         return ""
 
 

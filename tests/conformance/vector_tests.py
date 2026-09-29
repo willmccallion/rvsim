@@ -29,7 +29,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -65,6 +65,7 @@ def compute_spike_sig(elf_path, vlen, march, sig_path):
         capture_output=True,
         text=True,
         timeout=TIMEOUT_SEC,
+        check=False,
     )
     if not os.path.isfile(sig_path):
         return f"spike rc={res.returncode}: {res.stderr.strip()[:160]}"
@@ -93,9 +94,7 @@ def cache_spike_sigs(elfs, vlen, march, cache_dir, jobs):
             ex.submit(compute_spike_sig, elf, vlen, march, sig_path): (elf, sig_path)
             for elf, sig_path in todo
         }
-        done = 0
-        for fut in cf.as_completed(futs):
-            done += 1
+        for done, fut in enumerate(cf.as_completed(futs), 1):
             elf, sig_path = futs[fut]
             try:
                 err = fut.result()
@@ -123,26 +122,27 @@ def run_one(args):
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SEC,
+            check=False,
         )
     except subprocess.TimeoutExpired:
-        return dict(test=name, pipeline=pipeline_label, status="timeout")
+        return {"test": name, "pipeline": pipeline_label, "status": "timeout"}
 
     if res.returncode == 124:
         try:
             os.remove(sig_out)
         except OSError:
             pass
-        return dict(test=name, pipeline=pipeline_label, status="timeout")
+        return {"test": name, "pipeline": pipeline_label, "status": "timeout"}
 
     if not os.path.isfile(sig_out):
         msg = (res.stderr or res.stdout).strip().splitlines()
         tail = " | ".join(msg[-3:])[:200]
-        return dict(
-            test=name,
-            pipeline=pipeline_label,
-            status="error",
-            reason=f"rc={res.returncode}: {tail}",
-        )
+        return {
+            "test": name,
+            "pipeline": pipeline_label,
+            "status": "error",
+            "reason": f"rc={res.returncode}: {tail}",
+        }
 
     try:
         with open(sig_out) as f:
@@ -156,12 +156,12 @@ def run_one(args):
             pass
 
     if dut_sig == ref:
-        return dict(
-            test=name,
-            pipeline=pipeline_label,
-            status="pass",
-            seconds=round(time.time() - t0, 2),
-        )
+        return {
+            "test": name,
+            "pipeline": pipeline_label,
+            "status": "pass",
+            "seconds": round(time.time() - t0, 2),
+        }
     dut_lines = dut_sig.splitlines()
     ref_lines = ref.splitlines()
     diff_at = next(
@@ -172,13 +172,13 @@ def run_one(args):
         ),
         min(len(dut_lines), len(ref_lines)),
     )
-    return dict(
-        test=name,
-        pipeline=pipeline_label,
-        status="fail",
-        diff_line=diff_at,
-        seconds=round(time.time() - t0, 2),
-    )
+    return {
+        "test": name,
+        "pipeline": pipeline_label,
+        "status": "fail",
+        "diff_line": diff_at,
+        "seconds": round(time.time() - t0, 2),
+    }
 
 
 def main():
@@ -267,12 +267,12 @@ def main():
                     r = fut.result()
                 except Exception as e:
                     w = futs[fut]
-                    r = dict(
-                        test=os.path.basename(w[0])[:-4],
-                        pipeline=w[2],
-                        status="error",
-                        reason=f"{type(e).__name__}: {e}",
-                    )
+                    r = {
+                        "test": os.path.basename(w[0])[:-4],
+                        "pipeline": w[2],
+                        "status": "error",
+                        "reason": f"{type(e).__name__}: {e}",
+                    }
                 results.append(r)
                 counts[r["status"]] = counts.get(r["status"], 0) + 1
                 if r["status"] != "pass":
