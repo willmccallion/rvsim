@@ -38,16 +38,16 @@ pub fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = id.rob_tag.0,
-        pc       = %crate::sim::trace::Hex(id.inst.pc),
-        inst     = %crate::sim::trace::Hex32(id.inst.bits),
+        pc       = %crate::common::trace::Hex(id.inst.pc),
+        inst     = %crate::common::trace::Hex32(id.inst.bits),
         rd       = id.inst.rd.as_usize(),
         rd_phys  = id.rd_phys.0,
         rs1      = id.inst.rs1.as_usize(),
         rs1_phys = id.rs1_phys.0,
-        rv1      = %crate::sim::trace::Hex(id.inst.rv1),
+        rv1      = %crate::common::trace::Hex(id.inst.rv1),
         rs2      = id.inst.rs2.as_usize(),
         rs2_phys = id.rs2_phys.0,
-        rv2      = %crate::sim::trace::Hex(id.inst.rv2),
+        rv2      = %crate::common::trace::Hex(id.inst.rv2),
         imm      = id.inst.imm,
         a_src    = ?id.inst.ctrl.a_src,
         b_src    = ?id.inst.ctrl.b_src,
@@ -113,11 +113,11 @@ fn execute_system(
             if matches!(id.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;
                     event     = "return",
-                    pc        = %crate::sim::trace::Hex(id.inst.pc),
+                    pc        = %crate::common::trace::Hex(id.inst.pc),
                     rob_tag   = id.rob_tag.0,
                     insn      = ?id.inst.ctrl.system_op,
                     priv_mode = ?state.hart().privilege,
-                    mstatus   = %crate::sim::trace::Hex(state.hart().csrs.mstatus),
+                    mstatus   = %crate::common::trace::Hex(state.hart().csrs.mstatus),
                     "EX: xRET queued (privilege restore deferred to commit)"
                 );
             }

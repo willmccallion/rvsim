@@ -76,13 +76,13 @@ fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = id.rob_tag.0,
-        pc       = %crate::sim::trace::Hex(id.inst.pc),
-        inst     = %crate::sim::trace::Hex32(id.inst.bits),
+        pc       = %crate::common::trace::Hex(id.inst.pc),
+        inst     = %crate::common::trace::Hex32(id.inst.bits),
         rd       = id.inst.rd.as_usize(),
         rs1      = id.inst.rs1.as_usize(),
-        rv1      = %crate::sim::trace::Hex(id.inst.rv1),
+        rv1      = %crate::common::trace::Hex(id.inst.rv1),
         rs2      = id.inst.rs2.as_usize(),
-        rv2      = %crate::sim::trace::Hex(id.inst.rv2),
+        rv2      = %crate::common::trace::Hex(id.inst.rv2),
         imm      = id.inst.imm,
         alu_op   = ?id.inst.ctrl.alu,
         "EX: begin"

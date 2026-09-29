@@ -27,7 +27,7 @@ pub fn fault(
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
         stage   = ?stage,
-        pc      = %crate::sim::trace::Hex(id.inst.pc),
+        pc      = %crate::common::trace::Hex(id.inst.pc),
         rob_tag = id.rob_tag.0,
         trap    = ?trap,
         "EX: instruction faulted"
@@ -94,12 +94,12 @@ fn resolve_branch(
     );
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::sim::trace::Hex(id.inst.pc),
+        pc             = %crate::common::trace::Hex(id.inst.pc),
         rob_tag        = id.rob_tag.0,
         pred_taken     = id.pred_taken,
-        pred_target    = %crate::sim::trace::Hex(predicted_next_pc),
+        pred_target    = %crate::common::trace::Hex(predicted_next_pc),
         actual_taken   = taken,
-        actual_target  = %crate::sim::trace::Hex(actual_next_pc),
+        actual_target  = %crate::common::trace::Hex(actual_next_pc),
         mispredicted,
         "EX: branch resolved"
     );
@@ -131,13 +131,13 @@ fn resolve_jump(
     let rs1_link = is_jalr && (id.inst.rs1 == reg::REG_RA || id.inst.rs1 == reg::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::sim::trace::Hex(id.inst.pc),
+        pc             = %crate::common::trace::Hex(id.inst.pc),
         rob_tag        = id.rob_tag.0,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
         pred_taken     = id.pred_taken,
-        pred_target    = %crate::sim::trace::Hex(predicted_target),
+        pred_target    = %crate::common::trace::Hex(predicted_target),
         actual_taken   = true,
-        actual_target  = %crate::sim::trace::Hex(actual_target),
+        actual_target  = %crate::common::trace::Hex(actual_target),
         mispredicted,
         "EX: jump resolved"
     );

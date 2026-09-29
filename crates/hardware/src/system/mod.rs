@@ -5,6 +5,7 @@
 //! saves and restores checkpoints.
 
 pub mod checkpoint;
+pub mod coherence_audit;
 pub mod debug;
 pub mod dtb;
 pub mod loader;

@@ -12,6 +12,9 @@ pub mod error;
 /// Hart and physical-core identifier newtypes.
 pub mod ids;
 
+/// Compile-time–gated tracing macros for every pipeline subsystem.
+pub mod trace;
+
 pub use access::AccessType;
 pub use addr::{
     Asid, IrqId, LineAddr, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, Ppn, VPN_MASK, VirtAddr, Vpn,

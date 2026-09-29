@@ -8,9 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use super::protocol::CoreSet;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::packet::MesiState;
+use crate::soc::coherence::protocol::CoreSet;
 use crate::system::state::SystemState;
 
 /// One broken invariant.

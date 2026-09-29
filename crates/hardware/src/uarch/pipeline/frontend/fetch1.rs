@@ -259,7 +259,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     group: OutstandingFetch,
 ) {
     trace_fetch!(state.config.general.trace_instructions;
-        line        = %crate::sim::trace::Hex(line.val()),
+        line        = %crate::common::trace::Hex(line.val()),
         fetch_seq   = group.fetch_seq,
         entries     = group.entries.len(),
         "F1: line fetch issued"
@@ -378,7 +378,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
 
         if let Some(trap_cause) = fetch_trap.or(trap) {
             trace_fetch!(state.config.general.trace_instructions;
-                pc          = %crate::sim::trace::Hex(current_pc),
+                pc          = %crate::common::trace::Hex(current_pc),
                 trap        = ?trap_cause,
                 "F1: fetch trap"
             );
@@ -428,8 +428,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     TranslateOutcome::Ready(r) => {
                         if let Some(trap) = r.trap {
                             trace_fetch!(state.config.general.trace_instructions;
-                                pc           = %crate::sim::trace::Hex(current_pc),
-                                paddr        = %crate::sim::trace::Hex(phys_addr),
+                                pc           = %crate::common::trace::Hex(current_pc),
+                                paddr        = %crate::common::trace::Hex(phys_addr),
                                 trap         = ?trap,
                                 crosses_page = true,
                                 "F1: fetch trap on the upper half-word"
@@ -483,22 +483,22 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         if let Some(kind) = prediction.kind {
             trace_branch!(state.config.general.trace_instructions;
                 event       = "predict",
-                pc          = %crate::sim::trace::Hex(current_pc),
-                paddr       = %crate::sim::trace::Hex(phys_addr),
-                inst        = %crate::sim::trace::Hex32(full_inst),
+                pc          = %crate::common::trace::Hex(current_pc),
+                paddr       = %crate::common::trace::Hex(phys_addr),
+                inst        = %crate::common::trace::Hex32(full_inst),
                 bp_type     = kind,
                 pred_taken,
-                pred_target = %crate::sim::trace::Hex(pred_target),
+                pred_target = %crate::common::trace::Hex(pred_target),
                 "F1: control-flow prediction"
             );
         }
 
         trace_fetch!(state.config.general.trace_instructions;
-            pc          = %crate::sim::trace::Hex(current_pc),
-            paddr       = %crate::sim::trace::Hex(phys_addr),
+            pc          = %crate::common::trace::Hex(current_pc),
+            paddr       = %crate::common::trace::Hex(phys_addr),
             compressed  = is_compressed,
             pred_taken,
-            pred_target = %crate::sim::trace::Hex(pred_target),
+            pred_target = %crate::common::trace::Hex(pred_target),
             "F1: fetch entry issued"
         );
 

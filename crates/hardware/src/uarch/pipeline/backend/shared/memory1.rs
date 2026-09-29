@@ -661,9 +661,9 @@ fn resolve_store<E: ExecutionEngine>(
     {
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
-            store_pc        = %crate::sim::trace::Hex(ex.pc),
+            store_pc        = %crate::common::trace::Hex(ex.pc),
             store_tag       = ex.rob_tag.0,
-            paddr           = %crate::sim::trace::Hex(paddr.val()),
+            paddr           = %crate::common::trace::Hex(paddr.val()),
             violation_flush = load.0,
             "M1: memory ordering violation, a younger load already read this location"
         );
@@ -672,10 +672,10 @@ fn resolve_store<E: ExecutionEngine>(
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
         rob_tag    = ex.rob_tag.0,
-        pc         = %crate::sim::trace::Hex(ex.pc),
+        pc         = %crate::common::trace::Hex(ex.pc),
         op         = "store-resolve",
-        paddr      = %crate::sim::trace::Hex(paddr.val()),
-        store_data = %crate::sim::trace::Hex(ex.store_data),
+        paddr      = %crate::common::trace::Hex(paddr.val()),
+        store_data = %crate::common::trace::Hex(ex.store_data),
         "M1: store resolved into store buffer (write deferred to commit)"
     );
 }

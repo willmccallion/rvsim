@@ -108,13 +108,13 @@ impl CoreCtx<'_> {
                 if inst == WFI {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "wfi-wait",
-                        pc    = %crate::sim::trace::Hex(self.hart.pc),
+                        pc    = %crate::common::trace::Hex(self.hart.pc),
                         "CPU stuck in WFI — waiting for interrupt"
                     );
                 } else {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "potential-hang",
-                        pc    = %crate::sim::trace::Hex(self.hart.pc),
+                        pc    = %crate::common::trace::Hex(self.hart.pc),
                         inst  = inst,
                         "CPU potential hang detected"
                     );
@@ -178,7 +178,7 @@ impl CoreCtx<'_> {
                     event      = "mode-switch",
                     from_mode  = prev_priv.name(),
                     to_mode    = self.hart.privilege.name(),
-                    pc         = %crate::sim::trace::Hex(self.hart.pc),
+                    pc         = %crate::common::trace::Hex(self.hart.pc),
                     "CPU privilege mode switch"
                 );
             }
@@ -187,7 +187,7 @@ impl CoreCtx<'_> {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
                     cycles = self.cycle,
-                    pc     = %crate::sim::trace::Hex(self.hart.pc),
+                    pc     = %crate::common::trace::Hex(self.hart.pc),
                     mode   = self.hart.privilege.name(),
                     "CPU status"
                 );

@@ -5,10 +5,9 @@
 //! [`home::HomeAgent`] (who must be snooped: broadcast or a precise snoop
 //! filter), and an [`interconnect::Interconnect`] (the timing of moving a
 //! message). [`fabric::CoherenceFabric`] composes them into the component
-//! the private L2s talk to. [`audit`] checks the protocol's invariants over
-//! the whole system.
+//! the private L2s talk to. [`crate::system::coherence_audit`] checks the
+//! protocol's invariants over the whole system.
 
-pub mod audit;
 pub mod fabric;
 pub mod home;
 pub mod interconnect;
