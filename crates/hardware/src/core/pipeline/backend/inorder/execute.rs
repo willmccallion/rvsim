@@ -7,7 +7,7 @@ use crate::common::error::{ExceptionStage, Trap};
 use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::core::exec::signals::VectorOp;
 use crate::core::pipeline::backend::shared::execute::{
-    fault, next_pc, propagate_trap, resolve_control_flow,
+    fault, propagate_trap, resolve_control_flow,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
@@ -53,7 +53,7 @@ pub fn execute_inorder(
 
 /// The instruction after `id` squashes and refetches.
 const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
-    Redirect::to(next_pc(id), SquashCause::System)
+    Redirect::to(id.inst.next_pc(), SquashCause::System)
 }
 
 fn faulted(
@@ -75,53 +75,53 @@ fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = id.rob_tag.0,
-        pc       = %crate::trace::Hex(id.pc),
-        inst     = %crate::trace::Hex32(id.inst),
-        rd       = id.rd.as_usize(),
-        rs1      = id.rs1.as_usize(),
-        rv1      = %crate::trace::Hex(id.rv1),
-        rs2      = id.rs2.as_usize(),
-        rv2      = %crate::trace::Hex(id.rv2),
-        imm      = id.imm,
-        alu_op   = ?id.ctrl.alu,
+        pc       = %crate::trace::Hex(id.inst.pc),
+        inst     = %crate::trace::Hex32(id.inst.bits),
+        rd       = id.inst.rd.as_usize(),
+        rs1      = id.inst.rs1.as_usize(),
+        rv1      = %crate::trace::Hex(id.inst.rv1),
+        rs2      = id.inst.rs2.as_usize(),
+        rv2      = %crate::trace::Hex(id.inst.rv2),
+        imm      = id.inst.imm,
+        alu_op   = ?id.inst.ctrl.alu,
         "EX: begin"
     );
 
-    if state.check_execute_trigger(id.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.pc));
+    if state.check_execute_trigger(id.inst.pc) {
+        return faulted(state, id, Trap::Breakpoint(id.inst.pc));
     }
 
     if let Some(executed) = execute_system(state, id, rob) {
         return executed;
     }
 
-    if unit_disabled(state.hart(), &id.exec_inst()) {
-        return faulted(state, id, Trap::IllegalInstruction(id.inst));
+    if unit_disabled(state.hart(), &id.inst) {
+        return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
     }
 
-    if id.ctrl.vec_op.is_config() {
-        let vl = set_vector_config(state, id, id.rv1, id.rv2, rob);
+    if id.inst.ctrl.vec_op.is_config() {
+        let vl = set_vector_config(state, id, id.inst.rv1, id.inst.rv2, rob);
         rob.complete(id.rob_tag, vl);
         return (ExMem1Entry::from_issue(id, vl, 0), None);
     }
 
     // A vector op's registers are read at issue, so what follows one is
     // refetched. Its result is ready when its unit finishes, like any other.
-    if id.ctrl.vec_op != VectorOp::None {
+    if id.inst.ctrl.vec_op != VectorOp::None {
         return match execute_vector(state, id, rob) {
             Ok(scalar) => (ExMem1Entry::from_issue(id, scalar, 0), Some(refetch_after(id))),
             Err(trap) => faulted(state, id, trap),
         };
     }
 
-    let inst = id.exec_inst();
-    let (op_a, op_b) = operands(&inst);
-    let (alu_out, fp_flags) = evaluate(state, &inst, op_a, op_b);
+    let inst = &id.inst;
+    let (op_a, op_b) = operands(inst);
+    let (alu_out, fp_flags) = evaluate(state, inst, op_a, op_b);
     let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
         Ok(redirect) => redirect,
         Err(trap) => return faulted(state, id, trap),
     };
-    (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.rv2) }, redirect)
+    (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.inst.rv2) }, redirect)
 }
 
 /// Executes a system instruction; `None` for everything else, FENCE
@@ -131,7 +131,7 @@ fn execute_system(
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    Some(match system_effect(state, &id.exec_inst()) {
+    Some(match system_effect(state, &id.inst) {
         SystemEffect::NotSystem => return None,
         SystemEffect::Trap(trap) => faulted(state, id, trap),
         // FENCE.I's I-cache flush waits for commit, so older stores are
@@ -141,18 +141,18 @@ fn execute_system(
         SystemEffect::SfenceVma(sfence_vma) => {
             let result = ExMem1Entry {
                 sfence_vma: Some(sfence_vma),
-                ..ExMem1Entry::from_issue(id, 0, id.rv2)
+                ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
             };
             (result, Some(refetch_after(id)))
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
-        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.rv1, 0), None),
+        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
         SystemEffect::Csr(access) => {
             if let Some(update) = access.update {
                 rob.set_csr_update(id.rob_tag, update.into());
             }
-            (ExMem1Entry::from_issue(id, access.old, id.rv2), Some(refetch_after(id)))
+            (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), Some(refetch_after(id)))
         }
     })
 }
@@ -172,7 +172,7 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         csrs.frm,
         vector.elen,
         vector.zvfh,
-        &id.exec_inst(),
+        &id.inst,
     )?;
     rob.set_vec_writes(id.rob_tag, shadow.into_writes());
     if result.fp_flags != 0 {

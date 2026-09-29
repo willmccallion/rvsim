@@ -80,15 +80,15 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     });
 
     stage!("DE", snap.decode_rename, |e: &rvsim_core::core::pipeline::latches::IdExEntry| {
-        cell(&disassemble(e.inst))
+        cell(&disassemble(e.inst.bits))
     });
 
     stage!("RN", snap.rename_issue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
-        cell(&disassemble(e.inst))
+        cell(&disassemble(e.inst.bits))
     });
 
     stage!("IS", snap.issue_queue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
-        let asm = disassemble(e.inst);
+        let asm = disassemble(e.inst.bits);
         let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
         if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
     });
@@ -242,13 +242,13 @@ impl PyPipelineSnapshot {
             .decode_rename
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("imm", e.imm)?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
+                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
+                d.set_item("rs1", e.inst.rs1.as_u8())?;
+                d.set_item("rs2", e.inst.rs2.as_u8())?;
+                d.set_item("rd", e.inst.rd.as_u8())?;
+                d.set_item("imm", e.inst.imm)?;
+                d.set_item("rv1", e.inst.rv1)?;
+                d.set_item("rv2", e.inst.rv2)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -265,12 +265,12 @@ impl PyPipelineSnapshot {
             .rename_issue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
+                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
+                d.set_item("rs1", e.inst.rs1.as_u8())?;
+                d.set_item("rs2", e.inst.rs2.as_u8())?;
+                d.set_item("rd", e.inst.rd.as_u8())?;
+                d.set_item("rv1", e.inst.rv1)?;
+                d.set_item("rv2", e.inst.rv2)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
                 d.set_item("rs1_ready", e.rs1_tag.is_none())?;
                 d.set_item("rs2_ready", e.rs2_tag.is_none())?;
@@ -291,12 +291,12 @@ impl PyPipelineSnapshot {
             .issue_queue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
+                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
+                d.set_item("rs1", e.inst.rs1.as_u8())?;
+                d.set_item("rs2", e.inst.rs2.as_u8())?;
+                d.set_item("rd", e.inst.rd.as_u8())?;
+                d.set_item("rv1", e.inst.rv1)?;
+                d.set_item("rv2", e.inst.rv2)?;
                 d.set_item("rob_tag", e.rob_tag.0)?;
                 d.set_item("rs1_ready", e.rs1_tag.is_none())?;
                 d.set_item("rs2_ready", e.rs2_tag.is_none())?;

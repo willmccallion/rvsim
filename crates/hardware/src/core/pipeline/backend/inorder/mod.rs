@@ -195,15 +195,15 @@ impl InOrderEngine {
         use crate::core::units::vpu::mem::{
             check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
         };
-        if unit_disabled(state.hart, &entry.exec_inst()) {
-            let trap = Trap::IllegalInstruction(entry.inst);
+        if unit_disabled(state.hart, &entry.inst) {
+            let trap = Trap::IllegalInstruction(entry.inst.bits);
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;
         }
-        let vec_op = entry.ctrl.vec_op;
+        let vec_op = entry.inst.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vtype = parse_vtype(state.hart.csrs.vtype);
-        if let Err(trap) = check_vec_mem_emul(entry.inst, vec_op, &entry.ctrl, &vtype) {
+        if let Err(trap) = check_vec_mem_emul(entry.inst.bits, vec_op, &entry.inst.ctrl, &vtype) {
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;
         }
@@ -212,21 +212,21 @@ impl InOrderEngine {
         } else {
             vec_mem_dst_count(
                 vec_op,
-                entry.ctrl.vec_eew,
+                entry.inst.ctrl.vec_eew,
                 vtype.vsew,
                 vtype.vlmul,
-                entry.ctrl.vec_nf,
+                entry.inst.ctrl.vec_nf,
             )
         };
         let mut vd_regs = [VecPhysReg::ZERO; 8];
         for (offset, reg) in vd_regs.iter_mut().enumerate().take(vd_count as usize) {
-            *reg = VecPhysReg::new(u16::from(entry.ctrl.vd.as_u8()) + offset as u16);
+            *reg = VecPhysReg::new(u16::from(entry.inst.ctrl.vd.as_u8()) + offset as u16);
         }
         let addresses = generate_element_addrs_vrf(
             state.hart.regs.vpr(),
-            entry.rv1,
-            entry.rv2 as i64,
-            &entry.ctrl,
+            entry.inst.rv1,
+            entry.inst.rv2 as i64,
+            &entry.inst.ctrl,
             state.hart.csrs.vtype,
             state.hart.csrs.vl as usize,
             state.hart.csrs.vstart as usize,
@@ -241,7 +241,7 @@ impl InOrderEngine {
             self.rob.complete(entry.rob_tag, 0);
             return;
         }
-        let parent = ExMem1Entry::from_issue(entry, entry.rv1, entry.rv2);
+        let parent = ExMem1Entry::from_issue(entry, entry.inst.rv1, entry.inst.rv2);
         let width = state.config.pipeline.vector_mem_width_bytes();
         let planned = plan_accesses(addresses, moves_in_spans(vec_op), width);
         let micro_ops = micro_ops_for(&parent, planned, is_store);
@@ -426,7 +426,7 @@ impl ExecutionEngine for InOrderEngine {
                 state.shared.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
             }
             let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
-                is_vec_load(entry.ctrl.vec_op) || is_vec_store(entry.ctrl.vec_op)
+                is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
             });
             for entry in &vec_mem {
                 self.start_vec_mem_op(state, entry);

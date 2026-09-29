@@ -196,36 +196,13 @@ pub struct IfIdEntry {
     pub seq: InstSeq,
 }
 
-/// Entry in the ID/EX pipeline latch (Decode to Execute stage).
-///
-/// Contains decoded instruction information, including register indices,
-/// immediate values, and control signals.
+/// Entry in the ID/EX pipeline latch (Decode to Execute stage): the decoded
+/// instruction with its operand values, fetch's prediction for it, and any
+/// trap found so far.
 #[derive(Clone, Default, Debug)]
 pub struct IdExEntry {
-    /// Program counter of the instruction.
-    pub pc: u64,
-    /// 32-bit instruction encoding.
-    pub inst: u32,
-    /// Size of the instruction in bytes.
-    pub inst_size: InstSize,
-    /// First source register index (rs1).
-    pub rs1: RegIdx,
-    /// Second source register index (rs2).
-    pub rs2: RegIdx,
-    /// Third source register index (rs3).
-    pub rs3: RegIdx,
-    /// Destination register index (rd).
-    pub rd: RegIdx,
-    /// Sign-extended immediate value.
-    pub imm: i64,
-    /// Value read from rs1 register.
-    pub rv1: u64,
-    /// Value read from rs2 register.
-    pub rv2: u64,
-    /// Value read from rs3 register.
-    pub rv3: u64,
-    /// Control signals for downstream pipeline stages.
-    pub ctrl: ControlSignals,
+    /// The decoded instruction and its operand values.
+    pub inst: Inst,
     /// Trap that occurred during decode, if any.
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was first detected.
@@ -321,28 +298,8 @@ pub struct Fetch1Fetch2Entry {
 pub struct RenameIssueEntry {
     /// ROB tag assigned during rename.
     pub rob_tag: RobTag,
-    /// Program counter.
-    pub pc: u64,
-    /// Raw 32-bit instruction encoding.
-    pub inst: u32,
-    /// Instruction size in bytes.
-    pub inst_size: InstSize,
-    /// Source register 1 index.
-    pub rs1: RegIdx,
-    /// Source register 2 index.
-    pub rs2: RegIdx,
-    /// Source register 3 index (FMA).
-    pub rs3: RegIdx,
-    /// Destination register index.
-    pub rd: RegIdx,
-    /// Sign-extended immediate.
-    pub imm: i64,
-    /// Forwarded value for rs1.
-    pub rv1: u64,
-    /// Forwarded value for rs2.
-    pub rv2: u64,
-    /// Forwarded value for rs3.
-    pub rv3: u64,
+    /// The decoded instruction and its operand values.
+    pub inst: Inst,
     /// Scoreboard tag for rs1 at rename time (None = read from register file).
     pub rs1_tag: Option<RobTag>,
     /// Scoreboard tag for rs2 at rename time.
@@ -357,8 +314,6 @@ pub struct RenameIssueEntry {
     pub rs3_phys: PhysReg,
     /// Physical destination register allocated at rename (O3 PRF path).
     pub rd_phys: PhysReg,
-    /// Control signals.
-    pub ctrl: ControlSignals,
     /// Trap from earlier stages.
     pub trap: Option<Trap>,
     /// Exception stage.
@@ -395,28 +350,6 @@ pub struct RenameIssueEntry {
     pub vec_vxrm: u64,
     /// `frm` (FP rounding mode) CSR captured at dispatch time.
     pub vec_frm: u64,
-}
-
-impl RenameIssueEntry {
-    /// The instruction and operand values, as the shared execute
-    /// semantics take them.
-    #[must_use]
-    pub const fn exec_inst(&self) -> Inst {
-        Inst {
-            pc: self.pc,
-            bits: self.inst,
-            size: self.inst_size,
-            rd: self.rd,
-            rs1: self.rs1,
-            rs2: self.rs2,
-            rs3: self.rs3,
-            imm: self.imm,
-            rv1: self.rv1,
-            rv2: self.rv2,
-            rv3: self.rv3,
-            ctrl: self.ctrl,
-        }
-    }
 }
 
 /// Entry from Execute -> Memory1 latch.
@@ -513,14 +446,14 @@ impl ExMem1Entry {
     pub const fn from_issue(id: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
         Self {
             rob_tag: id.rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rd: id.rd,
+            pc: id.inst.pc,
+            inst: id.inst.bits,
+            inst_size: id.inst.size,
+            rd: id.inst.rd,
             rd_phys: id.rd_phys,
             alu,
             store_data,
-            ctrl: id.ctrl,
+            ctrl: id.inst.ctrl,
             trap: None,
             exception_stage: None,
             fp_flags: 0,

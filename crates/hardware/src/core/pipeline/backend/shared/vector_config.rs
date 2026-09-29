@@ -18,7 +18,7 @@ pub fn set_vector_config(
     let current_vl =
         rob.youngest_vec_csr_update().map_or_else(|| state.hart().csrs.vl, |config| config.vl);
     let vlen = state.hart().regs.vpr().vlen();
-    let config = vector_config(&id.exec_inst(), rs1_value, rs2_value, vlen, current_vl);
+    let config = vector_config(&id.inst, rs1_value, rs2_value, vlen, current_vl);
     rob.set_vec_csr_update(id.rob_tag, config);
     config.vl
 }

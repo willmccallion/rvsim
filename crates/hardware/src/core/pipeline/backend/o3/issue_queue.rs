@@ -211,21 +211,43 @@ impl IssueQueue {
         }
 
         let (src1, src2, src3) = if let Some(prf) = prf {
-            let s1 = resolve_operand_prf(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_phys, prf, state);
-            let s2 = resolve_operand_prf(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_phys, prf, state);
-            let s3 = if entry.ctrl.rs3_fp {
-                resolve_operand_prf(entry.rs3, true, entry.rs3_phys, prf, state)
+            let s1 = resolve_operand_prf(
+                entry.inst.rs1,
+                entry.inst.ctrl.rs1_fp,
+                entry.rs1_phys,
+                prf,
+                state,
+            );
+            let s2 = resolve_operand_prf(
+                entry.inst.rs2,
+                entry.inst.ctrl.rs2_fp,
+                entry.rs2_phys,
+                prf,
+                state,
+            );
+            let s3 = if entry.inst.ctrl.rs3_fp {
+                resolve_operand_prf(entry.inst.rs3, true, entry.rs3_phys, prf, state)
             } else {
                 OperandState::ready(PhysReg(0), None, 0)
             };
             (s1, s2, s3)
         } else {
-            let s1 =
-                resolve_operand_legacy(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
-            let s2 =
-                resolve_operand_legacy(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
-            let s3 = if entry.ctrl.rs3_fp {
-                resolve_operand_legacy(entry.rs3, true, entry.rs3_tag, rob, state)
+            let s1 = resolve_operand_legacy(
+                entry.inst.rs1,
+                entry.inst.ctrl.rs1_fp,
+                entry.rs1_tag,
+                rob,
+                state,
+            );
+            let s2 = resolve_operand_legacy(
+                entry.inst.rs2,
+                entry.inst.ctrl.rs2_fp,
+                entry.rs2_tag,
+                rob,
+                state,
+            );
+            let s3 = if entry.inst.ctrl.rs3_fp {
+                resolve_operand_legacy(entry.inst.rs3, true, entry.rs3_tag, rob, state)
             } else {
                 OperandState::ready(PhysReg(0), None, 0)
             };
@@ -255,8 +277,9 @@ impl IssueQueue {
         }
 
         // Track v0 mask register dependency for masked vector ops (vm=0).
-        let needs_mask =
-            !entry.ctrl.vm && entry.ctrl.vec_op != VectorOp::None && !entry.ctrl.vec_op.is_config();
+        let needs_mask = !entry.inst.ctrl.vm
+            && entry.inst.ctrl.vec_op != VectorOp::None
+            && !entry.inst.ctrl.vec_op.is_config();
         let mask_phys = if needs_mask { entry.mask_phys } else { VecPhysReg::ZERO };
         let mask_ready = !needs_mask || vec_prf.is_none_or(|vprf| vprf.is_ready(mask_phys));
 
@@ -384,21 +407,21 @@ impl IssueQueue {
                     // state, so it executes only once it is the oldest
                     // instruction: nothing older can still change that state
                     // or squash it.
-                    if iq.entry.ctrl.system_op != SystemOp::None
-                        && iq.entry.ctrl.system_op != SystemOp::Fence
-                        && !iq.entry.ctrl.system_op.is_cbo()
+                    if iq.entry.inst.ctrl.system_op != SystemOp::None
+                        && iq.entry.inst.ctrl.system_op != SystemOp::Fence
+                        && !iq.entry.inst.ctrl.system_op.is_cbo()
                         && !rob.is_head(iq.entry.rob_tag)
                     {
                         continue;
                     }
                     // An AMO or store-conditional is non-speculative (gem5's
                     // IsNonSpeculative): it executes only as the oldest.
-                    if iq.entry.ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
+                    if iq.entry.inst.ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
                         continue;
                     }
                     {
                         use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
-                        let vop = iq.entry.ctrl.vec_op;
+                        let vop = iq.entry.inst.ctrl.vec_op;
                         if (is_vec_load(vop) || is_vec_store(vop))
                             && (store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
                                 || store_buffer.has_committed_stores())
@@ -406,16 +429,16 @@ impl IssueQueue {
                             continue;
                         }
                     }
-                    if iq.entry.ctrl.system_op == SystemOp::Fence {
-                        let pred_bits = ((iq.entry.inst >> 24) & 0xF) as u8;
+                    if iq.entry.inst.ctrl.system_op == SystemOp::Fence {
+                        let pred_bits = ((iq.entry.inst.bits >> 24) & 0xF) as u8;
                         let pred_r = pred_bits & 0b0010 != 0;
                         let pred_w = pred_bits & 0b0001 != 0;
                         if !rob.fence_pred_satisfied(iq.entry.rob_tag, pred_r, pred_w) {
                             continue;
                         }
                     }
-                    let reads = iq.entry.ctrl.reads_memory();
-                    let writes = iq.entry.ctrl.writes_memory();
+                    let reads = iq.entry.inst.ctrl.reads_memory();
+                    let writes = iq.entry.inst.ctrl.writes_memory();
                     if (reads || writes) && rob.has_fence_blocking(iq.entry.rob_tag, reads, writes)
                     {
                         continue;
@@ -436,7 +459,7 @@ impl IssueQueue {
                 break;
             }
             let Some(slot) = self.slots[idx].as_ref() else { continue };
-            let ctrl = &slot.entry.ctrl;
+            let ctrl = &slot.entry.inst.ctrl;
             let is_load = ctrl.mem_read;
             let is_store = ctrl.mem_write;
             if is_load && loads_issued >= budget.load_ports {
@@ -471,17 +494,17 @@ impl IssueQueue {
                     !matches!(iq.src1.readiness, OperandReady::NotReady),
                     "IQ select: src1 not ready for rob_tag={} pc={:#x}",
                     entry.rob_tag.0,
-                    entry.pc,
+                    entry.inst.pc,
                 );
                 debug_assert!(
                     !matches!(iq.src2.readiness, OperandReady::NotReady),
                     "IQ select: src2 not ready for rob_tag={} pc={:#x}",
                     entry.rob_tag.0,
-                    entry.pc,
+                    entry.inst.pc,
                 );
-                entry.rv1 = Self::resolve_value(&iq.src1);
-                entry.rv2 = Self::resolve_value(&iq.src2);
-                entry.rv3 = Self::resolve_value(&iq.src3);
+                entry.inst.rv1 = Self::resolve_value(&iq.src1);
+                entry.inst.rv2 = Self::resolve_value(&iq.src2);
+                entry.inst.rv3 = Self::resolve_value(&iq.src3);
             }
             selection.entries.push(SelectedEntry { entry, fu_type, unit });
         }
@@ -616,6 +639,7 @@ fn resolve_operand_legacy(
 mod tests {
     use super::*;
     use crate::common::{InstSize, RegIdx};
+    use crate::core::exec::inst::Inst;
     use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
@@ -623,18 +647,22 @@ mod tests {
 
     fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         RenameIssueEntry {
+            // NOP
+            inst: Inst {
+                pc: 0x1000 + (rob_tag as u64) * 4,
+                bits: 0x13,
+                size: InstSize::Standard,
+                rs1: RegIdx::new(0),
+                rs2: RegIdx::new(0),
+                rs3: RegIdx::new(0),
+                rd: RegIdx::new(1),
+                imm: 0,
+                rv1: 0,
+                rv2: 0,
+                rv3: 0,
+                ctrl: ControlSignals::default(),
+            },
             rob_tag: RobTag(rob_tag),
-            pc: 0x1000 + (rob_tag as u64) * 4,
-            inst: 0x13, // NOP
-            inst_size: InstSize::Standard,
-            rs1: RegIdx::new(0),
-            rs2: RegIdx::new(0),
-            rs3: RegIdx::new(0),
-            rd: RegIdx::new(1),
-            imm: 0,
-            rv1: 0,
-            rv2: 0,
-            rv3: 0,
             rs1_tag: None,
             rs2_tag: None,
             rs3_tag: None,
@@ -642,7 +670,6 @@ mod tests {
             rs2_phys: PhysReg(0),
             rs3_phys: PhysReg(0),
             rd_phys: PhysReg(0),
-            ctrl: ControlSignals::default(),
             trap: None,
             exception_stage: None,
             pred_taken: false,
@@ -688,8 +715,9 @@ mod tests {
 
     /// A ready entry for `rob_tag` executing `ctrl`.
     fn ready_entry(rob_tag: u32, ctrl: ControlSignals) -> IssueQueueEntry {
+        let base = make_entry(rob_tag);
         IssueQueueEntry {
-            entry: RenameIssueEntry { ctrl, ..make_entry(rob_tag) },
+            entry: RenameIssueEntry { inst: Inst { ctrl, ..base.inst }, ..base },
             src1: ready_operand(0),
             src2: ready_operand(0),
             src3: ready_operand(0),
@@ -795,8 +823,8 @@ mod tests {
             select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].entry.rob_tag.0, 1);
-        assert_eq!(selected[0].entry.rv1, 42);
-        assert_eq!(selected[0].entry.rv2, 10);
+        assert_eq!(selected[0].entry.inst.rv1, 42);
+        assert_eq!(selected[0].entry.inst.rv2, 10);
         assert!(iq.is_empty());
     }
 
@@ -834,7 +862,7 @@ mod tests {
         let selected =
             select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].entry.rv1, 999);
+        assert_eq!(selected[0].entry.inst.rv1, 999);
     }
 
     #[test]
@@ -864,7 +892,7 @@ mod tests {
         let selected =
             select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].entry.rv1, 999);
+        assert_eq!(selected[0].entry.inst.rv1, 999);
     }
 
     #[test]
@@ -1030,7 +1058,7 @@ mod tests {
         let load_tag = alloc(&mut rob, vector_load);
         let mut iq = IssueQueue::new(4);
         let mut entry = make_entry(load_tag.0);
-        entry.ctrl = vector_load;
+        entry.inst.ctrl = vector_load;
         iq.slots[0] = Some(IssueQueueEntry {
             entry,
             src1: ready_operand(0),
@@ -1064,8 +1092,8 @@ mod tests {
             (4, 5, false, true),
         ] {
             let mut entry = make_entry(tag);
-            entry.ctrl.mem_read = is_load;
-            entry.ctrl.mem_write = is_store;
+            entry.inst.ctrl.mem_read = is_load;
+            entry.inst.ctrl.mem_write = is_store;
             iq.slots[slot] = Some(IssueQueueEntry {
                 entry,
                 src1: ready_operand(0),
@@ -1087,11 +1115,11 @@ mod tests {
         assert_eq!(selected.len(), 3);
         // Oldest first: tags 1 (load), 2 (load), 4 (store)
         assert_eq!(selected[0].entry.rob_tag.0, 1);
-        assert!(selected[0].entry.ctrl.mem_read);
+        assert!(selected[0].entry.inst.ctrl.mem_read);
         assert_eq!(selected[1].entry.rob_tag.0, 2);
-        assert!(selected[1].entry.ctrl.mem_read);
+        assert!(selected[1].entry.inst.ctrl.mem_read);
         assert_eq!(selected[2].entry.rob_tag.0, 4);
-        assert!(selected[2].entry.ctrl.mem_write);
+        assert!(selected[2].entry.inst.ctrl.mem_write);
 
         // Remaining: tag 3 (load), tag 5 (store)
         assert_eq!(iq.len(), 2);

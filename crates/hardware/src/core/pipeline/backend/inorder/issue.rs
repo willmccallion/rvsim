@@ -64,7 +64,7 @@ impl InOrderIssueUnit {
                 self.queue.len(),
                 self.capacity,
                 entry.rob_tag.0,
-                entry.pc,
+                entry.inst.pc,
             );
             if self.queue.len() < self.capacity {
                 self.queue.push_back(entry);
@@ -115,18 +115,18 @@ impl InOrderIssueUnit {
             // have their own checks below. A vector instruction reads the
             // architectural vector registers, so it waits for the head too,
             // and so does an atomic that takes effect in the cache.
-            let waits_for_head = (entry.ctrl.vec_op != VectorOp::None
-                && !entry.ctrl.vec_op.is_config())
-                || (entry.ctrl.system_op != SystemOp::None
-                    && entry.ctrl.system_op != SystemOp::Fence
-                    && !entry.ctrl.system_op.is_cbo())
-                || entry.ctrl.performs_at_rob_head();
+            let waits_for_head = (entry.inst.ctrl.vec_op != VectorOp::None
+                && !entry.inst.ctrl.vec_op.is_config())
+                || (entry.inst.ctrl.system_op != SystemOp::None
+                    && entry.inst.ctrl.system_op != SystemOp::Fence
+                    && !entry.inst.ctrl.system_op.is_cbo())
+                || entry.inst.ctrl.performs_at_rob_head();
             if waits_for_head && !rob.is_head(entry.rob_tag) {
                 break;
             }
 
-            if entry.ctrl.system_op == SystemOp::Fence {
-                let pred_bits = ((entry.inst >> 24) & 0xF) as u8;
+            if entry.inst.ctrl.system_op == SystemOp::Fence {
+                let pred_bits = ((entry.inst.bits >> 24) & 0xF) as u8;
                 let pred_r = pred_bits & 0b0010 != 0;
                 let pred_w = pred_bits & 0b0001 != 0;
                 if !rob.fence_pred_satisfied(entry.rob_tag, pred_r, pred_w) {
@@ -134,39 +134,51 @@ impl InOrderIssueUnit {
                 }
             }
 
-            let (reads, writes) = (entry.ctrl.reads_memory(), entry.ctrl.writes_memory());
+            let (reads, writes) = (entry.inst.ctrl.reads_memory(), entry.inst.ctrl.writes_memory());
             if (reads || writes) && rob.has_fence_blocking(entry.rob_tag, reads, writes) {
                 break;
             }
 
             // Loads need older store addresses resolved or forwarding can miss an overlap.
-            if entry.ctrl.mem_read
+            if entry.inst.ctrl.mem_read
                 && (store_buffer.has_unresolved_store_before(entry.rob_tag)
                     || vec_store_buffer.has_unresolved_store_before(entry.rob_tag))
             {
                 break;
             }
 
-            let rv1 = read_operand_by_tag(entry.rs1, entry.ctrl.rs1_fp, entry.rs1_tag, rob, state);
-            let rv2 = read_operand_by_tag(entry.rs2, entry.ctrl.rs2_fp, entry.rs2_tag, rob, state);
-            let rv3 = if entry.ctrl.rs3_fp {
-                read_operand_by_tag(entry.rs3, true, entry.rs3_tag, rob, state)
+            let rv1 = read_operand_by_tag(
+                entry.inst.rs1,
+                entry.inst.ctrl.rs1_fp,
+                entry.rs1_tag,
+                rob,
+                state,
+            );
+            let rv2 = read_operand_by_tag(
+                entry.inst.rs2,
+                entry.inst.ctrl.rs2_fp,
+                entry.rs2_tag,
+                rob,
+                state,
+            );
+            let rv3 = if entry.inst.ctrl.rs3_fp {
+                read_operand_by_tag(entry.inst.rs3, true, entry.rs3_tag, rob, state)
             } else {
                 Some(0)
             };
 
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
-                let fu_type = FuType::classify(&entry.ctrl);
+                let fu_type = FuType::classify(&entry.inst.ctrl);
                 let Some(unit) = fu_pool.free_unit(fu_type, now) else {
                     state.counter(state.core().stat_paths.pipeline.stalls_fu_structural).inc();
                     break;
                 };
-                let complete_cycle = if is_vector_arithmetic(entry.ctrl.vec_op) {
+                let complete_cycle = if is_vector_arithmetic(entry.inst.ctrl.vec_op) {
                     // A vector op issues only as the oldest instruction, so
                     // the architectural vl is the one it executes under.
                     let latency = fu_pool.vector_op_latency(
                         fu_type,
-                        &entry.ctrl,
+                        &entry.inst.ctrl,
                         state.hart().csrs.vl as usize,
                         state.config.pipeline.vector_lanes(),
                     );
@@ -176,17 +188,17 @@ impl InOrderIssueUnit {
                 };
                 let Some(mut issued) = self.queue.pop_front() else { break };
                 units.push(IssuedUnit { tag: issued.rob_tag, fu_type, complete_cycle });
-                issued.rv1 = v1;
-                issued.rv2 = v2;
-                issued.rv3 = v3;
+                issued.inst.rv1 = v1;
+                issued.inst.rv2 = v2;
+                issued.inst.rv3 = v3;
                 selected.push(issued);
             } else {
                 trace_issue!(state.config.general.trace_instructions;
-                    pc       = %crate::trace::Hex(entry.pc),
-                    rs1      = entry.rs1.as_usize(),
+                    pc       = %crate::trace::Hex(entry.inst.pc),
+                    rs1      = entry.inst.rs1.as_usize(),
                     rs1_tag  = ?entry.rs1_tag,
                     rs1_rdy  = rv1.is_some(),
-                    rs2      = entry.rs2.as_usize(),
+                    rs2      = entry.inst.rs2.as_usize(),
                     rs2_tag  = ?entry.rs2_tag,
                     rs2_rdy  = rv2.is_some(),
                     "IS: stall — operand not ready"

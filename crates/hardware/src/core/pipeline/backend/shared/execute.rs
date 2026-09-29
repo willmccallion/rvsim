@@ -14,11 +14,6 @@ use crate::isa::abi;
 use crate::sim::StageCtx;
 use crate::{trace_branch, trace_trap};
 
-/// The instruction after `id` in program order.
-pub const fn next_pc(id: &RenameIssueEntry) -> u64 {
-    id.pc.wrapping_add(id.inst_size.as_u64())
-}
-
 /// The result of an instruction that raised `trap` in `stage`. The trap
 /// travels with it: writeback records it on the ROB entry and commit takes
 /// it, flushing everything younger, as a real core does.
@@ -31,7 +26,7 @@ pub fn fault(
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
         stage   = ?stage,
-        pc      = %crate::trace::Hex(id.pc),
+        pc      = %crate::trace::Hex(id.inst.pc),
         rob_tag = id.rob_tag.0,
         trap    = ?trap,
         "EX: instruction faulted"
@@ -64,7 +59,7 @@ pub fn resolve_control_flow(
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
-    match id.ctrl.control_flow {
+    match id.inst.ctrl.control_flow {
         ControlFlow::Branch => resolve_branch(state, rob, id, op_a, op_b),
         ControlFlow::Jump => resolve_jump(state, rob, id),
         ControlFlow::Sequential => Ok(None),
@@ -81,9 +76,9 @@ fn resolve_branch(
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
-    let taken = branch_taken(id.inst, op_a, op_b);
-    let actual_target = id.pc.wrapping_add(id.imm as u64);
-    let fallthrough = next_pc(id);
+    let taken = branch_taken(id.inst.bits, op_a, op_b);
+    let actual_target = id.inst.pc.wrapping_add(id.inst.imm as u64);
+    let fallthrough = id.inst.next_pc();
     let predicted_next_pc = if id.pred_taken { id.pred_target } else { fallthrough };
     let actual_next_pc = if taken { actual_target } else { fallthrough };
     if taken {
@@ -98,7 +93,7 @@ fn resolve_branch(
     );
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::trace::Hex(id.pc),
+        pc             = %crate::trace::Hex(id.inst.pc),
         rob_tag        = id.rob_tag.0,
         pred_taken     = id.pred_taken,
         pred_target    = %crate::trace::Hex(predicted_next_pc),
@@ -119,11 +114,11 @@ fn resolve_jump(
     rob: &mut Rob,
     id: &RenameIssueEntry,
 ) -> Result<Option<Redirect>, Trap> {
-    let inst = id.exec_inst();
-    let is_jalr = is_jalr(&inst);
-    let actual_target = jump_target(&inst);
+    let inst = &id.inst;
+    let is_jalr = is_jalr(inst);
+    let actual_target = jump_target(inst);
     check_target_alignment(state.hart(), actual_target)?;
-    let predicted_target = if id.pred_taken { id.pred_target } else { next_pc(id) };
+    let predicted_target = if id.pred_taken { id.pred_target } else { id.inst.next_pc() };
     let mispredicted = actual_target != predicted_target;
 
     rob.set_control_outcome(
@@ -131,11 +126,11 @@ fn resolve_jump(
         BpOutcome { taken: true, mispredicted },
         Some(actual_target),
     );
-    let rd_link = id.rd == abi::REG_RA || id.rd == abi::REG_T0;
-    let rs1_link = is_jalr && (id.rs1 == abi::REG_RA || id.rs1 == abi::REG_T0);
+    let rd_link = id.inst.rd == abi::REG_RA || id.inst.rd == abi::REG_T0;
+    let rs1_link = is_jalr && (id.inst.rs1 == abi::REG_RA || id.inst.rs1 == abi::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::trace::Hex(id.pc),
+        pc             = %crate::trace::Hex(id.inst.pc),
         rob_tag        = id.rob_tag.0,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
         pred_taken     = id.pred_taken,

@@ -261,15 +261,15 @@ fn idex_builder_full_chain() {
         .imm(42)
         .control(ctrl)
         .build();
-    assert_eq!(entry.pc, 0x2000);
-    assert_eq!(entry.inst, 0x12345678);
-    assert_eq!(entry.rs1, RegIdx::new(1));
-    assert_eq!(entry.rv1, 100);
-    assert_eq!(entry.rs2, RegIdx::new(2));
-    assert_eq!(entry.rv2, 200);
-    assert_eq!(entry.rd, RegIdx::new(3));
-    assert_eq!(entry.imm, 42);
-    assert!(entry.ctrl.reg_write);
+    assert_eq!(entry.inst.pc, 0x2000);
+    assert_eq!(entry.inst.bits, 0x12345678);
+    assert_eq!(entry.inst.rs1, RegIdx::new(1));
+    assert_eq!(entry.inst.rv1, 100);
+    assert_eq!(entry.inst.rs2, RegIdx::new(2));
+    assert_eq!(entry.inst.rv2, 200);
+    assert_eq!(entry.inst.rd, RegIdx::new(3));
+    assert_eq!(entry.inst.imm, 42);
+    assert!(entry.inst.ctrl.reg_write);
 }
 
 #[test]

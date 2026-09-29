@@ -9,6 +9,7 @@
 use crate::common::RegIdx;
 use crate::common::error::ExceptionStage;
 use crate::core::exec::decode::{DecodedInst, decode_inst};
+use crate::core::exec::inst::Inst;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
 use crate::core::units::vpu::types::VectorConfig;
@@ -37,9 +38,12 @@ pub fn decode_stage(
     for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
             output.push(IdExEntry {
-                pc: if_entry.pc,
-                inst: if_entry.inst,
-                inst_size: if_entry.inst_size,
+                inst: Inst {
+                    pc: if_entry.pc,
+                    bits: if_entry.inst,
+                    size: if_entry.inst_size,
+                    ..Default::default()
+                },
                 trap: Some(trap.clone()),
                 exception_stage: if_entry.exception_stage,
                 ..Default::default()
@@ -89,18 +93,20 @@ pub fn decode_stage(
         let has_trap = trap.is_some();
 
         let mut decoded = IdExEntry {
-            pc: if_entry.pc,
-            inst,
-            inst_size: if_entry.inst_size,
-            rs1: d.rs1,
-            rs2: d.rs2,
-            rs3: rs3_idx,
-            rd: d.rd,
-            imm: d.imm,
-            rv1,
-            rv2,
-            rv3,
-            ctrl,
+            inst: Inst {
+                pc: if_entry.pc,
+                bits: inst,
+                size: if_entry.inst_size,
+                rs1: d.rs1,
+                rs2: d.rs2,
+                rs3: rs3_idx,
+                rd: d.rd,
+                imm: d.imm,
+                rv1,
+                rv2,
+                rv3,
+                ctrl,
+            },
             trap,
             exception_stage: ex_stage,
             pred_taken: if_entry.pred_taken,
@@ -145,17 +151,17 @@ pub struct DecodeOutcome {
 /// corrected, and a BTB entry for an instruction that is not a control
 /// instruction is dropped.
 fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<u64> {
-    let size = entry.inst_size.as_u64();
-    let fallthrough = entry.pc.wrapping_add(size);
+    let size = entry.inst.size.as_u64();
+    let fallthrough = entry.inst.pc.wrapping_add(size);
     let fetched_next = if entry.pred_taken { entry.pred_target } else { fallthrough };
-    let control = ControlInst::from_encoding(entry.pc, size, entry.inst);
+    let control = ControlInst::from_encoding(entry.inst.pc, size, entry.inst.bits);
     let predictor = &mut state.core_mut().branch_predictor;
     let predicted_by_fetch = predictor.is_predicted(entry.seq);
 
     let redirect = match (control, predicted_by_fetch) {
         (None, false) => None,
         (None, true) => {
-            predictor.forget(entry.seq, entry.pc);
+            predictor.forget(entry.seq, entry.inst.pc);
             entry.pred_taken = false;
             entry.pred_target = 0;
             Some(fallthrough)
@@ -177,7 +183,7 @@ fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Op
             })
         }
         (Some(control), false) => {
-            let (target, squashed_younger) = predictor.discover(entry.seq, entry.pc, control);
+            let (target, squashed_younger) = predictor.discover(entry.seq, entry.inst.pc, control);
             entry.pred_taken = target.is_some();
             entry.pred_target = target.unwrap_or(0);
             let next = target.unwrap_or(fallthrough);

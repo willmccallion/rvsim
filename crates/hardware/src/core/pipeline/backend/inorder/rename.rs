@@ -6,6 +6,7 @@
 //! previous producer.
 
 use super::InOrderEngine;
+use crate::core::exec::inst::Inst;
 use crate::core::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
@@ -20,9 +21,9 @@ impl InOrderEngine {
     /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
     /// every instruction needs.
     pub(super) fn rename_one(&mut self, state: &StageCtx<'_>, id: IdExEntry) -> Renamed {
-        let store_slot = if id.ctrl.uses_store_buffer() {
+        let store_slot = if id.inst.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
-        } else if is_vec_store(id.ctrl.vec_op) {
+        } else if is_vec_store(id.inst.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0
         } else {
             true
@@ -32,12 +33,12 @@ impl InOrderEngine {
         }
         let vector = self.vector_config(&state.hart().csrs);
         let Some(rob_tag) = self.rob.allocate(
-            id.pc,
-            id.inst,
-            id.inst_size,
-            id.rd,
-            id.ctrl.fp_reg_write,
-            id.ctrl,
+            id.inst.pc,
+            id.inst.bits,
+            id.inst.size,
+            id.inst.rd,
+            id.inst.ctrl.fp_reg_write,
+            id.inst.ctrl,
             PhysReg(0),
             PhysReg(0),
             id.seq,
@@ -46,18 +47,21 @@ impl InOrderEngine {
         };
 
         // Capture source tags BEFORE updating scoreboard for rd.
-        let rs1_tag = self.scoreboard.get_producer(id.rs1, id.ctrl.rs1_fp);
-        let rs2_tag = self.scoreboard.get_producer(id.rs2, id.ctrl.rs2_fp);
-        let rs3_tag =
-            if id.ctrl.rs3_fp { self.scoreboard.get_producer(id.rs3, true) } else { None };
+        let rs1_tag = self.scoreboard.get_producer(id.inst.rs1, id.inst.ctrl.rs1_fp);
+        let rs2_tag = self.scoreboard.get_producer(id.inst.rs2, id.inst.ctrl.rs2_fp);
+        let rs3_tag = if id.inst.ctrl.rs3_fp {
+            self.scoreboard.get_producer(id.inst.rs3, true)
+        } else {
+            None
+        };
 
-        if id.ctrl.reg_write || id.ctrl.fp_reg_write {
-            self.scoreboard.set_producer(id.rd, id.ctrl.fp_reg_write, rob_tag);
+        if id.inst.ctrl.reg_write || id.inst.ctrl.fp_reg_write {
+            self.scoreboard.set_producer(id.inst.rd, id.inst.ctrl.fp_reg_write, rob_tag);
         }
 
-        let slot_allocated = if id.ctrl.uses_store_buffer() {
-            self.store_buffer.allocate(rob_tag, id.ctrl.width)
-        } else if is_vec_store(id.ctrl.vec_op) {
+        let slot_allocated = if id.inst.ctrl.uses_store_buffer() {
+            self.store_buffer.allocate(rob_tag, id.inst.ctrl.width)
+        } else if is_vec_store(id.inst.ctrl.vec_op) {
             self.vec_store_buffer.allocate(rob_tag)
         } else {
             true
@@ -65,18 +69,21 @@ impl InOrderEngine {
         debug_assert!(slot_allocated, "the store slot was checked before allocating");
 
         let entry = RenameIssueEntry {
+            inst: Inst {
+                pc: id.inst.pc,
+                bits: id.inst.bits,
+                size: id.inst.size,
+                rs1: id.inst.rs1,
+                rs2: id.inst.rs2,
+                rs3: id.inst.rs3,
+                rd: id.inst.rd,
+                imm: id.inst.imm,
+                rv1: 0,
+                rv2: 0,
+                rv3: 0,
+                ctrl: id.inst.ctrl,
+            },
             rob_tag,
-            pc: id.pc,
-            inst: id.inst,
-            inst_size: id.inst_size,
-            rs1: id.rs1,
-            rs2: id.rs2,
-            rs3: id.rs3,
-            rd: id.rd,
-            imm: id.imm,
-            rv1: 0,
-            rv2: 0,
-            rv3: 0,
             rs1_phys: PhysReg(0),
             rs2_phys: PhysReg(0),
             rs3_phys: PhysReg(0),
@@ -84,7 +91,6 @@ impl InOrderEngine {
             rs1_tag,
             rs2_tag,
             rs3_tag,
-            ctrl: id.ctrl,
             trap: id.trap,
             exception_stage: id.exception_stage,
             pred_taken: id.pred_taken,
@@ -106,15 +112,15 @@ impl InOrderEngine {
         };
 
         trace_rename!(state.config.general.trace_instructions;
-            pc         = %crate::trace::Hex(entry.pc),
+            pc         = %crate::trace::Hex(entry.inst.pc),
             rob_tag    = entry.rob_tag.0,
-            rd         = entry.rd.as_usize(),
-            rs1        = entry.rs1.as_usize(),
+            rd         = entry.inst.rd.as_usize(),
+            rs1        = entry.inst.rs1.as_usize(),
             rs1_tag    = ?entry.rs1_tag,
-            rs2        = entry.rs2.as_usize(),
+            rs2        = entry.inst.rs2.as_usize(),
             rs2_tag    = ?entry.rs2_tag,
-            is_store   = entry.ctrl.mem_write,
-            is_load    = entry.ctrl.mem_read,
+            is_store   = entry.inst.ctrl.mem_write,
+            is_load    = entry.inst.ctrl.mem_read,
             "RN: in-order rename"
         );
 

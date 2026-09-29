@@ -5,7 +5,7 @@ use crate::core::exec::signals::ControlSignals;
 
 /// A decoded instruction and the values of its source registers: what
 /// executing it needs, whichever engine executes it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Inst {
     /// Its address.
     pub pc: u64,

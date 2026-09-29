@@ -739,40 +739,40 @@ impl ExecutionEngine for O3Engine {
             for selected in selection.entries {
                 let SelectedEntry { entry, fu_type, unit, .. } = selected;
                 let rob_tag = entry.rob_tag;
-                let is_mem_instr = entry.ctrl.mem_read || entry.ctrl.uses_store_buffer();
+                let is_mem_instr = entry.inst.ctrl.mem_read || entry.inst.ctrl.uses_store_buffer();
 
                 if is_mem_instr {
                     self.mdp.issued(rob_tag);
                 }
 
                 // vsetvl* run synchronously in execute_one; exclude from deferred VecPrfView.
-                let is_vec_config = entry.ctrl.vec_op.is_config();
+                let is_vec_config = entry.inst.ctrl.vec_op.is_config();
                 let is_vec_non_mem =
                     fu_type.is_vector() && fu_type != FuType::VecMem && !is_vec_config;
                 let is_vec_mem_op = fu_type == FuType::VecMem;
 
                 // For vec mem ops, override vd group from vec_mem_dst_count (nf × EMUL_data).
-                let mut vec_grp = entry.ctrl.vec_op.operand_groups(
-                    entry.ctrl.vec_lmul_regs,
-                    entry.ctrl.vec_lmul_is_fractional,
-                    entry.ctrl.vec_src_encoding,
-                    entry.ctrl.vec_nf,
-                    entry.ctrl.vec_broadcast_vs2,
+                let mut vec_grp = entry.inst.ctrl.vec_op.operand_groups(
+                    entry.inst.ctrl.vec_lmul_regs,
+                    entry.inst.ctrl.vec_lmul_is_fractional,
+                    entry.inst.ctrl.vec_src_encoding,
+                    entry.inst.ctrl.vec_nf,
+                    entry.inst.ctrl.vec_broadcast_vs2,
                 );
                 if is_vec_mem_op {
                     let vtype = crate::core::units::vpu::types::parse_vtype(entry.vec_vtype);
                     if !vtype.vill {
                         vec_grp.vd = crate::core::units::vpu::mem::vec_mem_dst_count(
-                            entry.ctrl.vec_op,
-                            entry.ctrl.vec_eew,
+                            entry.inst.ctrl.vec_op,
+                            entry.inst.ctrl.vec_eew,
                             vtype.vsew,
                             vtype.vlmul,
-                            entry.ctrl.vec_nf,
+                            entry.inst.ctrl.vec_nf,
                         );
                     }
                 }
-                let vec_dst_info = if entry.ctrl.vec_reg_write && vec_grp.vd > 0 {
-                    Some((entry.vd_phys, vec_grp.vd, entry.ctrl.vd))
+                let vec_dst_info = if entry.inst.ctrl.vec_reg_write && vec_grp.vd > 0 {
+                    Some((entry.vd_phys, vec_grp.vd, entry.inst.ctrl.vd))
                 } else {
                     None
                 };
@@ -780,7 +780,7 @@ impl ExecutionEngine for O3Engine {
                 let complete_cycle = if is_vec_non_mem {
                     let latency = self.fu_pool.vector_op_latency(
                         fu_type,
-                        &entry.ctrl,
+                        &entry.inst.ctrl,
                         entry.vec_vl as usize,
                         self.num_vec_lanes.as_usize(),
                     );
@@ -816,7 +816,7 @@ impl ExecutionEngine for O3Engine {
                     }
 
                     {
-                        let base = entry.ctrl.vs2.as_u8() as usize;
+                        let base = entry.inst.ctrl.vs2.as_u8() as usize;
                         for i in 0..entry.vec_src2_count as usize {
                             if base + i < 32 {
                                 mapping[base + i] = entry.vs2_phys[i];
@@ -824,7 +824,7 @@ impl ExecutionEngine for O3Engine {
                         }
                     }
                     {
-                        let base = entry.ctrl.vs1.as_u8() as usize;
+                        let base = entry.inst.ctrl.vs1.as_u8() as usize;
                         for i in 0..entry.vec_src1_count as usize {
                             if base + i < 32 {
                                 mapping[base + i] = entry.vs1_phys[i];
@@ -859,7 +859,7 @@ impl ExecutionEngine for O3Engine {
                             entry.vec_frm,
                             state.config.isa.vector.elen,
                             state.config.isa.vector.zvfh,
-                            &entry.exec_inst(),
+                            &entry.inst,
                         )
                     };
 
@@ -921,7 +921,7 @@ impl ExecutionEngine for O3Engine {
                     if let Err(trap) = crate::core::units::vpu::mem::check_vec_mem_emul(
                         ex_result.inst,
                         vec_op,
-                        &entry.ctrl,
+                        &entry.inst.ctrl,
                         &vtype,
                     ) {
                         self.rob.fault(
@@ -937,7 +937,7 @@ impl ExecutionEngine for O3Engine {
                         mapping[i as usize] = self.rename_map.get_vec(VRegIdx::new(i));
                     }
                     {
-                        let base = entry.ctrl.vs2.as_u8() as usize;
+                        let base = entry.inst.ctrl.vs2.as_u8() as usize;
                         for i in 0..entry.vec_src2_count as usize {
                             if base + i < 32 {
                                 mapping[base + i] = entry.vs2_phys[i];
@@ -945,7 +945,7 @@ impl ExecutionEngine for O3Engine {
                         }
                     }
                     {
-                        let base = entry.ctrl.vd.as_u8() as usize;
+                        let base = entry.inst.ctrl.vd.as_u8() as usize;
                         for i in 0..entry.vec_src3_count as usize {
                             if base + i < 32 {
                                 mapping[base + i] = entry.vs3_phys[i];
@@ -961,7 +961,7 @@ impl ExecutionEngine for O3Engine {
                             &view,
                             ex_result.alu,
                             ex_result.store_data as i64,
-                            &entry.ctrl,
+                            &entry.inst.ctrl,
                             entry.vec_vtype,
                             entry.vec_vl as usize,
                             entry.vec_vstart as usize,
@@ -1033,11 +1033,12 @@ impl ExecutionEngine for O3Engine {
         {
             let entries = std::mem::take(rename_output);
             for entry in entries {
-                let is_load = entry.ctrl.mem_read;
-                let is_store = entry.ctrl.uses_store_buffer();
-                let is_atomic = entry.ctrl.atomic_op != crate::core::exec::signals::AtomicOp::None;
+                let is_load = entry.inst.ctrl.mem_read;
+                let is_store = entry.inst.ctrl.uses_store_buffer();
+                let is_atomic =
+                    entry.inst.ctrl.atomic_op != crate::core::exec::signals::AtomicOp::None;
                 let mem_dep =
-                    self.mdp.dispatch(entry.pc, entry.rob_tag, is_load, is_store, is_atomic);
+                    self.mdp.dispatch(entry.inst.pc, entry.rob_tag, is_load, is_store, is_atomic);
                 let ok = self.issue_queue.dispatch(
                     entry,
                     &self.rob,
