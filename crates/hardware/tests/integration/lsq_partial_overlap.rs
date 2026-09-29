@@ -6,8 +6,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
@@ -74,7 +74,7 @@ fn run_program(config: &Config) -> TestContext {
 #[test]
 fn out_of_order_backend_completes_partially_overlapping_store_load_pairs() {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::OutOfOrder;
+    config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
 
     let tc = run_program(&config);
@@ -85,7 +85,7 @@ fn out_of_order_backend_completes_partially_overlapping_store_load_pairs() {
 #[test]
 fn in_order_backend_completes_partially_overlapping_store_load_pairs() {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::InOrder;
+    config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 4;
 
     let tc = run_program(&config);

@@ -6,8 +6,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -49,7 +49,7 @@ fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
     }
 }
 
-fn run(backend: BackendType) -> (u64, u64, u64) {
+fn run(backend: BackendKind) -> (u64, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -66,7 +66,7 @@ fn run(backend: BackendType) -> (u64, u64, u64) {
     (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize), memory)
 }
 
-fn check(backend: BackendType) {
+fn check(backend: BackendKind) {
     let (mcause, mtval, memory) = run(backend);
 
     assert_eq!(mcause, ILLEGAL_INSTRUCTION, "{backend:?}: the FS=0 fault is the one taken");
@@ -76,10 +76,10 @@ fn check(backend: BackendType) {
 
 #[test]
 fn an_fp_store_with_fs_off_takes_the_illegal_instruction_fault_inorder() {
-    check(BackendType::InOrder);
+    check(BackendKind::InOrder);
 }
 
 #[test]
 fn an_fp_store_with_fs_off_takes_the_illegal_instruction_fault_o3() {
-    check(BackendType::OutOfOrder);
+    check(BackendKind::OutOfOrder);
 }

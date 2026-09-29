@@ -734,8 +734,8 @@ fn test_misa_override_option() {
 
     let config: Config = serde_json::from_str(json).unwrap();
     assert_eq!(
-        config.pipeline.misa_override.map(rvsim_core::arch::csr::Misa::bits),
-        Some(rvsim_core::arch::csr::MISA_DEFAULT_RV64IMAFDC)
+        config.pipeline.misa_override.map(rvsim_core::isa::misa::Misa::bits),
+        Some(rvsim_core::isa::csr::MISA_DEFAULT_RV64IMAFDC)
     );
 }
 
@@ -1076,8 +1076,8 @@ fn the_default_hart_reports_v_when_it_implements_the_full_vector_extension() {
     let config = Config::default();
 
     assert_eq!(
-        config.misa().bits() & rvsim_core::arch::csr::MISA_EXT_V,
-        rvsim_core::arch::csr::MISA_EXT_V
+        config.misa().bits() & rvsim_core::isa::csr::MISA_EXT_V,
+        rvsim_core::isa::csr::MISA_EXT_V
     );
 }
 
@@ -1088,7 +1088,7 @@ fn a_hart_below_v_s_minimum_vlen_or_elen_does_not_report_v() {
     let mut narrow = Config::default();
     narrow.isa.vector.elen = 32;
 
-    let v = |config: &Config| config.misa().bits() & rvsim_core::arch::csr::MISA_EXT_V;
+    let v = |config: &Config| config.misa().bits() & rvsim_core::isa::csr::MISA_EXT_V;
     assert_eq!((v(&short), v(&narrow)), (0, 0));
 }
 

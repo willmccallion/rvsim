@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -47,7 +47,7 @@ fn handler() -> Vec<u32> {
     vec![i().csrrs(A2, VL, 0).build(), i().csrrs(A3, VTYPE, 0).build(), i().jal(0, 0).build()]
 }
 
-fn run(backend: BackendType) -> (u64, u64) {
+fn run(backend: BackendKind) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -67,12 +67,12 @@ fn run(backend: BackendType) -> (u64, u64) {
 
 #[test]
 fn a_younger_vsetvl_does_not_reach_the_csrs_before_an_older_trap_o3() {
-    assert_eq!(run(BackendType::OutOfOrder), (3, u64::from(E32_M1)));
+    assert_eq!(run(BackendKind::OutOfOrder), (3, u64::from(E32_M1)));
 }
 
 #[test]
 fn a_younger_vsetvl_does_not_reach_the_csrs_before_an_older_trap_inorder() {
-    assert_eq!(run(BackendType::InOrder), (3, u64::from(E32_M1)));
+    assert_eq!(run(BackendKind::InOrder), (3, u64::from(E32_M1)));
 }
 
 /// Eight `vsetivli`s, each followed by an independent `addi`.
@@ -87,7 +87,7 @@ fn vsetivli_sequence() -> Vec<u32> {
     program
 }
 
-fn cycles_to_retire(backend: BackendType, program: &[u32]) -> u64 {
+fn cycles_to_retire(backend: BackendKind, program: &[u32]) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -106,8 +106,8 @@ fn cycles_to_retire(backend: BackendType, program: &[u32]) -> u64 {
 
 #[test]
 fn a_vsetvl_stalls_decode_instead_of_flushing_the_pipeline() {
-    let o3 = cycles_to_retire(BackendType::OutOfOrder, &vsetivli_sequence());
-    let inorder = cycles_to_retire(BackendType::InOrder, &vsetivli_sequence());
+    let o3 = cycles_to_retire(BackendKind::OutOfOrder, &vsetivli_sequence());
+    let inorder = cycles_to_retire(BackendKind::InOrder, &vsetivli_sequence());
     println!("o3={o3} inorder={inorder}");
     assert!(o3 < 60, "out-of-order: {o3} cycles");
     assert!(inorder < 60, "in-order: {inorder} cycles");

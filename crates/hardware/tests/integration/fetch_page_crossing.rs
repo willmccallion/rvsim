@@ -4,11 +4,11 @@
 //! TLB is cold, then fetches the instruction again and predicts it.
 
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -33,7 +33,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 
 /// A context whose code pages map `CODE_VA` to `FIRST_PA` and the page
 /// after to `SECOND_PA`, cold in the TLB, running from `CODE_VA + 0xFFE`.
-fn straddling_context(backend: BackendType) -> TestContext {
+fn straddling_context(backend: BackendKind) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -73,7 +73,7 @@ fn store_straddling(ctx: &mut TestContext, inst: u32) {
     ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA), u64::from(inst >> 16), 2);
 }
 
-fn run(backend: BackendType) -> u64 {
+fn run(backend: BackendKind) -> u64 {
     let mut ctx = straddling_context(backend);
     store_straddling(&mut ctx, ADDI_A1_42);
     ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), 4);
@@ -84,7 +84,7 @@ fn run(backend: BackendType) -> u64 {
 
 /// Runs `jal zero, 14` straddling the boundary into `addi a1, zero, 42`
 /// and a jump to self; returns `a1` and the mispredictions.
-fn run_straddling_jump(backend: BackendType) -> (u64, f64) {
+fn run_straddling_jump(backend: BackendKind) -> (u64, f64) {
     let mut ctx = straddling_context(backend);
     store_straddling(&mut ctx, JAL_PLUS_14);
     ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), 4);
@@ -99,17 +99,17 @@ fn run_straddling_jump(backend: BackendType) -> (u64, f64) {
 
 #[test]
 fn an_instruction_straddling_two_pages_executes_inorder() {
-    assert_eq!(run(BackendType::InOrder), 42);
+    assert_eq!(run(BackendKind::InOrder), 42);
 }
 
 #[test]
 fn an_instruction_straddling_two_pages_executes_o3() {
-    assert_eq!(run(BackendType::OutOfOrder), 42);
+    assert_eq!(run(BackendKind::OutOfOrder), 42);
 }
 
 #[test]
 fn a_jump_whose_upper_half_needed_a_walk_is_predicted() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         assert_eq!(run_straddling_jump(backend), (42, 0.0), "{backend:?}");
     }
 }

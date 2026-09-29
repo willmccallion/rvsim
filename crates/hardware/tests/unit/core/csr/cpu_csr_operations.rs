@@ -5,9 +5,10 @@
 //! synchronization between MSTATUS and SSTATUS.
 
 use rvsim_core::SystemState;
-use rvsim_core::arch::csr;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::csr::CsrAddr;
+use rvsim_core::isa::privileged::PagingMode;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SystemState {
@@ -483,7 +484,7 @@ fn test_csr_satp_sv57_accepted_by_default() {
 #[test]
 fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
     let mut config = Config::default();
-    config.memory.paging_mode_max = csr::PagingMode::Sv39;
+    config.memory.paging_mode_max = PagingMode::Sv39;
     let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);
 

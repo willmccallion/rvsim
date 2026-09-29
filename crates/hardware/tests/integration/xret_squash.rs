@@ -10,10 +10,10 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
+use rvsim_core::isa::csr;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -92,7 +92,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 }
 
 /// `(t0, t1, t6)`: the target's result, the fault flag, and the ecall count.
-fn run(backend: BackendType, width: usize) -> (u64, u64, u64) {
+fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
@@ -127,7 +127,7 @@ fn run(backend: BackendType, width: usize) -> (u64, u64, u64) {
     (ctx.get_reg(T0 as usize), ctx.get_reg(T1 as usize), ctx.get_reg(T6 as usize))
 }
 
-fn a_predicted_fetch_across_mret_is_discarded(backend: BackendType, width: usize) {
+fn a_predicted_fetch_across_mret_is_discarded(backend: BackendKind, width: usize) {
     let (t0, fault, ecalls) = run(backend, width);
     assert_eq!(
         fault, 0,
@@ -142,13 +142,13 @@ fn a_predicted_fetch_across_mret_is_discarded(backend: BackendType, width: usize
 
 #[test]
 fn inorder_discards_machine_mode_fetches_after_mret() {
-    a_predicted_fetch_across_mret_is_discarded(BackendType::InOrder, 1);
-    a_predicted_fetch_across_mret_is_discarded(BackendType::InOrder, 4);
+    a_predicted_fetch_across_mret_is_discarded(BackendKind::InOrder, 1);
+    a_predicted_fetch_across_mret_is_discarded(BackendKind::InOrder, 4);
 }
 
 #[test]
 fn o3_discards_machine_mode_fetches_after_mret() {
-    a_predicted_fetch_across_mret_is_discarded(BackendType::OutOfOrder, 1);
-    a_predicted_fetch_across_mret_is_discarded(BackendType::OutOfOrder, 4);
-    a_predicted_fetch_across_mret_is_discarded(BackendType::OutOfOrder, 10);
+    a_predicted_fetch_across_mret_is_discarded(BackendKind::OutOfOrder, 1);
+    a_predicted_fetch_across_mret_is_discarded(BackendKind::OutOfOrder, 4);
+    a_predicted_fetch_across_mret_is_discarded(BackendKind::OutOfOrder, 10);
 }

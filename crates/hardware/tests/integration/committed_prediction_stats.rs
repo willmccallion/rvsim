@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{BranchPredictorKind, Config};
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 20;
@@ -36,7 +36,7 @@ fn alternating_indirect_jump() -> Vec<u32> {
     ]
 }
 
-fn committed_mispredicts(backend: BackendType) -> u64 {
+fn committed_mispredicts(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = BranchPredictorKind::GShare;
@@ -49,7 +49,7 @@ fn committed_mispredicts(backend: BackendType) -> u64 {
 
 #[test]
 fn a_mispredicted_jump_counts_as_a_committed_misprediction() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mispredicts = committed_mispredicts(backend);
 
         assert!(

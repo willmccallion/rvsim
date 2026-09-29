@@ -6,11 +6,11 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -73,7 +73,7 @@ struct Outcome {
 /// Runs the program in supervisor mode under Sv39 with the data's first
 /// page at `FIRST_PA` and its second page at `second_pa` (unmapped when
 /// `None`).
-fn run(backend: BackendType, second_pa: Option<u64>) -> Outcome {
+fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -130,7 +130,7 @@ fn run(backend: BackendType, second_pa: Option<u64>) -> Outcome {
     }
 }
 
-fn check(backend: BackendType) {
+fn check(backend: BackendKind) {
     let adjacent = run(backend, Some(ADJACENT_PA));
     assert_eq!(adjacent.mcause, 0, "{backend:?}: adjacent pages need no trap");
     assert_eq!(adjacent.loaded, 0x1817_1615_1413_1211, "{backend:?}: bytes from both pages");
@@ -149,10 +149,10 @@ fn check(backend: BackendType) {
 
 #[test]
 fn a_page_crossing_load_translates_both_pages_inorder() {
-    check(BackendType::InOrder);
+    check(BackendKind::InOrder);
 }
 
 #[test]
 fn a_page_crossing_load_translates_both_pages_o3() {
-    check(BackendType::OutOfOrder);
+    check(BackendKind::OutOfOrder);
 }

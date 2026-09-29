@@ -2,8 +2,9 @@
 //! miss; FCFS keeps arrival order.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
+use rvsim_core::config::ddr5::SchedulerKind;
 use rvsim_core::sim::packet::DramCmdKind;
-use rvsim_core::soc::memory::ddr5::{Candidate, Fcfs, FrFcfs, MemScheduler, SchedulerKind};
+use rvsim_core::soc::memory::ddr5::{Candidate, Fcfs, FrFcfs, MemScheduler};
 
 /// Opens row 0 of bank 0, then queues a row-1 miss followed by a row-0 hit
 /// to the same bank in the same cycle. Returns the rows of the READ

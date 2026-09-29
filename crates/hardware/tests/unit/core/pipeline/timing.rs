@@ -5,8 +5,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{BranchPredictorKind, Config, MemDepPredictorKind};
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
@@ -16,7 +16,7 @@ const DONE_VALUE: u64 = 7;
 
 /// A single-issue core whose writeback ports never hold a result back, so
 /// only the unit latency shows.
-fn config(backend: BackendType, int_mul_latency: u64) -> Config {
+fn config(backend: BackendKind, int_mul_latency: u64) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.fu_config.int_mul_latency = int_mul_latency;
@@ -56,7 +56,7 @@ fn independent_multiplies() -> Vec<u32> {
     program
 }
 
-fn assert_chain_pays_latency_per_link(backend: BackendType) {
+fn assert_chain_pays_latency_per_link(backend: BackendKind) {
     let fast = cycles_to_finish(&config(backend, 3), &dependent_multiply_chain());
     let slow = cycles_to_finish(&config(backend, 9), &dependent_multiply_chain());
 
@@ -67,7 +67,7 @@ fn assert_chain_pays_latency_per_link(backend: BackendType) {
     );
 }
 
-fn assert_independent_ops_pay_latency_once(backend: BackendType) {
+fn assert_independent_ops_pay_latency_once(backend: BackendKind) {
     let fast = cycles_to_finish(&config(backend, 3), &independent_multiplies());
     let slow = cycles_to_finish(&config(backend, 9), &independent_multiplies());
 
@@ -76,29 +76,29 @@ fn assert_independent_ops_pay_latency_once(backend: BackendType) {
 
 #[test]
 fn o3_dependent_chain_pays_the_unit_latency_per_link() {
-    assert_chain_pays_latency_per_link(BackendType::OutOfOrder);
+    assert_chain_pays_latency_per_link(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn inorder_dependent_chain_pays_the_unit_latency_per_link() {
-    assert_chain_pays_latency_per_link(BackendType::InOrder);
+    assert_chain_pays_latency_per_link(BackendKind::InOrder);
 }
 
 #[test]
 fn o3_independent_ops_on_a_pipelined_unit_pay_the_latency_once() {
-    assert_independent_ops_pay_latency_once(BackendType::OutOfOrder);
+    assert_independent_ops_pay_latency_once(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn inorder_independent_ops_on_a_pipelined_unit_pay_the_latency_once() {
-    assert_independent_ops_pay_latency_once(BackendType::InOrder);
+    assert_independent_ops_pay_latency_once(BackendKind::InOrder);
 }
 
 const TARGET_REG: usize = 3;
 const TARGET_VALUE: u64 = 42;
 const WRONG_PATH_REG: usize = 4;
 
-fn redirect_config(backend: BackendType, width: usize, redirect_latency: u64) -> Config {
+fn redirect_config(backend: BackendKind, width: usize, redirect_latency: u64) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
@@ -138,23 +138,23 @@ fn cycles_to_reach_target(config: &Config) -> u64 {
 
 #[test]
 fn inorder_redirect_lands_exactly_redirect_latency_after_the_branch_resolves() {
-    let one = cycles_to_reach_target(&redirect_config(BackendType::InOrder, 1, 1));
-    let five = cycles_to_reach_target(&redirect_config(BackendType::InOrder, 1, 5));
+    let one = cycles_to_reach_target(&redirect_config(BackendKind::InOrder, 1, 1));
+    let five = cycles_to_reach_target(&redirect_config(BackendKind::InOrder, 1, 5));
 
     assert_eq!(five - one, 4);
 }
 
 #[test]
 fn o3_redirect_lands_exactly_redirect_latency_after_the_branch_resolves() {
-    let one = cycles_to_reach_target(&redirect_config(BackendType::OutOfOrder, 4, 1));
-    let five = cycles_to_reach_target(&redirect_config(BackendType::OutOfOrder, 4, 5));
+    let one = cycles_to_reach_target(&redirect_config(BackendKind::OutOfOrder, 4, 1));
+    let five = cycles_to_reach_target(&redirect_config(BackendKind::OutOfOrder, 4, 5));
 
     assert_eq!(five - one, 4);
 }
 
 #[test]
 fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let _ = cycles_to_reach_target(&redirect_config(backend, 4, 12));
     }
 }
@@ -178,7 +178,7 @@ fn load_behind_store(with_store: bool) -> Vec<u32> {
 }
 
 /// Cycles a load waits because an older store's address is unknown.
-fn store_visibility_delay(backend: BackendType) -> u64 {
+fn store_visibility_delay(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
@@ -188,12 +188,12 @@ fn store_visibility_delay(backend: BackendType) -> u64 {
 
 #[test]
 fn inorder_load_behind_a_store_is_not_delayed_by_it() {
-    assert_eq!(store_visibility_delay(BackendType::InOrder), 0);
+    assert_eq!(store_visibility_delay(BackendKind::InOrder), 0);
 }
 
 #[test]
 fn o3_load_behind_a_store_is_not_delayed_by_it() {
-    assert_eq!(store_visibility_delay(BackendType::OutOfOrder), 0);
+    assert_eq!(store_visibility_delay(BackendKind::OutOfOrder), 0);
 }
 
 /// `links` loads that each read the address the previous one loaded.
@@ -211,7 +211,7 @@ fn pointer_chase(links: u32) -> Vec<u32> {
 }
 
 /// Cycles each dependent load adds with an L1D of `l1d_latency`.
-fn load_to_use(backend: BackendType, l1d_latency: u64) -> u64 {
+fn load_to_use(backend: BackendKind, l1d_latency: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -241,7 +241,7 @@ fn store_load_chain(links: u32) -> Vec<u32> {
 
 /// Cycles each store/load link adds with an L1D of `l1d_latency`. Every
 /// load waits for its store's address, so the loads never speculate.
-fn forwarded_link(backend: BackendType, l1d_latency: u64) -> u64 {
+fn forwarded_link(backend: BackendKind, l1d_latency: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
@@ -252,7 +252,7 @@ fn forwarded_link(backend: BackendType, l1d_latency: u64) -> u64 {
     (long - short) / 20
 }
 
-fn assert_forwarded_load_takes_an_l1d_hit_latency(backend: BackendType) {
+fn assert_forwarded_load_takes_an_l1d_hit_latency(backend: BackendKind) {
     for l1d_latency in [1, 4, 9] {
         assert_eq!(
             forwarded_link(backend, l1d_latency),
@@ -264,19 +264,19 @@ fn assert_forwarded_load_takes_an_l1d_hit_latency(backend: BackendType) {
 
 #[test]
 fn inorder_forwarded_load_takes_an_l1d_hit_latency() {
-    assert_forwarded_load_takes_an_l1d_hit_latency(BackendType::InOrder);
+    assert_forwarded_load_takes_an_l1d_hit_latency(BackendKind::InOrder);
 }
 
 #[test]
 fn o3_forwarded_load_takes_an_l1d_hit_latency() {
-    assert_forwarded_load_takes_an_l1d_hit_latency(BackendType::OutOfOrder);
+    assert_forwarded_load_takes_an_l1d_hit_latency(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn inorder_dependent_load_waits_the_l1d_latency_plus_two_cycles() {
     for l1d_latency in [1, 4] {
         assert_eq!(
-            load_to_use(BackendType::InOrder, l1d_latency),
+            load_to_use(BackendKind::InOrder, l1d_latency),
             l1d_latency + 2,
             "l1d latency {l1d_latency}"
         );
@@ -289,7 +289,7 @@ fn inorder_dependent_load_waits_the_l1d_latency_plus_two_cycles() {
 fn o3_dependent_load_waits_the_l1d_latency_plus_one_cycle() {
     for l1d_latency in [1, 4] {
         assert_eq!(
-            load_to_use(BackendType::OutOfOrder, l1d_latency),
+            load_to_use(BackendKind::OutOfOrder, l1d_latency),
             l1d_latency + 1,
             "l1d latency {l1d_latency}"
         );

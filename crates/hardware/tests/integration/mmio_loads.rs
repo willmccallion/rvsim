@@ -4,8 +4,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -30,7 +30,7 @@ fn program() -> Vec<u32> {
     program
 }
 
-fn mtime_seen_by_the_load(backend: BackendType) -> u64 {
+fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -46,14 +46,14 @@ fn mtime_seen_by_the_load(backend: BackendType) -> u64 {
 
 #[test]
 fn a_device_load_waits_until_it_is_the_oldest_instruction_o3() {
-    let seen = mtime_seen_by_the_load(BackendType::OutOfOrder);
+    let seen = mtime_seen_by_the_load(BackendKind::OutOfOrder);
 
     assert!(seen >= CHAIN as u64, "mtime {seen} was read before the {CHAIN}-add chain retired");
 }
 
 #[test]
 fn a_device_load_waits_until_it_is_the_oldest_instruction_inorder() {
-    let seen = mtime_seen_by_the_load(BackendType::InOrder);
+    let seen = mtime_seen_by_the_load(BackendKind::InOrder);
 
     assert!(seen >= CHAIN as u64, "mtime {seen} was read before the {CHAIN}-add chain retired");
 }

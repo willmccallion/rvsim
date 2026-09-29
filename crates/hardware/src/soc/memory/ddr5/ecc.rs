@@ -8,7 +8,8 @@
 
 use std::fmt::Debug;
 
-use crate::soc::memory::ddr5::timing::{Constraint, Ddr5Timing};
+use crate::config::ddr5::EccKind;
+use crate::config::ddr5::timing::{Constraint, Ddr5Timing};
 
 /// Decides patrol-scrub cadence.
 pub trait EccPolicy: Debug + Send + Sync {
@@ -38,24 +39,6 @@ impl EccPolicy for SideBandEcc {
     fn scrub_interval(&self, timing: &Ddr5Timing) -> Option<u64> {
         self.patrol_scrub_ns.map(|ns| Constraint::ps(ns * 1000).cycles(timing.data_rate_mts).max(1))
     }
-}
-
-/// Which [`EccPolicy`] a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum EccKind {
-    /// [`NoEcc`].
-    #[default]
-    None,
-    /// Single-error-correct, double-error-detect side-band ECC.
-    SecDed {
-        /// Nanoseconds between patrol-scrub reads; `None` disables scrubbing.
-        patrol_scrub_ns: Option<u64>,
-    },
-    /// Chipkill (symbol-correcting) side-band ECC.
-    ChipKill {
-        /// Nanoseconds between patrol-scrub reads; `None` disables scrubbing.
-        patrol_scrub_ns: Option<u64>,
-    },
 }
 
 impl EccKind {

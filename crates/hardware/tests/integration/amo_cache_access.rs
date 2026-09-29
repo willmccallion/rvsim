@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -28,7 +28,7 @@ fn program() -> Vec<u32> {
     program
 }
 
-fn check_one_access_per_amo(backend: BackendType) {
+fn check_one_access_per_amo(backend: BackendKind) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -57,10 +57,10 @@ fn check_one_access_per_amo(backend: BackendType) {
 
 #[test]
 fn an_amo_is_one_cache_access_inorder() {
-    check_one_access_per_amo(BackendType::InOrder);
+    check_one_access_per_amo(BackendKind::InOrder);
 }
 
 #[test]
 fn an_amo_is_one_cache_access_o3() {
-    check_one_access_per_amo(BackendType::OutOfOrder);
+    check_one_access_per_amo(BackendKind::OutOfOrder);
 }

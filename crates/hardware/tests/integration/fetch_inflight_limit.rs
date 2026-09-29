@@ -8,8 +8,9 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::{BackendType, ExecutionEngine, PipelineDispatch};
+use rvsim_core::uarch::pipeline::engine::{ExecutionEngine, PipelineDispatch};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
@@ -33,7 +34,7 @@ fn straight_line_program() -> Vec<u32> {
     program
 }
 
-fn assert_fetch_bounded(backend: BackendType) {
+fn assert_fetch_bounded(backend: BackendKind) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -59,10 +60,10 @@ fn assert_fetch_bounded(backend: BackendType) {
 
 #[test]
 fn in_order_fetch_never_exceeds_one_group_in_flight() {
-    assert_fetch_bounded(BackendType::InOrder);
+    assert_fetch_bounded(BackendKind::InOrder);
 }
 
 #[test]
 fn out_of_order_fetch_never_exceeds_one_group_in_flight() {
-    assert_fetch_bounded(BackendType::OutOfOrder);
+    assert_fetch_bounded(BackendKind::OutOfOrder);
 }

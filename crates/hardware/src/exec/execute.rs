@@ -3,8 +3,8 @@
 //! Operand selection, ALU/FPU evaluation, branch and jump targets, and the
 //! privilege and CSR checks that decide what a system instruction does.
 
+use crate::arch::Hart;
 use crate::arch::translation::SfenceVmaInfo;
-use crate::arch::{Hart, csr};
 use crate::exec::cbo::{self, CboEffect};
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
@@ -13,6 +13,7 @@ use crate::exec::execute::fpu::nan_handling::box_f32;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{OpASrc, OpBSrc};
 use crate::exec::state::ArchState;
+use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::RoundingMode;
@@ -297,7 +298,7 @@ pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u
 ///
 /// The instruction-address-misaligned trap for a misaligned `target`.
 pub const fn check_target_alignment(hart: &Hart, target: u64) -> Result<(), Trap> {
-    if target & csr::ialign_low_bits(hart.csrs.misa) == 0 {
+    if target & crate::arch::csr::ialign_low_bits(hart.csrs.misa) == 0 {
         return Ok(());
     }
     Err(Trap::InstructionAddressMisaligned(target))

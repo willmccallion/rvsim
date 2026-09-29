@@ -6,11 +6,11 @@ use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use crate::common::multihart::{DATA_BASE, MultiHart};
 use rvsim_core::common::{HartId, PhysAddr};
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{Config, HomeAgentConfig};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::soc::coherence::CoherenceFabric;
 use rvsim_core::system::checkpoint::CheckpointError;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
@@ -42,7 +42,7 @@ fn running_squares() -> Vec<u32> {
     ]
 }
 
-fn config(backend: BackendType) -> Config {
+fn config(backend: BackendKind) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -69,16 +69,16 @@ fn saved(ctx: &mut TestContext) -> Vec<u8> {
 
 #[test]
 fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_would() {
-    let mut whole = TestContext::new_with_config(&config(BackendType::OutOfOrder))
+    let mut whole = TestContext::new_with_config(&config(BackendKind::OutOfOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     run_to_done(&mut whole);
-    let mut first_half = TestContext::new_with_config(&config(BackendType::InOrder))
+    let mut first_half = TestContext::new_with_config(&config(BackendKind::InOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     first_half.run(600);
     assert_eq!(first_half.get_reg(DONE as usize), 0, "the checkpoint is taken mid-run");
     let checkpoint = saved(&mut first_half);
 
-    let mut second_half = TestContext::new_with_config(&config(BackendType::OutOfOrder));
+    let mut second_half = TestContext::new_with_config(&config(BackendKind::OutOfOrder));
     second_half.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
     run_to_done(&mut second_half);
 
@@ -87,7 +87,7 @@ fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_wo
 
 #[test]
 fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
-    let mut source = TestContext::new_with_config(&config(BackendType::InOrder));
+    let mut source = TestContext::new_with_config(&config(BackendKind::InOrder));
     let hart = &mut source.sim.state.harts[0];
     let fields: [&mut u64; 12] = [
         &mut hart.csrs.mstatus,
@@ -121,7 +121,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     let before = source.sim.state.harts[0].csrs.clone();
     let checkpoint = saved(&mut source);
 
-    let mut restored = TestContext::new_with_config(&config(BackendType::OutOfOrder));
+    let mut restored = TestContext::new_with_config(&config(BackendKind::OutOfOrder));
     restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
 
     let hart = &restored.sim.state.harts[0];
@@ -135,9 +135,9 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
 
 #[test]
 fn a_checkpoint_does_not_restore_into_a_system_with_other_harts() {
-    let mut one = TestContext::new_with_config(&config(BackendType::InOrder));
+    let mut one = TestContext::new_with_config(&config(BackendKind::InOrder));
     let checkpoint = saved(&mut one);
-    let mut two_harts = config(BackendType::InOrder);
+    let mut two_harts = config(BackendKind::InOrder);
     two_harts.system.hart_count = 2;
     let mut two = TestContext::new_with_config(&two_harts);
 
@@ -159,7 +159,7 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
         i().sd(X5, X6, 64).build(),
         i().jal(0, 0).build(),
     ];
-    let mut two_harts = config(BackendType::OutOfOrder);
+    let mut two_harts = config(BackendKind::OutOfOrder);
     two_harts.system.hart_count = 2;
     two_harts.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 1.5, ways: 8 };
     two_harts.cache.l1_d.enabled = true;
@@ -187,11 +187,11 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
 
 #[test]
 fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
-    let mut system = TestContext::new_with_config(&config(BackendType::InOrder))
+    let mut system = TestContext::new_with_config(&config(BackendKind::InOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     let far = PROGRAM_BASE + 0x40_0000;
     let checkpoint = saved(&mut system);
-    let mut restored = TestContext::new_with_config(&config(BackendType::InOrder));
+    let mut restored = TestContext::new_with_config(&config(BackendKind::InOrder));
     restored.sim.probe_mem_store(PhysAddr::new(far), 0x1234, 8);
 
     restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");

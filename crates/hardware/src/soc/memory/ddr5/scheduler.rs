@@ -4,6 +4,7 @@
 //! (does its row sit open in the bank, and when could its next command
 //! issue) and asks the [`MemScheduler`] which one to advance this clock.
 
+use crate::config::ddr5::SchedulerKind;
 use std::fmt::Debug;
 
 /// What the scheduler knows about one queued request.
@@ -64,16 +65,6 @@ impl MemScheduler for FrFcfs {
         }
         best.map(|(index, _)| index)
     }
-}
-
-/// Which [`MemScheduler`] a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
-pub enum SchedulerKind {
-    /// [`Fcfs`].
-    Fcfs,
-    /// [`FrFcfs`].
-    #[default]
-    FrFcfs,
 }
 
 impl SchedulerKind {

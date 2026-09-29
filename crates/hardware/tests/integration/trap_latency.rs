@@ -4,8 +4,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -62,7 +62,7 @@ struct TrapTaken {
     marker: u64,
 }
 
-fn run_until_trap(backend: BackendType, trap_latency: u64, program: &[u32]) -> TrapTaken {
+fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> TrapTaken {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -86,7 +86,7 @@ fn run_until_trap(backend: BackendType, trap_latency: u64, program: &[u32]) -> T
     TrapTaken { cycle, mepc: csrs.mepc, mcause: csrs.mcause, marker: ctx.get_reg(T6 as usize) }
 }
 
-fn check_exception_latency(backend: BackendType) {
+fn check_exception_latency(backend: BackendKind) {
     let program = [ECALL, InstructionBuilder::new().jal(0, 0).build()];
 
     let at_once = run_until_trap(backend, 0, &program);
@@ -101,7 +101,7 @@ fn check_exception_latency(backend: BackendType) {
     );
 }
 
-fn check_interrupt_drains_and_waits(backend: BackendType) {
+fn check_interrupt_drains_and_waits(backend: BackendKind) {
     let program = timer_program();
 
     let at_once = run_until_trap(backend, 0, &program);
@@ -119,20 +119,20 @@ fn check_interrupt_drains_and_waits(backend: BackendType) {
 
 #[test]
 fn an_exception_reaches_its_handler_after_the_trap_latency_o3() {
-    check_exception_latency(BackendType::OutOfOrder);
+    check_exception_latency(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn an_exception_reaches_its_handler_after_the_trap_latency_inorder() {
-    check_exception_latency(BackendType::InOrder);
+    check_exception_latency(BackendKind::InOrder);
 }
 
 #[test]
 fn an_interrupt_waits_for_the_fetched_instructions_then_the_trap_latency_o3() {
-    check_interrupt_drains_and_waits(BackendType::OutOfOrder);
+    check_interrupt_drains_and_waits(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn an_interrupt_waits_for_the_fetched_instructions_then_the_trap_latency_inorder() {
-    check_interrupt_drains_and_waits(BackendType::InOrder);
+    check_interrupt_drains_and_waits(BackendKind::InOrder);
 }

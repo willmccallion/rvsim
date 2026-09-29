@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::common::InstSeq;
-use crate::config::Config;
+use crate::config::{BackendKind, Config};
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
 use crate::system::topology::{CoreTopology, PrivateCache};
@@ -21,18 +21,6 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 use crate::uarch::pipeline::snapshot::PipelineSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
-use serde::Deserialize;
-
-/// Backend type selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum BackendType {
-    /// In-order pipeline (default).
-    #[default]
-    InOrder,
-    /// Out-of-order pipeline (future).
-    OutOfOrder,
-}
 
 /// What renaming one decoded instruction produced.
 #[derive(Debug)]
@@ -610,13 +598,13 @@ impl PipelineDispatch {
         let l1i = core.cache(PrivateCache::L1I);
         let l1d = core.cache(PrivateCache::L1D);
         match config.pipeline.backend {
-            BackendType::InOrder => Self::InOrder(Box::new(Pipeline {
+            BackendKind::InOrder => Self::InOrder(Box::new(Pipeline {
                 frontend: Frontend::new(pc),
                 engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
                 rename_output: Latch::new(STAGE_DELAY),
                 redirect: None,
             })),
-            BackendType::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
+            BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
                 frontend: Frontend::new(pc),
                 engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
                 rename_output: Latch::new(STAGE_DELAY),
@@ -784,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_backend_type_default() {
-        assert_eq!(BackendType::default(), BackendType::InOrder);
+        assert_eq!(BackendKind::default(), BackendKind::InOrder);
     }
 
     #[test]

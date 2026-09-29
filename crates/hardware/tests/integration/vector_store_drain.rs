@@ -4,8 +4,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
@@ -52,7 +52,7 @@ fn copy(with_store: bool) -> Vec<u32> {
 }
 
 /// L1D accesses of `copy(with_store)`, and the context after it finished.
-fn l1d_accesses(backend: BackendType, with_store: bool) -> (u64, TestContext) {
+fn l1d_accesses(backend: BackendKind, with_store: bool) -> (u64, TestContext) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -75,7 +75,7 @@ fn l1d_accesses(backend: BackendType, with_store: bool) -> (u64, TestContext) {
 
 #[test]
 fn a_vector_store_writes_its_line_to_the_l1d_in_one_access() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (with_store, mut ctx) = l1d_accesses(backend, true);
         let (without_store, _) = l1d_accesses(backend, false);
 

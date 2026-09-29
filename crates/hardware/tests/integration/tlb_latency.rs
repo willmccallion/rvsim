@@ -6,11 +6,11 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -56,7 +56,7 @@ fn program() -> Vec<u32> {
 
 fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::InOrder;
+    config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
     // A tiny ROB keeps the commit backlog from hiding the delay.
     config.pipeline.rob_size = ROB_SIZE;

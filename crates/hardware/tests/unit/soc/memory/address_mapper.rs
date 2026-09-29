@@ -5,7 +5,8 @@
 //! distinguish the strategies (channel-line interleave vs. row-locality).
 
 use rvsim_core::common::PhysAddr;
-use rvsim_core::soc::memory::address::{AddressMapper, AddressMappingKind, CACHE_LINE_OFFSET_BITS};
+use rvsim_core::config::AddressMappingKind;
+use rvsim_core::soc::memory::address::{AddressMapper, CACHE_LINE_OFFSET_BITS};
 
 /// A standard-ish DDR5 topology used by most tests below:
 /// 2 channels, 2 subchannels, 2 ranks, 4 bank groups, 4 banks/group,

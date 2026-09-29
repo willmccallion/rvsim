@@ -3,8 +3,8 @@
 
 use rvsim_core::Simulator;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 /// Where multi-hart test programs are loaded; every hart starts here.
 pub const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -19,7 +19,7 @@ pub struct MultiHart {
 impl MultiHart {
     /// Builds a `hart_count`-hart system on `backend` with the program
     /// loaded at [`PROGRAM_BASE`] and every hart's PC pointing at it.
-    pub fn new(hart_count: usize, backend: BackendType, program: &[u32]) -> Self {
+    pub fn new(hart_count: usize, backend: BackendKind, program: &[u32]) -> Self {
         let mut config = Config::default();
         config.system.hart_count = hart_count;
         config.system.console = rvsim_core::config::Console::Quiet;

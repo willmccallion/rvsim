@@ -6,11 +6,11 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -48,7 +48,7 @@ fn leaf_pte(ctx: &mut TestContext, va: u64) -> u64 {
 /// `menvcfg` = `menvcfg`, the code page mapped with `code_flags` and the
 /// data page with `data_flags`, neither in the TLB.
 fn run_with(
-    backend: BackendType,
+    backend: BackendKind,
     menvcfg: u64,
     program: &[u32],
     code_flags: u64,
@@ -88,7 +88,7 @@ fn run_with(
 }
 
 /// As [`run_with`] with hardware A/D updates enabled.
-fn run(backend: BackendType, program: &[u32], code_flags: u64, data_flags: u64) -> TestContext {
+fn run(backend: BackendKind, program: &[u32], code_flags: u64, data_flags: u64) -> TestContext {
     run_with(backend, csr::MENVCFG_ADUE, program, code_flags, data_flags)
 }
 
@@ -118,7 +118,7 @@ fn load_program() -> Vec<u32> {
 
 #[test]
 fn a_store_to_a_clean_unaccessed_page_completes_and_sets_a_and_d() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &store_program(), PTE_RWX_AD, PTE_RW);
 
         assert_eq!(ctx.sim.state.harts[0].csrs.mcause, 0, "{backend:?}: no trap");
@@ -130,7 +130,7 @@ fn a_store_to_a_clean_unaccessed_page_completes_and_sets_a_and_d() {
 
 #[test]
 fn a_load_from_an_unaccessed_page_sets_a_but_not_d() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &load_program(), PTE_RWX_AD, PTE_RW);
 
         assert_eq!(ctx.get_reg(12), LOADED, "{backend:?}: the load retired");
@@ -140,7 +140,7 @@ fn a_load_from_an_unaccessed_page_sets_a_but_not_d() {
 
 #[test]
 fn fetching_from_an_unaccessed_page_sets_its_a_bit() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &load_program(), PTE_X, PTE_RW | PTE_A | PTE_D);
 
         assert_eq!(ctx.get_reg(12), LOADED, "{backend:?}: the code ran");
@@ -150,7 +150,7 @@ fn fetching_from_an_unaccessed_page_sets_its_a_bit() {
 
 #[test]
 fn a_store_crossing_into_a_second_clean_page_sets_d_on_both() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &crossing_store_program(), PTE_RWX_AD, PTE_RW);
 
         assert_eq!(ctx.sim.state.harts[0].csrs.mcause, 0, "{backend:?}: no trap");
@@ -164,7 +164,7 @@ fn a_store_crossing_into_a_second_clean_page_sets_d_on_both() {
 #[test]
 fn with_adue_clear_a_store_to_a_clean_page_raises_a_page_fault() {
     const STORE_PAGE_FAULT: u64 = 15;
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run_with(backend, 0, &store_program(), PTE_RWX_AD, PTE_RW);
 
         let csrs = &ctx.sim.state.harts[0].csrs;

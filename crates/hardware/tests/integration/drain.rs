@@ -6,8 +6,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -35,7 +35,7 @@ fn slot(ctx: &mut TestContext, index: u64) -> u64 {
 
 /// Runs `cycles`, drains, and returns how many committed stores the drain
 /// still had to publish.
-fn drain_after(backend: BackendType, cycles: u64) -> u64 {
+fn drain_after(backend: BackendKind, cycles: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -65,7 +65,7 @@ fn drain_after(backend: BackendType, cycles: u64) -> u64 {
     committed - in_ram_before
 }
 
-fn keeps_running_after_a_drain(backend: BackendType, cycles: u64) {
+fn keeps_running_after_a_drain(backend: BackendKind, cycles: u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -95,16 +95,16 @@ fn keeps_running_after_a_drain(backend: BackendType, cycles: u64) {
 #[test]
 fn a_drained_pipeline_resumes_from_the_committed_pc() {
     for cycles in (5..60).step_by(7) {
-        keeps_running_after_a_drain(BackendType::InOrder, cycles);
-        keeps_running_after_a_drain(BackendType::OutOfOrder, cycles);
+        keeps_running_after_a_drain(BackendKind::InOrder, cycles);
+        keeps_running_after_a_drain(BackendKind::OutOfOrder, cycles);
     }
 }
 
 #[test]
 fn a_drain_leaves_the_committed_state_in_ram_on_both_backends() {
     for cycles in 5..60 {
-        let _ = drain_after(BackendType::InOrder, cycles);
-        let _ = drain_after(BackendType::OutOfOrder, cycles);
+        let _ = drain_after(BackendKind::InOrder, cycles);
+        let _ = drain_after(BackendKind::OutOfOrder, cycles);
     }
 }
 
@@ -113,7 +113,7 @@ fn a_drain_leaves_the_committed_state_in_ram_on_both_backends() {
 #[test]
 fn an_inorder_drain_publishes_stores_the_buffer_still_held() {
     let published_by_drain: u64 =
-        (5..60).map(|cycles| drain_after(BackendType::InOrder, cycles)).sum();
+        (5..60).map(|cycles| drain_after(BackendKind::InOrder, cycles)).sum();
 
     assert!(published_by_drain > 0);
 }

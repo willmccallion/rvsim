@@ -701,7 +701,7 @@ mod tests {
         load_ports: usize,
         store_ports: usize,
     ) -> Vec<SelectedEntry> {
-        use crate::uarch::pipeline::backend::o3::fu_pool::FuConfig;
+        use crate::config::FuConfig;
         let units = FuPool::new(&FuConfig { num_mem: 8, ..FuConfig::default() });
         let budget = IssueBudget {
             width,
@@ -734,8 +734,8 @@ mod tests {
 
     #[test]
     fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
+        use crate::config::FuConfig;
         use crate::isa::op::AluOp;
-        use crate::uarch::pipeline::backend::o3::fu_pool::FuConfig;
         let mut units = FuPool::new(&FuConfig { num_int_div: 1, ..FuConfig::default() });
         let busy_divider = units.free_unit(FuType::IntDiv, 0).expect("a divider");
         let _ = units.acquire(busy_divider, 0);
@@ -761,7 +761,7 @@ mod tests {
 
     #[test]
     fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
-        let units = FuPool::new(&crate::uarch::pipeline::backend::o3::fu_pool::FuConfig::default());
+        let units = FuPool::new(&crate::config::FuConfig::default());
         let mut iq = IssueQueue::new(8);
         iq.slots[0] = Some(ready_entry(1, ControlSignals { mem_read: true, ..Default::default() }));
         iq.slots[1] = Some(ready_entry(2, ControlSignals::default()));

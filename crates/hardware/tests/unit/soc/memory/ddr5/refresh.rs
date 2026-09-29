@@ -4,9 +4,9 @@
 use crate::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, tworank_config,
 };
+use rvsim_core::config::ddr5::{Ddr5Timing, RefreshKind};
 use rvsim_core::sim::packet::DramCmdKind;
 use rvsim_core::soc::memory::ddr5::refresh::{RankLayout, bank_mask_all, bank_mask_set};
-use rvsim_core::soc::memory::ddr5::{Ddr5Timing, RefreshKind};
 
 #[test]
 fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {

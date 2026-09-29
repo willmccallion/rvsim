@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -34,7 +34,7 @@ fn program() -> Vec<u32> {
 
 #[test]
 fn an_amo_on_a_mispredicted_path_never_reaches_memory() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut config = Config::default();
         config.pipeline.backend = backend;
         config.pipeline.width = 4;
@@ -83,7 +83,7 @@ fn amo_behind_a_trap() -> Vec<u32> {
 
 #[test]
 fn an_amo_behind_a_trap_takes_effect_once() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut config = Config::default();
         config.pipeline.backend = backend;
         config.pipeline.width = 4;

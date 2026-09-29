@@ -1,16 +1,17 @@
 //! Cycle-accurate RV64GC + RVV 1.0 system simulator.
 //!
-//! The modules are layered; each depends only on those listed before it.
-//! `common` and `config` are shared by all of them.
+//! The modules are layered; each depends only on those listed before it,
+//! except that the pipelines in `uarch` run on the per-core views `system`
+//! defines.
 
-/// Addresses, identifiers and access kinds shared by every layer.
+/// Addresses, identifiers, access kinds and tracing shared by every layer.
 pub mod common;
+
+/// What the RISC-V ISA defines: encodings, CSRs, fields and vocabulary.
+pub mod isa;
 
 /// Simulator configuration.
 pub mod config;
-
-/// What the RISC-V ISA defines: encodings, fields and vocabulary.
-pub mod isa;
 
 /// Architectural state: harts, registers, CSRs, traps, PMP.
 pub mod arch;
@@ -18,14 +19,14 @@ pub mod arch;
 /// Instruction semantics shared by every engine: decode, execute, retire.
 pub mod exec;
 
-/// Simulation kernel: events, packets, component ids, stats, tracing.
+/// Simulation kernel: events, packets, component ids, memory image, stats.
 pub mod sim;
+
+/// System-on-chip: bus, coherence, devices and memory controllers.
+pub mod soc;
 
 /// Microarchitecture: the timing model of a core.
 pub mod uarch;
-
-/// System-on-chip: bus, coherence, devices and memory.
-pub mod soc;
 
 /// The whole simulated system: `Simulator`, its state, loading, checkpoints.
 pub mod system;

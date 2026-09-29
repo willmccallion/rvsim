@@ -7,8 +7,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RA: u32 = 1;
 const MSCRATCH: u32 = 0x340;
@@ -28,7 +28,7 @@ fn program() -> Vec<u32> {
     program
 }
 
-fn mispredicts(backend: BackendType) -> f64 {
+fn mispredicts(backend: BackendKind) -> f64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -44,7 +44,7 @@ fn mispredicts(backend: BackendType) -> f64 {
 
 #[test]
 fn a_return_refetched_after_a_csr_squash_pops_the_right_address() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         assert_eq!(mispredicts(backend), 0.0, "{backend:?}");
     }
 }

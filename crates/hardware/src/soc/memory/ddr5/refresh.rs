@@ -9,7 +9,8 @@
 
 use std::fmt::Debug;
 
-use crate::soc::memory::ddr5::timing::Ddr5Timing;
+use crate::config::ddr5::RefreshKind;
+use crate::config::ddr5::timing::Ddr5Timing;
 
 /// Bank layout of one rank, as the policy needs it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,16 +80,6 @@ impl RefreshPolicy for SameBank {
         let set = sequence % u64::from(layout.banks_per_group.max(1));
         RefreshTarget { bank_mask: bank_mask_set(layout, set), duration: timing.t_rfcsb }
     }
-}
-
-/// Which [`RefreshPolicy`] a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
-pub enum RefreshKind {
-    /// [`AllBank`].
-    #[default]
-    AllBank,
-    /// [`SameBank`].
-    SameBank,
 }
 
 impl RefreshKind {

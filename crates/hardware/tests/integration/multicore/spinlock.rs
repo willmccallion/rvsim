@@ -3,7 +3,7 @@
 
 use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart};
-use rvsim_core::uarch::pipeline::engine::BackendType;
+use rvsim_core::config::BackendKind;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -55,7 +55,7 @@ pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
     ]
 }
 
-fn critical_section_is_exclusive(harts: usize, backend: BackendType) {
+fn critical_section_is_exclusive(harts: usize, backend: BackendKind) {
     let iterations = 100;
     let mut system = MultiHart::new(harts, backend, &program(harts as i32, iterations));
 
@@ -68,20 +68,20 @@ fn critical_section_is_exclusive(harts: usize, backend: BackendType) {
 
 #[test]
 fn two_inorder_harts_never_share_the_critical_section() {
-    critical_section_is_exclusive(2, BackendType::InOrder);
+    critical_section_is_exclusive(2, BackendKind::InOrder);
 }
 
 #[test]
 fn four_inorder_harts_never_share_the_critical_section() {
-    critical_section_is_exclusive(4, BackendType::InOrder);
+    critical_section_is_exclusive(4, BackendKind::InOrder);
 }
 
 #[test]
 fn two_o3_harts_never_share_the_critical_section() {
-    critical_section_is_exclusive(2, BackendType::OutOfOrder);
+    critical_section_is_exclusive(2, BackendKind::OutOfOrder);
 }
 
 #[test]
 fn four_o3_harts_never_share_the_critical_section() {
-    critical_section_is_exclusive(4, BackendType::OutOfOrder);
+    critical_section_is_exclusive(4, BackendKind::OutOfOrder);
 }

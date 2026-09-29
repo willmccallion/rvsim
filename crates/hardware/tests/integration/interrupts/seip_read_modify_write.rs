@@ -4,9 +4,9 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr::{MIP, MIP_SEIP, MIP_STIP};
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr::{MIP, MIP_SEIP, MIP_STIP};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;

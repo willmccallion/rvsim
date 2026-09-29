@@ -6,13 +6,13 @@ use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder}
 use crate::common::multihart::{DATA_BASE, MultiHart};
 use crate::integration::multicore::{amo_counter, spinlock};
 use rvsim_core::common::{LineAddr, PhysAddr};
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use rvsim_core::sim::packet::MesiState;
 use rvsim_core::system::coherence_audit::audit;
 use rvsim_core::uarch::cache::Cache;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -30,7 +30,7 @@ const MHARTID: u32 = 0xF14;
 const SYS_EXIT: i32 = 93;
 const AUDIT_EVERY: u64 = 32;
 
-fn cached(harts: usize, backend: BackendType) -> Config {
+fn cached(harts: usize, backend: BackendKind) -> Config {
     let mut config = Config::default();
     config.system.hart_count = harts;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -192,29 +192,29 @@ fn check_all_programs(config: &Config, label: &str) {
 
 #[test]
 fn two_cached_inorder_harts_stay_coherent() {
-    check_all_programs(&cached(2, BackendType::InOrder), "2 inorder");
+    check_all_programs(&cached(2, BackendKind::InOrder), "2 inorder");
 }
 
 #[test]
 fn two_cached_o3_harts_stay_coherent() {
-    check_all_programs(&cached(2, BackendType::OutOfOrder), "2 o3");
+    check_all_programs(&cached(2, BackendKind::OutOfOrder), "2 o3");
 }
 
 #[test]
 fn four_cached_o3_harts_stay_coherent() {
-    check_all_programs(&cached(4, BackendType::OutOfOrder), "4 o3");
+    check_all_programs(&cached(4, BackendKind::OutOfOrder), "4 o3");
 }
 
 #[test]
 fn a_broadcast_home_keeps_four_harts_coherent() {
-    let mut config = cached(4, BackendType::InOrder);
+    let mut config = cached(4, BackendKind::InOrder);
     config.coherence.home_agent = HomeAgentConfig::Broadcast;
     check_all_programs(&config, "broadcast");
 }
 
 #[test]
 fn a_tiny_snoop_filter_recalls_lines_and_stays_exact() {
-    let mut config = cached(4, BackendType::InOrder);
+    let mut config = cached(4, BackendKind::InOrder);
     config.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 0.001, ways: 2 };
     check_all_programs(&config, "tiny filter");
     let mut system = MultiHart::with_config(&config, &shared_line_stores(4, 60));
@@ -231,7 +231,7 @@ fn every_interconnect_keeps_four_harts_coherent() {
         ("hypercube", InterconnectConfig::Hypercube { hop_latency: 2, bytes_per_cycle: 32 }),
     ];
     for (label, interconnect) in fabrics {
-        let mut config = cached(4, BackendType::InOrder);
+        let mut config = cached(4, BackendKind::InOrder);
         config.coherence.interconnect = interconnect;
         check_all_programs(&config, label);
     }
@@ -239,14 +239,14 @@ fn every_interconnect_keeps_four_harts_coherent() {
 
 #[test]
 fn l1_only_cores_stay_coherent_through_their_agent() {
-    let mut config = cached(4, BackendType::OutOfOrder);
+    let mut config = cached(4, BackendKind::OutOfOrder);
     config.cache.l2.enabled = false;
     check_all_programs(&config, "no l2");
 }
 
 #[test]
 fn a_shared_llc_serves_the_home_agent() {
-    let mut config = cached(4, BackendType::OutOfOrder);
+    let mut config = cached(4, BackendKind::OutOfOrder);
     config.cache.l3.enabled = true;
     config.cache.l3.size_bytes = 65536;
     config.cache.l3.ways = 8;
@@ -293,7 +293,7 @@ fn reload_of_a_word_in_the_code_line() -> Vec<u32> {
 
 #[test]
 fn a_reload_sees_its_write_combined_store_while_the_line_is_shared() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut config = cached(2, backend);
         config.cache.wcb_entries = 4;
         let mut system = MultiHart::with_config(&config, &reload_of_a_word_in_the_code_line());
@@ -352,7 +352,7 @@ fn states_of_the_written_line(system: &MultiHart) -> Vec<(Option<MesiState>, Opt
 
 #[test]
 fn a_flush_takes_a_line_out_of_every_harts_caches() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let config = cached(2, backend);
         let mut system =
             MultiHart::with_config(&config, &cbo_after_another_hart_writes(CBO_FLUSH_IMM));
@@ -371,7 +371,7 @@ fn a_flush_takes_a_line_out_of_every_harts_caches() {
 
 #[test]
 fn a_clean_leaves_the_writer_holding_its_line_clean() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let config = cached(2, backend);
         let mut system =
             MultiHart::with_config(&config, &cbo_after_another_hart_writes(CBO_CLEAN_IMM));

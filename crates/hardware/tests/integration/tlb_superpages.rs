@@ -3,11 +3,11 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::{Asid, PhysAddr, Ppn, Vpn};
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -29,7 +29,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
 
 #[test]
 fn one_walk_of_a_megapage_translates_every_page_in_it() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut config = Config::default();
         config.pipeline.backend = backend;
         let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);

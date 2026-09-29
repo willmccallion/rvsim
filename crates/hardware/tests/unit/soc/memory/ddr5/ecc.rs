@@ -2,8 +2,9 @@
 //! background reads at the configured rate and never answers them.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, tiny_config};
+use rvsim_core::config::ddr5::{Ddr5Timing, EccKind};
 use rvsim_core::sim::packet::{DramCmdKind, Packet};
-use rvsim_core::soc::memory::ddr5::{Ddr5Timing, EccKind, EccPolicy, SideBandEcc};
+use rvsim_core::soc::memory::ddr5::{EccPolicy, SideBandEcc};
 
 #[test]
 fn scrub_interval_resolves_nanoseconds_to_dram_clocks() {

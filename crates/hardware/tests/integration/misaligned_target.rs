@@ -7,8 +7,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
@@ -28,7 +28,7 @@ struct Outcome {
 }
 
 /// Runs `program` (then `j .`) in machine mode on a hart without C.
-fn run(backend: BackendType, program: &[u32]) -> Outcome {
+fn run(backend: BackendKind, program: &[u32]) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
@@ -57,7 +57,7 @@ fn with_cti(cti: u32) -> Vec<u32> {
     program
 }
 
-fn assert_traps_on_the_cti(backend: BackendType, cti: u32, target_offset: u64) {
+fn assert_traps_on_the_cti(backend: BackendKind, cti: u32, target_offset: u64) {
     let outcome = run(backend, &with_cti(cti));
 
     assert_eq!(outcome.mcause, MISALIGNED, "{backend:?}: instruction-address-misaligned");
@@ -68,7 +68,7 @@ fn assert_traps_on_the_cti(backend: BackendType, cti: u32, target_offset: u64) {
 
 #[test]
 fn a_jal_to_a_halfword_aligned_target_traps_on_the_jal() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let jal = InstructionBuilder::new().jal(LINK as u32, 6).build();
         assert_traps_on_the_cti(backend, jal, CTI_OFFSET + 6);
     }
@@ -76,7 +76,7 @@ fn a_jal_to_a_halfword_aligned_target_traps_on_the_jal() {
 
 #[test]
 fn a_jalr_to_a_halfword_aligned_target_traps_on_the_jalr() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let i = InstructionBuilder::new;
         let program = [
             i().addi(LINK as u32, 0, LINK_BEFORE as i32).build(),
@@ -94,7 +94,7 @@ fn a_jalr_to_a_halfword_aligned_target_traps_on_the_jalr() {
 
 #[test]
 fn a_taken_branch_to_a_halfword_aligned_target_traps_on_the_branch() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let beq = InstructionBuilder::new().beq(0, 0, 6).build();
         assert_traps_on_the_cti(backend, beq, CTI_OFFSET + 6);
     }
@@ -102,7 +102,7 @@ fn a_taken_branch_to_a_halfword_aligned_target_traps_on_the_branch() {
 
 #[test]
 fn a_branch_not_taken_to_a_misaligned_target_does_not_trap() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let bne = InstructionBuilder::new().bne(0, 0, 6).build();
         let outcome = run(backend, &with_cti(bne));
 

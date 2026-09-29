@@ -4,13 +4,13 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
 use rvsim_core::uarch::bpred::BranchPredictor;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 
-fn history_after_a_jump_loop(backend: BackendType) -> bool {
+fn history_after_a_jump_loop(backend: BackendKind) -> bool {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = rvsim_core::config::BranchPredictorKind::GShare;
@@ -29,10 +29,10 @@ fn history_after_a_jump_loop(backend: BackendType) -> bool {
 
 #[test]
 fn a_jump_enters_the_global_history_as_taken_o3() {
-    assert!(history_after_a_jump_loop(BackendType::OutOfOrder));
+    assert!(history_after_a_jump_loop(BackendKind::OutOfOrder));
 }
 
 #[test]
 fn a_jump_enters_the_global_history_as_taken_inorder() {
-    assert!(history_after_a_jump_loop(BackendType::InOrder));
+    assert!(history_after_a_jump_loop(BackendKind::InOrder));
 }

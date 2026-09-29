@@ -6,8 +6,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA_OFFSET: i32 = 0x400;
@@ -18,7 +18,7 @@ const DONE: u64 = 7;
 /// `fence rw, rw`.
 const FENCE_RW_RW: u32 = 0x0330_000F;
 
-fn config(backend: BackendType, store_buffer_size: usize) -> Config {
+fn config(backend: BackendKind, store_buffer_size: usize) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.store_buffer_size = store_buffer_size;
@@ -62,7 +62,7 @@ fn store_then(between: u32) -> Vec<u32> {
 #[test]
 fn a_store_that_misses_holds_its_slot_until_the_line_arrives() {
     const MISS_COST: u64 = 5;
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let missing = cycles_to_finish(&config(backend, 1), &stores(LINE));
         let hitting = cycles_to_finish(&config(backend, 1), &stores(8));
 
@@ -75,7 +75,7 @@ fn a_store_that_misses_holds_its_slot_until_the_line_arrives() {
 
 #[test]
 fn a_fence_waits_for_an_older_store_that_misses() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let nop = InstructionBuilder::new().nop().build();
         let without_fence = cycles_to_finish(&config(backend, 16), &store_then(nop));
         let with_fence = cycles_to_finish(&config(backend, 16), &store_then(FENCE_RW_RW));
@@ -105,7 +105,7 @@ fn store_then_alu_ops() -> Vec<u32> {
 
 #[test]
 fn a_full_store_buffer_does_not_hold_up_instructions_that_need_no_slot() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let one_slot = cycles_to_finish(&config(backend, 1), &store_then_alu_ops());
         let many_slots = cycles_to_finish(&config(backend, 16), &store_then_alu_ops());
 

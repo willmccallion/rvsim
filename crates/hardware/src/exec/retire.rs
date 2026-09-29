@@ -4,9 +4,10 @@
 //! stages and the atomic core. Each function changes only what it is
 //! given.
 
+use crate::arch::Hart;
 use crate::arch::trap::irq_to_trap;
-use crate::arch::{Hart, csr};
 use crate::exec::compute::vector::shadow::VectorWrites;
+use crate::isa::csr;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;

@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS: u64 = 32;
@@ -24,7 +24,7 @@ fn program() -> Vec<u32> {
 }
 
 /// Cycles the loop's third iteration takes, with the caches warm.
-fn warm_iteration_cycles(backend: BackendType, narrow: impl Fn(&mut Config)) -> u64 {
+fn warm_iteration_cycles(backend: BackendKind, narrow: impl Fn(&mut Config)) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -46,7 +46,7 @@ fn warm_iteration_cycles(backend: BackendType, narrow: impl Fn(&mut Config)) -> 
     cycles - second_iteration.unwrap()
 }
 
-fn check_each_stage_width_bounds_throughput(backend: BackendType) {
+fn check_each_stage_width_bounds_throughput(backend: BackendKind) {
     let wide = warm_iteration_cycles(backend, |_| {});
     assert!(wide < ADDS, "{backend:?}: four-wide took {wide} cycles for {ADDS} adds");
 
@@ -65,10 +65,10 @@ fn check_each_stage_width_bounds_throughput(backend: BackendType) {
 
 #[test]
 fn each_stage_width_bounds_throughput_inorder() {
-    check_each_stage_width_bounds_throughput(BackendType::InOrder);
+    check_each_stage_width_bounds_throughput(BackendKind::InOrder);
 }
 
 #[test]
 fn each_stage_width_bounds_throughput_o3() {
-    check_each_stage_width_bounds_throughput(BackendType::OutOfOrder);
+    check_each_stage_width_bounds_throughput(BackendKind::OutOfOrder);
 }

@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{Config, Console};
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
@@ -50,7 +50,7 @@ fn program() -> Vec<u32> {
     words
 }
 
-fn run(backend: BackendType) -> u64 {
+fn run(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -68,10 +68,10 @@ fn run(backend: BackendType) -> u64 {
 
 #[test]
 fn empty_vector_stores_free_their_buffer_entries_on_the_in_order_core() {
-    assert_eq!(run(BackendType::InOrder), 0x0807_0605_0403_0201);
+    assert_eq!(run(BackendKind::InOrder), 0x0807_0605_0403_0201);
 }
 
 #[test]
 fn empty_vector_stores_free_their_buffer_entries_on_the_o3_core() {
-    assert_eq!(run(BackendType::OutOfOrder), 0x0807_0605_0403_0201);
+    assert_eq!(run(BackendKind::OutOfOrder), 0x0807_0605_0403_0201);
 }

@@ -64,10 +64,10 @@ CLINT (timer), PLIC (external interrupts), 16550A UART, VirtIO MMIO block device
 All parameters are runtime-configurable via the `Config` struct (JSON-serializable via serde):
 
 ```rust
-use rvsim_core::config::{Config, BackendType, BranchPredictor};
+use rvsim_core::config::{Config, BackendKind, BranchPredictor};
 
 let mut config = Config::default();
-config.pipeline.backend = BackendType::OutOfOrder;
+config.pipeline.backend = BackendKind::OutOfOrder;
 config.pipeline.width = 4;
 config.pipeline.rob_size = 128;
 config.pipeline.branch_predictor = BranchPredictor::Tage;

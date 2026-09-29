@@ -10,10 +10,11 @@ pub mod ptw;
 
 pub mod tlb;
 
-use crate::arch::csr::{Csrs, PagingMode};
+use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::translation::{SfenceVmaInfo, TranslationResult};
 use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, VPN_MASK, VirtAddr, Vpn};
+use crate::isa::privileged::PagingMode;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
@@ -110,11 +111,12 @@ impl Mmu {
         csrs: &Csrs,
         pmp: Option<&Pmp>,
     ) -> TranslateOutcome {
-        use crate::arch::csr::{
-            MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
+        use crate::common::{PAGE_SHIFT, VPN_MASK};
+        use crate::isa::csr::{
+            MSTATUS_MXR, MSTATUS_SUM, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
             SATP_MODE_SHIFT,
         };
-        use crate::common::{PAGE_SHIFT, VPN_MASK};
+        use crate::isa::privileged::PagingMode;
 
         let satp = csrs.satp;
         let mode_raw = (satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
@@ -299,7 +301,7 @@ impl Mmu {
 }
 
 /// Returns true if `va` is a canonical virtual address for `mode`.
-const fn is_canonical_va(va: u64, mode: crate::arch::csr::PagingMode) -> bool {
+const fn is_canonical_va(va: u64, mode: crate::isa::privileged::PagingMode) -> bool {
     let top = mode.va_top_bit();
     if top >= 63 {
         return true;

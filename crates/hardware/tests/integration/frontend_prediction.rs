@@ -7,8 +7,8 @@
 
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 
@@ -28,7 +28,7 @@ const COMPRESSED: [u16; 34] = [
 ];
 const COMPRESSED_RETIRED: u64 = 8 + 8 * 2 + 1;
 
-fn mispredicts_running(backend: BackendType, program: &[u16], retired: u64) -> f64 {
+fn mispredicts_running(backend: BackendKind, program: &[u16], retired: u64) -> f64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 2;
@@ -49,7 +49,7 @@ fn mispredicts_running(backend: BackendType, program: &[u16], retired: u64) -> f
 
 #[test]
 fn calls_and_returns_are_predicted_from_the_fetched_return_stack() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mispredicts = mispredicts_running(backend, &CALLS, CALLS_RETIRED);
         assert_eq!(
             mispredicts, 0.0,
@@ -60,7 +60,7 @@ fn calls_and_returns_are_predicted_from_the_fetched_return_stack() {
 
 #[test]
 fn compressed_jumps_and_returns_are_predicted() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mispredicts = mispredicts_running(backend, &COMPRESSED, COMPRESSED_RETIRED);
         assert_eq!(
             mispredicts, 0.0,

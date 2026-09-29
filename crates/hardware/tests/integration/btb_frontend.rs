@@ -5,8 +5,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 20;
@@ -30,7 +30,7 @@ fn looping_jumps() -> Vec<u32> {
     ]
 }
 
-fn decode_redirects(backend: BackendType, btb_size: usize) -> u64 {
+fn decode_redirects(backend: BackendKind, btb_size: usize) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.btb_size = btb_size;
@@ -45,7 +45,7 @@ fn decode_redirects(backend: BackendType, btb_size: usize) -> u64 {
 
 #[test]
 fn a_loops_branches_redirect_from_decode_only_until_the_btb_holds_them() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let redirects = decode_redirects(backend, 4096);
 
         assert!(redirects <= 4, "{backend:?}: {redirects} decode redirects");
@@ -54,7 +54,7 @@ fn a_loops_branches_redirect_from_decode_only_until_the_btb_holds_them() {
 
 #[test]
 fn a_btb_too_small_for_the_loop_redirects_every_iteration() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let redirects = decode_redirects(backend, 1);
 
         assert!(redirects >= ITERATIONS as u64, "{backend:?}: {redirects} decode redirects");

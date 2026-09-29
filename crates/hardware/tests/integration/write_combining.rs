@@ -7,8 +7,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -45,7 +45,7 @@ fn program() -> Vec<u32> {
     ]
 }
 
-fn run(backend: BackendType, wcb_entries: usize) -> TestContext {
+fn run(backend: BackendKind, wcb_entries: usize) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -57,7 +57,7 @@ fn run(backend: BackendType, wcb_entries: usize) -> TestContext {
 
 #[test]
 fn loads_see_the_stores_the_buffer_holds() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         for entries in [1, 4] {
             let ctx = run(backend, entries);
 
@@ -72,7 +72,7 @@ fn loads_see_the_stores_the_buffer_holds() {
 
 #[test]
 fn every_store_reaches_memory_without_a_fence() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, 4);
 
         ctx.run(200);

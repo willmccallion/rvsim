@@ -1,9 +1,10 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
 use super::{CoreCtx, Uncore};
-use crate::arch::{Hart, csr};
+use crate::arch::Hart;
+use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
-use crate::isa::privileged::Trap;
+use crate::isa::privileged::{PagingMode, Trap};
 
 /// The value a CSR read-modify-write starts from. `mip` reads SEIP as
 /// the OR of the PLIC's line and the software bit, but only the
@@ -33,7 +34,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
             0
         }
         x if x == csr::MHARTID.as_u32() => u64::from(hart.hart_id.val()),
-        x if x == csr::MSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.mstatus),
+        x if x == csr::MSTATUS.as_u32() => crate::arch::csr::with_state_dirty(hart.csrs.mstatus),
         x if x == csr::MEDELEG.as_u32() => hart.csrs.medeleg,
         x if x == csr::MIDELEG.as_u32() => hart.csrs.mideleg,
         x if x == csr::MIE.as_u32() => hart.csrs.mie,
@@ -44,7 +45,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         x if x == csr::MCAUSE.as_u32() => hart.csrs.mcause,
         x if x == csr::MTVAL.as_u32() => hart.csrs.mtval,
         x if x == csr::MIP.as_u32() => hart.csrs.mip,
-        x if x == csr::SSTATUS.as_u32() => csr::with_state_dirty(hart.csrs.sstatus()),
+        x if x == csr::SSTATUS.as_u32() => crate::arch::csr::with_state_dirty(hart.csrs.sstatus()),
         x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
         x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
         x if x == csr::SSCRATCH.as_u32() => hart.csrs.sscratch,
@@ -209,7 +210,7 @@ impl CoreCtx<'_> {
             }
             x if x == csr::MSCRATCH.as_u32() => self.hart.csrs.mscratch = val,
             x if x == csr::MEPC.as_u32() => {
-                self.hart.csrs.mepc = val & !csr::ialign_low_bits(self.hart.csrs.misa);
+                self.hart.csrs.mepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
             }
             x if x == csr::MCAUSE.as_u32() => self.hart.csrs.mcause = val,
             x if x == csr::MTVAL.as_u32() => self.hart.csrs.mtval = val,
@@ -234,7 +235,7 @@ impl CoreCtx<'_> {
             }
             x if x == csr::SSCRATCH.as_u32() => self.hart.csrs.sscratch = val,
             x if x == csr::SEPC.as_u32() => {
-                self.hart.csrs.sepc = val & !csr::ialign_low_bits(self.hart.csrs.misa);
+                self.hart.csrs.sepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
             }
             x if x == csr::SCAUSE.as_u32() => self.hart.csrs.scause = val,
             x if x == csr::STVAL.as_u32() => self.hart.csrs.stval = val,
@@ -252,10 +253,11 @@ impl CoreCtx<'_> {
             x if x == csr::MENVCFG.as_u32() => {
                 let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
                 let writable = csr::MENVCFG_WRITABLE | svadu;
-                self.hart.csrs.menvcfg = csr::legalize_envcfg(val, writable);
+                self.hart.csrs.menvcfg = crate::arch::csr::legalize_envcfg(val, writable);
             }
             x if x == csr::SENVCFG.as_u32() => {
-                self.hart.csrs.senvcfg = csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);
+                self.hart.csrs.senvcfg =
+                    crate::arch::csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);
             }
             x if x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle = val,
             x if x == csr::MINSTRET.as_u32() => self.hart.csrs.minstret = val,
@@ -281,7 +283,7 @@ impl CoreCtx<'_> {
             }
             x if x == csr::SATP.as_u32() => {
                 let mode = (val >> csr::SATP_MODE_SHIFT) & csr::SATP_MODE_MASK;
-                let allowed = csr::PagingMode::from_satp_mode(mode)
+                let allowed = PagingMode::from_satp_mode(mode)
                     .is_some_and(|m| m.is_at_most(self.core.mmu.paging_mode_max));
 
                 let new_val = if allowed {
@@ -358,7 +360,7 @@ impl CoreCtx<'_> {
 mod tests {
     use crate::config::Config;
 
-    use crate::arch::csr;
+    use crate::isa::csr;
 
     #[test]
     fn test_cpu_csr_read_write_mstatus() {

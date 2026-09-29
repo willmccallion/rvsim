@@ -10,9 +10,8 @@
 use super::folded_history::FoldedHistory;
 use crate::uarch::bpred::Ghr;
 
-/// Maximum number of banks supported. Configs with more banks will panic at init.
-/// 40 covers the 36 logical tables of the 64KB TAGE-SC-L.
-pub(crate) const MAX_BANKS: usize = 40;
+/// Maximum number of banks supported: [`crate::config::MAX_TAGE_BANKS`].
+pub(crate) const MAX_BANKS: usize = crate::config::MAX_TAGE_BANKS;
 
 /// Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 ///

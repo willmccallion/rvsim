@@ -24,6 +24,9 @@ pub mod fp;
 /// Instruction sizes, field extraction, and decoding into fields.
 pub mod instruction;
 
+/// The `misa` register and ISA strings.
+pub mod misa;
+
 /// The operations instructions perform, as the decoder names them.
 pub mod op;
 

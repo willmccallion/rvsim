@@ -36,6 +36,7 @@
 //! SVE, and AVX-512.
 
 use crate::common::PhysAddr;
+use crate::config::VecStoreForwarding;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::lsq::store_buffer::{ForwardResult, width_to_bytes};
@@ -43,19 +44,6 @@ use crate::uarch::pipeline::rob::RobTag;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
-
-/// Forwarding policy. Selects how `forward_load` reacts to in-flight vec stores.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VecStoreForwarding {
-    /// Per-line byte-mask forwarding (BOOM/Apple/Intel/AMD/ARM pattern). Default.
-    #[default]
-    ByteMask,
-    /// Saturn pattern: never forward; stall on overlap; miss otherwise.
-    Stall,
-    /// Most conservative: stall on any older in-flight vec store.
-    Off,
-}
 
 /// What the vector store buffer can do for a vector load's span.
 #[derive(Clone, Debug, PartialEq, Eq)]

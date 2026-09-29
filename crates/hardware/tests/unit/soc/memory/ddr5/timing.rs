@@ -1,6 +1,6 @@
 //! Timing tables resolve JESD79-5B constraints for the speed bin.
 
-use rvsim_core::soc::memory::ddr5::{Constraint, Ddr5SpeedBin, Ddr5Timing};
+use rvsim_core::config::ddr5::{Constraint, Ddr5SpeedBin, Ddr5Timing};
 
 #[test]
 fn ddr5_4800b_resolves_to_jedec_clock_counts() {

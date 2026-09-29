@@ -446,7 +446,7 @@ impl SystemState {
     /// is cloned into bus-resident devices (`SysCon`, HTIF) so they can
     /// write the harness termination value when triggered.
     pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
-        use crate::arch::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
+        use crate::isa::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
         use crate::isa::reg;
 
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));

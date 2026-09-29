@@ -1,25 +1,18 @@
 //! DDR5 memory controller with per-bank command state machines.
 //!
-//! Ties together the static configuration ([`config`]), the JEDEC timing
-//! table ([`timing`]), the per-bank / per-rank / per-subchannel dynamic
-//! state ([`state`]), the request selection policy ([`scheduler`]), the
+//! Runs the configuration and JEDEC timing in [`crate::config::ddr5`]
+//! against the per-bank / per-rank / per-subchannel dynamic state
+//! ([`state`]), the request selection policy ([`scheduler`]), the
 //! refresh cadence ([`refresh`]), the ECC scrubber ([`ecc`]), the command
 //! state machines ([`controller`]), and their statistics ([`stats`]).
 
-pub mod config;
 pub mod controller;
 pub mod ecc;
 pub mod refresh;
 pub mod scheduler;
 pub mod state;
 pub mod stats;
-pub mod timing;
-
-pub use config::{
-    Ddr5Config, Ddr5Params, Ddr5ParamsError, Ddr5SpeedBinName, EccMode, PowerDownPolicy,
-};
 pub use controller::{ClockRatio, Ddr5Controller};
-pub use ecc::{EccKind, EccPolicy, NoEcc, SideBandEcc};
-pub use refresh::{AllBank, RankLayout, RefreshKind, RefreshPolicy, RefreshTarget, SameBank};
-pub use scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler, SchedulerKind};
-pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};
+pub use ecc::{EccPolicy, NoEcc, SideBandEcc};
+pub use refresh::{AllBank, RankLayout, RefreshPolicy, RefreshTarget, SameBank};
+pub use scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler};

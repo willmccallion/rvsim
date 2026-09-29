@@ -9,10 +9,11 @@
 //! - Bare mode bypass
 
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr::{self, Csrs};
+use rvsim_core::arch::csr::Csrs;
 use rvsim_core::arch::translation::TranslationResult;
 use rvsim_core::common::{AccessType, VirtAddr};
-use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
+use rvsim_core::isa::csr;
+use rvsim_core::isa::privileged::{PagingMode, PrivilegeMode, Trap};
 use rvsim_core::soc::bus::Bus;
 use rvsim_core::uarch::mmu::tlb::TlbGeometry;
 use rvsim_core::uarch::mmu::{Mmu, TranslateOutcome};
@@ -72,7 +73,7 @@ fn setup_mmu() -> (Mmu, Csrs, TestContext) {
         TlbGeometry { entries: 4, ways: 0 },
         TlbGeometry { entries: 4, ways: 4 },
         4,
-        csr::PagingMode::Sv57,
+        PagingMode::Sv57,
     ); // Small TLB + small L2 TLB to force walks
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);
@@ -426,7 +427,7 @@ fn setup_mmu_with_mode(mode: u64) -> (Mmu, Csrs, TestContext) {
         TlbGeometry { entries: 4, ways: 0 },
         TlbGeometry { entries: 4, ways: 4 },
         4,
-        csr::PagingMode::Sv57,
+        PagingMode::Sv57,
     );
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);

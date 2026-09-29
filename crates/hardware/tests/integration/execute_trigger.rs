@@ -4,8 +4,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -31,7 +31,7 @@ fn handler() -> Vec<u32> {
     vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MEPC, 0).build(), i().jal(0, 0).build()]
 }
 
-fn check(backend: BackendType) {
+fn check(backend: BackendKind) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -64,10 +64,10 @@ fn check(backend: BackendType) {
 
 #[test]
 fn execute_trigger_raises_a_breakpoint_inorder() {
-    check(BackendType::InOrder);
+    check(BackendKind::InOrder);
 }
 
 #[test]
 fn execute_trigger_raises_a_breakpoint_o3() {
-    check(BackendType::OutOfOrder);
+    check(BackendKind::OutOfOrder);
 }

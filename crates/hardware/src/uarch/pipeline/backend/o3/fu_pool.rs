@@ -6,9 +6,9 @@
 //!
 //! Default latencies are Skylake-class values matching real hardware.
 
+use crate::config::FuConfig;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::{AluOp, VectorOp};
-use serde::Deserialize;
 
 /// Identifies which type of functional unit an instruction uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,185 +244,6 @@ impl FuUnit {
     }
 }
 
-/// Configuration for the functional unit pool.
-#[derive(Clone, Debug, Deserialize)]
-pub struct FuConfig {
-    /// Number of integer ALU units.
-    pub num_int_alu: usize,
-    /// Latency of integer ALU operations in cycles.
-    pub int_alu_latency: u64,
-    /// Number of integer multiplier units.
-    pub num_int_mul: usize,
-    /// Latency of integer multiply operations in cycles.
-    pub int_mul_latency: u64,
-    /// Number of integer divider units.
-    pub num_int_div: usize,
-    /// Latency of integer divide operations in cycles.
-    pub int_div_latency: u64,
-    /// Number of floating-point adder units.
-    pub num_fp_add: usize,
-    /// Latency of floating-point add operations in cycles.
-    pub fp_add_latency: u64,
-    /// Number of floating-point multiplier units.
-    pub num_fp_mul: usize,
-    /// Latency of floating-point multiply operations in cycles.
-    pub fp_mul_latency: u64,
-    /// Number of floating-point fused multiply-add units.
-    pub num_fp_fma: usize,
-    /// Latency of floating-point FMA operations in cycles.
-    pub fp_fma_latency: u64,
-    /// Number of floating-point divide/sqrt units.
-    pub num_fp_div_sqrt: usize,
-    /// Latency of floating-point divide/sqrt operations in cycles.
-    pub fp_div_sqrt_latency: u64,
-    /// Number of branch units.
-    pub num_branch: usize,
-    /// Latency of branch operations in cycles.
-    pub branch_latency: u64,
-    /// Number of memory (load/store) units.
-    pub num_mem: usize,
-    /// Latency of memory operations in cycles.
-    pub mem_latency: u64,
-    /// Number of vector integer ALU units.
-    #[serde(default = "default_num_vec_int_alu")]
-    pub num_vec_int_alu: usize,
-    /// Startup latency of vector integer ALU operations.
-    #[serde(default = "default_vec_int_alu_latency")]
-    pub vec_int_alu_latency: u64,
-    /// Number of vector integer multiplier units.
-    #[serde(default = "default_num_vec_int_mul")]
-    pub num_vec_int_mul: usize,
-    /// Startup latency of vector integer multiply operations.
-    #[serde(default = "default_vec_int_mul_latency")]
-    pub vec_int_mul_latency: u64,
-    /// Number of vector integer divider units.
-    #[serde(default = "default_num_vec_int_div")]
-    pub num_vec_int_div: usize,
-    /// Per-element latency of vector integer divide operations.
-    #[serde(default = "default_vec_int_div_latency")]
-    pub vec_int_div_latency: u64,
-    /// Number of vector FP ALU units.
-    #[serde(default = "default_num_vec_fp_alu")]
-    pub num_vec_fp_alu: usize,
-    /// Startup latency of vector FP ALU operations.
-    #[serde(default = "default_vec_fp_alu_latency")]
-    pub vec_fp_alu_latency: u64,
-    /// Number of vector FP FMA units.
-    #[serde(default = "default_num_vec_fp_fma")]
-    pub num_vec_fp_fma: usize,
-    /// Startup latency of vector FP FMA operations.
-    #[serde(default = "default_vec_fp_fma_latency")]
-    pub vec_fp_fma_latency: u64,
-    /// Number of vector FP div/sqrt units.
-    #[serde(default = "default_num_vec_fp_div_sqrt")]
-    pub num_vec_fp_div_sqrt: usize,
-    /// Per-element latency of vector FP div/sqrt operations.
-    #[serde(default = "default_vec_fp_div_sqrt_latency")]
-    pub vec_fp_div_sqrt_latency: u64,
-    /// Number of vector memory units.
-    #[serde(default = "default_num_vec_mem")]
-    pub num_vec_mem: usize,
-    /// Startup latency of vector memory operations.
-    #[serde(default = "default_vec_mem_latency")]
-    pub vec_mem_latency: u64,
-    /// Number of vector permute units.
-    #[serde(default = "default_num_vec_permute")]
-    pub num_vec_permute: usize,
-    /// Startup latency of vector permute operations.
-    #[serde(default = "default_vec_permute_latency")]
-    pub vec_permute_latency: u64,
-}
-
-const fn default_num_vec_int_alu() -> usize {
-    1
-}
-const fn default_vec_int_alu_latency() -> u64 {
-    1
-}
-const fn default_num_vec_int_mul() -> usize {
-    1
-}
-const fn default_vec_int_mul_latency() -> u64 {
-    3
-}
-const fn default_num_vec_int_div() -> usize {
-    1
-}
-const fn default_vec_int_div_latency() -> u64 {
-    20
-}
-const fn default_num_vec_fp_alu() -> usize {
-    1
-}
-const fn default_vec_fp_alu_latency() -> u64 {
-    4
-}
-const fn default_num_vec_fp_fma() -> usize {
-    1
-}
-const fn default_vec_fp_fma_latency() -> u64 {
-    5
-}
-const fn default_num_vec_fp_div_sqrt() -> usize {
-    1
-}
-const fn default_vec_fp_div_sqrt_latency() -> u64 {
-    20
-}
-const fn default_num_vec_mem() -> usize {
-    1
-}
-const fn default_vec_mem_latency() -> u64 {
-    1
-}
-const fn default_num_vec_permute() -> usize {
-    1
-}
-const fn default_vec_permute_latency() -> u64 {
-    1
-}
-
-impl Default for FuConfig {
-    fn default() -> Self {
-        Self {
-            num_int_alu: 4,
-            int_alu_latency: 1,
-            num_int_mul: 1,
-            int_mul_latency: 3,
-            num_int_div: 1,
-            int_div_latency: 35,
-            num_fp_add: 2,
-            fp_add_latency: 4,
-            num_fp_mul: 2,
-            fp_mul_latency: 5,
-            num_fp_fma: 2,
-            fp_fma_latency: 5,
-            num_fp_div_sqrt: 1,
-            fp_div_sqrt_latency: 21,
-            num_branch: 2,
-            branch_latency: 1,
-            num_mem: 2,
-            mem_latency: 1,
-            num_vec_int_alu: default_num_vec_int_alu(),
-            vec_int_alu_latency: default_vec_int_alu_latency(),
-            num_vec_int_mul: default_num_vec_int_mul(),
-            vec_int_mul_latency: default_vec_int_mul_latency(),
-            num_vec_int_div: default_num_vec_int_div(),
-            vec_int_div_latency: default_vec_int_div_latency(),
-            num_vec_fp_alu: default_num_vec_fp_alu(),
-            vec_fp_alu_latency: default_vec_fp_alu_latency(),
-            num_vec_fp_fma: default_num_vec_fp_fma(),
-            vec_fp_fma_latency: default_vec_fp_fma_latency(),
-            num_vec_fp_div_sqrt: default_num_vec_fp_div_sqrt(),
-            vec_fp_div_sqrt_latency: default_vec_fp_div_sqrt_latency(),
-            num_vec_mem: default_num_vec_mem(),
-            vec_mem_latency: default_vec_mem_latency(),
-            num_vec_permute: default_num_vec_permute(),
-            vec_permute_latency: default_vec_permute_latency(),
-        }
-    }
-}
-
 /// Pool of heterogeneous functional units.
 #[derive(Debug)]
 pub struct FuPool {
@@ -496,15 +317,16 @@ impl FuPool {
         );
 
         // Guarantee at least one of each vector FU; scalar-only configs would deadlock vec ops.
+        let d = FuConfig::default();
         let vec_defaults: &[(FuType, u64, bool)] = &[
-            (FuType::VecIntAlu, default_vec_int_alu_latency(), true),
-            (FuType::VecIntMul, default_vec_int_mul_latency(), true),
-            (FuType::VecIntDiv, default_vec_int_div_latency(), false),
-            (FuType::VecFpAlu, default_vec_fp_alu_latency(), true),
-            (FuType::VecFpFma, default_vec_fp_fma_latency(), true),
-            (FuType::VecFpDivSqrt, default_vec_fp_div_sqrt_latency(), false),
-            (FuType::VecMem, default_vec_mem_latency(), true),
-            (FuType::VecPermute, default_vec_permute_latency(), true),
+            (FuType::VecIntAlu, d.vec_int_alu_latency, true),
+            (FuType::VecIntMul, d.vec_int_mul_latency, true),
+            (FuType::VecIntDiv, d.vec_int_div_latency, false),
+            (FuType::VecFpAlu, d.vec_fp_alu_latency, true),
+            (FuType::VecFpFma, d.vec_fp_fma_latency, true),
+            (FuType::VecFpDivSqrt, d.vec_fp_div_sqrt_latency, false),
+            (FuType::VecMem, d.vec_mem_latency, true),
+            (FuType::VecPermute, d.vec_permute_latency, true),
         ];
         for &(ft, lat, pipe) in vec_defaults {
             if !units.iter().any(|u| u.fu_type == ft) {

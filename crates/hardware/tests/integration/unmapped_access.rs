@@ -4,9 +4,9 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
@@ -17,7 +17,7 @@ const LOAD_ACCESS_FAULT: u64 = 5;
 const STORE_ACCESS_FAULT: u64 = 7;
 
 /// Runs `x10 = UNMAPPED; <access> x10` in `privilege`, then `j .`.
-fn run(backend: BackendType, privilege: PrivilegeMode, access: u32) -> (u64, u64) {
+fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.general.direct_mode = false;
@@ -45,7 +45,7 @@ fn run(backend: BackendType, privilege: PrivilegeMode, access: u32) -> (u64, u64
 
 #[test]
 fn a_machine_mode_load_from_an_unmapped_address_faults() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let load = InstructionBuilder::new().ld(11, 10, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Machine, load),
@@ -57,7 +57,7 @@ fn a_machine_mode_load_from_an_unmapped_address_faults() {
 
 #[test]
 fn a_machine_mode_store_to_an_unmapped_address_faults() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let store = InstructionBuilder::new().sd(10, 0, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Machine, store),
@@ -69,7 +69,7 @@ fn a_machine_mode_store_to_an_unmapped_address_faults() {
 
 #[test]
 fn a_supervisor_mode_load_from_an_unmapped_address_faults() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let load = InstructionBuilder::new().ld(11, 10, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Supervisor, load),

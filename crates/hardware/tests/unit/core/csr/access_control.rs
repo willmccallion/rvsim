@@ -5,7 +5,9 @@
 //! Machine-mode and Supervisor-mode registers, including specific handling for address
 //! translation (`satp`) and hardware counters.
 
-use rvsim_core::arch::csr::{self, Csrs};
+use rvsim_core::arch::csr::Csrs;
+
+use rvsim_core::isa::csr;
 use rvsim_core::isa::csr::CsrAddr;
 
 /// Verifies that all Control and Status Registers (CSRs) are initialized to zero by default.

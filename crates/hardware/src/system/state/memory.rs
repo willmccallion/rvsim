@@ -53,9 +53,9 @@ pub(super) fn translate(
     }
 
     let effective_priv = if access != AccessType::Fetch
-        && (hart.csrs.mstatus & crate::arch::csr::MSTATUS_MPRV) != 0
+        && (hart.csrs.mstatus & crate::isa::csr::MSTATUS_MPRV) != 0
     {
-        use crate::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
+        use crate::isa::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
         use crate::isa::privileged::PrivilegeMode;
         let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
         PrivilegeMode::from_u8(mpp)

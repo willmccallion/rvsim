@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CLINT_MTIME_PAGE: i32 = 0x0200_B000 >> 12;
@@ -27,7 +27,7 @@ fn program() -> Vec<u32> {
 
 fn cycles_to_finish(configure: impl Fn(&mut Config)) -> u64 {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::InOrder;
+    config.pipeline.backend = BackendKind::InOrder;
     config.system.cpu_clock_mhz = CLOCK_MHZ;
     configure(&mut config);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());

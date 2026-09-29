@@ -3,8 +3,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -26,7 +26,7 @@ fn program(offset: i32) -> Vec<u32> {
 }
 
 /// Runs the program and returns the loaded value and the L1D accesses.
-fn run(backend: BackendType, offset: i32) -> (u64, u64) {
+fn run(backend: BackendKind, offset: i32) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -43,7 +43,7 @@ fn run(backend: BackendType, offset: i32) -> (u64, u64) {
     (ctx.get_reg(A1 as usize), accesses as u64)
 }
 
-fn check(backend: BackendType) {
+fn check(backend: BackendKind) {
     let (within, accesses_within) = run(backend, 8);
     let (crossing, accesses_crossing) = run(backend, 60);
 
@@ -58,10 +58,10 @@ fn check(backend: BackendType) {
 
 #[test]
 fn a_line_straddling_access_costs_two_cache_accesses_inorder() {
-    check(BackendType::InOrder);
+    check(BackendKind::InOrder);
 }
 
 #[test]
 fn a_line_straddling_access_costs_two_cache_accesses_o3() {
-    check(BackendType::OutOfOrder);
+    check(BackendKind::OutOfOrder);
 }

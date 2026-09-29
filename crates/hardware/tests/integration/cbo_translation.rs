@@ -4,13 +4,13 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -44,7 +44,7 @@ const fn cbo(imm: i64, rs1: u32) -> u32 {
 
 /// Runs `x10 = OPERAND; <cbo> x10; j .` in supervisor mode with the data
 /// page mapped with `data_pte_flags` and not yet in the TLB.
-fn run(backend: BackendType, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
+fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -87,7 +87,7 @@ fn run(backend: BackendType, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
 
 #[test]
 fn a_cbo_zero_that_misses_the_tlb_walks_and_zeroes_its_block() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, CBO_ZERO_IMM, PTE_RW_AD);
 
         let hart = &ctx.sim.state.harts[0];
@@ -100,7 +100,7 @@ fn a_cbo_zero_that_misses_the_tlb_walks_and_zeroes_its_block() {
 
 #[test]
 fn a_cbo_clean_without_read_permission_raises_a_store_page_fault_at_its_operand() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let ctx = run(backend, CBO_CLEAN_IMM, PTE_X_A);
 
         let csrs = &ctx.sim.state.harts[0].csrs;

@@ -3,7 +3,7 @@
 use crate::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, read_op, tiny_config,
 };
-use rvsim_core::soc::memory::ddr5::Ddr5Timing;
+use rvsim_core::config::ddr5::Ddr5Timing;
 
 #[test]
 fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {

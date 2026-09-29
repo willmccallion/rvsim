@@ -1,8 +1,8 @@
 //! Rank power-down: an idle rank enters power-down and pays tXP on exit.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
+use rvsim_core::config::ddr5::{Ddr5Timing, PowerDownPolicy};
 use rvsim_core::sim::packet::DramCmdKind;
-use rvsim_core::soc::memory::ddr5::{Ddr5Timing, PowerDownPolicy};
 
 const IDLE_CLOCKS: u64 = 16;
 

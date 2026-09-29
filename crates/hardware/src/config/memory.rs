@@ -48,7 +48,7 @@ pub struct MemoryConfig {
 
     /// DDR5 controller parameters; used when `controller` is `Ddr5`.
     #[serde(default)]
-    pub ddr5: crate::soc::memory::ddr5::Ddr5Params,
+    pub ddr5: crate::config::ddr5::Ddr5Params,
 
     /// CAS latency (column access strobe)
     #[serde(default = "MemoryConfig::default_t_cas")]
@@ -129,16 +129,16 @@ pub struct MemoryConfig {
         default = "MemoryConfig::default_paging_mode_max",
         deserialize_with = "deserialize_paging_mode"
     )]
-    pub paging_mode_max: crate::arch::csr::PagingMode,
+    pub paging_mode_max: crate::isa::privileged::PagingMode,
 }
 
 fn deserialize_paging_mode<'de, D>(
     deserializer: D,
-) -> Result<crate::arch::csr::PagingMode, D::Error>
+) -> Result<crate::isa::privileged::PagingMode, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use crate::arch::csr::PagingMode;
+    use crate::isa::privileged::PagingMode;
     use serde::de::{Error, Unexpected};
 
     let s = String::deserialize(deserializer)?;
@@ -255,8 +255,8 @@ impl MemoryConfig {
     }
 
     /// Default paging-mode cap: accept every supported mode.
-    const fn default_paging_mode_max() -> crate::arch::csr::PagingMode {
-        crate::arch::csr::PagingMode::Sv57
+    const fn default_paging_mode_max() -> crate::isa::privileged::PagingMode {
+        crate::isa::privileged::PagingMode::Sv57
     }
 }
 
@@ -265,7 +265,7 @@ impl Default for MemoryConfig {
         Self {
             ram_size: defaults::RAM_SIZE,
             controller: MemoryControllerKind::default(),
-            ddr5: crate::soc::memory::ddr5::Ddr5Params::default(),
+            ddr5: crate::config::ddr5::Ddr5Params::default(),
             t_cas: defaults::T_CAS,
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,
@@ -282,7 +282,25 @@ impl Default for MemoryConfig {
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
             misaligned_access_trap: false,
-            paging_mode_max: crate::arch::csr::PagingMode::Sv57,
+            paging_mode_max: crate::isa::privileged::PagingMode::Sv57,
         }
     }
+}
+
+/// Address-bit interleave strategy. Names read high-order to low-order bit,
+/// so `RoRaBaChCo` uses `column` as the lowest-order bits (best for burst
+/// spatial locality on a single channel).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize)]
+pub enum AddressMappingKind {
+    /// Row : Rank : Bank(Group+Bank) : Channel : Column.
+    /// gem5 default; good spatial locality for sequential streams.
+    #[default]
+    RoRaBaChCo,
+    /// Row : Rank : Bank(Group+Bank) : Column : Channel.
+    /// Channel-interleaved at cache-line granularity; higher aggregate BW
+    /// under strided workloads, lower row-buffer reuse.
+    RoRaBaCoCh,
+    /// Row : Column : Rank : Bank(Group+Bank) : Channel.
+    /// Open-page-friendly for small working sets.
+    RoCoRaBaCh,
 }

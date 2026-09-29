@@ -4,8 +4,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -22,7 +22,7 @@ fn program() -> Vec<u32> {
     program
 }
 
-fn instret_seen(backend: BackendType) -> u64 {
+fn instret_seen(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -37,10 +37,10 @@ fn instret_seen(backend: BackendType) -> u64 {
 
 #[test]
 fn an_instret_read_counts_every_instruction_before_it_inorder() {
-    assert_eq!(instret_seen(BackendType::InOrder), ADDS);
+    assert_eq!(instret_seen(BackendKind::InOrder), ADDS);
 }
 
 #[test]
 fn an_instret_read_counts_every_instruction_before_it_o3() {
-    assert_eq!(instret_seen(BackendType::OutOfOrder), ADDS);
+    assert_eq!(instret_seen(BackendKind::OutOfOrder), ADDS);
 }

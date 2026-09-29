@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -39,7 +39,7 @@ struct Outcome {
     cycles: u64,
 }
 
-fn run(backend: BackendType, load: u32, between: u32) -> Outcome {
+fn run(backend: BackendKind, load: u32, between: u32) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     let mut ctx =
@@ -63,7 +63,7 @@ fn nop() -> u32 {
 
 #[test]
 fn a_store_conditional_with_its_reservation_writes_and_returns_zero() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let outcome = run(backend, lr(), nop());
 
         assert_eq!((outcome.sc_result, outcome.memory), (0, SC_VALUE), "{backend:?}");
@@ -72,7 +72,7 @@ fn a_store_conditional_with_its_reservation_writes_and_returns_zero() {
 
 #[test]
 fn a_store_conditional_after_a_store_to_its_reservation_fails() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let outcome = run(backend, lr(), InstructionBuilder::new().sd(10, 11, 0).build());
 
         assert_eq!((outcome.sc_result, outcome.memory), (1, PLAIN_STORE_VALUE), "{backend:?}");
@@ -81,7 +81,7 @@ fn a_store_conditional_after_a_store_to_its_reservation_fails() {
 
 #[test]
 fn a_failing_store_conditional_costs_no_more_than_a_succeeding_one() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let succeeding = run(backend, lr(), nop());
         let failing = run(backend, InstructionBuilder::new().ld(5, 10, 0).build(), nop());
 

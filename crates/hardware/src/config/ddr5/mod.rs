@@ -1,14 +1,14 @@
 //! Configuration for [`crate::soc::memory::ddr5::controller::Ddr5Controller`].
 
+/// JEDEC speed bins and the timing parameters derived from them.
+pub mod timing;
+
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use crate::soc::memory::address::AddressMappingKind;
-use crate::soc::memory::ddr5::ecc::EccKind;
-use crate::soc::memory::ddr5::refresh::RefreshKind;
-use crate::soc::memory::ddr5::scheduler::SchedulerKind;
-use crate::soc::memory::ddr5::timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};
+use crate::config::AddressMappingKind;
+pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};
 
 /// Static topology and policy parameters for a DDR5 memory subsystem.
 ///
@@ -360,4 +360,42 @@ impl Default for Ddr5ParamsRaw {
             timing: BTreeMap::new(),
         }
     }
+}
+
+/// Which [`EccPolicy`] a controller is built with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EccKind {
+    /// [`NoEcc`].
+    #[default]
+    None,
+    /// Single-error-correct, double-error-detect side-band ECC.
+    SecDed {
+        /// Nanoseconds between patrol-scrub reads; `None` disables scrubbing.
+        patrol_scrub_ns: Option<u64>,
+    },
+    /// Chipkill (symbol-correcting) side-band ECC.
+    ChipKill {
+        /// Nanoseconds between patrol-scrub reads; `None` disables scrubbing.
+        patrol_scrub_ns: Option<u64>,
+    },
+}
+
+/// Which [`RefreshPolicy`] a controller is built with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
+pub enum RefreshKind {
+    /// [`AllBank`].
+    #[default]
+    AllBank,
+    /// [`SameBank`].
+    SameBank,
+}
+
+/// Which [`MemScheduler`] a controller is built with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
+pub enum SchedulerKind {
+    /// [`Fcfs`].
+    Fcfs,
+    /// [`FrFcfs`].
+    #[default]
+    FrFcfs,
 }

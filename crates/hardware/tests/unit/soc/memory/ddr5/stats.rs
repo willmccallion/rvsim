@@ -3,7 +3,7 @@
 //! `memctrl0.ch<C>.sc<S>`.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config, write_op};
-use rvsim_core::soc::memory::ddr5::Ddr5Timing;
+use rvsim_core::config::ddr5::Ddr5Timing;
 
 #[test]
 fn counters_and_derived_rates_reflect_the_commands_issued() {

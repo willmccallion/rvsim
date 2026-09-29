@@ -26,7 +26,6 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::arch::csr;
 use crate::common::{AccessType, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::instruction::{InstSize, is_compressed};
 use crate::isa::privileged::Trap;
@@ -325,7 +324,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     fetch_pc: &mut u64,
 ) {
     let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
-    let align_mask = csr::ialign_low_bits(state.hart().csrs.misa);
+    let align_mask = crate::arch::csr::ialign_low_bits(state.hart().csrs.misa);
 
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
     let mut line_end = (current_pc | (line_bytes - 1)) + 1;

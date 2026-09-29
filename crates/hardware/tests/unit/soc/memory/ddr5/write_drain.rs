@@ -108,7 +108,7 @@ fn drain_watermarks_follow_gem5_defaults() {
 
 struct Ddr5ConfigDefaults;
 impl Ddr5ConfigDefaults {
-    fn get() -> rvsim_core::soc::memory::ddr5::Ddr5Config {
-        rvsim_core::soc::memory::ddr5::Ddr5Config::default()
+    fn get() -> rvsim_core::config::ddr5::Ddr5Config {
+        rvsim_core::config::ddr5::Ddr5Config::default()
     }
 }

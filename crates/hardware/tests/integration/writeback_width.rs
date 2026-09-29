@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS_PER_ITERATION: usize = 32;
@@ -30,7 +30,7 @@ fn independent_adds() -> Vec<u32> {
 
 fn cycles_with_writeback_width(writeback_width: usize) -> u64 {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::OutOfOrder;
+    config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.pipeline.writeback_width = Some(writeback_width);
     config.cache.l1_i.enabled = true;

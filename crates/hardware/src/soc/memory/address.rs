@@ -13,6 +13,7 @@
 //! the cache line: `compose(decompose(a)) == a & !((1 << CACHE_LINE_OFFSET_BITS) - 1)`.
 
 use crate::common::PhysAddr;
+use crate::config::AddressMappingKind;
 use crate::sim::components::{BankGroupId, ChannelId, RankId, RowId, SubchannelId};
 
 /// Number of low-order address bits that are the intra-cache-line byte offset.
@@ -36,24 +37,6 @@ pub struct DramLocation {
     pub row: RowId,
     /// Column index inside the row (byte granularity).
     pub column: u32,
-}
-
-/// Address-bit interleave strategy. Names read high-order to low-order bit,
-/// so `RoRaBaChCo` uses `column` as the lowest-order bits (best for burst
-/// spatial locality on a single channel).
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize)]
-pub enum AddressMappingKind {
-    /// Row : Rank : Bank(Group+Bank) : Channel : Column.
-    /// gem5 default; good spatial locality for sequential streams.
-    #[default]
-    RoRaBaChCo,
-    /// Row : Rank : Bank(Group+Bank) : Column : Channel.
-    /// Channel-interleaved at cache-line granularity; higher aggregate BW
-    /// under strided workloads, lower row-buffer reuse.
-    RoRaBaCoCh,
-    /// Row : Column : Rank : Bank(Group+Bank) : Channel.
-    /// Open-page-friendly for small working sets.
-    RoCoRaBaCh,
 }
 
 /// Precomputed bit-widths and shifts for a specific mapping configuration.

@@ -4,10 +4,10 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
+use rvsim_core::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -47,7 +47,7 @@ fn handler() -> Vec<u32> {
 }
 
 /// Runs `inst` followed by a marker write; returns `(mcause, mtval, marker)`.
-fn run(backend: BackendType, units: Units, inst: u32) -> (u64, u64, u64) {
+fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.system.console = rvsim_core::config::Console::Quiet;
@@ -78,7 +78,7 @@ fn run(backend: BackendType, units: Units, inst: u32) -> (u64, u64, u64) {
 
 /// `inst` is illegal with `off` and runs to the marker with both units on.
 fn check(inst: u32, off: Units) {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (mcause, mtval, marker) = run(backend, off, inst);
         assert_eq!(mcause, ILLEGAL_INSTRUCTION, "{backend:?} {inst:#010x} {off:?}: illegal");
         assert_eq!(mtval, u64::from(inst), "{backend:?} {inst:#010x}: tval holds the instruction");

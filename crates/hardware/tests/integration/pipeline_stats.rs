@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const T0: u32 = 5;
@@ -36,7 +36,7 @@ fn violating_program() -> Vec<u32> {
 #[test]
 fn flushes_by_cause_add_up_to_all_flushes() {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::OutOfOrder;
+    config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &violating_program());
@@ -69,7 +69,7 @@ fn divide_bound_program() -> Vec<u32> {
 #[test]
 fn fu_structural_stalls_are_counted_in_cycles() {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::OutOfOrder;
+    config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &divide_bound_program());

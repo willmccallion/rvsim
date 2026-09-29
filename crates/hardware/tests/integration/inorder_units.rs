@@ -6,8 +6,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::{Config, PrefetcherKind};
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -24,7 +24,7 @@ const DIVIDES: u64 = 4;
 /// Cycles until `retired` instructions have retired on a one-wide in-order core.
 fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::InOrder;
+    config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
     config.pipeline.fu_config.int_mul_latency = MUL_LATENCY;
     config.pipeline.fu_config.int_div_latency = DIV_LATENCY;

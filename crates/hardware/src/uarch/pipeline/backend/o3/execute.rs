@@ -375,7 +375,7 @@ mod tests {
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
-        state.hart.csrs.mstatus &= !crate::arch::csr::MSTATUS_FS; // Clear FS bits
+        state.hart.csrs.mstatus &= !crate::isa::csr::MSTATUS_FS; // Clear FS bits
 
         let tag = rob
             .allocate(

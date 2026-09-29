@@ -6,6 +6,8 @@
 mod bpred;
 mod cache;
 mod coherence;
+/// DDR5 controller configuration.
+pub mod ddr5;
 mod defaults;
 mod general;
 mod memory;
@@ -25,8 +27,11 @@ pub use coherence::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,
 };
 pub use general::{Console, GeneralConfig};
-pub use memory::{MemoryConfig, MemoryControllerKind};
-pub use pipeline::{MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig, StoreSetConfig};
+pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
+pub use pipeline::{
+    BackendKind, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
+    StoreSetConfig, VecStoreForwarding,
+};
 pub use system::SystemConfig;
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -240,10 +245,10 @@ impl Config {
     /// The hart's `misa`: the override when one is given, otherwise
     /// RV64IMAFDC plus V when the vector unit is the full V extension.
     #[must_use]
-    pub fn misa(&self) -> crate::arch::csr::Misa {
+    pub fn misa(&self) -> crate::isa::misa::Misa {
         self.pipeline
             .misa_override
-            .unwrap_or_else(|| crate::arch::csr::Misa::rv64imafdc(self.implements_full_v()))
+            .unwrap_or_else(|| crate::isa::misa::Misa::rv64imafdc(self.implements_full_v()))
     }
 
     /// True when the vector unit meets V's minimum: VLEN >= 128 (Zvl128b)

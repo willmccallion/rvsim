@@ -3,8 +3,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const A0: u32 = 10;
@@ -29,7 +29,7 @@ fn program() -> Vec<u32> {
 /// bytes wide.
 fn cycles_to_finish(bus_width: u64) -> u64 {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::OutOfOrder;
+    config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
     // Memory must not serialise the fills.

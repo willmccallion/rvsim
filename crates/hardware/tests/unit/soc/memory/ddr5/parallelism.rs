@@ -5,7 +5,7 @@
 use crate::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, read_op, tiny_config,
 };
-use rvsim_core::soc::memory::ddr5::Ddr5Timing;
+use rvsim_core::config::ddr5::Ddr5Timing;
 
 #[test]
 fn four_reads_across_bank_groups_serialize_on_data_bus() {

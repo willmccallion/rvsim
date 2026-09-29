@@ -4,7 +4,7 @@
 //! `MemReq` packets by translating each request into a JEDEC-compliant
 //! sequence of ACTIVATE / PRECHARGE / READ / WRITE / REFRESH commands. Every
 //! command respects the DDR5 timing constants declared in
-//! [`crate::soc::memory::ddr5::timing::Ddr5Timing`]. In debug builds each
+//! [`crate::config::ddr5::timing::Ddr5Timing`]. In debug builds each
 //! command issue is guarded by `debug_assert!` calls that name the constraint
 //! being enforced; release builds compile these checks out.
 //!
@@ -30,6 +30,7 @@
 use std::sync::Arc;
 
 use crate::common::{LineAddr, PhysAddr};
+use crate::config::ddr5::{Ddr5Config, PowerDownPolicy};
 use crate::sim::components::{
     BankGroupId, ChannelId, ComponentId, MemCtrlId, RankId, ReqId, RowId, SubchannelId,
 };
@@ -40,7 +41,6 @@ use crate::sim::packet::{
 use crate::soc::memory::address::AddressMapper;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::MemoryController;
-use crate::soc::memory::ddr5::config::{Ddr5Config, PowerDownPolicy};
 use crate::soc::memory::ddr5::ecc::EccPolicy;
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::{Candidate, MemScheduler};
@@ -1489,7 +1489,7 @@ const fn index_to_u8(idx: usize) -> u8 {
     (idx & 0xff) as u8
 }
 
-const fn column_lead(t: &crate::soc::memory::ddr5::timing::Ddr5Timing, is_read: bool) -> u64 {
+const fn column_lead(t: &crate::config::ddr5::timing::Ddr5Timing, is_read: bool) -> u64 {
     if is_read { t.t_cas } else { t.t_cwl }
 }
 

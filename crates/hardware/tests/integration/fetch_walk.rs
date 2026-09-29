@@ -4,11 +4,11 @@
 //! not swallow the instruction after it once the walk returns.
 
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x40_0000;
@@ -31,7 +31,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 
 /// Identity-maps the code's 2 MiB megapage under Sv39 and runs from it in
 /// supervisor mode with a cold TLB.
-fn run_from_a_cold_tlb(backend: BackendType, width: usize) -> (u64, u64) {
+fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
@@ -59,13 +59,13 @@ fn run_from_a_cold_tlb(backend: BackendType, width: usize) -> (u64, u64) {
 
 #[test]
 fn a_compressed_instruction_parked_on_a_walk_keeps_its_successor_inorder() {
-    assert_eq!(run_from_a_cold_tlb(BackendType::InOrder, 1), (12, 12));
-    assert_eq!(run_from_a_cold_tlb(BackendType::InOrder, 4), (12, 12));
+    assert_eq!(run_from_a_cold_tlb(BackendKind::InOrder, 1), (12, 12));
+    assert_eq!(run_from_a_cold_tlb(BackendKind::InOrder, 4), (12, 12));
 }
 
 #[test]
 fn a_compressed_instruction_parked_on_a_walk_keeps_its_successor_o3() {
-    assert_eq!(run_from_a_cold_tlb(BackendType::OutOfOrder, 1), (12, 12));
-    assert_eq!(run_from_a_cold_tlb(BackendType::OutOfOrder, 4), (12, 12));
-    assert_eq!(run_from_a_cold_tlb(BackendType::OutOfOrder, 10), (12, 12));
+    assert_eq!(run_from_a_cold_tlb(BackendKind::OutOfOrder, 1), (12, 12));
+    assert_eq!(run_from_a_cold_tlb(BackendKind::OutOfOrder, 4), (12, 12));
+    assert_eq!(run_from_a_cold_tlb(BackendKind::OutOfOrder, 10), (12, 12));
 }

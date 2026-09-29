@@ -4,8 +4,8 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
+use rvsim_core::config::BackendKind;
 use rvsim_core::sim::stats::StatFormat;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -52,7 +52,7 @@ fn program() -> Vec<u32> {
 }
 
 /// The exit code, the final cycle and the text of every stat.
-fn run(backend: BackendType, skip_idle_cores: bool) -> (Option<u64>, u64, String) {
+fn run(backend: BackendKind, skip_idle_cores: bool) -> (Option<u64>, u64, String) {
     let mut system = MultiHart::new(2, backend, &program());
     system.sim.skip_idle_cores = skip_idle_cores;
     let exit = system.run_until_exit(200_000);
@@ -61,7 +61,7 @@ fn run(backend: BackendType, skip_idle_cores: bool) -> (Option<u64>, u64, String
     (exit, system.sim.state.cycle, String::from_utf8(stats).expect("utf-8"))
 }
 
-fn skipping_is_invisible(backend: BackendType) {
+fn skipping_is_invisible(backend: BackendKind) {
     let skipped = run(backend, true);
     let ticked = run(backend, false);
 
@@ -73,10 +73,10 @@ fn skipping_is_invisible(backend: BackendType) {
 
 #[test]
 fn skipping_an_idle_o3_core_changes_nothing() {
-    skipping_is_invisible(BackendType::OutOfOrder);
+    skipping_is_invisible(BackendKind::OutOfOrder);
 }
 
 #[test]
 fn skipping_an_idle_inorder_core_changes_nothing() {
-    skipping_is_invisible(BackendType::InOrder);
+    skipping_is_invisible(BackendKind::InOrder);
 }

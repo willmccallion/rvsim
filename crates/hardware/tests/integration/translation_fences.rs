@@ -4,9 +4,9 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::{LineAddr, PhysAddr};
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
 use rvsim_core::sim::packet::MesiState;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -44,7 +44,7 @@ struct Outcome {
     code_line_cached: bool,
 }
 
-fn run(backend: BackendType, maintenance: u32) -> Outcome {
+fn run(backend: BackendKind, maintenance: u32) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.cache.l1_i.enabled = true;
@@ -63,7 +63,7 @@ fn run(backend: BackendType, maintenance: u32) -> Outcome {
 }
 
 fn assert_caches_untouched(maintenance: u32) {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let outcome = run(backend, maintenance);
 
         assert_eq!(outcome.data_line, Some(MesiState::Modified), "{backend:?}: dirty line kept");

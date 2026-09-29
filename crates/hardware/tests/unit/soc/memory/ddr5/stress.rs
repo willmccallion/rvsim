@@ -3,8 +3,8 @@
 //! bursts at once.
 
 use crate::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config, write_op};
+use rvsim_core::config::ddr5::Ddr5Timing;
 use rvsim_core::sim::packet::DramCmdKind;
-use rvsim_core::soc::memory::ddr5::Ddr5Timing;
 
 /// LCG for deterministic pseudo-random test traffic.
 fn lcg(state: &mut u64) -> u64 {

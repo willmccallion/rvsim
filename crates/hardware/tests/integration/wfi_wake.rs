@@ -4,8 +4,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -37,7 +37,7 @@ fn program() -> Vec<u32> {
     program
 }
 
-fn check(backend: BackendType, width: usize) {
+fn check(backend: BackendKind, width: usize) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
@@ -65,15 +65,15 @@ fn check(backend: BackendType, width: usize) {
 
 #[test]
 fn inorder_w1_continues_exactly_behind_a_wfi_that_wakes_at_once() {
-    check(BackendType::InOrder, 1);
+    check(BackendKind::InOrder, 1);
 }
 
 #[test]
 fn inorder_w4_continues_exactly_behind_a_wfi_that_wakes_at_once() {
-    check(BackendType::InOrder, 4);
+    check(BackendKind::InOrder, 4);
 }
 
 #[test]
 fn o3_w4_continues_exactly_behind_a_wfi_that_wakes_at_once() {
-    check(BackendType::OutOfOrder, 4);
+    check(BackendKind::OutOfOrder, 4);
 }

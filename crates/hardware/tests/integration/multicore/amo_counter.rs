@@ -3,7 +3,7 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart};
-use rvsim_core::uarch::pipeline::engine::BackendType;
+use rvsim_core::config::BackendKind;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
@@ -46,7 +46,7 @@ pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
     ]
 }
 
-fn total_is_exact(harts: usize, backend: BackendType) {
+fn total_is_exact(harts: usize, backend: BackendKind) {
     let iterations = 200;
     let mut system = MultiHart::new(harts, backend, &program(harts as i32, iterations));
 
@@ -60,27 +60,27 @@ fn total_is_exact(harts: usize, backend: BackendType) {
 
 #[test]
 fn two_inorder_harts_count_exactly() {
-    total_is_exact(2, BackendType::InOrder);
+    total_is_exact(2, BackendKind::InOrder);
 }
 
 #[test]
 fn four_inorder_harts_count_exactly() {
-    total_is_exact(4, BackendType::InOrder);
+    total_is_exact(4, BackendKind::InOrder);
 }
 
 #[test]
 fn two_o3_harts_count_exactly() {
-    total_is_exact(2, BackendType::OutOfOrder);
+    total_is_exact(2, BackendKind::OutOfOrder);
 }
 
 #[test]
 fn four_o3_harts_count_exactly() {
-    total_is_exact(4, BackendType::OutOfOrder);
+    total_is_exact(4, BackendKind::OutOfOrder);
 }
 
 #[test]
 fn a_single_hart_has_no_write_log() {
-    let mut system = MultiHart::new(1, BackendType::OutOfOrder, &program(1, 50));
+    let mut system = MultiHart::new(1, BackendKind::OutOfOrder, &program(1, 50));
     assert!(system.sim.state.memory.write_log().is_none());
     assert_eq!(system.run_until_exit(1_000_000), Some(50));
 }

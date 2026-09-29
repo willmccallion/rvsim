@@ -3,7 +3,8 @@
 use crate::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, make_controller_with_clock, read_op, tiny_config,
 };
-use rvsim_core::soc::memory::ddr5::{ClockRatio, Ddr5Timing};
+use rvsim_core::config::ddr5::Ddr5Timing;
+use rvsim_core::soc::memory::ddr5::ClockRatio;
 
 #[test]
 fn conversions_round_dram_clocks_down_and_core_cycles_up() {

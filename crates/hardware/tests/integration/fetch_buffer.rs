@@ -4,8 +4,8 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
@@ -24,7 +24,7 @@ fn straight_line_program() -> Vec<u32> {
     program
 }
 
-fn cycles_to_marker(backend: BackendType) -> u64 {
+fn cycles_to_marker(backend: BackendKind) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = WIDTH;
@@ -44,7 +44,7 @@ fn cycles_to_marker(backend: BackendType) -> u64 {
     cycles
 }
 
-fn assert_same_line_groups_skip_the_icache(backend: BackendType) {
+fn assert_same_line_groups_skip_the_icache(backend: BackendKind) {
     let groups = (LINES * INSTS_PER_LINE) / WIDTH;
     let per_group_bound = groups as u64 * (I_CACHE_LATENCY + 1);
 
@@ -58,10 +58,10 @@ fn assert_same_line_groups_skip_the_icache(backend: BackendType) {
 
 #[test]
 fn in_order_same_line_groups_skip_the_icache() {
-    assert_same_line_groups_skip_the_icache(BackendType::InOrder);
+    assert_same_line_groups_skip_the_icache(BackendKind::InOrder);
 }
 
 #[test]
 fn out_of_order_same_line_groups_skip_the_icache() {
-    assert_same_line_groups_skip_the_icache(BackendType::OutOfOrder);
+    assert_same_line_groups_skip_the_icache(BackendKind::OutOfOrder);
 }

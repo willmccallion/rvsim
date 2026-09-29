@@ -5,8 +5,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
@@ -20,7 +20,7 @@ const DONE_REG: usize = 31;
 const DONE: u64 = 7;
 const MTVEC: u32 = 0x305;
 const LOAD_ACCESS_FAULT: u64 = 5;
-const BACKENDS: [BackendType; 2] = [BackendType::InOrder, BackendType::OutOfOrder];
+const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
 /// `vsetvli x0, rs1, e8m4`.
 const fn vsetvli_e8m4(rs1: u32) -> u32 {
@@ -55,7 +55,7 @@ fn copy(with_load: bool) -> Vec<u32> {
     ]
 }
 
-fn config(backend: BackendType, vector_mem_width: Option<usize>) -> Config {
+fn config(backend: BackendKind, vector_mem_width: Option<usize>) -> Config {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.vector_mem_width = vector_mem_width;
@@ -82,7 +82,7 @@ fn l1d_accesses(config: &Config, with_load: bool) -> (u64, TestContext) {
 
 /// The L1D accesses a 64-byte unit-stride load makes, after checking it
 /// read every byte.
-fn load_accesses(backend: BackendType, vector_mem_width: Option<usize>) -> u64 {
+fn load_accesses(backend: BackendKind, vector_mem_width: Option<usize>) -> u64 {
     let config = config(backend, vector_mem_width);
     let (with_load, mut ctx) = l1d_accesses(&config, true);
     let (without_load, _) = l1d_accesses(&config, false);

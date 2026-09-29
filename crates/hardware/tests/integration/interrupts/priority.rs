@@ -3,11 +3,11 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const M_HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -17,7 +17,7 @@ const SUPERVISOR_TIMER: u64 = 5;
 
 /// A supervisor software interrupt delegated to S and a supervisor timer
 /// interrupt left with M, both pending and enabled, on a hart in S-mode.
-fn run(backend: BackendType) -> (PrivilegeMode, u64, u64) {
+fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     let spin = [InstructionBuilder::new().jal(0, 0).build()];
@@ -45,7 +45,7 @@ fn run(backend: BackendType) -> (PrivilegeMode, u64, u64) {
 
 #[test]
 fn an_interrupt_for_m_mode_beats_a_higher_listed_one_for_s_mode() {
-    for backend in [BackendType::InOrder, BackendType::OutOfOrder] {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (privilege, mcause, scause) = run(backend);
 
         assert_eq!(privilege, PrivilegeMode::Machine, "{backend:?}: taken to M");

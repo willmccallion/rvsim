@@ -240,8 +240,9 @@ impl TageConfig {
     }
 }
 
-/// Most TAGE banks.
-pub const MAX_TAGE_BANKS: usize = crate::uarch::bpred::components::tagged_bank::MAX_BANKS;
+/// Most TAGE banks a configuration may have; 40 covers the 36 logical
+/// tables of the 64KB TAGE-SC-L.
+pub const MAX_TAGE_BANKS: usize = 40;
 
 /// Longest TAGE history, in history bits.
 pub const MAX_TAGE_HISTORY: usize = 1 << 13;

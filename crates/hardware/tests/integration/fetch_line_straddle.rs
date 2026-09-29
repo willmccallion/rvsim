@@ -5,8 +5,8 @@
 
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
@@ -38,7 +38,7 @@ fn program(nops: usize) -> Vec<u16> {
 }
 
 /// Cycles the loop's third iteration takes, with both lines already cached.
-fn warm_iteration_cycles(backend: BackendType, program: &[u16]) -> u64 {
+fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
@@ -65,7 +65,7 @@ fn warm_iteration_cycles(backend: BackendType, program: &[u16]) -> u64 {
     cycles - second_iteration.unwrap()
 }
 
-fn check_straddling_instruction_waits_for_its_second_line(backend: BackendType) {
+fn check_straddling_instruction_waits_for_its_second_line(backend: BackendKind) {
     let inside_line = warm_iteration_cycles(backend, &program(LINE_BYTES / 2 - 4));
     let straddling = warm_iteration_cycles(backend, &program(LINE_BYTES / 2 - 3));
 
@@ -78,10 +78,10 @@ fn check_straddling_instruction_waits_for_its_second_line(backend: BackendType) 
 
 #[test]
 fn a_straddling_instruction_waits_for_its_second_line_inorder() {
-    check_straddling_instruction_waits_for_its_second_line(BackendType::InOrder);
+    check_straddling_instruction_waits_for_its_second_line(BackendKind::InOrder);
 }
 
 #[test]
 fn a_straddling_instruction_waits_for_its_second_line_o3() {
-    check_straddling_instruction_waits_for_its_second_line(BackendType::OutOfOrder);
+    check_straddling_instruction_waits_for_its_second_line(BackendKind::OutOfOrder);
 }

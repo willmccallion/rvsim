@@ -1,6 +1,7 @@
 //! Which CSR addresses this hart implements.
 
-use crate::arch::{Hart, csr};
+use crate::arch::Hart;
+use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 
 impl Hart {

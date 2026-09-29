@@ -9,10 +9,11 @@
 
 use crate::common::harness::TestContext;
 use proptest::prelude::*;
-use rvsim_core::arch::csr::{self, Csrs};
+use rvsim_core::arch::csr::Csrs;
 use rvsim_core::arch::translation::TranslationResult;
 use rvsim_core::common::{AccessType, PhysAddr, VirtAddr};
-use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
+use rvsim_core::isa::csr;
+use rvsim_core::isa::privileged::{PagingMode, PrivilegeMode, Trap};
 use rvsim_core::uarch::mmu::tlb::TlbGeometry;
 use rvsim_core::uarch::mmu::{Mmu, TranslateOutcome};
 
@@ -78,7 +79,7 @@ fn build_mmu(satp: u64) -> (Mmu, Csrs, TestContext) {
         TlbGeometry { entries: 4, ways: 0 },
         TlbGeometry { entries: 4, ways: 4 },
         4,
-        csr::PagingMode::Sv57,
+        PagingMode::Sv57,
     );
     let mut csrs = Csrs::default();
     csrs.write(csr::MENVCFG, csr::MENVCFG_ADUE);

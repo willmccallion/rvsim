@@ -1,13 +1,14 @@
 //! Trap Handling Utilities.
 
-use crate::arch::{Hart, csr};
+use crate::arch::Hart;
+use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::privileged::Trap;
 
 /// Converts an interrupt pending bit to a corresponding trap type.
 /// Defaults to `MachineTimerInterrupt` for unrecognized bits.
 pub const fn irq_to_trap(bit: u64) -> Trap {
-    use crate::arch::csr;
+    use crate::isa::csr;
     match bit {
         csr::MIP_USIP => Trap::UserSoftwareInterrupt,
         csr::MIP_SSIP => Trap::SupervisorSoftwareInterrupt,
@@ -23,7 +24,7 @@ pub const fn irq_to_trap(bit: u64) -> Trap {
 impl Hart {
     /// Executes the `MRET` instruction (Return from Machine Mode).
     pub(crate) const fn do_mret(&mut self) {
-        self.pc = self.csrs.mepc & !csr::ialign_low_bits(self.csrs.misa);
+        self.pc = self.csrs.mepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa);
         let mstatus = self.csrs.mstatus;
         let mpp = (mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
         let mpie = (mstatus & csr::MSTATUS_MPIE) != 0;
@@ -47,7 +48,7 @@ impl Hart {
 
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
     pub(crate) const fn do_sret(&mut self) {
-        self.pc = self.csrs.sepc & !csr::ialign_low_bits(self.csrs.misa);
+        self.pc = self.csrs.sepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa);
         let mstatus = self.csrs.mstatus;
         let spp = (mstatus & csr::MSTATUS_SPP) != 0;
         let spie = (mstatus & csr::MSTATUS_SPIE) != 0;
@@ -70,7 +71,7 @@ impl Hart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::csr;
+    use crate::isa::csr;
 
     #[test]
     fn test_irq_to_trap() {

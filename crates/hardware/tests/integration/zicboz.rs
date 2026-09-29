@@ -131,7 +131,7 @@ fn cbo_zero_ignores_low_address_bits() {
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::new_with_config(&Config::default()).with_memory(RAM_SIZE, RAM_BASE);
-    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::arch::csr::MENVCFG_CBZE, 0);
+    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::isa::csr::MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);
@@ -202,7 +202,7 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 
 /// A load that follows `cbo.zero` to the same block reads zeros: the CBO
 /// takes effect at commit, so the load must not read the block before then.
-fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::uarch::pipeline::engine::BackendType) {
+fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::config::BackendKind) {
     use crate::common::builder::instruction::InstructionBuilder;
     const X11: u32 = 11;
     const X12: u32 = 12;
@@ -232,12 +232,10 @@ fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::uarch::pipeline::en
 
 #[test]
 fn load_after_cbo_zero_reads_zero_in_order() {
-    check_load_after_cbo_zero_reads_zero(rvsim_core::uarch::pipeline::engine::BackendType::InOrder);
+    check_load_after_cbo_zero_reads_zero(rvsim_core::config::BackendKind::InOrder);
 }
 
 #[test]
 fn load_after_cbo_zero_reads_zero_out_of_order() {
-    check_load_after_cbo_zero_reads_zero(
-        rvsim_core::uarch::pipeline::engine::BackendType::OutOfOrder,
-    );
+    check_load_after_cbo_zero_reads_zero(rvsim_core::config::BackendKind::OutOfOrder);
 }

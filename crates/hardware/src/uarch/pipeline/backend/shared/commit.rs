@@ -7,7 +7,6 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::arch::csr;
 use crate::arch::regs::vpr::Vpr;
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::PteUpdate;
@@ -15,6 +14,7 @@ use crate::common::{PhysAddr, crosses_cache_line};
 use crate::exec::cbo::CboEffect;
 use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
+use crate::isa::csr;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AluOp, MemWidth, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
@@ -1399,10 +1399,7 @@ mod tests {
 
         let mut rob = Rob::new(4);
         let mut store_buffer = StoreBuffer::new(4);
-        let mut vec_store_buffer = VecStoreBuffer::new(
-            4,
-            crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreForwarding::Off,
-        );
+        let mut vec_store_buffer = VecStoreBuffer::new(4, crate::config::VecStoreForwarding::Off);
         let mut scoreboard = Scoreboard::new();
 
         let ctrl = crate::exec::signals::ControlSignals { reg_write: true, ..Default::default() };

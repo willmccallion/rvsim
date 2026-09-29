@@ -4,8 +4,8 @@
 //! including loading binaries from disk and setting up kernel boot configurations.
 
 use rvsim_core::SystemState;
-use rvsim_core::arch::csr;
 use rvsim_core::config::Config;
+use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::isa::reg;
 use rvsim_core::system::loader;

@@ -1,8 +1,8 @@
 //! Unit tests for the Zicboz / Zicbom CSR gate helpers.
 
-use rvsim_core::arch::csr::{
-    CboInvalAction, MENVCFG_CBCFE, MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, SENVCFG_CBCFE, SENVCFG_CBZE,
-    cbo_inval_action, cbocf_allowed, cboz_allowed,
+use rvsim_core::arch::csr::{CboInvalAction, cbo_inval_action, cbocf_allowed, cboz_allowed};
+use rvsim_core::isa::csr::{
+    MENVCFG_CBCFE, MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, SENVCFG_CBCFE, SENVCFG_CBZE,
 };
 use rvsim_core::isa::privileged::PrivilegeMode;
 

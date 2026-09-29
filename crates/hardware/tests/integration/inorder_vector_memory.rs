@@ -4,8 +4,8 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
+use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
@@ -55,7 +55,7 @@ fn program() -> Vec<u32> {
 #[test]
 fn a_scalar_load_forwards_from_an_in_order_vector_store() {
     let mut config = Config::default();
-    config.pipeline.backend = BackendType::InOrder;
+    config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
     config.system.console = rvsim_core::config::Console::Quiet;
