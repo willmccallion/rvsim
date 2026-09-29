@@ -7,7 +7,7 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::common::InstSeq;
-use rvsim_core::config::{BranchPredictor, Config};
+use rvsim_core::config::{BranchPredictorKind, Config};
 use rvsim_core::uarch::bpred::ControlInst;
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
@@ -41,7 +41,7 @@ fn program() -> Vec<u32> {
 fn a_wrong_path_indirect_jump_leaves_the_btb_alone() {
     let mut config = Config::default();
     config.pipeline.backend = BackendType::OutOfOrder;
-    config.pipeline.branch_predictor = BranchPredictor::Static;
+    config.pipeline.branch_predictor = BranchPredictorKind::Static;
     config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 

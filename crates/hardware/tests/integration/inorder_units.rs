@@ -6,7 +6,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::{Config, Prefetcher};
+use rvsim_core::config::{Config, PrefetcherKind};
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
@@ -30,7 +30,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     config.pipeline.fu_config.int_div_latency = DIV_LATENCY;
     // Keep instruction supply off the critical path: the test times the backend.
     config.cache.l1_i.enabled = true;
-    config.cache.l1_i.prefetcher = Prefetcher::NextLine;
+    config.cache.l1_i.prefetcher = PrefetcherKind::NextLine;
     config.cache.l1_i.prefetch_degree = 4;
     config.system.console = rvsim_core::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);

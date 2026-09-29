@@ -30,7 +30,7 @@ use crate::config::{Config, InclusionPolicy};
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
-use crate::uarch::bpred::BranchPredictorWrapper;
+use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::cache::Cache;
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::TlbGeometry;
@@ -70,7 +70,7 @@ pub struct CoreUnits {
     /// Write Combining Buffer for store coalescing.
     pub wcb: WriteCombiningBuffer,
     /// Branch Predictor Unit.
-    pub branch_predictor: BranchPredictorWrapper,
+    pub branch_predictor: BranchPredictor,
     /// Stat paths rooted at `core<N>`.
     pub stat_paths: CorePaths,
 }
@@ -117,7 +117,7 @@ impl CoreUnits {
                 config.memory.paging_mode_max,
             ),
             wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
-            branch_predictor: BranchPredictorWrapper::new(config),
+            branch_predictor: BranchPredictor::new(config),
             stat_paths: CorePaths::new(core_id),
         }
     }

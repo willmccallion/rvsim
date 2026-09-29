@@ -5,7 +5,7 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::config::Config;
-use rvsim_core::uarch::bpred::BranchPredictorWrapper;
+use rvsim_core::uarch::bpred::BranchPredictor;
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -13,7 +13,7 @@ const PROGRAM_BASE: u64 = 0x8000_0000;
 fn history_after_a_jump_loop(backend: BackendType) -> bool {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.branch_predictor = rvsim_core::config::BranchPredictor::GShare;
+    config.pipeline.branch_predictor = rvsim_core::config::BranchPredictorKind::GShare;
     config.system.console = rvsim_core::config::Console::Quiet;
     let program = [InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
@@ -21,8 +21,7 @@ fn history_after_a_jump_loop(backend: BackendType) -> bool {
     ctx.run(100);
 
     assert!(ctx.sim.state.harts[0].instructions_retired > 4, "{backend:?}: the loop ran");
-    let BranchPredictorWrapper::GShare(unit) = &ctx.sim.state.cores[0].units.branch_predictor
-    else {
+    let BranchPredictor::GShare(unit) = &ctx.sim.state.cores[0].units.branch_predictor else {
         panic!("{backend:?}: configured for GShare");
     };
     unit.direction().history() & 1 == 1

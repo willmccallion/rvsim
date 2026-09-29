@@ -25,9 +25,7 @@ use self::policies::{
 use self::stats::CacheStatPaths;
 use self::writeback_buffer::{Writeback, WritebackBuffer};
 use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
-use crate::config::{
-    CacheConfig, InclusionPolicy, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType,
-};
+use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{
@@ -195,29 +193,29 @@ impl Cache {
         let num_sets = (num_lines / safe_ways).max(1);
 
         let policy: Box<dyn ReplacementPolicy + Send + Sync> = match config.policy {
-            PolicyType::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
-            PolicyType::Random => Box::new(RandomPolicy::new(num_sets, safe_ways)),
-            PolicyType::Plru => Box::new(PlruPolicy::new(num_sets, safe_ways)),
-            PolicyType::Lru => Box::new(LruPolicy::new(num_sets, safe_ways)),
-            PolicyType::Mru => Box::new(MruPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Plru => Box::new(PlruPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Lru => Box::new(LruPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Mru => Box::new(MruPolicy::new(num_sets, safe_ways)),
         };
 
         let prefetcher: Option<Box<dyn Prefetcher + Send + Sync>> = match config.prefetcher {
-            PrefetcherType::NextLine => {
+            PrefetcherKind::NextLine => {
                 Some(Box::new(NextLinePrefetcher::new(safe_line, config.prefetch_degree)))
             }
-            PrefetcherType::Stride => Some(Box::new(StridePrefetcher::new(
+            PrefetcherKind::Stride => Some(Box::new(StridePrefetcher::new(
                 safe_line,
                 config.prefetch_table_size,
                 config.prefetch_degree,
             ))),
-            PrefetcherType::Stream => {
+            PrefetcherKind::Stream => {
                 Some(Box::new(StreamPrefetcher::new(safe_line, config.prefetch_degree)))
             }
-            PrefetcherType::Tagged => {
+            PrefetcherKind::Tagged => {
                 Some(Box::new(TaggedPrefetcher::new(safe_line, config.prefetch_degree)))
             }
-            PrefetcherType::None => None,
+            PrefetcherKind::None => None,
         };
 
         Self {

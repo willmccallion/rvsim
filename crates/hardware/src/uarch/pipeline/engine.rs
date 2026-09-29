@@ -11,7 +11,7 @@ use crate::config::Config;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
 use crate::system::topology::{CoreTopology, PrivateCache};
-use crate::uarch::bpred::BranchPredictorWrapper;
+use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;
 use crate::uarch::pipeline::frontend::{Frontend, STAGE_DELAY};
@@ -333,7 +333,7 @@ impl BackendCommon {
     /// `now`. None arrives while a squash is waiting: that squash may still
     /// correct a prediction commit has passed, and gem5's fetch takes a
     /// squash before a commit notice.
-    pub fn deliver_commit_notices(&mut self, predictor: &mut BranchPredictorWrapper, now: u64) {
+    pub fn deliver_commit_notices(&mut self, predictor: &mut BranchPredictor, now: u64) {
         if self.pending_squash.is_some() {
             return;
         }
@@ -353,7 +353,7 @@ impl BackendCommon {
     /// the instruction it keeps, when that is still in the window.
     pub fn squash_predictions(
         &mut self,
-        predictor: &mut BranchPredictorWrapper,
+        predictor: &mut BranchPredictor,
         squash: &PendingSquash,
         keep_seq: Option<InstSeq>,
         now: u64,
@@ -371,12 +371,12 @@ impl BackendCommon {
 
     /// Squashes every prediction commit has not retired, training first on
     /// every one it has.
-    pub fn flush_predictions(&mut self, predictor: &mut BranchPredictorWrapper) {
+    pub fn flush_predictions(&mut self, predictor: &mut BranchPredictor) {
         self.deliver_all_commit_notices(predictor);
         predictor.squash_all();
     }
 
-    fn deliver_all_commit_notices(&mut self, predictor: &mut BranchPredictorWrapper) {
+    fn deliver_all_commit_notices(&mut self, predictor: &mut BranchPredictor) {
         if let Some(notice) = self.commit_notices.back() {
             predictor.commit(notice.seq);
         }
@@ -733,7 +733,7 @@ mod tests {
     #[test]
     fn a_commit_reaches_the_predictor_a_cycle_later() {
         let mut predictor =
-            crate::uarch::bpred::BranchPredictorWrapper::new(&crate::config::Config::default());
+            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::default());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
 
@@ -748,7 +748,7 @@ mod tests {
     fn a_waiting_squash_holds_commit_notices_back() {
         use crate::uarch::pipeline::squash::SquashCause;
         let mut predictor =
-            crate::uarch::bpred::BranchPredictorWrapper::new(&crate::config::Config::default());
+            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::default());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
         common.request_squash(squash(5, SquashCause::Branch, 0x2000));

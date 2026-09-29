@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::config::{Config, MemDepPredictor as MdpType};
+use crate::config::{Config, MemDepPredictorKind};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 
 use super::predictor::{MdpStats, MemDepPredictor, MemPrediction};
@@ -64,10 +64,10 @@ impl MemDepUnit {
     /// Creates a new `MemDepUnit` from configuration.
     pub fn new(config: &Config) -> Self {
         let predictor = match config.pipeline.mem_dep_predictor {
-            MdpType::Blind => PredictorKind::Blind,
-            MdpType::StoreSet => PredictorKind::StoreSet(Box::new(StoreSetPredictor::new(
-                &config.pipeline.store_set,
-            ))),
+            MemDepPredictorKind::Blind => PredictorKind::Blind,
+            MemDepPredictorKind::StoreSet => PredictorKind::StoreSet(Box::new(
+                StoreSetPredictor::new(&config.pipeline.store_set),
+            )),
         };
         Self { predictor, deps: HashMap::new(), stats: MdpStats::default() }
     }
@@ -214,17 +214,17 @@ impl MemDepUnit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, MemDepPredictor as MdpType, StoreSetConfig};
+    use crate::config::{Config, MemDepPredictorKind, StoreSetConfig};
 
     fn blind_config() -> Config {
         let mut c = Config::default();
-        c.pipeline.mem_dep_predictor = MdpType::Blind;
+        c.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
         c
     }
 
     fn store_set_config() -> Config {
         let mut c = Config::default();
-        c.pipeline.mem_dep_predictor = MdpType::StoreSet;
+        c.pipeline.mem_dep_predictor = MemDepPredictorKind::StoreSet;
         c.pipeline.store_set = StoreSetConfig { ssit_size: 64, lfst_size: 16, clear_period: 0 };
         c
     }

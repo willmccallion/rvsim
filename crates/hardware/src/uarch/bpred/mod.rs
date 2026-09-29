@@ -28,12 +28,12 @@ use self::predictors::{
     static_bp::StaticPredictor, tage::TagePredictor, tournament::TournamentPredictor,
 };
 use crate::common::InstSeq;
-use crate::config::{BranchPredictor as BpType, Config};
+use crate::config::{BranchPredictorKind, Config};
 
 /// The configured prediction unit, dispatched statically so the fetch
 /// loop makes no virtual calls.
 #[derive(Debug)]
-pub enum BranchPredictorWrapper {
+pub enum BranchPredictor {
     /// Static (always not-taken) predictor.
     Static(BranchPredUnit<StaticPredictor>),
     /// Global history (gshare) predictor.
@@ -58,35 +58,35 @@ fn unit_for<P: DirectionPredictor>(config: &Config, direction: P) -> BranchPredU
 macro_rules! dispatch {
     ($wrapper:expr, $unit:ident => $call:expr) => {
         match $wrapper {
-            BranchPredictorWrapper::Static($unit) => $call,
-            BranchPredictorWrapper::GShare($unit) => $call,
-            BranchPredictorWrapper::Tournament($unit) => $call,
-            BranchPredictorWrapper::Tage($unit) => $call,
-            BranchPredictorWrapper::Perceptron($unit) => $call,
-            BranchPredictorWrapper::ScLTage($unit) => $call,
+            BranchPredictor::Static($unit) => $call,
+            BranchPredictor::GShare($unit) => $call,
+            BranchPredictor::Tournament($unit) => $call,
+            BranchPredictor::Tage($unit) => $call,
+            BranchPredictor::Perceptron($unit) => $call,
+            BranchPredictor::ScLTage($unit) => $call,
         }
     };
 }
 
-impl BranchPredictorWrapper {
+impl BranchPredictor {
     /// Creates the unit for the configured predictor, with the configured
     /// BTB and RAS.
     pub fn new(config: &Config) -> Self {
         let pipeline = &config.pipeline;
 
         match pipeline.branch_predictor {
-            BpType::Static => Self::Static(unit_for(config, StaticPredictor::new())),
-            BpType::GShare => Self::GShare(unit_for(config, GSharePredictor::new())),
-            BpType::Tournament => {
+            BranchPredictorKind::Static => Self::Static(unit_for(config, StaticPredictor::new())),
+            BranchPredictorKind::GShare => Self::GShare(unit_for(config, GSharePredictor::new())),
+            BranchPredictorKind::Tournament => {
                 Self::Tournament(unit_for(config, TournamentPredictor::new(&pipeline.tournament)))
             }
-            BpType::Tage => {
+            BranchPredictorKind::Tage => {
                 Self::Tage(Box::new(unit_for(config, TagePredictor::new(&pipeline.tage))))
             }
-            BpType::Perceptron => {
+            BranchPredictorKind::Perceptron => {
                 Self::Perceptron(unit_for(config, PerceptronPredictor::new(&pipeline.perceptron)))
             }
-            BpType::ScLTage => Self::ScLTage(Box::new(unit_for(
+            BranchPredictorKind::ScLTage => Self::ScLTage(Box::new(unit_for(
                 config,
                 ScLTagePredictor::new(
                     &pipeline.tage,

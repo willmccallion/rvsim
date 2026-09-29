@@ -6,7 +6,7 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder};
 use crate::common::multihart::MultiHart;
-use rvsim_core::config::{Config, Console, InterconnectConfig, MemoryController};
+use rvsim_core::config::{Config, Console, InterconnectConfig, MemoryControllerKind};
 use rvsim_core::sim::stats::StatFormat;
 use rvsim_core::system::simulator::{StopAt, StopReason};
 
@@ -84,7 +84,7 @@ fn config() -> Config {
     config.system.hart_count = 2;
     config.system.console = Console::Quiet;
     config.system.clint_divider = CLINT_DIVIDER;
-    config.memory.controller = MemoryController::Ddr5;
+    config.memory.controller = MemoryControllerKind::Ddr5;
     config.memory.ddr5 = serde_json::from_str(
         r#"{"power_down_idle_ns": 50, "ecc": "SecDed", "patrol_scrub_ns": 5000}"#,
     )

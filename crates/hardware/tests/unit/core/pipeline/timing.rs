@@ -5,7 +5,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::{BranchPredictor, Config, MemDepPredictor};
+use rvsim_core::config::{BranchPredictorKind, Config, MemDepPredictorKind};
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const BASE_ADDR: u64 = 0x8000_0000;
@@ -102,7 +102,7 @@ fn redirect_config(backend: BackendType, width: usize, redirect_latency: u64) ->
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.pipeline.branch_predictor = BranchPredictor::Static;
+    config.pipeline.branch_predictor = BranchPredictorKind::Static;
     config.pipeline.redirect_latency = Some(redirect_latency);
     // The wrong path runs into the next line; with a real I-cache the
     // refetch of the target is a hit instead of a second trip to memory.
@@ -181,7 +181,7 @@ fn load_behind_store(with_store: bool) -> Vec<u32> {
 fn store_visibility_delay(backend: BackendType) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.mem_dep_predictor = MemDepPredictor::Blind;
+    config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
     cycles_to_finish(&config, &load_behind_store(true))
         - cycles_to_finish(&config, &load_behind_store(false))
 }
@@ -244,7 +244,7 @@ fn store_load_chain(links: u32) -> Vec<u32> {
 fn forwarded_link(backend: BackendType, l1d_latency: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.mem_dep_predictor = MemDepPredictor::Blind;
+    config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.latency = l1d_latency;
     let short = cycles_to_finish(&config, &store_load_chain(10));

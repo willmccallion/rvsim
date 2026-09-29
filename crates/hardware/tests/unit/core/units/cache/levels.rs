@@ -6,8 +6,7 @@
 
 use rvsim_core::common::{HartId, LineAddr, PhysAddr};
 use rvsim_core::config::{
-    CacheConfig, Config, InclusionPolicy, Prefetcher as PrefetcherType,
-    ReplacementPolicy as PolicyType,
+    CacheConfig, Config, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind,
 };
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
@@ -37,10 +36,10 @@ fn test_config() -> CacheConfig {
         size_bytes: 256,
         line_bytes: 64,
         ways: 2,
-        policy: PolicyType::Lru,
+        policy: ReplacementPolicyKind::Lru,
         latency: LATENCY,
         response_latency: RESPONSE_LATENCY,
-        prefetcher: PrefetcherType::None,
+        prefetcher: PrefetcherKind::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
         mshr_count: 4,
@@ -678,7 +677,7 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
 #[test]
 fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
     let mut config = test_config();
-    config.prefetcher = PrefetcherType::NextLine;
+    config.prefetcher = PrefetcherKind::NextLine;
     config.size_bytes = 1024;
     let mut bench = Bench::new(cache_with(&config));
 
@@ -703,7 +702,7 @@ fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
 #[test]
 fn prefetches_leave_one_mshr_for_demand_misses() {
     let mut config = test_config();
-    config.prefetcher = PrefetcherType::NextLine;
+    config.prefetcher = PrefetcherKind::NextLine;
     config.mshr_count = 1;
     let mut bench = Bench::new(cache_with(&config));
     bench.read(1, 0x1000);

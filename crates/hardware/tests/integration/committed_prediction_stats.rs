@@ -3,7 +3,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::config::{BranchPredictor, Config};
+use rvsim_core::config::{BranchPredictorKind, Config};
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -39,7 +39,7 @@ fn alternating_indirect_jump() -> Vec<u32> {
 fn committed_mispredicts(backend: BackendType) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.branch_predictor = BranchPredictor::GShare;
+    config.pipeline.branch_predictor = BranchPredictorKind::GShare;
     let mut ctx = TestContext::new_with_config(&config)
         .load_program(PROGRAM_BASE, &alternating_indirect_jump());
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");

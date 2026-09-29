@@ -35,7 +35,7 @@ use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
 use crate::common::{HartId, PhysAddr};
-use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
+use crate::config::{Config, InclusionPolicy, MemoryControllerKind};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
@@ -506,7 +506,7 @@ impl SystemState {
 
         let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller
         {
-            MemControllerType::Dram => Box::new(DramController::new(
+            MemoryControllerKind::Dram => Box::new(DramController::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
                 DramConfig {
@@ -520,7 +520,7 @@ impl SystemState {
                     t_rfc: config.memory.t_rfc,
                 },
             )),
-            MemControllerType::Simple => {
+            MemoryControllerKind::Simple => {
                 let bytes_per_second = config
                     .memory
                     .simple_bandwidth_bytes_per_second()
@@ -532,7 +532,7 @@ impl SystemState {
                     Bandwidth::new(bytes_per_second, config.system.cpu_clock_mhz * 1_000_000),
                 ))
             }
-            MemControllerType::Ddr5 => Box::new(Ddr5Controller::new(
+            MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
                 ram_buffer.clone(),
                 PhysAddr::new(ram_base),
                 config.memory.ddr5.to_config(),

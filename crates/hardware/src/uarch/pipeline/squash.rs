@@ -9,7 +9,7 @@
 //! fetch. Until then commit retires nothing younger than the instruction.
 
 use crate::common::InstSeq;
-use crate::uarch::bpred::BranchPredictorWrapper;
+use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::rob::RobTag;
 
 /// Why an instruction squashed what followed it.
@@ -50,7 +50,7 @@ pub struct BranchRepair {
 
 impl BranchRepair {
     /// Repairs the predictor for this misprediction.
-    pub fn apply(&self, predictor: &mut BranchPredictorWrapper) {
+    pub fn apply(&self, predictor: &mut BranchPredictor) {
         predictor.mispredict(self.seq, self.taken, self.target);
     }
 }

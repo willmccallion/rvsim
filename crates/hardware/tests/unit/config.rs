@@ -42,7 +42,7 @@ fn test_system_config_defaults() {
 fn test_memory_config_defaults() {
     let memory = MemoryConfig::default();
     assert_eq!(memory.ram_size, 128 * 1024 * 1024);
-    assert_eq!(memory.controller, MemoryController::Simple);
+    assert_eq!(memory.controller, MemoryControllerKind::Simple);
     assert_eq!(memory.t_cas, 14);
     assert_eq!(memory.t_ras, 14);
     assert_eq!(memory.t_pre, 14);
@@ -57,9 +57,9 @@ fn test_cache_config_defaults() {
     assert_eq!(cache.size_bytes, 4096);
     assert_eq!(cache.line_bytes, 64);
     assert_eq!(cache.ways, 1);
-    assert_eq!(cache.policy, ReplacementPolicy::Lru);
+    assert_eq!(cache.policy, ReplacementPolicyKind::Lru);
     assert_eq!(cache.latency, 1);
-    assert_eq!(cache.prefetcher, Prefetcher::None);
+    assert_eq!(cache.prefetcher, PrefetcherKind::None);
     assert_eq!(cache.prefetch_table_size, 64);
     assert_eq!(cache.prefetch_degree, 1);
 }
@@ -77,7 +77,7 @@ fn test_cache_hierarchy_defaults() {
 fn test_pipeline_config_defaults() {
     let pipeline = PipelineConfig::default();
     assert_eq!(pipeline.width, 1);
-    assert_eq!(pipeline.branch_predictor, BranchPredictor::Static);
+    assert_eq!(pipeline.branch_predictor, BranchPredictorKind::Static);
     assert_eq!(pipeline.btb_size, 256);
     assert_eq!(pipeline.ras_size, 8);
     assert_eq!(pipeline.misa_override, None);
@@ -110,35 +110,35 @@ fn test_tournament_config_defaults() {
 
 #[test]
 fn test_memory_controller_enum() {
-    assert_eq!(MemoryController::default(), MemoryController::Simple);
-    assert_ne!(MemoryController::Simple, MemoryController::Dram);
+    assert_eq!(MemoryControllerKind::default(), MemoryControllerKind::Simple);
+    assert_ne!(MemoryControllerKind::Simple, MemoryControllerKind::Dram);
 }
 
 #[test]
 fn test_replacement_policy_enum() {
-    assert_eq!(ReplacementPolicy::default(), ReplacementPolicy::Lru);
-    assert_ne!(ReplacementPolicy::Lru, ReplacementPolicy::Fifo);
-    assert_ne!(ReplacementPolicy::Lru, ReplacementPolicy::Random);
-    assert_ne!(ReplacementPolicy::Lru, ReplacementPolicy::Mru);
-    assert_ne!(ReplacementPolicy::Lru, ReplacementPolicy::Plru);
+    assert_eq!(ReplacementPolicyKind::default(), ReplacementPolicyKind::Lru);
+    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Fifo);
+    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Random);
+    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Mru);
+    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Plru);
 }
 
 #[test]
 fn test_prefetcher_enum() {
-    assert_eq!(Prefetcher::default(), Prefetcher::None);
-    assert_ne!(Prefetcher::None, Prefetcher::NextLine);
-    assert_ne!(Prefetcher::None, Prefetcher::Stride);
-    assert_ne!(Prefetcher::None, Prefetcher::Stream);
-    assert_ne!(Prefetcher::None, Prefetcher::Tagged);
+    assert_eq!(PrefetcherKind::default(), PrefetcherKind::None);
+    assert_ne!(PrefetcherKind::None, PrefetcherKind::NextLine);
+    assert_ne!(PrefetcherKind::None, PrefetcherKind::Stride);
+    assert_ne!(PrefetcherKind::None, PrefetcherKind::Stream);
+    assert_ne!(PrefetcherKind::None, PrefetcherKind::Tagged);
 }
 
 #[test]
 fn test_branch_predictor_enum() {
-    assert_eq!(BranchPredictor::default(), BranchPredictor::Static);
-    assert_ne!(BranchPredictor::Static, BranchPredictor::GShare);
-    assert_ne!(BranchPredictor::Static, BranchPredictor::Perceptron);
-    assert_ne!(BranchPredictor::Static, BranchPredictor::Tage);
-    assert_ne!(BranchPredictor::Static, BranchPredictor::Tournament);
+    assert_eq!(BranchPredictorKind::default(), BranchPredictorKind::Static);
+    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::GShare);
+    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Perceptron);
+    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Tage);
+    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Tournament);
 }
 
 #[test]
@@ -352,8 +352,8 @@ fn test_json_deserialization_with_tracing() {
     assert!(!config.cache.l3.enabled);
     assert_eq!(config.cache.l1_d.size_bytes, 32768);
     assert_eq!(config.cache.l1_d.ways, 4);
-    assert_eq!(config.cache.l1_d.prefetcher, Prefetcher::Stride);
-    assert_eq!(config.pipeline.branch_predictor, BranchPredictor::GShare);
+    assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
+    assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 }
 
 #[test]
@@ -456,7 +456,7 @@ fn test_json_dram_controller() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.memory.controller, MemoryController::Dram);
+    assert_eq!(config.memory.controller, MemoryControllerKind::Dram);
 }
 
 #[test]

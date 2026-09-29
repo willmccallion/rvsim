@@ -1,7 +1,7 @@
 //! Configuration parameters: JSON deserialization, timing overrides, and
 //! validation of the DDR5 parameter block.
 
-use rvsim_core::config::{Config, MemoryConfig, MemoryController};
+use rvsim_core::config::{Config, MemoryConfig, MemoryControllerKind};
 use rvsim_core::soc::memory::ddr5::{
     Ddr5Params, Ddr5Timing, EccKind, PowerDownPolicy, RefreshKind, SchedulerKind,
 };
@@ -59,7 +59,7 @@ fn non_power_of_two_topology_is_rejected_at_parse_time() {
 fn the_memory_section_carries_the_ddr5_block() {
     let json = r#"{"controller": "Ddr5", "ddr5": {"speed_bin": "4800B", "ranks_per_channel": 4}}"#;
     let memory: MemoryConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(memory.controller, MemoryController::Ddr5);
+    assert_eq!(memory.controller, MemoryControllerKind::Ddr5);
     assert_eq!(memory.ddr5.to_config().ranks_per_channel, 4);
     let default = Config::default();
     assert_eq!(default.system.cpu_clock_mhz, 2400, "1:1 with the DDR5-4800 command clock");

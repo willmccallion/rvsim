@@ -259,7 +259,7 @@ mod defaults {
 /// access timing and behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum MemoryController {
+pub enum MemoryControllerKind {
     /// Simple fixed-latency memory controller.
     ///
     /// All memory accesses take a fixed number of cycles regardless
@@ -288,7 +288,7 @@ pub enum MemoryController {
 /// when a new line must be installed in a full cache set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub enum ReplacementPolicy {
+pub enum ReplacementPolicyKind {
     /// Least Recently Used replacement policy.
     ///
     /// Evicts the cache line that was accessed least recently.
@@ -352,7 +352,7 @@ pub enum InclusionPolicy {
 /// into the cache before it is needed to reduce miss penalties.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum Prefetcher {
+pub enum PrefetcherKind {
     /// No prefetching enabled.
     #[default]
     None,
@@ -382,7 +382,7 @@ pub enum Prefetcher {
 /// branch directions and targets for improved pipeline performance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum BranchPredictor {
+pub enum BranchPredictorKind {
     /// Static branch predictor (always predict not-taken).
     ///
     /// Simple predictor that always predicts branches as not-taken.
@@ -416,7 +416,7 @@ pub enum BranchPredictor {
 /// whether loads can bypass older unresolved stores at issue time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum MemDepPredictor {
+pub enum MemDepPredictorKind {
     /// Blind (conservative) predictor.
     ///
     /// Loads always wait for all older stores to resolve. No speculation,
@@ -450,7 +450,7 @@ pub enum MemDepPredictor {
 /// Deserializing from JSON (typical Python API usage):
 ///
 /// ```
-/// use rvsim_core::config::{Config, BranchPredictor, Prefetcher};
+/// use rvsim_core::config::{Config, BranchPredictorKind, PrefetcherKind};
 ///
 /// let json = r#"{
 ///     "general": {
@@ -517,8 +517,8 @@ pub enum MemDepPredictor {
 /// let config: Config = serde_json::from_str(json).unwrap();
 /// assert_eq!(config.general.trace_instructions, true);
 /// assert_eq!(config.cache.l1_d.size_bytes, 32768);
-/// assert_eq!(config.cache.l1_d.prefetcher, Prefetcher::Stride);
-/// assert_eq!(config.pipeline.branch_predictor, BranchPredictor::GShare);
+/// assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
+/// assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 /// ```
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
@@ -794,7 +794,7 @@ pub struct MemoryConfig {
 
     /// Memory controller type
     #[serde(default)]
-    pub controller: MemoryController,
+    pub controller: MemoryControllerKind,
 
     /// DDR5 controller parameters; used when `controller` is `Ddr5`.
     #[serde(default)]
@@ -1023,7 +1023,7 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             ram_size: defaults::RAM_SIZE,
-            controller: MemoryController::default(),
+            controller: MemoryControllerKind::default(),
             ddr5: crate::soc::memory::ddr5::Ddr5Params::default(),
             t_cas: defaults::T_CAS,
             t_ras: defaults::T_RAS,
@@ -1086,7 +1086,7 @@ pub struct CacheConfig {
 
     /// Replacement policy
     #[serde(default)]
-    pub policy: ReplacementPolicy,
+    pub policy: ReplacementPolicyKind,
 
     /// Access latency in cycles
     #[serde(default = "CacheConfig::default_latency")]
@@ -1100,7 +1100,7 @@ pub struct CacheConfig {
 
     /// Hardware prefetcher type
     #[serde(default)]
-    pub prefetcher: Prefetcher,
+    pub prefetcher: PrefetcherKind,
 
     /// Prefetcher table size (for stride prefetcher)
     #[serde(default = "CacheConfig::default_prefetch_table")]
@@ -1186,10 +1186,10 @@ impl Default for CacheConfig {
             size_bytes: defaults::CACHE_SIZE,
             line_bytes: defaults::CACHE_LINE,
             ways: defaults::CACHE_WAYS,
-            policy: ReplacementPolicy::default(),
+            policy: ReplacementPolicyKind::default(),
             latency: defaults::CACHE_LATENCY,
             response_latency: defaults::CACHE_RESPONSE_LATENCY,
-            prefetcher: Prefetcher::default(),
+            prefetcher: PrefetcherKind::default(),
             prefetch_table_size: defaults::PREFETCH_TABLE_SIZE,
             prefetch_degree: defaults::PREFETCH_DEGREE,
             mshr_count: defaults::MSHR_COUNT,
@@ -1244,7 +1244,7 @@ pub struct PipelineConfig {
 
     /// Branch predictor type
     #[serde(default)]
-    pub branch_predictor: BranchPredictor,
+    pub branch_predictor: BranchPredictorKind,
 
     /// Branch Target Buffer size
     #[serde(default = "PipelineConfig::default_btb_size")]
@@ -1335,7 +1335,7 @@ pub struct PipelineConfig {
 
     /// Memory dependence predictor type
     #[serde(default)]
-    pub mem_dep_predictor: MemDepPredictor,
+    pub mem_dep_predictor: MemDepPredictorKind,
 
     /// Store-set predictor configuration
     #[serde(default)]
@@ -1544,7 +1544,7 @@ impl Default for PipelineConfig {
             issue_width: None,
             commit_width: None,
             writeback_width: None,
-            branch_predictor: BranchPredictor::default(),
+            branch_predictor: BranchPredictorKind::default(),
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,
             ras_size: defaults::RAS_SIZE,
@@ -1566,7 +1566,7 @@ impl Default for PipelineConfig {
             store_ports: defaults::STORE_PORTS,
             fu_config: FuConfig::default(),
             checkpoint_count: defaults::CHECKPOINT_COUNT,
-            mem_dep_predictor: MemDepPredictor::default(),
+            mem_dep_predictor: MemDepPredictorKind::default(),
             store_set: StoreSetConfig::default(),
             vlen: 128,
             num_vec_lanes: None,

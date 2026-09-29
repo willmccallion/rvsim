@@ -2,7 +2,7 @@ use crate::common::mocks::memory::MockMemory;
 use rvsim_core::Simulator;
 use rvsim_core::SystemState;
 use rvsim_core::common::PhysAddr;
-use rvsim_core::config::{Config, MemoryController};
+use rvsim_core::config::{Config, MemoryControllerKind};
 use rvsim_core::isa::reg::RegIdx;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -32,7 +32,7 @@ impl TestContext {
         // give every miss a single-cycle memory controller and a zero-latency
         // bus so short programs finish inside their cycle budgets.
         let mut config = config.clone();
-        config.memory.controller = MemoryController::Simple;
+        config.memory.controller = MemoryControllerKind::Simple;
         config.memory.row_miss_latency = 1;
         config.system.bus_latency = 0;
 
