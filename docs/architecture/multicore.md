@@ -54,15 +54,14 @@ Simulator
 │   ├── cores:  Vec<Core>              one per core, indexed by CoreId
 │   │   ├── units: CoreUnits           L1I, L1D, L2, MMU, WCB, predictor
 │   │   └── pipeline: PipelineDispatch the in-order or O3 pipeline
-│   └── shared: Uncore            the uncore
+│   └── uncore: Uncore                 soc::uncore, shared by every core
 │       ├── topology: Topology         every component ID, derived from config
 │       ├── cycle: u64                 master cycle counter
 │       ├── event_queue: EventQueue    single ordered queue for all components
 │       ├── bus: Bus                   MMIO devices, RAM fast path, interrupt lines
 │       ├── l3_cache: Cache            shared last-level cache
 │       ├── mem_controller: Box<dyn MemoryController>
-│       ├── reservations: ReservationSet   LR/SC reservations, one per hart
-│       ├── write_log: Option<WriteLog>    cross-hart write ordering (multi-hart only)
+│       ├── memory: GlobalMemory       RAM, LR/SC reservations and the write log
 │       ├── coherence: Option<CoherenceFabric>   home agent + transport (absent for one core)
 │       └── config, stats, exit signal, per-hart debug bookkeeping
 ```
@@ -71,13 +70,13 @@ Simulator
 
 Pipeline stages must see "my hart, my core, and the uncore" without being
 able to touch another core, and only commit may change architectural
-state. They receive one of two **views**:
+state. They receive one of two **views**, defined in `uarch::ctx`:
 
 ```rust
 pub struct CoreCtx<'a> {              // commit, traps, the engine's redirects
     pub hart: &'a mut Hart,
     pub core: &'a mut CoreUnits,
-    pub shared: &'a mut Uncore,
+    pub uncore: &'a mut Uncore,
 }
 impl Deref for CoreCtx<'_> { type Target = Uncore; }
 impl DerefMut for CoreCtx<'_> {}
@@ -85,13 +84,13 @@ impl DerefMut for CoreCtx<'_> {}
 pub struct StageCtx<'a> {             // fetch, decode, rename, issue, execute, memory, writeback
     hart: &'a Hart,                   // read-only
     core: &'a mut CoreUnits,          // TLBs, predictor, caches
-    shared: &'a mut Uncore,      // only `counter()` and `events()` are exposed
+    uncore: &'a mut Uncore,           // only `counter()` and `events()` are exposed
 }
 impl Deref for StageCtx<'_> { type Target = Uncore; }
 ```
 
 The simulator builds one `CoreCtx` per core per tick from disjoint borrows
-of `harts[i]`, `cores[i].units` and `shared`, alongside `cores[i].pipeline`
+of `harts[i]`, `cores[i].units` and `uncore`, alongside `cores[i].pipeline`
 (`SystemState::pipeline_ctx`); the engine hands each stage a
 `StageCtx` derived from it. Translation, CSR reads and trigger checks are
 methods on both; `trap`, `csr_write`, register writes, `publish_write`
@@ -377,7 +376,7 @@ increments a counter through a pre-resolved `&'static str`.
 Each stage is a set of small commits that leaves the tree working, with
 single-core configurations cycle-identical to the previous stage.
 
-1. **Arenas and views.** `SystemState` becomes `harts` + `cores` + `shared`;
+1. **Arenas and views.** `SystemState` becomes `harts` + `cores` + `uncore`;
    `CoreCtx` (later narrowed to `StageCtx` for every stage but commit)
    replaces the single-hart state in every stage; `Topology`
    assigns IDs; request IDs carry their pipeline; reservations and
