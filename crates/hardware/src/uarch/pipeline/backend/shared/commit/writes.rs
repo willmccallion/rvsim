@@ -1,7 +1,8 @@
 //! Draining committed writes: scalar stores, cache-block operations,
 //! write-combining lines and vector store lines, to memory.
 
-use super::{is_pure_ram, older_stores_pending};
+use super::gate::older_stores_pending;
+use super::is_pure_ram;
 use crate::common::{PhysAddr, crosses_cache_line};
 use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
