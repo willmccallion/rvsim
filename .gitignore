@@ -8,7 +8,6 @@ __pycache__/
 *.pyd
 
 # Build lock
-.pbuild.lock
 
 # mkdocs build output
 site/
