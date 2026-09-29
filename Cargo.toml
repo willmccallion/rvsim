@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "crates/hardware",
-    "crates/bindings"
+    "crates/rvsim-core",
+    "crates/rvsim-bindings"
 ]
 resolver = "2"
 

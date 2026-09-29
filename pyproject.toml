@@ -26,7 +26,7 @@ classifiers = [
 rvsim = "rvsim.__main__:main"
 
 [tool.maturin]
-manifest-path = "crates/bindings/Cargo.toml"
+manifest-path = "crates/rvsim-bindings/Cargo.toml"
 features = ["extension", "commit-log"]
 module-name = "rvsim._core"
 include = ["LICENSE-APACHE", "LICENSE-MIT"]

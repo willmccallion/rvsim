@@ -117,7 +117,7 @@ fi
 # crates.io requires explicit versions on path deps.
 info "checking path dependency versions"
 PATH_DEP_FAIL=0
-for toml in "$ROOT/crates/bindings/Cargo.toml"; do
+for toml in "$ROOT/crates/rvsim-bindings/Cargo.toml"; do
     while IFS= read -r line; do
         # Match lines like: some-crate = { path = "...", version = "x.y.z" }
         if [[ "$line" =~ path\ *=.*version\ *=\ *\"([^\"]+)\" ]]; then
