@@ -27,6 +27,24 @@ class Replace(unittest.TestCase):
             Config().replace(not_a_field=1)
 
 
+class Ownership(unittest.TestCase):
+    def test_default_caches_are_not_shared_between_configs(self):
+        first = Config()
+        first.l1i.latency = 99
+
+        second = Config()
+
+        self.assertNotEqual(second.l1i.latency, 99)
+
+    def test_a_replaced_config_does_not_share_its_caches(self):
+        base = Config()
+        wide = base.replace(width=8)
+
+        wide.l1d.latency = 7
+
+        self.assertNotEqual(base.l1d.latency, 7)
+
+
 class Pickle(unittest.TestCase):
     def test_round_trips_a_config_with_vector_units(self):
         config = presets.m1()

@@ -3,6 +3,7 @@ the nested dict the Rust core expects."""
 
 from __future__ import annotations
 
+import copy
 import inspect
 from typing import Any
 
@@ -24,6 +25,20 @@ def _validate_paging_mode(value: str) -> str:
     if normalized not in _PAGING_MODES:
         raise ValueError(f"paging_mode_max={value!r} not in {_PAGING_MODES}")
     return normalized
+
+
+# Templates for Config's defaults; every Config stores its own copy.
+_DEFAULT_BRANCH_PREDICTOR = BranchPredictor.TAGE()
+_DEFAULT_BACKEND = Backend.OutOfOrder()
+_DEFAULT_MEM_DEP_PREDICTOR = MemDepPredictor.StoreSet()
+_DEFAULT_L1I = Cache(
+    "32KB", ways=4, latency=1, prefetcher=Prefetcher.NextLine(degree=1)
+)
+_DEFAULT_L1D = Cache(
+    "32KB", ways=4, latency=1, prefetcher=Prefetcher.Stride(degree=1, table_size=64)
+)
+_DEFAULT_L2 = Cache("256KB", ways=8, latency=10)
+_DEFAULT_INCLUSION_POLICY = Cache.NINE()
 
 
 class Config:
@@ -59,24 +74,19 @@ class Config:
         | BranchPredictor.GShare
         | BranchPredictor.TAGE
         | BranchPredictor.Perceptron
-        | BranchPredictor.Tournament = BranchPredictor.TAGE(),
-        backend: Backend.InOrder | Backend.OutOfOrder = Backend.OutOfOrder(),
+        | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,
+        backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND,
         mem_dep_predictor: MemDepPredictor.Blind
-        | MemDepPredictor.StoreSet = MemDepPredictor.StoreSet(),
+        | MemDepPredictor.StoreSet = _DEFAULT_MEM_DEP_PREDICTOR,
         btb_size: int = 4096,
         btb_ways: int = 4,
         ras_size: int = 32,
         # Caches (None = disabled)
-        l1i=Cache("32KB", ways=4, latency=1, prefetcher=Prefetcher.NextLine(degree=1)),
-        l1d=Cache(
-            "32KB",
-            ways=4,
-            latency=1,
-            prefetcher=Prefetcher.Stride(degree=1, table_size=64),
-        ),
-        l2=Cache("256KB", ways=8, latency=10),
+        l1i: Cache | None = _DEFAULT_L1I,
+        l1d: Cache | None = _DEFAULT_L1D,
+        l2: Cache | None = _DEFAULT_L2,
         l3: Cache | None = None,
-        inclusion_policy: Any = Cache.NINE(),
+        inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY,
         wcb_entries: int = 0,
         # Memory
         ram_size="256MB",
@@ -128,25 +138,27 @@ class Config:
         self.writeback_width = writeback_width
         self.trap_latency = trap_latency
         self.redirect_latency = redirect_latency
-        self.branch_predictor = branch_predictor
-        self.backend = backend if backend is not None else Backend.InOrder()
-        self.mem_dep_predictor = mem_dep_predictor
+        self.branch_predictor = copy.deepcopy(branch_predictor)
+        self.backend = (
+            copy.deepcopy(backend) if backend is not None else Backend.InOrder()
+        )
+        self.mem_dep_predictor = copy.deepcopy(mem_dep_predictor)
         self.btb_size = btb_size
         self.btb_ways = btb_ways
         self.ras_size = ras_size
 
         # Caches
-        self.l1i = l1i
-        self.l1d = l1d
-        self.l2 = l2
-        self.l3 = l3
-        self.inclusion_policy = inclusion_policy
+        self.l1i = copy.deepcopy(l1i)
+        self.l1d = copy.deepcopy(l1d)
+        self.l2 = copy.deepcopy(l2)
+        self.l3 = copy.deepcopy(l3)
+        self.inclusion_policy = copy.deepcopy(inclusion_policy)
         self.wcb_entries = wcb_entries
 
         # Memory
         self.ram_size = _parse_size(ram_size)
         self.memory_controller = (
-            memory_controller
+            copy.deepcopy(memory_controller)
             if memory_controller is not None
             else MemoryController.Simple()
         )
@@ -191,7 +203,9 @@ class Config:
             raise ValueError(f"console must be one of {_CONSOLES}, got {console!r}")
         self.console = console
         self.hart_count = hart_count
-        self.coherence = coherence if coherence is not None else Coherence()
+        self.coherence = (
+            copy.deepcopy(coherence) if coherence is not None else Coherence()
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
