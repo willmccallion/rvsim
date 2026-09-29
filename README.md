@@ -69,11 +69,11 @@ Both backends enforce identical serialization semantics: system/CSR instructions
 - **Non-blocking L1D** via MSHRs with request coalescing
 - **Hardware prefetchers** per cache level: next-line, stride, stream, tagged
 - **Inclusion policies**: non-inclusive, inclusive (back-invalidation), exclusive (L1-L2 swap)
-- **DRAM controller** — row-buffer aware timing (tCAS, tRAS, tPRE, row-miss, bank interleaving, refresh)
+- **Memory controllers** — fixed latency, a row-buffer DRAM model, or a JEDEC DDR5 controller with command timing, refresh and power-down
 
 ### Branch Prediction
 
-Five pluggable predictors with shared BTB, RAS, and global history register:
+Six pluggable predictors with shared BTB, RAS, and global history register:
 
 | Predictor | Description |
 |-----------|-------------|
@@ -81,7 +81,8 @@ Five pluggable predictors with shared BTB, RAS, and global history register:
 | GShare | PC XOR global history, 2-bit counters |
 | Tournament | Local + global two-level adaptive with meta-predictor |
 | Perceptron | Neural predictor with weight vectors |
-| TAGE | Tagged geometric history length with loop predictor |
+| TAGE | Tagged geometric history lengths |
+| ScLTage | TAGE-SC-L (TAGE, loop predictor, statistical corrector) with ITTAGE for indirect targets; defaults to Seznec's 64KB CBP-5 configuration |
 
 RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, including coroutine swap detection.
 
@@ -91,7 +92,7 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
 
-The vector extension supports configurable VLEN (default 512) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against spike.
+The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against spike.
 
 Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. The RISCOF compliance framework is integrated under `tests/conformance/riscof/`.
 
@@ -159,12 +160,12 @@ Ready-to-run design-space exploration in `examples/analysis/`:
 
 | Script | Description |
 |--------|-------------|
-| `branch_predict.py` | Accuracy comparison across all 5 predictors |
+| `branch_predict.py` | Accuracy comparison across all six predictors |
 | `cache_sweep.py` | L1D size vs miss rate and IPC impact |
 | `design_space.py` | Multi-dimensional width x cache size sweep |
 | `o3_inorder.py` | Out-of-order vs in-order backend comparison |
 | `width_scaling.py` | IPC vs superscalar width |
-| `stall_breakdown.py` | Stall cycle attribution (memory, control, data) |
+| `stall_breakdown.py` | Stall cycles by cause |
 | `top_down.py` | Top-down microarchitecture analysis |
 | `inst_mix.py` | Instruction class breakdown |
 
@@ -176,7 +177,7 @@ rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 
 ## Building from Source
 
-Requires Rust (2024 edition), Python 3.10+, and `riscv64-unknown-elf-gcc`.
+Requires Rust (2024 edition), Python 3.10+, and a bare-metal RISC-V GCC (`riscv64-none-elf-gcc` by default). `nix develop` provides all three.
 
 ```bash
 git clone https://github.com/willmccallion/rvsim
@@ -190,8 +191,9 @@ make -C software
 ## Linux Boot
 
 Boots Linux 6.6 through OpenSBI to a BusyBox shell on both backends. The
-default boot is four out-of-order cores with coherent private caches over
-a mesh and a DDR5-5600 memory subsystem.
+default boot is eight out-of-order cores from the `fast` preset (64KB
+TAGE-SC-L) with coherent private caches over a mesh and four channels of
+DDR5-5600.
 
 ```bash
 make -C software linux              # Build kernel + rootfs via Buildroot
@@ -204,6 +206,11 @@ rvsim tools/boot_linux.py --harts 1   # Single core
 Full documentation including architecture deep-dives, API reference, and examples:
 
 **[willmccallion.github.io/rvsim](https://willmccallion.github.io/rvsim/)**
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the checks a
+change must pass, and the policy on AI-assisted contributions.
 
 ## License
 
