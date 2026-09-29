@@ -12,7 +12,7 @@ mod rename;
 mod serialize;
 
 use crate::config::Config;
-use crate::core::exec::signals::{AtomicOp, ControlFlow};
+use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -39,6 +39,7 @@ use crate::core::units::mdp::MemDepUnit;
 use crate::core::units::vpu::chaining::VecPendingResult;
 use crate::core::units::vpu::lane_model::NumLanes;
 use crate::core::units::vpu::mem::{generate_element_addrs_vrf, is_vec_store};
+use crate::isa::op::AtomicOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlen};
 use crate::sim::CoreCtx;
 
@@ -1037,8 +1038,7 @@ impl ExecutionEngine for O3Engine {
             for entry in entries {
                 let is_load = entry.inst.ctrl.mem_read;
                 let is_store = entry.inst.ctrl.uses_store_buffer();
-                let is_atomic =
-                    entry.inst.ctrl.atomic_op != crate::core::exec::signals::AtomicOp::None;
+                let is_atomic = entry.inst.ctrl.atomic_op != crate::isa::op::AtomicOp::None;
                 let mem_dep =
                     self.mdp.dispatch(entry.inst.pc, entry.rob_tag, is_load, is_store, is_atomic);
                 let ok = self.issue_queue.dispatch(

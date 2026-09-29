@@ -12,8 +12,8 @@
 //!
 //! Reference: RISC-V ISA Spec Volume I, Chapter 8 (A Extension).
 
-use rvsim_core::core::exec::signals::{AtomicOp, MemWidth};
 use rvsim_core::core::units::lsu::atomic::atomic_alu;
+use rvsim_core::isa::op::{AtomicOp, MemWidth};
 
 // 64-bit boundaries
 const I64_MAX: u64 = i64::MAX as u64; // 0x7FFF_FFFF_FFFF_FFFF

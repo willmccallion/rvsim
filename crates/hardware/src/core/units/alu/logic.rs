@@ -6,7 +6,7 @@
 //! For 32-bit comparisons (`Slt`/`Sltu` with `is32`), only the lower 32 bits
 //! of each operand are considered. The result is always 0 or 1.
 
-use crate::core::exec::signals::AluOp;
+use crate::isa::op::AluOp;
 
 /// Executes a logical or comparison operation.
 ///

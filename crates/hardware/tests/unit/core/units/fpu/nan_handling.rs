@@ -1,5 +1,5 @@
-use rvsim_core::core::exec::signals::AluOp;
 use rvsim_core::core::units::fpu::Fpu;
+use rvsim_core::isa::op::AluOp;
 
 #[test]
 fn test_box_f32() {

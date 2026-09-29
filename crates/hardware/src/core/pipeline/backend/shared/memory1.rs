@@ -32,7 +32,6 @@
 use crate::common::TranslationResult;
 use crate::common::{AccessType, DirtyUpdates, ExceptionStage, PhysAddr, Trap, VirtAddr};
 use crate::core::exec::cbo;
-use crate::core::exec::signals::{AtomicOp, MemWidth};
 use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
@@ -47,6 +46,7 @@ use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::pipeline::vec_store_buffer::SpanForward;
 use crate::core::units::lsu::unaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::op::{AtomicOp, MemWidth};
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};

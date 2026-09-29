@@ -24,6 +24,9 @@ pub mod encoding;
 /// Instruction encoding structures and bit extraction utilities.
 pub mod instruction;
 
+/// The operations instructions perform, as the decoder names them.
+pub mod op;
+
 /// Privileged architecture definitions (trap causes).
 pub mod privileged;
 

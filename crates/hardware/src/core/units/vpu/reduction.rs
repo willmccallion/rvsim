@@ -17,7 +17,6 @@
 // IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
 #![allow(clippy::float_cmp)]
 
-use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::half::{CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::core::units::fpu::nan_handling::{
@@ -29,6 +28,7 @@ use crate::core::units::fpu::{
 };
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
 
 /// Returns `true` if `op` is a reduction handled by this module.

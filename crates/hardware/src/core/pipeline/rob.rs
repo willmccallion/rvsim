@@ -852,7 +852,7 @@ impl Rob {
                 if is_load && entry.ctrl.acquire && entry.state == RobState::Issued {
                     return true;
                 }
-                if entry.ctrl.system_op == crate::core::exec::signals::SystemOp::Fence {
+                if entry.ctrl.system_op == crate::isa::op::SystemOp::Fence {
                     let succ_bits = ((entry.inst >> 20) & 0xF) as u8;
                     let succ_r = succ_bits & 0b0010 != 0;
                     let succ_w = succ_bits & 0b0001 != 0;
@@ -1076,10 +1076,8 @@ mod tests {
         // Allocate: store (tag1), load (tag2), FENCE rw,rw (tag3)
         let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
-        let fence_ctrl = ControlSignals {
-            system_op: crate::core::exec::signals::SystemOp::Fence,
-            ..Default::default()
-        };
+        let fence_ctrl =
+            ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
 
         let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
         let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
@@ -1106,10 +1104,8 @@ mod tests {
         let mut rob = Rob::new(8);
 
         // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
-        let fence_ctrl = ControlSignals {
-            system_op: crate::core::exec::signals::SystemOp::Fence,
-            ..Default::default()
-        };
+        let fence_ctrl =
+            ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
         let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 
@@ -1128,7 +1124,7 @@ mod tests {
     fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
         let mut rob = Rob::new(8);
         let acquire_ctrl = ControlSignals {
-            atomic_op: crate::core::exec::signals::AtomicOp::Swap,
+            atomic_op: crate::isa::op::AtomicOp::Swap,
             acquire: true,
             mem_read: true,
             mem_write: true,
@@ -1149,14 +1145,10 @@ mod tests {
     #[test]
     fn a_fence_waits_for_an_older_vector_store() {
         let mut rob = Rob::new(8);
-        let vector_store = ControlSignals {
-            vec_op: crate::core::exec::signals::VectorOp::VStoreUnit,
-            ..Default::default()
-        };
-        let fence_ctrl = ControlSignals {
-            system_op: crate::core::exec::signals::SystemOp::Fence,
-            ..Default::default()
-        };
+        let vector_store =
+            ControlSignals { vec_op: crate::isa::op::VectorOp::VStoreUnit, ..Default::default() };
+        let fence_ctrl =
+            ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
         let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
         let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0001), fence_ctrl).unwrap();
 
@@ -1170,10 +1162,8 @@ mod tests {
         let mut rob = Rob::new(8);
 
         // FENCE.TSO = FENCE rw,rw
-        let fence_ctrl = ControlSignals {
-            system_op: crate::core::exec::signals::SystemOp::Fence,
-            ..Default::default()
-        };
+        let fence_ctrl =
+            ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
         let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
         let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 

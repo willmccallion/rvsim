@@ -16,9 +16,9 @@
 //! - Fixed-point scaling: smul, ssrl, ssra
 //! - Extension: zero/sign-extend at various ratios
 
-use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm};
 
 /// Source for the first vector operand.

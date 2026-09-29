@@ -36,9 +36,9 @@
 //! SVE, and AVX-512.
 
 use crate::common::PhysAddr;
-use crate::core::exec::signals::MemWidth;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::store_buffer::{ForwardResult, width_to_bytes};
+use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.

@@ -19,7 +19,7 @@ pub mod logic;
 
 pub mod shifts;
 
-use crate::core::exec::signals::AluOp;
+use crate::isa::op::AluOp;
 
 /// Arithmetic Logic Unit (ALU) for integer operations.
 ///
@@ -52,7 +52,7 @@ impl Alu {
     ///
     /// ```
     /// use rvsim_core::core::units::alu::Alu;
-    /// use rvsim_core::core::exec::signals::AluOp;
+    /// use rvsim_core::isa::op::AluOp;
     ///
     /// // 64-bit addition
     /// let result = Alu::execute(AluOp::Add, 42, 8, 0, false);

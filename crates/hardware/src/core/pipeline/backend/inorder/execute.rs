@@ -5,7 +5,6 @@
 
 use crate::common::error::{ExceptionStage, Trap};
 use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
-use crate::core::exec::signals::VectorOp;
 use crate::core::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
@@ -15,6 +14,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::squash::{Redirect, SquashCause};
 use crate::core::units::vpu::execute::execute_vec_op_on;
 use crate::core::units::vpu::shadow::ShadowVpr;
+use crate::isa::op::VectorOp;
 use crate::sim::StageCtx;
 use crate::trace_execute;
 

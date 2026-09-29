@@ -11,12 +11,13 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::exec::arch::ArchState;
 use crate::core::exec::cbo::{self, CboEffect};
 use crate::core::exec::inst::Inst;
-use crate::core::exec::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
+use crate::core::exec::signals::{OpASrc, OpBSrc};
 use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::fpu::is_vec_fp;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
+use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
 use crate::trace_csr;
 
 const FUNCT3_SHIFT: u32 = 12;

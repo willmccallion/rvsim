@@ -1,6 +1,6 @@
 //! What memory instructions compute from the data they access.
 
-use crate::core::exec::signals::MemWidth;
+use crate::isa::op::MemWidth;
 
 /// The value a load writes to its destination: `raw` sign- or
 /// zero-extended to its width, and NaN-boxed when it is a narrower

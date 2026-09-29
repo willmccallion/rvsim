@@ -5,7 +5,7 @@
 //!
 //! Reference: RISC-V Bitmanip Extension v1.0.0.
 
-use crate::core::exec::signals::AluOp;
+use crate::isa::op::AluOp;
 
 const SHAMT_MASK_RV64: u32 = 0x3f;
 

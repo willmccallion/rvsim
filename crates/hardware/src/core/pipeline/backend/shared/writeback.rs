@@ -8,9 +8,10 @@
 //! records).
 
 use crate::common::ExceptionStage;
-use crate::core::exec::signals::{AtomicOp, ControlFlow};
+use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::latches::Mem2WbEntry;
 use crate::core::pipeline::rob::Rob;
+use crate::isa::op::AtomicOp;
 use crate::sim::StageCtx;
 use crate::trace_trap;
 use crate::trace_writeback;

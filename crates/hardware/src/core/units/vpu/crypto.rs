@@ -21,8 +21,8 @@
 //! state values, the round function is applied, and the result is stored
 //! back. With LMUL>1, multiple groups are processed sequentially.
 
-use crate::core::exec::signals::VectorOp;
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 
 /// Element group size for AES/GHASH/SM4 (4 × SEW=32 = 128 bits).

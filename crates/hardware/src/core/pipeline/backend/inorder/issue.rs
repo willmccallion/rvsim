@@ -11,7 +11,6 @@
 //! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::common::RegIdx;
-use crate::core::exec::signals::{SystemOp, VectorOp};
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::{Rob, RobTag};
@@ -19,6 +18,7 @@ use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+use crate::isa::op::{SystemOp, VectorOp};
 use crate::sim::StageCtx;
 use crate::trace_issue;
 

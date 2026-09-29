@@ -17,9 +17,9 @@
 
 use crate::common::HartId;
 use crate::common::{PhysAddr, VirtAddr};
-use crate::core::exec::signals::MemWidth;
 use crate::core::pipeline::latches::MicroOpIdx;
 use crate::core::pipeline::rob::RobTag;
+use crate::isa::op::MemWidth;
 use crate::sim::state::write_log::{WriteLog, WriteSeq};
 
 /// Lifecycle state of a load queue entry.

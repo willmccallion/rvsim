@@ -7,10 +7,10 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
-use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
 /// Returns `true` if `op` is a mask operation handled by this module.

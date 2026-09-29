@@ -11,8 +11,8 @@
 use crate::common::{AccessType, Trap};
 use crate::core::arch::csr::{CboInvalAction, Csrs, cbo_inval_action, cbocf_allowed, cboz_allowed};
 use crate::core::arch::mode::PrivilegeMode;
-use crate::core::exec::signals::SystemOp;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::op::SystemOp;
 
 /// What a CBO does to its block once its gate has passed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
