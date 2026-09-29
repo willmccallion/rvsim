@@ -9,7 +9,7 @@ use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::core::exec::cbo::{self, CboEffect};
 use crate::core::exec::inst::Inst;
-use crate::core::exec::signals::{AluOp, ControlFlow, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
+use crate::core::exec::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
 use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
@@ -330,29 +330,6 @@ pub const fn jump_target(inst: &Inst) -> u64 {
     } else {
         inst.pc.wrapping_add(inst.imm as u64)
     }
-}
-
-/// The next PC of a taken branch or jump `id`, after checking the target's
-/// alignment; `None` for sequential flow or a branch not taken.
-///
-/// # Errors
-///
-/// The instruction-address-misaligned trap a misaligned target raises.
-pub fn taken_target(
-    state: &StageCtx<'_>,
-    inst: &Inst,
-    op_a: u64,
-    op_b: u64,
-) -> Result<Option<u64>, Trap> {
-    let target = match inst.ctrl.control_flow {
-        ControlFlow::Branch if branch_taken(inst.bits, op_a, op_b) => {
-            inst.pc.wrapping_add(inst.imm as u64)
-        }
-        ControlFlow::Jump => jump_target(inst),
-        ControlFlow::Branch | ControlFlow::Sequential => return Ok(None),
-    };
-    check_target_alignment(state, target)?;
-    Ok(Some(target))
 }
 
 /// Runs `convert` with the host FPU set to `rm` and returns its result with
