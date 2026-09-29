@@ -37,9 +37,6 @@ use crate::arch::{Hart, HartInit};
 use crate::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::common::{HartId, PhysAddr};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
-use crate::core::pipeline::engine::PipelineDispatch;
-use crate::core::units::cache::Cache;
-use crate::core::{Core, CoreUnits};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
@@ -58,6 +55,9 @@ use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
+use crate::uarch::cache::Cache;
+use crate::uarch::pipeline::engine::PipelineDispatch;
+use crate::uarch::{Core, CoreUnits};
 use global_memory::GlobalMemory;
 use std::fs;
 use std::ops::{Deref, DerefMut};

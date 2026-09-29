@@ -7,8 +7,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::core::units::prefetch::Prefetcher;
-use rvsim_core::core::units::prefetch::TaggedPrefetcher;
+use rvsim_core::uarch::prefetch::Prefetcher;
+use rvsim_core::uarch::prefetch::TaggedPrefetcher;
 
 /// A cache miss triggers prefetching of the next line(s).
 #[test]

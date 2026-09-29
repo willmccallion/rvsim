@@ -9,8 +9,8 @@ use crate::common::harness::TestContext;
 use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::pipeline::engine::BackendType;
 use rvsim_core::isa::privileged::PrivilegeMode;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;

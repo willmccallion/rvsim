@@ -5,12 +5,12 @@
 //! run through the memory stages as micro-ops.
 
 use crate::common::VirtAddr;
-use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::signals::ControlSignals;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VtypeFields, parse_vtype};
+use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
 /// Returns `(data_emul_regs, idx_emul_regs)` for a vec memory op.
 ///

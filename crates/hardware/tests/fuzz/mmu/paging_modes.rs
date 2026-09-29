@@ -12,9 +12,9 @@ use proptest::prelude::*;
 use rvsim_core::arch::csr::{self, Csrs};
 use rvsim_core::arch::translation::TranslationResult;
 use rvsim_core::common::{AccessType, PhysAddr, VirtAddr};
-use rvsim_core::core::units::mmu::tlb::TlbGeometry;
-use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
 use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
+use rvsim_core::uarch::mmu::tlb::TlbGeometry;
+use rvsim_core::uarch::mmu::{Mmu, TranslateOutcome};
 
 /// Drives a synchronous translation: repeatedly invokes `translate_async` /
 /// `continue_walk` against the MMU and reads PTEs out of memory through the

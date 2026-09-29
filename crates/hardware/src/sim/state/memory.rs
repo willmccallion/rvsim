@@ -1,6 +1,6 @@
 //! Virtual-to-physical translation entry point on `SimState`.
 //!
-//! Wraps the MMU's event-driven [`Mmu::translate_async`](crate::core::units::mmu::Mmu::translate_async)
+//! Wraps the MMU's event-driven [`Mmu::translate_async`](crate::uarch::mmu::Mmu::translate_async)
 //! and PMP checks. Pipeline stages call this; on a TLB hit / direct-mode
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
@@ -10,10 +10,10 @@ use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
-use crate::core::CoreUnits;
-use crate::core::units::mmu::TranslateOutcome;
-use crate::core::units::mmu::ptw::WalkState;
 use crate::isa::privileged::Trap;
+use crate::uarch::CoreUnits;
+use crate::uarch::mmu::TranslateOutcome;
+use crate::uarch::mmu::ptw::WalkState;
 
 /// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
 ///

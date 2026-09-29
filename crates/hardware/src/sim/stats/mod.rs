@@ -29,7 +29,7 @@ pub use query::QueryResult;
 
 use crate::coherence::stats::CoherenceStatPaths;
 use crate::common::{CoreId, HartId};
-use crate::core::units::cache::stats::CacheStatPaths;
+use crate::uarch::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 
 /// A scalar counter.

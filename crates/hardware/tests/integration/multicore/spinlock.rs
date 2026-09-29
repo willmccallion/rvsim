@@ -3,7 +3,7 @@
 
 use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart};
-use rvsim_core::core::pipeline::engine::BackendType;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;

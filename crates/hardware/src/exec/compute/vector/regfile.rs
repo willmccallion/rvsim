@@ -10,7 +10,7 @@ use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 ///
 /// Implemented by:
 /// - [`Vpr`](crate::arch::regs::vpr::Vpr) — architectural VRF (in-order backend)
-/// - [`VecPrfView`](crate::core::pipeline::vec_prf::VecPrfView) — O3 physical VRF with renaming
+/// - [`VecPrfView`](crate::uarch::pipeline::rename::vec_prf::VecPrfView) — O3 physical VRF with renaming
 pub trait VectorRegFile {
     /// Read a single element from a vector register, zero-extended to u64.
     fn read_element(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> u64;

@@ -1,7 +1,7 @@
 //! Return Address Stack (RAS) tests: LIFO order, the circular overflow and
 //! underflow of gem5's stack, and undoing squashed operations.
 
-use rvsim_core::core::units::bru::ras::{Ras, RasHistory};
+use rvsim_core::uarch::bpred::ras::{Ras, RasHistory};
 
 fn push(ras: &mut Ras, addr: u64) -> RasHistory {
     let mut history = RasHistory::default();

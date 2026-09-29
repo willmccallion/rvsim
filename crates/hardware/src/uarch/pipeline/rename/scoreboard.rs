@@ -1,0 +1,234 @@
+//! Tag-based scoreboard for register dependency tracking.
+//!
+//! Maps each architectural register to the ROB tag of its latest in-flight
+//! producer, or `None` if the value is in the architectural register file.
+//! This enables the issue stage to do a single direct ROB lookup per source
+//! operand instead of scanning the entire ROB.
+
+use crate::isa::reg::RegIdx;
+use crate::isa::rvv::VRegIdx;
+use crate::uarch::pipeline::rob::{Rob, RobTag};
+
+/// Tag-based scoreboard: maps each architectural register to the ROB tag
+/// of its latest in-flight producer, or None if the value is in the
+/// architectural register file.
+#[derive(Debug)]
+pub struct Scoreboard {
+    /// GPR scoreboard (x0 always None — hardwired zero).
+    gpr: [Option<RobTag>; 32],
+    /// FPR scoreboard.
+    fpr: [Option<RobTag>; 32],
+    /// VPR scoreboard.
+    vpr: [Option<RobTag>; 32],
+}
+
+impl Default for Scoreboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Scoreboard {
+    /// Create a new scoreboard with all registers clear (no pending writers).
+    pub const fn new() -> Self {
+        Self { gpr: [None; 32], fpr: [None; 32], vpr: [None; 32] }
+    }
+
+    /// Mark a register as having a pending writer with the given ROB tag.
+    /// No-op for x0 (hardwired zero).
+    pub const fn set_producer(&mut self, reg: RegIdx, is_fp: bool, tag: RobTag) {
+        let idx = reg.as_usize();
+        if is_fp {
+            self.fpr[idx] = Some(tag);
+        } else if !reg.is_zero() {
+            self.gpr[idx] = Some(tag);
+        }
+    }
+
+    /// Get the ROB tag of the latest pending writer for a register.
+    /// Returns None if the register value is in the architectural register file.
+    pub const fn get_producer(&self, reg: RegIdx, is_fp: bool) -> Option<RobTag> {
+        let idx = reg.as_usize();
+        if is_fp { self.fpr[idx] } else { self.gpr[idx] }
+    }
+
+    /// Clear a register's pending writer, but ONLY if the current tag matches.
+    /// This prevents a committing instruction from clearing a tag set by a
+    /// newer rename (WAW handling).
+    pub fn clear_if_match(&mut self, reg: RegIdx, is_fp: bool, tag: RobTag) {
+        let idx = reg.as_usize();
+        let slot = if is_fp { &mut self.fpr[idx] } else { &mut self.gpr[idx] };
+        if *slot == Some(tag) {
+            *slot = None;
+        }
+    }
+
+    /// Mark a vector register as having a pending writer with the given ROB tag.
+    pub const fn set_vec_producer(&mut self, vreg: VRegIdx, tag: RobTag) {
+        self.vpr[vreg.as_usize()] = Some(tag);
+    }
+
+    /// Get the ROB tag of the latest pending writer for a vector register.
+    pub const fn get_vec_producer(&self, vreg: VRegIdx) -> Option<RobTag> {
+        self.vpr[vreg.as_usize()]
+    }
+
+    /// Clear a vector register's pending writer, but ONLY if the current tag matches.
+    pub fn clear_vec_if_match(&mut self, vreg: VRegIdx, tag: RobTag) {
+        let slot = &mut self.vpr[vreg.as_usize()];
+        if *slot == Some(tag) {
+            *slot = None;
+        }
+    }
+
+    /// Flush: clear all entries (all speculative state is gone).
+    pub const fn flush(&mut self) {
+        self.gpr = [None; 32];
+        self.fpr = [None; 32];
+        self.vpr = [None; 32];
+    }
+
+    /// Rebuild scoreboard from the remaining valid ROB entries.
+    ///
+    /// After a partial flush (e.g. misprediction), some ROB entries survive.
+    /// We clear the scoreboard and re-mark producers from those entries,
+    /// walking head-to-tail so the latest writer wins for each register.
+    pub fn rebuild_from_rob(&mut self, rob: &Rob) {
+        self.flush();
+        rob.for_each_valid(|entry| {
+            let idx = entry.rd.as_usize();
+            if entry.ctrl.fp_reg_write {
+                self.fpr[idx] = Some(entry.tag);
+            } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
+                self.gpr[idx] = Some(entry.tag);
+            }
+            if entry.ctrl.vec_reg_write {
+                for i in 0..entry.vec_dst_count {
+                    let vd_idx = idx as u8 + i;
+                    if vd_idx < 32 {
+                        self.vpr[vd_idx as usize] = Some(entry.tag);
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_all_clear() {
+        let sb = Scoreboard::new();
+        for i in 0u8..32 {
+            assert_eq!(sb.get_producer(RegIdx::new(i), false), None);
+            assert_eq!(sb.get_producer(RegIdx::new(i), true), None);
+        }
+    }
+
+    #[test]
+    fn test_set_and_get_producer() {
+        let mut sb = Scoreboard::new();
+        let tag = RobTag(42);
+        sb.set_producer(RegIdx::new(5), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), Some(tag));
+        assert_eq!(sb.get_producer(RegIdx::new(6), false), None);
+    }
+
+    #[test]
+    fn test_x0_always_clear() {
+        let mut sb = Scoreboard::new();
+        sb.set_producer(RegIdx::new(0), false, RobTag(1));
+        assert_eq!(sb.get_producer(RegIdx::new(0), false), None);
+    }
+
+    #[test]
+    fn test_clear_if_match() {
+        let mut sb = Scoreboard::new();
+        let tag = RobTag(10);
+        sb.set_producer(RegIdx::new(3), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(tag));
+
+        sb.clear_if_match(RegIdx::new(3), false, tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), None);
+    }
+
+    #[test]
+    fn test_clear_mismatch_preserves() {
+        let mut sb = Scoreboard::new();
+        let old_tag = RobTag(10);
+        let new_tag = RobTag(20);
+
+        sb.set_producer(RegIdx::new(3), false, old_tag);
+        // Newer instruction overwrites the same register
+        sb.set_producer(RegIdx::new(3), false, new_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(new_tag));
+
+        // Old instruction commits — should NOT clear because tag doesn't match
+        sb.clear_if_match(RegIdx::new(3), false, old_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(new_tag));
+    }
+
+    #[test]
+    fn test_flush() {
+        let mut sb = Scoreboard::new();
+        sb.set_producer(RegIdx::new(1), false, RobTag(1));
+        sb.set_producer(RegIdx::new(2), false, RobTag(2));
+        sb.set_producer(RegIdx::new(3), true, RobTag(3));
+
+        sb.flush();
+        for i in 0u8..32 {
+            assert_eq!(sb.get_producer(RegIdx::new(i), false), None);
+            assert_eq!(sb.get_producer(RegIdx::new(i), true), None);
+        }
+    }
+
+    #[test]
+    fn test_vec_set_and_get_producer() {
+        let mut sb = Scoreboard::new();
+        let tag = RobTag(42);
+        let v5 = VRegIdx::new(5);
+        sb.set_vec_producer(v5, tag);
+        assert_eq!(sb.get_vec_producer(v5), Some(tag));
+        assert_eq!(sb.get_vec_producer(VRegIdx::new(6)), None);
+    }
+
+    #[test]
+    fn test_vec_clear_if_match() {
+        let mut sb = Scoreboard::new();
+        let tag = RobTag(10);
+        let v3 = VRegIdx::new(3);
+        sb.set_vec_producer(v3, tag);
+        sb.clear_vec_if_match(v3, tag);
+        assert_eq!(sb.get_vec_producer(v3), None);
+    }
+
+    #[test]
+    fn test_vec_clear_mismatch_preserves() {
+        let mut sb = Scoreboard::new();
+        let v3 = VRegIdx::new(3);
+        sb.set_vec_producer(v3, RobTag(10));
+        sb.set_vec_producer(v3, RobTag(20));
+        sb.clear_vec_if_match(v3, RobTag(10));
+        assert_eq!(sb.get_vec_producer(v3), Some(RobTag(20)));
+    }
+
+    #[test]
+    fn test_fpr_independent() {
+        let mut sb = Scoreboard::new();
+        let gpr_tag = RobTag(10);
+        let fpr_tag = RobTag(20);
+
+        sb.set_producer(RegIdx::new(5), false, gpr_tag);
+        sb.set_producer(RegIdx::new(5), true, fpr_tag);
+
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), Some(gpr_tag));
+        assert_eq!(sb.get_producer(RegIdx::new(5), true), Some(fpr_tag));
+
+        // Clearing GPR doesn't affect FPR
+        sb.clear_if_match(RegIdx::new(5), false, gpr_tag);
+        assert_eq!(sb.get_producer(RegIdx::new(5), false), None);
+        assert_eq!(sb.get_producer(RegIdx::new(5), true), Some(fpr_tag));
+    }
+}

@@ -16,14 +16,14 @@ use super::{SharedState, csr, memory};
 use crate::arch::Hart;
 use crate::arch::translation::PteUpdate;
 use crate::common::{AccessType, VirtAddr};
-use crate::core::CoreUnits;
-use crate::core::units::mmu::ptw::WalkState;
 use crate::exec::state::ArchState;
 use crate::isa::csr::CsrAddr;
 use crate::isa::op::MemWidth;
 use crate::sim::events::EventQueue;
 use crate::sim::stats::Counter;
 use crate::sim::stats::paths::HartPaths;
+use crate::uarch::CoreUnits;
+use crate::uarch::mmu::ptw::WalkState;
 
 /// A stage's view of its core: the hart read-only, the micro-architecture
 /// mutable, and the uncore's stats and event queue.

@@ -8,12 +8,12 @@ use crate::arch::translation::SfenceVmaInfo;
 use crate::arch::trap::TrapHandler;
 use crate::arch::{Hart, csr};
 use crate::common::{Asid, PAGE_SHIFT, VPN_MASK, Vpn};
-use crate::core::units::cache::Cache;
-use crate::core::units::mmu::Mmu;
 use crate::exec::compute::vector::shadow::VectorWrites;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
+use crate::uarch::cache::Cache;
+use crate::uarch::mmu::Mmu;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
 /// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit)`. `mideleg` delegates

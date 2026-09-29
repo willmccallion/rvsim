@@ -4,7 +4,7 @@
 //! and capacity-related edge cases for both direct-mapped and
 //! set-associative BTB configurations.
 
-use rvsim_core::core::units::bru::btb::{BranchKind, Btb};
+use rvsim_core::uarch::bpred::btb::{BranchKind, Btb};
 
 #[test]
 fn lookup_empty_returns_none() {

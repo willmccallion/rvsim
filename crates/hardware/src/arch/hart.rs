@@ -3,7 +3,7 @@
 //! `Hart` owns the per-thread architectural state: registers, CSRs, program
 //! counter, privilege mode, MMU, PMP, and load reservation. On a non-SMT core
 //! there is exactly one `Hart`; with SMT, sibling threads share the parent
-//! [`Core`](crate::core::Core)'s pipeline and L1 caches but each retains its own
+//! [`Core`](crate::uarch::Core)'s pipeline and L1 caches but each retains its own
 //! `Hart`.
 //!
 //! Constructed with a [`HartId`] that the `mhartid` CSR reports.

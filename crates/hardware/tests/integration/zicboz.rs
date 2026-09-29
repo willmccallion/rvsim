@@ -202,7 +202,7 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 
 /// A load that follows `cbo.zero` to the same block reads zeros: the CBO
 /// takes effect at commit, so the load must not read the block before then.
-fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::core::pipeline::engine::BackendType) {
+fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::uarch::pipeline::engine::BackendType) {
     use crate::common::builder::instruction::InstructionBuilder;
     const X11: u32 = 11;
     const X12: u32 = 12;
@@ -232,12 +232,12 @@ fn check_load_after_cbo_zero_reads_zero(backend: rvsim_core::core::pipeline::eng
 
 #[test]
 fn load_after_cbo_zero_reads_zero_in_order() {
-    check_load_after_cbo_zero_reads_zero(rvsim_core::core::pipeline::engine::BackendType::InOrder);
+    check_load_after_cbo_zero_reads_zero(rvsim_core::uarch::pipeline::engine::BackendType::InOrder);
 }
 
 #[test]
 fn load_after_cbo_zero_reads_zero_out_of_order() {
     check_load_after_cbo_zero_reads_zero(
-        rvsim_core::core::pipeline::engine::BackendType::OutOfOrder,
+        rvsim_core::uarch::pipeline::engine::BackendType::OutOfOrder,
     );
 }

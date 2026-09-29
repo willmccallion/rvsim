@@ -8,11 +8,11 @@ use crate::integration::multicore::{amo_counter, spinlock};
 use rvsim_core::coherence::audit::audit;
 use rvsim_core::common::{LineAddr, PhysAddr};
 use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
-use rvsim_core::core::pipeline::engine::BackendType;
-use rvsim_core::core::units::cache::Cache;
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use rvsim_core::sim::packet::MesiState;
+use rvsim_core::uarch::cache::Cache;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;

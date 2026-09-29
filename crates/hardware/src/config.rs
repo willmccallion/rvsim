@@ -3,9 +3,9 @@
 //! Configuration is supplied via JSON from the Python API (`SimConfig`) or
 //! use `Config::default()` for the CLI.
 
-use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
-use crate::core::pipeline::engine::BackendType;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::uarch::pipeline::backend::o3::fu_pool::FuConfig;
+use crate::uarch::pipeline::engine::BackendType;
 
 /// The widest unit-stride vector access: one 64-byte line, the smallest
 /// line every cache level must have.
@@ -1370,7 +1370,7 @@ pub struct PipelineConfig {
     /// `byte_mask` matches BOOM/Apple/Intel/AMD/ARM. `stall` matches Saturn.
     /// `off` always stalls.
     #[serde(default)]
-    pub vec_store_forwarding: crate::core::pipeline::vec_store_buffer::VecStoreForwarding,
+    pub vec_store_forwarding: crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreForwarding,
 }
 
 impl PipelineConfig {
@@ -1575,7 +1575,7 @@ impl Default for PipelineConfig {
             vec_chaining: true,
             vec_store_buffer_size: defaults::VEC_STORE_BUFFER_SIZE,
             vec_store_forwarding:
-                crate::core::pipeline::vec_store_buffer::VecStoreForwarding::ByteMask,
+                crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreForwarding::ByteMask,
         }
     }
 }
@@ -1955,7 +1955,7 @@ pub enum ScConfigError {
 }
 
 /// Most TAGE banks.
-pub const MAX_TAGE_BANKS: usize = crate::core::units::bru::components::tagged_bank::MAX_BANKS;
+pub const MAX_TAGE_BANKS: usize = crate::uarch::bpred::components::tagged_bank::MAX_BANKS;
 
 /// Where the UART console connects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

@@ -9,7 +9,7 @@
 //! - ASID tagging and global bit behavior
 
 use rvsim_core::common::{Asid, Ppn, Vpn};
-use rvsim_core::core::units::mmu::tlb::{PageSize, Tlb, TlbGeometry, TlbHit};
+use rvsim_core::uarch::mmu::tlb::{PageSize, Tlb, TlbGeometry, TlbHit};
 
 // PTE permission bits
 const PTE_V: u64 = 1 << 0;

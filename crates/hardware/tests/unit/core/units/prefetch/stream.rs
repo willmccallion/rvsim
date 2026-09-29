@@ -6,8 +6,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::core::units::prefetch::Prefetcher;
-use rvsim_core::core::units::prefetch::StreamPrefetcher;
+use rvsim_core::uarch::prefetch::Prefetcher;
+use rvsim_core::uarch::prefetch::StreamPrefetcher;
 
 const LINE: u64 = 64;
 

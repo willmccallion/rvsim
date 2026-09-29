@@ -4,7 +4,7 @@
 use rvsim_core::Simulator;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::pipeline::engine::BackendType;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 /// Where multi-hart test programs are loaded; every hart starts here.
 pub const PROGRAM_BASE: u64 = 0x8000_0000;

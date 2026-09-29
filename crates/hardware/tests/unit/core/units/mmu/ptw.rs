@@ -12,10 +12,10 @@ use crate::common::harness::TestContext;
 use rvsim_core::arch::csr::{self, Csrs};
 use rvsim_core::arch::translation::TranslationResult;
 use rvsim_core::common::{AccessType, VirtAddr};
-use rvsim_core::core::units::mmu::tlb::TlbGeometry;
-use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
 use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
 use rvsim_core::soc::interconnect::Bus;
+use rvsim_core::uarch::mmu::tlb::TlbGeometry;
+use rvsim_core::uarch::mmu::{Mmu, TranslateOutcome};
 
 /// Synchronously drives the MMU's async walker to completion. Reads each
 /// PTE from the bus's RAM fast-path and feeds it back through

@@ -190,7 +190,7 @@ fn the_reserved_cbie_encoding_is_written_as_illegal() {
 #[test]
 fn a_satp_write_keeps_asid_tagged_tlb_entries() {
     use rvsim_core::common::{Asid, Ppn, Vpn};
-    use rvsim_core::core::units::mmu::tlb::PageSize;
+    use rvsim_core::uarch::mmu::tlb::PageSize;
     const PTE_VR: u64 = 0b11;
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);

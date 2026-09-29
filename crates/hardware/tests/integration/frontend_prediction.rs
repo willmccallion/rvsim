@@ -8,7 +8,7 @@
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::pipeline::engine::BackendType;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 

@@ -3,11 +3,11 @@
 //! that a newer instruction may already own.
 
 use rvsim_core::common::{PhysAddr, VirtAddr};
-use rvsim_core::core::pipeline::engine::BackendCommon;
-use rvsim_core::core::pipeline::latches::ExMem1Entry;
-use rvsim_core::core::pipeline::outstanding::{LoadParts, OutstandingLoad};
-use rvsim_core::core::pipeline::rob::RobTag;
 use rvsim_core::sim::components::ReqId;
+use rvsim_core::uarch::pipeline::engine::BackendCommon;
+use rvsim_core::uarch::pipeline::latches::ExMem1Entry;
+use rvsim_core::uarch::pipeline::outstanding::{LoadParts, OutstandingLoad};
+use rvsim_core::uarch::pipeline::rob::RobTag;
 
 fn in_flight_load(tag: u32) -> OutstandingLoad {
     OutstandingLoad {

@@ -6,13 +6,13 @@
 
 use rvsim_core::common::InstSeq;
 use rvsim_core::config::{Config, PerceptronConfig, TageConfig, TournamentConfig};
-use rvsim_core::core::units::bru::predictors::gshare::GSharePredictor;
-use rvsim_core::core::units::bru::predictors::perceptron::PerceptronPredictor;
-use rvsim_core::core::units::bru::predictors::sc_l_tage::ScLTagePredictor;
-use rvsim_core::core::units::bru::predictors::static_bp::StaticPredictor;
-use rvsim_core::core::units::bru::predictors::tage::TagePredictor;
-use rvsim_core::core::units::bru::predictors::tournament::TournamentPredictor;
-use rvsim_core::core::units::bru::{BranchPredUnit, ControlInst, DirectionPredictor};
+use rvsim_core::uarch::bpred::predictors::gshare::GSharePredictor;
+use rvsim_core::uarch::bpred::predictors::perceptron::PerceptronPredictor;
+use rvsim_core::uarch::bpred::predictors::sc_l_tage::ScLTagePredictor;
+use rvsim_core::uarch::bpred::predictors::static_bp::StaticPredictor;
+use rvsim_core::uarch::bpred::predictors::tage::TagePredictor;
+use rvsim_core::uarch::bpred::predictors::tournament::TournamentPredictor;
+use rvsim_core::uarch::bpred::{BranchPredUnit, ControlInst, DirectionPredictor};
 
 const PC: u64 = 0x1000;
 const TARGET: u64 = 0x2000;

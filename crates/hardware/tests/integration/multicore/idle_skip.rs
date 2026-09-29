@@ -4,8 +4,8 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
-use rvsim_core::core::pipeline::engine::BackendType;
 use rvsim_core::sim::stats::StatFormat;
+use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const T0: u32 = 5;
 const T1: u32 = 6;

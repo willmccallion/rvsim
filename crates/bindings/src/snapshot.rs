@@ -6,9 +6,9 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use rvsim_core::core::pipeline::snapshot::PipelineSnapshot;
 use rvsim_core::isa::disasm::disassemble;
 use rvsim_core::isa::reg::RegIdx;
+use rvsim_core::uarch::pipeline::snapshot::PipelineSnapshot;
 
 const ABI: [&str; 32] = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
@@ -72,36 +72,40 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     stage!(
         "F1",
         snap.fetch1_fetch2,
-        |e: &rvsim_core::core::pipeline::latches::Fetch1Fetch2Entry| { format!("{:#010x}", e.pc) }
+        |e: &rvsim_core::uarch::pipeline::latches::Fetch1Fetch2Entry| { format!("{:#010x}", e.pc) }
     );
 
-    stage!("F2", snap.fetch2_decode, |e: &rvsim_core::core::pipeline::latches::IfIdEntry| {
+    stage!("F2", snap.fetch2_decode, |e: &rvsim_core::uarch::pipeline::latches::IfIdEntry| {
         cell(&disassemble(e.inst))
     });
 
-    stage!("DE", snap.decode_rename, |e: &rvsim_core::core::pipeline::latches::IdExEntry| {
+    stage!("DE", snap.decode_rename, |e: &rvsim_core::uarch::pipeline::latches::IdExEntry| {
         cell(&disassemble(e.inst.bits))
     });
 
-    stage!("RN", snap.rename_issue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
-        cell(&disassemble(e.inst.bits))
-    });
+    stage!(
+        "RN",
+        snap.rename_issue,
+        |e: &rvsim_core::uarch::pipeline::latches::RenameIssueEntry| {
+            cell(&disassemble(e.inst.bits))
+        }
+    );
 
-    stage!("IS", snap.issue_queue, |e: &rvsim_core::core::pipeline::latches::RenameIssueEntry| {
+    stage!("IS", snap.issue_queue, |e: &rvsim_core::uarch::pipeline::latches::RenameIssueEntry| {
         let asm = disassemble(e.inst.bits);
         let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
         if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
     });
 
-    stage!("EX", snap.execute_mem1, |e: &rvsim_core::core::pipeline::latches::ExMem1Entry| {
+    stage!("EX", snap.execute_mem1, |e: &rvsim_core::uarch::pipeline::latches::ExMem1Entry| {
         cell(&disassemble(e.inst))
     });
 
-    stage!("M1", snap.mem1_mem2, |e: &rvsim_core::core::pipeline::latches::Mem1Mem2Entry| {
+    stage!("M1", snap.mem1_mem2, |e: &rvsim_core::uarch::pipeline::latches::Mem1Mem2Entry| {
         cell(&disassemble(e.inst))
     });
 
-    stage!("M2", snap.mem2_wb, |e: &rvsim_core::core::pipeline::latches::Mem2WbEntry| {
+    stage!("M2", snap.mem2_wb, |e: &rvsim_core::uarch::pipeline::latches::Mem2WbEntry| {
         cell(&disassemble(e.inst))
     });
 
