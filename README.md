@@ -177,13 +177,13 @@ rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 
 ## Building from Source
 
-Requires Rust (2024 edition), Python 3.10+, and a bare-metal RISC-V GCC (`riscv64-none-elf-gcc` by default). `nix develop` provides all three.
+Requires Rust (the version in `rust-toolchain.toml`), Python 3.10+, and a bare-metal RISC-V GCC (`riscv64-none-elf-gcc` by default). `nix develop` provides all three.
 
 ```bash
 git clone https://github.com/willmccallion/rvsim
 cd rvsim
 python3 -m venv .venv && source .venv/bin/activate
-pip install maturin
+pip install -r requirements-dev.txt
 maturin develop --release
 make -C software
 ```
