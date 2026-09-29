@@ -21,7 +21,7 @@
 //! state values, the round function is applied, and the result is stored
 //! back. With LMUL>1, multiple groups are processed sequentially.
 
-use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 

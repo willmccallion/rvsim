@@ -1,8 +1,8 @@
 //! `vsetvl` execution shared by the backends.
 
-use crate::core::exec::vector::vector_config;
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::rob::Rob;
+use crate::exec::vector::vector_config;
 use crate::sim::StageCtx;
 
 /// Executes a `vsetvl`: records the configuration it establishes on its ROB

@@ -20,7 +20,6 @@
 
 use crate::arch::translation::{PteUpdate, TranslationResult};
 use crate::common::{PAGE_SHIFT, PhysAddr};
-use crate::core::exec::cbo;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
@@ -29,6 +28,7 @@ use crate::core::pipeline::outstanding::{
     DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk, PartRead,
     StoreOwner, WalkContinuation,
 };
+use crate::exec::cbo;
 use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};

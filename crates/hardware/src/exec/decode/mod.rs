@@ -4,10 +4,10 @@
 mod scalar;
 mod vector;
 
-use crate::core::exec::signals::{ControlSignals, OpASrc, OpBSrc};
-use crate::core::units::vpu::mem::{
+use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
+use crate::exec::signals::{ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
 use crate::isa::op::{AluOp, VectorOp};

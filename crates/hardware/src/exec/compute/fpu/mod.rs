@@ -676,7 +676,7 @@ impl Fpu {
     /// # Examples
     ///
     /// ```
-    /// use rvsim_core::core::units::fpu::Fpu;
+    /// use rvsim_core::exec::compute::fpu::Fpu;
     /// use rvsim_core::isa::op::AluOp;
     ///
     /// // Single-precision addition with NaN boxing

@@ -1,7 +1,7 @@
 //! What vector configuration instructions establish.
 
-use crate::core::exec::inst::Inst;
-use crate::core::units::vpu::vsetvl::execute_vsetvl;
+use crate::exec::compute::vector::vsetvl::execute_vsetvl;
+use crate::exec::inst::Inst;
 use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{VectorConfig, Vlen};

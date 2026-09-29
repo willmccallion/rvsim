@@ -7,7 +7,7 @@
 use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
-use crate::core::units::lsu::atomic;
+use crate::exec::compute::amo;
 use crate::isa::op::{self, MemWidth};
 use crate::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData, WriteData, WriteOrigin};
 use crate::soc::memory::RamRegion;
@@ -123,7 +123,7 @@ impl GlobalMemory {
             MemOp::Atomic { op, data, hart } => {
                 let old = self.read(paddr, size.bytes());
                 let width = if size.bytes() == 4 { MemWidth::Word } else { MemWidth::Double };
-                let new = atomic::atomic_alu(alu_op(*op), old.unwrap_or(0), *data, width);
+                let new = amo::atomic_alu(alu_op(*op), old.unwrap_or(0), *data, width);
                 let response = self.performed(old);
                 self.write(Writer::Hart(*hart), paddr, new, size.bytes());
                 response

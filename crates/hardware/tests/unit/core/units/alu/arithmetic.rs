@@ -9,7 +9,7 @@
 //!
 //! Reference: RISC-V ISA Specification, Volume I, Chapters 2.4 and 7.
 
-use rvsim_core::core::units::alu::Alu;
+use rvsim_core::exec::compute::alu::Alu;
 use rvsim_core::isa::op::AluOp;
 
 const ZERO: u64 = 0;

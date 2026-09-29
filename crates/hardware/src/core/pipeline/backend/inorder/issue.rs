@@ -16,7 +16,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::squash::PendingSquash;
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::reg::RegIdx;
 use crate::sim::StageCtx;

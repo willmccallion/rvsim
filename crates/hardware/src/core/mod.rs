@@ -4,15 +4,14 @@
 //! pipeline, execution units, architecture-specific components, and the
 //! orchestrator that coordinates all components.
 
-/// What each instruction does, shared by every engine that runs
-/// instructions: decode, execute semantics and retirement.
-pub mod exec;
-
 /// Instruction pipeline implementation (stages and latches).
 pub mod pipeline;
 
 /// Execution units (ALU, FPU, LSU, MMU, branch predictor, cache, prefetcher).
 pub mod units;
+
+/// Vector unit timing: lane occupancy and result chaining.
+pub mod vector;
 
 use crate::common::CoreId;
 use crate::config::{Config, InclusionPolicy};

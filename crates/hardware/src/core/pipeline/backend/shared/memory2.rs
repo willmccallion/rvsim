@@ -25,12 +25,12 @@
 
 use crate::arch::reservation::LrScRecord;
 use crate::common::PhysAddr;
-use crate::core::exec::memory::load_result;
 use crate::core::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
 use crate::core::pipeline::load_queue::LoadQueue;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::exec::memory::load_result;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::sim::StageCtx;
 use crate::trace_fwd;

@@ -28,56 +28,6 @@ pub const fn is_aligned(addr: u64, size: u64) -> bool {
     (addr & (size - 1)) == 0
 }
 
-/// Checks whether an unaligned access crosses a cache line boundary.
-///
-/// An access crosses a cache line boundary if it begins in one cache line
-/// and ends in another. This is important for modeling latency penalties.
-///
-/// # Arguments
-///
-/// * `addr` - The byte address of the access.
-/// * `size` - The access width in bytes.
-/// * `cache_line_size` - The cache line size in bytes (typically 64).
-///
-/// # Returns
-///
-/// `true` if the access spans multiple cache lines.
-pub const fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> bool {
-    if size == 0 {
-        return false;
-    }
-    let line_mask = cache_line_size - 1;
-    (addr & line_mask) + (size - 1) >= cache_line_size
-}
-
-/// Calculates the latency penalty (in cycles) for an unaligned access.
-///
-/// Unaligned accesses that stay within a cache line incur a small penalty (1-2 cycles).
-/// Accesses that cross a cache line boundary incur a larger penalty (2-3+ cycles) due to
-/// the possibility of two cache misses instead of one.
-///
-/// # Arguments
-///
-/// * `addr` - The byte address of the access.
-/// * `size` - The access width in bytes.
-/// * `cache_line_size` - The cache line size in bytes.
-///
-/// # Returns
-///
-/// The additional latency penalty in cycles for this unaligned access.
-/// Returns 0 for aligned accesses.
-pub const fn calculate_unaligned_latency(addr: u64, size: u64, cache_line_size: u64) -> u64 {
-    if is_aligned(addr, size) {
-        return 0;
-    }
-
-    if !crosses_cache_line(addr, size, cache_line_size) {
-        return 1;
-    }
-
-    2
-}
-
 /// Returns the appropriate misaligned trap for a load at `addr`.
 ///
 /// # Arguments

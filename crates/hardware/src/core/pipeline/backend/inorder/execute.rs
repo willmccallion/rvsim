@@ -3,7 +3,6 @@
 //! This stage performs arithmetic, branch resolution, and system instruction
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
-use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::core::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
@@ -12,8 +11,9 @@ use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::squash::{Redirect, SquashCause};
-use crate::core::units::vpu::execute::execute_vec_op_on;
-use crate::core::units::vpu::shadow::ShadowVpr;
+use crate::exec::compute::vector::execute::execute_vec_op_on;
+use crate::exec::compute::vector::shadow::ShadowVpr;
+use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
 use crate::sim::StageCtx;

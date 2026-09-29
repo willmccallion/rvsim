@@ -6,7 +6,7 @@
 //!
 //! Default latencies are Skylake-class values matching real hardware.
 
-use crate::core::exec::signals::{ControlFlow, ControlSignals};
+use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::{AluOp, VectorOp};
 use serde::Deserialize;
 
@@ -561,7 +561,8 @@ impl FuPool {
         vl: usize,
         lanes: usize,
     ) -> u64 {
-        use crate::core::units::vpu::{lane_model, reduction};
+        use crate::core::vector::lane_model;
+        use crate::exec::compute::vector::reduction;
         use crate::isa::op::VecSrcEncoding;
 
         let startup = self.startup_latency(fu_type);

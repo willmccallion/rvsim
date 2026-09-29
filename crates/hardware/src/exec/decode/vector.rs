@@ -1,7 +1,7 @@
 //! Vector instruction decoding.
 
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
-use crate::core::exec::signals::{ControlSignals, OpBSrc};
+use crate::exec::signals::{ControlSignals, OpBSrc};
 use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };

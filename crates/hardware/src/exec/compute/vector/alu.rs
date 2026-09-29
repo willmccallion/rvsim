@@ -16,7 +16,7 @@
 //! - Fixed-point scaling: smul, ssrl, ssra
 //! - Extension: zero/sign-extend at various ratios
 
-use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::RoundingMode;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm};

@@ -9,7 +9,7 @@
 //! execution functions to operate transparently on physical registers.
 
 use crate::core::pipeline::free_list::PhysRegister;
-use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
 /// Vector physical register index (O3 backend).

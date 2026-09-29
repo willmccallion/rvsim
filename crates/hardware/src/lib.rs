@@ -12,6 +12,8 @@ pub mod common;
 pub mod config;
 /// CPU core (arch state, execution helpers, memory, trap) and pipeline.
 pub mod core;
+/// Instruction semantics shared by every engine: decode, execute, retire.
+pub mod exec;
 /// Instruction set (decode, instruction, ABI, RV64I/M/A/F/D, RVC, privileged).
 pub mod isa;
 /// Simulation: `Simulator`, binary loader, and kernel setup.

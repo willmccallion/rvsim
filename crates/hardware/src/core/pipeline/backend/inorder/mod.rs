@@ -14,7 +14,6 @@ pub mod issue;
 mod rename;
 
 use crate::config::Config;
-use crate::core::exec::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -31,16 +30,17 @@ use crate::core::pipeline::squash::{PendingSquash, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
-use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
-use crate::core::units::vpu::shadow::ElementWrite;
+use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
+use crate::exec::compute::vector::shadow::ElementWrite;
+use crate::exec::execute::unit_disabled;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
-use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::backend::o3::fu_pool::{FuPool, FuType};
+use crate::exec::signals::ControlFlow;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]
@@ -194,7 +194,7 @@ impl InOrderEngine {
     /// from the architectural registers, which are current because a
     /// vector instruction issues only from the ROB head.
     fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
-        use crate::core::units::vpu::mem::{
+        use crate::exec::compute::vector::mem::{
             check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
         };
         if unit_disabled(state.hart, &entry.inst) {

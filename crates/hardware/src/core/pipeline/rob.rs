@@ -14,13 +14,13 @@ use std::collections::HashMap;
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::InstSeq;
-use crate::core::exec::execute::CsrWrite;
-use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::vec_prf::VecPhysReg;
-use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
+use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
+use crate::exec::execute::CsrWrite;
+use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
 use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
@@ -878,8 +878,8 @@ impl Rob {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::prf::PhysReg;
+    use crate::exec::signals::ControlSignals;
     use crate::isa::csr::CsrAddr;
     use crate::isa::reg::RegIdx;
 

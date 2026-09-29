@@ -5,13 +5,13 @@
 
 use crate::arch::translation::SfenceVmaInfo;
 use crate::arch::{Hart, csr};
-use crate::core::exec::arch::ArchState;
-use crate::core::exec::cbo::{self, CboEffect};
-use crate::core::exec::inst::Inst;
-use crate::core::exec::signals::{OpASrc, OpBSrc};
-use crate::core::units::alu::Alu;
-use crate::core::units::fpu::Fpu;
-use crate::core::units::vpu::fpu::is_vec_fp;
+use crate::exec::cbo::{self, CboEffect};
+use crate::exec::compute::alu::Alu;
+use crate::exec::compute::fpu::Fpu;
+use crate::exec::compute::vector::fpu::is_vec_fp;
+use crate::exec::inst::Inst;
+use crate::exec::signals::{OpASrc, OpBSrc};
+use crate::exec::state::ArchState;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::RoundingMode;
@@ -336,7 +336,7 @@ pub const fn jump_target(inst: &Inst) -> u64 {
 /// Runs `convert` with the host FPU set to `rm` and returns its result with
 /// the IEEE flags the host raised, so conversions report INEXACT/OVERFLOW.
 fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, u8) {
-    use crate::core::units::fpu::{
+    use crate::exec::compute::fpu::{
         clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
     };
     let saved = set_host_round_mode(rm);
@@ -358,8 +358,10 @@ pub fn compute_alu(
     is_rv32: bool,
     fp_rm: Option<RoundingMode>,
 ) -> (u64, u8) {
-    use crate::core::units::fpu::half::{box_f16, f16_to_f32, unbox_f16};
-    use crate::core::units::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits, unbox_f32};
+    use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, unbox_f16};
+    use crate::exec::compute::fpu::nan_handling::{
+        box_f32_canon, canonicalize_f64_bits, unbox_f32,
+    };
     use std::hint::black_box;
 
     let rm = fp_rm.unwrap_or(RoundingMode::Rne);

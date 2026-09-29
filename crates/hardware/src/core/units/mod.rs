@@ -4,20 +4,12 @@
 //! including the ALU, FPU, branch prediction unit, load/store unit, memory
 //! management unit, cache system, and prefetchers.
 
-pub mod alu;
-
 pub mod bru;
 
 pub mod cache;
-
-pub mod fpu;
-
-pub mod lsu;
 
 pub mod mdp;
 
 pub mod mmu;
 
 pub mod prefetch;
-
-pub mod vpu;

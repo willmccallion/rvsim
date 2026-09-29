@@ -1,6 +1,6 @@
 //! A decoded instruction with the values of its source registers.
 
-use crate::core::exec::signals::ControlSignals;
+use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
 use crate::isa::reg::RegIdx;
 

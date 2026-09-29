@@ -12,7 +12,6 @@ mod rename;
 mod serialize;
 
 use crate::config::Config;
-use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -36,9 +35,10 @@ use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_prf::VecPrfView;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::mdp::MemDepUnit;
-use crate::core::units::vpu::chaining::VecPendingResult;
-use crate::core::units::vpu::lane_model::NumLanes;
-use crate::core::units::vpu::mem::{generate_element_addrs_vrf, is_vec_store};
+use crate::core::vector::chaining::VecPendingResult;
+use crate::core::vector::lane_model::NumLanes;
+use crate::exec::compute::vector::mem::{generate_element_addrs_vrf, is_vec_store};
+use crate::exec::signals::ControlFlow;
 use crate::isa::op::AtomicOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlen};
 use crate::sim::CoreCtx;
@@ -766,7 +766,7 @@ impl ExecutionEngine for O3Engine {
                 if is_vec_mem_op {
                     let vtype = crate::isa::rvv::parse_vtype(entry.vec_vtype);
                     if !vtype.vill {
-                        vec_grp.vd = crate::core::units::vpu::mem::vec_mem_dst_count(
+                        vec_grp.vd = crate::exec::compute::vector::mem::vec_mem_dst_count(
                             entry.inst.ctrl.vec_op,
                             entry.inst.ctrl.vec_eew,
                             vtype.vsew,
@@ -810,8 +810,8 @@ impl ExecutionEngine for O3Engine {
                 }
 
                 if is_vec_non_mem && ex_result.trap.is_none() {
-                    use crate::core::units::vpu::execute::execute_vec_op_on;
-                    use crate::core::units::vpu::lane_model;
+                    use crate::core::vector::lane_model;
+                    use crate::exec::compute::vector::execute::execute_vec_op_on;
 
                     // Build arch→phys mapping from rename-time physregs so later renames don't alias.
                     let mut mapping = [VecPhysReg::ZERO; 32];
@@ -922,7 +922,7 @@ impl ExecutionEngine for O3Engine {
 
                     // Reject illegal EMUL (>8) before generate_element_addrs_vrf would panic.
                     let vtype = crate::isa::rvv::parse_vtype(entry.vec_vtype);
-                    if let Err(trap) = crate::core::units::vpu::mem::check_vec_mem_emul(
+                    if let Err(trap) = crate::exec::compute::vector::mem::check_vec_mem_emul(
                         ex_result.inst,
                         vec_op,
                         &entry.inst.ctrl,
@@ -991,7 +991,7 @@ impl ExecutionEngine for O3Engine {
                         // VL=0 / vill=1: route through vec_pending so destination physregs surface ready.
                         let startup = self.fu_pool.startup_latency(fu_type);
                         let first_ready =
-                            crate::core::units::vpu::lane_model::first_group_ready(now, startup);
+                            crate::core::vector::lane_model::first_group_ready(now, startup);
                         self.vec_pending.push(VecPendingResult {
                             rob_tag: ex_result.rob_tag,
                             vd_phys: vd_phys_arr,

@@ -4,7 +4,6 @@
 //! [`shared::execute`](crate::core::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
-use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::core::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
@@ -13,6 +12,7 @@ use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::squash::{Redirect, SquashCause};
+use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::sim::StageCtx;
@@ -151,8 +151,8 @@ fn execute_system(
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::core::exec::inst::Inst;
-    use crate::core::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
+    use crate::exec::inst::Inst;
+    use crate::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
 

@@ -2,15 +2,15 @@
 //! predictions against their encodings, and reads their source registers.
 //!
 //! This stage reads from the Fetch2->Decode latch and writes to the
-//! Decode->Rename latch. Decoding itself is [`crate::core::exec::decode`];
+//! Decode->Rename latch. Decoding itself is [`crate::exec::decode`];
 //! here the in-order backend also stops a bundle at an intra-bundle
 //! register dependency.
 
-use crate::core::exec::decode::{DecodedInst, decode_inst};
-use crate::core::exec::inst::Inst;
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
+use crate::exec::decode::{DecodedInst, decode_inst};
+use crate::exec::inst::Inst;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;

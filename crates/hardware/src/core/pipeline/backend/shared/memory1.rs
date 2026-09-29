@@ -30,8 +30,7 @@
 //!     resolves the store buffer and checks for ordering violations.
 
 use crate::arch::translation::{DirtyUpdates, TranslationResult};
-use crate::common::{AccessType, PhysAddr, VirtAddr};
-use crate::core::exec::cbo;
+use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line};
 use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{
@@ -45,7 +44,8 @@ use crate::core::pipeline::outstanding::{
 use crate::core::pipeline::rob::{RobState, RobTag};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::pipeline::vec_store_buffer::SpanForward;
-use crate::core::units::lsu::unaligned;
+use crate::exec::cbo;
+use crate::exec::compute::misaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::isa::privileged::Trap;
@@ -191,15 +191,15 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     // 2. Alignment.
-    let size = unaligned::width_to_bytes(ex.ctrl.width);
+    let size = misaligned::width_to_bytes(ex.ctrl.width);
     let is_atomic = ex.ctrl.atomic_op != AtomicOp::None;
-    if !unaligned::is_aligned(ex.alu, size)
+    if !misaligned::is_aligned(ex.alu, size)
         && (state.config.memory.misaligned_access_trap || is_atomic)
     {
         let trap = if ex.ctrl.mem_write {
-            unaligned::store_misaligned_trap(ex.alu)
+            misaligned::store_misaligned_trap(ex.alu)
         } else {
-            unaligned::load_misaligned_trap(ex.alu)
+            misaligned::load_misaligned_trap(ex.alu)
         };
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
@@ -236,7 +236,7 @@ fn process_entry<E: ExecutionEngine>(
     // for the single-request data path, otherwise the access is left to
     // the misaligned trap handler like a real split-unaware LSU.
     let mut second_dirty_update = None;
-    if let Some(second_va) = unaligned::second_page_start(ex.alu, size) {
+    if let Some(second_va) = misaligned::second_page_start(ex.alu, size) {
         let outcome = translated.second.map_or_else(
             || state.translate(VirtAddr::new(second_va), access_type, 1),
             TranslateResult::Ready,
@@ -259,9 +259,9 @@ fn process_entry<E: ExecutionEngine>(
                 let first_page_bytes = second_va.wrapping_sub(ex.alu);
                 if r.paddr.val() != paddr.val().wrapping_add(first_page_bytes) {
                     let trap = if ex.ctrl.mem_write {
-                        unaligned::store_misaligned_trap(ex.alu)
+                        misaligned::store_misaligned_trap(ex.alu)
                     } else {
-                        unaligned::load_misaligned_trap(ex.alu)
+                        misaligned::load_misaligned_trap(ex.alu)
                     };
                     push_trap(engine, ex, trap, ExceptionStage::Memory);
                     return EntryOutcome::Done;
@@ -817,7 +817,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let line_bytes = state.core().l1_d_cache.line_bytes() as u64;
     let width_bytes = ex.ctrl.width.bytes();
     let second_line = (!matches!(target, ComponentId::Bus)
-        && unaligned::crosses_cache_line(paddr.val(), width_bytes, line_bytes))
+        && crosses_cache_line(paddr.val(), width_bytes, line_bytes))
     .then(|| PhysAddr::new((paddr.val() | (line_bytes - 1)) + 1));
     let low_bytes = second_line.map(|second| second.val() - paddr.val());
     let common = engine.common_mut();

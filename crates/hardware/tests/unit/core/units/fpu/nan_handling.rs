@@ -1,4 +1,4 @@
-use rvsim_core::core::units::fpu::Fpu;
+use rvsim_core::exec::compute::fpu::Fpu;
 use rvsim_core::isa::op::AluOp;
 
 #[test]
@@ -87,7 +87,7 @@ fn test_f64_nan_boxing_not_applicable() {
     assert_eq!(f64::from_bits(res), 3.0);
 }
 
-use rvsim_core::core::units::fpu::nan_handling::*;
+use rvsim_core::exec::compute::fpu::nan_handling::*;
 
 #[test]
 fn test_unbox_f32_direct() {

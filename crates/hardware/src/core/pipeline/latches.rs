@@ -10,13 +10,13 @@
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
-use crate::core::exec::inst::Inst;
-use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::vec_prf::VecPhysReg;
-use crate::core::units::vpu::mem::VecMemAddrOp;
+use crate::exec::compute::vector::mem::VecMemAddrOp;
+use crate::exec::inst::Inst;
+use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;

@@ -420,7 +420,7 @@ impl IssueQueue {
                         continue;
                     }
                     {
-                        use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
+                        use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
                         let vop = iq.entry.inst.ctrl.vec_op;
                         if (is_vec_load(vop) || is_vec_store(vop))
                             && (store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
@@ -638,11 +638,11 @@ fn resolve_operand_legacy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::exec::inst::Inst;
-    use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
+    use crate::exec::inst::Inst;
+    use crate::exec::signals::ControlSignals;
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
 

@@ -6,12 +6,12 @@
 //! previous producer.
 
 use super::InOrderEngine;
-use crate::core::exec::inst::Inst;
 use crate::core::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::vec_prf::VecPhysReg;
-use crate::core::units::vpu::mem::is_vec_store;
+use crate::exec::compute::vector::mem::is_vec_store;
+use crate::exec::inst::Inst;
 use crate::sim::StageCtx;
 use crate::trace_rename;
 

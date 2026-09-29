@@ -2,7 +2,7 @@
 
 use super::vector;
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
-use crate::core::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
+use crate::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
     AQ as AMO_AQ, RL as AMO_RL, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,

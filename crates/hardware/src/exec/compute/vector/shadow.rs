@@ -8,7 +8,7 @@
 //! architectural state.
 
 use crate::arch::regs::vpr::Vpr;
-use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
 /// One element a vector load returned, addressed within its register.

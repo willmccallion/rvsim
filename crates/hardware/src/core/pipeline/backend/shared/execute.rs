@@ -2,14 +2,14 @@
 //!
 //! Recording faults on results and resolving branches against their
 //! predictions. What an instruction computes is in
-//! [`crate::core::exec::execute`].
+//! [`crate::exec::execute`].
 
-use crate::core::exec::execute::{branch_taken, check_target_alignment, is_jalr, jump_target};
-use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, Rob};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
+use crate::exec::execute::{branch_taken, check_target_alignment, is_jalr, jump_target};
+use crate::exec::signals::ControlFlow;
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::sim::StageCtx;

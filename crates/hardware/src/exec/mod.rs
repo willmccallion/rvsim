@@ -5,7 +5,10 @@
 //! when and how fast it happens differs between engines.
 
 /// The architectural state an instruction reads as it executes.
-pub mod arch;
+pub mod state;
+
+/// The arithmetic the functional units perform.
+pub mod compute;
 
 /// Cache-block operations (Zicbom, Zicboz): which may run, and what they do.
 pub mod cbo;

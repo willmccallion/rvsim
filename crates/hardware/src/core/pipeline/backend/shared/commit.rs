@@ -11,10 +11,7 @@ use crate::arch::csr;
 use crate::arch::regs::vpr::Vpr;
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::PteUpdate;
-use crate::common::PhysAddr;
-use crate::core::exec::cbo::CboEffect;
-use crate::core::exec::retire;
-use crate::core::exec::signals::ControlFlow;
+use crate::common::{PhysAddr, crosses_cache_line};
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
 use crate::core::pipeline::free_list::FreeList;
@@ -29,7 +26,9 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::pipeline::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
 use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
-use crate::core::units::lsu::unaligned;
+use crate::exec::cbo::CboEffect;
+use crate::exec::retire;
+use crate::exec::signals::ControlFlow;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AluOp, MemWidth, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
@@ -575,13 +574,14 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 state.clear_reservation();
             }
             store_buffer.mark_committed(entry.tag);
-        } else if crate::core::units::vpu::mem::is_vec_store(entry.ctrl.vec_op) {
+        } else if crate::exec::compute::vector::mem::is_vec_store(entry.ctrl.vec_op) {
             // Vector store data lives in the dedicated VecStoreBuffer.
             store_buffer.mark_committed(entry.tag);
             vec_store_buffer.mark_committed(entry.tag);
         }
 
-        if entry.ctrl.mem_read || crate::core::units::vpu::mem::is_vec_load(entry.ctrl.vec_op) {
+        if entry.ctrl.mem_read || crate::exec::compute::vector::mem::is_vec_load(entry.ctrl.vec_op)
+        {
             registers.release_load(entry.tag);
         }
 
@@ -1029,7 +1029,7 @@ fn span_parts(
     span: usize,
 ) -> Vec<(PhysAddr, u64, usize)> {
     let span = span as u64;
-    if !unaligned::crosses_cache_line(paddr.val(), width_bytes as u64, span) {
+    if !crosses_cache_line(paddr.val(), width_bytes as u64, span) {
         return vec![(paddr, data, width_bytes)];
     }
     let second = (paddr.val() | (span - 1)) + 1;
@@ -1402,8 +1402,7 @@ mod tests {
         );
         let mut scoreboard = Scoreboard::new();
 
-        let ctrl =
-            crate::core::exec::signals::ControlSignals { reg_write: true, ..Default::default() };
+        let ctrl = crate::exec::signals::ControlSignals { reg_write: true, ..Default::default() };
 
         let tag = rob
             .allocate(

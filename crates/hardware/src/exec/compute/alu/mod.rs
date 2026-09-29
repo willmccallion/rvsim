@@ -51,7 +51,7 @@ impl Alu {
     /// # Examples
     ///
     /// ```
-    /// use rvsim_core::core::units::alu::Alu;
+    /// use rvsim_core::exec::compute::alu::Alu;
     /// use rvsim_core::isa::op::AluOp;
     ///
     /// // 64-bit addition

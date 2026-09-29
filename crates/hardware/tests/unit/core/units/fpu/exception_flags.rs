@@ -3,7 +3,7 @@
 //! These tests verify that `Fpu::execute_full()` returns both the
 //! result and the correct accrued exception flags (NV, DZ, OF, NX).
 
-use rvsim_core::core::units::fpu::Fpu;
+use rvsim_core::exec::compute::fpu::Fpu;
 use rvsim_core::isa::fp::FpFlags;
 use rvsim_core::isa::op::AluOp;
 

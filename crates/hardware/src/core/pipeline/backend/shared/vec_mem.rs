@@ -17,7 +17,7 @@ use crate::core::pipeline::latches::{
 };
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::vec_prf::VecPhysReg;
-use crate::core::units::vpu::mem::VecMemAddrOp;
+use crate::exec::compute::vector::mem::VecMemAddrOp;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Sew};

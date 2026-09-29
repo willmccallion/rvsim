@@ -13,8 +13,8 @@
 //!    arrives.
 
 use crate::common::{PhysAddr, VirtAddr};
-use crate::core::exec::cbo::CboEffect;
 use crate::core::pipeline::rob::RobTag;
+use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
