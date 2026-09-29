@@ -23,7 +23,7 @@ from rvsim import (
     When,
     WorkloadEnded,
 )
-from rvsim.session import _typed_command_output
+from rvsim.session.session import _typed_command_output
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 REGIONS = os.path.join(ROOT, "software", "bin", "programs", "regions.elf")

@@ -14,10 +14,11 @@ from typing import Any, Dict, List, Optional, Union
 
 __all__ = ["Environment", "Result"]
 
-from .config import Config, _config_to_dict
+from .config import Config
+from .config._config import _config_to_dict
 from .stats import Stats, _compare_flat, _compare_matrix
 
-from .objects import Simulator
+from .simulator import Simulator
 
 
 @dataclass

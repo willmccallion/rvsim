@@ -23,7 +23,7 @@ Usage from Python::
 from typing import Optional
 
 from .config import Config
-from .types import (
+from .config import (
     Backend,
     BranchPredictor,
     Cache,

@@ -22,11 +22,10 @@ from . import presets
 from .config import Config
 from .experiment import Environment, Result
 from .isa import Disassemble, csr, reg
-from .objects import Instruction, Simulator
-from .pipeline import PipelineSnapshot
+from .simulator import Instruction, PipelineSnapshot, Simulator
 from .session import Region, Session, WorkloadEnded
 from .stats import Stats, Table
-from .stops import (
+from .session.stops import (
     LOGIN_SHELL,
     AnyOf,
     Console,
@@ -41,7 +40,7 @@ from .stops import (
     When,
 )
 from .sweep import Sweep, SweepResults
-from .types import (
+from .config import (
     Backend,
     BranchPredictor,
     Cache,
@@ -64,32 +63,6 @@ except _PackageNotFoundError:
     # Use a sentinel rather than failing import — version is observability,
     # not load-bearing.
     __version__ = "0.0.0+dev"
-
-# Scrub submodule references and private imports that the import machinery
-# pins as attributes. After this, `rvsim.objects` etc. raise AttributeError.
-import sys as _sys
-
-_rvsim_dict = _sys.modules[__name__].__dict__
-for _name in (
-    "config",
-    "experiment",
-    "presets",
-    "isa",
-    "objects",
-    "pipeline",
-    "session",
-    "stats",
-    "stops",
-    "sweep",
-    "types",
-    "_core",
-    "_cli",
-    "_metadata_version",
-    "_PackageNotFoundError",
-):
-    _rvsim_dict.pop(_name, None)
-del _sys, _rvsim_dict, _name
-
 
 def version() -> str:
     """Return the installed rvsim version string."""

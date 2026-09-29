@@ -1,21 +1,24 @@
 """
-Simulation objects.
+The simulator.
 
-Provides:
-- Simulator: Native Rust simulator. Accepts a :class:`Config` (or config dict)
-  plus optional ``binary`` / ``kernel`` / ``disk`` / ``dtb`` paths.
-- Instruction: Returned by ``sim.step()`` with pc, raw, asm, cycles.
+- :class:`Simulator`: the native simulator. Accepts a :class:`Config` (or
+  config dict) plus optional ``binary`` / ``kernel`` / ``disk`` / ``dtb`` paths.
+- :class:`Instruction`: returned by ``sim.step()`` with pc, raw, asm, cycles.
+- :class:`PipelineSnapshot`: returned by ``sim.pipeline_snapshot()``; its
+  ``.render()`` / ``.visualize()`` draw every inter-stage latch as a
+  Gantt-style diagram.
 """
 
 from __future__ import annotations
 
 from typing import Optional, Union
 
-__all__ = ["Simulator", "Instruction"]
+__all__ = ["Simulator", "Instruction", "PipelineSnapshot"]
 
-from ._core import Instruction
+from ._core import Instruction, PipelineSnapshot
 from ._core import Simulator as _CoreSimulator
-from .config import Config, _config_to_dict
+from .config import Config
+from .config._config import _config_to_dict
 
 
 class Simulator(_CoreSimulator):

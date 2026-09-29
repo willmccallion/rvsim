@@ -14,11 +14,11 @@ import os
 import sys
 from typing import Any, Dict, List
 
-from . import presets
-from .config import load_config
-from .presets import INTERCONNECTS
-from .session import Region, Session
-from .stops import LOGIN_SHELL
+from .. import presets
+from ..config import load_config
+from ..presets import INTERCONNECTS
+from ..session import Region, Session
+from ..session.stops import LOGIN_SHELL
 
 #: Shell commands on the bundled image, sized to finish in minutes of
 #: detailed simulation.
