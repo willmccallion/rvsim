@@ -320,14 +320,6 @@ pub enum Formula {
     Sum(Vec<StatId>),
 }
 
-/// A derived stat registration: formula + metadata.
-#[derive(Clone, Debug)]
-pub(crate) struct Derived {
-    formula: Formula,
-    #[allow(dead_code)] // metadata is looked up via `Stats::meta`; kept for parity
-    meta: Meta,
-}
-
 /// Top-level statistics tree.
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
@@ -335,8 +327,8 @@ pub struct Stats {
     histograms: Store<Histogram>,
     /// Per-registered-stat metadata.
     pub(crate) meta: BTreeMap<StatId, Meta>,
-    /// Registered derived stats.
-    pub(crate) derived: BTreeMap<StatId, Derived>,
+    /// Registered derived stats and the formulas that compute them.
+    pub(crate) derived: BTreeMap<StatId, Formula>,
 }
 
 /// A component whose stats are registered with the tree it writes to.
@@ -422,7 +414,7 @@ impl Stats {
     /// via [`Stats::get`] and included in [`Stats::summary`].
     pub fn derive(&mut self, stat: impl Into<StatId>, formula: Formula, meta: Meta) {
         let stat = stat.into();
-        let _ = self.derived.insert(stat, Derived { formula, meta });
+        let _ = self.derived.insert(stat, formula);
         let _ = self.meta.insert(stat, meta);
     }
 
@@ -432,8 +424,8 @@ impl Stats {
     #[must_use]
     pub fn get(&self, stat: impl StatKey) -> Option<f64> {
         let stat = stat.stat_id()?;
-        if let Some(derived) = self.derived.get(&stat) {
-            return Some(self.eval(&derived.formula));
+        if let Some(formula) = self.derived.get(&stat) {
+            return Some(self.eval(formula));
         }
         self.counters.get(stat).map(|c| c.get() as f64)
     }
@@ -452,8 +444,8 @@ impl Stats {
             let value = self.counters.get(id).map_or(0.0, |c| c.get() as f64);
             visit(id.path().to_string(), value);
         }
-        for (id, derived) in &self.derived {
-            visit(id.path().to_string(), self.eval(&derived.formula));
+        for (id, formula) in &self.derived {
+            visit(id.path().to_string(), self.eval(formula));
         }
         QueryResult { matches }
     }
