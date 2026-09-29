@@ -10,17 +10,8 @@ If you add or remove a Config here, every runner picks it up automatically —
 this is the single source of truth.
 """
 
-import os
-import sys
 
-# The reference machine configs live under scripts/benchmarks/<name>/config.py
-# (the Linux one is rvsim.presets.linux). Pull them in via path manipulation so
-# the runners don't have to.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts", "benchmarks"))
-sys.path.insert(0, os.path.join(_REPO_ROOT, "scripts"))
-
-from rvsim import (  # noqa: E402
+from rvsim import (
     Backend,
     BranchPredictor,
     Cache,
@@ -35,9 +26,6 @@ from rvsim import (  # noqa: E402
     ReplacementPolicy,
     presets,
 )
-from cortex_a72.config import cortex_a72_config  # noqa: E402
-from m1.config import m1_config  # noqa: E402
-from p550.config import p550_config  # noqa: E402
 
 # fmt: off
 PIPELINES = [
@@ -382,7 +370,7 @@ PIPELINES = [
     ("inorder w4 sv48-cap", Config(width=4, backend=Backend.InOrder(), paging_mode_max="sv48")),
 
     # ── Reference machine configs ──────────────────────────────────────────────
-    ("ref cortex-a72",      cortex_a72_config()),
+    ("ref cortex-a72",      presets.cortex_a72()),
     # ── Coherence fabric (only matters with hart_count > 1) ──────────────────
     ("smp broadcast",       Config(width=4, backend=Backend.OutOfOrder(),
                                    coherence=Coherence(home_agent=HomeAgent.Broadcast()))),
@@ -397,8 +385,8 @@ PIPELINES = [
     ("smp tiny-filter",     Config(width=4, backend=Backend.OutOfOrder(),
                                    coherence=Coherence(home_agent=HomeAgent.SnoopFilter(capacity_factor=0.05, ways=2)))),
 
-    ("ref p550",            p550_config()),
-    ("ref m1",              m1_config()),
+    ("ref p550",            presets.p550()),
+    ("ref m1",              presets.m1()),
     ("ref linux",           presets.linux()),
 ]
 # fmt: on

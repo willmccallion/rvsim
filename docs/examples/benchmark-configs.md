@@ -1,6 +1,6 @@
 # Benchmark Configurations
 
-The `scripts/benchmarks/` directory contains microarchitecture-specific configurations modeled after real hardware. These are used by the analysis scripts (particularly `top_down.py`) and can serve as starting points for your own experiments.
+`rvsim.presets` includes configurations modeled after real hardware. The analysis examples use them, and they make good starting points for your own experiments.
 
 ## Available Configurations
 
@@ -9,8 +9,9 @@ The `scripts/benchmarks/` directory contains microarchitecture-specific configur
 Based on published microarchitecture analysis (Chips and Cheese, SiFive specs).
 
 ```python
-from scripts.benchmarks.p550.config import p550_config
-config = p550_config()
+from rvsim import presets
+
+config = presets.p550()
 ```
 
 | Parameter | Value | Notes |
@@ -28,8 +29,9 @@ config = p550_config()
 Based on publicly documented microarchitecture.
 
 ```python
-from scripts.benchmarks.cortex_a72.config import cortex_a72_config
-config = cortex_a72_config()
+from rvsim import presets
+
+config = presets.cortex_a72()
 ```
 
 | Parameter | Value | Notes |
@@ -46,8 +48,9 @@ config = cortex_a72_config()
 Modeled after Apple's Firestorm (performance) core.
 
 ```python
-from scripts.benchmarks.m1.config import m1_config
-config = m1_config()
+from rvsim import presets
+
+config = presets.m1()
 ```
 
 | Parameter | Value | Notes |
@@ -63,12 +66,11 @@ config = m1_config()
 ### With Environment
 
 ```python
-from scripts.benchmarks.p550.config import p550_config
-from rvsim import Environment
+from rvsim import Environment, presets
 
 result = Environment(
     binary="software/bin/programs/qsort.elf",
-    config=p550_config(),
+    config=presets.p550(),
 ).run()
 
 print(result.stats.query("ipc|stall|miss"))
@@ -77,17 +79,14 @@ print(result.stats.query("ipc|stall|miss"))
 ### With Sweep
 
 ```python
-from scripts.benchmarks.p550.config import p550_config
-from scripts.benchmarks.cortex_a72.config import cortex_a72_config
-from scripts.benchmarks.m1.config import m1_config
-from rvsim import Sweep
+from rvsim import Sweep, presets
 
 results = Sweep(
     binaries=["software/bin/programs/qsort.elf"],
     configs={
-        "P550": p550_config(),
-        "A72": cortex_a72_config(),
-        "M1": m1_config(),
+        "P550": presets.p550(),
+        "A72": presets.cortex_a72(),
+        "M1": presets.m1(),
     },
 ).run(parallel=True)
 
@@ -99,7 +98,9 @@ results.compare(metrics=["ipc", "cycles", "dcache_misses", "branch_accuracy_pct"
 Use `replace()` to create variants of a benchmark config:
 
 ```python
-base = p550_config()
+from rvsim import Cache, presets
+
+base = presets.p550()
 wide = base.replace(width=4)
 big_cache = base.replace(l1d=Cache("64KB", ways=8, latency=3, mshr_count=8))
 ```
