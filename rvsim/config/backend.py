@@ -124,7 +124,17 @@ class Fu:
         def repr_(self):
             return f"Fu.{name}(count={self.count}, latency={self.latency})"
 
-        return type(name, (), {"__init__": init, "__repr__": repr_, "__doc__": doc})
+        return type(
+            name,
+            (),
+            {
+                "__init__": init,
+                "__repr__": repr_,
+                "__doc__": doc,
+                "__module__": __name__,
+                "__qualname__": f"Fu.{name}",
+            },
+        )
 
     # Default pool matching Skylake-class hardware
     _DEFAULTS: "list"
