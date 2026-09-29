@@ -6,7 +6,6 @@ region from simulator memory after execution.
 
 import os
 import sys
-import shutil
 import logging
 
 import riscof.utils as utils

@@ -20,9 +20,9 @@ REPO_ROOT = os.path.dirname(
 )
 sys.path.insert(0, REPO_ROOT)
 
-from rvsim import Config, Backend
-from rvsim._core import Simulator
-from rvsim.config._config import _config_to_dict
+from rvsim import Config, Backend  # noqa: E402
+from rvsim._core import Simulator  # noqa: E402
+from rvsim.config._config import _config_to_dict  # noqa: E402
 
 CYCLE_LIMIT = 2_000_000
 READELF = None

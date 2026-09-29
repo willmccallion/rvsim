@@ -113,8 +113,8 @@ def main():
     selected_pipelines = PIPELINES
     if args.pipelines:
         wanted = {p.strip() for p in args.pipelines.split(",")}
-        selected_pipelines = [(l, c) for l, c in PIPELINES if l in wanted]
-        missing = wanted - {l for l, _ in selected_pipelines}
+        selected_pipelines = [(label, c) for label, c in PIPELINES if label in wanted]
+        missing = wanted - {label for label, _ in selected_pipelines}
         if missing:
             sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
     if args.smoke:
@@ -144,7 +144,7 @@ def main():
                     "total_planned": len(work),
                     "completed": len(results),
                     "counts": counts,
-                    "pipelines": [l for l, _ in selected_pipelines],
+                    "pipelines": [label for label, _ in selected_pipelines],
                     "results": results,
                 },
                 f,

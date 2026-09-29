@@ -91,7 +91,7 @@ def main():
 
     labels = args.pipelines.split(",") if args.pipelines else DEFAULT_PIPELINES
     known = {lbl for lbl, _ in PIPELINES}
-    unknown = [l for l in labels if l.strip() not in known]
+    unknown = [label for label in labels if label.strip() not in known]
     if unknown:
         sys.exit(f"unknown pipeline label(s): {unknown}")
     harts = [int(h) for h in args.harts.split(",")]

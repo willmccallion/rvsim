@@ -282,7 +282,7 @@ def main():
     pipelines = PIPELINES
     if args.pipelines:
         selected = {s.strip() for s in args.pipelines.split(",")}
-        pipelines = [(l, c) for l, c in PIPELINES if l in selected]
+        pipelines = [(label, c) for label, c in PIPELINES if label in selected]
         if not pipelines:
             print(f"No matching pipelines for: {args.pipelines}", file=sys.stderr)
             return 1
