@@ -879,6 +879,12 @@ pub struct Csrs {
 }
 
 impl Csrs {
+    /// The vector configuration `vtype`, `vl` and `vstart` hold.
+    #[must_use]
+    pub const fn vector_config(&self) -> crate::isa::rvv::VectorConfig {
+        crate::isa::rvv::VectorConfig { vtype: self.vtype, vl: self.vl, vstart: self.vstart }
+    }
+
     /// Advances `mcycle` by one clock unless inhibited.
     pub const fn count_cycle(&mut self) {
         if self.mcountinhibit & MCOUNTINHIBIT_CY == 0 {

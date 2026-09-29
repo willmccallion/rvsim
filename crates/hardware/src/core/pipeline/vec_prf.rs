@@ -10,7 +10,7 @@
 
 use crate::core::pipeline::free_list::PhysRegister;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
 /// Vector physical register index (O3 backend).
 /// NOT interchangeable with `PhysReg` (scalar).

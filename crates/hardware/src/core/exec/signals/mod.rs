@@ -11,7 +11,7 @@ pub use vector::{VecOperandGroups, VecSrcEncoding, VectorOp};
 
 use crate::common::CsrAddr;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
-use crate::isa::vector::{Sew, VRegIdx};
+use crate::isa::rvv::{Sew, VRegIdx};
 
 /// Atomic memory operation types (RISC-V A extension).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

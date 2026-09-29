@@ -33,7 +33,7 @@ use crate::core::units::fpu::{
 };
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlmax};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 // ============================================================================
 // Public helpers
@@ -2230,7 +2230,7 @@ fn exec_fp_narrowing(
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::isa::vector::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
+    use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {
         VecExecCtx {

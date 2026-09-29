@@ -15,7 +15,7 @@ use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::rob::RobTag;
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::mem::VecMemAddrOp;
-use crate::isa::vector::{ElemIdx, Sew};
+use crate::isa::rvv::{ElemIdx, Sew};
 use crate::sim::state::write_log::WriteSeq;
 
 /// A pipeline register between two stages.

@@ -9,7 +9,7 @@
 
 use crate::core::arch::vpr::Vpr;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
 /// One element a vector load returned, addressed within its register.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

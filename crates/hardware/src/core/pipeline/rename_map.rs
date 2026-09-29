@@ -6,7 +6,7 @@
 
 use crate::common::RegIdx;
 use crate::core::pipeline::vec_prf::VecPhysReg;
-use crate::isa::vector::VRegIdx;
+use crate::isa::rvv::VRegIdx;
 
 use super::prf::PhysReg;
 

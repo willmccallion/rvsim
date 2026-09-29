@@ -13,7 +13,7 @@ use crate::core::exec::inst::Inst;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
 use crate::isa::instruction::InstructionBits;
-use crate::isa::vector::VectorConfig;
+use crate::isa::rvv::VectorConfig;
 use crate::sim::StageCtx;
 
 /// Executes the decode stage.

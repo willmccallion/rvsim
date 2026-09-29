@@ -30,5 +30,5 @@ pub mod privileged;
 /// Expansion of 16-bit compressed instructions into their 32-bit forms.
 pub mod rvc;
 
-/// Vector vocabulary: element widths, register groups, vtype.
-pub mod vector;
+/// Vector extension (RVV 1.0) vocabulary: element widths, register groups, vtype.
+pub mod rvv;

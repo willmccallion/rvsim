@@ -33,7 +33,7 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::core::units::vpu::shadow::ElementWrite;
-use crate::isa::vector::{ElemIdx, VRegIdx, parse_vtype};
+use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 

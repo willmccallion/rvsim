@@ -1,56 +1,5 @@
-//! Vector extension types, newtypes, and vtype CSR parsing.
-//!
-//! Every domain-specific value in the vector pipeline uses a strict newtype
-//! with no implicit conversions. This prevents an entire class of bugs where
-//! SEW bytes are confused with SEW bits, element indices with byte offsets,
-//! vector register indices with scalar register indices, etc.
-
-/// Vector register index (0–31). NOT interchangeable with `RegIdx` (GPR/FPR).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub struct VRegIdx(u8);
-
-impl VRegIdx {
-    /// Creates a `VRegIdx` from a raw `u8`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `val >= 32`.
-    #[inline(always)]
-    pub const fn new(val: u8) -> Self {
-        assert!(val < 32, "vector register index out of range");
-        Self(val)
-    }
-
-    /// Returns the raw index.
-    #[inline(always)]
-    pub const fn as_u8(self) -> u8 {
-        self.0
-    }
-
-    /// Returns the index as a `usize` for array subscript.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0 as usize
-    }
-
-    /// Returns `true` if this is v0 (mask register).
-    #[inline(always)]
-    pub const fn is_v0(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Check if this register is a valid base for an LMUL group.
-    #[inline(always)]
-    pub const fn is_aligned(self, group: LmulGroup) -> bool {
-        self.0.is_multiple_of(group.regs())
-    }
-}
-
-impl std::fmt::Display for VRegIdx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "v{}", self.0)
-    }
-}
+//! The `vtype` CSR: element width, register grouping, tail and mask
+//! policies, and the configuration a `vsetvl` establishes.
 
 /// Selected Element Width in bits.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -259,209 +208,6 @@ impl LmulGroup {
     #[inline(always)]
     pub const fn regs_usize(self) -> usize {
         self.0 as usize
-    }
-}
-
-/// Effective Element Width for loads/stores (can differ from SEW).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Eew(Sew);
-
-impl Eew {
-    /// Create from a `Sew` value.
-    #[inline(always)]
-    pub const fn new(sew: Sew) -> Self {
-        Self(sew)
-    }
-
-    /// Returns the underlying `Sew`.
-    #[inline(always)]
-    pub const fn sew(self) -> Sew {
-        self.0
-    }
-
-    /// Width in bits.
-    #[inline(always)]
-    pub const fn bits(self) -> usize {
-        self.0.bits()
-    }
-
-    /// Width in bytes.
-    #[inline(always)]
-    pub const fn bytes(self) -> usize {
-        self.0.bytes()
-    }
-}
-
-/// Element index within a vector register (group).
-/// Range: 0..VLMAX. NOT interchangeable with plain `usize`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct ElemIdx(usize);
-
-impl ElemIdx {
-    /// Create a new element index.
-    #[inline(always)]
-    pub const fn new(val: usize) -> Self {
-        Self(val)
-    }
-
-    /// Returns the index as `usize`.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0
-    }
-}
-
-/// Vector length (vl CSR value). NOT interchangeable with `Vlmax` or element count.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Vl(u64);
-
-impl Vl {
-    /// Create a new vector length value.
-    #[inline(always)]
-    pub const fn new(val: u64) -> Self {
-        Self(val)
-    }
-
-    /// Returns the value as `u64`.
-    #[inline(always)]
-    pub const fn as_u64(self) -> u64 {
-        self.0
-    }
-
-    /// Returns the value as `usize`.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0 as usize
-    }
-
-    /// Returns true if the vector length is zero.
-    #[inline(always)]
-    pub const fn is_zero(self) -> bool {
-        self.0 == 0
-    }
-}
-
-/// VLMAX value (maximum vector length for current vtype). Derived, never directly set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Vlmax(usize);
-
-impl Vlmax {
-    /// Compute VLMAX = (VLEN / SEW) * LMUL.
-    pub const fn compute(vlen: Vlen, sew: Sew, lmul: Vlmul) -> Self {
-        let vlen_bits = vlen.bits();
-        let sew_bits = sew.bits();
-        let (num, den) = lmul.as_fraction();
-        // VLMAX = (VLEN / SEW) * (LMUL_num / LMUL_den)
-        Self((vlen_bits / sew_bits) * num / den)
-    }
-
-    /// Returns the value as `usize`.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0
-    }
-
-    /// Returns the value as `u64`.
-    #[inline(always)]
-    pub const fn as_u64(self) -> u64 {
-        self.0 as u64
-    }
-}
-
-/// VLEN (vector register width in bits). Immutable per-core configuration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Vlen(usize);
-
-impl Vlen {
-    /// Creates a `Vlen` from a raw value.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` if the value is not a power of 2 in range [128, 2048].
-    pub const fn new(val: usize) -> Result<Self, &'static str> {
-        if !val.is_power_of_two() || val < 128 || val > 2048 {
-            return Err("VLEN must be power of 2 in range [128, 2048]");
-        }
-        Ok(Self(val))
-    }
-
-    /// Creates a `Vlen` without validation. For use in const contexts where
-    /// the value is known valid.
-    ///
-    /// # Safety (logical)
-    ///
-    /// Caller must ensure val is a power of 2 in [128, 2048].
-    pub const fn new_unchecked(val: usize) -> Self {
-        Self(val)
-    }
-
-    /// Width in bits.
-    #[inline(always)]
-    pub const fn bits(self) -> usize {
-        self.0
-    }
-
-    /// Width in bytes.
-    #[inline(always)]
-    pub const fn bytes(self) -> usize {
-        self.0 / 8
-    }
-}
-
-/// Segment field count (nf). Range 1..=8 (encoded as 0..=7 in instruction).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Nf(u8);
-
-impl Nf {
-    /// Create from the 3-bit encoded value (0..=7 → fields 1..=8).
-    #[inline(always)]
-    pub const fn from_encoding(enc: u8) -> Self {
-        Self((enc & 0x7) + 1)
-    }
-
-    /// Returns the actual field count (1..=8).
-    #[inline(always)]
-    pub const fn fields(self) -> u8 {
-        self.0
-    }
-
-    /// Returns the field count as usize.
-    #[inline(always)]
-    pub const fn fields_usize(self) -> usize {
-        self.0 as usize
-    }
-
-    /// Returns true if this is a non-segment operation (nf=1).
-    #[inline(always)]
-    pub const fn is_single(self) -> bool {
-        self.0 == 1
-    }
-}
-
-/// Effective LMUL for a vector operand. Determines how many physical
-/// registers one segment field spans. Used for segment load/store field spacing
-/// (RVV 1.0 §7.8).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Emul(u8);
-
-impl Emul {
-    /// Compute EMUL = max(1, (EEW / SEW) * LMUL).
-    ///
-    /// For unit-stride and strided loads where EEW == SEW, this equals the
-    /// LMUL group size. For indexed loads the EEW of indices may differ from
-    /// the data SEW, producing a different EMUL.
-    pub const fn compute(eew: Sew, sew: Sew, lmul: Vlmul) -> Self {
-        let (lnum, lden) = lmul.as_fraction();
-        let emul_num = eew.bits() * lnum;
-        let emul_den = sew.bits() * lden;
-        let emul = if emul_num >= emul_den { emul_num / emul_den } else { 1 };
-        Self(emul as u8)
-    }
-
-    /// Number of consecutive registers per segment field.
-    #[inline(always)]
-    pub const fn regs(self) -> u8 {
-        self.0
     }
 }
 
@@ -682,43 +428,23 @@ pub const fn encode_vtype(fields: &VtypeFields) -> u64 {
     val
 }
 
+/// The vector configuration a `vsetvl` establishes: what the front end
+/// snapshots for the vector instructions it renames, and what commit
+/// writes to the `vtype`, `vl` and `vstart` CSRs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VectorConfig {
+    /// `vtype`.
+    pub vtype: u64,
+    /// `vl`.
+    pub vl: u64,
+    /// `vstart`.
+    pub vstart: u64,
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-
-    // --- VRegIdx tests ---
-
-    #[test]
-    fn test_vregidx_range() {
-        let v0 = VRegIdx::new(0);
-        assert!(v0.is_v0());
-        assert_eq!(v0.as_u8(), 0);
-
-        let v31 = VRegIdx::new(31);
-        assert_eq!(v31.as_u8(), 31);
-        assert!(!v31.is_v0());
-    }
-
-    #[test]
-    #[should_panic(expected = "vector register index out of range")]
-    fn test_vregidx_out_of_range() {
-        let _ = VRegIdx::new(32);
-    }
-
-    #[test]
-    fn test_vregidx_alignment() {
-        let v0 = VRegIdx::new(0);
-        let v1 = VRegIdx::new(1);
-        let v4 = VRegIdx::new(4);
-        let group4 = Vlmul::M4.group_regs();
-
-        assert!(v0.is_aligned(group4));
-        assert!(!v1.is_aligned(group4));
-        assert!(v4.is_aligned(group4));
-    }
-
-    // --- Sew tests ---
 
     #[test]
     fn test_sew_encoding_roundtrip() {
@@ -736,8 +462,6 @@ mod tests {
         assert_eq!(Sew::E64.bits(), 64);
         assert_eq!(Sew::E64.bytes(), 8);
     }
-
-    // --- Vlmul tests ---
 
     #[test]
     fn test_vlmul_encoding_roundtrip() {
@@ -767,47 +491,6 @@ mod tests {
         assert_eq!(Vlmul::M8.group_regs().regs(), 8);
     }
 
-    // --- Vlmax tests ---
-
-    #[test]
-    fn test_vlmax_computation() {
-        let vlen = Vlen::new_unchecked(128);
-        assert_eq!(Vlmax::compute(vlen, Sew::E8, Vlmul::M1).as_usize(), 16);
-        assert_eq!(Vlmax::compute(vlen, Sew::E32, Vlmul::M1).as_usize(), 4);
-        assert_eq!(Vlmax::compute(vlen, Sew::E8, Vlmul::M8).as_usize(), 128);
-        assert_eq!(Vlmax::compute(vlen, Sew::E64, Vlmul::Mf8).as_usize(), 0);
-
-        let vlen256 = Vlen::new_unchecked(256);
-        assert_eq!(Vlmax::compute(vlen256, Sew::E32, Vlmul::M2).as_usize(), 16);
-    }
-
-    // --- Vlen tests ---
-
-    #[test]
-    fn test_vlen_validation() {
-        assert!(Vlen::new(128).is_ok());
-        assert!(Vlen::new(256).is_ok());
-        assert!(Vlen::new(2048).is_ok());
-        assert!(Vlen::new(64).is_err());
-        assert!(Vlen::new(100).is_err());
-        assert!(Vlen::new(4096).is_err());
-    }
-
-    // --- Nf tests ---
-
-    #[test]
-    fn test_nf() {
-        let nf = Nf::from_encoding(0);
-        assert_eq!(nf.fields(), 1);
-        assert!(nf.is_single());
-
-        let nf7 = Nf::from_encoding(7);
-        assert_eq!(nf7.fields(), 8);
-        assert!(!nf7.is_single());
-    }
-
-    // --- Policy tests ---
-
     #[test]
     fn test_tail_mask_policy() {
         assert_eq!(TailPolicy::from_bit(false), TailPolicy::Undisturbed);
@@ -816,8 +499,6 @@ mod tests {
         assert_eq!(MaskPolicy::from_bit(true), MaskPolicy::Agnostic);
     }
 
-    // --- Vxrm tests ---
-
     #[test]
     fn test_vxrm_roundtrip() {
         for bits in 0..4u8 {
@@ -825,8 +506,6 @@ mod tests {
             assert_eq!(vxrm.to_bits(), bits);
         }
     }
-
-    // --- vtype parse/encode tests ---
 
     #[test]
     fn test_parse_vtype_basic() {
@@ -901,26 +580,5 @@ mod tests {
         let fields = VtypeFields { vill: true, ..Default::default() };
         let encoded = encode_vtype(&fields);
         assert_eq!(encoded, 1u64 << 63);
-    }
-}
-
-/// The vector configuration a `vsetvl` establishes: what the front end
-/// snapshots for the vector instructions it renames, and what commit
-/// writes to the `vtype`, `vl` and `vstart` CSRs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct VectorConfig {
-    /// `vtype`.
-    pub vtype: u64,
-    /// `vl`.
-    pub vl: u64,
-    /// `vstart`.
-    pub vstart: u64,
-}
-
-impl VectorConfig {
-    /// The configuration the architectural CSRs hold.
-    #[must_use]
-    pub const fn from_csrs(csrs: &crate::core::arch::csr::Csrs) -> Self {
-        Self { vtype: csrs.vtype, vl: csrs.vl, vstart: csrs.vstart }
     }
 }

@@ -83,13 +83,8 @@ pub trait ExecutionEngine {
     /// The vector configuration an instruction decoded now runs under: the
     /// result of the youngest executed `vsetvl` still in the ROB, else the
     /// architectural CSRs.
-    fn vector_config(
-        &self,
-        csrs: &crate::core::arch::csr::Csrs,
-    ) -> crate::isa::vector::VectorConfig {
-        self.rob()
-            .youngest_vec_csr_update()
-            .unwrap_or_else(|| crate::isa::vector::VectorConfig::from_csrs(csrs))
+    fn vector_config(&self, csrs: &crate::core::arch::csr::Csrs) -> crate::isa::rvv::VectorConfig {
+        self.rob().youngest_vec_csr_update().unwrap_or_else(|| csrs.vector_config())
     }
 
     /// Whether the backend renames registers, so decode can skip the

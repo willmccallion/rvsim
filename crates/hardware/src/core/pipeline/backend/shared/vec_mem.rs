@@ -19,7 +19,7 @@ use crate::core::pipeline::latches::{
 use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::mem::VecMemAddrOp;
-use crate::isa::vector::{ElemIdx, Sew};
+use crate::isa::rvv::{ElemIdx, Sew};
 
 /// One micro-op of a vector memory instruction on its way through the
 /// memory stages.

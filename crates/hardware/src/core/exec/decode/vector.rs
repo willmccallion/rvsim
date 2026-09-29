@@ -7,7 +7,7 @@ use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
 use crate::isa::instruction::Decoded;
-use crate::isa::vector::{Sew, VRegIdx};
+use crate::isa::rvv::{Sew, VRegIdx};
 
 /// Unit-stride lumop: normal unit-stride load.
 const LUMOP_UNIT: u8 = 0b00000;

@@ -4,7 +4,7 @@
 //! this trait, allowing them to operate on either the architectural VPR (in-order
 //! backend) or a `VecPrfView` (O3 backend with physical register renaming).
 
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
 /// Trait abstracting element-level access to vector registers.
 ///

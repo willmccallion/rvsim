@@ -4,7 +4,7 @@ use crate::core::exec::inst::Inst;
 use crate::core::exec::signals::VectorOp;
 use crate::core::units::vpu::vsetvl::execute_vsetvl;
 use crate::isa::encoding::rvv::encoding as v_enc;
-use crate::isa::vector::{VectorConfig, Vlen};
+use crate::isa::rvv::{VectorConfig, Vlen};
 
 /// The configuration the `vsetvl` `inst` establishes when `vl` is currently
 /// `current_vl`.

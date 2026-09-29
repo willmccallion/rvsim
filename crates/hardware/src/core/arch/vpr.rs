@@ -3,7 +3,7 @@
 //! Provides 32 × VLEN-bit vector registers with element-wise access at all SEW
 //! values and register group operations for LMUL > 1.
 
-use crate::isa::vector::{ElemIdx, LmulGroup, Sew, VRegIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, LmulGroup, Sew, VRegIdx, Vlen};
 
 /// Architectural vector register file: 32 registers, each VLEN bits wide.
 #[derive(Clone)]
@@ -179,7 +179,7 @@ impl std::fmt::Debug for Vpr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isa::vector::Vlmul;
+    use crate::isa::rvv::Vlmul;
 
     fn vpr128() -> Vpr {
         Vpr::new(Vlen::new_unchecked(128))

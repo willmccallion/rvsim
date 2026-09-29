@@ -29,7 +29,7 @@ use crate::core::pipeline::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
 use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
 use crate::core::units::lsu::unaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
-use crate::isa::vector::VRegIdx;
+use crate::isa::rvv::VRegIdx;
 use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, Maintenance, MemOp, Packet, WriteData, WriteOrigin};

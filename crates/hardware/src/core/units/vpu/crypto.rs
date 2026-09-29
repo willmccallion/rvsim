@@ -23,7 +23,7 @@
 
 use crate::core::exec::signals::VectorOp;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 
 /// Element group size for AES/GHASH/SM4 (4 × SEW=32 = 128 bits).
 const EGS_AES: usize = 4;

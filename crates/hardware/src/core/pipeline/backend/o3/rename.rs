@@ -16,7 +16,7 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
-use crate::isa::vector::{VRegIdx, parse_vtype};
+use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::sim::StageCtx;
 use crate::trace_rename;
 

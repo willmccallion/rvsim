@@ -12,7 +12,7 @@ use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlmax};
+use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 /// Returns `true` if `op` is a permutation operation handled by this module.
 pub const fn is_permute(op: VectorOp) -> bool {
