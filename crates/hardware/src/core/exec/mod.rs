@@ -19,6 +19,9 @@ pub mod inst;
 /// What memory instructions compute from the data they access.
 pub mod memory;
 
+/// The architectural effects of retiring an instruction.
+pub mod retire;
+
 /// Control signals an instruction decodes to.
 pub mod signals;
 

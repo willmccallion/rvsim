@@ -3,7 +3,6 @@
 //! Shared by every engine that retires instructions: the pipelines' commit
 //! stages and the atomic core.
 
-use super::CoreCtx;
 use crate::common::constants::{
     DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
     PAGE_SHIFT, VPN_MASK,
@@ -14,6 +13,7 @@ use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::units::vpu::shadow::VectorWrites;
 use crate::core::units::vpu::types::VectorConfig;
+use crate::sim::CoreCtx;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
 /// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit, mideleg bit)`.
