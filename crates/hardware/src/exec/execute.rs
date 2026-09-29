@@ -9,6 +9,9 @@ use crate::exec::cbo::{self, CboEffect};
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
 use crate::exec::compute::vector::fpu::is_vec_fp;
+use crate::exec::execute::fpu::host::{
+    clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
+};
 use crate::exec::execute::fpu::nan_handling::box_f32;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{OpASrc, OpBSrc};
@@ -338,9 +341,6 @@ pub const fn jump_target(inst: &Inst) -> u64 {
 /// Runs `convert` with the host FPU set to `rm` and returns its result with
 /// the IEEE flags the host raised, so conversions report INEXACT/OVERFLOW.
 fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, u8) {
-    use crate::exec::compute::fpu::{
-        clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
-    };
     let saved = set_host_round_mode(rm);
     clear_host_fp_flags();
     let value = std::hint::black_box(convert());

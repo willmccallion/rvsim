@@ -25,7 +25,7 @@ mod fma;
 mod moves;
 mod widen;
 
-use crate::exec::compute::fpu::{restore_host_round_mode, set_host_round_mode};
+use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;

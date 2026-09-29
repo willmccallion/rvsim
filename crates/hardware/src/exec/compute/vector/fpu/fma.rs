@@ -2,8 +2,8 @@
 
 use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
+use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
-use crate::exec::compute::fpu::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
