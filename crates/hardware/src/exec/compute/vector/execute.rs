@@ -182,7 +182,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     );
     debug_assert!(
         !mem::is_vec_load(inst.ctrl.vec_op) && !mem::is_vec_store(inst.ctrl.vec_op),
-        "execute_vec_op_on called with memory op — use generate_element_addrs_vrf instead"
+        "execute_vec_op_on called with memory op — use element_accesses instead"
     );
 
     check_vill(inst.bits, vtype_bits, elen)?;

@@ -591,7 +591,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         if entry.ctrl.system_op == SystemOp::FenceI {
             // Older stores have completed (stall above); refills see them.
-            retire::fence_i(&mut state.core.l1_i_cache);
+            state.core.l1_i_cache.invalidate_all();
             // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
@@ -599,7 +599,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            retire::sfence_vma(&mut state.core.mmu, &info);
+            state.core.mmu.sfence_vma(&info);
             state.clear_reservation();
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;

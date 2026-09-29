@@ -41,6 +41,7 @@ use crate::uarch::pipeline::squash::{PendingSquash, SquashCause};
 use self::issue::{InOrderIssueUnit, IssuedUnit};
 use crate::exec::signals::ControlFlow;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
+use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]
@@ -195,7 +196,7 @@ impl InOrderEngine {
     /// vector instruction issues only from the ROB head.
     fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
         use crate::exec::compute::vector::mem::{
-            check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
+            check_vec_mem_emul, element_accesses, vec_mem_dst_count,
         };
         if unit_disabled(state.hart, &entry.inst) {
             let trap = Trap::IllegalInstruction(entry.inst.bits);
@@ -224,15 +225,17 @@ impl InOrderEngine {
         for (offset, reg) in vd_regs.iter_mut().enumerate().take(vd_count as usize) {
             *reg = VecPhysReg::new(u16::from(entry.inst.ctrl.vd.as_u8()) + offset as u16);
         }
-        let addresses = generate_element_addrs_vrf(
-            state.hart.regs.vpr(),
-            entry.inst.rv1,
-            entry.inst.rv2 as i64,
-            &entry.inst.ctrl,
-            state.hart.csrs.vtype,
-            state.hart.csrs.vl as usize,
-            state.hart.csrs.vstart as usize,
-            vec_op,
+        let addresses = route_to_phys(
+            element_accesses(
+                state.hart.regs.vpr(),
+                entry.inst.rv1,
+                entry.inst.rv2 as i64,
+                &entry.inst.ctrl,
+                state.hart.csrs.vtype,
+                state.hart.csrs.vl as usize,
+                state.hart.csrs.vstart as usize,
+                vec_op,
+            ),
             &vd_regs,
             vd_count,
         );

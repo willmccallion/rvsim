@@ -10,7 +10,6 @@
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
-use crate::exec::compute::vector::mem::VecMemAddrOp;
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
@@ -18,6 +17,7 @@ use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{ElemIdx, Sew};
 use crate::sim::memory::write_log::WriteSeq;
+use crate::uarch::pipeline::backend::shared::vec_mem::VecMemAddrOp;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;

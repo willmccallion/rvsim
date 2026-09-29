@@ -11,7 +11,8 @@
 
 use std::collections::VecDeque;
 
-use crate::exec::compute::vector::mem::VecMemAddrOp;
+use crate::common::VirtAddr;
+use crate::exec::compute::vector::mem::ElementAccess;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Sew};
@@ -21,6 +22,46 @@ use crate::uarch::pipeline::latches::{
 };
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
+
+/// An element access routed to the physical register it loads into.
+#[derive(Debug, Clone)]
+pub struct VecMemAddrOp {
+    /// Virtual address for this element access.
+    pub vaddr: VirtAddr,
+    /// The element's data for a store, 0 for a load.
+    pub store_data: u64,
+    /// Element index within the destination vector register.
+    pub elem_idx: ElemIdx,
+    /// Effective element width for this access.
+    pub eew: Sew,
+    /// Destination physical vector register for this element.
+    pub vd_phys: VecPhysReg,
+}
+
+/// Routes each access to its physical destination: the renamed register
+/// of its destination slot, or the zero register past the `vd_count`
+/// registers the instruction renamed.
+#[must_use]
+pub fn route_to_phys(
+    accesses: Vec<ElementAccess>,
+    vd_phys: &[VecPhysReg; 8],
+    vd_count: u8,
+) -> Vec<VecMemAddrOp> {
+    accesses
+        .into_iter()
+        .map(|access| VecMemAddrOp {
+            vaddr: access.vaddr,
+            store_data: access.store_data,
+            elem_idx: access.elem_idx,
+            eew: access.eew,
+            vd_phys: if access.dest_slot < vd_count as usize {
+                vd_phys[access.dest_slot]
+            } else {
+                VecPhysReg::ZERO
+            },
+        })
+        .collect()
+}
 
 /// One micro-op of a vector memory instruction on its way through the
 /// memory stages.

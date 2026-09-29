@@ -12,8 +12,8 @@ pub mod tlb;
 
 use crate::arch::csr::{Csrs, PagingMode};
 use crate::arch::pmp::Pmp;
-use crate::arch::translation::TranslationResult;
-use crate::common::{AccessType, Asid, PhysAddr, VirtAddr, Vpn};
+use crate::arch::translation::{SfenceVmaInfo, TranslationResult};
+use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, VPN_MASK, VirtAddr, Vpn};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
@@ -60,6 +60,21 @@ pub struct Mmu {
 }
 
 impl Mmu {
+    /// Retires an SFENCE.VMA: flushes the translations it names from every
+    /// TLB. The caller also clears the hart's reservation.
+    pub fn sfence_vma(&mut self, info: &SfenceVmaInfo) {
+        let vpn = || Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
+        let asid = || Asid::new(info.rs2_val as u16);
+        for tlb in [&mut self.dtlb, &mut self.itlb, &mut self.l2_tlb] {
+            match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
+                (false, false) => tlb.flush(),
+                (true, false) => tlb.flush_vaddr(vpn()),
+                (false, true) => tlb.flush_asid(asid()),
+                (true, true) => tlb.flush_vaddr_asid(vpn(), asid()),
+            }
+        }
+    }
+
     /// Creates an MMU with instruction and data L1 TLBs of `l1`'s geometry,
     /// a shared L2 TLB of `l2`'s hitting after `l2_latency` cycles, and a
     /// SATP writer accepting modes up to `paging_mode_max`.

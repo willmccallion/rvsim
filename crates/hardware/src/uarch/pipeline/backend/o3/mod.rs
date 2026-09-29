@@ -12,7 +12,7 @@ mod rename;
 mod serialize;
 
 use crate::config::Config;
-use crate::exec::compute::vector::mem::{generate_element_addrs_vrf, is_vec_store};
+use crate::exec::compute::vector::mem::{element_accesses, is_vec_store};
 use crate::exec::signals::ControlFlow;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlen};
 use crate::system::CoreCtx;
@@ -44,6 +44,7 @@ use crate::uarch::vector::lane_model::NumLanes;
 
 use self::fu_pool::{FuPool, FuType};
 use self::issue_queue::{IssueBudget, IssueQueue, SelectedEntry};
+use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
 /// A result a functional unit is still producing. Its dependents wake, and
 /// its ROB entry completes, when `complete_cycle` arrives.
@@ -919,7 +920,7 @@ impl ExecutionEngine for O3Engine {
                     let vd_count = vec_dst_info.map_or(0u8, |(_, c, _)| c);
                     let vd_phys_arr = vec_dst_info.map_or([VecPhysReg::ZERO; 8], |(p, _, _)| p);
 
-                    // Reject illegal EMUL (>8) before generate_element_addrs_vrf would panic.
+                    // Reject illegal EMUL (>8) before element_accesses would panic.
                     let vtype = crate::isa::rvv::parse_vtype(entry.vec_vtype);
                     if let Err(trap) = crate::exec::compute::vector::mem::check_vec_mem_emul(
                         ex_result.inst,
@@ -960,15 +961,17 @@ impl ExecutionEngine for O3Engine {
                     }
                     let micro_ops = {
                         let view = VecPrfView::new(&mut self.vec_prf, mapping);
-                        generate_element_addrs_vrf(
-                            &view,
-                            ex_result.alu,
-                            ex_result.store_data as i64,
-                            &entry.inst.ctrl,
-                            entry.vec_vtype,
-                            entry.vec_vl as usize,
-                            entry.vec_vstart as usize,
-                            vec_op,
+                        route_to_phys(
+                            element_accesses(
+                                &view,
+                                ex_result.alu,
+                                ex_result.store_data as i64,
+                                &entry.inst.ctrl,
+                                entry.vec_vtype,
+                                entry.vec_vl as usize,
+                                entry.vec_vstart as usize,
+                                vec_op,
+                            ),
                             &vd_phys_arr,
                             vd_count,
                         )

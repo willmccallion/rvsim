@@ -10,7 +10,6 @@ use crate::exec::signals::ControlSignals;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VtypeFields, parse_vtype};
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
 /// Returns `(data_emul_regs, idx_emul_regs)` for a vec memory op.
 ///
@@ -137,12 +136,9 @@ pub fn check_vec_mem_emul(
     Ok(())
 }
 
-/// A single element address micro-op generated for the O3 vector memory pipeline.
-///
-/// Each micro-op represents one element (or segment field) that will flow
-/// independently through Memory1 → Memory2 → Writeback.
+/// One element (or segment field) a vector memory instruction accesses.
 #[derive(Debug, Clone)]
-pub struct VecMemAddrOp {
+pub struct ElementAccess {
     /// Virtual address for this element access.
     pub vaddr: VirtAddr,
     /// The element's data for a store, 0 for a load.
@@ -151,8 +147,9 @@ pub struct VecMemAddrOp {
     pub elem_idx: ElemIdx,
     /// Effective element width for this access.
     pub eew: Sew,
-    /// Destination physical vector register for this element.
-    pub vd_phys: VecPhysReg,
+    /// Which register of the destination group the element lands in,
+    /// counting from `vd`.
+    pub dest_slot: usize,
 }
 
 /// Returns true if the given `VectorOp` is a vector load.
@@ -187,34 +184,18 @@ pub const fn is_vec_mem(op: VectorOp) -> bool {
     is_vec_load(op) || is_vec_store(op)
 }
 
-/// Compute the physical destination register for a given element.
-///
-/// For non-segment ops: `vd_phys[elem / elements_per_reg]`
-/// For segment ops: `vd_phys[seg * emul_regs + elem / elements_per_reg]`
-const fn compute_vd_phys(
-    vd_phys: &[VecPhysReg; 8],
-    vd_count: u8,
-    elem: usize,
-    seg: usize,
-    emul_regs: usize,
-    elements_per_reg: usize,
-) -> VecPhysReg {
+/// The register of the destination group element `elem` of field `seg`
+/// lands in: `seg * emul_regs + elem / elements_per_reg`.
+const fn dest_slot(elem: usize, seg: usize, emul_regs: usize, elements_per_reg: usize) -> usize {
     let reg_in_seg = if elements_per_reg > 0 { elem / elements_per_reg } else { 0 };
-    let idx = seg * emul_regs + reg_in_seg;
-    if idx < vd_count as usize { vd_phys[idx] } else { VecPhysReg::ZERO }
+    seg * emul_regs + reg_in_seg
 }
 
-/// Generate per-element address micro-ops using any `VectorRegFile` implementation.
-///
-/// This is the O3 backend's address generation path. Unlike [`generate_element_addrs`],
-/// it reads store data and index values from the provided `VectorRegFile` (typically a
-/// `VecPrfView` backed by the physical register file) and computes the correct
-/// physical destination register for each element.
-///
-/// Does NOT perform any memory access.
+/// The element accesses a vector memory instruction makes, reading store
+/// data and index values from `vrf`. Performs no memory access.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
-pub fn generate_element_addrs_vrf<V: VectorRegFile>(
+pub fn element_accesses<V: VectorRegFile>(
     vrf: &V,
     base_addr: u64,
     stride: i64,
@@ -223,9 +204,7 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
     vl: usize,
     vstart: usize,
     vec_op: VectorOp,
-    vd_phys: &[VecPhysReg; 8],
-    vd_count: u8,
-) -> Vec<VecMemAddrOp> {
+) -> Vec<ElementAccess> {
     let vtype = parse_vtype(vtype_bits);
     if vtype.vill {
         return Vec::new();
@@ -256,14 +235,13 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
                     let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
                     let store_data =
                         if is_store { vrf.read_element(dest, ElemIdx::new(i), eew) } else { 0 };
-                    let phys =
-                        compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
-                    ops.push(VecMemAddrOp {
+                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
+                    ops.push(ElementAccess {
                         vaddr: VirtAddr::new(addr),
                         store_data,
                         elem_idx: ElemIdx::new(i),
                         eew,
-                        vd_phys: phys,
+                        dest_slot: slot,
                     });
                 }
             }
@@ -285,14 +263,13 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
                     let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
                     let store_data =
                         if is_store { vrf.read_element(dest, ElemIdx::new(i), eew) } else { 0 };
-                    let phys =
-                        compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
-                    ops.push(VecMemAddrOp {
+                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
+                    ops.push(ElementAccess {
                         vaddr: VirtAddr::new(addr),
                         store_data,
                         elem_idx: ElemIdx::new(i),
                         eew,
-                        vd_phys: phys,
+                        dest_slot: slot,
                     });
                 }
             }
@@ -324,14 +301,13 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
                     } else {
                         0
                     };
-                    let phys =
-                        compute_vd_phys(vd_phys, vd_count, i, seg, emul_regs, elements_per_reg);
-                    ops.push(VecMemAddrOp {
+                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
+                    ops.push(ElementAccess {
                         vaddr: VirtAddr::new(addr),
                         store_data,
                         elem_idx: ElemIdx::new(i),
                         eew: data_sew,
-                        vd_phys: phys,
+                        dest_slot: slot,
                     });
                 }
             }
@@ -345,13 +321,13 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
                 let addr = base_addr.wrapping_add(i as u64);
                 let store_data =
                     if is_store { vrf.read_element(vd, ElemIdx::new(i), Sew::E8) } else { 0 };
-                let phys = compute_vd_phys(vd_phys, vd_count, i, 0, 1, elements_per_reg);
-                ops.push(VecMemAddrOp {
+                let slot = dest_slot(i, 0, 1, elements_per_reg);
+                ops.push(ElementAccess {
                     vaddr: VirtAddr::new(addr),
                     store_data,
                     elem_idx: ElemIdx::new(i),
                     eew: Sew::E8,
-                    vd_phys: phys,
+                    dest_slot: slot,
                 });
             }
             ops
@@ -371,17 +347,12 @@ pub fn generate_element_addrs_vrf<V: VectorRegFile>(
                 } else {
                     0
                 };
-                let phys = if reg_offset < vd_count as usize {
-                    vd_phys[reg_offset]
-                } else {
-                    VecPhysReg::ZERO
-                };
-                ops.push(VecMemAddrOp {
+                ops.push(ElementAccess {
                     vaddr: VirtAddr::new(addr),
                     store_data,
                     elem_idx: ElemIdx::new(byte_offset),
                     eew: Sew::E8,
-                    vd_phys: phys,
+                    dest_slot: reg_offset,
                 });
             }
             ops

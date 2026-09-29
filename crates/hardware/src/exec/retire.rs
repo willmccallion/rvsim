@@ -4,16 +4,12 @@
 //! stages and the atomic core. Each function changes only what it is
 //! given.
 
-use crate::arch::translation::SfenceVmaInfo;
 use crate::arch::trap::irq_to_trap;
 use crate::arch::{Hart, csr};
-use crate::common::{Asid, PAGE_SHIFT, VPN_MASK, Vpn};
 use crate::exec::compute::vector::shadow::VectorWrites;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
-use crate::uarch::cache::Cache;
-use crate::uarch::mmu::Mmu;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
 /// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit)`. `mideleg` delegates
@@ -113,26 +109,6 @@ pub const fn wfi(hart: &mut Hart) -> bool {
         hart.wfi_waiting = true;
     }
     waits
-}
-
-/// Retires a FENCE.I: instruction fetch sees every older store.
-pub fn fence_i(l1_i_cache: &mut Cache) {
-    l1_i_cache.invalidate_all();
-}
-
-/// Retires an SFENCE.VMA: flushes the translations it names. Retiring one
-/// also clears the hart's reservation, which lives with memory.
-pub fn sfence_vma(mmu: &mut Mmu, info: &SfenceVmaInfo) {
-    let vpn = || Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
-    let asid = || Asid::new(info.rs2_val as u16);
-    for tlb in [&mut mmu.dtlb, &mut mmu.itlb, &mut mmu.l2_tlb] {
-        match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
-            (false, false) => tlb.flush(),
-            (true, false) => tlb.flush_vaddr(vpn()),
-            (false, true) => tlb.flush_asid(asid()),
-            (true, true) => tlb.flush_vaddr_asid(vpn(), asid()),
-        }
-    }
 }
 
 const fn mark_fp_dirty(hart: &mut Hart) {
