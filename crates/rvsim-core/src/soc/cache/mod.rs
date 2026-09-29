@@ -13,6 +13,7 @@
 
 pub mod mshr;
 pub mod policies;
+pub mod prefetch;
 pub mod stats;
 pub mod writeback_buffer;
 
@@ -34,7 +35,7 @@ use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPol
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, CacheLevel, MemOp, MesiState, Packet, ProbeKind};
-use crate::uarch::prefetch::{
+use crate::soc::cache::prefetch::{
     NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
 };
 

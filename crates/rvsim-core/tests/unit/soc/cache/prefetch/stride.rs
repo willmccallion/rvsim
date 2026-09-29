@@ -6,8 +6,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::uarch::prefetch::Prefetcher;
-use rvsim_core::uarch::prefetch::StridePrefetcher;
+use rvsim_core::soc::cache::prefetch::Prefetcher;
+use rvsim_core::soc::cache::prefetch::StridePrefetcher;
 
 /// First access never triggers a prefetch (no history).
 #[test]

@@ -6,7 +6,7 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::uarch::cache::policies::{
+use rvsim_core::soc::cache::policies::{
     FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
 };
 

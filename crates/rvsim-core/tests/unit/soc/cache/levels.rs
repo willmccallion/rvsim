@@ -18,7 +18,7 @@ use rvsim_core::sim::packet::{
     ProbeKind, WriteData,
 };
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::uarch::cache::Cache;
+use rvsim_core::soc::cache::Cache;
 
 const LATENCY: u64 = 2;
 const RESPONSE_LATENCY: u64 = 1;

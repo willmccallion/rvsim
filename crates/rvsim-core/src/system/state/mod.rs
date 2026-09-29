@@ -32,6 +32,7 @@ use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::HartPaths;
 use crate::sim::stats::{StatSource, Stats};
 use crate::soc::bus::Bus;
+use crate::soc::cache::Cache;
 use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{
     Clint, GoldfishRtc, Htif, Plic, SimControl, SimOp, SysCon, Uart, VirtioBlock,
@@ -43,7 +44,6 @@ use crate::soc::memory::controller::{
 use crate::soc::memory::ddr5::Ddr5Controller;
 use crate::system::debug::HartDebug;
 use crate::system::topology::Topology;
-use crate::uarch::cache::Cache;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
 use std::fs;

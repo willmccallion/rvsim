@@ -1,20 +1,16 @@
 //! Microarchitecture: the timing model of one core.
 //!
 //! The pipelines and the structures they time instructions through:
-//! caches, TLBs, predictors and prefetchers. What instructions do is
+//! TLBs, branch and memory-dependence predictors, and the vector unit. What instructions do is
 //! defined in [`crate::exec`]; this layer decides when it happens.
 
 pub mod bpred;
-
-pub mod cache;
 
 pub mod mdp;
 
 pub mod mmu;
 
 pub mod pipeline;
-
-pub mod prefetch;
 
 pub mod vector;
 
@@ -23,8 +19,8 @@ use crate::config::{Config, InclusionPolicy};
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
+use crate::soc::cache::Cache;
 use crate::uarch::bpred::BranchPredictor;
-use crate::uarch::cache::Cache;
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::pipeline::engine::PipelineDispatch;

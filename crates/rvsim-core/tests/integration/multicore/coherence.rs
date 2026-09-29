@@ -11,8 +11,8 @@ use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use rvsim_core::sim::packet::MesiState;
+use rvsim_core::soc::cache::Cache;
 use rvsim_core::system::coherence_audit::audit;
-use rvsim_core::uarch::cache::Cache;
 
 const T0: u32 = 5;
 const T1: u32 = 6;

@@ -5,8 +5,8 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use rvsim_core::uarch::prefetch::NextLinePrefetcher;
-use rvsim_core::uarch::prefetch::Prefetcher;
+use rvsim_core::soc::cache::prefetch::NextLinePrefetcher;
+use rvsim_core::soc::cache::prefetch::Prefetcher;
 
 /// Degree-1 prefetcher emits exactly one address — the next cache line.
 #[test]
