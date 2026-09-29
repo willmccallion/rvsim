@@ -152,7 +152,7 @@ This runs all 12 combinations in parallel and prints a comparison table with spe
 
 ## Low-Level Control
 
-For fine-grained control, use `Simulator` to build a `Cpu` object and tick it manually:
+For fine-grained control, tick a `Simulator` manually:
 
 ```python
 from rvsim import Simulator, Config, reg, csr

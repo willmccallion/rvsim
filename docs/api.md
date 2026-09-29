@@ -125,15 +125,8 @@ Simulator(
 )
 ```
 
-#### `run(limit=None, progress=0, stats_sections=None, output_stats=None) -> int`
-
-Convenience method: build, run to completion, and return the exit code.
-
----
-
-## Cpu
-
-The live CPU instance returned by `Simulator.build()`. Provides tick-level control and state inspection.
+A `Simulator` is the live system: the methods below control it cycle by
+cycle and inspect its state. The examples call it `cpu`.
 
 ### Control
 
@@ -141,13 +134,19 @@ The live CPU instance returned by `Simulator.build()`. Provides tick-level contr
 
 Advance the simulation by one clock cycle.
 
-#### `run(limit=None)`
+#### `run(limit=None, progress=0, stats_sections=None) -> int | None`
 
-Run until the program exits or `limit` cycles.
+Run until the program exits or `limit` cycles pass, and return the exit code,
+or `None` if the limit was reached first. `progress=N` prints progress to
+stderr every N cycles. `stats_sections=[]` prints every stats subject when the
+run ends, and a list such as `["core0", "hart0"]` prints only those.
 
-#### `run_until(pc=None, privilege=None)`
+#### `run_until(predicate=None, *, pc=None, privilege=None, limit=None, chunk=10_000) -> int | None`
 
-Run until the architectural PC (the next instruction to retire) equals the given address or the privilege level matches the given string (`"M"`, `"S"`, or `"U"`).
+Run until the architectural PC (the next instruction to retire) equals `pc`,
+the privilege level matches `privilege` (`"M"`, `"S"` or `"U"`), or
+`predicate(cpu)` returns `True`; the predicate is checked every `chunk`
+cycles. Returns the exit code if the program exited first, otherwise `None`.
 
 #### `run_to(*, cycles=None, instructions=None, pc=None, guest_breaks=True, console_output=False) -> (str, int | None)`
 
@@ -176,14 +175,29 @@ stats resets.
 With `console="captured"`, take what the guest has printed since the last
 call, and type into its console.
 
-#### `save(path: str)`
+#### `save(path)`, `restore(path)`
 
-Drain the pipelines and save a checkpoint to disk.
+A checkpoint holds RAM (skipping 4 KiB pages of zeros), the cycle counter, every hart's architectural
+state (PC, privilege, integer, floating-point and vector registers, every
+CSR, PMP entries, and its LR reservation) and the devices' registers
+(CLINT timers and `mtime`, PLIC priorities, enables, thresholds and claims,
+UART registers and unread input, the virtio disk's queue and every sector
+the guest has written). `save` first
+drains the machine the way gem5 does: speculative work is discarded,
+committed stores still in the store buffers reach RAM, each hart is left at
+its committed PC and a disk request in flight completes at once, so a run
+that continues after a save is not cycle-identical to one without it.
 
-#### `restore(path: str)`
-
-Restore from a checkpoint; the configuration may differ in anything but
-hart count, RAM size and VLEN (see below).
+A checkpoint restores into any configuration with the same hart count, RAM
+size and VLEN, so a system can boot on a cheap configuration and continue
+on a detailed one. It does not hold cache contents, TLBs, predictor state
+or in-flight memory traffic: after a restore the caches, TLBs and the
+coherence home agent start empty, as gem5's do, so warm the system up
+before measuring. The disk's written sectors are replayed over the image
+the restoring simulator loaded, so it must load the same image the
+checkpoint was taken on; the image file itself is never modified. A
+restore into a mismatched system, or onto a different disk image, raises
+an error naming what differs and leaves the simulator untouched.
 
 ### State Inspection
 
@@ -253,30 +267,6 @@ cpu.trace_filter(harts=[1], cycles=(19_100_000, 19_160_000), trap_causes=[1, 12]
 cpu.trace = True
 cpu.run(limit=60_000)
 ```
-
-#### `save(path)`, `restore(path)`
-
-A checkpoint holds RAM (skipping 4 KiB pages of zeros), the cycle counter, every hart's architectural
-state (PC, privilege, integer, floating-point and vector registers, every
-CSR, PMP entries, and its LR reservation) and the devices' registers
-(CLINT timers and `mtime`, PLIC priorities, enables, thresholds and claims,
-UART registers and unread input, the virtio disk's queue and every sector
-the guest has written). `save` first
-drains the machine the way gem5 does: speculative work is discarded,
-committed stores still in the store buffers reach RAM, each hart is left at
-its committed PC and a disk request in flight completes at once, so a run
-that continues after a save is not cycle-identical to one without it.
-
-A checkpoint restores into any configuration with the same hart count, RAM
-size and VLEN, so a system can boot on a cheap configuration and continue
-on a detailed one. It does not hold cache contents, TLBs, predictor state
-or in-flight memory traffic: after a restore the caches, TLBs and the
-coherence home agent start empty, as gem5's do, so warm the system up
-before measuring. The disk's written sectors are replayed over the image
-the restoring simulator loaded, so it must load the same image the
-checkpoint was taken on; the image file itself is never modified. A
-restore into a mismatched system, or onto a different disk image, raises
-an error naming what differs and leaves the simulator untouched.
 
 #### `pipeline_snapshot() -> PipelineSnapshot`
 
