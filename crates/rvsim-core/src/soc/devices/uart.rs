@@ -291,7 +291,7 @@ impl Uart {
     /// Scans output characters for the "kernel panic" string.
     ///
     /// Used to detect fatal errors in the guest OS and terminate simulation.
-    fn check_char_for_panic(&mut self, ch: u8) -> bool {
+    const fn check_char_for_panic(&mut self, ch: u8) -> bool {
         /// Pattern to detect kernel panic messages in UART output.
         const PATTERN: &[u8] = b"kernel panic";
         let ch_lower = if ch.is_ascii_uppercase() { ch + 32 } else { ch };

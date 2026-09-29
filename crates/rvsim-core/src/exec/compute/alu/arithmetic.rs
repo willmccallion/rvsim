@@ -89,15 +89,15 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         }
         AluOp::Divu => {
             if is32 {
-                if (b as u32) == 0 {
-                    -1i64 as u64
-                } else {
-                    ((a as u32) / (b as u32)) as i32 as i64 as u64
+                match (a as u32).checked_div(b as u32) {
+                    Some(q) => q as i32 as i64 as u64,
+                    None => -1i64 as u64,
                 }
-            } else if b == 0 {
-                -1i64 as u64
             } else {
-                a / b
+                match a.checked_div(b) {
+                    Some(q) => q,
+                    None => -1i64 as u64,
+                }
             }
         }
         AluOp::Rem => {

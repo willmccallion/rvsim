@@ -47,7 +47,7 @@ pub fn rmm_round_f64_to_f32(exact: f64) -> f32 {
         return rne;
     }
     // Midpoint is exact in f64 for two adjacent f32 values.
-    let midpoint = (rne_d + other as f64) * 0.5;
+    let midpoint = f64::midpoint(rne_d, f64::from(other));
     if exact == midpoint { if rne.abs() >= other.abs() { rne } else { other } } else { rne }
 }
 

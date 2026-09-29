@@ -243,13 +243,11 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 fn digest(bytes: &[u8]) -> u64 {
     let mut hash = FNV_OFFSET;
-    let mut chunks = bytes.chunks_exact(8);
-    for chunk in &mut chunks {
-        let mut word = [0; 8];
-        word.copy_from_slice(chunk);
+    let (words, rest) = bytes.as_chunks::<8>();
+    for &word in words {
         hash = (hash ^ u64::from_le_bytes(word)).wrapping_mul(FNV_PRIME);
     }
-    for &byte in chunks.remainder() {
+    for &byte in rest {
         hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
     }
     hash ^ bytes.len() as u64

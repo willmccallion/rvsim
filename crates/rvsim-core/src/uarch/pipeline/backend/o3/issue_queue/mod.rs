@@ -529,9 +529,7 @@ impl IssueQueue {
 
     /// Flush all entries.
     pub fn flush(&mut self) {
-        for slot in &mut self.slots {
-            *slot = None;
-        }
+        self.slots.fill(None);
         self.count = 0;
     }
 

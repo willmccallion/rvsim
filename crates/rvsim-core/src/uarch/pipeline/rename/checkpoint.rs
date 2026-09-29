@@ -96,9 +96,7 @@ impl CheckpointTable {
 
     /// Frees all checkpoint slots.
     pub fn flush_all(&mut self) {
-        for slot in &mut self.slots {
-            *slot = None;
-        }
+        self.slots.fill(None);
         self.count = 0;
     }
 }

@@ -72,35 +72,13 @@ pub(super) fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, 
     }
     if val.is_infinite() {
         flags = flags | FpFlags::NV;
-        let result = match op {
-            AluOp::FCvtWS => {
-                if val > 0.0 {
-                    i32::MAX as i64 as u64
-                } else {
-                    i32::MIN as i64 as u64
-                }
-            }
-            AluOp::FCvtWUS => {
-                if val > 0.0 {
-                    u32::MAX as i32 as i64 as u64
-                } else {
-                    0
-                }
-            }
-            AluOp::FCvtLS => {
-                if val > 0.0 {
-                    i64::MAX as u64
-                } else {
-                    i64::MIN as u64
-                }
-            }
-            AluOp::FCvtLUS => {
-                if val > 0.0 {
-                    u64::MAX
-                } else {
-                    0
-                }
-            }
+        let result = match (op, val > 0.0) {
+            (AluOp::FCvtWS, true) => i32::MAX as i64 as u64,
+            (AluOp::FCvtWS, false) => i32::MIN as i64 as u64,
+            (AluOp::FCvtWUS, true) => u32::MAX as i32 as i64 as u64,
+            (AluOp::FCvtLS, true) => i64::MAX as u64,
+            (AluOp::FCvtLS, false) => i64::MIN as u64,
+            (AluOp::FCvtLUS, true) => u64::MAX,
             _ => 0,
         };
         return (result, flags);

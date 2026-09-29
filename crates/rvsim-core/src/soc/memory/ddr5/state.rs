@@ -362,7 +362,7 @@ fn fresh_ranks(
     origin: u64,
 ) -> Vec<Rank> {
     let ranks_as_u64 = u64::try_from(rank_count).unwrap_or(u64::MAX);
-    let stagger = if ranks_as_u64 == 0 { 0 } else { refresh_interval / ranks_as_u64 };
+    let stagger = refresh_interval.checked_div(ranks_as_u64).unwrap_or(0);
     (0..rank_count)
         .map(|r| {
             let offset = u64::try_from(r).unwrap_or(0) * stagger;

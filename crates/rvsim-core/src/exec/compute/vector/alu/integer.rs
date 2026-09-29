@@ -95,13 +95,7 @@ pub(super) fn compute_standard(
             (hi & mask, false)
         }
 
-        VectorOp::VDivU => {
-            if op1 == 0 {
-                (mask, false)
-            } else {
-                ((vs2 / op1) & mask, false)
-            }
-        }
+        VectorOp::VDivU => (vs2.checked_div(op1).map_or(mask, |q| q & mask), false),
         VectorOp::VDiv => {
             if op1 == 0 {
                 // div by zero: all-1s (which is -1 signed)

@@ -187,7 +187,10 @@ pub const fn is_vec_mem(op: VectorOp) -> bool {
 /// The register of the destination group element `elem` of field `seg`
 /// lands in: `seg * emul_regs + elem / elements_per_reg`.
 const fn dest_slot(elem: usize, seg: usize, emul_regs: usize, elements_per_reg: usize) -> usize {
-    let reg_in_seg = if elements_per_reg > 0 { elem / elements_per_reg } else { 0 };
+    let reg_in_seg = match elem.checked_div(elements_per_reg) {
+        Some(reg) => reg,
+        None => 0,
+    };
     seg * emul_regs + reg_in_seg
 }
 
