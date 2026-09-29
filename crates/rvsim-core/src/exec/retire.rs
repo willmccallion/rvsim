@@ -1,8 +1,7 @@
 //! The architectural effects of retiring an instruction.
 //!
-//! Shared by every engine that retires instructions: the pipelines' commit
-//! stages and the atomic core. Each function changes only what it is
-//! given.
+//! Shared by the in-order and out-of-order commit stages. Each function
+//! changes only what it is given.
 
 use crate::arch::Hart;
 use crate::arch::trap::irq_to_trap;
