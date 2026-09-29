@@ -5,10 +5,6 @@ tree with path-addressed access, per-counter metadata, wildcard queries, and
 first-class derived metrics. This document captures the reasoning behind that
 design so future changes stay coherent with the original intent.
 
-The concrete path names, commit boundaries, and migration mechanics live in
-`plan.md` and the Phase 3b plan. This page is about *why* the system looks the
-way it does.
-
 ## Motivation
 
 We started with gem5-shaped stats (a flat text dump per run, no query language,
@@ -29,7 +25,7 @@ no metadata) and hit the same friction gem5 users hit:
 - **Backend divergence.** The InOrder and O3 backends had subtly different
   counter names for the same event because they were plumbed independently.
 
-Phase 3b rebuilds the stats layer to fix these directly. The design goals below
+The stats layer is built to fix these directly. The design goals below
 each map to one of these pain points.
 
 ## Path grammar
@@ -49,9 +45,10 @@ stalls."
 ```
 core<N>       — physical execution core (pipeline + private caches + BP)
 hart<N>       — architectural hart (regs, CSRs, retired-inst counter)
-memctrl<N>    — memory controller channels
-bus           — interconnect
+llc           — the shared last-level cache
+memctrl<N>    — DDR5 memory controller channels and sub-channels
 coherence     — coherence fabric: coherence.ha.* (home agent), coherence.interconnect.*
+system        — sums over every hart (system.retired_insts, system.traps)
 ```
 
 ### Why no `system.` prefix
@@ -64,10 +61,10 @@ system, and the top-level subjects speak for themselves.
 ### Why `core<N>` and `hart<N>` — not `cpu<N>`
 
 "CPU" is ambiguous. gem5 uses it for the pipeline; RISC-V uses "hart" for the
-architectural state and "core" for the physical execution engine. Phase 3
-already removed the `Cpu` Rust type in favor of `SystemState` (and, in Phase 5,
-`Core` + `Hart` structs). Reintroducing `cpu<N>` as a namespace label would
-undo that clarification.
+architectural state and "core" for the physical execution engine. The Rust
+side has no `Cpu` type either: a `Hart` holds architectural state and a
+`Core` the micro-architecture. A `cpu<N>` namespace label would undo that
+clarification.
 
 Splitting `core<N>` and `hart<N>`:
 
@@ -117,13 +114,13 @@ the `Core` keeps the struct, `Uncore` keeps one `HartPaths` per hart.
 Writers use the field, not a string:
 
 ```rust
-state.shared.stats.counter(state.core.stat_paths.commit.op_load).inc();
+state.uncore.stats.counter(state.core.stat_paths.commit.op_load).inc();
 ```
 
 Typos become compile errors instead of silently-zero counters — which is
-exactly the failure mode Phase 2 hit (cache/MSHR/WCB counters had been printing
-zero for months because the writers had drifted out of sync with the field
-names) — and the hot path still increments through a pre-resolved
+exactly the failure mode the earlier flat stats hit (cache/MSHR/WCB counters
+had been printing zero for months because the writers had drifted out of sync
+with the field names) — and the hot path still increments through a pre-resolved
 `&'static str`. `Stats::for_components` registers every hart's and core's
 paths with their metadata from the topology, so `core1.commit.op.load` exists
 (and is zero) on a two-core system before anything has retired, and derives
@@ -217,17 +214,21 @@ The output shape matches the old `SimStats::print_sections` verbatim
 to relearn the format. What changes is that adding a new counter no longer
 requires editing a 350-line function.
 
-## Python compatibility
+## Python access
 
-Phase 3b preserves the Python dict keys — `sim.stats["instructions_retired"]`
-still works. `PyStats::to_dict` becomes a tree adapter that reads from
-`stats.get(paths::...)` and writes the old flat names. This lets us reshape
-the Rust side without breaking notebooks and scripts that already exist.
+Python sees the same paths. `sim.stats["core0.ipc"]` reads one stat and
+`sim.stats.query("core*.cache.l1d.misses").sum()` aggregates across cores.
+`Stats.from_core(sim.stats)` flattens the tree into a dict keyed by path, plus
+the run-level `cycles`, `instructions_retired` and `ipc`; that is what
+`Environment.run()` returns as `result.stats`.
 
-The 16 counters that were silently reading zero since Phase 2 (cache hits/
-misses, MSHR, prefetch dedup, `stalls_mem`, etc.) are removed rather than
-preserved as zero. They'll come back in Phase 3c when `impl Handle for Cache`
-wires them through properly.
+There are no flat aliases such as `dcache_misses` or `branch_accuracy_pct`: a
+second vocabulary would drift from the tree the same way the old counters
+did. Comparisons (`Result.compare`, `Sweep.run().compare`) take paths and read
+a metric's direction and aggregation from its last segment: `ipc`,
+`accuracy` and `hits` are better higher; `cycles`, `misses`, `mispredicts`,
+`miss_rate` and every `stalls.*` counter better lower; an `accuracy` or
+`miss_rate` over several runs is recomputed from the counters beside it.
 
 ## What this does not solve
 

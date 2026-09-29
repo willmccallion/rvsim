@@ -37,17 +37,20 @@ config = Config(
     l2=Cache("256KB", ways=8, latency=10),
 )
 
-result = Environment(binary="program.elf", config=config).run()
-print(result.stats.query("ipc|branch|miss"))
+result = Environment(binary="software/bin/programs/qsort.elf", config=config).run()
+print(result.stats.query(r"^ipc$|bp\.committed\.(accuracy|mispredicts)|(l1d|l2)\.miss_rate"))
 ```
 
 ```
-  ipc                          0.9256
-  branch_accuracy_pct         83.3474
-  branch_mispredictions       497,026
-  dcache_misses                79,488
-  l2_misses                    21,374
+core0.bp.committed.accuracy      0.8750
+core0.bp.committed.mispredicts  386,904
+core0.cache.l1d.miss_rate        0.0914
+core0.cache.l2.miss_rate         0.5149
+ipc                              1.1588
 ```
+
+Stats are keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`);
+see [Stats & Observability](https://willmccallion.github.io/rvsim/architecture/stats/).
 
 ## Features
 
@@ -126,7 +129,7 @@ results = Sweep(
     },
 ).run(parallel=True)
 
-results.compare(metrics=["ipc", "dcache_misses"], baseline="L1=8KB")
+results.compare(metrics=["ipc", "core0.cache.l1d.misses"], baseline="L1=8KB")
 ```
 
 ### Low-Level Control

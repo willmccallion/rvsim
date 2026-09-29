@@ -37,17 +37,16 @@ rvsim examples/analysis/branch_predict.py
 rvsim examples/analysis/branch_predict.py --width 4 --programs maze qsort
 ```
 
-**Metrics:** cycles, IPC, branch accuracy, mispredictions, correct predictions
+**Metrics:** cycles, IPC, committed branch accuracy and mispredictions
 
-**Example output:**
+**Example output** (`--programs qsort maze`, accuracy table):
 
 ```
-  ›  branch_accuracy_pct
-  predictor        Static   GShare     TAGE  ScLTage  Perceptron  Tournament
-  mandelbrot.elf  56.4375  57.3566  97.7840      ...     54.3290     97.2340
-  maze.elf        51.6078  56.9724  98.6112      ...     46.0765     80.7168
-  qsort.elf       32.5515  60.3781  83.4249      ...     67.1985     69.7478
-  merge_sort.elf  53.7159  65.3798  84.9415      ...     66.7236     82.8787
+  ›  core0.bp.committed.accuracy
+  predictor  Static  GShare    TAGE  ScLTage  Perceptron  Tournament
+  qsort.elf  0.3623  0.8553  0.8749   0.8834      0.8770      0.8654
+  maze.elf   0.6566  0.9849  0.9917   0.9923      0.9892      0.9857
+  AGGREGATE  0.4042  0.8738  0.8915   0.8989      0.8930      0.8826
 ```
 
 ### cache_sweep.py
@@ -59,7 +58,7 @@ rvsim examples/analysis/cache_sweep.py
 rvsim examples/analysis/cache_sweep.py --sizes 1KB 2KB 4KB 8KB 16KB 32KB --ways 8
 ```
 
-**Metrics:** cycles, IPC, dcache hits, dcache misses
+**Metrics:** cycles, IPC, L1D miss rate, L1D misses
 
 ### design_space.py
 
@@ -72,7 +71,7 @@ rvsim examples/analysis/design_space.py software/bin/programs/maze.elf
 
 **Sweep dimensions:** width (1, 2, 4, 8) × L1D size (16KB, 32KB, 64KB, 128KB) = 16 configurations
 
-**Metrics:** IPC, cycles, dcache misses
+**Metrics:** IPC, cycles, L1D misses
 
 ### o3_inorder.py
 
@@ -83,7 +82,7 @@ rvsim examples/analysis/o3_inorder.py
 rvsim examples/analysis/o3_inorder.py --widths 1 2 4 8
 ```
 
-**Metrics:** IPC, cycles, instructions retired, data stalls, memory stalls, control stalls
+**Metrics:** IPC, cycles, instructions retired, data, control and functional-unit stalls
 
 **Example output:**
 
@@ -103,17 +102,17 @@ rvsim examples/analysis/width_scaling.py
 rvsim examples/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
 ```
 
-**Metrics:** cycles, IPC, branch accuracy, mispredictions
+**Metrics:** cycles, IPC, committed branch accuracy and mispredictions
 
 ### stall_breakdown.py
 
-Breaks down stall cycles into memory, control (misprediction), and data (RAW hazard) categories.
+Breaks down stall cycles by cause: control (misprediction recovery), data (waiting for operands), dispatch, functional units, squashes and the rest of `core0.pipeline.stalls.*`.
 
 ```bash
 rvsim examples/analysis/stall_breakdown.py
 ```
 
-**Metrics per program:** cycles, IPC, control stalls, data stalls, memory stalls
+**Metrics per program:** cycles, IPC, every `core0.pipeline.stalls.*` counter
 
 ### top_down.py
 
@@ -161,7 +160,7 @@ binaries = [
 # Run and compare
 results = Sweep(binaries=binaries, configs=configs).run(parallel=True)
 results.compare(
-    metrics=["ipc", "cycles", "dcache_misses"],
+    metrics=["ipc", "cycles", "core0.cache.l1d.misses"],
     baseline="baseline",
 )
 ```

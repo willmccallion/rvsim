@@ -77,8 +77,8 @@ Every simulation produces a `Stats` object (a dict subclass) with detailed micro
 # All cache-related stats
 result.stats.query("cache")
 
-# IPC and branch stats
-result.stats.query("ipc|branch")
+# IPC and branch-predictor stats
+result.stats.query(r"ipc|\.bp\.")
 
 # Everything with "miss" in the name
 result.stats.query("miss")
@@ -91,11 +91,11 @@ result.stats.query("miss")
 | `cycles` | Total simulated clock cycles |
 | `instructions_retired` | Instructions that completed (committed) |
 | `ipc` | Instructions per cycle = instructions_retired / cycles |
-| `dcache_misses` | L1 data cache misses |
-| `branch_accuracy_pct` | Percentage of branches predicted correctly |
-| `stalls_data` | Cycles stalled waiting for data (RAW hazards) |
-| `stalls_mem` | Cycles stalled on memory (in-order backend) |
-| `stalls_control` | Cycles lost to branch misprediction recovery |
+| `core0.cache.l1d.misses` | L1 data cache misses (every cache also has `hits` and `miss_rate`) |
+| `core0.bp.committed.accuracy` | Fraction of committed branches predicted correctly (0 to 1) |
+| `core0.pipeline.stalls.data` | Cycles stalled waiting for operands |
+| `core0.pipeline.stalls.control` | Cycles lost to branch misprediction recovery |
+| `core0.pipeline.stalls.fu_structural` | Cycles stalled waiting for a free functional unit |
 
 ## Comparing Configurations
 
@@ -114,7 +114,7 @@ for name, bp in [
         "software/bin/programs/maze.elf",
         Config(branch_predictor=bp),
     ).run()
-    rows[name] = r.stats.query("ipc|branch_accuracy|mispredictions")
+    rows[name] = r.stats.query(r"^ipc$|bp\.committed\.(accuracy|mispredicts)")
 
 print(Stats.tabulate(rows, title="Branch Predictor Comparison"))
 ```
@@ -142,7 +142,7 @@ results = Sweep(
 ).run(parallel=True)
 
 results.compare(
-    metrics=["ipc", "dcache_misses"],
+    metrics=["ipc", "core0.cache.l1d.misses"],
     baseline="L1=8KB",
     col_header="L1D Size",
 )

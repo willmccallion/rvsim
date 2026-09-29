@@ -90,7 +90,9 @@ results = Sweep(
     },
 ).run(parallel=True)
 
-results.compare(metrics=["ipc", "cycles", "dcache_misses", "branch_accuracy_pct"])
+results.compare(
+    metrics=["ipc", "cycles", "core0.cache.l1d.misses", "core0.bp.committed.accuracy"]
+)
 ```
 
 ### Deriving Variants
