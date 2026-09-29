@@ -2,8 +2,8 @@
 //! high must not turn the line into the software SEIP bit: only that bit
 //! takes part in a CSRRS/CSRRC, so SEIP drops with the line.
 
-use crate::common::builder::instruction::InstructionBuilder;
-use crate::common::harness::TestContext;
+use crate::support::builder::instruction::InstructionBuilder;
+use crate::support::harness::TestContext;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::isa::csr::{MIP, MIP_SEIP, MIP_STIP};

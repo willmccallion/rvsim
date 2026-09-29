@@ -1,46 +1,11 @@
-//! # Unit Components
-//!
-//! This module serves as the central hub for the various architectural units and
-//! components of the system. It organizes the fundamental building blocks required
-//! for simulation, including the processor core, ISA definitions, and SoC integration.
+//! Unit tests, laid out like the crate's modules.
 
-/// Unit tests for configuration system.
-///
-/// This module includes tests for configuration structures, JSON deserialization,
-/// defaults, and validation of all configuration options.
-pub mod config;
-
-/// Unit tests for the coherence fabric.
-pub mod coherence;
-
-/// Unit tests for common RISC-V components.
-///
-/// This module includes tests for address arithmetic, register indexing,
-/// and other shared data structures used across the emulator.
+pub mod arch;
 pub mod common;
-
-/// Core definitions and fundamental logic for the unit system.
-///
-/// This module provides the base structures, traits, and constants that form
-/// the foundation of the unit management and manipulation logic.
-pub mod core;
-
-/// Unit tests for the RISC-V Instruction Set Architecture (ISA) implementation.
-///
-/// This module aggregates tests for:
-/// - Instruction decoding and field extraction.
-/// - Disassembler mnemonic generation.
-/// - Compressed (RVC) instruction expansion.
+pub mod config;
+pub mod exec;
 pub mod isa;
-
-/// Unit tests for the System-on-Chip (SoC) components.
-///
-/// This module organizes tests for hardware devices, bus interconnects,
-/// and memory controllers.
-pub mod soc;
-
-/// Unit tests for simulation-related functionality.
-///
-/// This module contains tests for binary loading, kernel setup,
-/// and other simulation initialization tasks.
 pub mod sim;
+pub mod soc;
+pub mod system;
+pub mod uarch;

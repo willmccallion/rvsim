@@ -1,8 +1,8 @@
 //! An LR/SC spinlock guards a plain read-modify-write counter; mutual
 //! exclusion must hold, so the counter equals the total iteration count.
 
-use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
-use crate::common::multihart::{DATA_BASE, MultiHart};
+use crate::support::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
+use crate::support::multihart::{DATA_BASE, MultiHart};
 use rvsim_core::config::BackendKind;
 
 const T0: u32 = 5;

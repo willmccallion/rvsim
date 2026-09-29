@@ -1,8 +1,8 @@
 //! Every hart adds to one shared word with `amoadd.d`; the total must be
 //! exact however the harts interleave.
 
-use crate::common::builder::instruction::{ECALL, InstructionBuilder};
-use crate::common::multihart::{DATA_BASE, MultiHart};
+use crate::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::support::multihart::{DATA_BASE, MultiHart};
 use rvsim_core::config::BackendKind;
 
 const T0: u32 = 5;

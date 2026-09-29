@@ -1,8 +1,8 @@
 //! Simultaneous interrupts: those destined for M-mode are taken before any
 //! destined for S-mode, whatever their fixed-priority position.
 
-use crate::common::builder::instruction::InstructionBuilder;
-use crate::common::harness::TestContext;
+use crate::support::builder::instruction::InstructionBuilder;
+use crate::support::harness::TestContext;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::BackendKind;
 use rvsim_core::config::Config;

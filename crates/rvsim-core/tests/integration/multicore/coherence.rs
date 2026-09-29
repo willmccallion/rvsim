@@ -2,9 +2,9 @@
 //! and the coherence invariants must hold at every audit, on every home
 //! agent and interconnect.
 
-use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
-use crate::common::multihart::{DATA_BASE, MultiHart};
 use crate::integration::multicore::{amo_counter, spinlock};
+use crate::support::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
+use crate::support::multihart::{DATA_BASE, MultiHart};
 use rvsim_core::common::{LineAddr, PhysAddr};
 use rvsim_core::config::BackendKind;
 use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};

@@ -4,8 +4,8 @@
 //! and an idle crossbar give the same run, cycle for cycle and stat for
 //! stat, whether the quiet stretches are ticked or skipped.
 
-use crate::common::builder::instruction::{ECALL, InstructionBuilder};
-use crate::common::multihart::MultiHart;
+use crate::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::support::multihart::MultiHart;
 use rvsim_core::config::{Config, Console, InterconnectConfig, MemoryControllerKind};
 use rvsim_core::sim::stats::StatFormat;
 use rvsim_core::system::simulator::{StopAt, StopReason};

@@ -2,8 +2,8 @@
 //! a software interrupt gives the same run, cycle for cycle and stat for
 //! stat, with its idle cycles counted instead of ticked.
 
-use crate::common::builder::instruction::{ECALL, InstructionBuilder};
-use crate::common::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
+use crate::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::support::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
 use rvsim_core::config::BackendKind;
 use rvsim_core::sim::stats::StatFormat;
 

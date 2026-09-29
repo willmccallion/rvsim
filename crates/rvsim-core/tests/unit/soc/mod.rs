@@ -1,11 +1,6 @@
-pub mod checkpoint;
-pub mod clint_timer;
+//! The system-on-chip: bus, coherence, devices and memory controllers.
+
+pub mod bus;
+pub mod coherence;
 pub mod devices;
-pub mod goldfish_rtc;
-pub mod htif;
-pub mod interconnect;
 pub mod memory;
-pub mod plic;
-pub mod syscon;
-pub mod uart;
-pub mod virtio;

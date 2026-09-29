@@ -7,7 +7,7 @@
 //! `ppn.to_addr() | (va & offset_mask)`. Non-canonical VAs are also
 //! exercised and must page-fault.
 
-use crate::common::harness::TestContext;
+use crate::support::harness::TestContext;
 use proptest::prelude::*;
 use rvsim_core::arch::csr::Csrs;
 use rvsim_core::arch::translation::TranslationResult;
