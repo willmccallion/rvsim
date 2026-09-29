@@ -28,9 +28,23 @@ from gem5.resources.resource import BinaryResource
 from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 from m5.objects import (
-    BadAddr, FUPool, FP_ALU, FP_MultDiv, IntALU, IntMultDiv, L2XBar, ReadPort,
-    RiscvO3CPU, SIMD_Unit, SystemXBar, TAGE, TAGE_SC_L_64KB, TAGEBase, TaggedPrefetcher,
-    TournamentBP, WritePort,
+    BadAddr,
+    FUPool,
+    FP_ALU,
+    FP_MultDiv,
+    IntALU,
+    IntMultDiv,
+    L2XBar,
+    ReadPort,
+    RiscvO3CPU,
+    SIMD_Unit,
+    SystemXBar,
+    TAGE,
+    TAGE_SC_L_64KB,
+    TAGEBase,
+    TaggedPrefetcher,
+    TournamentBP,
+    WritePort,
 )
 from m5.params import NULL
 
@@ -46,6 +60,7 @@ m5out = sys.argv[2]
 variant = VARIANTS[sys.argv[3]]
 
 import m5  # noqa: E402
+
 m5.options.outdir = m5out
 
 
@@ -82,15 +97,17 @@ def branch_predictor(bp: dict):
 class P550Core(BaseCPUCore):
     def __init__(self, core_id: int):
         requires(isa_required=ISA.RISCV)
-        fu_pool = FUPool(FUList=[
-            IntALU(count=3),
-            IntMultDiv(count=1),
-            FP_ALU(count=2),
-            FP_MultDiv(count=2),
-            SIMD_Unit(count=VECTOR_UNITS),
-            ReadPort(count=1),
-            WritePort(count=1),
-        ])
+        fu_pool = FUPool(
+            FUList=[
+                IntALU(count=3),
+                IntMultDiv(count=1),
+                FP_ALU(count=2),
+                FP_MultDiv(count=2),
+                SIMD_Unit(count=VECTOR_UNITS),
+                ReadPort(count=1),
+                WritePort(count=1),
+            ]
+        )
         cpu = RiscvO3CPU(
             fuPool=fu_pool,
             cpu_id=core_id,
@@ -137,29 +154,52 @@ class VariantCacheHierarchy(PrivateL1PrivateL2CacheHierarchy):
             for _ in range(board.get_processor().get_num_cores())
         ]
         degree = variant["l1d_prefetch_degree"]
-        l1d_prefetcher = (lambda: TaggedPrefetcher(degree=degree)) if degree else no_prefetcher
+        l1d_prefetcher = (
+            (lambda: TaggedPrefetcher(degree=degree)) if degree else no_prefetcher
+        )
         for i, cpu in enumerate(board.get_processor().get_cores()):
             l2 = variant["l2"]
-            l2_node = self.add_root_child(f"l2-cache-{i}", L2Cache(
-                size=f"{l2['size_kb']}KiB", assoc=l2["assoc"], mshrs=l2["mshrs"],
-                tag_latency=l2["latency"], data_latency=l2["latency"],
-                response_latency=l2["response"],
-                tgts_per_mshr=l2["tgts"], PrefetcherCls=no_prefetcher,
-            ))
+            l2_node = self.add_root_child(
+                f"l2-cache-{i}",
+                L2Cache(
+                    size=f"{l2['size_kb']}KiB",
+                    assoc=l2["assoc"],
+                    mshrs=l2["mshrs"],
+                    tag_latency=l2["latency"],
+                    data_latency=l2["latency"],
+                    response_latency=l2["response"],
+                    tgts_per_mshr=l2["tgts"],
+                    PrefetcherCls=no_prefetcher,
+                ),
+            )
             l1i = variant["l1i"]
-            l1i_node = l2_node.add_child(f"l1i-cache-{i}", L1ICache(
-                size=f"{l1i['size_kb']}KiB", assoc=l1i["assoc"], mshrs=l1i["mshrs"],
-                tag_latency=l1i["latency"], data_latency=l1i["latency"],
-                response_latency=l1i["response"],
-                tgts_per_mshr=l1i["tgts"], PrefetcherCls=no_prefetcher,
-            ))
+            l1i_node = l2_node.add_child(
+                f"l1i-cache-{i}",
+                L1ICache(
+                    size=f"{l1i['size_kb']}KiB",
+                    assoc=l1i["assoc"],
+                    mshrs=l1i["mshrs"],
+                    tag_latency=l1i["latency"],
+                    data_latency=l1i["latency"],
+                    response_latency=l1i["response"],
+                    tgts_per_mshr=l1i["tgts"],
+                    PrefetcherCls=no_prefetcher,
+                ),
+            )
             l1d = variant["l1d"]
-            l1d_node = l2_node.add_child(f"l1d-cache-{i}", L1DCache(
-                size=f"{l1d['size_kb']}KiB", assoc=l1d["assoc"], mshrs=l1d["mshrs"],
-                tag_latency=l1d["latency"], data_latency=l1d["latency"],
-                response_latency=l1d["response"],
-                tgts_per_mshr=l1d["tgts"], PrefetcherCls=l1d_prefetcher,
-            ))
+            l1d_node = l2_node.add_child(
+                f"l1d-cache-{i}",
+                L1DCache(
+                    size=f"{l1d['size_kb']}KiB",
+                    assoc=l1d["assoc"],
+                    mshrs=l1d["mshrs"],
+                    tag_latency=l1d["latency"],
+                    data_latency=l1d["latency"],
+                    response_latency=l1d["response"],
+                    tgts_per_mshr=l1d["tgts"],
+                    PrefetcherCls=l1d_prefetcher,
+                ),
+            )
             self.l2buses[i].mem_side_ports = l2_node.cache.cpu_side
             self.membus.cpu_side_ports = l2_node.cache.mem_side
             l1i_node.cache.mem_side = self.l2buses[i].cpu_side_ports

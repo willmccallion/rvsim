@@ -48,7 +48,9 @@ class SessionTestCase(unittest.TestCase):
         self._cache.cleanup()
 
     def session(self, config=None, binary=REGIONS, **kwargs) -> Session:
-        return Session(config or Config(), binary=binary, cache_dir=self.cache_dir, **kwargs)
+        return Session(
+            config or Config(), binary=binary, cache_dir=self.cache_dir, **kwargs
+        )
 
 
 @unittest.skipUnless(os.path.exists(REGIONS), "regions.elf not built")
@@ -77,7 +79,9 @@ class StopPoints(SessionTestCase):
         stopped = s.run(Console(r"setup \d+\n"))
 
         self.assertEqual(stopped.match.group(0), SETUP_LINE)
-        self.assertEqual(s.console, SETUP_LINE, "nothing after the line has been printed")
+        self.assertEqual(
+            s.console, SETUP_LINE, "nothing after the line has been printed"
+        )
 
     def test_a_console_match_consumes_the_output_it_matched(self):
         s = self.session()
@@ -85,7 +89,9 @@ class StopPoints(SessionTestCase):
 
         stopped = s.run(Console("setup") | Exit())
 
-        self.assertTrue(stopped.exited, "the second wait does not match the first line again")
+        self.assertTrue(
+            stopped.exited, "the second wait does not match the first line again"
+        )
 
     def test_cycle_and_instruction_counts_are_relative_to_the_run_start(self):
         s = self.session()
@@ -127,7 +133,11 @@ class StopPoints(SessionTestCase):
         s = self.session()
         seen = []
 
-        s.run(Marker(RESUME_POINT), every=1000, on_every=lambda session: seen.append(session.cycle))
+        s.run(
+            Marker(RESUME_POINT),
+            every=1000,
+            on_every=lambda session: seen.append(session.cycle),
+        )
 
         self.assertEqual(seen, [1000 * (i + 1) for i in range(len(seen))])
         self.assertGreaterEqual(len(seen), 3)
@@ -167,7 +177,9 @@ class FastForwardCache(SessionTestCase):
 
         self.assertFalse(s.last_fast_forward.cached)
 
-    def test_the_fast_forward_config_is_part_of_the_key_and_the_session_config_is_not(self):
+    def test_the_fast_forward_config_is_part_of_the_key_and_the_session_config_is_not(
+        self,
+    ):
         self.session(fast_forward_config=in_order()).fast_forward(Marker(RESUME_POINT))
         other_core = self.session(Config(width=2), fast_forward_config=in_order())
         other_fast_forward = self.session(fast_forward_config=Config(width=2))
@@ -194,7 +206,9 @@ class FastForwardCache(SessionTestCase):
 
         with self.assertRaises(ValueError):
             s.fast_forward(When(lambda session: True))
-        s.fast_forward(When(lambda session: session.cycle >= 2000, every=1000), cache=False)
+        s.fast_forward(
+            When(lambda session: session.cycle >= 2000, every=1000), cache=False
+        )
 
     def test_an_unnamed_predicate_in_the_history_stops_later_caching(self):
         s = self.session()
@@ -282,7 +296,10 @@ class Measurement(SessionTestCase):
         self.assertEqual(region.exit_code, 0)
         self.assertEqual(region.console, WORK_LINE)
         self.assertEqual(region.cycles, s.stats.cycles - before.cycles)
-        self.assertEqual(region.instructions, s.stats.instructions_retired - before.instructions_retired)
+        self.assertEqual(
+            region.instructions,
+            s.stats.instructions_retired - before.instructions_retired,
+        )
 
     def test_the_guest_marked_region_matches_its_snapshots(self):
         s = self.session()

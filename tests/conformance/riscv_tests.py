@@ -38,8 +38,14 @@ TIMEOUT_SEC = 60
 
 # Test suites we care about: physical-mode (-p-) variants only.
 SUITES = [
-    "rv64ui", "rv64um", "rv64ua", "rv64uf", "rv64ud", "rv64uc",
-    "rv64mi", "rv64si",
+    "rv64ui",
+    "rv64um",
+    "rv64ua",
+    "rv64uf",
+    "rv64ud",
+    "rv64uc",
+    "rv64mi",
+    "rv64si",
 ]
 
 
@@ -73,7 +79,9 @@ def run_one(args):
     if res.returncode == 0:
         return dict(test=name, pipeline=pipeline_label, status="pass", seconds=elapsed)
     if res.returncode == 124:
-        return dict(test=name, pipeline=pipeline_label, status="timeout", seconds=elapsed)
+        return dict(
+            test=name, pipeline=pipeline_label, status="timeout", seconds=elapsed
+        )
     msg = (res.stderr or res.stdout).strip().splitlines()
     tail = " | ".join(msg[-3:])[:200]
     return dict(
@@ -88,15 +96,24 @@ def run_one(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pipelines", default=None,
-                    help="Comma-separated PIPELINES labels (default: all)")
-    ap.add_argument("--filter", default=None,
-                    help="Substring filter on test name (e.g. rv64ui)")
-    ap.add_argument("--smoke", action="store_true",
-                    help="single pipeline x first 50 tests")
+    ap.add_argument(
+        "--pipelines",
+        default=None,
+        help="Comma-separated PIPELINES labels (default: all)",
+    )
+    ap.add_argument(
+        "--filter", default=None, help="Substring filter on test name (e.g. rv64ui)"
+    )
+    ap.add_argument(
+        "--smoke", action="store_true", help="single pipeline x first 50 tests"
+    )
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
-    ap.add_argument("--hart-count", type=int, default=None,
-                    help="Run every test on a system with this many harts")
+    ap.add_argument(
+        "--hart-count",
+        type=int,
+        default=None,
+        help="Run every test on a system with this many harts",
+    )
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "riscv-tests.json"))
     args = ap.parse_args()
 
@@ -105,10 +122,7 @@ def main():
 
     tests = find_tests(args.filter)
     if not tests:
-        sys.exit(
-            f"ERROR: no tests found in {ISA_DIR}\n"
-            f"Run: make riscv-tests-build"
-        )
+        sys.exit(f"ERROR: no tests found in {ISA_DIR}\nRun: make riscv-tests-build")
 
     selected_pipelines = PIPELINES
     if args.pipelines:
@@ -160,7 +174,9 @@ def main():
                 except Exception as e:
                     w = futs[fut]
                     r = dict(
-                        test=w[0], pipeline=w[2], status="error",
+                        test=w[0],
+                        pipeline=w[2],
+                        status="error",
                         reason=f"{type(e).__name__}: {e}",
                     )
                 results.append(r)

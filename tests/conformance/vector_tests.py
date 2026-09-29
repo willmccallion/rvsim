@@ -138,7 +138,9 @@ def run_one(args):
         msg = (res.stderr or res.stdout).strip().splitlines()
         tail = " | ".join(msg[-3:])[:200]
         return dict(
-            test=name, pipeline=pipeline_label, status="error",
+            test=name,
+            pipeline=pipeline_label,
+            status="error",
             reason=f"rc={res.returncode}: {tail}",
         )
 
@@ -155,18 +157,25 @@ def run_one(args):
 
     if dut_sig == ref:
         return dict(
-            test=name, pipeline=pipeline_label, status="pass",
+            test=name,
+            pipeline=pipeline_label,
+            status="pass",
             seconds=round(time.time() - t0, 2),
         )
     dut_lines = dut_sig.splitlines()
     ref_lines = ref.splitlines()
     diff_at = next(
-        (i for i in range(min(len(dut_lines), len(ref_lines)))
-         if dut_lines[i] != ref_lines[i]),
+        (
+            i
+            for i in range(min(len(dut_lines), len(ref_lines)))
+            if dut_lines[i] != ref_lines[i]
+        ),
         min(len(dut_lines), len(ref_lines)),
     )
     return dict(
-        test=name, pipeline=pipeline_label, status="fail",
+        test=name,
+        pipeline=pipeline_label,
+        status="fail",
         diff_line=diff_at,
         seconds=round(time.time() - t0, 2),
     )
@@ -181,16 +190,22 @@ def main():
     )
     ap.add_argument("--build-dir", default=os.path.join(BUILDS, "vector"))
     ap.add_argument("--filter", default="*")
-    ap.add_argument("--pipelines", default=None,
-                    help="Comma-separated PIPELINES labels (default: all)")
-    ap.add_argument("--smoke", action="store_true",
-                    help="single pipeline x first 20 tests")
+    ap.add_argument(
+        "--pipelines",
+        default=None,
+        help="Comma-separated PIPELINES labels (default: all)",
+    )
+    ap.add_argument(
+        "--smoke", action="store_true", help="single pipeline x first 20 tests"
+    )
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "vector-multi.json"))
     args = ap.parse_args()
 
     if not os.path.isfile(SPIKE):
-        sys.exit(f"ERROR: local spike not found at {SPIKE}\nRun: make vector-test-build")
+        sys.exit(
+            f"ERROR: local spike not found at {SPIKE}\nRun: make vector-test-build"
+        )
 
     pattern = args.filter if args.filter.endswith(".elf") else args.filter + "*.elf"
     elfs = sorted(glob.glob(os.path.join(args.build_dir, f"vlen{args.vlen}", pattern)))
@@ -283,7 +298,9 @@ def main():
         write_partial()
 
     print()
-    print(f"=== vector multi-config (vlen={args.vlen}): {len(results)} / {len(work)} ===")
+    print(
+        f"=== vector multi-config (vlen={args.vlen}): {len(results)} / {len(work)} ==="
+    )
     for k in ("pass", "fail", "timeout", "skip", "error"):
         if k in counts:
             print(f"  {k:8} {counts[k]}")

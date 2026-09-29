@@ -212,8 +212,7 @@ def main():
     try:
         with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
             futs = {
-                ex.submit(run_one, (e, args.vlen, args.march, scratch)): e
-                for e in elfs
+                ex.submit(run_one, (e, args.vlen, args.march, scratch)): e for e in elfs
             }
             for i, fut in enumerate(cf.as_completed(futs), 1):
                 try:

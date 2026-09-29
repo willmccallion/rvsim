@@ -24,14 +24,48 @@ _TAGE_HASHINGS = ("tage_base", "tage_sc_l")
 # gem5's TAGE_SC_L_TAGE_64KB: 18 geometric lengths from 6 to 3000, each
 # shared by a pair of banks, and the banks it enables (noSkip).
 _TAGE_SC_L_64KB_HISTORY_LENGTHS = (
-    6, 6, 9, 9, 12, 12, 18, 18, 26, 26, 37, 37, 54, 54, 78, 78, 112, 112,
-    161, 161, 232, 232, 335, 335, 482, 482, 695, 695, 1002, 1002, 1444, 1444,
-    2081, 2081, 3000, 3000,
+    6,
+    6,
+    9,
+    9,
+    12,
+    12,
+    18,
+    18,
+    26,
+    26,
+    37,
+    37,
+    54,
+    54,
+    78,
+    78,
+    112,
+    112,
+    161,
+    161,
+    232,
+    232,
+    335,
+    335,
+    482,
+    482,
+    695,
+    695,
+    1002,
+    1002,
+    1444,
+    1444,
+    2081,
+    2081,
+    3000,
+    3000,
 )
 
 
 _TAGE_SC_L_64KB_ENABLED = [
-    bank in (1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 31, 35)
+    bank
+    in (1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 31, 35)
     for bank in range(36)
 ]
 
@@ -39,14 +73,18 @@ _TAGE_SC_L_64KB_ENABLED = [
 def _tage_hashing(hashing: str) -> str:
     """Check a TAGE ``hashing`` name."""
     if hashing not in _TAGE_HASHINGS:
-        raise ValueError(f"TAGE hashing must be one of {_TAGE_HASHINGS}, got {hashing!r}")
+        raise ValueError(
+            f"TAGE hashing must be one of {_TAGE_HASHINGS}, got {hashing!r}"
+        )
     return hashing
 
 
 def _tage_history_mode(mode: str) -> str:
     """Check a TAGE ``history`` mode name."""
     if mode not in _TAGE_HISTORY_MODES:
-        raise ValueError(f"TAGE history must be one of {_TAGE_HISTORY_MODES}, got {mode!r}")
+        raise ValueError(
+            f"TAGE history must be one of {_TAGE_HISTORY_MODES}, got {mode!r}"
+        )
     return mode
 
 

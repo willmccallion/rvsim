@@ -200,7 +200,9 @@ class LoginShell(Stop):
         return f"login_shell(user={self.user!r},login={self.login!r},prompt={self.prompt!r})"
 
     def _primitives(self) -> Tuple[Stop, ...]:
-        raise TypeError("LoginShell is a sequence of console steps; it cannot be combined with |")
+        raise TypeError(
+            "LoginShell is a sequence of console steps; it cannot be combined with |"
+        )
 
     def _drive(self, session: "Session") -> "Stopped":
         for step in self._steps():

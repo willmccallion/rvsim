@@ -32,7 +32,15 @@ LINUX_BENCHMARKS: Dict[str, str] = {
     "stress-ng": "stress-ng --cpu 0 --cpu-method matrixprod --cpu-ops 64 --quiet",
 }
 
-_COLUMNS = ("cycles", "instructions", "ipc", "branch_mpki", "l1d_mpki", "l2_mpki", "llc_mpki")
+_COLUMNS = (
+    "cycles",
+    "instructions",
+    "ipc",
+    "branch_mpki",
+    "l1d_mpki",
+    "l2_mpki",
+    "llc_mpki",
+)
 
 
 def headline(region: Region) -> Dict[str, float]:
@@ -73,21 +81,34 @@ def _parser() -> argparse.ArgumentParser:
     )
     core = parser.add_mutually_exclusive_group()
     core.add_argument(
-        "--preset", choices=["basic", "fast"], default="fast", help="core configuration (default fast)"
+        "--preset",
+        choices=["basic", "fast"],
+        default="fast",
+        help="core configuration (default fast)",
     )
     core.add_argument(
-        "--config", metavar="FILE", help="Python config file whose core is placed in the Linux system"
+        "--config",
+        metavar="FILE",
+        help="Python config file whose core is placed in the Linux system",
     )
     parser.add_argument("--harts", type=int, default=8, help="harts (default 8)")
     parser.add_argument("--memory", choices=["ddr5", "dram"], default="ddr5")
     parser.add_argument("--interconnect", choices=sorted(INTERCONNECTS), default="mesh")
     parser.add_argument(
-        "--warm", action="store_true", help="run each benchmark once unmeasured before measuring it"
+        "--warm",
+        action="store_true",
+        help="run each benchmark once unmeasured before measuring it",
     )
-    parser.add_argument("--json", metavar="FILE", help="write every region's stats and output to FILE")
-    parser.add_argument("--no-cache", action="store_true", help="boot even if a cached boot exists")
+    parser.add_argument(
+        "--json", metavar="FILE", help="write every region's stats and output to FILE"
+    )
+    parser.add_argument(
+        "--no-cache", action="store_true", help="boot even if a cached boot exists"
+    )
     parser.add_argument("--echo", action="store_true", help="show the guest console")
-    parser.add_argument("--list", action="store_true", help="list the benchmarks and exit")
+    parser.add_argument(
+        "--list", action="store_true", help="list the benchmarks and exit"
+    )
     return parser
 
 
@@ -109,7 +130,9 @@ def main(argv: List[str]) -> int:
     config = presets.linux(
         args.harts, memory=args.memory, interconnect=args.interconnect, core=core
     )
-    session = Session.linux(config, progress=True, echo=sys.stderr if args.echo else False)
+    session = Session.linux(
+        config, progress=True, echo=sys.stderr if args.echo else False
+    )
     session.fast_forward(until=LOGIN_SHELL, cache=not args.no_cache)
 
     regions: Dict[str, Region] = {}
@@ -155,7 +178,9 @@ def _format(column: str, value: float) -> str:
     return f"{value:.3f}"
 
 
-def _write_json(path: str, args: argparse.Namespace, regions: Dict[str, Region]) -> None:
+def _write_json(
+    path: str, args: argparse.Namespace, regions: Dict[str, Region]
+) -> None:
     record: Dict[str, Any] = {
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "core": args.config or args.preset,

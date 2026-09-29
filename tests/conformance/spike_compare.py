@@ -136,7 +136,8 @@ def generate_spike_oracle(tests):
 
         result = subprocess.run(
             ["spike", "-l", "--isa=rv64gc", path],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
 
         if result.returncode != 0:
@@ -218,23 +219,30 @@ def main():
         description="Compare rvsim commit traces against spike oracle"
     )
     ap.add_argument(
-        "--oracle-only", action="store_true",
+        "--oracle-only",
+        action="store_true",
         help="Only generate spike oracle logs, don't run comparisons",
     )
     ap.add_argument(
-        "--skip-oracle", action="store_true",
+        "--skip-oracle",
+        action="store_true",
         help="Skip oracle generation, reuse cached spike logs",
     )
     ap.add_argument(
-        "--pipelines", type=str, default=None,
+        "--pipelines",
+        type=str,
+        default=None,
         help="Comma-separated list of pipeline labels to test (default: all)",
     )
     ap.add_argument(
-        "--test", type=str, default=None,
+        "--test",
+        type=str,
+        default=None,
         help="Run only tests matching this substring",
     )
     ap.add_argument(
-        "--stop-on-fail", action="store_true",
+        "--stop-on-fail",
+        action="store_true",
         help="Stop at first divergence within each pipeline",
     )
     args = ap.parse_args()
@@ -272,7 +280,9 @@ def main():
         else:
             skipped.append(name)
     if skipped:
-        print(f"[compare] Skipping {len(skipped)} tests without spike oracle: {skipped}")
+        print(
+            f"[compare] Skipping {len(skipped)} tests without spike oracle: {skipped}"
+        )
     tests = available_tests
     if not tests:
         print("No tests with spike oracle available.", file=sys.stderr)
@@ -345,7 +355,9 @@ def main():
     # ── Summary ──────────────────────────────────────────────────────────────
     total = total_match + total_fail
     print(f"\n{'=' * 72}")
-    print(f"SPIKE COMPARISON: {total_match} matched, {total_fail} diverged out of {total}")
+    print(
+        f"SPIKE COMPARISON: {total_match} matched, {total_fail} diverged out of {total}"
+    )
     print(f"{'=' * 72}")
 
     if overall_failures:

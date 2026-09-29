@@ -20,7 +20,18 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, TextIO, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    TextIO,
+    Tuple,
+    Union,
+)
 
 from .. import _core, presets
 from ..config import Config
@@ -202,8 +213,18 @@ class Session:
             console_log: Write the console to this file.
             progress: Report long runs' progress on stderr.
         """
-        workload = Workload(binary=binary, kernel=kernel, firmware=firmware, disk=disk, dtb=dtb)
-        self._init(workload, config, fast_forward_config, cache_dir, echo, console_log, progress)
+        workload = Workload(
+            binary=binary, kernel=kernel, firmware=firmware, disk=disk, dtb=dtb
+        )
+        self._init(
+            workload,
+            config,
+            fast_forward_config,
+            cache_dir,
+            echo,
+            console_log,
+            progress,
+        )
 
     def _init(
         self,
@@ -219,7 +240,9 @@ class Session:
         self._config_given: ConfigLike = config if config is not None else Config()
         self._config = _native(self._config_given)
         self._fast_forward_config = (
-            _native(fast_forward_config) if fast_forward_config is not None else self._config
+            _native(fast_forward_config)
+            if fast_forward_config is not None
+            else self._config
         )
         differences = _guest_view_differences(self._config, self._fast_forward_config)
         if differences:
@@ -268,7 +291,9 @@ class Session:
         native = _native(config)
         directory = pathlib.Path(image_dir) if image_dir else _repo_linux_dir()
         if directory is None and (kernel is None or disk is None):
-            raise FileNotFoundError("no software/linux/output found; build the image with `make linux`")
+            raise FileNotFoundError(
+                "no software/linux/output found; build the image with `make linux`"
+            )
 
         def default(path: Optional[str], name: str) -> Optional[str]:
             if path is not None:
@@ -276,7 +301,9 @@ class Session:
             return str(directory / name) if directory is not None else None
 
         if "fast_forward_config" not in kwargs:
-            fast = _native(presets.linux(native["system"]["hart_count"], real_time=False))
+            fast = _native(
+                presets.linux(native["system"]["hart_count"], real_time=False)
+            )
             for section, field in _LINUX_FAST_FORWARD_KEEPS:
                 fast[section][field] = native[section][field]
             kwargs["fast_forward_config"] = fast
@@ -289,7 +316,9 @@ class Session:
         )
 
     @classmethod
-    def resume(cls, path: str, config: Optional[ConfigLike] = None, **kwargs: Any) -> "Session":
+    def resume(
+        cls, path: str, config: Optional[ConfigLike] = None, **kwargs: Any
+    ) -> "Session":
         """A session continuing from a checkpoint :meth:`save` wrote, on
         ``config`` (the configuration it was saved on by default).
 
@@ -357,7 +386,9 @@ class Session:
             raise ValueError("every and on_every go together")
         stop = until if until is not None else Exit()
         if every is not None:
-            return self._run_primitives(stop._primitives(), every=every, on_every=on_every)
+            return self._run_primitives(
+                stop._primitives(), every=every, on_every=on_every
+            )
         return stop._drive(self)
 
     def fast_forward(self, until: Stop, *, cache: bool = True) -> "Session":
@@ -403,14 +434,20 @@ class Session:
             raise ValueError(
                 "a switch must keep the system the guest sees; "
                 + "; ".join(differences)
-                + (". For Linux, wrap a core config with presets.linux(core=...)" if self.workload.is_kernel else "")
+                + (
+                    ". For Linux, wrap a core config with presets.linux(core=...)"
+                    if self.workload.is_kernel
+                    else ""
+                )
             )
         self._config_given, self._config = config, native
         if self._sim is not None:
             self._run_on(native)
         return self
 
-    def warm_up(self, until: Optional[Stop] = None, *, command: Optional[str] = None) -> "Session":
+    def warm_up(
+        self, until: Optional[Stop] = None, *, command: Optional[str] = None
+    ) -> "Session":
         """Runs unmeasured to ``until``, or through a shell ``command``, to
         warm caches and predictors before measuring."""
         if (until is None) == (command is None):
@@ -477,7 +514,9 @@ class Session:
         self._save(path)
         return path
 
-    def fork(self, configs: Mapping[str, ConfigLike]) -> Iterator[Tuple[str, "Session"]]:
+    def fork(
+        self, configs: Mapping[str, ConfigLike]
+    ) -> Iterator[Tuple[str, "Session"]]:
         """Continues from this point once per configuration: yields
         ``(name, session)`` pairs, each an independent session on its
         config. This session is left as it was."""
@@ -531,7 +570,9 @@ class Session:
     def _cache_key(self, until: Stop) -> str:
         stop_key = until.key()
         if stop_key is None:
-            raise ValueError(f"{until} has no stable key to cache by; name it or pass cache=False")
+            raise ValueError(
+                f"{until} has no stable key to cache by; name it or pass cache=False"
+            )
         if self._untracked is not None:
             raise ValueError(
                 f"this session's history includes {self._untracked}, which a cache key "
@@ -602,7 +643,9 @@ class Session:
             self._log.write(text)
             self._log.flush()
 
-    def _match_console(self, consoles: List[Console]) -> Optional[Tuple[Console, "re.Match[str]"]]:
+    def _match_console(
+        self, consoles: List[Console]
+    ) -> Optional[Tuple[Console, "re.Match[str]"]]:
         best: Optional[Tuple[Console, "re.Match[str]"]] = None
         for console in consoles:
             match = console.regex.search(self._console, self._cursor)
@@ -614,7 +657,9 @@ class Session:
 
     def _require_shell(self) -> None:
         if not self.workload.is_kernel:
-            raise ValueError("commands need a Linux shell; measure a bare-metal run with until=")
+            raise ValueError(
+                "commands need a Linux shell; measure a bare-metal run with until="
+            )
 
     def _take_labels(self) -> Tuple[int, int]:
         start = self._next_label
@@ -639,7 +684,9 @@ class Session:
                 f"the guest took no stats snapshots around {command!r}; "
                 f"is the rvsim guest tool on the image? It printed: {output!r}"
             ) from None
-        return Region(name, stats, output, int(match.group(1)), None, time.perf_counter() - began)
+        return Region(
+            name, stats, output, int(match.group(1)), None, time.perf_counter() - began
+        )
 
     def _measure_run(self, until: Stop, name: str, began: float) -> Region:
         before = self.sim.stats
@@ -647,7 +694,14 @@ class Session:
         stopped = self._drive_logged(until, f"measure {name}")
         region = self.sim.stats - before
         output = self._console[start:]
-        return Region(name, region, output, stopped.exit_code, stopped, time.perf_counter() - began)
+        return Region(
+            name,
+            region,
+            output,
+            stopped.exit_code,
+            stopped,
+            time.perf_counter() - began,
+        )
 
     def _save(self, path: str) -> None:
         """Writes the checkpoint and its metadata, each atomically."""
@@ -660,7 +714,10 @@ class Session:
             "checkpoint_version": _core.CHECKPOINT_VERSION,
             "rvsim_version": _core.version(),
             "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "workload": {"files": self.workload.files(), "digests": self.workload.digests()},
+            "workload": {
+                "files": self.workload.files(),
+                "digests": self.workload.digests(),
+            },
             "config": self._sim_config,
             "history": self._history,
             "untracked": self._untracked,
@@ -680,7 +737,9 @@ class Session:
         session's configuration."""
         differences = _guest_view_differences(meta["config"], self._config)
         if differences:
-            raise ValueError(f"{path} was saved on a different system: " + "; ".join(differences))
+            raise ValueError(
+                f"{path} was saved on a different system: " + "; ".join(differences)
+            )
         sim = self.workload.build(self._config)
         sim.restore(path)
         self._sim, self._sim_config = sim, self._config
@@ -714,9 +773,13 @@ class _Run:
         self.sim = session.sim
         start_cycle = self.sim.cycle
         start_instructions = self.sim.instructions_retired
-        self.cycle_targets = [(start_cycle + s.count, s) for s in stops if isinstance(s, Cycles)]
+        self.cycle_targets = [
+            (start_cycle + s.count, s) for s in stops if isinstance(s, Cycles)
+        ]
         self.instruction_targets = [
-            (start_instructions + s.count, s) for s in stops if isinstance(s, Instructions)
+            (start_instructions + s.count, s)
+            for s in stops
+            if isinstance(s, Instructions)
         ]
         self.pc_stops = [s for s in stops if isinstance(s, Pc)]
         self.markers = [s for s in stops if isinstance(s, Marker)]
@@ -749,7 +812,10 @@ class _Run:
 
     def _stopped(self, by: Stop, **details: Any) -> Stopped:
         return Stopped(
-            by=by, cycle=self.sim.cycle, instructions=self.sim.instructions_retired, **details
+            by=by,
+            cycle=self.sim.cycle,
+            instructions=self.sim.instructions_retired,
+            **details,
         )
 
     def _reached(self) -> Optional[Stopped]:

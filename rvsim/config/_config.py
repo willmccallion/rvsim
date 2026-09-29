@@ -24,9 +24,7 @@ def _validate_paging_mode(value: str) -> str:
         raise TypeError(f"paging_mode_max must be a string, got {type(value).__name__}")
     normalized = value.lower()
     if normalized not in _PAGING_MODES:
-        raise ValueError(
-            f"paging_mode_max={value!r} not in {_PAGING_MODES}"
-        )
+        raise ValueError(f"paging_mode_max={value!r} not in {_PAGING_MODES}")
     return normalized
 
 

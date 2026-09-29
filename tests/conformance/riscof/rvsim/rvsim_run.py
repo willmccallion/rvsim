@@ -16,7 +16,9 @@ import os
 
 # Ensure rvsim is importable from the repo root
 REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
 )
 sys.path.insert(0, REPO_ROOT)
 
@@ -31,6 +33,7 @@ READELF = None
 def _find_readelf():
     """Find a riscv readelf binary."""
     import shutil
+
     for prefix in ("riscv64-elf-", "riscv64-none-elf-", "riscv64-unknown-elf-"):
         path = shutil.which(prefix + "readelf")
         if path:
@@ -44,9 +47,7 @@ def get_symbol_addr(elf_path, symbol_name):
     if READELF is None:
         READELF = _find_readelf()
 
-    result = subprocess.run(
-        [READELF, "-s", elf_path], capture_output=True, text=True
-    )
+    result = subprocess.run([READELF, "-s", elf_path], capture_output=True, text=True)
     for line in result.stdout.splitlines():
         parts = line.split()
         if len(parts) >= 8 and parts[-1] == symbol_name:

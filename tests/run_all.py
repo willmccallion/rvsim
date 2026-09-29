@@ -99,8 +99,12 @@ def main():
 
     if "riscv-tests" not in args.skip:
         out = os.path.join(RESULTS_DIR, "riscv-tests.json")
-        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/riscv_tests.py"),
-               "--out", out]
+        cmd = [
+            PYTHON,
+            os.path.join(ROOT, "tests/conformance/riscv_tests.py"),
+            "--out",
+            out,
+        ]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
         if args.smoke:
@@ -109,8 +113,12 @@ def main():
 
     if "riscof" not in args.skip:
         out = os.path.join(RESULTS_DIR, "riscof-multi.json")
-        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/riscof_tests.py"),
-               "--out", out]
+        cmd = [
+            PYTHON,
+            os.path.join(ROOT, "tests/conformance/riscof_tests.py"),
+            "--out",
+            out,
+        ]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
         if args.smoke:
@@ -119,8 +127,14 @@ def main():
 
     if "vector" not in args.skip:
         out = os.path.join(RESULTS_DIR, "vector-multi.json")
-        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/vector_tests.py"),
-               "--vlen", str(args.vlen), "--out", out]
+        cmd = [
+            PYTHON,
+            os.path.join(ROOT, "tests/conformance/vector_tests.py"),
+            "--vlen",
+            str(args.vlen),
+            "--out",
+            out,
+        ]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
         if args.smoke:
@@ -186,15 +200,18 @@ def main():
         for test in sorted(by_test):
             pipes = by_test[test]
             scope = (
-                "ALL configs" if len(pipes) == total_pipelines
+                "ALL configs"
+                if len(pipes) == total_pipelines
                 else f"{len(pipes)}/{total_pipelines} configs"
             )
             sample = pipes[0] if len(pipes) == 1 else ""
             print(f"    {test:40} {scope:20} {sample}")
     if any_failures:
         print()
-        print("  → 'ALL configs' = config-invariant (likely correctness bug or "
-              "missing extension)")
+        print(
+            "  → 'ALL configs' = config-invariant (likely correctness bug or "
+            "missing extension)"
+        )
         print("  → 'N/M configs' = config-specific (a particular knob trips it)")
     sys.exit(overall_rc)
 

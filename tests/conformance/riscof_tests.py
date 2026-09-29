@@ -72,7 +72,9 @@ def find_tests(filter_substr=None):
 def run_one(args):
     rel, dut_elf, ref_sig, pipeline_label, scratch = args
     safe_name = rel.replace("/", "_")
-    sig_out = os.path.join(scratch, f"{safe_name}.{hash(pipeline_label) & 0xFFFF:04x}.sig")
+    sig_out = os.path.join(
+        scratch, f"{safe_name}.{hash(pipeline_label) & 0xFFFF:04x}.sig"
+    )
     t0 = time.time()
     # Force misaligned-access trapping for riscof runs.
     #
@@ -132,19 +134,26 @@ def run_one(args):
 
     if dut_sig == ref:
         return dict(
-            test=rel, pipeline=pipeline_label, status="pass",
+            test=rel,
+            pipeline=pipeline_label,
+            status="pass",
             seconds=round(time.time() - t0, 2),
         )
     # Find first differing line for the report
     dut_lines = dut_sig.splitlines()
     ref_lines = ref.splitlines()
     diff_at = next(
-        (i for i in range(min(len(dut_lines), len(ref_lines)))
-         if dut_lines[i] != ref_lines[i]),
+        (
+            i
+            for i in range(min(len(dut_lines), len(ref_lines)))
+            if dut_lines[i] != ref_lines[i]
+        ),
         min(len(dut_lines), len(ref_lines)),
     )
     return dict(
-        test=rel, pipeline=pipeline_label, status="fail",
+        test=rel,
+        pipeline=pipeline_label,
+        status="fail",
         diff_line=diff_at,
         seconds=round(time.time() - t0, 2),
     )
@@ -158,7 +167,9 @@ def main():
         help="Comma-separated PIPELINES labels (default: all)",
     )
     ap.add_argument("--filter", default=None, help="Substring filter on test path")
-    ap.add_argument("--smoke", action="store_true", help="Single pipeline x first 50 tests")
+    ap.add_argument(
+        "--smoke", action="store_true", help="Single pipeline x first 50 tests"
+    )
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument(
         "--out",
@@ -230,7 +241,9 @@ def main():
                 except Exception as e:
                     w = futs[fut]
                     r = dict(
-                        test=w[0], pipeline=w[3], status="error",
+                        test=w[0],
+                        pipeline=w[3],
+                        status="error",
                         reason=f"{type(e).__name__}: {e}",
                     )
                 results.append(r)

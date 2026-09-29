@@ -300,7 +300,9 @@ def main():
 
     # ── Phase 3: Load spike trace and compare ───────────────────────────
     # Only load as many spike entries as we need
-    spike_trace = parse_log(SPIKE_LOG, skip_nops=True, skip_reset=True, max_entries=len(rvsim_trace) + 1000)
+    spike_trace = parse_log(
+        SPIKE_LOG, skip_nops=True, skip_reset=True, max_entries=len(rvsim_trace) + 1000
+    )
     print(f"\n[compare] spike: {len(spike_trace):,} instructions")
     print(f"[compare] rvsim: {len(rvsim_trace):,} instructions")
     print()
@@ -309,7 +311,9 @@ def main():
 
     if div is None:
         print("=" * 72)
-        print(f"MATCH — {matched:,} instructions agree (rvsim trace is shorter or equal)")
+        print(
+            f"MATCH — {matched:,} instructions agree (rvsim trace is shorter or equal)"
+        )
         print("=" * 72)
         if len(rvsim_trace) < len(spike_trace):
             print(
@@ -341,7 +345,9 @@ def main():
     start = max(0, inst_num - 1 - ctx)
     end = min(len(spike_trace), len(rvsim_trace), inst_num - 1 + ctx)
 
-    print(f"\n{'idx':>8s}  {'spike PC':>18s} {'spike inst':>12s}  {'rvsim PC':>18s} {'rvsim inst':>12s}  status")
+    print(
+        f"\n{'idx':>8s}  {'spike PC':>18s} {'spike inst':>12s}  {'rvsim PC':>18s} {'rvsim inst':>12s}  status"
+    )
     print("-" * 95)
     for i in range(start, end):
         s_pc, s_inst = spike_trace[i]
@@ -357,7 +363,7 @@ def main():
                 disasm = f"  {disasm}"
 
         print(
-            f"{i+1:>8,d}  0x{s_pc:016x} (0x{s_inst:08x})  0x{r_pc:016x} (0x{r_inst:08x}){status}{disasm}"
+            f"{i + 1:>8,d}  0x{s_pc:016x} (0x{s_inst:08x})  0x{r_pc:016x} (0x{r_inst:08x}){status}{disasm}"
         )
 
     # Try to identify what kind of divergence this is
@@ -378,17 +384,19 @@ def main():
         s_delta = s_pc - prev_pc
         r_delta = r_pc - prev_pc
         if s_delta != r_delta:
-            print(
-                f"  Previous PC: 0x{prev_pc:016x}"
-            )
+            print(f"  Previous PC: 0x{prev_pc:016x}")
             print(
                 f"  spike went to 0x{s_pc:x} (delta={s_delta:+d}), "
                 f"rvsim went to 0x{r_pc:x} (delta={r_delta:+d})"
             )
             if abs(s_delta) > 0x100 or abs(r_delta) > 0x100:
-                print("  Looks like a branch/jump divergence (different target or taken/not-taken)")
+                print(
+                    "  Looks like a branch/jump divergence (different target or taken/not-taken)"
+                )
             else:
-                print("  Looks like a different instruction fetch (possibly different memory contents)")
+                print(
+                    "  Looks like a different instruction fetch (possibly different memory contents)"
+                )
 
     # Show a few more instructions from each trace after divergence to help debug
     print(f"\n── Spike trace after divergence (next {ctx} instructions) ──")
@@ -399,7 +407,7 @@ def main():
             disasm = try_disasm(pc, inst)
             if disasm:
                 disasm = f"  {disasm}"
-        print(f"  {i+1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")
+        print(f"  {i + 1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")
 
     print(f"\n── rvsim trace after divergence (next {ctx} instructions) ──")
     for i in range(inst_num - 1, min(len(rvsim_trace), inst_num - 1 + ctx)):
@@ -409,7 +417,7 @@ def main():
             disasm = try_disasm(pc, inst)
             if disasm:
                 disasm = f"  {disasm}"
-        print(f"  {i+1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")
+        print(f"  {i + 1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")
 
     return 1
 

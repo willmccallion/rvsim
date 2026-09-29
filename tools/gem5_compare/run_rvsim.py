@@ -20,7 +20,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from rvsim import (  # noqa: E402
-    Backend, BranchPredictor, Cache, Config, Environment, Fu, MemoryController,
+    Backend,
+    BranchPredictor,
+    Cache,
+    Config,
+    Environment,
+    Fu,
+    MemoryController,
     Prefetcher,
 )
 
@@ -42,7 +48,9 @@ def branch_predictor(bp: dict):
             num_banks=bp["tables"],
             table_size=2 ** bp["log_table_size"],
             reset_interval=2 ** bp["log_u_reset"],
-            history_lengths=tage_history_lengths(bp["min_hist"], bp["max_hist"], bp["tables"]),
+            history_lengths=tage_history_lengths(
+                bp["min_hist"], bp["max_hist"], bp["tables"]
+            ),
             tag_widths=bp["tag_widths"],
         )
     if bp["kind"] == "tage_sc_l":
@@ -60,7 +68,9 @@ def cache(c: dict, prefetch_degree=None) -> Cache:
         mshr_count=c["mshrs"],
         targets_per_mshr=c["tgts"],
         write_buffers=8,
-        prefetcher=Prefetcher.Tagged(degree=prefetch_degree) if prefetch_degree else None,
+        prefetcher=Prefetcher.Tagged(degree=prefetch_degree)
+        if prefetch_degree
+        else None,
     )
 
 
@@ -72,22 +82,31 @@ def functional_units() -> Fu:
     """
     vector = [
         getattr(Fu, name)(count=VECTOR_UNITS, latency=1)
-        for name in ("VecIntAlu", "VecIntMul", "VecIntDiv", "VecFpAlu", "VecFpFma",
-                     "VecFpDivSqrt", "VecPermute")
+        for name in (
+            "VecIntAlu",
+            "VecIntMul",
+            "VecIntDiv",
+            "VecFpAlu",
+            "VecFpFma",
+            "VecFpDivSqrt",
+            "VecPermute",
+        )
     ]
-    return Fu([
-        Fu.IntAlu(count=3, latency=1),
-        Fu.IntMul(count=1, latency=3),  # IntMultDiv: IntMult
-        Fu.IntDiv(count=1, latency=20),  # IntMultDiv: IntDiv, unpipelined
-        Fu.FpAdd(count=2, latency=2),  # FP_ALU
-        Fu.FpMul(count=2, latency=4),  # FP_MultDiv: FloatMult
-        Fu.FpFma(count=2, latency=5),  # FP_MultDiv: FloatMultAcc
-        Fu.FpDivSqrt(count=2, latency=12),  # FP_MultDiv: FloatDiv
-        Fu.Branch(count=3, latency=1),  # branches issue to the IntALUs
-        Fu.Mem(count=2, latency=1),  # one ReadPort plus one WritePort
-        Fu.VecMem(count=1, latency=1),  # vector accesses use the same ports
-        *vector,
-    ])
+    return Fu(
+        [
+            Fu.IntAlu(count=3, latency=1),
+            Fu.IntMul(count=1, latency=3),  # IntMultDiv: IntMult
+            Fu.IntDiv(count=1, latency=20),  # IntMultDiv: IntDiv, unpipelined
+            Fu.FpAdd(count=2, latency=2),  # FP_ALU
+            Fu.FpMul(count=2, latency=4),  # FP_MultDiv: FloatMult
+            Fu.FpFma(count=2, latency=5),  # FP_MultDiv: FloatMultAcc
+            Fu.FpDivSqrt(count=2, latency=12),  # FP_MultDiv: FloatDiv
+            Fu.Branch(count=3, latency=1),  # branches issue to the IntALUs
+            Fu.Mem(count=2, latency=1),  # one ReadPort plus one WritePort
+            Fu.VecMem(count=1, latency=1),  # vector accesses use the same ports
+            *vector,
+        ]
+    )
 
 
 def config_for(variant: dict) -> Config:
@@ -132,12 +151,16 @@ def extract(stats: dict) -> dict:
         "ipc": get("ipc"),
         "branches": get("core0.commit.op.branch"),
         "mispredicts": get("core0.bp.committed.mispredicts"),
-        "loads": (get("core0.commit.op.load") or 0) + (get("core0.commit.vec.load") or 0),
-        "stores": (get("core0.commit.op.store") or 0) + (get("core0.commit.vec.store") or 0),
+        "loads": (get("core0.commit.op.load") or 0)
+        + (get("core0.commit.vec.load") or 0),
+        "stores": (get("core0.commit.op.store") or 0)
+        + (get("core0.commit.vec.store") or 0),
         "l1i_misses": get("core0.cache.l1i.misses"),
-        "l1d_accesses": (get("core0.cache.l1d.hits") or 0) + (get("core0.cache.l1d.misses") or 0),
+        "l1d_accesses": (get("core0.cache.l1d.hits") or 0)
+        + (get("core0.cache.l1d.misses") or 0),
         "l1d_misses": get("core0.cache.l1d.misses"),
-        "l2_accesses": (get("core0.cache.l2.hits") or 0) + (get("core0.cache.l2.misses") or 0),
+        "l2_accesses": (get("core0.cache.l2.hits") or 0)
+        + (get("core0.cache.l2.misses") or 0),
         "l2_misses": get("core0.cache.l2.misses"),
     }
 
@@ -153,14 +176,19 @@ def main():
     variants = sys.argv[1:] or list(VARIANTS)
     binaries = sorted(PROGRAMS.glob("*.elf"))
     if not binaries:
-        sys.exit(f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh")
+        sys.exit(
+            f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh"
+        )
 
     jobs = [(v, b) for v in variants for b in binaries]
     results: dict = {v: {} for v in variants}
     with ProcessPoolExecutor() as pool:
         for variant_name, program, stats in pool.map(run_one, jobs):
             results[variant_name][program] = stats
-            print(f"  rvsim {variant_name:20} {program:22} IPC={stats['ipc']:.3f}", flush=True)
+            print(
+                f"  rvsim {variant_name:20} {program:22} IPC={stats['ipc']:.3f}",
+                flush=True,
+            )
 
     RESULTS_DIR.mkdir(exist_ok=True)
     out = RESULTS_DIR / "rvsim.json"

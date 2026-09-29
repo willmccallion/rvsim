@@ -18,7 +18,9 @@ def default_cache_dir() -> str:
     explicit = os.environ.get("RVSIM_CACHE_DIR")
     if explicit:
         return explicit
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
     return os.path.join(base, "rvsim", "checkpoints")
 
 

@@ -70,13 +70,22 @@ def run_one(args):
     elapsed = round(time.time() - t0, 2)
     status = {0: "pass", 1: "fail", 124: "timeout"}.get(res.returncode, "error")
     tail = " | ".join((res.stdout + res.stderr).strip().splitlines()[-3:])[:300]
-    return dict(test=name, pipeline=label, harts=harts, status=status, rc=res.returncode,
-                output=tail, seconds=elapsed)
+    return dict(
+        test=name,
+        pipeline=label,
+        harts=harts,
+        status=status,
+        rc=res.returncode,
+        output=tail,
+        seconds=elapsed,
+    )
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pipelines", default=None, help="Comma-separated PIPELINES labels")
+    ap.add_argument(
+        "--pipelines", default=None, help="Comma-separated PIPELINES labels"
+    )
     ap.add_argument("--harts", default="2,4", help="Comma-separated hart counts")
     ap.add_argument("--filter", default=None, help="Substring filter on program name")
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
@@ -110,8 +119,11 @@ def main():
             mark = "ok  " if r["status"] == "pass" else "FAIL"
             if r["status"] != "pass":
                 failed += 1
-            print(f"{mark} {r['test']:24s} {r['pipeline']:22s} harts={r['harts']} "
-                  f"{r.get('output', '')}", flush=True)
+            print(
+                f"{mark} {r['test']:24s} {r['pipeline']:22s} harts={r['harts']} "
+                f"{r.get('output', '')}",
+                flush=True,
+            )
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:

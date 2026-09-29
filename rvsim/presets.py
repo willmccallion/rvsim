@@ -232,7 +232,9 @@ def linux(
     """
     base = core if core is not None else fast()
     if interconnect not in INTERCONNECTS:
-        raise ValueError(f"interconnect must be one of {sorted(INTERCONNECTS)}, got {interconnect!r}")
+        raise ValueError(
+            f"interconnect must be one of {sorted(INTERCONNECTS)}, got {interconnect!r}"
+        )
     if memory == "ddr5":
         controller = MemoryController.DDR5(speed_bin=speed_bin, channels=4)
     elif memory == "dram":
@@ -343,6 +345,7 @@ def cortex_a72():
         ),
     )
 
+
 def m1(
     *,
     branch_predictor=None,
@@ -390,6 +393,7 @@ def m1(
         ),
     )
 
+
 def p550(
     *,
     branch_predictor=None,
@@ -398,27 +402,27 @@ def p550(
 ):
     """SiFive Performance P550 — 3-wide, 13-stage, out-of-order.
 
-Microarchitecture notes (from Chips and Cheese reverse engineering):
-- 3-wide fetch/decode/rename/retire
-- ROB ~72 entries (comparable to Core 2 / Goldmont Plus class)
-- Modest issue queue, ~32 entries estimated
-- Load queue ~24 entries, store buffer ~16 entries (described as "thin")
-- PRF sized with "plenty of capacity compared to ROB size"
-- 9.1 KiB branch history table with good pattern recognition
-- 32-entry BTB handles taken branches with zero bubbles
-- 32KB 8-way L1i, 32KB 8-way L1d, private L2 per core
-- 4 MB shared L3 on EIC7700X implementation
-- 13-stage pipeline → ~11-13 cycle mispredict penalty
-- No hardware misaligned access support (trap-based emulation)
+    Microarchitecture notes (from Chips and Cheese reverse engineering):
+    - 3-wide fetch/decode/rename/retire
+    - ROB ~72 entries (comparable to Core 2 / Goldmont Plus class)
+    - Modest issue queue, ~32 entries estimated
+    - Load queue ~24 entries, store buffer ~16 entries (described as "thin")
+    - PRF sized with "plenty of capacity compared to ROB size"
+    - 9.1 KiB branch history table with good pattern recognition
+    - 32-entry BTB handles taken branches with zero bubbles
+    - 32KB 8-way L1i, 32KB 8-way L1d, private L2 per core
+    - 4 MB shared L3 on EIC7700X implementation
+    - 13-stage pipeline → ~11-13 cycle mispredict penalty
+    - No hardware misaligned access support (trap-based emulation)
 
-    SiFive Performance P550 machine config.
+        SiFive Performance P550 machine config.
 
-    Based on published microarchitecture analysis:
-    - Chips and Cheese: "Inside SiFive's P550 Microarchitecture" (Jan 2025)
-    - SiFive official specs: 13-stage, triple-issue, out-of-order, RV64GC
-    - Measured on Eswin EIC7700X SoC @ 1.4 GHz, 32KB+32KB L1, private L2, 4MB shared L3
-    - Published SPECInt2006: 8.65/GHz
-    - Observed IPC: approaching 3.0 on favorable workloads
+        Based on published microarchitecture analysis:
+        - Chips and Cheese: "Inside SiFive's P550 Microarchitecture" (Jan 2025)
+        - SiFive official specs: 13-stage, triple-issue, out-of-order, RV64GC
+        - Measured on Eswin EIC7700X SoC @ 1.4 GHz, 32KB+32KB L1, private L2, 4MB shared L3
+        - Published SPECInt2006: 8.65/GHz
+        - Observed IPC: approaching 3.0 on favorable workloads
     """
     if branch_predictor is None:
         # P550 has a 9.1 KiB BHT — predictor type unconfirmed.

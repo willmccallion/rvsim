@@ -116,8 +116,11 @@ def main():
     with cf.ProcessPoolExecutor(max_workers=args.jobs) as pool:
         for r in pool.map(run_one, work):
             results.append(r)
-            print(f"{key(r):48s} cycles={r['cycles']:>12,d} insts={r['instructions']:>12,d} "
-                  f"exit={r['exit_code']} ({r['seconds']}s)", flush=True)
+            print(
+                f"{key(r):48s} cycles={r['cycles']:>12,d} insts={r['instructions']:>12,d} "
+                f"exit={r['exit_code']} ({r['seconds']}s)",
+                flush=True,
+            )
 
     if args.out:
         with open(args.out, "w") as f:
@@ -133,12 +136,17 @@ def main():
             if b is None:
                 continue
             same = (b["cycles"], b["instructions"], b["exit_code"]) == (
-                r["cycles"], r["instructions"], r["exit_code"])
+                r["cycles"],
+                r["instructions"],
+                r["exit_code"],
+            )
             if not same:
                 diffs += 1
-                print(f"DIFF {key(r):48s} cycles {b['cycles']:,d} -> {r['cycles']:,d} "
-                      f"({r['cycles'] - b['cycles']:+,d}) insts {b['instructions']:,d} -> "
-                      f"{r['instructions']:,d} exit {b['exit_code']} -> {r['exit_code']}")
+                print(
+                    f"DIFF {key(r):48s} cycles {b['cycles']:,d} -> {r['cycles']:,d} "
+                    f"({r['cycles'] - b['cycles']:+,d}) insts {b['instructions']:,d} -> "
+                    f"{r['instructions']:,d} exit {b['exit_code']} -> {r['exit_code']}"
+                )
         print(f"{len(results)} pairs compared, {diffs} differ")
         sys.exit(1 if diffs else 0)
 

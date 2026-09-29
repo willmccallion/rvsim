@@ -17,22 +17,30 @@ SIZES = ["1KB", "2KB", "4KB", "8KB", "16KB", "32KB"]
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--sizes", nargs="+", default=SIZES, help="D-cache sizes to sweep")
-    ap.add_argument("--ways", type=int, default=4, help="Cache associativity (default: 4)")
+    ap.add_argument(
+        "--ways", type=int, default=4, help="Cache associativity (default: 4)"
+    )
     ap.add_argument("--programs", nargs="+", default=PROGRAMS, help="Programs to run")
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
     args = ap.parse_args()
 
     binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
     configs = {
-        size: Config(uart_quiet=True, l1d=Cache(size=size, ways=args.ways, mshr_count=8))
+        size: Config(
+            uart_quiet=True, l1d=Cache(size=size, ways=args.ways, mshr_count=8)
+        )
         for size in args.sizes
     }
 
     n_jobs = len(binaries) * len(configs)
-    print(f"D-cache sweep: {len(binaries)} binaries x {len(configs)} sizes "
-          f"({args.ways}-way, {n_jobs} runs, limit={args.limit:,})")
+    print(
+        f"D-cache sweep: {len(binaries)} binaries x {len(configs)} sizes "
+        f"({args.ways}-way, {n_jobs} runs, limit={args.limit:,})"
+    )
 
     t0 = time.perf_counter()
     results = Sweep(binaries=binaries, configs=configs).run(

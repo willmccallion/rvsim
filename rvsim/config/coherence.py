@@ -81,8 +81,12 @@ class Coherence:
         txn_entries: int = 32,
     ):
         self.protocol = "MESI"
-        self.home_agent = home_agent if home_agent is not None else HomeAgent.SnoopFilter()
-        self.interconnect = interconnect if interconnect is not None else Interconnect.Crossbar()
+        self.home_agent = (
+            home_agent if home_agent is not None else HomeAgent.SnoopFilter()
+        )
+        self.interconnect = (
+            interconnect if interconnect is not None else Interconnect.Crossbar()
+        )
         self.txn_entries = txn_entries
 
     def __repr__(self) -> str:

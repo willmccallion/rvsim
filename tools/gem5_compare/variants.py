@@ -17,12 +17,38 @@ VLEN = 256
 VECTOR_UNITS = 3
 
 BASE = {
-    "bp": {"kind": "tournament", "global_bits": 13, "local_hist_bits": 11, "local_pred_bits": 11},
+    "bp": {
+        "kind": "tournament",
+        "global_bits": 13,
+        "local_hist_bits": 11,
+        "local_pred_bits": 11,
+    },
     # Hit latency, and the latency from a fill to answering its requests
     # (gem5's tag/data and response latencies).
-    "l1i": {"size_kb": 32, "assoc": 8, "mshrs": 16, "tgts": 20, "latency": 1, "response": 1},
-    "l1d": {"size_kb": 32, "assoc": 8, "mshrs": 16, "tgts": 20, "latency": 1, "response": 1},
-    "l2": {"size_kb": 256, "assoc": 16, "mshrs": 20, "tgts": 12, "latency": 10, "response": 1},
+    "l1i": {
+        "size_kb": 32,
+        "assoc": 8,
+        "mshrs": 16,
+        "tgts": 20,
+        "latency": 1,
+        "response": 1,
+    },
+    "l1d": {
+        "size_kb": 32,
+        "assoc": 8,
+        "mshrs": 16,
+        "tgts": 20,
+        "latency": 1,
+        "response": 1,
+    },
+    "l2": {
+        "size_kb": 256,
+        "assoc": 16,
+        "mshrs": 20,
+        "tgts": 12,
+        "latency": 10,
+        "response": 1,
+    },
     # The bus between the L2 and memory, each way, and memory itself: a
     # fixed latency and a bandwidth (gem5's SimpleMemory, rvsim's Simple).
     "bus": {"width_bytes": 8, "latency": 4},
@@ -76,7 +102,12 @@ VARIANTS = {
     # defaults against gem5's 64KB CBP-5 TAGE-SC-L.
     "bp_tage_sc_l": _with(bp={"kind": "tage_sc_l"}),
     "bp_small_tournament": _with(
-        bp={"kind": "tournament", "global_bits": 10, "local_hist_bits": 8, "local_pred_bits": 8}
+        bp={
+            "kind": "tournament",
+            "global_bits": 10,
+            "local_hist_bits": 8,
+            "local_pred_bits": 8,
+        }
     ),
     "caches_small": _with(
         l1i={"size_kb": 8, "assoc": 4},

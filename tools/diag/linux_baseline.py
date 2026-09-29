@@ -32,7 +32,11 @@ def main():
     out_dir = os.path.join(ROOT, "software", "linux", "output")
     cfg = presets.linux().replace(uart_quiet=True, hart_count=args.hart_count)
     os.chdir(ROOT)
-    sim = Simulator(cfg, kernel=os.path.join(out_dir, "Image"), disk=os.path.join(out_dir, "disk.img"))
+    sim = Simulator(
+        cfg,
+        kernel=os.path.join(out_dir, "Image"),
+        disk=os.path.join(out_dir, "disk.img"),
+    )
     exit_code = sim.run(limit=args.limit, stats_sections=None)
     stats = sim.stats
     result = {
@@ -50,7 +54,9 @@ def main():
     if args.compare:
         with open(args.compare) as f:
             base = json.load(f)
-        same = all(base[k] == result[k] for k in ("cycles", "instructions", "pc", "exit_code"))
+        same = all(
+            base[k] == result[k] for k in ("cycles", "instructions", "pc", "exit_code")
+        )
         print("IDENTICAL" if same else f"DIFF vs {args.compare}: {base}")
         sys.exit(0 if same else 1)
 

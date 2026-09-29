@@ -64,6 +64,7 @@ except _PackageNotFoundError:
     # not load-bearing.
     __version__ = "0.0.0+dev"
 
+
 def version() -> str:
     """Return the installed rvsim version string."""
     return __version__

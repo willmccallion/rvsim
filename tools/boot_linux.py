@@ -62,7 +62,6 @@ BR2_PACKAGE_LINUX_TOOLS_PERF=y
 """
 
 
-
 def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -91,7 +90,6 @@ def write_defconfig(buildroot_dir: str) -> None:
     with open(path, "w") as f:
         f.write(DEFCONFIG.format(guest=guest))
     print("[Linux] Wrote", path)
-
 
 
 def build(linux_dir: str) -> int:
@@ -188,8 +186,10 @@ def main():
     args = ap.parse_args()
 
     if not args.no_build:
-        if args.rebuild or not os.path.exists(image_path) or not os.path.exists(
-            os.path.join(out_dir, "fw_jump.bin")
+        if (
+            args.rebuild
+            or not os.path.exists(image_path)
+            or not os.path.exists(os.path.join(out_dir, "fw_jump.bin"))
         ):
             os.makedirs(linux_dir, exist_ok=True)
             if build(linux_dir) != 0:

@@ -255,7 +255,11 @@ def _coherence_to_dict(c: Coherence) -> Dict[str, Any]:
     if isinstance(home, HomeAgent.Broadcast):
         home_dict: Dict[str, Any] = {"kind": "Broadcast"}
     elif isinstance(home, HomeAgent.SnoopFilter):
-        home_dict = {"kind": "SnoopFilter", "capacity_factor": home.capacity_factor, "ways": home.ways}
+        home_dict = {
+            "kind": "SnoopFilter",
+            "capacity_factor": home.capacity_factor,
+            "ways": home.ways,
+        }
     else:
         raise TypeError(f"Unknown home agent type: {type(home)}")
     ic = c.interconnect
@@ -264,7 +268,11 @@ def _coherence_to_dict(c: Coherence) -> Dict[str, Any]:
     return {
         "protocol": "Mesi",
         "home_agent": home_dict,
-        "interconnect": {"kind": ic.kind, "hop_latency": ic.hop_latency, "bytes_per_cycle": ic.bytes_per_cycle},
+        "interconnect": {
+            "kind": ic.kind,
+            "hop_latency": ic.hop_latency,
+            "bytes_per_cycle": ic.bytes_per_cycle,
+        },
         "txn_entries": c.txn_entries,
     }
 

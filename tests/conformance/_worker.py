@@ -83,6 +83,7 @@ def main():
     # VLEN=256) silently mismatches every vse store. Pin VLEN to the path
     # when we can detect it.
     import re
+
     m = re.search(r"/vlen(\d+)/", elf_path)
     if m:
         cfg.vlen = int(m.group(1))

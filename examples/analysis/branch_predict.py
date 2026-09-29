@@ -25,7 +25,9 @@ PREDICTORS = {
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--width", type=int, default=1, help="Pipeline width (default: 1)")
     ap.add_argument("--programs", nargs="+", default=PROGRAMS, help="Programs to run")
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
@@ -38,8 +40,10 @@ def main():
     }
 
     n_jobs = len(binaries) * len(configs)
-    print(f"Branch predictor comparison: {len(binaries)} binaries x {len(configs)} predictors "
-          f"(w{args.width}, {n_jobs} runs, limit={args.limit:,})")
+    print(
+        f"Branch predictor comparison: {len(binaries)} binaries x {len(configs)} predictors "
+        f"(w{args.width}, {n_jobs} runs, limit={args.limit:,})"
+    )
 
     t0 = time.perf_counter()
     results = Sweep(binaries=binaries, configs=configs).run(
@@ -49,7 +53,13 @@ def main():
     print(f"Completed in {elapsed:.1f}s\n")
 
     results.compare(
-        metrics=["cycles", "ipc", "branch_accuracy_pct", "branch_mispredictions", "branch_predictions"],
+        metrics=[
+            "cycles",
+            "ipc",
+            "branch_accuracy_pct",
+            "branch_mispredictions",
+            "branch_predictions",
+        ],
         baseline="Static",
         col_header="predictor",
     )

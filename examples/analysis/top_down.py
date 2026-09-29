@@ -30,9 +30,9 @@ CONFIGS = {
 def analyze_top_down(stats, width):
     """
     Compute Top-Down metrics using Slot-based accounting.
-    
+
     Total Slots = Cycles * Pipeline Width
-    
+
     Categories:
     1. Retiring: Actual instructions retired.
     2. Bad Speculation: Slots wasted due to branch misprediction recovery.
@@ -66,7 +66,7 @@ def analyze_top_down(stats, width):
     # 3. Backend Bound
     # Cycles where backend structures (ROB, LSQ, RS) were full or waiting.
     slots_backend = s_data * width
-    
+
     # 4. Frontend Bound (and vertical waste)
     # The remainder. This catches:
     # - I-Cache misses (fetch bubbles)
@@ -83,10 +83,18 @@ def analyze_top_down(stats, width):
         "IPC": stats.get("ipc", 0.0),
     }
 
+
 def main():
     parser = argparse.ArgumentParser(description="Top-Down Performance Analysis")
-    parser.add_argument("binary", nargs="?", default="software/bin/benchmarks/qsort.elf", help="Path to ELF binary")
-    parser.add_argument("--config", choices=CONFIGS.keys(), default="a72", help="CPU Configuration")
+    parser.add_argument(
+        "binary",
+        nargs="?",
+        default="software/bin/benchmarks/qsort.elf",
+        help="Path to ELF binary",
+    )
+    parser.add_argument(
+        "--config", choices=CONFIGS.keys(), default="a72", help="CPU Configuration"
+    )
     args = parser.parse_args()
 
     # Resolve binary path
@@ -99,8 +107,10 @@ def main():
             print(f"Error: Binary {binary} not found.")
             return
 
-    print(f"Top-Down Analysis for {os.path.basename(binary)} on {args.config.upper()}...")
-    
+    print(
+        f"Top-Down Analysis for {os.path.basename(binary)} on {args.config.upper()}..."
+    )
+
     # Build & Run
     cfg_func = CONFIGS[args.config]
     config = cfg_func().replace(uart_quiet=True)
@@ -109,11 +119,11 @@ def main():
 
     stats = Stats(sim.stats)
     metrics = analyze_top_down(stats, config.width)
-    
+
     # Display
-    print("\n" + "="*40)
+    print("\n" + "=" * 40)
     print(f" {args.config.upper()} Core Performance Summary")
-    print("="*40)
+    print("=" * 40)
     print(f" IPC: {metrics['IPC']:.2f} (Max possible: {config.width})")
     print("-" * 40)
     print(" Category breakdown:")
@@ -121,8 +131,8 @@ def main():
     print(f"  \033[31mBad Speculation:\033[0m  {metrics['Bad Speculation']:5.1f}%")
     print(f"  \033[33mBackend Bound:\033[0m    {metrics['Backend Bound']:5.1f}%")
     print(f"  \033[36mFrontend Bound:\033[0m   {metrics['Frontend Bound']:5.1f}%")
-    print("="*40)
-    
+    print("=" * 40)
+
     # Suggestions based on bottleneck
     bottleneck = max(metrics, key=lambda k: metrics[k] if k != "IPC" else -1)
     print(f"\nMain Bottleneck: {bottleneck}")
@@ -132,6 +142,7 @@ def main():
         print(" -> Suggestion: Increase Cache size, ROB size, or memory bandwidth.")
     elif bottleneck == "Frontend Bound":
         print(" -> Suggestion: Improve I-Cache or Fetch width.")
-    
+
+
 if __name__ == "__main__":
     main()

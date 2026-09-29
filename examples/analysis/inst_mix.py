@@ -14,7 +14,9 @@ PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--programs", nargs="+", default=PROGRAMS, help="Programs to run")
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
     args = ap.parse_args()
@@ -24,7 +26,9 @@ def main():
         binary = f"software/bin/programs/{program}.elf"
         print(f"  {program}...", flush=True)
         config = Config(uart_quiet=True)
-        result = Environment(binary=binary, config=config).run(quiet=True, limit=args.limit)
+        result = Environment(binary=binary, config=config).run(
+            quiet=True, limit=args.limit
+        )
         s = result.stats
         rows[program] = s.query("^inst_")
     print(Stats.tabulate(rows, title="Instruction Mix"))

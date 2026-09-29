@@ -69,7 +69,11 @@ class Workload:
     def files(self) -> Dict[str, str]:
         """Each file the workload loads, by role."""
         roles = ("binary", "kernel", "firmware", "disk", "dtb")
-        return {role: getattr(self, role) for role in roles if getattr(self, role) is not None}
+        return {
+            role: getattr(self, role)
+            for role in roles
+            if getattr(self, role) is not None
+        }
 
     def digests(self) -> Dict[str, str]:
         """Each file's SHA-256, by role."""

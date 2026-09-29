@@ -48,6 +48,7 @@ def fmt_rel(value) -> str:
 def fmt_pair(a, b) -> str:
     def num(v):
         return "-" if v is None else f"{v:,.0f}"
+
     return f"{num(a)}/{num(b)}"
 
 

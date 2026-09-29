@@ -10,7 +10,6 @@ If you add or remove a Config here, every runner picks it up automatically —
 this is the single source of truth.
 """
 
-
 from rvsim import (
     Backend,
     BranchPredictor,

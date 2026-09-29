@@ -18,8 +18,12 @@ BP_MAP = {
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--widths", type=int, nargs="+", default=[1, 2, 4], help="Pipeline widths")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--widths", type=int, nargs="+", default=[1, 2, 4], help="Pipeline widths"
+    )
     ap.add_argument("--programs", nargs="+", default=PROGRAMS, help="Programs to run")
     ap.add_argument("--limit", type=int, default=50_000_000, help="Cycle limit")
     args = ap.parse_args()
@@ -32,15 +36,19 @@ def main():
                 label = f"{bp_name}/w{width}"
                 print(f"  {program} {label}...", flush=True)
                 config = Config(branch_predictor=bp_cls(), uart_quiet=True, width=width)
-                result = Environment(binary=binary, config=config).run(quiet=True, limit=args.limit)
+                result = Environment(binary=binary, config=config).run(
+                    quiet=True, limit=args.limit
+                )
                 s = result.stats
-                rows[label] = Stats({
-                    "cycles": s["cycles"],
-                    "ipc": s["ipc"],
-                    "stalls_mem": s["stalls_mem"],
-                    "stalls_ctrl": s["stalls_control"],
-                    "stalls_data": s["stalls_data"],
-                })
+                rows[label] = Stats(
+                    {
+                        "cycles": s["cycles"],
+                        "ipc": s["ipc"],
+                        "stalls_mem": s["stalls_mem"],
+                        "stalls_ctrl": s["stalls_control"],
+                        "stalls_data": s["stalls_data"],
+                    }
+                )
         print(Stats.tabulate(rows, title=program))
         print()
 

@@ -57,7 +57,10 @@ def extract_stats(stats_path: Path) -> dict:
         parts = line.split()
         if len(parts) >= 2:
             values[parts[0]] = parts[1]
-    return {name: float(values[key]) if key in values else None for name, key in STATS.items()}
+    return {
+        name: float(values[key]) if key in values else None
+        for name, key in STATS.items()
+    }
 
 
 def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
@@ -65,7 +68,14 @@ def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
     m5out = OUTDIR / variant_name / binary.stem
     m5out.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        [GEM5_BIN, f"--outdir={m5out}", str(SINGLE_SCRIPT), str(binary), str(m5out), variant_name],
+        [
+            GEM5_BIN,
+            f"--outdir={m5out}",
+            str(SINGLE_SCRIPT),
+            str(binary),
+            str(m5out),
+            variant_name,
+        ],
         capture_output=True,
         text=True,
         timeout=1800,
@@ -81,14 +91,18 @@ def main():
     variants = sys.argv[1:] or list(VARIANTS)
     binaries = sorted(PROGRAMS.glob("*.elf"))
     if not binaries:
-        sys.exit(f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh")
+        sys.exit(
+            f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh"
+        )
 
     jobs = [(v, b) for v in variants for b in binaries]
     results: dict = {v: {} for v in variants}
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
         for variant_name, program, stats in pool.map(run_one, jobs):
             results[variant_name][program] = stats
-            ipc = f"IPC={stats['ipc']:.3f}" if stats.get("ipc") is not None else "FAILED"
+            ipc = (
+                f"IPC={stats['ipc']:.3f}" if stats.get("ipc") is not None else "FAILED"
+            )
             print(f"  gem5 {variant_name:20} {program:22} {ipc}", flush=True)
 
     RESULTS_DIR.mkdir(exist_ok=True)

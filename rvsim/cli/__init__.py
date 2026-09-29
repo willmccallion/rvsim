@@ -359,7 +359,11 @@ def main() -> None:
         _real_stderr = sys.stderr
         sys.stderr = io.StringIO()
         try:
-            sim = Simulator(cfg, kernel=target) if mode == "kernel" else Simulator(cfg, binary=target)
+            sim = (
+                Simulator(cfg, kernel=target)
+                if mode == "kernel"
+                else Simulator(cfg, binary=target)
+            )
         finally:
             sys.stderr = _real_stderr
         print_stats = not args.quiet and not args.no_stats
@@ -371,7 +375,11 @@ def main() -> None:
         )
     else:
         stats_sections = None if (args.quiet or args.no_stats) else []
-        sim = Simulator(cfg, kernel=target) if mode == "kernel" else Simulator(cfg, binary=target)
+        sim = (
+            Simulator(cfg, kernel=target)
+            if mode == "kernel"
+            else Simulator(cfg, binary=target)
+        )
         exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 
     if args.json and exit_code is not None:
@@ -383,4 +391,3 @@ def main() -> None:
             json.dump(Stats.from_core(sim.stats), f, indent=2)
 
     sys.exit(exit_code if exit_code is not None else 1)
-

@@ -49,8 +49,10 @@ def main():
     }
 
     n_jobs = len(binaries) * len(configs)
-    print(f"Width scaling: {len(binaries)} binaries x {len(configs)} widths "
-          f"({args.bp}, {n_jobs} runs, limit={args.limit:,})")
+    print(
+        f"Width scaling: {len(binaries)} binaries x {len(configs)} widths "
+        f"({args.bp}, {n_jobs} runs, limit={args.limit:,})"
+    )
 
     t0 = time.perf_counter()
     results = Sweep(binaries=binaries, configs=configs).run(
