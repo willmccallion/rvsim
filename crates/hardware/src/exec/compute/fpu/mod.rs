@@ -26,6 +26,7 @@ use self::nan_handling::{
     box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
     unbox_f32,
 };
+use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::isa::fp::{FpFlags, RoundingMode};
 
 // Host FPU exception flag bits from <fenv.h> — used to detect inexact/overflow/etc.
@@ -1057,27 +1058,6 @@ fn rmm_fixup(op: AluOp, a: u64, b: u64, is32: bool, rne_result: u64) -> u64 {
 /// callers (unit tests) that want only the result value.
 pub fn execute_with_rm(op: AluOp, a: u64, b: u64, c: u64, is32: bool, rm: RoundingMode) -> u64 {
     execute_full_rm(op, a, b, c, false, is32, rm).0
-}
-
-/// Checks if an f32 value is a signaling NaN.
-///
-/// A signaling NaN has the exponent field all 1s, the quiet bit (bit 22) = 0,
-/// and a non-zero mantissa payload.
-const fn is_snan_f32(f: f32) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 23) & 0xFF;
-    let mantissa = bits & 0x007F_FFFF;
-    let quiet_bit = bits & 0x0040_0000;
-    exp == 0xFF && mantissa != 0 && quiet_bit == 0
-}
-
-/// Checks if an f64 value is a signaling NaN.
-const fn is_snan_f64(f: f64) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 52) & 0x7FF;
-    let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
-    let quiet_bit = bits & 0x0008_0000_0000_0000;
-    exp == 0x7FF && mantissa != 0 && quiet_bit == 0
 }
 
 /// Single-precision (f32) execution path.

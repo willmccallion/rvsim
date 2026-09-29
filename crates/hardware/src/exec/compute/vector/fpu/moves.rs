@@ -1,7 +1,8 @@
 //! Merges and one-element slides of floating-point scalars.
 
-use super::{mask_active, read_op1};
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;

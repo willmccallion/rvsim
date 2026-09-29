@@ -1,21 +1,21 @@
 //! Single-width floating-point arithmetic, element by element.
 
-use super::compare::{is_snan_f32, is_snan_f64};
 use super::convert::{
     f32_to_i32_frm, f32_to_u32_frm, f64_to_i16_frm, f64_to_i64_frm, f64_to_u16_frm, f64_to_u64_frm,
 };
 use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32, vfrsqrt7_64};
-use super::{
-    F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64, mask_active, read_op1, sign_extend,
-};
+use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{
     CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16,
 };
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
+use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::fpu::{clear_host_fp_flags, read_host_fp_flags};
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;

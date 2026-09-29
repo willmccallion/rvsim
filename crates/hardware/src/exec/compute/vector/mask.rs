@@ -7,7 +7,7 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
@@ -70,12 +70,6 @@ pub fn vec_mask_execute(
 
         _ => unreachable!("not a mask op: {:?}", op),
     }
-}
-
-/// Read v0 mask bit for element `i`.
-#[inline]
-fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
-    vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
 }
 
 /// Extract the vs1 register index from a [`VecOperand`].

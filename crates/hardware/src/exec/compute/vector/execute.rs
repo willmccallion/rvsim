@@ -7,7 +7,8 @@
 //! `VecPrfView` on the O3 backend, a `ShadowVpr` on the in-order one) and
 //! returns the side effects for commit-time application.
 
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand, vec_execute};
+use crate::exec::compute::vector::alu::vec_execute;
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, mem, permute, reduction};
 use crate::exec::inst::Inst;

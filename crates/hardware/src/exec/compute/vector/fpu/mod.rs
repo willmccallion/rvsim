@@ -26,7 +26,7 @@ mod moves;
 mod widen;
 
 use crate::exec::compute::fpu::{restore_host_round_mode, set_host_round_mode};
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
@@ -210,40 +210,6 @@ fn vec_fp_dispatch(
 
     // Standard element-wise FP operations
     exec_fp_standard(op, vpr, vd_idx, vs2_idx, operand1, ctx)
-}
-
-/// Read v0 mask bit for element `i`.
-#[inline]
-fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
-    vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
-}
-
-/// Read operand1 value for element `i` at the given SEW.
-#[inline]
-fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize, sew: Sew) -> u64 {
-    match operand1 {
-        VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(i), sew),
-        VecOperand::Scalar(s) => *s & sew.mask(),
-        VecOperand::Immediate(imm) => (*imm as u64) & sew.mask(),
-    }
-}
-
-/// Sign-extend a SEW-width value stored in a `u64` to a full `i64`.
-#[inline]
-const fn sign_extend(val: u64, sew: Sew) -> i64 {
-    let shift = 64 - sew.bits();
-    ((val << shift) as i64) >> shift
-}
-
-/// Widen a SEW to the next larger width. Returns `None` for E64.
-#[inline]
-const fn widen_sew(sew: Sew) -> Option<Sew> {
-    match sew {
-        Sew::E8 => Some(Sew::E16),
-        Sew::E16 => Some(Sew::E32),
-        Sew::E32 => Some(Sew::E64),
-        Sew::E64 => None,
-    }
 }
 
 /// Convert a raw u64 element to f32 (unboxed from lower 32 bits).

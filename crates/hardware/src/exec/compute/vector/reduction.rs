@@ -21,10 +21,13 @@ use crate::exec::compute::fpu::half::{CANONICAL_NAN_F16, f16_to_f32, f64_to_f16,
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
+use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::fpu::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
 };
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, mask_active, sign_extend, widen_sew,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;
@@ -110,50 +113,6 @@ pub fn vec_reduce(
         }
 
         _ => unreachable!("vec_reduce called with non-reduction op: {:?}", op),
-    }
-}
-
-/// Sign-extend a SEW-width value stored in a `u64` to a full `i64`.
-#[inline]
-const fn sign_extend(val: u64, sew: Sew) -> i64 {
-    let shift = 64 - sew.bits();
-    ((val << shift) as i64) >> shift
-}
-
-/// Read v0 mask bit for element `i`.
-#[inline]
-fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
-    vpr.read_mask_bit(VRegIdx::new(0), ElemIdx::new(i))
-}
-
-/// Checks if an f32 value is a signaling NaN.
-#[inline]
-const fn is_snan_f32(f: f32) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 23) & 0xFF;
-    let mantissa = bits & 0x007F_FFFF;
-    let quiet_bit = bits & 0x0040_0000;
-    exp == 0xFF && mantissa != 0 && quiet_bit == 0
-}
-
-/// Checks if an f64 value is a signaling NaN.
-#[inline]
-const fn is_snan_f64(f: f64) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 52) & 0x7FF;
-    let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
-    let quiet_bit = bits & 0x0008_0000_0000_0000;
-    exp == 0x7FF && mantissa != 0 && quiet_bit == 0
-}
-
-/// Widen a SEW to the next larger width. Returns `None` for E64.
-#[inline]
-const fn widen_sew(sew: Sew) -> Option<Sew> {
-    match sew {
-        Sew::E8 => Some(Sew::E16),
-        Sew::E16 => Some(Sew::E32),
-        Sew::E32 => Some(Sew::E64),
-        Sew::E64 => None,
     }
 }
 

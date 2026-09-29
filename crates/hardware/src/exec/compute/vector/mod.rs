@@ -7,6 +7,8 @@ pub mod vsetvl;
 
 pub mod alu;
 
+pub mod context;
+
 pub mod fpu;
 
 pub mod execute;

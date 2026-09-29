@@ -3,11 +3,13 @@
 use super::convert::{
     f32_to_i64_frm, f32_to_u64_frm, f64_to_f32_round_to_odd, f64_to_i32_frm, f64_to_u32_frm,
 };
-use super::{elem_to_f32, elem_to_f64, mask_active, read_op1, sign_extend, widen_sew};
+use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
 use crate::exec::compute::fpu::{clear_host_fp_flags, read_host_fp_flags, rmm_round_f64_to_f32};
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;

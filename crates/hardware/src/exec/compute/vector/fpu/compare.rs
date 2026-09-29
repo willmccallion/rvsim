@@ -1,8 +1,11 @@
 //! Floating-point comparisons into mask registers.
 
-use super::{elem_to_f32, elem_to_f64, mask_active, read_op1};
+use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, is_snan_f16};
-use crate::exec::compute::vector::alu::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
@@ -115,22 +118,4 @@ pub(super) fn exec_fp_comparison(
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
-}
-
-/// Checks if an f32 value is a signaling NaN.
-pub(super) const fn is_snan_f32(f: f32) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 23) & 0xFF;
-    let mantissa = bits & 0x007F_FFFF;
-    let quiet_bit = bits & 0x0040_0000;
-    exp == 0xFF && mantissa != 0 && quiet_bit == 0
-}
-
-/// Checks if an f64 value is a signaling NaN.
-pub(super) const fn is_snan_f64(f: f64) -> bool {
-    let bits = f.to_bits();
-    let exp = (bits >> 52) & 0x7FF;
-    let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
-    let quiet_bit = bits & 0x0008_0000_0000_0000;
-    exp == 0x7FF && mantissa != 0 && quiet_bit == 0
 }
