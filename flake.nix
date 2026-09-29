@@ -1,5 +1,5 @@
 {
-  description = "rvsim — RISC-V cycle-accurate simulator dev shell";
+  description = "rvsim — RISC-V cycle-level simulator dev shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

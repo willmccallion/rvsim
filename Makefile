@@ -49,7 +49,7 @@ endif
 # ═══════════════════════════════════════════════════════════════════════════════
 HELP_W := 28
 help:
-	@printf "\n$(BOLD)rvsim$(RESET) — RISC-V cycle-accurate simulator\n\n"
+	@printf "\n$(BOLD)rvsim$(RESET) — RISC-V cycle-level simulator\n\n"
 	@printf "  $(CYAN)Build$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build Python bindings (editable, maturin)\n" "make build"
 	@printf "    %-$(HELP_W)s  Install Python bindings (editable, maturin)\n" "make python"

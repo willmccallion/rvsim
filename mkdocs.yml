@@ -1,6 +1,6 @@
 site_name: rvsim
 site_url: https://willmccallion.github.io/rvsim/
-site_description: Cycle-accurate RISC-V 64-bit system simulator with a Python API
+site_description: Cycle-level RISC-V 64-bit system simulator with a Python API
 repo_url: https://github.com/willmccallion/rvsim
 repo_name: willmccallion/rvsim
 

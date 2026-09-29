@@ -4,11 +4,13 @@
 [![docs.rs](https://docs.rs/rvsim-core/badge.svg)](https://docs.rs/rvsim-core)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
 
-Cycle-accurate RISC-V 64-bit system simulator core. This is the Rust library that powers [`rvsim`](https://pypi.org/project/rvsim/).
+Cycle-level RISC-V 64-bit system simulator core. This is the Rust library that powers [`rvsim`](https://pypi.org/project/rvsim/).
 
 ## What is this?
 
-`rvsim-core` is a hardware-level RV64IMAFDC simulator that models a complete SoC at cycle granularity. It implements two pluggable microarchitectural backends (out-of-order superscalar and in-order scalar) sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 `riscv-tests`.
+`rvsim-core` is a hardware-level RV64IMAFDC simulator that models a complete SoC cycle by cycle. It implements two pluggable microarchitectural backends (out-of-order superscalar and in-order) sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 `riscv-tests`.
+
+> **Accuracy.** rvsim simulates every cycle, but it is not yet cycle-accurate: its timing model follows gem5's O3 CPU, and on our microbenchmarks its cycle counts are still tens of percent away from gem5's (see [Error against gem5](https://willmccallion.github.io/rvsim/error/)). We are working to close that gap.
 
 For the Python API and high-level usage, see the [main repository](https://github.com/willmccallion/rvsim).
 
@@ -25,7 +27,7 @@ Two execution backends behind a shared frontend (Fetch1 / Fetch2+Decode / Rename
 - Load queue for memory ordering violation detection and replay
 - Configurable functional unit pool (counts and latencies per type)
 
-**In-Order (scalar):**
+**In-Order:**
 - Scoreboard-based operand tracking with tag bypass from ROB entries
 - FIFO issue queue with head-of-queue blocking
 - Backpressure gating via inter-stage latch occupancy

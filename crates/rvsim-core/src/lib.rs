@@ -1,4 +1,4 @@
-//! Cycle-accurate RV64GC + RVV 1.0 system simulator.
+//! Cycle-level RV64GC + RVV 1.0 system simulator.
 //!
 //! The modules are layered; each depends only on those before it, except
 //! that the pipelines in [`uarch`] run on the per-core views [`system`]

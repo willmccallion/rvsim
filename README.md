@@ -7,13 +7,15 @@
 [![Boots Linux](https://img.shields.io/badge/Linux%206.6-boots%20to%20shell-blue)](#linux-boot)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
 
-Cycle-accurate RISC-V 64-bit system simulator with a composable Python API for architecture research and design-space exploration.
+Cycle-level RISC-V 64-bit system simulator with a composable Python API for architecture research and design-space exploration.
 
 [Documentation](https://willmccallion.github.io/rvsim/) · [PyPI](https://pypi.org/project/rvsim/) · [Rust Core (crates.io)](https://crates.io/crates/rvsim-core) · [Changelog](https://willmccallion.github.io/rvsim/changelog/)
 
 ---
 
-rvsim models a complete superscalar processor at cycle granularity. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 `riscv-tests`. The chipsalliance `riscv-vector-tests` suite is cross-checked against spike.
+rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 `riscv-tests`. The chipsalliance `riscv-vector-tests` suite is cross-checked against spike.
+
+> **Accuracy.** rvsim simulates every cycle, but it is not yet cycle-accurate: its timing model follows gem5's O3 CPU, and on our microbenchmarks its cycle counts are still tens of percent away from gem5's (see [Error against gem5](https://willmccallion.github.io/rvsim/error/)). We are working to close that gap.
 
 ## Install
 
@@ -53,7 +55,7 @@ print(result.stats.query("ipc|branch|miss"))
 
 **Out-of-order superscalar** — Physical register file with dual rename maps (speculative + committed), CAM-style issue queue with wakeup/select and oldest-first priority, reorder buffer for in-order commit with precise exceptions, load queue for memory ordering violation detection, store buffer with forwarding, and a configurable functional unit pool (per-type counts and latencies).
 
-**In-order scalar** — Scoreboard-based operand tracking, FIFO issue queue with head-of-queue blocking, backpressure gating. Shares the same frontend and commit/memory/writeback stages as the O3 backend, making both modes directly comparable on identical workloads.
+**In-order** — Configurable width, scoreboard-based operand tracking, FIFO issue queue with head-of-queue blocking, backpressure gating. Shares the same frontend and commit/memory/writeback stages as the O3 backend, making both modes directly comparable on identical workloads.
 
 Both backends enforce identical serialization semantics: system/CSR instructions wait for all older completions, FENCE respects predecessor/successor ordering bits, loads wait for older store address resolution.
 

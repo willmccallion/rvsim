@@ -1,6 +1,6 @@
 # rvsim
 
-**Cycle-accurate RISC-V 64-bit system simulator** with a composable Python API for architecture research and design-space exploration.
+**Cycle-level RISC-V 64-bit system simulator** with a composable Python API for architecture research and design-space exploration.
 
 [PyPI](https://pypi.org/project/rvsim/){ .md-button } [Rust Core (crates.io)](https://crates.io/crates/rvsim-core){ .md-button } [GitHub](https://github.com/willmccallion/rvsim){ .md-button }
 
@@ -8,14 +8,20 @@
 
 ## What is rvsim?
 
-rvsim is a hardware-level RV64IMAFDC system simulator that models a complete SoC at **cycle granularity**. Unlike functional simulators (QEMU, Spike) that only care about correctness, rvsim models the microarchitectural details that determine *how fast* a program runs: pipeline stages, cache miss penalties, branch misprediction bubbles, structural hazards, and memory ordering.
+rvsim is a hardware-level RV64IMAFDC system simulator that models a complete SoC **cycle by cycle**. Unlike functional simulators (QEMU, Spike) that only care about correctness, rvsim models the microarchitectural details that determine *how fast* a program runs: pipeline stages, cache miss penalties, branch misprediction bubbles, structural hazards, and memory ordering.
 
 It implements two pluggable microarchitectural backends:
 
-- **Out-of-order superscalar** — register renaming, speculative execution, out-of-order issue and commit
-- **In-order scalar** — simple scoreboard, blocking issue, deterministic pipeline
+- **Out-of-order superscalar** — register renaming, speculative execution, out-of-order issue, in-order commit
+- **In-order** — configurable width, scoreboard, blocking issue
 
 Both backends share the same frontend, memory hierarchy, and SoC device layer, making them directly comparable on identical workloads.
+
+!!! note "Accuracy"
+    rvsim simulates every cycle, but it is not yet cycle-accurate: its timing model
+    follows gem5's O3 CPU, and on our microbenchmarks its cycle counts are still
+    tens of percent away from gem5's (see [Error against gem5](error.md)). We are
+    working to close that gap.
 
 ### Key facts
 

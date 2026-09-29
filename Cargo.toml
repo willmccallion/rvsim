@@ -12,10 +12,10 @@ authors = ["Will McCallion"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/willmccallion/rvsim"
 homepage = "https://github.com/willmccallion/rvsim"
-description = "A high-performance cycle-accurate RISC-V 64-bit system simulator."
+description = "A cycle-level RISC-V 64-bit system simulator."
 readme = "README.md"
 categories = ["emulators", "hardware-support", "science"]
-keywords = ["riscv", "simulator", "cycle-accurate", "cpu-architecture"]
+keywords = ["riscv", "simulator", "microarchitecture", "cpu-architecture"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

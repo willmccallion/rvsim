@@ -1,7 +1,7 @@
 """
 rvsim simulator Python API.
 
-A Python-first interface to the cycle-accurate RISC-V simulator:
+A Python-first interface to the cycle-level RISC-V simulator:
 1. **Configuration:** ``Config``, ``Cache``, ``BranchPredictor``, ``MemDepPredictor``, etc.
 2. **Execution:** ``Simulator``.
 3. **Experiments:** ``Environment``, ``Result``; ``Session`` for phased

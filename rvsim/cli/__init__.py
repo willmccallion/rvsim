@@ -100,7 +100,7 @@ def _print_help() -> None:
 
     console.print()
     console.print(
-        "  [bold cyan]rvsim[/] [dim]—[/] RISC-V cycle-accurate simulator",
+        "  [bold cyan]rvsim[/] [dim]—[/] RISC-V cycle-level simulator",
         highlight=False,
     )
     console.print()
@@ -221,7 +221,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="rvsim",
         description=(
-            "rvsim — RISC-V cycle-accurate simulator\n"
+            "rvsim — RISC-V cycle-level simulator\n"
             "\n"
             "Run a bare-metal ELF, kernel image, or Python script.\n"
             "The mode is auto-detected from the file extension:\n"
