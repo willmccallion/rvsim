@@ -21,7 +21,6 @@
 //! assert_eq!(text, "addi x10, x0, 10");
 //! ```
 
-use crate::common::RegIdx;
 use crate::isa::disasm_vec;
 use crate::isa::encoding::privileged as sys_op;
 use crate::isa::encoding::rv64a::{funct5 as a_f5, opcodes as a_op};
@@ -31,6 +30,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_f3, funct7 as i_f7, opcodes as i_o
 use crate::isa::encoding::rv64m::{funct3 as m_f3, opcodes as m_op};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::InstructionBits;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvc;
 
 /// ABI register names for x0–x31.

@@ -15,10 +15,10 @@ use crate::core::arch::csr::{
     Csrs, MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT,
     SATP_PPN_MASK,
 };
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::mmu::pmp::{Pmp, PmpResult};
 use crate::core::units::mmu::tlb::PageSize;
+use crate::isa::privileged::mode::PrivilegeMode;
 
 /// Page Table Entry valid bit (bit 0).
 const PTE_VALID_BIT: u64 = 1;

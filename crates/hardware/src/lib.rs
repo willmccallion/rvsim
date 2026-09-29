@@ -20,16 +20,16 @@ pub mod trace;
 
 /// Address Space Identifier (ASID) from SATP[59:44]; prevents mixing with raw `u16` values.
 pub use crate::common::Asid;
-/// 12-bit CSR address newtype; prevents mixing raw `u32` constants with address values.
-pub use crate::common::CsrAddr;
 /// Interrupt Request Identifier for PLIC lines; prevents mixing with arbitrary `u32` values.
 pub use crate::common::IrqId;
-/// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
-pub use crate::common::RegIdx;
 /// Simulator-level error type; returned by `Simulator::tick` and the binary loader.
 pub use crate::common::SimError;
 /// Root configuration type; use `Config::default()` or deserialize from Python/JSON.
 pub use crate::config::Config;
+/// 12-bit CSR address newtype; prevents mixing raw `u32` constants with address values.
+pub use crate::isa::csr::CsrAddr;
+/// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
+pub use crate::isa::reg::RegIdx;
 /// Top-level simulator; owns the `SimState` and pipeline side-by-side.
 pub use crate::sim::simulator::Simulator;
 /// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.

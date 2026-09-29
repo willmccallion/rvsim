@@ -14,8 +14,8 @@ pub mod trap;
 
 use crate::common::{HartId, RegisterFile};
 use crate::core::arch::csr::Csrs;
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::pmp::Pmp;
+use crate::isa::privileged::mode::PrivilegeMode;
 
 /// Per-thread RISC-V architectural state.
 #[derive(Debug)]

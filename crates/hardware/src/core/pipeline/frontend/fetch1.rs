@@ -27,14 +27,14 @@
 #![allow(clippy::cast_ptr_alignment)]
 
 use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
-use crate::common::{AccessType, ExceptionStage, LineAddr, PhysAddr, Trap, VirtAddr};
-use crate::common::{InstSeq, InstSize};
+use crate::common::{AccessType, ExceptionStage, InstSeq, LineAddr, PhysAddr, Trap, VirtAddr};
 use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::ControlInst;
 use crate::core::units::bru::btb::BranchKind;
+use crate::isa::instruction::InstSize;
 use crate::isa::rvc::expand;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;

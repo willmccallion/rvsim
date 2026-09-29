@@ -17,17 +17,16 @@
 // IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
 #![allow(clippy::float_cmp)]
 
-use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::fpu::half::{CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::core::units::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
-use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::fpu::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
 };
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
 
@@ -631,7 +630,7 @@ fn fp_widen_reduce_f16_to_f32(
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::core::units::fpu::rounding_modes::RoundingMode;
+    use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a standard execution context with the given SEW and vl.

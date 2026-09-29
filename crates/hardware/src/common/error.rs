@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::addr::PhysAddr;
-use super::reg_idx::RegIdx;
+use crate::isa::reg::RegIdx;
 
 /// Pipeline stage where an exception was first detected.
 ///

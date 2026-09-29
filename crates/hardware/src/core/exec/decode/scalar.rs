@@ -4,7 +4,6 @@ use super::vector;
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
 use crate::common::error::Trap;
 use crate::core::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
-use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
     AQ as AMO_AQ, RL as AMO_RL, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,
@@ -16,6 +15,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcode
 use crate::isa::encoding::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::encoding::rv64zfh::funct7 as h_funct7;
 use crate::isa::encoding::zicboz;
+use crate::isa::fp::RoundingMode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
 

@@ -60,12 +60,12 @@ fn test_instruction_masks_and_shifts() {
 #[test]
 fn test_compressed_instruction_constants() {
     assert_eq!(
-        rvsim_core::common::InstSize::Compressed.as_u64(),
+        rvsim_core::isa::instruction::InstSize::Compressed.as_u64(),
         2,
         "Compressed instruction is 2 bytes"
     );
     assert_eq!(
-        rvsim_core::common::InstSize::Standard.as_u64(),
+        rvsim_core::isa::instruction::InstSize::Standard.as_u64(),
         4,
         "Standard instruction is 4 bytes"
     );

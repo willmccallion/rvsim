@@ -7,9 +7,9 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
-use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
@@ -334,7 +334,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::core::units::fpu::rounding_modes::RoundingMode;
+    use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a 128-bit VPR for testing.

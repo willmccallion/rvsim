@@ -4,7 +4,7 @@
 //! each of the five RISC-V rounding modes.
 
 use rvsim_core::core::units::fpu::Fpu;
-use rvsim_core::core::units::fpu::rounding_modes::RoundingMode;
+use rvsim_core::isa::fp::RoundingMode;
 use rvsim_core::isa::op::AluOp;
 
 /// Helper: box two f32 values, execute with rounding mode, unbox result.

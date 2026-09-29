@@ -3,21 +3,22 @@
 //! Operand selection, ALU/FPU evaluation, branch and jump targets, and the
 //! privilege and CSR checks that decide what a system instruction does.
 
+use crate::common::SfenceVmaInfo;
 use crate::common::error::Trap;
-use crate::common::{CsrAddr, SfenceVmaInfo};
 use crate::core::Hart;
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::exec::arch::ArchState;
 use crate::core::exec::cbo::{self, CboEffect};
 use crate::core::exec::inst::Inst;
 use crate::core::exec::signals::{OpASrc, OpBSrc};
 use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;
-use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::fpu::is_vec_fp;
+use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
+use crate::isa::fp::RoundingMode;
 use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
+use crate::isa::privileged::mode::PrivilegeMode;
 use crate::trace_csr;
 
 const FUNCT3_SHIFT: u32 = 12;

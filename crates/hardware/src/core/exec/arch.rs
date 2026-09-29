@@ -1,7 +1,7 @@
 //! The architectural state an instruction reads as it executes.
 
-use crate::common::CsrAddr;
 use crate::core::Hart;
+use crate::isa::csr::CsrAddr;
 
 /// What executing an instruction may read, whichever engine executes it:
 /// the hart, its CSRs as software sees them, and whether to trace.

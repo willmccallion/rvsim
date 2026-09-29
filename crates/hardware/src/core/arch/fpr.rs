@@ -1,6 +1,6 @@
 //! RISC-V Floating-Point Register file (f0–f31, 64-bit double precision).
 
-use crate::common::RegIdx;
+use crate::isa::reg::RegIdx;
 
 /// Floating-Point Register file.
 ///

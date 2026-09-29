@@ -107,8 +107,8 @@ impl CheckpointTable {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::RegIdx;
     use crate::core::pipeline::prf::PhysReg;
+    use crate::isa::reg::RegIdx;
 
     fn make_rename_map(marker: u16) -> RenameMap {
         let mut rm = RenameMap::new();

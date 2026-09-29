@@ -1,10 +1,9 @@
 //! Shared helpers for the DDR5 controller tests.
 
-use rvsim_core::common::HartId;
+use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::sim::packet::WriteOrigin;
 use std::sync::Arc;
 
-use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, MemCtrlId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;

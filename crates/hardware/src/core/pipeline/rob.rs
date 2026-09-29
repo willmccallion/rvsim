@@ -11,14 +11,17 @@
 use crate::sim::state::write_log::WriteSeq;
 use std::collections::HashMap;
 
+use crate::common::InstSeq;
 use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
-use crate::common::{CsrAddr, InstSeq, InstSize, RegIdx};
 use crate::core::exec::execute::CsrWrite;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
+use crate::isa::csr::CsrAddr;
+use crate::isa::instruction::InstSize;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
@@ -872,9 +875,10 @@ impl Rob {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::{CsrAddr, RegIdx};
     use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::prf::PhysReg;
+    use crate::isa::csr::CsrAddr;
+    use crate::isa::reg::RegIdx;
 
     fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
         ControlSignals { reg_write, fp_reg_write, ..Default::default() }

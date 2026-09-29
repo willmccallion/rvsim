@@ -6,8 +6,7 @@
 //! (lossless for add/sub/mul/fma of f16 inputs) and then software-rounding
 //! back to f16 with the RISC-V rounding mode.
 
-use super::exception_flags::FpFlags;
-use super::rounding_modes::RoundingMode;
+use crate::isa::fp::{FpFlags, RoundingMode};
 
 /// Canonical quiet NaN for IEEE 754 half-precision (sign=0, exp=all-1,
 /// mantissa MSB=1, payload=0).

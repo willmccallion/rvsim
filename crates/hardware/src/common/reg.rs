@@ -1,9 +1,9 @@
 //! Unified register file combining GPR, FPR, and (optional) VPR.
 
-use crate::common::RegIdx;
 use crate::core::arch::fpr::Fpr;
 use crate::core::arch::gpr::Gpr;
 use crate::core::arch::vpr::Vpr;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::Vlen;
 
 /// Unified register file containing general-purpose, floating-point, and vector registers.

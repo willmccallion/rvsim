@@ -3,9 +3,9 @@
 //! Tests for the main execution loop and pipeline coordination.
 
 use rvsim_core::Simulator;
-use rvsim_core::common::RegIdx;
 use rvsim_core::config::Config;
-use rvsim_core::core::arch::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::reg::RegIdx;
 
 fn create_test_sim() -> Simulator {
     let config = Config::default();

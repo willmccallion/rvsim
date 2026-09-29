@@ -5,8 +5,8 @@
 //! This enables the issue stage to do a single direct ROB lookup per source
 //! operand instead of scanning the entire ROB.
 
-use crate::common::RegIdx;
 use crate::core::pipeline::rob::{Rob, RobTag};
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 
 /// Tag-based scoreboard: maps each architectural register to the ROB tag

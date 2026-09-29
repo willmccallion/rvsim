@@ -9,9 +9,6 @@ pub mod fpr;
 /// General-Purpose Register file implementation.
 pub mod gpr;
 
-/// Privilege mode definitions and transitions.
-pub mod mode;
-
 /// Trap handling and exception processing.
 pub mod trap;
 

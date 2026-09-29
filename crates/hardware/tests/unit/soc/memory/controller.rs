@@ -6,8 +6,7 @@
 //! inspects the scheduled MemResp's fire_at to recover the access latency
 //! the controller computed.
 
-use rvsim_core::common::HartId;
-use rvsim_core::common::PhysAddr;
+use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, MemCtrlId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;

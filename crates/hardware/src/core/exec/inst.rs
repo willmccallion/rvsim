@@ -1,7 +1,8 @@
 //! A decoded instruction with the values of its source registers.
 
-use crate::common::{InstSize, RegIdx};
 use crate::core::exec::signals::ControlSignals;
+use crate::isa::instruction::InstSize;
+use crate::isa::reg::RegIdx;
 
 /// A decoded instruction and the values of its source registers: what
 /// executing it needs, whichever engine executes it.

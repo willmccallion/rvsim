@@ -7,8 +7,6 @@
 //!
 //! Operations are organized into submodules:
 //! - [`nan_handling`]: NaN boxing/unboxing and canonical NaN propagation.
-//! - [`rounding_modes`]: Rounding mode types (stub, pending implementation).
-//! - [`exception_flags`]: Exception flag types (stub, pending implementation).
 
 // IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
 #![allow(clippy::float_cmp)]
@@ -16,18 +14,11 @@
 /// NaN boxing, unboxing, and canonical NaN propagation.
 pub mod nan_handling;
 
-/// Rounding mode definitions and support.
-pub mod rounding_modes;
-
-/// Floating-point exception flag types.
-pub mod exception_flags;
-
 /// Half-precision (Zfh) helpers and software rounding.
 pub mod half;
 
 use crate::isa::op::AluOp;
 
-use self::exception_flags::FpFlags;
 use self::half::{
     CANONICAL_NAN_F16, box_f16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16, unbox_f16,
 };
@@ -35,7 +26,7 @@ use self::nan_handling::{
     box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
     unbox_f32,
 };
-use self::rounding_modes::RoundingMode;
+use crate::isa::fp::{FpFlags, RoundingMode};
 
 // Host FPU exception flag bits from <fenv.h> — used to detect inexact/overflow/etc.
 // These are the same on x86_64 and aarch64 Linux (POSIX standard values).

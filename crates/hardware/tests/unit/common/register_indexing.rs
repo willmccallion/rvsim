@@ -7,8 +7,8 @@
 //! The tests cover initialization, read/write consistency, the invariant that `x0`
 //! remains zero, and the independence of the integer and floating-point register sets.
 
-use rvsim_core::common::RegIdx;
 use rvsim_core::common::reg::RegisterFile;
+use rvsim_core::isa::reg::RegIdx;
 
 /// Ensures that all general-purpose registers are initialized to zero upon creation.
 #[test]

@@ -1,6 +1,6 @@
-use rvsim_core::common::RegIdx;
 use rvsim_core::core::exec::signals::ControlSignals;
 use rvsim_core::core::pipeline::latches::{ExMemEntry, IdExEntry, IfIdEntry, MemWbEntry};
+use rvsim_core::isa::reg::RegIdx;
 
 pub struct IfIdBuilder(IfIdEntry);
 

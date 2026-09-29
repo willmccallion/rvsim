@@ -6,13 +6,13 @@
 //! here the in-order backend also stops a bundle at an intra-bundle
 //! register dependency.
 
-use crate::common::RegIdx;
 use crate::common::error::ExceptionStage;
 use crate::core::exec::decode::{DecodedInst, decode_inst};
 use crate::core::exec::inst::Inst;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
 use crate::isa::instruction::InstructionBits;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 use crate::sim::StageCtx;
 

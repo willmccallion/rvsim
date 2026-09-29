@@ -3,9 +3,9 @@
 use crate::common::{PhysAddr, SimError};
 use crate::config::Config;
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
-use crate::isa::abi;
 use crate::isa::encoding::privileged as sys_ops;
+use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::reg;
 use crate::sim::SimState;
 use crate::soc::interconnect::Bus;
 use object::{Object, ObjectSymbol};
@@ -109,8 +109,8 @@ pub fn setup_kernel_load(
         for hart in &mut state.harts {
             hart.pc = opensbi_addr;
             hart.privilege = PrivilegeMode::Machine;
-            hart.regs.write(abi::REG_A0, u64::from(hart.hart_id.val()));
-            hart.regs.write(abi::REG_A1, dtb_addr);
+            hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
+            hart.regs.write(reg::REG_A1, dtb_addr);
         }
 
         if matches!(firmware, Firmware::Dynamic(_)) {
@@ -135,11 +135,11 @@ pub fn setup_kernel_load(
             }
             state.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
             for hart in &mut state.harts {
-                hart.regs.write(abi::REG_A2, info_addr);
+                hart.regs.write(reg::REG_A2, info_addr);
             }
         } else {
             for hart in &mut state.harts {
-                hart.regs.write(abi::REG_A2, 0);
+                hart.regs.write(reg::REG_A2, 0);
             }
         }
     } else {
@@ -152,8 +152,8 @@ pub fn setup_kernel_load(
             ctx.hart.privilege = PrivilegeMode::Machine;
             ctx.csr_write(csr::MEPC, load_addr);
             let hart_id = u64::from(ctx.hart.hart_id.val());
-            ctx.hart.regs.write(abi::REG_A0, hart_id);
-            ctx.hart.regs.write(abi::REG_A1, dtb_addr);
+            ctx.hart.regs.write(reg::REG_A0, hart_id);
+            ctx.hart.regs.write(reg::REG_A1, dtb_addr);
         }
     }
 
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(state.harts[0].pc, ram_base);
         assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
         assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), load_addr);
-        assert_eq!(state.harts[0].regs.read(abi::REG_A0), 0);
-        assert_eq!(state.harts[0].regs.read(abi::REG_A1), ram_base + 0x2200000);
+        assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);
+        assert_eq!(state.harts[0].regs.read(reg::REG_A1), ram_base + 0x2200000);
     }
 }

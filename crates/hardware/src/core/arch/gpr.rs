@@ -1,6 +1,6 @@
 //! RISC-V General-Purpose Register file (x0–x31, with x0 hardwired to zero).
 
-use crate::common::RegIdx;
+use crate::isa::reg::RegIdx;
 
 /// General-Purpose Register file.
 ///

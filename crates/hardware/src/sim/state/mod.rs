@@ -34,13 +34,13 @@ use crate::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::common::{HartId, PhysAddr, RegisterFile, Trap};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::hart::HartInit;
 use crate::core::pipeline::engine::PipelineDispatch;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::pmp::Pmp;
 use crate::core::{Core, CoreUnits, Hart};
 use crate::isa::op::MemWidth;
+use crate::isa::privileged::mode::PrivilegeMode;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;
@@ -455,7 +455,7 @@ impl SimState {
     /// write the harness termination value when triggered.
     pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
         use crate::core::arch::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
-        use crate::isa::abi;
+        use crate::isa::reg;
 
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let hart_count = topology.hart_count();
@@ -587,9 +587,9 @@ impl SimState {
             let mut regs = if direct_mode {
                 let sp = config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
                 let mut r = RegisterFile::new();
-                r.write(abi::REG_SP, sp);
-                r.write(abi::REG_A0, u64::from(hart_id.val()));
-                r.write(abi::REG_A1, hart_count as u64);
+                r.write(reg::REG_SP, sp);
+                r.write(reg::REG_A0, u64::from(hart_id.val()));
+                r.write(reg::REG_A1, hart_count as u64);
                 r
             } else {
                 RegisterFile::new()
@@ -774,15 +774,15 @@ mod tests {
 
     #[test]
     fn direct_mode_harts_boot_with_their_id_and_the_hart_count() {
-        use crate::isa::abi;
+        use crate::isa::reg;
         let mut config = Config::default();
         config.general.direct_mode = true;
         config.system.hart_count = 3;
         let sys = SimState::build(&config, "");
         for (index, hart) in sys.harts.iter().enumerate() {
-            assert_eq!(hart.regs.read(abi::REG_A0), index as u64);
-            assert_eq!(hart.regs.read(abi::REG_A1), 3);
-            assert_eq!(hart.regs.read(abi::REG_SP), config.system.ram_base + 0x100_0000);
+            assert_eq!(hart.regs.read(reg::REG_A0), index as u64);
+            assert_eq!(hart.regs.read(reg::REG_A1), 3);
+            assert_eq!(hart.regs.read(reg::REG_SP), config.system.ram_base + 0x100_0000);
         }
     }
 

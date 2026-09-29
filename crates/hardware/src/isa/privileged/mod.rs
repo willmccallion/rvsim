@@ -9,3 +9,6 @@
 
 /// Exception and interrupt cause code definitions.
 pub mod cause;
+
+/// Privilege modes (U, S, M).
+pub mod mode;

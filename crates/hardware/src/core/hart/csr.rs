@@ -1,9 +1,9 @@
 //! CSR address validation and Sdtrig (debug trigger) lookups.
 
 use super::Hart;
-use crate::common::CsrAddr;
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
+use crate::isa::csr::CsrAddr;
+use crate::isa::privileged::mode::PrivilegeMode;
 
 impl Hart {
     /// Returns `true` if the given CSR address corresponds to a CSR that is

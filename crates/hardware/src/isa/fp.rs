@@ -1,22 +1,39 @@
-//! Floating-point exception (accrued) flags.
-//!
-//! RISC-V defines five exception flags in `fcsr.fflags` (spec §11.2):
-//!
-//! | Bit | Flag | Description         |
-//! |-----|------|---------------------|
-//! |  4  | NV   | Invalid Operation   |
-//! |  3  | DZ   | Divide by Zero      |
-//! |  2  | OF   | Overflow            |
-//! |  1  | UF   | Underflow           |
-//! |  0  | NX   | Inexact             |
-//!
-//! This module will provide flag accumulation and the `execute_full` API
-//! that returns both the result and the set of raised exception flags.
-//!
-//! **Status:** Stub — implementation pending as part of Phase 1.2 exception
-//! flag verification.
+//! Floating-point rounding modes and accrued exception flags (`fcsr`).
 
 use std::ops::BitOr;
+
+/// RISC-V rounding mode encoding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RoundingMode {
+    /// Round to Nearest, ties to Even (default IEEE mode).
+    Rne = 0b000,
+    /// Round towards Zero.
+    Rtz = 0b001,
+    /// Round Down (towards −∞).
+    Rdn = 0b010,
+    /// Round Up (towards +∞).
+    Rup = 0b011,
+    /// Round to Nearest, ties to Max Magnitude.
+    Rmm = 0b100,
+}
+
+impl RoundingMode {
+    /// Decodes a 3-bit rounding mode field from an instruction or `fcsr.frm`.
+    ///
+    /// Returns `None` for reserved encodings (0b101, 0b110) and the dynamic
+    /// sentinel (0b111), which must be resolved to `fcsr.frm` by the caller.
+    pub const fn from_bits(bits: u8) -> Option<Self> {
+        match bits & 0x7 {
+            0b000 => Some(Self::Rne),
+            0b001 => Some(Self::Rtz),
+            0b010 => Some(Self::Rdn),
+            0b011 => Some(Self::Rup),
+            0b100 => Some(Self::Rmm),
+            _ => None, // 0b101, 0b110 reserved; 0b111 = dynamic
+        }
+    }
+}
 
 /// Floating-point exception flags (RISC-V `fcsr.fflags`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

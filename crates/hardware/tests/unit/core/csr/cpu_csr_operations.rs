@@ -5,9 +5,9 @@
 //! synchronization between MSTATUS and SSTATUS.
 
 use rvsim_core::SimState;
-use rvsim_core::common::CsrAddr;
 use rvsim_core::config::Config;
 use rvsim_core::core::arch::csr;
+use rvsim_core::isa::csr::CsrAddr;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SimState {

@@ -3,12 +3,9 @@
 //! This module provides the Load/Store Unit, responsible for memory access
 //! operations. It includes:
 //! - [`atomic`]: Read-modify-write ALU for the RISC-V A extension.
-//! - [`ordering`]: Memory ordering / fence support (stub).
 //! - [`unaligned`]: Unaligned access handling (stub).
 
 pub mod atomic;
-
-pub mod ordering;
 
 pub mod unaligned;
 

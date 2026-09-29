@@ -5,7 +5,8 @@
 
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
-use rvsim_core::common::{CsrAddr, RegIdx};
+use rvsim_core::isa::csr::CsrAddr;
+use rvsim_core::isa::reg::RegIdx;
 
 use crate::simulator::PySimulator;
 

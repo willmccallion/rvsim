@@ -6,8 +6,8 @@
 use rvsim_core::SimState;
 use rvsim_core::config::Config;
 use rvsim_core::core::arch::csr;
-use rvsim_core::core::arch::mode::PrivilegeMode;
-use rvsim_core::isa::abi;
+use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::reg;
 use rvsim_core::sim::loader;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -82,8 +82,8 @@ fn test_setup_kernel_load_without_opensbi() {
     assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), expected_mepc);
 
     // Verify registers are set up
-    assert_eq!(state.harts[0].regs.read(abi::REG_A0), 0);
-    assert_eq!(state.harts[0].regs.read(abi::REG_A1), config.system.ram_base + 0x2200000);
+    assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);
+    assert_eq!(state.harts[0].regs.read(reg::REG_A1), config.system.ram_base + 0x2200000);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_setup_kernel_load_dtb_address() {
 
     // DTB should be loaded at RAM base + 0x2200000
     let expected_dtb_addr = config.system.ram_base + 0x2200000;
-    assert_eq!(state.harts[0].regs.read(abi::REG_A1), expected_dtb_addr);
+    assert_eq!(state.harts[0].regs.read(reg::REG_A1), expected_dtb_addr);
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
     assert_eq!(first_byte, 0x73);
     assert_eq!(state.harts[0].pc, ram_base);
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
-    assert_eq!(state.harts[0].regs.read(abi::REG_A2), 0, "fw_jump takes no info struct");
+    assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0, "fw_jump takes no info struct");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn test_setup_kernel_load_register_a2_is_zero() {
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // a2 register should be 0
-    assert_eq!(state.harts[0].regs.read(abi::REG_A2), 0);
+    assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0);
 }
 
 #[test]

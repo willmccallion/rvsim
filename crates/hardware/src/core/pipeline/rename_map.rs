@@ -4,8 +4,8 @@
 //! register numbers. Maintained speculatively; the committed_rename_map
 //! in O3Engine tracks the last committed state for flush recovery.
 
-use crate::common::RegIdx;
 use crate::core::pipeline::vec_prf::VecPhysReg;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 
 use super::prf::PhysReg;

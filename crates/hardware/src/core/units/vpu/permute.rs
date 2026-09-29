@@ -8,9 +8,9 @@
 //! The main entry point [`vec_permute_execute`] dispatches to the appropriate
 //! operation based on the [`VectorOp`] variant.
 
-use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
+use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 

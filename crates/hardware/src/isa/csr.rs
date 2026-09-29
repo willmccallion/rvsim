@@ -1,12 +1,4 @@
-//! CSR address newtype.
-//!
-//! RISC-V CSR addresses are 12-bit values (0x000–0xFFF) encoded in
-//! bits 31:20 of I-type instructions. This module provides [`CsrAddr`],
-//! a strong newtype that documents this constraint and prevents a raw
-//! `u32` from being accidentally used as a CSR address.
-//!
-//! All CSR address constants in `crate::core::arch::csr` are `CsrAddr`,
-//! and `csr_read` / `csr_write` accept `CsrAddr` directly.
+//! CSR addresses: the 12-bit field in bits 31:20 of CSR instructions.
 
 /// A 12-bit CSR (Control and Status Register) address (0x000–0xFFF).
 ///

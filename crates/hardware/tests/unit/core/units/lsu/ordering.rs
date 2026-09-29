@@ -3,7 +3,7 @@
 //! Verifies FENCE instruction decoding, predecessor/successor
 //! ordering set extraction, TSO recognition, and no-op detection.
 
-use rvsim_core::core::units::lsu::ordering::{Fence, FenceSet};
+use rvsim_core::isa::fence::{Fence, FenceSet};
 
 #[test]
 fn fence_set_from_bits_all_zero() {

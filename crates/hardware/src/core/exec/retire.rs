@@ -8,14 +8,15 @@ use crate::common::constants::{
     DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
     PAGE_SHIFT, VPN_MASK,
 };
-use crate::common::{Asid, RegIdx, SfenceVmaInfo, Trap, Vpn};
+use crate::common::{Asid, SfenceVmaInfo, Trap, Vpn};
 use crate::core::Hart;
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::vpu::shadow::VectorWrites;
+use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,

@@ -1,9 +1,5 @@
-//! Architectural register index type.
-//!
-//! RISC-V has exactly 32 architectural registers (x0-x31 and f0-f31).
-//! This module provides [`RegIdx`], a strong newtype that enforces the
-//! 5-bit constraint at compile time and prevents raw `usize` values
-//! from being accidentally used as register indices.
+//! Architectural register indices and the ABI names of the registers the
+//! simulator itself refers to.
 
 /// A 5-bit architectural register index (0–31).
 ///
@@ -90,3 +86,20 @@ impl std::fmt::Display for RegIdx {
         write!(f, "x{}", self.0)
     }
 }
+
+/// Register x0 (zero register, always zero).
+pub const REG_ZERO: RegIdx = RegIdx::new(0);
+/// Register x1 (return address, ra).
+pub const REG_RA: RegIdx = RegIdx::new(1);
+/// Register x2 (stack pointer, sp).
+pub const REG_SP: RegIdx = RegIdx::new(2);
+/// Register x5 (alternate link register, t0).
+pub const REG_T0: RegIdx = RegIdx::new(5);
+/// Register x10 (first argument/return value, a0).
+pub const REG_A0: RegIdx = RegIdx::new(10);
+/// Register x11 (second argument, a1).
+pub const REG_A1: RegIdx = RegIdx::new(11);
+/// Register x12 (third argument, a2).
+pub const REG_A2: RegIdx = RegIdx::new(12);
+/// Register x17 (system call number, a7).
+pub const REG_A7: RegIdx = RegIdx::new(17);

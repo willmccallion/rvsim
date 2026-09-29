@@ -212,8 +212,8 @@ impl O3Engine {
     ///
     /// Must be called after CPU register init but before the first pipeline tick.
     pub fn sync_arch_regs(&mut self, state: &crate::sim::CoreCtx<'_>) {
-        use crate::common::RegIdx;
         use crate::core::pipeline::prf::PhysReg;
+        use crate::isa::reg::RegIdx;
         use crate::isa::rvv::VRegIdx;
         for i in 1u8..32 {
             let val = state.hart.regs.read(RegIdx::new(i));
@@ -1204,8 +1204,8 @@ impl ExecutionEngine for O3Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::RegIdx;
     use crate::config::Config;
+    use crate::isa::reg::RegIdx;
 
     #[test]
     fn test_o3_engine_new_and_flush() {

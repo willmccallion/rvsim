@@ -7,8 +7,8 @@ use crate::common::constants::{
 };
 use crate::common::{Asid, SimError, Vpn};
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
-use crate::isa::abi;
+use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::reg;
 use crate::soc::interconnect::HartIrqs;
 use crate::trace_trap;
 
@@ -167,7 +167,7 @@ impl CoreCtx<'_> {
 
     /// Post-tick: zero x0, privilege tracing, status printing.
     pub fn post_tick(&mut self, prev_priv: PrivilegeMode) {
-        self.hart.regs.write(abi::REG_ZERO, 0);
+        self.hart.regs.write(reg::REG_ZERO, 0);
 
         if self.config.general.trace_instructions {
             if self.hart.privilege != prev_priv {
@@ -242,8 +242,8 @@ mod tests {
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
-        state.hart.regs.write(abi::REG_ZERO, 42);
+        state.hart.regs.write(reg::REG_ZERO, 42);
         state.post_tick(PrivilegeMode::Machine);
-        assert_eq!(state.hart.regs.read(abi::REG_ZERO), 0);
+        assert_eq!(state.hart.regs.read(reg::REG_ZERO), 0);
     }
 }

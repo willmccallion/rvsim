@@ -2,8 +2,8 @@
 //!
 //! Tests for the RISC-V general-purpose register file implementation.
 
-use rvsim_core::common::RegIdx;
 use rvsim_core::core::arch::gpr::Gpr;
+use rvsim_core::isa::reg::RegIdx;
 
 #[test]
 fn test_gpr_new_initializes_to_zero() {

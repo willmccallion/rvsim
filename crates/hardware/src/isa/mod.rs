@@ -3,14 +3,11 @@
 //! Encodings, instruction fields, and the vocabulary the rest of the
 //! simulator speaks. Nothing here holds state.
 
-/// Application Binary Interface (ABI) register name mappings.
-pub mod abi;
-
 /// ISA capability configuration (`IsaConfig`, `VectorIsa`, future families).
 pub mod config;
 
-/// Instruction decoding logic for all RISC-V instruction formats.
-pub mod decode;
+/// CSR addresses.
+pub mod csr;
 
 /// Instruction disassembler for debug tracing and diagnostics.
 pub mod disasm;
@@ -18,10 +15,16 @@ pub mod disasm;
 /// Vector instruction disassembler (RVV 1.0).
 pub mod disasm_vec;
 
+/// Fence ordering sets.
+pub mod fence;
+
+/// Floating-point rounding modes and exception flags.
+pub mod fp;
+
 /// Opcode and function-field constants, one module per extension.
 pub mod encoding;
 
-/// Instruction encoding structures and bit extraction utilities.
+/// Instruction sizes, field extraction, and decoding into fields.
 pub mod instruction;
 
 /// The operations instructions perform, as the decoder names them.
@@ -29,6 +32,9 @@ pub mod op;
 
 /// Privileged architecture definitions (trap causes).
 pub mod privileged;
+
+/// Architectural register indices and ABI names.
+pub mod reg;
 
 /// Expansion of 16-bit compressed instructions into their 32-bit forms.
 pub mod rvc;

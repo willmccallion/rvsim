@@ -15,8 +15,7 @@
 //! catches up). This implementation reuses any invalidated slot for the
 //! next allocation; ROB ordering is recovered from `rob_tag` on each entry.
 
-use crate::common::HartId;
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::{HartId, PhysAddr, VirtAddr};
 use crate::core::pipeline::latches::MicroOpIdx;
 use crate::core::pipeline::rob::RobTag;
 use crate::isa::op::MemWidth;

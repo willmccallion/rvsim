@@ -14,11 +14,12 @@ use std::io::{Read, Write};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{PhysAddr, RegIdx};
+use crate::common::PhysAddr;
 use crate::core::Hart;
 use crate::core::arch::csr::Csrs;
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::pmp::PmpEntry;
+use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::reg::RegIdx;
 use crate::sim::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";

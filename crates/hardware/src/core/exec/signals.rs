@@ -3,8 +3,8 @@
 //! Which operation it performs, where its operands come from, how it
 //! accesses memory and what system action it takes.
 
-use crate::common::CsrAddr;
-use crate::core::units::fpu::rounding_modes::RoundingMode;
+use crate::isa::csr::CsrAddr;
+use crate::isa::fp::RoundingMode;
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp, VecSrcEncoding, VectorOp};
 use crate::isa::rvv::{Sew, VRegIdx};
 

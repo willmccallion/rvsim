@@ -6,9 +6,9 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use rvsim_core::common::RegIdx;
 use rvsim_core::core::pipeline::snapshot::PipelineSnapshot;
 use rvsim_core::isa::disasm::disassemble;
+use rvsim_core::isa::reg::RegIdx;
 
 const ABI: [&str; 32] = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",

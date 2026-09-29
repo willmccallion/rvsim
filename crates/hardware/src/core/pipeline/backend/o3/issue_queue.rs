@@ -8,7 +8,6 @@
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
-use crate::common::RegIdx;
 use crate::core::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
@@ -18,6 +17,7 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
 use crate::isa::op::{SystemOp, VectorOp};
+use crate::isa::reg::RegIdx;
 use crate::sim::StageCtx;
 
 /// Readiness state of a single source operand.
@@ -638,12 +638,13 @@ fn resolve_operand_legacy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{InstSize, RegIdx};
     use crate::core::exec::inst::Inst;
     use crate::core::exec::signals::ControlSignals;
     use crate::core::pipeline::latches::RenameIssueEntry;
     use crate::core::pipeline::prf::PhysReg;
     use crate::core::pipeline::rob::RobTag;
+    use crate::isa::instruction::InstSize;
+    use crate::isa::reg::RegIdx;
 
     fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         RenameIssueEntry {

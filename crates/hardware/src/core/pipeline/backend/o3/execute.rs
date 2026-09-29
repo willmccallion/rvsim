@@ -149,10 +149,11 @@ fn execute_system(
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::{InstSize, RegIdx};
     use crate::config::Config;
     use crate::core::exec::inst::Inst;
     use crate::core::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
+    use crate::isa::instruction::InstSize;
+    use crate::isa::reg::RegIdx;
 
     #[test]
     fn test_execute_one_normal() {

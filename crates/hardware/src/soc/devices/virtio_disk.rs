@@ -3,8 +3,7 @@
 //! Implements a `VirtIO` block device over Memory-Mapped I/O (MMIO) for disk access.
 //! Supports the legacy `VirtIO` interface required by the Linux kernel.
 
-use crate::common::PhysAddr;
-use crate::common::{IrqId, LineAddr};
+use crate::common::{IrqId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{

@@ -14,9 +14,9 @@
 //! - J-type:  OP_JAL
 //! - R4-type: OP_FMADD, OP_FMSUB, OP_FNMADD, OP_FNMSUB
 
-use rvsim_core::common::{CsrAddr, RegIdx};
-use rvsim_core::isa::decode::decode;
-use rvsim_core::isa::instruction::InstructionBits;
+use rvsim_core::isa::csr::CsrAddr;
+use rvsim_core::isa::instruction::{InstructionBits, decode};
+use rvsim_core::isa::reg::RegIdx;
 
 /// Encode an R-type instruction.
 fn r_type(opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, funct7: u32) -> u32 {

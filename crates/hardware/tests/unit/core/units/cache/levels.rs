@@ -4,8 +4,7 @@
 //! A test cache is 256 bytes with 64-byte lines and 2 ways: two sets,
 //! set = (addr / 64) % 2, tag = addr / 128.
 
-use rvsim_core::common::HartId;
-use rvsim_core::common::{LineAddr, PhysAddr};
+use rvsim_core::common::{HartId, LineAddr, PhysAddr};
 use rvsim_core::config::{
     CacheConfig, Config, InclusionPolicy, Prefetcher as PrefetcherType,
     ReplacementPolicy as PolicyType,

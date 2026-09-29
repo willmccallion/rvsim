@@ -10,7 +10,7 @@ use crate::core::exec::signals::ControlFlow;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, Rob};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};
-use crate::isa::abi;
+use crate::isa::reg;
 use crate::sim::StageCtx;
 use crate::{trace_branch, trace_trap};
 
@@ -126,8 +126,8 @@ fn resolve_jump(
         BpOutcome { taken: true, mispredicted },
         Some(actual_target),
     );
-    let rd_link = id.inst.rd == abi::REG_RA || id.inst.rd == abi::REG_T0;
-    let rs1_link = is_jalr && (id.inst.rs1 == abi::REG_RA || id.inst.rs1 == abi::REG_T0);
+    let rd_link = id.inst.rd == reg::REG_RA || id.inst.rd == reg::REG_T0;
+    let rs1_link = is_jalr && (id.inst.rs1 == reg::REG_RA || id.inst.rs1 == reg::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
         pc             = %crate::trace::Hex(id.inst.pc),

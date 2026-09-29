@@ -7,7 +7,7 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::common::{LrScRecord, PhysAddr, PteUpdate, RegIdx, Trap};
+use crate::common::{LrScRecord, PhysAddr, PteUpdate, Trap};
 use crate::core::arch::csr;
 use crate::core::arch::vpr::Vpr;
 use crate::core::exec::cbo::CboEffect;
@@ -30,6 +30,7 @@ use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
 use crate::core::units::lsu::unaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AluOp, MemWidth, SystemOp, VectorOp};
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
@@ -1381,8 +1382,8 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::InstSize;
     use crate::config::Config;
+    use crate::isa::instruction::InstSize;
 
     #[test]
     fn test_commit_stage_normal() {

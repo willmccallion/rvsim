@@ -14,8 +14,8 @@ pub mod tlb;
 
 use crate::common::{AccessType, Asid, PhysAddr, TranslationResult, Trap, VirtAddr, Vpn};
 use crate::core::arch::csr::{Csrs, PagingMode};
-use crate::core::arch::mode::PrivilegeMode;
 use crate::core::units::mmu::pmp::Pmp;
+use crate::isa::privileged::mode::PrivilegeMode;
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
 use self::tlb::{Tlb, TlbGeometry, TlbHit};

@@ -44,7 +44,7 @@ pub(super) fn translate(
     if shared.direct_mode {
         let paddr = PhysAddr::new(vaddr.val());
 
-        let is_machine = hart.privilege == crate::core::arch::mode::PrivilegeMode::Machine;
+        let is_machine = hart.privilege == crate::isa::privileged::mode::PrivilegeMode::Machine;
         let pmp_result = hart.pmp.check(
             paddr.val(),
             size,
@@ -73,7 +73,7 @@ pub(super) fn translate(
         && (hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
     {
         use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
-        use crate::core::arch::mode::PrivilegeMode;
+        use crate::isa::privileged::mode::PrivilegeMode;
         let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
         PrivilegeMode::from_u8(mpp)
     } else {
@@ -117,13 +117,14 @@ fn finalize_outcome(
     vaddr: VirtAddr,
     access: AccessType,
     size: u64,
-    effective_priv: crate::core::arch::mode::PrivilegeMode,
+    effective_priv: crate::isa::privileged::mode::PrivilegeMode,
 ) -> TranslateResult {
     match outcome {
         TranslateOutcome::Ready(mut result) => {
             if result.trap.is_none() {
                 let paddr = result.paddr.val();
-                let is_machine = effective_priv == crate::core::arch::mode::PrivilegeMode::Machine;
+                let is_machine =
+                    effective_priv == crate::isa::privileged::mode::PrivilegeMode::Machine;
                 let pmp_result = hart.pmp.check(
                     paddr,
                     size,

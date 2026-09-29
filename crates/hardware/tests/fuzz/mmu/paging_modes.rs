@@ -11,9 +11,9 @@ use crate::common::harness::TestContext;
 use proptest::prelude::*;
 use rvsim_core::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
 use rvsim_core::core::arch::csr::{self, Csrs};
-use rvsim_core::core::arch::mode::PrivilegeMode;
 use rvsim_core::core::units::mmu::tlb::TlbGeometry;
 use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
+use rvsim_core::isa::privileged::mode::PrivilegeMode;
 
 /// Drives a synchronous translation: repeatedly invokes `translate_async` /
 /// `continue_walk` against the MMU and reads PTEs out of memory through the

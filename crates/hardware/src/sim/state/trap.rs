@@ -4,9 +4,9 @@ use super::CoreCtx;
 use crate::common::Trap;
 use crate::common::constants::CAUSE_INTERRUPT_BIT;
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
-use crate::isa::abi;
 use crate::isa::encoding::privileged as sys_ops;
+use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::reg;
 use crate::trace_trap;
 
 impl CoreCtx<'_> {
@@ -26,14 +26,14 @@ impl CoreCtx<'_> {
                     | Trap::EnvironmentCallFromSMode
                     | Trap::EnvironmentCallFromMMode
             ) {
-                let val_a7 = self.hart.regs.read(abi::REG_A7);
-                let val_a0 = self.hart.regs.read(abi::REG_A0);
+                let val_a7 = self.hart.regs.read(reg::REG_A7);
+                let val_a0 = self.hart.regs.read(reg::REG_A0);
 
                 if val_a7 == sys_ops::SYS_EXIT {
                     self.signal_exit(val_a0);
                     return;
                 } else if val_a0 == sys_ops::SYS_EXIT {
-                    let val_a1 = self.hart.regs.read(abi::REG_A1);
+                    let val_a1 = self.hart.regs.read(reg::REG_A1);
                     self.signal_exit(val_a1);
                     return;
                 }
@@ -166,8 +166,8 @@ mod tests {
         let mut sys = crate::sim::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
-        state.hart.regs.write(abi::REG_A7, sys_ops::SYS_EXIT);
-        state.hart.regs.write(abi::REG_A0, 42);
+        state.hart.regs.write(reg::REG_A7, sys_ops::SYS_EXIT);
+        state.hart.regs.write(reg::REG_A0, 42);
 
         state.trap(&Trap::EnvironmentCallFromMMode, 0x1000);
         assert_eq!(state.check_exit(), Some(42));

@@ -4,8 +4,8 @@
 //! 32-bit equivalent. Tests cover all three quadrants (Q0, Q1, Q2)
 //! and check register mappings, immediate extraction, and edge cases.
 
-use rvsim_core::common::RegIdx;
-use rvsim_core::isa::decode::decode;
+use rvsim_core::isa::instruction::decode;
+use rvsim_core::isa::reg::RegIdx;
 use rvsim_core::isa::rvc::expand;
 
 use rvsim_core::isa::encoding::privileged as sys_op;
