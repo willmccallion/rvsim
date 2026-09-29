@@ -1,6 +1,6 @@
 """Tests for the ``python -m rvsim`` command line.
 
-Run with: .venv/bin/python -m unittest discover -s testing/python
+Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
 import json

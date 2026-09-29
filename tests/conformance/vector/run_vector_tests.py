@@ -26,11 +26,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTING = os.path.dirname(HERE)
-REPO_ROOT = os.path.dirname(TESTING)
-BUILDS = os.path.join(TESTING, "builds")
+CONFORMANCE = os.path.dirname(HERE)
+REPO_ROOT = os.path.dirname(os.path.dirname(CONFORMANCE))
+BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
 SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
-RVSIM_WORKER = os.path.join(TESTING, "riscof", "rvsim", "rvsim_run.py")
+RVSIM_WORKER = os.path.join(CONFORMANCE, "riscof", "rvsim", "rvsim_run.py")
 PYTHON = os.path.join(REPO_ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable

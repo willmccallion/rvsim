@@ -39,7 +39,7 @@ endif
 .PHONY: arch-test arch-test-multi
 .PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
-.PHONY: test-all test-all-smoke clean-testing
+.PHONY: test-all test-all-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -75,7 +75,7 @@ help:
 	@printf "    %-$(HELP_W)s  Run RVV cosim across all PIPELINES (slow)\n" "make vector-test-multi"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Smoke EVERY suite (single pipeline, ~2 min)\n" "make test-all-smoke"
-	@printf "    %-$(HELP_W)s  Wipe testing/builds/ (forces full rebuild)\n" "make clean-testing"
+	@printf "    %-$(HELP_W)s  Wipe tests/builds/ (forces full rebuild)\n" "make clean-tests"
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
@@ -139,7 +139,7 @@ test:
 
 test-python: python
 	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
-	.venv/bin/python -m unittest discover -s testing/python
+	.venv/bin/python -m unittest discover -s tests/python
 
 # Runs gem5 only when it is available; otherwise compares with the stored
 # scripts/comparison/results/gem5.json.
@@ -185,44 +185,44 @@ lint: fmt-check clippy
 
 arch-test:
 	@printf "$(GREEN)Running riscv-arch-test compliance suite via riscof…$(RESET)\n"
-	@if [ ! -d testing/riscof/riscv-arch-test ]; then \
+	@if [ ! -d tests/conformance/riscof/riscv-arch-test ]; then \
 		printf "$(GREEN)Cloning riscv-arch-test suite…$(RESET)\n"; \
-		.venv/bin/riscof arch-test --clone --dir testing/riscof/riscv-arch-test; \
+		.venv/bin/riscof arch-test --clone --dir tests/conformance/riscof/riscv-arch-test; \
 	fi
-	@mkdir -p testing/builds/riscof-work
-	cd testing/riscof && ../../.venv/bin/riscof run --no-browser \
+	@mkdir -p tests/builds/riscof-work
+	cd tests/conformance/riscof && ../../../.venv/bin/riscof run --no-browser \
 		--config config.ini \
 		--suite riscv-arch-test/riscv-test-suite/ \
 		--env riscv-arch-test/riscv-test-suite/env \
-		--work-dir ../builds/riscof-work
+		--work-dir ../../builds/riscof-work
 
 # ── Centralized test build artifact directory ────────────────────────────────
-TESTING_BUILDS := testing/builds
-SPIKE_LOCAL    := $(TESTING_BUILDS)/spike-install/bin/spike
+TEST_BUILDS    := tests/builds
+SPIKE_LOCAL    := $(TEST_BUILDS)/spike-install/bin/spike
 VECTOR_PATTERN ?= .*
 VECTOR_VLEN    ?= 128
 
 $(SPIKE_LOCAL):
 	@printf "$(GREEN)Building local spike from source (one-time, ~2 min)…$(RESET)\n"
-	@mkdir -p $(TESTING_BUILDS)
-	@if [ ! -d $(TESTING_BUILDS)/spike-src ]; then \
+	@mkdir -p $(TEST_BUILDS)
+	@if [ ! -d $(TEST_BUILDS)/spike-src ]; then \
 		git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git \
-			$(TESTING_BUILDS)/spike-src; \
+			$(TEST_BUILDS)/spike-src; \
 	fi
-	@mkdir -p $(TESTING_BUILDS)/spike-build
-	@cd $(TESTING_BUILDS)/spike-build && \
+	@mkdir -p $(TEST_BUILDS)/spike-build
+	@cd $(TEST_BUILDS)/spike-build && \
 		../spike-src/configure --prefix=$$(pwd)/../spike-install >/dev/null && \
 		$(MAKE) -j$$(nproc) install >/dev/null
 
 # ── riscv-tests source + build (was software/riscv-tests) ─────────────────────
-$(TESTING_BUILDS)/riscv-tests:
+$(TEST_BUILDS)/riscv-tests:
 	@printf "$(GREEN)Cloning riscv-tests…$(RESET)\n"
-	@mkdir -p $(TESTING_BUILDS)
+	@mkdir -p $(TEST_BUILDS)
 	git clone --depth 1 https://github.com/riscv-software-src/riscv-tests.git \
-		$(TESTING_BUILDS)/riscv-tests
-	cd $(TESTING_BUILDS)/riscv-tests && git submodule update --init --recursive
+		$(TEST_BUILDS)/riscv-tests
+	cd $(TEST_BUILDS)/riscv-tests && git submodule update --init --recursive
 
-RISCV_TESTS_STAMP := $(TESTING_BUILDS)/riscv-tests/.built-p
+RISCV_TESTS_STAMP := $(TEST_BUILDS)/riscv-tests/.built-p
 
 riscv-tests-build: $(RISCV_TESTS_STAMP)
 
@@ -230,61 +230,61 @@ riscv-tests-build: $(RISCV_TESTS_STAMP)
 # headers (string.h, stdint.h) that the bare-metal toolchain doesn't ship; we
 # don't run them anyway. Output is silenced to a log; if anything matters the
 # stamp file won't exist after the build.
-$(RISCV_TESTS_STAMP): $(TESTING_BUILDS)/riscv-tests
+$(RISCV_TESTS_STAMP): $(TEST_BUILDS)/riscv-tests
 	@printf "$(GREEN)Building riscv-tests -p- ELFs (this is noisy, logging to .build.log)…$(RESET)\n"
 	@-$(MAKE) -k RISCV_PREFIX=riscv64-elf- \
-	    -C $(TESTING_BUILDS)/riscv-tests/isa XLEN=64 \
-	    > $(TESTING_BUILDS)/riscv-tests/.build.log 2>&1
-	@n=$$(find $(TESTING_BUILDS)/riscv-tests/isa -maxdepth 1 -type f \
+	    -C $(TEST_BUILDS)/riscv-tests/isa XLEN=64 \
+	    > $(TEST_BUILDS)/riscv-tests/.build.log 2>&1
+	@n=$$(find $(TEST_BUILDS)/riscv-tests/isa -maxdepth 1 -type f \
 	      \( -name 'rv64*-p-*' -o -name 'rv32*-p-*' \) ! -name '*.dump' | wc -l); \
 	  printf "$(GREEN)Built $$n -p- test ELFs$(RESET)\n"; \
 	  if [ "$$n" -gt 0 ]; then touch $(RISCV_TESTS_STAMP); fi
 
 riscv-tests: riscv-tests-build python
 	@printf "$(GREEN)Running riscv-tests across all PIPELINES…$(RESET)\n"
-	.venv/bin/python testing/run_riscv_tests.py
+	.venv/bin/python tests/conformance/riscv_tests.py
 
 # ── Vector tests (chipsalliance generator + spike cosim) ──────────────────────
 vector-test-build: $(SPIKE_LOCAL)
 	@printf "$(GREEN)Building RVV test ELFs (VLEN=$(VECTOR_VLEN), pattern='$(VECTOR_PATTERN)')…$(RESET)\n"
-	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash testing/vector/build_tests.sh
+	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash tests/conformance/vector/build_tests.sh
 
 vector-test: vector-test-build python
 	@printf "$(GREEN)Running RVV cosim suite (rvsim vs spike)…$(RESET)\n"
-	.venv/bin/python testing/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
+	.venv/bin/python tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
 
 vector-test-smoke:
 	@$(MAKE) vector-test VECTOR_PATTERN='^v(add|sub|and|or|xor|sll|srl|sra|min|max|mul)\.'
 
 # ── Multi-config runners ──────────────────────────────────────────────────────
 # Each runs every test in its suite across every Config in
-# testing/configs/pipelines.py.
+# tests/conformance/configs/pipelines.py.
 arch-test-multi: arch-test python
 	@printf "$(GREEN)Running riscof tests across all PIPELINES…$(RESET)\n"
-	.venv/bin/python testing/run_riscof_tests.py
+	.venv/bin/python tests/conformance/riscof_tests.py
 
 vector-test-multi: vector-test-build python
 	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
-	.venv/bin/python testing/run_vector_tests_multi.py --vlen $(VECTOR_VLEN)
+	.venv/bin/python tests/conformance/vector_tests.py --vlen $(VECTOR_VLEN)
 
 # ── The big one ──────────────────────────────────────────────────────────────
 # Builds everything, runs every suite × every PIPELINES config, prints unified
 # summary, exits non-zero on any failure. Several CPU-hours.
-test-all: riscv-tests-build $(TESTING_BUILDS)/riscof-work vector-test-build python
+test-all: riscv-tests-build $(TEST_BUILDS)/riscof-work vector-test-build python
 	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
-	.venv/bin/python testing/run_all.py
+	.venv/bin/python tests/run_all.py
 
 # Quick variant: smoke each suite (small subset, single pipeline). ~2 minutes.
-test-all-smoke: riscv-tests-build $(TESTING_BUILDS)/riscof-work vector-test-build python
-	.venv/bin/python testing/run_all.py --smoke
+test-all-smoke: riscv-tests-build $(TEST_BUILDS)/riscof-work vector-test-build python
+	.venv/bin/python tests/run_all.py --smoke
 
-$(TESTING_BUILDS)/riscof-work:
+$(TEST_BUILDS)/riscof-work:
 	@$(MAKE) arch-test
 
-# Wipe everything under testing/builds/ — forces full rebuild on next run.
-clean-testing:
-	@printf "$(GREEN)Removing $(TESTING_BUILDS) (all test build artifacts)…$(RESET)\n"
-	rm -rf $(TESTING_BUILDS)
+# Wipe everything under tests/builds/ — forces full rebuild on next run.
+clean-tests:
+	@printf "$(GREEN)Removing $(TEST_BUILDS) (all test build artifacts)…$(RESET)\n"
+	rm -rf $(TEST_BUILDS)
 
 prerelease:
 	@tools/prerelease

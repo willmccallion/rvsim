@@ -88,7 +88,7 @@ Multi-core systems (`Config(hart_count=N)`) give every hart its own core and pri
 
 The vector extension supports configurable VLEN (default 512) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against spike.
 
-Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. The RISCOF compliance framework is integrated under `testing/riscof/`.
+Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. The RISCOF compliance framework is integrated under `tests/conformance/riscof/`.
 
 ### SoC Devices
 

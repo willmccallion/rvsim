@@ -27,7 +27,7 @@ from rvsim import (
 from variants import CLOCK_MHZ, VARIANTS, VLEN, VECTOR_UNITS, tage_history_lengths
 
 RESULTS_DIR = Path(__file__).parent / "results"
-PROGRAMS = ROOT / "testing/builds/compare-programs"
+PROGRAMS = ROOT / "tests/builds/compare-programs"
 
 
 def branch_predictor(bp: dict):

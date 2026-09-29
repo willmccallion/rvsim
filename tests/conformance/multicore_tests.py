@@ -3,12 +3,12 @@
 
 Each program is self-checking: hart 0 exits 0 when the cross-hart result
 is exact and 1 otherwise. Every program runs on every selected PIPELINES
-config through testing/_worker.py, one subprocess per run.
+config through tests/conformance/_worker.py, one subprocess per run.
 
 Usage:
-    .venv/bin/python testing/run_multicore_tests.py
-    .venv/bin/python testing/run_multicore_tests.py --pipelines 'inorder w1,o3 w4'
-    .venv/bin/python testing/run_multicore_tests.py --harts 2,4,8
+    .venv/bin/python tests/conformance/multicore_tests.py
+    .venv/bin/python tests/conformance/multicore_tests.py --pipelines 'inorder w1,o3 w4'
+    .venv/bin/python tests/conformance/multicore_tests.py --harts 2,4,8
 """
 
 import argparse
@@ -20,17 +20,17 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from testing.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
 
-WORKER = os.path.join(ROOT, "testing", "_worker.py")
+WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
 ELF_DIR = os.path.join(ROOT, "software", "bin", "multicore")
-RESULTS_DIR = os.path.join(ROOT, "testing", "builds", "results")
+RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 TIMEOUT_SEC = 300
 
 DEFAULT_PIPELINES = [

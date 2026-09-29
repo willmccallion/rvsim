@@ -6,7 +6,7 @@ memory signature region. Identical signature → pass.
 
 ## Why a parallel flow
 
-The riscof harness in `testing/riscof/` is built around `RVMODEL_*` arch-test
+The riscof harness in `tests/conformance/riscof/` is built around `RVMODEL_*` arch-test
 macros and a curated test database. The chipsalliance vector generator emits
 tests in the older `riscv-test-env` `p`-mode format, which already places the
 signature symbols `begin_signature`/`end_signature` around the test data
@@ -47,8 +47,8 @@ instruction names by the chipsalliance generator.
 ## Triaging a failure
 
 ```sh
-.venv/bin/python testing/vector/triage.py \
-    testing/vector/build/vlen128/vadd_vv-0.elf
+.venv/bin/python tests/conformance/vector/triage.py \
+    tests/builds/vector/vlen128/vadd_vv-0.elf
 ```
 
 Prints the first byte of divergence in the signature region, hex windows of

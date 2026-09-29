@@ -1,4 +1,4 @@
-"""Shared pipeline-config matrix used by every test runner under testing/.
+"""Shared pipeline-config matrix used by every conformance runner.
 
 A test runner imports `PIPELINES` from here and iterates over (label, cfg)
 tuples. Each Config exercises a different rvsim configuration: pipeline width,

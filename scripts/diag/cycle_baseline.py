@@ -62,8 +62,8 @@ CONFIGS = [
 def run_one(args):
     name, elf_path, label, limit, hart_count = args
     from rvsim._core import Simulator
-    from rvsim.config import _config_to_dict
-    from testing.configs.pipelines import PIPELINES
+    from rvsim.config._config import _config_to_dict
+    from tests.conformance.configs.pipelines import PIPELINES
 
     cfg = next(c for lbl, c in PIPELINES if lbl == label)
     cfg.uart_quiet = True

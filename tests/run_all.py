@@ -2,11 +2,11 @@
 """Unified entry point: every test suite × every PIPELINES config.
 
 Runs in order:
-  1. testing/run_riscv_tests.py    — riscv-tests across all PIPELINES
-  2. testing/run_riscof_tests.py   — riscof arch-test across all PIPELINES
-  3. testing/run_vector_tests_multi.py — RVV cosim across all PIPELINES
+  1. tests/conformance/riscv_tests.py    — riscv-tests across all PIPELINES
+  2. tests/conformance/riscof_tests.py   — riscof arch-test across all PIPELINES
+  3. tests/conformance/vector_tests.py — RVV cosim across all PIPELINES
 
-Each child runner streams its own JSON to testing/builds/results/. This
+Each child runner streams its own JSON to tests/builds/results/. This
 script tails their stdout, captures pass/fail counts from those JSONs at
 the end, prints a unified summary, and exits non-zero if any suite failed.
 
@@ -14,10 +14,10 @@ This is the headline "did I break anything?" command. Expect several CPU-
 hours on a workstation; an SSD and a lot of cores help.
 
 Usage:
-    .venv/bin/python testing/run_all.py
-    .venv/bin/python testing/run_all.py --skip vector
-    .venv/bin/python testing/run_all.py --vlen 256
-    .venv/bin/python testing/run_all.py --pipelines 'inorder w1,o3 w4'
+    .venv/bin/python tests/run_all.py
+    .venv/bin/python tests/run_all.py --skip vector
+    .venv/bin/python tests/run_all.py --vlen 256
+    .venv/bin/python tests/run_all.py --pipelines 'inorder w1,o3 w4'
 """
 
 import argparse
@@ -31,7 +31,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-RESULTS_DIR = os.path.join(ROOT, "testing", "builds", "results")
+RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 
 
 def fmt_seconds(s):
@@ -99,7 +99,7 @@ def main():
 
     if "riscv-tests" not in args.skip:
         out = os.path.join(RESULTS_DIR, "riscv-tests.json")
-        cmd = [PYTHON, os.path.join(ROOT, "testing/run_riscv_tests.py"),
+        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/riscv_tests.py"),
                "--out", out]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
@@ -109,7 +109,7 @@ def main():
 
     if "riscof" not in args.skip:
         out = os.path.join(RESULTS_DIR, "riscof-multi.json")
-        cmd = [PYTHON, os.path.join(ROOT, "testing/run_riscof_tests.py"),
+        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/riscof_tests.py"),
                "--out", out]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
@@ -119,7 +119,7 @@ def main():
 
     if "vector" not in args.skip:
         out = os.path.join(RESULTS_DIR, "vector-multi.json")
-        cmd = [PYTHON, os.path.join(ROOT, "testing/run_vector_tests_multi.py"),
+        cmd = [PYTHON, os.path.join(ROOT, "tests/conformance/vector_tests.py"),
                "--vlen", str(args.vlen), "--out", out]
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]

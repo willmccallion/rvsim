@@ -20,5 +20,5 @@ cycles, and records a new baseline for the commits after it.
 
 **Consequences.** Timing changes are isolated in their own commits with
 their own regression tests, and the baseline file names the point the
-comparison starts from. Baselines live in `testing/builds/results/`, which
+comparison starts from. Baselines live in `tests/builds/results/`, which
 is not version-controlled.

@@ -1,6 +1,6 @@
 """Python API tests for the core's hierarchical stats query.
 
-Run with: .venv/bin/python -m unittest discover -s testing/python
+Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
 import os

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """Run the riscof arch-test suite across every PIPELINES config.
 
-The riscof harness at testing/riscof/ already compiles every test once into
-testing/builds/riscof-work/.../<test>.S/{dut/dut.elf, ref/Reference-spike.signature}.
+The riscof harness at tests/conformance/riscof/ already compiles every test once into
+tests/builds/riscof-work/.../<test>.S/{dut/dut.elf, ref/Reference-spike.signature}.
 This runner walks that tree, then for each pipeline config in
-testing/configs/pipelines.py runs every dut.elf on rvsim and diffs its
+tests/conformance/configs/pipelines.py runs every dut.elf on rvsim and diffs its
 post-execution signature against the existing spike reference signature.
 
 Spike doesn't change between pipeline configs (it has none), so we reuse the
 reference signature for free — only rvsim re-executes per config.
 
-Each test runs in its own subprocess (testing/_worker.py) so a panic or
+Each test runs in its own subprocess (tests/conformance/_worker.py) so a panic or
 segfault in rvsim only kills that one test, never the whole sweep. Results
 stream to disk every 50 tests.
 
 Usage:
-    .venv/bin/python testing/run_riscof_tests.py
-    .venv/bin/python testing/run_riscof_tests.py --pipelines 'inorder w1,o3 w4'
-    .venv/bin/python testing/run_riscof_tests.py --filter 'rv64i_m/I/'
+    .venv/bin/python tests/conformance/riscof_tests.py
+    .venv/bin/python tests/conformance/riscof_tests.py --pipelines 'inorder w1,o3 w4'
+    .venv/bin/python tests/conformance/riscof_tests.py --filter 'rv64i_m/I/'
 """
 
 import argparse
@@ -28,17 +28,17 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from testing.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
 
-WORKER = os.path.join(ROOT, "testing", "_worker.py")
+WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-WORK_DIR = os.path.join(ROOT, "testing", "builds", "riscof-work")
-RESULTS_DIR = os.path.join(ROOT, "testing", "builds", "results")
+WORK_DIR = os.path.join(ROOT, "tests", "builds", "riscof-work")
+RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 TIMEOUT_SEC = 120
 
 

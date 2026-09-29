@@ -6,10 +6,10 @@ Phase 2 (compare): For each pipeline config, run rvsim and diff the commit
                     trace against the cached spike oracle.
 
 Usage (from repo root):
-    rvsim --script scripts/spike_compare.py              # full run
-    rvsim --script scripts/spike_compare.py --oracle-only # just generate spike logs
-    rvsim --script scripts/spike_compare.py --skip-oracle # reuse cached spike logs
-    rvsim --script scripts/spike_compare.py --pipelines 'inorder w1,o3 w4'
+    .venv/bin/python tests/conformance/spike_compare.py              # full run
+    .venv/bin/python tests/conformance/spike_compare.py --oracle-only # just generate spike logs
+    .venv/bin/python tests/conformance/spike_compare.py --skip-oracle # reuse cached spike logs
+    .venv/bin/python tests/conformance/spike_compare.py --pipelines 'inorder w1,o3 w4'
 """
 
 import argparse
@@ -24,15 +24,15 @@ import tempfile
 
 from rvsim import Config  # noqa: F401  (kept for backward compatibility)
 from rvsim._core import Simulator
-from rvsim.config import _config_to_dict
+from rvsim.config._config import _config_to_dict
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ISA_DIR = os.path.join(ROOT, "testing", "builds", "riscv-tests", "isa")
-ORACLE_DIR = os.path.join(ROOT, "testing", "builds", "spike-oracle")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ISA_DIR = os.path.join(ROOT, "tests", "builds", "riscv-tests", "isa")
+ORACLE_DIR = os.path.join(ROOT, "tests", "builds", "spike-oracle")
 
 # Shared pipeline matrix.
 sys.path.insert(0, ROOT)
-from testing.configs.pipelines import PIPELINES  # noqa: E402, F401
+from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402, F401
 
 # ── Test suites ──────────────────────────────────────────────────────────────
 SUITES = [

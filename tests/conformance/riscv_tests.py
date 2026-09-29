@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Run riscv-tests ISA suite across every PIPELINES config.
 
-Each test runs in its own subprocess (testing/_worker.py) so a panic /
+Each test runs in its own subprocess (tests/conformance/_worker.py) so a panic /
 segfault in rvsim only kills one test, never the whole sweep. Results stream
 to disk every 50 tests.
 
-The shared PIPELINES matrix lives in testing/configs/pipelines.py — edit it
+The shared PIPELINES matrix lives in tests/conformance/configs/pipelines.py — edit it
 once, all three runners pick up the change.
 
 Usage:
-    .venv/bin/python testing/run_riscv_tests.py
-    .venv/bin/python testing/run_riscv_tests.py --pipelines 'inorder w1,o3 w4'
-    .venv/bin/python testing/run_riscv_tests.py --filter rv64ui
+    .venv/bin/python tests/conformance/riscv_tests.py
+    .venv/bin/python tests/conformance/riscv_tests.py --pipelines 'inorder w1,o3 w4'
+    .venv/bin/python tests/conformance/riscv_tests.py --filter rv64ui
 """
 
 import argparse
@@ -23,17 +23,17 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from testing.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
 
-WORKER = os.path.join(ROOT, "testing", "_worker.py")
+WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-ISA_DIR = os.path.join(ROOT, "testing", "builds", "riscv-tests", "isa")
-RESULTS_DIR = os.path.join(ROOT, "testing", "builds", "results")
+ISA_DIR = os.path.join(ROOT, "tests", "builds", "riscv-tests", "isa")
+RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 TIMEOUT_SEC = 60
 
 # Test suites we care about: physical-mode (-p-) variants only.

@@ -1,7 +1,7 @@
 """Session runs a workload in phases: stop points, cached fast-forwards,
 configuration switches, forks, saved resume points and measured regions.
 
-Run with: .venv/bin/python -m unittest discover -s testing/python
+Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
 import os

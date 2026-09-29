@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Run the chipsalliance vector cosim suite across every PIPELINES config.
 
-For each test ELF under testing/builds/vector/vlen{N}/:
+For each test ELF under tests/builds/vector/vlen{N}/:
   1. Compute the spike reference signature ONCE (cached on disk).
-  2. For every pipeline config in testing/configs/pipelines.py, run the same
-     ELF on rvsim via testing/_worker.py and diff against the cached spike sig.
+  2. For every pipeline config in tests/conformance/configs/pipelines.py, run the same
+     ELF on rvsim via tests/conformance/_worker.py and diff against the cached spike sig.
 
 Subprocess-isolated workers + streaming JSON, same model as the riscof
 multi-config runner.
 
 Usage:
-    .venv/bin/python testing/run_vector_tests_multi.py
-    .venv/bin/python testing/run_vector_tests_multi.py --vlen 256
-    .venv/bin/python testing/run_vector_tests_multi.py --pipelines 'inorder w1'
-    .venv/bin/python testing/run_vector_tests_multi.py --filter 'vadd'
+    .venv/bin/python tests/conformance/vector_tests.py
+    .venv/bin/python tests/conformance/vector_tests.py --vlen 256
+    .venv/bin/python tests/conformance/vector_tests.py --pipelines 'inorder w1'
+    .venv/bin/python tests/conformance/vector_tests.py --filter 'vadd'
 """
 
 import argparse
@@ -26,16 +26,16 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from testing.configs.pipelines import PIPELINES  # noqa: E402
+from tests.conformance.configs.pipelines import PIPELINES  # noqa: E402
 
-WORKER = os.path.join(ROOT, "testing", "_worker.py")
+WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-BUILDS = os.path.join(ROOT, "testing", "builds")
+BUILDS = os.path.join(ROOT, "tests", "builds")
 SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
 RESULTS_DIR = os.path.join(BUILDS, "results")
 TIMEOUT_SEC = 180

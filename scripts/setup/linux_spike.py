@@ -169,7 +169,7 @@ def run_rvsim_trace(cycle_limit):
     # Import here so the script can show --help without building
     from rvsim import presets
     from rvsim._core import Simulator
-    from rvsim.config import _config_to_dict
+    from rvsim.config._config import _config_to_dict
 
     cfg = presets.linux()
     config_dict = _config_to_dict(cfg)

@@ -16,13 +16,13 @@ import os
 
 # Ensure rvsim is importable from the repo root
 REPO_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 )
 sys.path.insert(0, REPO_ROOT)
 
 from rvsim import Config, Backend
 from rvsim._core import Simulator
-from rvsim.config import _config_to_dict
+from rvsim.config._config import _config_to_dict
 
 CYCLE_LIMIT = 2_000_000
 READELF = None

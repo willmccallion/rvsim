@@ -16,16 +16,15 @@ import struct
 import subprocess
 import sys
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
 from rvsim import Config, Backend  # noqa: E402
 from rvsim._core import Simulator  # noqa: E402
-from rvsim.config import _config_to_dict  # noqa: E402
+from rvsim.config._config import _config_to_dict  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTING = os.path.dirname(HERE)
-BUILDS = os.path.join(TESTING, "builds")
+BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
 SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
 READELF = "riscv64-elf-readelf"
 

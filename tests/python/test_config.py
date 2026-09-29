@@ -1,6 +1,6 @@
 """Tests for the Python Config object.
 
-Run with: .venv/bin/python -m unittest discover -s testing/python
+Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
 import inspect

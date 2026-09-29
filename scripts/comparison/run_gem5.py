@@ -27,8 +27,8 @@ from variants import VARIANTS
 ROOT = Path(__file__).parent.parent.parent
 RESULTS_DIR = Path(__file__).parent / "results"
 SINGLE_SCRIPT = Path(__file__).parent / "gem5_single.py"
-PROGRAMS = ROOT / "testing/builds/compare-programs"
-OUTDIR = ROOT / "testing/builds/results/gem5-compare"
+PROGRAMS = ROOT / "tests/builds/compare-programs"
+OUTDIR = ROOT / "tests/builds/results/gem5-compare"
 
 GEM5_BIN = os.environ.get("GEM5_BIN", shutil.which("gem5.opt") or "gem5.opt")
 

@@ -6,7 +6,7 @@ same machine, and compares cycles, branch mispredictions and cache misses.
 ## Usage
 
 ```bash
-bash scripts/comparison/programs/build.sh     # -> testing/builds/compare-programs/*.elf
+bash scripts/comparison/programs/build.sh     # -> tests/builds/compare-programs/*.elf
 python scripts/comparison/run_rvsim.py [variant ...]
 GEM5_BIN=path/to/gem5.opt python scripts/comparison/run_gem5.py [variant ...]
 python scripts/comparison/compare.py

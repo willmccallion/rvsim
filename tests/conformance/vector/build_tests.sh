@@ -15,8 +15,8 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-TESTING=$(cd "$HERE/.." && pwd)
-BUILDS=$TESTING/builds
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
+BUILDS=$REPO_ROOT/tests/builds
 GEN_DIR=$BUILDS/riscv-vector-tests
 SPIKE_DIR=$BUILDS/spike-install
 BUILD=$BUILDS/vector

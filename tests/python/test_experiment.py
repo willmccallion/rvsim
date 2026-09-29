@@ -1,6 +1,6 @@
 """Python API tests that run the built simulator on a real program.
 
-Run with: .venv/bin/python -m unittest discover -s testing/python
+Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
 import os
