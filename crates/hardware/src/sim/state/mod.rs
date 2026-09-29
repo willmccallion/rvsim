@@ -21,6 +21,9 @@ pub mod memory;
 /// LR/SC reservations shared by all harts.
 pub mod reservations;
 
+/// The architectural effects of retiring an instruction.
+pub mod retire;
+
 /// Trap and exception handling logic.
 pub mod trap;
 

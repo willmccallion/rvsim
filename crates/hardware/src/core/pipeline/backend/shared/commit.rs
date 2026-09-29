@@ -7,14 +7,8 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::common::constants::{
-    DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
-};
-use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
-use crate::common::{Asid, LrScRecord, PhysAddr, PteUpdate, RegIdx, SfenceVmaInfo, Trap, Vpn};
+use crate::common::{LrScRecord, PhysAddr, PteUpdate, RegIdx, Trap};
 use crate::core::arch::csr;
-use crate::core::arch::mode::PrivilegeMode;
-use crate::core::arch::trap::TrapHandler;
 use crate::core::arch::vpr::Vpr;
 use crate::core::pipeline::backend::shared::cbo::CboEffect;
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
@@ -184,7 +178,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     {
         let epc = rob.peek_head().map_or(state.hart.pc, |head| head.pc);
 
-        let interrupt = check_interrupts(state).filter(|_| !device_access_in_flight(common, rob));
+        let interrupt = state.pending_interrupt().filter(|_| !device_access_in_flight(common, rob));
         if let Some(interrupt_trap) = interrupt {
             // Fetch stops and everything already fetched retires first
             // (gem5 waits for its instruction list to empty); a WFI's
@@ -409,10 +403,8 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             entry.pc,
         );
         if entry.ctrl.fp_reg_write {
-            state.hart.regs.write_f(entry.rd, val);
+            state.retire_fp_write(entry.rd, val);
             registers.retire_scalar(&entry, true);
-            state.hart.csrs.mstatus =
-                (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
@@ -424,7 +416,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 "CM: FP register write"
             );
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
-            state.hart.regs.write(entry.rd, val);
+            state.retire_int_write(entry.rd, val);
             registers.retire_scalar(&entry, false);
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
@@ -439,10 +431,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if let Some(writes) = &entry.vec_writes {
-            writes.apply(state.hart.regs.vpr_mut());
-            state.hart.csrs.mstatus =
-                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.vstart = 0;
+            state.retire_vector_writes(writes);
         }
 
         if entry.vec_dst_count > 0 {
@@ -451,9 +440,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 let vreg = VRegIdx::new(vd_base + i as u8);
                 registers.retire_vec(state.hart.regs.vpr_mut(), &entry, i, vreg);
             }
-            state.hart.csrs.mstatus =
-                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
-            state.hart.csrs.vstart = 0;
+            state.mark_vector_retired();
         }
 
         #[cfg(feature = "commit-log")]
@@ -482,11 +469,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         // Apply fp_flags before CSR writes to keep execute-time CSR reads of fflags consistent.
-        if entry.fp_flags != 0 {
-            state.hart.csrs.fflags |= entry.fp_flags as u64;
-            state.hart.csrs.mstatus =
-                (state.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
-        }
+        state.accrue_fp_flags(entry.fp_flags);
 
         if entry.vxsat {
             state.hart.csrs.vxsat = 1;
@@ -497,11 +480,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if let Some(vector) = entry.vec_csr_update {
-            state.hart.csrs.vtype = vector.vtype;
-            state.hart.csrs.vl = vector.vl;
-            state.hart.csrs.vstart = 0;
-            state.hart.csrs.mstatus =
-                (state.hart.csrs.mstatus & !csr::MSTATUS_VS) | csr::MSTATUS_VS_DIRTY;
+            state.retire_vector_config(vector);
         }
 
         if let Some(csr_update) = entry.csr_update {
@@ -565,10 +544,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if entry.ctrl.system_op == SystemOp::Wfi {
-            if state.hart.csrs.mie != 0 || state.hart.csrs.mip != 0 {
-                state.hart.wfi_waiting = true;
-            } else {
-                // Nothing enabled or pending — treat as NOP to avoid OpenSBI early-boot deadlock.
+            if !state.retire_wfi() {
                 event =
                     Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
@@ -607,7 +583,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         if entry.ctrl.system_op == SystemOp::FenceI {
             // Older stores have completed (stall above); refills see them.
-            state.core.l1_i_cache.invalidate_all();
+            state.retire_fence_i();
             // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
@@ -615,8 +591,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            sfence_vma_commit(state, &info);
-            state.clear_reservation();
+            state.retire_sfence_vma(&info);
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
         }
@@ -699,7 +674,7 @@ fn schedule_trap(
 /// which may differ from what was detected, or be nothing at all.
 fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<CommitEvent> {
     let (is_interrupt, _) = pending.trap.cause();
-    let trap = if is_interrupt { check_interrupts(state)? } else { pending.trap };
+    let trap = if is_interrupt { state.pending_interrupt()? } else { pending.trap };
     if is_interrupt {
         state.hart.wfi_waiting = false;
     }
@@ -1087,62 +1062,6 @@ fn emit_store_write_packet_to(
     req_id
 }
 
-/// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
-/// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit, mideleg bit)`.
-const INTERRUPT_PRIORITY: [(u64, u64, u64); 6] = [
-    (csr::MIP_MEIP, csr::MIE_MEIP, 1 << DELEG_MEIP_BIT),
-    (csr::MIP_MSIP, csr::MIE_MSIP, 1 << DELEG_MSIP_BIT),
-    (csr::MIP_MTIP, csr::MIE_MTIE, 1 << DELEG_MTIP_BIT),
-    (csr::MIP_SEIP, csr::MIE_SEIP, 1 << DELEG_SEIP_BIT),
-    (csr::MIP_SSIP, csr::MIE_SSIP, 1 << DELEG_SSIP_BIT),
-    (csr::MIP_STIP, csr::MIE_STIE, 1 << DELEG_STIP_BIT),
-];
-
-/// Checks for pending interrupts. Returns the trap if one should be taken.
-fn check_interrupts(state: &CoreCtx<'_>) -> Option<Trap> {
-    let mip = state.hart.csrs.mip;
-    let mie = state.hart.csrs.mie;
-    let mstatus = state.hart.csrs.mstatus;
-
-    let m_global_ie = (mstatus & csr::MSTATUS_MIE) != 0;
-    let s_global_ie = (mstatus & csr::MSTATUS_SIE) != 0;
-
-    let check = |bit: u64, enable_bit: u64, deleg_bit: u64| -> Option<Trap> {
-        let pending = (mip & bit) != 0;
-        let enabled = (mie & enable_bit) != 0;
-        if !pending || !enabled {
-            return None;
-        }
-
-        let delegated = (state.hart.csrs.mideleg & deleg_bit) != 0;
-        let target_priv =
-            if delegated { PrivilegeMode::Supervisor } else { PrivilegeMode::Machine };
-
-        if state.hart.privilege.to_u8() < target_priv.to_u8() {
-            return Some(TrapHandler::irq_to_trap(bit));
-        }
-        if state.hart.privilege == target_priv {
-            if target_priv == PrivilegeMode::Machine && m_global_ie {
-                return Some(TrapHandler::irq_to_trap(bit));
-            }
-            if target_priv == PrivilegeMode::Supervisor && s_global_ie {
-                return Some(TrapHandler::irq_to_trap(bit));
-            }
-        }
-        None
-    };
-
-    // Interrupts destined for M-mode are taken before any destined for S-mode.
-    [false, true].into_iter().find_map(|to_supervisor| {
-        INTERRUPT_PRIORITY
-            .iter()
-            .filter(|&&(_, _, deleg_bit)| {
-                (state.hart.csrs.mideleg & deleg_bit != 0) == to_supervisor
-            })
-            .find_map(|&(bit, enable_bit, deleg_bit)| check(bit, enable_bit, deleg_bit))
-    })
-}
-
 /// Updates instruction statistics based on the committed entry.
 fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &crate::core::pipeline::rob::RobEntry) {
     // Check vec ops first: vec loads/stores also set mem_read/mem_write.
@@ -1453,84 +1372,12 @@ fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp) {
     }
 }
 
-/// Performs selective SFENCE.VMA TLB flushing at commit time per the privileged spec:
-/// rs1==0,rs2==0: flush all TLBs;
-/// rs1!=0,rs2==0: flush TLB entries matching vaddr in rs1;
-/// rs1==0,rs2!=0: flush non-global TLB entries matching ASID in rs2;
-/// rs1!=0,rs2!=0: flush TLB entry matching both vaddr and ASID.
-fn sfence_vma_commit(state: &mut CoreCtx<'_>, info: &SfenceVmaInfo) {
-    match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
-        (false, false) => {
-            state.core.mmu.dtlb.flush();
-            state.core.mmu.itlb.flush();
-            state.core.mmu.l2_tlb.flush();
-        }
-        (true, false) => {
-            let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            state.core.mmu.dtlb.flush_vaddr(vpn);
-            state.core.mmu.itlb.flush_vaddr(vpn);
-            state.core.mmu.l2_tlb.flush_vaddr(vpn);
-        }
-        (false, true) => {
-            let asid = Asid::new(info.rs2_val as u16);
-            state.core.mmu.dtlb.flush_asid(asid);
-            state.core.mmu.itlb.flush_asid(asid);
-            state.core.mmu.l2_tlb.flush_asid(asid);
-        }
-        (true, true) => {
-            let vpn = Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
-            let asid = Asid::new(info.rs2_val as u16);
-            state.core.mmu.dtlb.flush_vaddr_asid(vpn, asid);
-            state.core.mmu.itlb.flush_vaddr_asid(vpn, asid);
-            state.core.mmu.l2_tlb.flush_vaddr_asid(vpn, asid);
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
     use crate::common::InstSize;
     use crate::config::Config;
-
-    #[test]
-    fn test_check_interrupts_none() {
-        let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
-        let state = sys.core_ctx(0);
-
-        assert!(check_interrupts(&state).is_none());
-    }
-
-    #[test]
-    fn test_check_interrupts_m_mode() {
-        let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
-        let state = sys.core_ctx(0);
-
-        state.hart.csrs.mip = csr::MIP_MEIP;
-        state.hart.csrs.mie = csr::MIE_MEIP;
-        state.hart.csrs.mstatus |= csr::MSTATUS_MIE;
-        state.hart.privilege = PrivilegeMode::Machine;
-
-        assert_eq!(check_interrupts(&state), Some(Trap::MachineExternalInterrupt));
-    }
-
-    #[test]
-    fn test_check_interrupts_s_mode_delegated() {
-        let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
-        let state = sys.core_ctx(0);
-
-        state.hart.csrs.mip = csr::MIP_SEIP;
-        state.hart.csrs.mie = csr::MIE_SEIP;
-        state.hart.csrs.mstatus |= csr::MSTATUS_SIE;
-        state.hart.csrs.mideleg |= 1 << DELEG_SEIP_BIT;
-        state.hart.privilege = PrivilegeMode::Supervisor;
-
-        assert_eq!(check_interrupts(&state), Some(Trap::SupervisorExternalInterrupt));
-    }
 
     #[test]
     fn test_commit_stage_normal() {
