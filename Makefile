@@ -117,7 +117,7 @@ python:
 		printf "$(GREEN)Creating .venv…$(RESET)\n"; \
 		python3 -m venv .venv; \
 	fi
-	@.venv/bin/pip install --quiet maturin
+	@.venv/bin/pip install --quiet -r requirements-dev.txt
 	.venv/bin/maturin develop --release
 
 # Build a distributable wheel into target/wheels

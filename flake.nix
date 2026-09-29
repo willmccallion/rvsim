@@ -4,12 +4,21 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
+        };
+        # The same rust-toolchain.toml that rustup (and CI) reads.
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
         # Cross toolchain is referenced via store path, not put in PATH —
         # otherwise spike's autoconf picks `riscv64-none-elf-gcc` for the
         # native build and fails with "cannot run C compiled programs".
@@ -60,12 +69,11 @@
           name = "rvsim";
 
           packages = with pkgs; [
-            rustc cargo rustfmt clippy
+            rustToolchain
 
             python3
             python3Packages.pip
             python3Packages.virtualenv
-            python3Packages.ruff
 
             gcc gnumake autoconf automake pkg-config dtc cmake
 
