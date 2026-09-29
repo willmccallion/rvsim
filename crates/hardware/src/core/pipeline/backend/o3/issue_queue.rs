@@ -15,9 +15,9 @@ use crate::core::pipeline::latches::RenameIssueEntry;
 use crate::core::pipeline::prf::{PhysReg, PhysRegFile};
 use crate::core::pipeline::rob::{Rob, RobState, RobTag};
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_prf::VecPhysRegFile;
 use crate::core::units::mdp::MemDepState;
-use crate::core::units::vpu::types::VecPhysReg;
 use crate::sim::StageCtx;
 
 /// Readiness state of a single source operand.
@@ -675,14 +675,14 @@ mod tests {
             pred_taken: false,
             pred_target: 0,
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
-            vs2_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
-            vs3_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
-            vd_phys: [crate::core::units::vpu::types::VecPhysReg::ZERO; 8],
+            vs1_phys: [crate::core::pipeline::vec_prf::VecPhysReg::ZERO; 8],
+            vs2_phys: [crate::core::pipeline::vec_prf::VecPhysReg::ZERO; 8],
+            vs3_phys: [crate::core::pipeline::vec_prf::VecPhysReg::ZERO; 8],
+            vd_phys: [crate::core::pipeline::vec_prf::VecPhysReg::ZERO; 8],
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
-            mask_phys: crate::core::units::vpu::types::VecPhysReg::ZERO,
+            mask_phys: crate::core::pipeline::vec_prf::VecPhysReg::ZERO,
             vec_vtype: 0,
             vec_vl: 0,
             vec_vstart: 0,

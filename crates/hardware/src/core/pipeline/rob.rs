@@ -17,9 +17,9 @@ use crate::core::exec::execute::CsrWrite;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
 use crate::core::pipeline::prf::PhysReg;
+use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
-use crate::core::units::vpu::types::VecPhysReg;
-use crate::core::units::vpu::types::VectorConfig;
+use crate::isa::vector::VectorConfig;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
 ///

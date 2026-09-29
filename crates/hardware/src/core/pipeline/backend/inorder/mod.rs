@@ -29,10 +29,11 @@ use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;
 use crate::core::pipeline::squash::{PendingSquash, SquashCause};
 use crate::core::pipeline::store_buffer::StoreBuffer;
+use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::core::units::vpu::shadow::ElementWrite;
-use crate::core::units::vpu::types::{ElemIdx, VRegIdx, VecPhysReg, parse_vtype};
+use crate::isa::vector::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
 

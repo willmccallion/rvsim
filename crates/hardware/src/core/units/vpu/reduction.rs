@@ -29,7 +29,7 @@ use crate::core::units::fpu::{
 };
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
+use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
 
 /// Returns `true` if `op` is a reduction handled by this module.
 pub const fn is_reduction(op: VectorOp) -> bool {
@@ -632,7 +632,7 @@ mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
     use crate::core::units::fpu::rounding_modes::RoundingMode;
-    use crate::core::units::vpu::types::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
+    use crate::isa::vector::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a standard execution context with the given SEW and vl.
     fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {

@@ -16,7 +16,7 @@ use crate::core::arch::trap::TrapHandler;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::vpu::shadow::VectorWrites;
-use crate::core::units::vpu::types::VectorConfig;
+use crate::isa::vector::VectorConfig;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
 /// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit, mideleg bit)`.

@@ -4,6 +4,25 @@
 //! vector length, number of lanes, and pipeline depth (startup latency).
 //! Follows the Patterson/Ara2/Saturn model.
 
+/// Number of vector execution lanes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NumLanes(usize);
+
+impl NumLanes {
+    /// # Panics
+    ///
+    /// Panics if `val` is zero.
+    pub const fn new(val: usize) -> Self {
+        assert!(val >= 1, "NumLanes must be >= 1");
+        Self(val)
+    }
+
+    /// Returns the lane count as `usize`.
+    #[inline(always)]
+    pub const fn as_usize(self) -> usize {
+        self.0
+    }
+}
 /// Compute total execution latency for a vector operation.
 ///
 /// **Pipelined units** (ALU, multiply, FP add, FP mul/FMA):

@@ -6,10 +6,9 @@
 
 use crate::common::{Trap, VirtAddr};
 use crate::core::exec::signals::{ControlSignals, VectorOp};
+use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{
-    ElemIdx, Emul, Nf, Sew, VRegIdx, VecPhysReg, VtypeFields, parse_vtype,
-};
+use crate::isa::vector::{ElemIdx, Emul, Nf, Sew, VRegIdx, VtypeFields, parse_vtype};
 
 /// Returns `(data_emul_regs, idx_emul_regs)` for a vec memory op.
 ///
@@ -22,7 +21,7 @@ pub fn vec_mem_emul_regs(
     op: VectorOp,
     eew: Sew,
     sew: Sew,
-    lmul: crate::core::units::vpu::types::Vlmul,
+    lmul: crate::isa::vector::Vlmul,
 ) -> (u8, u8) {
     let (lnum, lden) = lmul.as_fraction();
     let lmul_regs = if lnum >= lden { (lnum / lden) as u8 } else { 1 };
@@ -60,7 +59,7 @@ pub fn vec_mem_dst_count(
     op: VectorOp,
     eew: Sew,
     sew: Sew,
-    lmul: crate::core::units::vpu::types::Vlmul,
+    lmul: crate::isa::vector::Vlmul,
     nf_field: u8,
 ) -> u8 {
     let (data_emul, _) = vec_mem_emul_regs(op, eew, sew, lmul);

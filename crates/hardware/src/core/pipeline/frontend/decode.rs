@@ -12,8 +12,8 @@ use crate::core::exec::decode::{DecodedInst, decode_inst};
 use crate::core::exec::inst::Inst;
 use crate::core::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::core::units::bru::ControlInst;
-use crate::core::units::vpu::types::VectorConfig;
 use crate::isa::instruction::InstructionBits;
+use crate::isa::vector::VectorConfig;
 use crate::sim::StageCtx;
 
 /// Executes the decode stage.

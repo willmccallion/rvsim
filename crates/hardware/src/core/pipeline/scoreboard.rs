@@ -7,7 +7,7 @@
 
 use crate::common::RegIdx;
 use crate::core::pipeline::rob::{Rob, RobTag};
-use crate::core::units::vpu::types::VRegIdx;
+use crate::isa::vector::VRegIdx;
 
 /// Tag-based scoreboard: maps each architectural register to the ROB tag
 /// of its latest in-flight producer, or None if the value is in the

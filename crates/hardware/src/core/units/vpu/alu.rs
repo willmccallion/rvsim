@@ -19,9 +19,7 @@
 use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{
-    ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm,
-};
+use crate::isa::vector::{ElemIdx, MaskPolicy, Sew, TailPolicy, VRegIdx, Vlmax, Vlmul, Vxrm};
 
 /// Source for the first vector operand.
 #[derive(Debug, Clone, Copy)]
@@ -1226,7 +1224,7 @@ fn exec_extension(
 mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
-    use crate::core::units::vpu::types::Vlen;
+    use crate::isa::vector::Vlen;
 
     /// Helper: create a 128-bit VLEN VPR.
     fn make_vpr() -> Vpr {

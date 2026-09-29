@@ -2,7 +2,7 @@
 //!
 //! Implements the vector configuration instructions per RVV 1.0 Section 6.1.
 
-use super::types::{Vlen, Vlmax, encode_vtype, parse_vtype};
+use crate::isa::vector::{Vlen, Vlmax, encode_vtype, parse_vtype};
 
 /// Execute a vsetvl-family instruction.
 ///
@@ -46,8 +46,8 @@ pub fn execute_vsetvl(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{MaskPolicy, Sew, TailPolicy, Vlmul, VtypeFields};
     use super::*;
+    use crate::isa::vector::{MaskPolicy, Sew, TailPolicy, Vlmul, VtypeFields};
 
     fn vlen128() -> Vlen {
         Vlen::new_unchecked(128)
@@ -176,10 +176,10 @@ mod tests {
         // This is a LEGAL configuration: SEW * lmul_den (8*8=64) <= ELEN * lmul_num (64*1=64).
         // VLMAX = (128/8)*1/8 = 2
         let vtype_bits: u64 = 0b101; // vsew=0, vlmul=0b101, vta=0, vma=0
-        let parsed = super::super::types::parse_vtype(vtype_bits);
+        let parsed = crate::isa::vector::parse_vtype(vtype_bits);
         assert!(!parsed.vill, "mf8/e8 should NOT set vill");
-        assert_eq!(parsed.vlmul, super::super::types::Vlmul::Mf8);
-        assert_eq!(parsed.vsew, super::super::types::Sew::E8);
+        assert_eq!(parsed.vlmul, crate::isa::vector::Vlmul::Mf8);
+        assert_eq!(parsed.vsew, crate::isa::vector::Sew::E8);
 
         // execute_vsetvl with AVL=0, rd!=0, rs1!=0
         let (vl, vtype) = execute_vsetvl(0, vtype_bits, false, false, vlen128(), 0);

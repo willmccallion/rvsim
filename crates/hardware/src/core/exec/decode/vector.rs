@@ -3,11 +3,11 @@
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
 use crate::common::error::Trap;
 use crate::core::exec::signals::{ControlSignals, OpBSrc, VecSrcEncoding, VectorOp};
-use crate::core::units::vpu::types::{Sew, VRegIdx};
 use crate::isa::instruction::Decoded;
 use crate::isa::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
+use crate::isa::vector::{Sew, VRegIdx};
 
 /// Unit-stride lumop: normal unit-stride load.
 const LUMOP_UNIT: u8 = 0b00000;

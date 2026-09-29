@@ -3,8 +3,6 @@
 //! This module implements the RISC-V Vector Extension (RVV 1.0) execution units,
 //! including types, CSR handling, and vector arithmetic.
 
-pub mod types;
-
 pub mod vsetvl;
 
 pub mod alu;

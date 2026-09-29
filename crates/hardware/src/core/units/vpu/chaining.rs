@@ -7,7 +7,7 @@
 //! Based on Saturn's "augmented element-group-granularity scoreboarding".
 
 use crate::core::pipeline::rob::RobTag;
-use crate::core::units::vpu::types::VecPhysReg;
+use crate::core::pipeline::vec_prf::VecPhysReg;
 
 /// A pending vector execution result, tracking chaining and completion timing.
 #[derive(Debug, Clone)]

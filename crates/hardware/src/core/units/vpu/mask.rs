@@ -11,7 +11,7 @@ use crate::core::exec::signals::VectorOp;
 use crate::core::units::fpu::exception_flags::FpFlags;
 use crate::core::units::vpu::alu::{VecExecCtx, VecExecResult, VecOperand};
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, VRegIdx, Vlmax};
+use crate::isa::vector::{ElemIdx, VRegIdx, Vlmax};
 
 /// Returns `true` if `op` is a mask operation handled by this module.
 pub const fn is_mask_op(op: VectorOp) -> bool {
@@ -335,7 +335,7 @@ mod tests {
     use super::*;
     use crate::core::arch::vpr::Vpr;
     use crate::core::units::fpu::rounding_modes::RoundingMode;
-    use crate::core::units::vpu::types::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
+    use crate::isa::vector::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
 
     /// Create a 128-bit VPR for testing.
     fn test_vpr() -> Vpr {

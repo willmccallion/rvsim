@@ -9,10 +9,10 @@ use crate::core::exec::signals::{AluOp, ControlSignals, OpASrc, OpBSrc, VectorOp
 use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
-use crate::core::units::vpu::types::{VtypeFields, parse_vtype};
 use crate::isa::decode::decode as instruction_decode;
 use crate::isa::instruction::Decoded;
 use crate::isa::rvv::opcodes as v_opcodes;
+use crate::isa::vector::{VtypeFields, parse_vtype};
 
 /// Vector load/store width encoding for EEW=8.
 pub(super) const VEC_WIDTH_8: u32 = 0b000;

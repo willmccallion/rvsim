@@ -4,7 +4,7 @@ use crate::common::RegIdx;
 use crate::core::arch::fpr::Fpr;
 use crate::core::arch::gpr::Gpr;
 use crate::core::arch::vpr::Vpr;
-use crate::core::units::vpu::types::Vlen;
+use crate::isa::vector::Vlen;
 
 /// Unified register file containing general-purpose, floating-point, and vector registers.
 ///

@@ -408,26 +408,6 @@ impl Vlen {
     }
 }
 
-/// Number of vector execution lanes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NumLanes(usize);
-
-impl NumLanes {
-    /// # Panics
-    ///
-    /// Panics if `val` is zero.
-    pub const fn new(val: usize) -> Self {
-        assert!(val >= 1, "NumLanes must be >= 1");
-        Self(val)
-    }
-
-    /// Returns the lane count as `usize`.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0
-    }
-}
-
 /// Segment field count (nf). Range 1..=8 (encoded as 0..=7 in instruction).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Nf(u8);
@@ -607,52 +587,6 @@ impl Vxrm {
             Self::RoundDown => 2,
             Self::RoundToOdd => 3,
         }
-    }
-}
-
-/// Vector physical register index (O3 backend).
-/// NOT interchangeable with `PhysReg` (scalar).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct VecPhysReg(u16);
-
-impl VecPhysReg {
-    /// The zero physical register (no allocation).
-    pub const ZERO: Self = Self(0);
-
-    /// Create a new vector physical register index.
-    #[inline(always)]
-    pub const fn new(val: u16) -> Self {
-        Self(val)
-    }
-
-    /// Returns the index as `u16`.
-    #[inline(always)]
-    pub const fn as_u16(self) -> u16 {
-        self.0
-    }
-
-    /// Returns the index as `usize`.
-    #[inline(always)]
-    pub const fn as_usize(self) -> usize {
-        self.0 as usize
-    }
-
-    /// Returns true if this is the zero register.
-    #[inline(always)]
-    pub const fn is_zero(self) -> bool {
-        self.0 == 0
-    }
-}
-
-impl crate::core::pipeline::free_list::PhysRegister for VecPhysReg {
-    #[inline]
-    fn is_zero(self) -> bool {
-        self.0 == 0
-    }
-
-    #[inline]
-    fn from_index(idx: u16) -> Self {
-        Self(idx)
     }
 }
 

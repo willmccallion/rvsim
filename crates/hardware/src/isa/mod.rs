@@ -61,5 +61,8 @@ pub mod rvc;
 /// Vector extension (RVV 1.0).
 pub mod rvv;
 
+/// Vector vocabulary: element widths, register groups, vtype.
+pub mod vector;
+
 /// Cache-block zero extension (Zicboz).
 pub mod zicboz;

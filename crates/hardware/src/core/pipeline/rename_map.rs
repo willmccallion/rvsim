@@ -5,7 +5,8 @@
 //! in O3Engine tracks the last committed state for flush recovery.
 
 use crate::common::RegIdx;
-use crate::core::units::vpu::types::{VRegIdx, VecPhysReg};
+use crate::core::pipeline::vec_prf::VecPhysReg;
+use crate::isa::vector::VRegIdx;
 
 use super::prf::PhysReg;
 

@@ -12,10 +12,11 @@ use crate::core::exec::signals::{ControlFlow, VectorOp};
 use crate::core::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::core::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::core::pipeline::prf::PhysReg;
+use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
-use crate::core::units::vpu::types::{VRegIdx, VecPhysReg, parse_vtype};
+use crate::isa::vector::{VRegIdx, parse_vtype};
 use crate::sim::StageCtx;
 use crate::trace_rename;
 

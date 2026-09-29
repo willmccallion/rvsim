@@ -86,10 +86,10 @@ pub trait ExecutionEngine {
     fn vector_config(
         &self,
         csrs: &crate::core::arch::csr::Csrs,
-    ) -> crate::core::units::vpu::types::VectorConfig {
+    ) -> crate::isa::vector::VectorConfig {
         self.rob()
             .youngest_vec_csr_update()
-            .unwrap_or_else(|| crate::core::units::vpu::types::VectorConfig::from_csrs(csrs))
+            .unwrap_or_else(|| crate::isa::vector::VectorConfig::from_csrs(csrs))
     }
 
     /// Whether the backend renames registers, so decode can skip the

@@ -63,7 +63,7 @@ impl<R: PhysRegister> FreeList<R> {
 mod tests {
     use super::*;
     use crate::core::pipeline::prf::PhysReg;
-    use crate::core::units::vpu::types::VecPhysReg;
+    use crate::core::pipeline::vec_prf::VecPhysReg;
 
     #[test]
     fn test_allocate_reclaim_roundtrip() {

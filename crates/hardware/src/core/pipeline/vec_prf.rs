@@ -8,8 +8,55 @@
 //! VRegIdx to physical VecPhysReg via a mapping table, enabling the VPU
 //! execution functions to operate transparently on physical registers.
 
+use crate::core::pipeline::free_list::PhysRegister;
 use crate::core::units::vpu::regfile::VectorRegFile;
-use crate::core::units::vpu::types::{ElemIdx, Sew, VRegIdx, VecPhysReg, Vlen};
+use crate::isa::vector::{ElemIdx, Sew, VRegIdx, Vlen};
+
+/// Vector physical register index (O3 backend).
+/// NOT interchangeable with `PhysReg` (scalar).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VecPhysReg(u16);
+
+impl VecPhysReg {
+    /// The zero physical register (no allocation).
+    pub const ZERO: Self = Self(0);
+
+    /// Create a new vector physical register index.
+    #[inline(always)]
+    pub const fn new(val: u16) -> Self {
+        Self(val)
+    }
+
+    /// Returns the index as `u16`.
+    #[inline(always)]
+    pub const fn as_u16(self) -> u16 {
+        self.0
+    }
+
+    /// Returns the index as `usize`.
+    #[inline(always)]
+    pub const fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+
+    /// Returns true if this is the zero register.
+    #[inline(always)]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl PhysRegister for VecPhysReg {
+    #[inline]
+    fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    fn from_index(idx: u16) -> Self {
+        Self(idx)
+    }
+}
 
 /// Vector physical register file: flat byte storage with per-register ready bits.
 #[derive(Debug)]

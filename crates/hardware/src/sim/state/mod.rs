@@ -596,7 +596,7 @@ impl SimState {
             };
             // Initialize vector register file if VLEN > 0
             if config.pipeline.vlen > 0
-                && let Ok(vlen) = crate::core::units::vpu::types::Vlen::new(config.pipeline.vlen)
+                && let Ok(vlen) = crate::isa::vector::Vlen::new(config.pipeline.vlen)
             {
                 regs.init_vpr(vlen);
             }
