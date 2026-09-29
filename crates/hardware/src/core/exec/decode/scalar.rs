@@ -7,18 +7,18 @@ use crate::core::exec::signals::{
     AluOp, AtomicOp, ControlFlow, ControlSignals, CsrOp, MemWidth, OpASrc, OpBSrc, SystemOp,
 };
 use crate::core::units::fpu::rounding_modes::RoundingMode;
-use crate::isa::instruction::{Decoded, InstructionBits};
-use crate::isa::privileged::opcodes as sys_ops;
-use crate::isa::rv64a::{
+use crate::isa::encoding::privileged as sys_ops;
+use crate::isa::encoding::rv64a::{
     AQ as AMO_AQ, RL as AMO_RL, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,
 };
-use crate::isa::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
-use crate::isa::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
-use crate::isa::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
-use crate::isa::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
-use crate::isa::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
-use crate::isa::rv64zfh::funct7 as h_funct7;
-use crate::isa::zicboz;
+use crate::isa::encoding::rv64bk::{funct3 as b_funct3, funct7 as b_funct7};
+use crate::isa::encoding::rv64d::{funct7 as d_funct7, opcodes as d_opcodes};
+use crate::isa::encoding::rv64f::{funct3 as f_funct3, funct7 as f_funct7, opcodes as f_opcodes};
+use crate::isa::encoding::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcodes as i_opcodes};
+use crate::isa::encoding::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
+use crate::isa::encoding::rv64zfh::funct7 as h_funct7;
+use crate::isa::encoding::zicboz;
+use crate::isa::instruction::{Decoded, InstructionBits};
 
 /// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
 const FUNCT7_ALT_BIT: u32 = 0x20;

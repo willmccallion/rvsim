@@ -16,7 +16,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::core::exec::cbo::CboEffect;
 use crate::core::exec::signals::MemWidth;
 use crate::core::pipeline::rob::RobTag;
-use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::components::ReqId;
 
 /// Result of store-to-load forwarding check.

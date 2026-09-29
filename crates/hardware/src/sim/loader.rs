@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
-use crate::isa::privileged::opcodes as sys_ops;
+use crate::isa::encoding::privileged as sys_ops;
 use crate::sim::SimState;
 use crate::soc::interconnect::Bus;
 use object::{Object, ObjectSymbol};

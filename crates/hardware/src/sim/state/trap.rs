@@ -6,7 +6,7 @@ use crate::common::constants::CAUSE_INTERRUPT_BIT;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
 use crate::isa::abi;
-use crate::isa::privileged::opcodes as sys_ops;
+use crate::isa::encoding::privileged as sys_ops;
 use crate::trace_trap;
 
 impl CoreCtx<'_> {

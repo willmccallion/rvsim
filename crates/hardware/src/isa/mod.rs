@@ -1,17 +1,7 @@
-//! Instruction Set Architecture (ISA) Definitions.
+//! What the RISC-V ISA defines.
 //!
-//! Contains definitions for opcodes, function codes, and decoding logic, organized
-//! by RISC-V extension.
-//!
-//! # Extensions
-//!
-//! * `rv64i`: Base Integer Instruction Set (64-bit).
-//! * `rv64m`: Standard Extension for Integer Multiplication and Division.
-//! * `rv64a`: Standard Extension for Atomic Instructions.
-//! * `rv64f`: Standard Extension for Single-Precision Floating-Point.
-//! * `rv64d`: Standard Extension for Double-Precision Floating-Point.
-//! * `rvc`: Standard Extension for Compressed Instructions.
-//! * `privileged`: Privileged Architecture (CSRs, Traps).
+//! Encodings, instruction fields, and the vocabulary the rest of the
+//! simulator speaks. Nothing here holds state.
 
 /// Application Binary Interface (ABI) register name mappings.
 pub mod abi;
@@ -28,41 +18,17 @@ pub mod disasm;
 /// Vector instruction disassembler (RVV 1.0).
 pub mod disasm_vec;
 
+/// Opcode and function-field constants, one module per extension.
+pub mod encoding;
+
 /// Instruction encoding structures and bit extraction utilities.
 pub mod instruction;
 
-/// Privileged architecture definitions (CSRs, traps, system instructions).
+/// Privileged architecture definitions (trap causes).
 pub mod privileged;
 
-/// Atomic memory operations extension (AMO instructions).
-pub mod rv64a;
-
-/// Bit-manipulation and scalar cryptography extensions (Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx).
-pub mod rv64bk;
-
-/// Double-precision floating-point extension (64-bit FP operations).
-pub mod rv64d;
-
-/// Single-precision floating-point extension (32-bit FP operations).
-pub mod rv64f;
-
-/// Half-precision floating-point extension (Zfh, 16-bit FP operations).
-pub mod rv64zfh;
-
-/// Base integer instruction set (64-bit RISC-V core instructions).
-pub mod rv64i;
-
-/// Integer multiply/divide extension (MUL, DIV, REM instructions).
-pub mod rv64m;
-
-/// Compressed instruction extension (16-bit instruction encoding).
+/// Expansion of 16-bit compressed instructions into their 32-bit forms.
 pub mod rvc;
-
-/// Vector extension (RVV 1.0).
-pub mod rvv;
 
 /// Vector vocabulary: element widths, register groups, vtype.
 pub mod vector;
-
-/// Cache-block zero extension (Zicboz).
-pub mod zicboz;

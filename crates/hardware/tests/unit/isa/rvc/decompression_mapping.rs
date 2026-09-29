@@ -6,13 +6,13 @@
 
 use rvsim_core::common::RegIdx;
 use rvsim_core::isa::decode::decode;
-use rvsim_core::isa::rvc::expand::expand;
+use rvsim_core::isa::rvc::expand;
 
-use rvsim_core::isa::privileged::opcodes as sys_op;
-use rvsim_core::isa::rv64f::opcodes as f_op;
-use rvsim_core::isa::rv64i::funct3 as i_f3;
-use rvsim_core::isa::rv64i::funct7 as i_f7;
-use rvsim_core::isa::rv64i::opcodes as i_op;
+use rvsim_core::isa::encoding::privileged as sys_op;
+use rvsim_core::isa::encoding::rv64f::opcodes as f_op;
+use rvsim_core::isa::encoding::rv64i::funct3 as i_f3;
+use rvsim_core::isa::encoding::rv64i::funct7 as i_f7;
+use rvsim_core::isa::encoding::rv64i::opcodes as i_op;
 
 /// Expand a 16-bit compressed instruction and decode the resulting 32-bit instruction.
 fn expand_and_decode(cinst: u16) -> rvsim_core::isa::instruction::Decoded {

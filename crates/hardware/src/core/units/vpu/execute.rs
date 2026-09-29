@@ -14,7 +14,7 @@ use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::core::units::vpu::{crypto, fpu, mask, mem, permute, reduction};
-use crate::isa::rvv::encoding as v_enc;
+use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::vector::{Vlmul, Vxrm, parse_vtype_with_elen};
 
 /// Build operand1 from pipeline latch data based on source encoding.

@@ -35,7 +35,7 @@ use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::ControlInst;
 use crate::core::units::bru::btb::BranchKind;
-use crate::isa::rvc::expand::expand;
+use crate::isa::rvc::expand;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};

@@ -5,7 +5,7 @@
 
 use crate::core::pipeline::backend::o3::fu_pool::FuConfig;
 use crate::core::pipeline::engine::BackendType;
-use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 
 /// The widest unit-stride vector access: one 64-byte line, the smallest
 /// line every cache level must have.

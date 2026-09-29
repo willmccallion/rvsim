@@ -548,7 +548,7 @@ mod tests {
         let issue = RenameIssueEntry {
             inst: Inst {
                 pc: 0x1000,
-                bits: crate::isa::rv64i::opcodes::OP_JALR,
+                bits: crate::isa::encoding::rv64i::opcodes::OP_JALR,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
                 rs2: RegIdx::new(0),

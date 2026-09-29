@@ -59,7 +59,7 @@ impl ControlInst {
         use crate::common::constants::{OPCODE_MASK, RD_MASK, RD_SHIFT, RS1_MASK, RS1_SHIFT};
         use crate::isa::abi;
         use crate::isa::decode::{decode_b_type_imm, decode_j_type_imm};
-        use crate::isa::rv64i::opcodes;
+        use crate::isa::encoding::rv64i::opcodes;
 
         let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
         let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);

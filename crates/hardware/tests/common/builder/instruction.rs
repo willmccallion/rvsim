@@ -1,12 +1,12 @@
-use rvsim_core::isa::privileged::opcodes::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
-use rvsim_core::isa::rv64a::funct5::{AMOADD, LR, SC};
-use rvsim_core::isa::rv64a::opcodes::OP_AMO;
-use rvsim_core::isa::rv64i::opcodes::*;
+use rvsim_core::isa::encoding::privileged::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
+use rvsim_core::isa::encoding::rv64a::funct5::{AMOADD, LR, SC};
+use rvsim_core::isa::encoding::rv64a::opcodes::OP_AMO;
+use rvsim_core::isa::encoding::rv64i::opcodes::*;
 
 /// `fence iorw, iorw`.
 pub const FENCE_IORW: u32 = 0x0ff0_000f;
 /// `ecall`.
-pub const ECALL: u32 = rvsim_core::isa::privileged::opcodes::ECALL;
+pub const ECALL: u32 = rvsim_core::isa::encoding::privileged::ECALL;
 /// `mret`.
 pub const MRET: u32 = 0x3020_0073;
 

@@ -5,9 +5,9 @@
 //! codes, and handles the sign-extension of immediate values for all instruction
 //! formats (R, I, S, B, U, J).
 
+use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
+use crate::isa::encoding::rv64i::opcodes;
 use crate::isa::instruction::{Decoded, InstructionBits};
-use crate::isa::rv64f::opcodes as fp_opcodes;
-use crate::isa::rv64i::opcodes;
 
 /// Total width of a RISC-V instruction in bits.
 const INSTRUCTION_WIDTH: u32 = 32;

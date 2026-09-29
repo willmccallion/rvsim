@@ -46,7 +46,7 @@ use crate::core::pipeline::rob::{RobState, RobTag};
 use crate::core::pipeline::store_buffer::ForwardResult;
 use crate::core::pipeline::vec_store_buffer::SpanForward;
 use crate::core::units::lsu::unaligned;
-use crate::isa::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};

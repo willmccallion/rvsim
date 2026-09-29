@@ -4,7 +4,7 @@
 //! store instructions encoded in the OP-V, OP-LOAD-FP, and OP-STORE-FP
 //! major opcodes.
 
-use crate::isa::rvv::{encoding, funct3 as vf3, funct6 as f6};
+use crate::isa::encoding::rvv::{encoding, funct3 as vf3, funct6 as f6};
 
 /// ABI-style vector register names v0–v31.
 const VREG_NAMES: [&str; 32] = [

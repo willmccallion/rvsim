@@ -22,15 +22,16 @@
 //! ```
 
 use crate::common::RegIdx;
+use crate::isa::disasm_vec;
+use crate::isa::encoding::privileged as sys_op;
+use crate::isa::encoding::rv64a::{funct5 as a_f5, opcodes as a_op};
+use crate::isa::encoding::rv64d::funct7 as d_f7;
+use crate::isa::encoding::rv64f::{funct3 as f_f3, funct7 as f_f7, opcodes as f_op};
+use crate::isa::encoding::rv64i::{funct3 as i_f3, funct7 as i_f7, opcodes as i_op};
+use crate::isa::encoding::rv64m::{funct3 as m_f3, opcodes as m_op};
+use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::InstructionBits;
-use crate::isa::privileged::opcodes as sys_op;
-use crate::isa::rv64a::{funct5 as a_f5, opcodes as a_op};
-use crate::isa::rv64d::funct7 as d_f7;
-use crate::isa::rv64f::{funct3 as f_f3, funct7 as f_f7, opcodes as f_op};
-use crate::isa::rv64i::{funct3 as i_f3, funct7 as i_f7, opcodes as i_op};
-use crate::isa::rv64m::{funct3 as m_f3, opcodes as m_op};
 use crate::isa::rvc;
-use crate::isa::{disasm_vec, rvv::opcodes as v_opcodes};
 
 /// ABI register names for x0–x31.
 const REG_NAMES: [&str; 32] = [
@@ -69,7 +70,7 @@ fn freg(idx: RegIdx) -> &'static str {
 pub fn disassemble(inst: u32) -> String {
     if inst & 0x3 != 0x3 {
         let c_inst = inst as u16;
-        let expanded = rvc::expand::expand(c_inst);
+        let expanded = rvc::expand(c_inst);
         if expanded == 0 {
             return format!("unknown ({inst:#010x})");
         }

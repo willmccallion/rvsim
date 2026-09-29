@@ -95,18 +95,18 @@ fn r4_type(opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, rs3: u32, fmt:
         | (opcode & 0x7F)
 }
 
-use rvsim_core::isa::privileged::opcodes as sys_op;
-use rvsim_core::isa::rv64a::funct5 as a_f5;
-use rvsim_core::isa::rv64a::opcodes as a_op;
-use rvsim_core::isa::rv64d::funct7 as d_f7;
-use rvsim_core::isa::rv64f::funct3 as f_f3;
-use rvsim_core::isa::rv64f::funct7 as f_f7;
-use rvsim_core::isa::rv64f::opcodes as f_op;
-use rvsim_core::isa::rv64i::funct3 as i_f3;
-use rvsim_core::isa::rv64i::funct7 as i_f7;
-use rvsim_core::isa::rv64i::opcodes as i_op;
-use rvsim_core::isa::rv64m::funct3 as m_f3;
-use rvsim_core::isa::rv64m::opcodes as m_op;
+use rvsim_core::isa::encoding::privileged as sys_op;
+use rvsim_core::isa::encoding::rv64a::funct5 as a_f5;
+use rvsim_core::isa::encoding::rv64a::opcodes as a_op;
+use rvsim_core::isa::encoding::rv64d::funct7 as d_f7;
+use rvsim_core::isa::encoding::rv64f::funct3 as f_f3;
+use rvsim_core::isa::encoding::rv64f::funct7 as f_f7;
+use rvsim_core::isa::encoding::rv64f::opcodes as f_op;
+use rvsim_core::isa::encoding::rv64i::funct3 as i_f3;
+use rvsim_core::isa::encoding::rv64i::funct7 as i_f7;
+use rvsim_core::isa::encoding::rv64i::opcodes as i_op;
+use rvsim_core::isa::encoding::rv64m::funct3 as m_f3;
+use rvsim_core::isa::encoding::rv64m::opcodes as m_op;
 
 #[test]
 fn field_extraction_opcode() {

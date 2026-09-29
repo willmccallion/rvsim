@@ -3,8 +3,8 @@
 use crate::common::harness::TestContext;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::isa::rv64i::{funct3 as i_f3, opcodes as i_op};
-use rvsim_core::isa::zicboz::{
+use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
+use rvsim_core::isa::encoding::zicboz::{
     CBO_CLEAN_IMM, CBO_FLUSH_IMM, CBO_INVAL_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE,
 };
 

@@ -16,7 +16,7 @@ use crate::core::units::alu::Alu;
 use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::fpu::is_vec_fp;
-use crate::isa::rv64i::{funct3, opcodes};
+use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::trace_csr;
 
 const FUNCT3_SHIFT: u32 = 12;

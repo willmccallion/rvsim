@@ -18,7 +18,7 @@
 use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
 use crate::common::{ExceptionStage, InstSize, PhysAddr, Trap};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
-use crate::isa::rvc::expand::expand;
+use crate::isa::rvc::expand;
 use crate::sim::StageCtx;
 use crate::{trace_fetch, trace_trap};
 

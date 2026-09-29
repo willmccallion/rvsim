@@ -3,10 +3,10 @@
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
 use crate::common::error::Trap;
 use crate::core::exec::signals::{ControlSignals, OpBSrc, VecSrcEncoding, VectorOp};
-use crate::isa::instruction::Decoded;
-use crate::isa::rvv::{
+use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
+use crate::isa::instruction::Decoded;
 use crate::isa::vector::{Sew, VRegIdx};
 
 /// Unit-stride lumop: normal unit-stride load.

@@ -5,7 +5,7 @@ use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
 use rvsim_core::common::{PhysAddr, RegIdx};
 use rvsim_core::core::exec::signals::ControlSignals;
-use rvsim_core::isa::rv64i::opcodes::*;
+use rvsim_core::isa::encoding::rv64i::opcodes::*;
 
 #[test]
 fn builder_add_encodes_r_type() {
