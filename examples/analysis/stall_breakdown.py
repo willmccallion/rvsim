@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show pipeline stall breakdown (memory, control, data) across configurations.
+"""Show which pipeline stalls dominate across predictors and widths.
 
 Usage:
     .venv/bin/python examples/analysis/stall_breakdown.py
@@ -40,13 +40,15 @@ def main():
                     quiet=True, limit=args.limit
                 )
                 s = result.stats
+                stalls = s.query(r"^core0\.pipeline\.stalls\.")
                 rows[label] = Stats(
                     {
                         "cycles": s["cycles"],
                         "ipc": s["ipc"],
-                        "stalls_mem": s["stalls_mem"],
-                        "stalls_ctrl": s["stalls_control"],
-                        "stalls_data": s["stalls_data"],
+                        **{
+                            path.removeprefix("core0.pipeline.stalls."): n
+                            for path, n in stalls.items()
+                        },
                     }
                 )
         print(Stats.tabulate(rows, title=program))

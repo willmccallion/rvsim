@@ -62,7 +62,12 @@ def main():
     print(f"Completed in {elapsed:.1f}s\n")
 
     results.compare(
-        metrics=["cycles", "ipc", "branch_accuracy_pct", "branch_mispredictions"],
+        metrics=[
+            "cycles",
+            "ipc",
+            "core0.bp.committed.accuracy",
+            "core0.bp.committed.mispredicts",
+        ],
         baseline=f"w{args.widths[0]}",
         col_header="width",
     )

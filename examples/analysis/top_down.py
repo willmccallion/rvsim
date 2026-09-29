@@ -36,9 +36,9 @@ def analyze_top_down(stats, width):
     Categories:
     1. Retiring: Actual instructions retired.
     2. Bad Speculation: Slots wasted due to branch misprediction recovery.
-       - Approximated as 'stalls_control' cycles * width.
+       - Approximated as core0.pipeline.stalls.control cycles * width.
     3. Backend Bound: Slots wasted due to backend resource/data stalls.
-       - Approximated as 'stalls_data' cycles * width.
+       - Approximated as core0.pipeline.stalls.data cycles * width.
     4. Frontend Bound: The remaining empty slots.
        - Represents fetch bubbles, I-cache misses, or just vertical waste
          (retiring 1 instr/cycle on a 3-wide machine due to dependencies).
@@ -47,8 +47,8 @@ def analyze_top_down(stats, width):
     retired = stats.get("instructions_retired", 0)
 
     # Stall cycles (assumed to be full-pipeline stalls where 0 insts retire)
-    s_data = stats.get("stalls_data", 0)
-    s_ctrl = stats.get("stalls_control", 0)
+    s_data = stats.get("core0.pipeline.stalls.data", 0)
+    s_ctrl = stats.get("core0.pipeline.stalls.control", 0)
 
     total_slots = cycles * width
     if total_slots == 0:
@@ -59,7 +59,7 @@ def analyze_top_down(stats, width):
     slots_retiring = retired
 
     # 2. Bad Speculation
-    # 'stalls_control' are cycles lost to flushing/recovery.
+    # Control stalls are cycles lost to flushing/recovery.
     # All slots in these cycles are wasted.
     slots_bad_spec = s_ctrl * width
 
@@ -117,7 +117,7 @@ def main():
     sim = Simulator(config, binary=binary)
     sim.run()
 
-    stats = Stats(sim.stats)
+    stats = Stats.from_core(sim.stats)
     metrics = analyze_top_down(stats, config.width)
 
     # Display

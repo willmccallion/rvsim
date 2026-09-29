@@ -29,8 +29,10 @@ def main():
         result = Environment(binary=binary, config=config).run(
             quiet=True, limit=args.limit
         )
-        s = result.stats
-        rows[program] = s.query("^inst_")
+        mix = result.stats.query(r"^core0\.commit\.(op|fp|vec)\.")
+        rows[program] = Stats(
+            {path.removeprefix("core0.commit."): n for path, n in mix.items()}
+        )
     print(Stats.tabulate(rows, title="Instruction Mix"))
     print()
 

@@ -51,7 +51,7 @@ def run_sweep(binary):
     # Run sweep in parallel
     sweep = Sweep(binaries=[binary], configs=configs)
     sweep.run(parallel=True).compare(
-        metrics=["ipc", "cycles", "dcache_misses"], col_header="Config"
+        metrics=["ipc", "cycles", "core0.cache.l1d.misses"], col_header="Config"
     )
 
 

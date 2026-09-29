@@ -56,9 +56,8 @@ def main():
         metrics=[
             "cycles",
             "ipc",
-            "branch_accuracy_pct",
-            "branch_mispredictions",
-            "branch_predictions",
+            "core0.bp.committed.accuracy",
+            "core0.bp.committed.mispredicts",
         ],
         baseline="Static",
         col_header="predictor",

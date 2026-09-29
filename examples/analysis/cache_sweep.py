@@ -50,7 +50,12 @@ def main():
     print(f"Completed in {elapsed:.1f}s\n")
 
     results.compare(
-        metrics=["cycles", "ipc", "dcache_hits", "dcache_misses"],
+        metrics=[
+            "cycles",
+            "ipc",
+            "core0.cache.l1d.miss_rate",
+            "core0.cache.l1d.misses",
+        ],
         baseline=args.sizes[0],
         col_header="L1D size",
     )
