@@ -19,12 +19,12 @@ ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from rvsim import (
+from rvsim import (  # noqa: E402
     Backend, BranchPredictor, Cache, Config, Environment, Fu, MemoryController,
     Prefetcher,
 )
 
-from variants import CLOCK_MHZ, VARIANTS, VLEN, VECTOR_UNITS, tage_history_lengths
+from variants import CLOCK_MHZ, VARIANTS, VLEN, VECTOR_UNITS, tage_history_lengths  # noqa: E402
 
 RESULTS_DIR = Path(__file__).parent / "results"
 PROGRAMS = ROOT / "tests/builds/compare-programs"

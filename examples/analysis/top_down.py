@@ -51,7 +51,8 @@ def analyze_top_down(stats, width):
     s_ctrl = stats.get("stalls_control", 0)
 
     total_slots = cycles * width
-    if total_slots == 0: return {}
+    if total_slots == 0:
+        return {}
 
     # 1. Retiring
     # Exact count of useful slots filled

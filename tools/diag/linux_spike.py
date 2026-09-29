@@ -115,7 +115,7 @@ def generate_spike_trace(spike_limit):
         "spike",
         "-l",
         "--isa=rv64gc",
-        f"-m0x80000000:0x10000000",  # 256MB RAM at 0x80000000
+        "-m0x80000000:0x10000000",  # 256MB RAM at 0x80000000
         f"--kernel={KERNEL_IMAGE}",
         FW_JUMP_ELF,
     ]

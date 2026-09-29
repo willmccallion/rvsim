@@ -45,7 +45,7 @@ binary = Path(sys.argv[1])
 m5out = sys.argv[2]
 variant = VARIANTS[sys.argv[3]]
 
-import m5
+import m5  # noqa: E402
 m5.options.outdir = m5out
 
 

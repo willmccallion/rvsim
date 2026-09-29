@@ -77,7 +77,7 @@ def print_worst(rv_all: dict, g5_all: dict, count: int = 25) -> None:
             if gap is not None:
                 gaps.append((abs(gap), gap, variant, program))
     gaps.sort(reverse=True)
-    print(f"\n== largest cycle gaps (rvsim vs gem5) ==")
+    print("\n== largest cycle gaps (rvsim vs gem5) ==")
     for _, gap, variant, program in gaps[:count]:
         print(f"  {gap:+7.1f}%  {variant:<22} {program}")
     if gaps:
