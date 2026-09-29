@@ -238,11 +238,11 @@ pub fn csr_access(state: &impl ArchState, inst: &Inst) -> Result<CsrAccess, Trap
     };
     trace_csr!(state.tracing();
         op        = "write-deferred",
-        pc        = %crate::trace::Hex(inst.pc),
-        csr_addr  = %crate::trace::Hex32(addr.as_u32()),
+        pc        = %crate::sim::trace::Hex(inst.pc),
+        csr_addr  = %crate::sim::trace::Hex32(addr.as_u32()),
         csr_op    = ?inst.ctrl.csr_op,
-        old_val   = %crate::trace::Hex(old),
-        new_val   = %crate::trace::Hex(new),
+        old_val   = %crate::sim::trace::Hex(old),
+        new_val   = %crate::sim::trace::Hex(new),
         writes,
         "EX: CSR access"
     );

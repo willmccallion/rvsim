@@ -22,8 +22,8 @@ use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
+use crate::sim::debug::PC_TRACE_MAX;
 use crate::sim::packet::{AccessSize, Maintenance, MemOp, Packet, WriteData, WriteOrigin};
-use crate::sim::per_hart_debug::PC_TRACE_MAX;
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -195,11 +195,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             if drained {
                 trace_trap!(state.trace_trap_enabled(&interrupt_trap);
                     event      = "interrupt",
-                    epc        = %crate::trace::Hex(epc),
+                    epc        = %crate::sim::trace::Hex(epc),
                     cause      = ?interrupt_trap,
-                    mip        = %crate::trace::Hex(state.hart.csrs.mip),
-                    mie        = %crate::trace::Hex(state.hart.csrs.mie),
-                    mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                    mip        = %crate::sim::trace::Hex(state.hart.csrs.mip),
+                    mie        = %crate::sim::trace::Hex(state.hart.csrs.mie),
+                    mstatus    = %crate::sim::trace::Hex(state.hart.csrs.mstatus),
                     priv_mode  = ?state.hart.privilege,
                     "CM: interrupt detected — pipeline drained"
                 );
@@ -275,11 +275,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 }
                 trace_trap!(state.trace_trap_enabled(the_trap);
                     event     = "sync-exception",
-                    pc        = %crate::trace::Hex(entry.pc),
+                    pc        = %crate::sim::trace::Hex(entry.pc),
                     rob_tag   = entry.tag.0,
                     cause     = ?the_trap,
                     priv_mode = ?state.hart.privilege,
-                    mstatus   = %crate::trace::Hex(state.hart.csrs.mstatus),
+                    mstatus   = %crate::sim::trace::Hex(state.hart.csrs.mstatus),
                     "CM: synchronous exception at commit"
                 );
                 // Elements a vector load returned before the faulting one.
@@ -300,7 +300,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             state.shared.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
             trace_trap!(state.config.general.trace_instructions;
                 event   = "coherence-reexecute",
-                pc      = %crate::trace::Hex(head.pc),
+                pc      = %crate::sim::trace::Hex(head.pc),
                 rob_tag = head.tag.0,
                 "CM: LR read a line another hart has since written — re-executing"
             );
@@ -314,7 +314,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         {
             trace_trap!(state.config.general.trace_instructions;
                 event   = "pte-changed-reexecute",
-                pc      = %crate::trace::Hex(head.pc),
+                pc      = %crate::sim::trace::Hex(head.pc),
                 rob_tag = head.tag.0,
                 "CM: store's PTE changed since its walk — re-executing"
             );
@@ -348,11 +348,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         trace_commit!(state.config.general.trace_instructions;
             rob_tag    = entry.tag.0,
-            pc         = %crate::trace::Hex(entry.pc),
+            pc         = %crate::sim::trace::Hex(entry.pc),
             rd         = entry.rd.as_usize(),
             rd_phys    = entry.phys_dst.0,
             old_phys   = entry.old_phys_dst.0,
-            result     = %crate::trace::Hex(entry.result.unwrap_or(0)),
+            result     = %crate::sim::trace::Hex(entry.result.unwrap_or(0)),
             is_fp      = entry.ctrl.fp_reg_write,
             reg_write  = entry.ctrl.reg_write,
             is_store   = entry.ctrl.mem_write,
@@ -389,10 +389,10 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         if entry.control_resolved {
             trace_branch!(state.config.general.trace_instructions;
                 event         = "retire",
-                pc            = %crate::trace::Hex(entry.pc),
+                pc            = %crate::sim::trace::Hex(entry.pc),
                 rob_tag       = entry.tag.0,
                 actual_taken  = entry.bp_outcome.taken,
-                actual_target = %crate::trace::Hex(entry.bp_target.unwrap_or(0)),
+                actual_target = %crate::sim::trace::Hex(entry.bp_target.unwrap_or(0)),
                 mispredicted  = entry.bp_outcome.mispredicted,
                 "CM: branch retired"
             );
@@ -413,12 +413,12 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             retire::write_fp(state.hart, entry.rd, val);
             registers.retire_scalar(&entry, true);
             trace_commit!(state.config.general.trace_instructions;
-                pc       = %crate::trace::Hex(entry.pc),
+                pc       = %crate::sim::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
                 reg      = entry.rd.as_usize(),
                 rd_phys  = entry.phys_dst.0,
                 old_phys = entry.old_phys_dst.0,
-                value    = %crate::trace::Hex(val),
+                value    = %crate::sim::trace::Hex(val),
                 is_fp    = true,
                 "CM: FP register write"
             );
@@ -426,12 +426,12 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             retire::write_int(state.hart, entry.rd, val);
             registers.retire_scalar(&entry, false);
             trace_commit!(state.config.general.trace_instructions;
-                pc       = %crate::trace::Hex(entry.pc),
+                pc       = %crate::sim::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
                 reg      = entry.rd.as_usize(),
                 rd_phys  = entry.phys_dst.0,
                 old_phys = entry.old_phys_dst.0,
-                value    = %crate::trace::Hex(val),
+                value    = %crate::sim::trace::Hex(val),
                 is_fp    = false,
                 "CM: integer register write"
             );
@@ -503,11 +503,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             }
             trace_csr!(state.config.general.trace_instructions;
                 op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
-                pc       = %crate::trace::Hex(entry.pc),
+                pc       = %crate::sim::trace::Hex(entry.pc),
                 rob_tag  = entry.tag.0,
-                csr_addr = %crate::trace::Hex32(csr_update.addr.as_u32()),
-                old_val  = %crate::trace::Hex(csr_update.old_val),
-                new_val  = %crate::trace::Hex(csr_update.new_val),
+                csr_addr = %crate::sim::trace::Hex32(csr_update.addr.as_u32()),
+                old_val  = %crate::sim::trace::Hex(csr_update.old_val),
+                new_val  = %crate::sim::trace::Hex(csr_update.new_val),
                 deferred = !csr_update.applied,
                 "CM: CSR write applied at commit"
             );
@@ -524,10 +524,10 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "MRET",
-                pc         = %crate::trace::Hex(entry.pc),
+                pc         = %crate::sim::trace::Hex(entry.pc),
                 rob_tag    = entry.tag.0,
-                return_pc  = %crate::trace::Hex(state.hart.pc),
-                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                return_pc  = %crate::sim::trace::Hex(state.hart.pc),
+                mstatus    = %crate::sim::trace::Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
                 "CM: MRET committed — privilege restored"
             );
@@ -539,10 +539,10 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "SRET",
-                pc         = %crate::trace::Hex(entry.pc),
+                pc         = %crate::sim::trace::Hex(entry.pc),
                 rob_tag    = entry.tag.0,
-                return_pc  = %crate::trace::Hex(state.hart.pc),
-                mstatus    = %crate::trace::Hex(state.hart.csrs.mstatus),
+                return_pc  = %crate::sim::trace::Hex(state.hart.pc),
+                mstatus    = %crate::sim::trace::Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
                 "CM: SRET committed — privilege restored"
             );
@@ -743,8 +743,8 @@ fn send_data_store(
     // device sees each store.
     let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
     trace_commit!(state.config.general.trace_instructions;
-        paddr      = %crate::trace::Hex(paddr.val()),
-        data       = %crate::trace::Hex(data),
+        paddr      = %crate::sim::trace::Hex(paddr.val()),
+        data       = %crate::sim::trace::Hex(data),
         width      = ?width,
         via_wcb    = via_wcb,
         "CM: committed store's write sent to memory"

@@ -24,7 +24,6 @@ use self::policies::{
 };
 use self::stats::CacheStatPaths;
 use self::writeback_buffer::{Writeback, WritebackBuffer};
-use crate::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
 use crate::config::{
     CacheConfig, InclusionPolicy, Prefetcher as PrefetcherType, ReplacementPolicy as PolicyType,
@@ -34,6 +33,7 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet, ProbeKind,
 };
+use crate::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::uarch::prefetch::{
     NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
 };

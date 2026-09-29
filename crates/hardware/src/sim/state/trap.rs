@@ -57,11 +57,11 @@ impl CoreCtx<'_> {
         {
             trace_trap!(self.trace_trap_enabled(cause);
                 event      = "taken",
-                epc        = %crate::trace::Hex(epc),
+                epc        = %crate::sim::trace::Hex(epc),
                 cause      = ?cause,
                 priv_mode  = ?self.hart.privilege,
-                stvec      = %crate::trace::Hex(self.hart.csrs.stvec),
-                mtvec      = %crate::trace::Hex(self.hart.csrs.mtvec),
+                stvec      = %crate::sim::trace::Hex(self.hart.csrs.stvec),
+                mtvec      = %crate::sim::trace::Hex(self.hart.csrs.mtvec),
                 "trap taken"
             );
         }

@@ -32,7 +32,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             );
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "writeback-fault",
-                pc      = %crate::trace::Hex(wb.pc),
+                pc      = %crate::sim::trace::Hex(wb.pc),
                 rob_tag = wb.rob_tag.0,
                 trap    = ?trap,
                 stage   = ?wb.exception_stage,
@@ -68,8 +68,8 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
 
         trace_writeback!(state.config.general.trace_instructions;
             rob_tag  = wb.rob_tag.0,
-            pc       = %crate::trace::Hex(wb.pc),
-            result   = %crate::trace::Hex(val),
+            pc       = %crate::sim::trace::Hex(wb.pc),
+            result   = %crate::sim::trace::Hex(val),
             from     = if wb.ctrl.mem_read { "load" } else if wb.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
             rd       = wb.rd.as_usize(),
             rd_phys  = wb.rd_phys.0,

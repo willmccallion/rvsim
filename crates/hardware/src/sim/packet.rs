@@ -9,10 +9,10 @@
 //! Hot-path responses inline up to 8 bytes; cache-line payloads box their data
 //! to keep the enum small.
 
-use crate::coherence::messages::CoherenceMsg;
 use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
 use crate::sim::state::write_log::WriteSeq;
+use crate::soc::coherence::messages::CoherenceMsg;
 
 /// Width of a single memory access in bytes.
 ///

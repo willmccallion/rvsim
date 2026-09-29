@@ -27,8 +27,8 @@ pub mod summary;
 pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
-use crate::coherence::stats::CoherenceStatPaths;
 use crate::common::{CoreId, HartId};
+use crate::soc::coherence::stats::CoherenceStatPaths;
 use crate::uarch::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 

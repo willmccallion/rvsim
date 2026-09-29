@@ -6,7 +6,7 @@ use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, SimError, VPN_MASK, Vpn}
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
-use crate::soc::interconnect::HartIrqs;
+use crate::soc::bus::HartIrqs;
 use crate::trace_trap;
 
 /// Cycles at one PC before the simulator reports a possible hang.
@@ -108,13 +108,13 @@ impl CoreCtx<'_> {
                 if inst == WFI {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "wfi-wait",
-                        pc    = %crate::trace::Hex(self.hart.pc),
+                        pc    = %crate::sim::trace::Hex(self.hart.pc),
                         "CPU stuck in WFI — waiting for interrupt"
                     );
                 } else {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "potential-hang",
-                        pc    = %crate::trace::Hex(self.hart.pc),
+                        pc    = %crate::sim::trace::Hex(self.hart.pc),
                         inst  = inst,
                         "CPU potential hang detected"
                     );
@@ -178,7 +178,7 @@ impl CoreCtx<'_> {
                     event      = "mode-switch",
                     from_mode  = prev_priv.name(),
                     to_mode    = self.hart.privilege.name(),
-                    pc         = %crate::trace::Hex(self.hart.pc),
+                    pc         = %crate::sim::trace::Hex(self.hart.pc),
                     "CPU privilege mode switch"
                 );
             }
@@ -187,7 +187,7 @@ impl CoreCtx<'_> {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
                     cycles = self.cycle,
-                    pc     = %crate::trace::Hex(self.hart.pc),
+                    pc     = %crate::sim::trace::Hex(self.hart.pc),
                     mode   = self.hart.privilege.name(),
                     "CPU status"
                 );

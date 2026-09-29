@@ -34,22 +34,22 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::common::{HartId, PhysAddr};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
+use crate::sim::debug::HartDebug;
 use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;
-use crate::sim::per_hart_debug::HartDebug;
 use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
 use crate::sim::topology::Topology;
+use crate::soc::bus::Bus;
+use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{
     Clint, GoldfishRtc, Htif, Plic, SimControl, SimOp, SysCon, Uart, VirtioBlock,
 };
-use crate::soc::interconnect::Bus;
 use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,

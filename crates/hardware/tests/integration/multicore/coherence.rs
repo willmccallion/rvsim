@@ -5,12 +5,12 @@
 use crate::common::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
 use crate::common::multihart::{DATA_BASE, MultiHart};
 use crate::integration::multicore::{amo_counter, spinlock};
-use rvsim_core::coherence::audit::audit;
 use rvsim_core::common::{LineAddr, PhysAddr};
 use rvsim_core::config::{Config, HomeAgentConfig, InterconnectConfig};
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use rvsim_core::sim::packet::MesiState;
+use rvsim_core::soc::coherence::audit::audit;
 use rvsim_core::uarch::cache::Cache;
 use rvsim_core::uarch::pipeline::engine::BackendType;
 

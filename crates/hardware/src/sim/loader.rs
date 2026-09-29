@@ -7,7 +7,7 @@ use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::sim::SimState;
-use crate::soc::interconnect::Bus;
+use crate::soc::bus::Bus;
 use object::{Object, ObjectSymbol};
 use std::fs;
 
@@ -213,7 +213,7 @@ pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::soc::interconnect::Bus;
+    use crate::soc::bus::Bus;
     use std::io::Write;
 
     #[test]

@@ -407,7 +407,7 @@ fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
     state.csr_write(csr::MENVCFG, csr::MENVCFG_STCE);
     state.csr_write(csr::STIMECMP, 4000);
 
-    state.pre_tick(rvsim_core::soc::interconnect::HartIrqs::default());
+    state.pre_tick(rvsim_core::soc::bus::HartIrqs::default());
 
     assert_ne!(state.csr_read(csr::MIP) & csr::MIP_STIP, 0, "time 5000 is past stimecmp 4000");
 }

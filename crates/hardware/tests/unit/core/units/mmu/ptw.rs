@@ -13,7 +13,7 @@ use rvsim_core::arch::csr::{self, Csrs};
 use rvsim_core::arch::translation::TranslationResult;
 use rvsim_core::common::{AccessType, VirtAddr};
 use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
-use rvsim_core::soc::interconnect::Bus;
+use rvsim_core::soc::bus::Bus;
 use rvsim_core::uarch::mmu::tlb::TlbGeometry;
 use rvsim_core::uarch::mmu::{Mmu, TranslateOutcome};
 

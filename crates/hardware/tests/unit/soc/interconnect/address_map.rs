@@ -5,7 +5,7 @@
 //! superseded by integration tests that drive the packet-based
 //! `Bus::handle` path through a `Simulator`.
 
-use rvsim_core::soc::interconnect::Bus;
+use rvsim_core::soc::bus::Bus;
 
 #[test]
 fn transit_time_single_transfer() {

@@ -153,7 +153,7 @@ macro_rules! trace_fwd {
 ///
 /// # Example
 /// ```ignore
-/// trace_execute!(cpu.config.general.trace_instructions; pc = %crate::trace::Hex(entry.pc), result = %crate::trace::Hex(alu_out), "EX");
+/// trace_execute!(cpu.config.general.trace_instructions; pc = %crate::sim::trace::Hex(entry.pc), result = %crate::sim::trace::Hex(alu_out), "EX");
 /// ```
 #[derive(Debug)]
 pub struct Hex(pub u64);

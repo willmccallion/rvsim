@@ -2,12 +2,6 @@
 //! requesting agents on a crossbar, an LLC the bench answers itself, and
 //! snoop responses the tests script.
 
-use rvsim_core::coherence::fabric::{CoherenceFabric, FabricLayout};
-use rvsim_core::coherence::home::{Broadcast, HomeAgent, SnoopFilter};
-use rvsim_core::coherence::interconnect::Crossbar;
-use rvsim_core::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
-use rvsim_core::coherence::protocol::Mesi;
-use rvsim_core::coherence::stats::CoherenceStatPaths;
 use rvsim_core::common::{CoreId, LineAddr, PhysAddr};
 use rvsim_core::config::Config;
 use rvsim_core::sim::components::{CacheId, ComponentId, ReqId};
@@ -18,6 +12,12 @@ use rvsim_core::sim::packet::{
 };
 use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
+use rvsim_core::soc::coherence::fabric::{CoherenceFabric, FabricLayout};
+use rvsim_core::soc::coherence::home::{Broadcast, HomeAgent, SnoopFilter};
+use rvsim_core::soc::coherence::interconnect::Crossbar;
+use rvsim_core::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
+use rvsim_core::soc::coherence::protocol::Mesi;
+use rvsim_core::soc::coherence::stats::CoherenceStatPaths;
 
 const LLC: ComponentId = ComponentId::Cache(CacheId::new(6));
 const AGENTS: [ComponentId; 2] =

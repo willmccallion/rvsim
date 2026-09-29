@@ -252,7 +252,7 @@ impl O3Engine {
         };
 
         trace_rename!(state.config.general.trace_instructions;
-            pc         = %crate::trace::Hex(entry.inst.pc),
+            pc         = %crate::sim::trace::Hex(entry.inst.pc),
             rob_tag    = entry.rob_tag.0,
             rd         = entry.inst.rd.as_usize(),
             rd_phys    = rd_phys.0,

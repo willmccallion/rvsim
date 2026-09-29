@@ -1148,8 +1148,8 @@ mod coherent {
     //! L1s, and completions are acknowledged.
 
     use super::*;
-    use rvsim_core::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
     use rvsim_core::common::CoreId;
+    use rvsim_core::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 
     const CORE: CoreId = CoreId::new(0);
 

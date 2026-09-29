@@ -230,10 +230,10 @@ impl Interconnect for Crossbar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coherence::messages::ReqKind;
     use crate::common::{LineAddr, PhysAddr};
     use crate::sim::components::ReqId;
     use crate::sim::packet::MesiState;
+    use crate::soc::coherence::messages::ReqKind;
 
     fn paths() -> InterconnectStatPaths {
         InterconnectStatPaths::new("test.xbar")
@@ -652,9 +652,9 @@ impl<T: NetworkTopology> Interconnect for RoutedNetwork<T> {
 #[cfg(test)]
 mod routed_tests {
     use super::*;
-    use crate::coherence::messages::ReqKind;
     use crate::common::{LineAddr, PhysAddr};
     use crate::sim::components::ReqId;
+    use crate::soc::coherence::messages::ReqKind;
 
     fn req(core: u32) -> CoherenceMsg {
         CoherenceMsg::Req {
