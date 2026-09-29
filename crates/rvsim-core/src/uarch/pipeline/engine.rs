@@ -10,7 +10,7 @@ use crate::common::InstSeq;
 use crate::config::{BackendKind, Config};
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
-use crate::system::topology::{CoreTopology, PrivateCache};
+use crate::soc::topology::{CoreTopology, PrivateCache};
 use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;

@@ -44,7 +44,9 @@ pub use crate::config::Config;
 pub use crate::isa::csr::CsrAddr;
 /// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
 pub use crate::isa::reg::RegIdx;
+/// Everything outside the cores: bus, devices, LLC, RAM, clock and stats.
+pub use crate::soc::uncore::Uncore;
 /// Top-level simulator; owns the `SystemState` and pipeline side-by-side.
 pub use crate::system::simulator::Simulator;
 /// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
-pub use crate::system::{CoreCtx, StageCtx, SystemState, Uncore};
+pub use crate::system::{CoreCtx, StageCtx, SystemState};

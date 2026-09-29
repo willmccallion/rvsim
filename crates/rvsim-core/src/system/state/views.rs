@@ -10,7 +10,7 @@
 
 use std::ops::Deref;
 
-use super::{Uncore, csr, memory};
+use super::{csr, memory};
 use crate::arch::Hart;
 use crate::arch::translation::PteUpdate;
 use crate::common::{AccessType, VirtAddr};
@@ -21,6 +21,7 @@ use crate::sim::events::EventQueue;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::Counter;
 use crate::sim::stats::paths::HartPaths;
+use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;

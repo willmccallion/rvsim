@@ -8,7 +8,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyList};
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::system::state::StatsEpoch;
+use rvsim_core::soc::uncore::StatsEpoch;
 
 /// Python-facing view over the hierarchical stats tree.
 ///

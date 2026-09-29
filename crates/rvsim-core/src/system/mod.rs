@@ -6,11 +6,9 @@
 
 pub mod checkpoint;
 pub mod coherence_audit;
-pub mod debug;
 pub mod dtb;
 pub mod loader;
 pub mod simulator;
 pub mod state;
-pub mod topology;
 
-pub use self::state::{CoreCtx, StageCtx, SystemState, Uncore};
+pub use self::state::{CoreCtx, StageCtx, SystemState};

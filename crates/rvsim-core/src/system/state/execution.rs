@@ -1,7 +1,7 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
-use super::{CoreCtx, Uncore};
-use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, SimError, VPN_MASK, Vpn};
+use super::CoreCtx;
+use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, VPN_MASK, Vpn};
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::PrivilegeMode;
@@ -14,37 +14,6 @@ const HANG_DETECTION_THRESHOLD: u64 = 5000;
 
 /// Cycles between progress reports.
 const STATUS_UPDATE_INTERVAL: u64 = 5_000_000;
-
-impl Uncore {
-    /// Uncore work at the top of a cycle: exit and kernel-panic checks, then
-    /// one tick of every bus device, which samples every hart's interrupt
-    /// lines. Returns `false` when a device has requested exit and the
-    /// cycle should be skipped.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SimError::KernelPanic`] when the bus panic sentinel fires.
-    pub fn pre_cycle(&mut self) -> Result<bool, SimError> {
-        if self.check_exit().is_some() {
-            return Ok(false);
-        }
-
-        if self.bus.check_kernel_panic() {
-            let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.cycle);
-            if self.cycle.saturating_sub(detected_at) >= 10_000 {
-                return Err(SimError::KernelPanic { cycle: detected_at });
-            }
-        }
-
-        self.bus.tick();
-        Ok(true)
-    }
-
-    /// Advances the master clock by one cycle.
-    pub const fn advance_cycle(&mut self) {
-        self.cycle += 1;
-    }
-}
 
 impl CoreCtx<'_> {
     /// Counts a cycle an idle core spends in WFI without ticking its

@@ -5,12 +5,13 @@
 //! address the result is immediate, on a TLB miss the caller stashes the
 //! returned walk state until the PTE response arrives in its mailbox.
 
-use super::{CoreCtx, Uncore};
+use super::CoreCtx;
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::isa::privileged::Trap;
+use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
