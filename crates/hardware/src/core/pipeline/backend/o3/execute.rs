@@ -56,7 +56,7 @@ pub fn execute_one(
         "EX: begin"
     );
 
-    if unit_disabled(state, &id.exec_inst()) {
+    if unit_disabled(state.hart(), &id.exec_inst()) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst));
     }
 

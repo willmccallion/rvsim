@@ -5,8 +5,10 @@
 
 use crate::common::error::Trap;
 use crate::common::{CsrAddr, SfenceVmaInfo};
+use crate::core::Hart;
 use crate::core::arch::csr;
 use crate::core::arch::mode::PrivilegeMode;
+use crate::core::exec::arch::ArchState;
 use crate::core::exec::cbo::{self, CboEffect};
 use crate::core::exec::inst::Inst;
 use crate::core::exec::signals::{AluOp, CsrOp, OpASrc, OpBSrc, SystemOp, VectorOp};
@@ -15,7 +17,6 @@ use crate::core::units::fpu::Fpu;
 use crate::core::units::fpu::rounding_modes::RoundingMode;
 use crate::core::units::vpu::fpu::is_vec_fp;
 use crate::isa::rv64i::{funct3, opcodes};
-use crate::sim::StageCtx;
 use crate::trace_csr;
 
 const FUNCT3_SHIFT: u32 = 12;
@@ -40,12 +41,12 @@ pub const fn operands(inst: &Inst) -> (u64, u64) {
     (op_a, op_b)
 }
 
-const fn fs_off(state: &StageCtx<'_>) -> bool {
-    state.hart().csrs.mstatus & csr::MSTATUS_FS == 0
+const fn fs_off(hart: &Hart) -> bool {
+    hart.csrs.mstatus & csr::MSTATUS_FS == 0
 }
 
-const fn vs_off(state: &StageCtx<'_>) -> bool {
-    state.hart().csrs.mstatus & csr::MSTATUS_VS == 0
+const fn vs_off(hart: &Hart) -> bool {
+    hart.csrs.mstatus & csr::MSTATUS_VS == 0
 }
 
 /// True when `id` needs a unit `mstatus` has switched Off.
@@ -54,14 +55,14 @@ const fn vs_off(state: &StageCtx<'_>) -> bool {
 /// registers or doing vector floating-point arithmetic while FS is Off.
 /// Checked here rather than at decode because `mstatus` writes apply at
 /// commit.
-pub const fn unit_disabled(state: &StageCtx<'_>, inst: &Inst) -> bool {
+pub const fn unit_disabled(hart: &Hart, inst: &Inst) -> bool {
     let is_vector = !matches!(inst.ctrl.vec_op, VectorOp::None);
     let is_fp = inst.ctrl.fp_reg_write
         || inst.ctrl.rs1_fp
         || inst.ctrl.rs2_fp
         || inst.ctrl.rs3_fp
         || is_vector_fp(inst.ctrl.vec_op);
-    (is_vector && vs_off(state)) || (is_fp && fs_off(state))
+    (is_vector && vs_off(hart)) || (is_fp && fs_off(hart))
 }
 
 /// True for vector instructions that do floating-point arithmetic.
@@ -79,7 +80,7 @@ const fn is_vector_fp(op: VectorOp) -> bool {
 }
 
 /// True when `addr` belongs to a unit `mstatus` has switched Off.
-fn csr_unit_disabled(state: &StageCtx<'_>, addr: CsrAddr) -> bool {
+fn csr_unit_disabled(state: &impl ArchState, addr: CsrAddr) -> bool {
     let fp_csr = addr == csr::FFLAGS || addr == csr::FRM || addr == csr::FCSR;
     let vector_csr = addr == csr::VSTART
         || addr == csr::VXSAT
@@ -88,31 +89,31 @@ fn csr_unit_disabled(state: &StageCtx<'_>, addr: CsrAddr) -> bool {
         || addr == csr::VL
         || addr == csr::VTYPE
         || addr == csr::VLENB;
-    (fp_csr && fs_off(state)) || (vector_csr && vs_off(state))
+    (fp_csr && fs_off(state.hart())) || (vector_csr && vs_off(state.hart()))
 }
 
-const fn mstatus_bit(state: &StageCtx<'_>, bit: u32) -> bool {
-    (state.hart().csrs.mstatus >> bit) & 1 != 0
+const fn mstatus_bit(hart: &Hart, bit: u32) -> bool {
+    (hart.csrs.mstatus >> bit) & 1 != 0
 }
 
 /// The illegal-instruction trap an xRET, WFI or SFENCE.VMA raises at the
 /// current privilege level, if any.
-pub const fn privileged_op_fault(state: &StageCtx<'_>, inst: &Inst) -> Option<Trap> {
-    let privilege = state.hart().privilege;
+pub const fn privileged_op_fault(hart: &Hart, inst: &Inst) -> Option<Trap> {
+    let privilege = hart.privilege;
     let illegal = match inst.ctrl.system_op {
         SystemOp::Mret => !matches!(privilege, PrivilegeMode::Machine),
         SystemOp::Sret => match privilege {
             PrivilegeMode::User => true,
-            PrivilegeMode::Supervisor => mstatus_bit(state, MSTATUS_TSR_BIT),
+            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TSR_BIT),
             PrivilegeMode::Machine => false,
         },
         SystemOp::Wfi => match privilege {
             PrivilegeMode::User => true,
-            PrivilegeMode::Supervisor => mstatus_bit(state, MSTATUS_TW_BIT),
+            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TW_BIT),
             PrivilegeMode::Machine => false,
         },
         SystemOp::SfenceVma => {
-            matches!(privilege, PrivilegeMode::Supervisor) && mstatus_bit(state, MSTATUS_TVM_BIT)
+            matches!(privilege, PrivilegeMode::Supervisor) && mstatus_bit(hart, MSTATUS_TVM_BIT)
         }
         _ => false,
     };
@@ -120,8 +121,8 @@ pub const fn privileged_op_fault(state: &StageCtx<'_>, inst: &Inst) -> Option<Tr
 }
 
 /// The environment-call trap for the current privilege level.
-pub const fn ecall_trap(state: &StageCtx<'_>) -> Trap {
-    match state.hart().privilege {
+pub const fn ecall_trap(hart: &Hart) -> Trap {
+    match hart.privilege {
         PrivilegeMode::User => Trap::EnvironmentCallFromUMode,
         PrivilegeMode::Supervisor => Trap::EnvironmentCallFromSMode,
         PrivilegeMode::Machine => Trap::EnvironmentCallFromMMode,
@@ -147,8 +148,8 @@ pub enum SystemEffect {
 }
 
 /// What the system instruction `id` does at the current privilege level.
-pub fn system_effect(state: &StageCtx<'_>, inst: &Inst) -> SystemEffect {
-    if let Some(trap) = privileged_op_fault(state, inst) {
+pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
+    if let Some(trap) = privileged_op_fault(state.hart(), inst) {
         return SystemEffect::Trap(trap);
     }
     match inst.ctrl.system_op {
@@ -169,7 +170,7 @@ pub fn system_effect(state: &StageCtx<'_>, inst: &Inst) -> SystemEffect {
                 Err(trap) => SystemEffect::Trap(trap),
             }
         }
-        SystemOp::Ecall => SystemEffect::Trap(ecall_trap(state)),
+        SystemOp::Ecall => SystemEffect::Trap(ecall_trap(state.hart())),
         SystemOp::Csr => match csr_access(state, inst) {
             Ok(access) => SystemEffect::Csr(access),
             Err(trap) => SystemEffect::Trap(trap),
@@ -204,7 +205,7 @@ pub struct CsrAccess {
 /// # Errors
 ///
 /// The illegal-instruction trap when the access is not permitted.
-pub fn csr_access(state: &StageCtx<'_>, inst: &Inst) -> Result<CsrAccess, Trap> {
+pub fn csr_access(state: &impl ArchState, inst: &Inst) -> Result<CsrAccess, Trap> {
     let addr = inst.ctrl.csr_addr;
     let illegal = Trap::IllegalInstruction(inst.bits);
     let writes = csr_op_writes(inst);
@@ -212,11 +213,11 @@ pub fn csr_access(state: &StageCtx<'_>, inst: &Inst) -> Result<CsrAccess, Trap> 
 
     let satp_trapped = addr == csr::SATP
         && matches!(privilege, PrivilegeMode::Supervisor)
-        && mstatus_bit(state, MSTATUS_TVM_BIT);
+        && mstatus_bit(state.hart(), MSTATUS_TVM_BIT);
     if satp_trapped
         || csr_unit_disabled(state, addr)
         || counter_access_denied(state, inst)
-        || !state.is_valid_csr(addr)
+        || !state.hart().is_valid_csr(addr)
         || u32::from(privilege.to_u8()) < addr.privilege_level() as u32
         || (addr.is_read_only() && writes)
     {
@@ -235,7 +236,7 @@ pub fn csr_access(state: &StageCtx<'_>, inst: &Inst) -> Result<CsrAccess, Trap> 
         CsrOp::Rc | CsrOp::Rci => base & !src,
         CsrOp::None => old,
     };
-    trace_csr!(state.config.general.trace_instructions;
+    trace_csr!(state.tracing();
         op        = "write-deferred",
         pc        = %crate::trace::Hex(inst.pc),
         csr_addr  = %crate::trace::Hex32(addr.as_u32()),
@@ -262,7 +263,7 @@ const fn csr_op_writes(inst: &Inst) -> bool {
 
 /// True when `mcounteren`/`scounteren` hide the CYCLE, TIME or INSTRET
 /// counter `id` reads from the current privilege level.
-fn counter_access_denied(state: &StageCtx<'_>, inst: &Inst) -> bool {
+fn counter_access_denied(state: &impl ArchState, inst: &Inst) -> bool {
     let addr = inst.ctrl.csr_addr;
     let bit = if addr == csr::CYCLE {
         0
@@ -283,7 +284,7 @@ fn counter_access_denied(state: &StageCtx<'_>, inst: &Inst) -> bool {
 }
 
 /// Evaluates `id`'s ALU or FPU operation and returns `(result, fp_flags)`.
-pub fn evaluate(state: &StageCtx<'_>, inst: &Inst, op_a: u64, op_b: u64) -> (u64, u8) {
+pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u64, u8) {
     let fp_rm = inst.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart().csrs.frm as u8));
     compute_alu(inst.ctrl.alu, op_a, op_b, inst.rv3, inst.ctrl.is_f16, inst.ctrl.is_rv32, fp_rm)
 }
@@ -294,8 +295,8 @@ pub fn evaluate(state: &StageCtx<'_>, inst: &Inst, op_a: u64, op_b: u64) -> (u64
 /// # Errors
 ///
 /// The instruction-address-misaligned trap for a misaligned `target`.
-pub const fn check_target_alignment(state: &StageCtx<'_>, target: u64) -> Result<(), Trap> {
-    if target & csr::ialign_low_bits(state.hart().csrs.misa) == 0 {
+pub const fn check_target_alignment(hart: &Hart, target: u64) -> Result<(), Trap> {
+    if target & csr::ialign_low_bits(hart.csrs.misa) == 0 {
         return Ok(());
     }
     Err(Trap::InstructionAddressMisaligned(target))

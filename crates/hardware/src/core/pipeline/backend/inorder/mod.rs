@@ -191,11 +191,11 @@ impl InOrderEngine {
     /// Starts a vector load or store: its element micro-ops are generated
     /// from the architectural registers, which are current because a
     /// vector instruction issues only from the ROB head.
-    fn start_vec_mem_op(&mut self, state: &mut CoreCtx<'_>, entry: &RenameIssueEntry) {
+    fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
         use crate::core::units::vpu::mem::{
             check_vec_mem_emul, generate_element_addrs_vrf, vec_mem_dst_count,
         };
-        if unit_disabled(&state.stage(), &entry.exec_inst()) {
+        if unit_disabled(state.hart, &entry.exec_inst()) {
             let trap = Trap::IllegalInstruction(entry.inst);
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;

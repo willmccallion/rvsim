@@ -14,6 +14,7 @@ use super::memory::TranslateResult;
 use super::write_log::Writer;
 use super::{SharedState, csr, memory};
 use crate::common::{AccessType, CsrAddr, PteUpdate, VirtAddr};
+use crate::core::exec::arch::ArchState;
 use crate::core::exec::signals::MemWidth;
 use crate::core::units::mmu::ptw::WalkState;
 use crate::core::{CoreUnits, Hart};
@@ -55,6 +56,24 @@ pub enum PteUpdateOutcome {
     AlreadySet,
     /// The PTE has changed since the walk; the access must translate again.
     Changed,
+}
+
+impl ArchState for StageCtx<'_> {
+    fn hart(&self) -> &Hart {
+        self.hart
+    }
+
+    fn csr_read(&self, addr: CsrAddr) -> u64 {
+        csr::read(self.hart, self.shared, addr)
+    }
+
+    fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
+        csr::read_for_update(self.hart, self.shared, addr)
+    }
+
+    fn tracing(&self) -> bool {
+        self.shared.config.general.trace_instructions
+    }
 }
 
 impl Deref for StageCtx<'_> {

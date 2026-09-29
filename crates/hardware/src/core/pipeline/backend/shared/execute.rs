@@ -87,7 +87,7 @@ fn resolve_branch(
     let predicted_next_pc = if id.pred_taken { id.pred_target } else { fallthrough };
     let actual_next_pc = if taken { actual_target } else { fallthrough };
     if taken {
-        check_target_alignment(state, actual_target)?;
+        check_target_alignment(state.hart(), actual_target)?;
     }
     let mispredicted = predicted_next_pc != actual_next_pc;
 
@@ -122,7 +122,7 @@ fn resolve_jump(
     let inst = id.exec_inst();
     let is_jalr = is_jalr(&inst);
     let actual_target = jump_target(&inst);
-    check_target_alignment(state, actual_target)?;
+    check_target_alignment(state.hart(), actual_target)?;
     let predicted_target = if id.pred_taken { id.pred_target } else { next_pc(id) };
     let mispredicted = actual_target != predicted_target;
 

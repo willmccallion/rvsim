@@ -4,6 +4,9 @@
 //! these functions, so what an instruction does is defined once and only
 //! when and how fast it happens differs between engines.
 
+/// The architectural state an instruction reads as it executes.
+pub mod arch;
+
 /// Cache-block operations (Zicbom, Zicboz): which may run, and what they do.
 pub mod cbo;
 
