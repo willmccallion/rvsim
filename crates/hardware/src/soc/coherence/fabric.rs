@@ -14,12 +14,12 @@ use std::collections::VecDeque;
 
 use super::home::{HomeAgent, Room};
 use super::interconnect::Interconnect;
-use super::messages::{CoherenceMsg, Node, ReqKind, SnoopKind};
 use super::protocol::{CoherenceProtocol, CoreSet, Holders};
 use super::stats::CoherenceStatPaths;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::packet::coherence::{CoherenceMsg, Node, ReqKind, SnoopKind};
 use crate::sim::packet::{
     AccessSize, Maintenance, MemOp, MemRespData, MesiState, Packet, WriteData,
 };

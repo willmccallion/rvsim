@@ -10,9 +10,9 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
-use super::messages::{CoherenceMsg, MsgClass, Node};
 use super::stats::InterconnectStatPaths;
 use crate::common::CoreId;
+use crate::sim::packet::coherence::{CoherenceMsg, MsgClass, Node};
 use crate::sim::stats::Stats;
 
 /// What a topology looks like, for stats and diagnostics.
@@ -233,7 +233,7 @@ mod tests {
     use crate::common::{LineAddr, PhysAddr};
     use crate::sim::components::ReqId;
     use crate::sim::packet::MesiState;
-    use crate::soc::coherence::messages::ReqKind;
+    use crate::sim::packet::coherence::ReqKind;
 
     fn paths() -> InterconnectStatPaths {
         InterconnectStatPaths::new("test.xbar")
@@ -654,7 +654,7 @@ mod routed_tests {
     use super::*;
     use crate::common::{LineAddr, PhysAddr};
     use crate::sim::components::ReqId;
-    use crate::soc::coherence::messages::ReqKind;
+    use crate::sim::packet::coherence::ReqKind;
 
     fn req(core: u32) -> CoherenceMsg {
         CoherenceMsg::Req {

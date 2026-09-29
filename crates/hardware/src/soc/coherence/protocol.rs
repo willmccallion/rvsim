@@ -4,10 +4,10 @@
 //! holder ends up in, and what the requester is granted. It sees no
 //! timing; the home agent and the interconnect supply that.
 
-use super::messages::{ReqKind, SnoopKind};
 use crate::common::CoreId;
 use crate::sim::packet::Maintenance;
 use crate::sim::packet::MesiState;
+use crate::sim::packet::coherence::{ReqKind, SnoopKind};
 
 /// A set of cores, as a bitmap (at most 64 cores).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

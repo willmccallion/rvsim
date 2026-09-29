@@ -28,8 +28,6 @@ pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
 
 use crate::common::{CoreId, HartId};
-use crate::soc::coherence::stats::CoherenceStatPaths;
-use crate::uarch::cache::stats::CacheStatPaths;
 use paths::{CorePaths, HartPaths, SystemPaths};
 
 /// A scalar counter.
@@ -341,6 +339,12 @@ pub struct Stats {
     pub(crate) derived: BTreeMap<StatId, Derived>,
 }
 
+/// A component whose stats are registered with the tree it writes to.
+pub trait StatSource {
+    /// Registers the component's counters and derived stats with `stats`.
+    fn register(&self, stats: &mut Stats);
+}
+
 impl Stats {
     /// Creates an empty stats tree.
     pub fn new() -> Self {
@@ -350,13 +354,13 @@ impl Stats {
     /// Creates a stats tree with every hart's and core's canonical metadata
     /// and derived formulas pre-registered, plus the `system.*` sums. Every
     /// writer path appears in [`Stats::query`] and [`Stats::summary`] output
-    /// even before any counter has been incremented.
+    /// even before any counter has been incremented. `components` register
+    /// their own stats, in order, between the cores' and the system sums.
     #[must_use]
     pub fn for_components(
         harts: &[HartPaths],
         cores: &[(CorePaths, HartId)],
-        caches: &[CacheStatPaths],
-        coherence: Option<&CoherenceStatPaths>,
+        components: &[&dyn StatSource],
     ) -> Self {
         let mut s = Self::new();
         for hart in harts {
@@ -365,11 +369,8 @@ impl Stats {
         for (core, first_hart) in cores {
             register_core(&mut s, core, &harts[first_hart.as_index()]);
         }
-        for cache in caches {
-            register_cache(&mut s, cache);
-        }
-        if let Some(fabric) = coherence {
-            register_coherence(&mut s, fabric);
+        for component in components {
+            component.register(&mut s);
         }
         register_system(&mut s, harts);
         s
@@ -384,7 +385,6 @@ impl Stats {
             &[HartPaths::new(hart)],
             &[(CorePaths::new(CoreId::new(0)), hart)],
             &[],
-            None,
         )
     }
 
@@ -683,72 +683,6 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
         Formula::Div(pipe.cycles_total, first_hart.retired_insts),
         Meta::ratio("cycles per instruction"),
     );
-}
-
-/// Registers one cache's counters and its miss rate.
-fn register_cache(s: &mut Stats, c: &CacheStatPaths) {
-    s.register(c.hits, Meta::events("requests answered from the tag array"));
-    s.register(c.misses, Meta::events("requests that started or joined a line fetch"));
-    s.register(c.mshr_hits, Meta::events("misses that joined an in-flight fetch"));
-    s.register(
-        c.blocked_requests,
-        Meta::events("requests queued while MSHRs or writeback buffer were full"),
-    );
-    s.register(c.fills, Meta::events("lines installed"));
-    s.register(c.evictions, Meta::events("valid lines replaced"));
-    s.register(c.writebacks, Meta::events("lines written to the next level"));
-    s.register(c.back_invalidations, Meta::events("lines dropped at the next level's request"));
-    s.register(c.maintenance, Meta::events("cache-maintenance operations passed through"));
-    s.register(c.probes, Meta::events("probes received on behalf of snoops"));
-    s.register(c.snoops, Meta::events("snoops received from the home agent"));
-    s.register(c.snoop_invalidations, Meta::events("snoops that took the line away"));
-    s.register(c.snoop_downgrades, Meta::events("snoops that left a shared copy"));
-    s.register(c.upgrades, Meta::events("permission requests for lines held Shared"));
-    s.register(
-        c.upgrade_retries,
-        Meta::events("permission grants that arrived after a snoop took the line"),
-    );
-    s.register(c.prefetches_issued, Meta::events("prefetch fetches started"));
-    s.register(c.prefetches_useful, Meta::events("prefetch fetches a demand request joined"));
-    s.derive(
-        c.miss_rate,
-        Formula::Ratio { numerator: c.misses, other: c.hits },
-        Meta::ratio("miss rate"),
-    );
-}
-
-/// Registers the coherence fabric's counters.
-fn register_coherence(s: &mut Stats, c: &CoherenceStatPaths) {
-    let h = &c.home;
-    s.register(h.read_shared, Meta::events("ReadShared requests"));
-    s.register(h.read_unique, Meta::events("ReadUnique requests"));
-    s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
-    s.register(h.writebacks, Meta::events("writebacks from private caches"));
-    s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
-    s.register(h.maintenance, Meta::events("cache-maintenance requests from private caches"));
-    s.register(
-        h.stale_writebacks,
-        Meta::events("writebacks whose line a snoop had already collected"),
-    );
-    s.register(h.non_coherent, Meta::events("accesses carried to memory without snooping"));
-    s.register(h.snoops_sent, Meta::events("snoops sent"));
-    s.register(h.c2c_transfers, Meta::events("requests served from another core's modified copy"));
-    s.register(h.recalls, Meta::events("lines recalled to free tracking room"));
-    s.register(
-        h.serialised,
-        Meta::events("requests that waited for an earlier transaction on their line"),
-    );
-    s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
-    s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
-    s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
-    let i = &c.interconnect;
-    s.register(i.messages, Meta::events("messages transferred"));
-    s.register(i.bytes, Meta::events("bytes transferred"));
-    s.register(
-        i.blocked_cycles,
-        Meta::cycles("message-cycles spent waiting for a busy link or port"),
-    );
-    s.register(i.busy_cycles, Meta::cycles("port-class-cycles spent transferring"));
 }
 
 /// Registers the `system.*` sums over every hart.

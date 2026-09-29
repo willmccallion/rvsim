@@ -8,6 +8,7 @@ use rvsim_core::sim::components::{CacheId, ComponentId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::memory::GlobalMemory;
+use rvsim_core::sim::packet::coherence::{CoherenceMsg, ReqKind, SnoopKind};
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
 };
@@ -15,7 +16,6 @@ use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::coherence::fabric::{CoherenceFabric, FabricLayout};
 use rvsim_core::soc::coherence::home::{Broadcast, HomeAgent, SnoopFilter};
 use rvsim_core::soc::coherence::interconnect::Crossbar;
-use rvsim_core::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 use rvsim_core::soc::coherence::protocol::Mesi;
 use rvsim_core::soc::coherence::stats::CoherenceStatPaths;
 

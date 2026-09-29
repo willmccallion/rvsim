@@ -34,8 +34,8 @@ use crate::sim::events::EventQueue;
 use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::CacheLevel;
-use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
+use crate::sim::stats::{StatSource, Stats};
 use crate::soc::bus::Bus;
 use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{
@@ -642,12 +642,12 @@ impl SystemState {
             })
             .chain(std::iter::once(l3_cache.stat_paths))
             .collect();
-        let stats = Stats::for_components(
-            &hart_stat_paths,
-            &core_stat_paths,
-            &cache_stat_paths,
-            coherence.as_ref().map(CoherenceFabric::stat_paths),
-        );
+        let components: Vec<&dyn StatSource> = cache_stat_paths
+            .iter()
+            .map(|paths| paths as &dyn StatSource)
+            .chain(coherence.as_ref().map(|fabric| fabric.stat_paths() as &dyn StatSource))
+            .collect();
+        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths, &components);
 
         let cores = topology
             .cores

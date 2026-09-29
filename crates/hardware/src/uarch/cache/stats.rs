@@ -1,6 +1,6 @@
 //! Stat paths for one cache, allocated when the cache is built.
 
-use crate::sim::stats::StatId;
+use crate::sim::stats::{Formula, Meta, StatId, StatSource, Stats};
 
 /// Counters one cache writes, rooted at its subject (`core0.cache.l1d`,
 /// `llc`, ...).
@@ -71,5 +71,44 @@ impl CacheStatPaths {
             prefetches_useful: path("prefetches.useful"),
             miss_rate: path("miss_rate"),
         }
+    }
+}
+
+impl StatSource for CacheStatPaths {
+    fn register(&self, s: &mut Stats) {
+        s.register(self.hits, Meta::events("requests answered from the tag array"));
+        s.register(self.misses, Meta::events("requests that started or joined a line fetch"));
+        s.register(self.mshr_hits, Meta::events("misses that joined an in-flight fetch"));
+        s.register(
+            self.blocked_requests,
+            Meta::events("requests queued while MSHRs or writeback buffer were full"),
+        );
+        s.register(self.fills, Meta::events("lines installed"));
+        s.register(self.evictions, Meta::events("valid lines replaced"));
+        s.register(self.writebacks, Meta::events("lines written to the next level"));
+        s.register(
+            self.back_invalidations,
+            Meta::events("lines dropped at the next level's request"),
+        );
+        s.register(self.maintenance, Meta::events("cache-maintenance operations passed through"));
+        s.register(self.probes, Meta::events("probes received on behalf of snoops"));
+        s.register(self.snoops, Meta::events("snoops received from the home agent"));
+        s.register(self.snoop_invalidations, Meta::events("snoops that took the line away"));
+        s.register(self.snoop_downgrades, Meta::events("snoops that left a shared copy"));
+        s.register(self.upgrades, Meta::events("permission requests for lines held Shared"));
+        s.register(
+            self.upgrade_retries,
+            Meta::events("permission grants that arrived after a snoop took the line"),
+        );
+        s.register(self.prefetches_issued, Meta::events("prefetch fetches started"));
+        s.register(
+            self.prefetches_useful,
+            Meta::events("prefetch fetches a demand request joined"),
+        );
+        s.derive(
+            self.miss_rate,
+            Formula::Ratio { numerator: self.misses, other: self.hits },
+            Meta::ratio("miss rate"),
+        );
     }
 }

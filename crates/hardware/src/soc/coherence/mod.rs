@@ -12,12 +12,10 @@ pub mod audit;
 pub mod fabric;
 pub mod home;
 pub mod interconnect;
-pub mod messages;
 pub mod protocol;
 pub mod stats;
 
 pub use fabric::{CoherenceFabric, FabricLayout};
-pub use messages::{CoherenceMsg, MsgClass, Node, ReqKind, SnoopKind};
 pub use protocol::{CoherenceProtocol, CoreSet, Holders, Mesi};
 
 use crate::config::{

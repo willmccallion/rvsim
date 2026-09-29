@@ -1,6 +1,6 @@
 //! Stat paths for the coherence fabric, allocated once when it is built.
 
-use crate::sim::stats::StatId;
+use crate::sim::stats::{Meta, StatId, StatSource, Stats};
 
 /// Counters the home agent writes, under `coherence.ha`.
 #[derive(Clone, Copy, Debug)]
@@ -115,5 +115,43 @@ impl CoherenceStatPaths {
 impl Default for CoherenceStatPaths {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl StatSource for CoherenceStatPaths {
+    fn register(&self, s: &mut Stats) {
+        let h = &self.home;
+        s.register(h.read_shared, Meta::events("ReadShared requests"));
+        s.register(h.read_unique, Meta::events("ReadUnique requests"));
+        s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
+        s.register(h.writebacks, Meta::events("writebacks from private caches"));
+        s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
+        s.register(h.maintenance, Meta::events("cache-maintenance requests from private caches"));
+        s.register(
+            h.stale_writebacks,
+            Meta::events("writebacks whose line a snoop had already collected"),
+        );
+        s.register(h.non_coherent, Meta::events("accesses carried to memory without snooping"));
+        s.register(h.snoops_sent, Meta::events("snoops sent"));
+        s.register(
+            h.c2c_transfers,
+            Meta::events("requests served from another core's modified copy"),
+        );
+        s.register(h.recalls, Meta::events("lines recalled to free tracking room"));
+        s.register(
+            h.serialised,
+            Meta::events("requests that waited for an earlier transaction on their line"),
+        );
+        s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
+        s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
+        s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
+        let i = &self.interconnect;
+        s.register(i.messages, Meta::events("messages transferred"));
+        s.register(i.bytes, Meta::events("bytes transferred"));
+        s.register(
+            i.blocked_cycles,
+            Meta::cycles("message-cycles spent waiting for a busy link or port"),
+        );
+        s.register(i.busy_cycles, Meta::cycles("port-class-cycles spent transferring"));
     }
 }

@@ -28,10 +28,10 @@ use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
 use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::packet::coherence::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet, ProbeKind,
 };
-use crate::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::uarch::prefetch::{
     NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
 };
