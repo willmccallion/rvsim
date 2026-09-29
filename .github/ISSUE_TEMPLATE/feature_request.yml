@@ -1,0 +1,15 @@
+name: Feature request
+description: An ISA extension, microarchitectural model, device or API you would like.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why
+      description: The experiment or workload this would enable, and any reference (spec section, paper, gem5 model).

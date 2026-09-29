@@ -1,0 +1,32 @@
+name: Bug report
+description: The simulator crashes, hangs, or gets an architectural or timing result wrong.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The program or ELF, the Config or preset, and the command or script you ran.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: rvsim version or commit
+      placeholder: 1.2.2 or a commit hash
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Error messages, a stats dump, or the first divergence from spike.
+      render: text
