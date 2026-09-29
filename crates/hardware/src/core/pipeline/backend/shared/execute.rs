@@ -359,15 +359,7 @@ fn resolve_branch(
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
-    let taken = match (id.inst >> FUNCT3_SHIFT) & FUNCT3_MASK {
-        funct3::BEQ => op_a == op_b,
-        funct3::BNE => op_a != op_b,
-        funct3::BLT => (op_a as i64) < (op_b as i64),
-        funct3::BGE => (op_a as i64) >= (op_b as i64),
-        funct3::BLTU => op_a < op_b,
-        funct3::BGEU => op_a >= op_b,
-        _ => false,
-    };
+    let taken = branch_taken(id.inst, op_a, op_b);
     let actual_target = id.pc.wrapping_add(id.imm as u64);
     let fallthrough = next_pc(id);
     let predicted_next_pc = if id.pred_taken { id.pred_target } else { fallthrough };
@@ -405,13 +397,8 @@ fn resolve_jump(
     rob: &mut Rob,
     id: &RenameIssueEntry,
 ) -> Result<Option<Redirect>, Trap> {
-    use crate::common::constants::OPCODE_MASK;
-    let is_jalr = (id.inst & OPCODE_MASK) == opcodes::OP_JALR;
-    let actual_target = if is_jalr {
-        id.rv1.wrapping_add(id.imm as u64) & JALR_ALIGNMENT_MASK
-    } else {
-        id.pc.wrapping_add(id.imm as u64)
-    };
+    let is_jalr = is_jalr(id);
+    let actual_target = jump_target(id);
     check_target_alignment(state, actual_target)?;
     let predicted_target = if id.pred_taken { id.pred_target } else { next_pc(id) };
     let mispredicted = actual_target != predicted_target;
@@ -437,6 +424,58 @@ fn resolve_jump(
     );
     let repair = BranchRepair { seq: id.seq, taken: true, target: actual_target };
     Ok(count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_target, repair)))
+}
+
+/// Whether the conditional branch `inst` is taken with operands `op_a` and
+/// `op_b`.
+#[must_use]
+pub const fn branch_taken(inst: u32, op_a: u64, op_b: u64) -> bool {
+    match (inst >> FUNCT3_SHIFT) & FUNCT3_MASK {
+        funct3::BEQ => op_a == op_b,
+        funct3::BNE => op_a != op_b,
+        funct3::BLT => (op_a as i64) < (op_b as i64),
+        funct3::BGE => (op_a as i64) >= (op_b as i64),
+        funct3::BLTU => op_a < op_b,
+        funct3::BGEU => op_a >= op_b,
+        _ => false,
+    }
+}
+
+const fn is_jalr(id: &RenameIssueEntry) -> bool {
+    (id.inst & crate::common::constants::OPCODE_MASK) == opcodes::OP_JALR
+}
+
+/// Where the JAL or JALR `id` jumps.
+#[must_use]
+pub const fn jump_target(id: &RenameIssueEntry) -> u64 {
+    if is_jalr(id) {
+        id.rv1.wrapping_add(id.imm as u64) & JALR_ALIGNMENT_MASK
+    } else {
+        id.pc.wrapping_add(id.imm as u64)
+    }
+}
+
+/// The next PC of a taken branch or jump `id`, after checking the target's
+/// alignment; `None` for sequential flow or a branch not taken.
+///
+/// # Errors
+///
+/// The instruction-address-misaligned trap a misaligned target raises.
+pub fn taken_target(
+    state: &StageCtx<'_>,
+    id: &RenameIssueEntry,
+    op_a: u64,
+    op_b: u64,
+) -> Result<Option<u64>, Trap> {
+    let target = match id.ctrl.control_flow {
+        ControlFlow::Branch if branch_taken(id.inst, op_a, op_b) => {
+            id.pc.wrapping_add(id.imm as u64)
+        }
+        ControlFlow::Jump => jump_target(id),
+        ControlFlow::Branch | ControlFlow::Sequential => return Ok(None),
+    };
+    check_target_alignment(state, target)?;
+    Ok(Some(target))
 }
 
 /// Counts a resolved prediction and passes `mispredicted` through.

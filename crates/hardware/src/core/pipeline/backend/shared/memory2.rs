@@ -112,16 +112,12 @@ pub fn memory2_stage(
         } else if mem.ctrl.mem_read {
             // Demand load. Sign / zero extend `load_data` (which memory1 or
             // mailbox-drain populated) and apply FP NaN-boxing.
-            load_data = sign_extend(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load);
-            if mem.ctrl.fp_reg_write {
-                match mem.ctrl.width {
-                    MemWidth::Word => load_data |= 0xFFFF_FFFF_0000_0000,
-                    MemWidth::Half => {
-                        load_data = (load_data & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000;
-                    }
-                    _ => {}
-                }
-            }
+            load_data = load_result(
+                mem.load_data,
+                mem.ctrl.width,
+                mem.ctrl.signed_load,
+                mem.ctrl.fp_reg_write,
+            );
             if mem.sb_forwarded {
                 trace_fwd!(state.config.general.trace_instructions;
                     event         = "forward",
@@ -228,6 +224,21 @@ const fn merge_violation(slot: &mut Option<(RobTag, u64)>, new: (RobTag, u64)) {
         None => *slot = Some(new),
         Some((existing, _)) if new.0.is_older_than(*existing) => *slot = Some(new),
         _ => {}
+    }
+}
+
+/// The value a load writes to its destination: `raw` sign- or
+/// zero-extended to its width, and NaN-boxed when it is a narrower
+/// floating-point value.
+pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool) -> u64 {
+    let value = sign_extend(raw, width, signed);
+    if !fp_dest {
+        return value;
+    }
+    match width {
+        MemWidth::Word => value | 0xFFFF_FFFF_0000_0000,
+        MemWidth::Half => (value & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000,
+        _ => value,
     }
 }
 
