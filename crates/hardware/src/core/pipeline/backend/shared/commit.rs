@@ -7,7 +7,7 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::common::{LrScRecord, PhysAddr, PteUpdate, Trap};
+use crate::common::{LrScRecord, PhysAddr, PteUpdate};
 use crate::core::arch::csr;
 use crate::core::arch::vpr::Vpr;
 use crate::core::exec::cbo::CboEffect;
@@ -30,6 +30,7 @@ use crate::core::pipeline::write_buffer::{WcbLine, WriteCombiningBuffer};
 use crate::core::units::lsu::unaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AluOp, MemWidth, SystemOp, VectorOp};
+use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::sim::CoreCtx;
@@ -257,7 +258,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             {
                 #[cfg(feature = "commit-log")]
                 if let Some(ref mut log) = state.commit_log {
-                    use crate::common::Trap;
+                    use crate::isa::privileged::Trap;
                     use std::io::Write;
                     // Spike skips fetch-stage page/access faults (no valid bits).
                     let skip = matches!(

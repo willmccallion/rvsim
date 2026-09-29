@@ -1,11 +1,10 @@
 //! Trap and exception dispatch, delegation, and MRET/SRET return handling.
 
 use super::CoreCtx;
-use crate::common::Trap;
-use crate::common::constants::CAUSE_INTERRUPT_BIT;
 use crate::core::arch::csr;
 use crate::isa::encoding::privileged as sys_ops;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg;
 use crate::trace_trap;
 

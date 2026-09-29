@@ -4,6 +4,13 @@
 //! Compressed instructions are divided into three quadrants (0, 1, 2) based
 //! on the lowest 2 bits of the instruction.
 
+/// Mask selecting the quadrant, bits 1:0.
+pub const QUADRANT_MASK: u16 = 0b11;
+
+/// Bits 1:0 of every encoding longer than 16 bits; no compressed
+/// instruction uses this quadrant.
+pub const NOT_COMPRESSED: u16 = 0b11;
+
 /// Quadrant 0 (bits 1:0 = 00).
 pub const QUADRANT_0: u16 = 0b00;
 /// Quadrant 1 (bits 1:0 = 01).

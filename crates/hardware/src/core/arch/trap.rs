@@ -1,6 +1,6 @@
 //! Trap Handling Utilities.
 
-use crate::common::error::Trap;
+use crate::isa::privileged::Trap;
 
 /// Trap handler utility functions.
 ///

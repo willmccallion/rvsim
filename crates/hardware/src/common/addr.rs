@@ -1,5 +1,18 @@
 //! Strong newtypes for physical and virtual addresses, ASID, IRQ id, and page numbers.
 
+/// Number of bits to shift to convert between bytes and pages.
+pub const PAGE_SHIFT: u64 = 12;
+
+/// Mask for extracting the page offset from an address.
+pub const PAGE_OFFSET_MASK: u64 = (1 << PAGE_SHIFT) - 1;
+
+/// Mask for the bits of a VA that contribute to the 4KB VPN (Sv57 width).
+///
+/// Wide enough for Sv57's 45-bit VPN. Narrower modes leave the upper bits as
+/// sign-extended copies of the canonical-VA top bit, so the wider mask is a
+/// no-op for them.
+pub const VPN_MASK: u64 = 0x1FFF_FFFF_FFFF;
+
 /// An Address Space Identifier (ASID) from SATP[59:44].
 ///
 /// Used by the TLB to distinguish translations belonging to different address spaces,

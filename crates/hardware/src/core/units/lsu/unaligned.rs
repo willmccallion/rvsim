@@ -8,8 +8,8 @@
 //! - Latency calculation for unaligned accesses
 //! - Support for byte-granular split access
 
-use crate::common::constants::{PAGE_OFFSET_MASK, PAGE_SHIFT};
-use crate::common::error::Trap;
+use crate::common::{PAGE_OFFSET_MASK, PAGE_SHIFT};
+use crate::isa::privileged::Trap;
 
 /// Checks whether a memory access at `addr` with `size` bytes is naturally aligned.
 ///

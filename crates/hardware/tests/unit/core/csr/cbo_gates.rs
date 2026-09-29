@@ -4,7 +4,7 @@ use rvsim_core::core::arch::csr::{
     CboInvalAction, MENVCFG_CBCFE, MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, SENVCFG_CBCFE, SENVCFG_CBZE,
     cbo_inval_action, cbocf_allowed, cboz_allowed,
 };
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 
 const CBIE_ILLEGAL: u64 = 0b00 << MENVCFG_CBIE_SHIFT;
 const CBIE_FLUSH: u64 = 0b01 << MENVCFG_CBIE_SHIFT;

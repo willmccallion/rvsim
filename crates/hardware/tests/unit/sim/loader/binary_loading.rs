@@ -6,7 +6,7 @@
 use rvsim_core::SimState;
 use rvsim_core::config::Config;
 use rvsim_core::core::arch::csr;
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::isa::reg;
 use rvsim_core::sim::loader;
 use std::io::Write;

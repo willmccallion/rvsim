@@ -10,7 +10,7 @@ use rvsim_core::core::arch::csr;
 use rvsim_core::core::pipeline::engine::BackendType;
 use rvsim_core::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use rvsim_core::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;

@@ -4,7 +4,7 @@
 
 use rvsim_core::Simulator;
 use rvsim_core::config::Config;
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::isa::reg::RegIdx;
 
 fn create_test_sim() -> Simulator {

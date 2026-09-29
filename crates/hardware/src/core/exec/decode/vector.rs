@@ -1,13 +1,13 @@
 //! Vector instruction decoding.
 
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
-use crate::common::error::Trap;
 use crate::core::exec::signals::{ControlSignals, OpBSrc};
 use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
 use crate::isa::instruction::Decoded;
 use crate::isa::op::{VecSrcEncoding, VectorOp};
+use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// Unit-stride lumop: normal unit-stride load.

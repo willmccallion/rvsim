@@ -11,7 +11,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::error::{ExceptionStage, Trap};
+use crate::common::error::ExceptionStage;
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
@@ -19,6 +19,7 @@ use crate::core::pipeline::rob::{Rob, RobTag};
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::mem::VecMemAddrOp;
 use crate::isa::op::{MemWidth, VectorOp};
+use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Sew};
 
 /// One micro-op of a vector memory instruction on its way through the

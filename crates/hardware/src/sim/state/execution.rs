@@ -1,16 +1,19 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::{CoreCtx, SharedState};
-use crate::common::constants::{
-    HANG_DETECTION_THRESHOLD, PAGE_OFFSET_MASK, PAGE_SHIFT, STATUS_UPDATE_INTERVAL, VPN_MASK,
-    WFI_INSTRUCTION,
-};
-use crate::common::{Asid, SimError, Vpn};
+use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, SimError, VPN_MASK, Vpn};
 use crate::core::arch::csr;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::encoding::privileged::WFI;
+use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::soc::interconnect::HartIrqs;
 use crate::trace_trap;
+
+/// Cycles at one PC before the simulator reports a possible hang.
+const HANG_DETECTION_THRESHOLD: u64 = 5000;
+
+/// Cycles between progress reports.
+const STATUS_UPDATE_INTERVAL: u64 = 5_000_000;
 
 impl SharedState {
     /// Uncore work at the top of a cycle: exit and kernel-panic checks, then
@@ -102,7 +105,7 @@ impl CoreCtx<'_> {
                         unsafe { r.ptr(paddr_raw).cast::<u32>().read_unaligned() }
                     });
 
-                if inst == WFI_INSTRUCTION {
+                if inst == WFI {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "wfi-wait",
                         pc    = %crate::trace::Hex(self.hart.pc),

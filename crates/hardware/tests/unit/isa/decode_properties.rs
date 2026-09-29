@@ -1230,3 +1230,20 @@ fn decode_nop() {
     assert_eq!(d.rs1, RegIdx::new(0));
     assert_eq!(d.imm, 0);
 }
+
+#[test]
+fn low_bits_other_than_0b11_mark_a_compressed_instruction() {
+    use rvsim_core::isa::instruction::is_compressed;
+
+    const C_NOP: u16 = 0x0001;
+    const C_LI_A0_0: u16 = 0x4501;
+    const C_RET: u16 = 0x8082;
+    const C_ILLEGAL: u16 = 0x0000;
+    const ADDI_LOW_HALF: u16 = 0x0013;
+    const ECALL_LOW_HALF: u16 = 0x0073;
+    let compressed = [C_NOP, C_LI_A0_0, C_RET, C_ILLEGAL];
+    let standard = [ADDI_LOW_HALF, ECALL_LOW_HALF];
+
+    assert!(compressed.iter().all(|&h| is_compressed(h)));
+    assert!(standard.iter().all(|&h| !is_compressed(h)));
+}

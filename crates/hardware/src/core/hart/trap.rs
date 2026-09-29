@@ -2,7 +2,7 @@
 
 use super::Hart;
 use crate::core::arch::csr;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::PrivilegeMode;
 
 impl Hart {
     /// Executes the `MRET` instruction (Return from Machine Mode).

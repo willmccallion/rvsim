@@ -4,9 +4,9 @@
 //! including trap dispatch and context saving.
 
 use rvsim_core::SimState;
-use rvsim_core::common::{PhysAddr, Trap};
+use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::{PrivilegeMode, Trap};
 use rvsim_core::isa::reg::RegIdx;
 
 fn create_test_cpu() -> SimState {
@@ -710,4 +710,4 @@ fn test_trap_updates_sepc_on_delegation() {
     assert_eq!(state.hart.csrs.sepc, trap_pc);
 }
 
-use rvsim_core::common::constants::CAUSE_INTERRUPT_BIT;
+use rvsim_core::isa::privileged::cause::CAUSE_INTERRUPT_BIT;

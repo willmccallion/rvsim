@@ -6,11 +6,12 @@
 //! returned walk state until the PTE response arrives in its mailbox.
 
 use super::{CoreCtx, SharedState};
-use crate::common::{AccessType, PhysAddr, TranslationResult, Trap, VirtAddr};
+use crate::common::{AccessType, PhysAddr, TranslationResult, VirtAddr};
 use crate::core::units::mmu::TranslateOutcome;
 use crate::core::units::mmu::pmp::PmpResult;
 use crate::core::units::mmu::ptw::WalkState;
 use crate::core::{CoreUnits, Hart};
+use crate::isa::privileged::Trap;
 
 /// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
 ///
@@ -44,7 +45,7 @@ pub(super) fn translate(
     if shared.direct_mode {
         let paddr = PhysAddr::new(vaddr.val());
 
-        let is_machine = hart.privilege == crate::isa::privileged::mode::PrivilegeMode::Machine;
+        let is_machine = hart.privilege == crate::isa::privileged::PrivilegeMode::Machine;
         let pmp_result = hart.pmp.check(
             paddr.val(),
             size,
@@ -73,7 +74,7 @@ pub(super) fn translate(
         && (hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
     {
         use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
-        use crate::isa::privileged::mode::PrivilegeMode;
+        use crate::isa::privileged::PrivilegeMode;
         let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
         PrivilegeMode::from_u8(mpp)
     } else {
@@ -117,14 +118,13 @@ fn finalize_outcome(
     vaddr: VirtAddr,
     access: AccessType,
     size: u64,
-    effective_priv: crate::isa::privileged::mode::PrivilegeMode,
+    effective_priv: crate::isa::privileged::PrivilegeMode,
 ) -> TranslateResult {
     match outcome {
         TranslateOutcome::Ready(mut result) => {
             if result.trap.is_none() {
                 let paddr = result.paddr.val();
-                let is_machine =
-                    effective_priv == crate::isa::privileged::mode::PrivilegeMode::Machine;
+                let is_machine = effective_priv == crate::isa::privileged::PrivilegeMode::Machine;
                 let pmp_result = hart.pmp.check(
                     paddr,
                     size,

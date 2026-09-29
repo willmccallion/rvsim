@@ -7,6 +7,9 @@
 //! The constants here represent the exception code (lower bits) combined with
 //! the interrupt bit where applicable.
 
+/// The `mcause`/`scause` bit that marks a trap as an interrupt.
+pub const CAUSE_INTERRUPT_BIT: u64 = 1 << 63;
+
 /// Interrupt definitions (MSB = 1).
 pub mod interrupt {
     /// User software interrupt.

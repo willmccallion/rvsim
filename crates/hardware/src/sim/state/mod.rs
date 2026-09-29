@@ -31,7 +31,7 @@ pub mod views;
 pub mod write_log;
 
 use crate::coherence::{self, CoherenceFabric, FabricGeometry};
-use crate::common::{HartId, PhysAddr, RegisterFile, Trap};
+use crate::common::{HartId, PhysAddr, RegisterFile};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
 use crate::core::arch::csr::Csrs;
 use crate::core::hart::HartInit;
@@ -40,7 +40,7 @@ use crate::core::units::cache::Cache;
 use crate::core::units::mmu::pmp::Pmp;
 use crate::core::{Core, CoreUnits, Hart};
 use crate::isa::op::MemWidth;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;

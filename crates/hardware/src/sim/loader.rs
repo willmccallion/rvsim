@@ -4,7 +4,7 @@ use crate::common::{PhysAddr, SimError};
 use crate::config::Config;
 use crate::core::arch::csr;
 use crate::isa::encoding::privileged as sys_ops;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::sim::SimState;
 use crate::soc::interconnect::Bus;

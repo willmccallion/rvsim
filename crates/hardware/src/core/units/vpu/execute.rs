@@ -7,7 +7,6 @@
 //! `VecPrfView` on the O3 backend, a `ShadowVpr` on the in-order one) and
 //! returns the side effects for commit-time application.
 
-use crate::common::Trap;
 use crate::core::exec::inst::Inst;
 use crate::core::units::vpu::alu::{VecExecCtx, VecOperand, vec_execute};
 use crate::core::units::vpu::regfile::VectorRegFile;
@@ -15,6 +14,7 @@ use crate::core::units::vpu::{crypto, fpu, mask, mem, permute, reduction};
 use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::fp::RoundingMode;
 use crate::isa::op::{VecSrcEncoding, VectorOp};
+use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Vlmul, Vxrm, parse_vtype_with_elen};
 
 /// Build operand1 from pipeline latch data based on source encoding.

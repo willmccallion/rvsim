@@ -12,7 +12,7 @@ use crate::sim::state::write_log::WriteSeq;
 use std::collections::HashMap;
 
 use crate::common::InstSeq;
-use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo, Trap};
+use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo};
 use crate::core::exec::execute::CsrWrite;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
@@ -21,6 +21,7 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};
 use crate::isa::csr::CsrAddr;
 use crate::isa::instruction::InstSize;
+use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 

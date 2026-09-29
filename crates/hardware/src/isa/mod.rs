@@ -12,8 +12,8 @@ pub mod csr;
 /// Instruction disassembler for debug tracing and diagnostics.
 pub mod disasm;
 
-/// Vector instruction disassembler (RVV 1.0).
-pub mod disasm_vec;
+/// Opcode and function-field constants, one module per extension.
+pub mod encoding;
 
 /// Fence ordering sets.
 pub mod fence;
@@ -21,16 +21,13 @@ pub mod fence;
 /// Floating-point rounding modes and exception flags.
 pub mod fp;
 
-/// Opcode and function-field constants, one module per extension.
-pub mod encoding;
-
 /// Instruction sizes, field extraction, and decoding into fields.
 pub mod instruction;
 
 /// The operations instructions perform, as the decoder names them.
 pub mod op;
 
-/// Privileged architecture definitions (trap causes).
+/// Privileged architecture: privilege modes, traps, and cause codes.
 pub mod privileged;
 
 /// Architectural register indices and ABI names.

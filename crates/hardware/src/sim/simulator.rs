@@ -18,7 +18,7 @@
 use crate::common::SimError;
 use crate::config::Config;
 use crate::core::pipeline::engine::PipelineDispatch;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};

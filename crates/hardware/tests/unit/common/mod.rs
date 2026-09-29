@@ -3,13 +3,6 @@
 //! This module contains unit tests for fundamental RISC-V data structures and
 //! components, such as address types and register files.
 
-/// Unit tests for system-wide constants.
-///
-/// This module verifies that global constants are defined with correct values
-/// and maintain expected mathematical relationships, including page sizes,
-/// instruction masks, and delegation bits.
-pub mod constants;
-
 /// Unit tests for address arithmetic and type construction.
 ///
 /// This module verifies the behavior of virtual and physical address types,

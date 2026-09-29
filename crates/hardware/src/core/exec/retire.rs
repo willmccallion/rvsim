@@ -4,30 +4,27 @@
 //! stages and the atomic core. Each function changes only what it is
 //! given.
 
-use crate::common::constants::{
-    DELEG_MEIP_BIT, DELEG_MSIP_BIT, DELEG_MTIP_BIT, DELEG_SEIP_BIT, DELEG_SSIP_BIT, DELEG_STIP_BIT,
-    PAGE_SHIFT, VPN_MASK,
-};
-use crate::common::{Asid, SfenceVmaInfo, Trap, Vpn};
+use crate::common::{Asid, PAGE_SHIFT, SfenceVmaInfo, VPN_MASK, Vpn};
 use crate::core::Hart;
 use crate::core::arch::csr;
 use crate::core::arch::trap::TrapHandler;
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::vpu::shadow::VectorWrites;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 
 /// Interrupts in the privileged spec's fixed decreasing priority order (MEI,
-/// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit, mideleg bit)`.
-const INTERRUPT_PRIORITY: [(u64, u64, u64); 6] = [
-    (csr::MIP_MEIP, csr::MIE_MEIP, 1 << DELEG_MEIP_BIT),
-    (csr::MIP_MSIP, csr::MIE_MSIP, 1 << DELEG_MSIP_BIT),
-    (csr::MIP_MTIP, csr::MIE_MTIE, 1 << DELEG_MTIP_BIT),
-    (csr::MIP_SEIP, csr::MIE_SEIP, 1 << DELEG_SEIP_BIT),
-    (csr::MIP_SSIP, csr::MIE_SSIP, 1 << DELEG_SSIP_BIT),
-    (csr::MIP_STIP, csr::MIE_STIE, 1 << DELEG_STIP_BIT),
+/// MSI, MTI, SEI, SSI, STI), as `(mip bit, mie bit)`. `mideleg` delegates
+/// each interrupt at its `mip` bit position.
+const INTERRUPT_PRIORITY: [(u64, u64); 6] = [
+    (csr::MIP_MEIP, csr::MIE_MEIP),
+    (csr::MIP_MSIP, csr::MIE_MSIP),
+    (csr::MIP_MTIP, csr::MIE_MTIE),
+    (csr::MIP_SEIP, csr::MIE_SEIP),
+    (csr::MIP_SSIP, csr::MIE_SSIP),
+    (csr::MIP_STIP, csr::MIE_STIE),
 ];
 
 /// The interrupt `hart` takes now, if any: the highest-priority one
@@ -39,11 +36,11 @@ pub fn pending_interrupt(hart: &Hart) -> Option<Trap> {
     let s_global_ie = (csrs.mstatus & csr::MSTATUS_SIE) != 0;
     let privilege = hart.privilege;
 
-    let check = |bit: u64, enable_bit: u64, deleg_bit: u64| -> Option<Trap> {
+    let check = |bit: u64, enable_bit: u64| -> Option<Trap> {
         if (csrs.mip & bit) == 0 || (csrs.mie & enable_bit) == 0 {
             return None;
         }
-        let delegated = (csrs.mideleg & deleg_bit) != 0;
+        let delegated = (csrs.mideleg & bit) != 0;
         let target = if delegated { PrivilegeMode::Supervisor } else { PrivilegeMode::Machine };
         let below = privilege.to_u8() < target.to_u8();
         let enabled_here = privilege == target
@@ -59,8 +56,8 @@ pub fn pending_interrupt(hart: &Hart) -> Option<Trap> {
     [false, true].into_iter().find_map(|to_supervisor| {
         INTERRUPT_PRIORITY
             .iter()
-            .filter(|&&(_, _, deleg_bit)| (csrs.mideleg & deleg_bit != 0) == to_supervisor)
-            .find_map(|&(bit, enable_bit, deleg_bit)| check(bit, enable_bit, deleg_bit))
+            .filter(|&&(bit, _)| (csrs.mideleg & bit != 0) == to_supervisor)
+            .find_map(|&(bit, enable_bit)| check(bit, enable_bit))
     })
 }
 
@@ -179,7 +176,7 @@ mod tests {
         state.hart.csrs.mip = csr::MIP_SEIP;
         state.hart.csrs.mie = csr::MIE_SEIP;
         state.hart.csrs.mstatus |= csr::MSTATUS_SIE;
-        state.hart.csrs.mideleg |= 1 << DELEG_SEIP_BIT;
+        state.hart.csrs.mideleg |= csr::MIP_SEIP;
         state.hart.privilege = PrivilegeMode::Supervisor;
 
         assert_eq!(pending_interrupt(state.hart), Some(Trap::SupervisorExternalInterrupt));

@@ -4,6 +4,7 @@
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::opcodes;
+use crate::isa::encoding::rvc;
 use crate::isa::reg::RegIdx;
 
 /// The size of an instruction in bytes (2 for compressed RVC, 4 for standard RV64).
@@ -25,6 +26,13 @@ impl InstSize {
             Self::Standard => 4,
         }
     }
+}
+
+/// Whether the instruction whose low 16 bits are `low_half` is a 16-bit
+/// compressed one.
+#[must_use]
+pub const fn is_compressed(low_half: u16) -> bool {
+    low_half & rvc::QUADRANT_MASK != rvc::NOT_COMPRESSED
 }
 
 /// Bit mask for extracting the opcode field (bits 0-6).

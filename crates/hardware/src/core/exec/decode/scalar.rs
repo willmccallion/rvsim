@@ -2,7 +2,6 @@
 
 use super::vector;
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
-use crate::common::error::Trap;
 use crate::core::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
@@ -18,6 +17,7 @@ use crate::isa::encoding::zicboz;
 use crate::isa::fp::RoundingMode;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
+use crate::isa::privileged::Trap;
 
 /// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
 const FUNCT7_ALT_BIT: u32 = 0x20;

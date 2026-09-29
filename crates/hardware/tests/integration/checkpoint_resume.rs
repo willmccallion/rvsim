@@ -9,7 +9,7 @@ use rvsim_core::coherence::CoherenceFabric;
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::{Config, HomeAgentConfig};
 use rvsim_core::core::pipeline::engine::BackendType;
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::sim::checkpoint::CheckpointError;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;

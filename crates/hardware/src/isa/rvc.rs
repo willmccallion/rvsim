@@ -6,11 +6,11 @@
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::{funct3, funct7, opcodes};
-use crate::isa::encoding::rvc::{QUADRANT_0, QUADRANT_1, QUADRANT_2, q0, q1, q2};
+use crate::isa::encoding::rvc::{QUADRANT_0, QUADRANT_1, QUADRANT_2, QUADRANT_MASK, q0, q1, q2};
 
 /// Expands a 16-bit RVC instruction into its 32-bit equivalent.
 pub const fn expand(inst: u16) -> u32 {
-    let op = inst & 0x3;
+    let op = inst & QUADRANT_MASK;
     let funct3 = (inst >> 13) & 0x7;
 
     match op {

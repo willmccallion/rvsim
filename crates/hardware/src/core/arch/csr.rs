@@ -149,9 +149,9 @@ pub enum CboInvalAction {
 pub const fn cboz_allowed(
     menvcfg: u64,
     senvcfg: u64,
-    privilege: crate::isa::privileged::mode::PrivilegeMode,
+    privilege: crate::isa::privileged::PrivilegeMode,
 ) -> bool {
-    use crate::isa::privileged::mode::PrivilegeMode;
+    use crate::isa::privileged::PrivilegeMode;
     match privilege {
         PrivilegeMode::Machine => true,
         PrivilegeMode::Supervisor => (menvcfg & MENVCFG_CBZE) != 0,
@@ -165,9 +165,9 @@ pub const fn cboz_allowed(
 pub const fn cbocf_allowed(
     menvcfg: u64,
     senvcfg: u64,
-    privilege: crate::isa::privileged::mode::PrivilegeMode,
+    privilege: crate::isa::privileged::PrivilegeMode,
 ) -> bool {
-    use crate::isa::privileged::mode::PrivilegeMode;
+    use crate::isa::privileged::PrivilegeMode;
     match privilege {
         PrivilegeMode::Machine => true,
         PrivilegeMode::Supervisor => (menvcfg & MENVCFG_CBCFE) != 0,
@@ -182,9 +182,9 @@ pub const fn cbocf_allowed(
 pub const fn cbo_inval_action(
     menvcfg: u64,
     senvcfg: u64,
-    privilege: crate::isa::privileged::mode::PrivilegeMode,
+    privilege: crate::isa::privileged::PrivilegeMode,
 ) -> CboInvalAction {
-    use crate::isa::privileged::mode::PrivilegeMode;
+    use crate::isa::privileged::PrivilegeMode;
     let m_field = (menvcfg >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK;
     let s_field = (senvcfg >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK;
     let effective = match privilege {

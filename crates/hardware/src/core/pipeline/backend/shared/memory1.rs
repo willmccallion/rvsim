@@ -30,7 +30,7 @@
 //!     resolves the store buffer and checks for ordering violations.
 
 use crate::common::{
-    AccessType, DirtyUpdates, ExceptionStage, PhysAddr, TranslationResult, Trap, VirtAddr,
+    AccessType, DirtyUpdates, ExceptionStage, PhysAddr, TranslationResult, VirtAddr,
 };
 use crate::core::exec::cbo;
 use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
@@ -48,6 +48,7 @@ use crate::core::pipeline::vec_store_buffer::SpanForward;
 use crate::core::units::lsu::unaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AtomicOp, MemWidth};
+use crate::isa::privileged::Trap;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};

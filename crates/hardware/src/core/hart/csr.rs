@@ -3,7 +3,7 @@
 use super::Hart;
 use crate::core::arch::csr;
 use crate::isa::csr::CsrAddr;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::PrivilegeMode;
 
 impl Hart {
     /// Returns `true` if the given CSR address corresponds to a CSR that is

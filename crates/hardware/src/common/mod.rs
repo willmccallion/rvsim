@@ -3,9 +3,6 @@
 /// Address type definitions (physical and virtual addresses).
 pub mod addr;
 
-/// Common constants used throughout the simulator.
-pub mod constants;
-
 /// Memory access type definitions.
 pub mod data;
 
@@ -21,11 +18,12 @@ pub mod sim_error;
 /// Hart and physical-core identifier newtypes.
 pub mod ids;
 
-pub use addr::{Asid, IrqId, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
-pub use constants::{PAGE_SHIFT, VPN_MASK};
+pub use addr::{
+    Asid, IrqId, LineAddr, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, Ppn, VPN_MASK, VirtAddr, Vpn,
+};
 pub use data::AccessType;
 pub use error::{
-    DirtyUpdates, ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, TranslationResult, Trap,
+    DirtyUpdates, ExceptionStage, LrScRecord, PteUpdate, SfenceVmaInfo, TranslationResult,
 };
 pub use ids::{CoreId, HartId, InstSeq};
 pub use reg::RegisterFile;

@@ -4,7 +4,6 @@
 //! privilege and CSR checks that decide what a system instruction does.
 
 use crate::common::SfenceVmaInfo;
-use crate::common::error::Trap;
 use crate::core::Hart;
 use crate::core::arch::csr;
 use crate::core::exec::arch::ArchState;
@@ -18,7 +17,7 @@ use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::RoundingMode;
 use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
 const FUNCT3_SHIFT: u32 = 12;
@@ -322,7 +321,7 @@ pub const fn branch_taken(inst: u32, op_a: u64, op_b: u64) -> bool {
 /// Whether `inst` is a JALR (rather than a JAL).
 #[must_use]
 pub const fn is_jalr(inst: &Inst) -> bool {
-    (inst.bits & crate::common::constants::OPCODE_MASK) == opcodes::OP_JALR
+    (inst.bits & crate::isa::instruction::OPCODE_MASK) == opcodes::OP_JALR
 }
 
 /// Where the JAL or JALR `id` jumps.

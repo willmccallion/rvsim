@@ -13,7 +13,7 @@ pub mod execute;
 pub mod issue;
 mod rename;
 
-use crate::common::error::{ExceptionStage, Trap};
+use crate::common::error::ExceptionStage;
 use crate::config::Config;
 use crate::core::exec::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::commit::{
@@ -33,6 +33,7 @@ use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::pipeline::vec_store_buffer::VecStoreBuffer;
 use crate::core::units::vpu::mem::{is_vec_load, is_vec_store};
 use crate::core::units::vpu::shadow::ElementWrite;
+use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};

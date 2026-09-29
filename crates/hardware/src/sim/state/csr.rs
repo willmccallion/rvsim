@@ -1,10 +1,10 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
 use super::{CoreCtx, SharedState};
-use crate::common::Trap;
 use crate::core::Hart;
 use crate::core::arch::csr;
 use crate::isa::csr::CsrAddr;
+use crate::isa::privileged::Trap;
 
 /// The value a CSR read-modify-write starts from. `mip` reads SEIP as
 /// the OR of the PLIC's line and the software bit, but only the

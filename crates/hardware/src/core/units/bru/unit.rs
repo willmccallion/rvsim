@@ -55,17 +55,16 @@ impl ControlInst {
     /// decode knows once it has the encoding. `size` is its length in bytes.
     #[must_use]
     pub fn from_encoding(pc: u64, size: u64, inst: u32) -> Option<Self> {
-        use crate::common::constants::{OPCODE_MASK, RD_MASK, RD_SHIFT, RS1_MASK, RS1_SHIFT};
         use crate::isa::encoding::rv64i::opcodes;
-        use crate::isa::instruction::{decode_b_type_imm, decode_j_type_imm};
+        use crate::isa::instruction::{InstructionBits, decode_b_type_imm, decode_j_type_imm};
         use crate::isa::reg;
         use crate::isa::reg::RegIdx;
 
-        let rd = RegIdx::new(((inst >> RD_SHIFT) & RD_MASK) as u8);
-        let rs1 = RegIdx::new(((inst >> RS1_SHIFT) & RS1_MASK) as u8);
+        let rd = inst.rd();
+        let rs1 = inst.rs1();
         let is_link = |reg: RegIdx| reg == reg::REG_RA || reg == reg::REG_T0;
         let link = is_link(rd).then(|| pc.wrapping_add(size));
-        match inst & OPCODE_MASK {
+        match inst.opcode() {
             opcodes::OP_BRANCH => {
                 Some(Self::Branch { target: pc.wrapping_add(decode_b_type_imm(inst) as u64) })
             }

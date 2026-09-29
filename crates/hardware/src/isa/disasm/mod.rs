@@ -21,7 +21,9 @@
 //! assert_eq!(text, "addi x10, x0, 10");
 //! ```
 
-use crate::isa::disasm_vec;
+/// Vector instruction disassembly (RVV 1.0).
+pub mod vector;
+
 use crate::isa::encoding::privileged as sys_op;
 use crate::isa::encoding::rv64a::{funct5 as a_f5, opcodes as a_op};
 use crate::isa::encoding::rv64d::funct7 as d_f7;
@@ -114,7 +116,7 @@ pub fn disassemble(inst: u32) -> String {
             format!("{mn} {}, {imm_i}({})", xreg(rd), xreg(rs1))
         }
         f_op::OP_LOAD_FP => match f3 {
-            0b000 | 0b101 | 0b110 | 0b111 => disasm_vec::disasm_vec_load(inst),
+            0b000 | 0b101 | 0b110 | 0b111 => vector::disasm_vec_load(inst),
             _ => {
                 let mn = if f3 == i_f3::LW { "flw" } else { "fld" };
                 format!("{mn} {}, {imm_i}({})", freg(rd), xreg(rs1))
@@ -132,7 +134,7 @@ pub fn disassemble(inst: u32) -> String {
             format!("{mn} {}, {imm_s}({})", xreg(rs2), xreg(rs1))
         }
         f_op::OP_STORE_FP => match f3 {
-            0b000 | 0b101 | 0b110 | 0b111 => disasm_vec::disasm_vec_store(inst),
+            0b000 | 0b101 | 0b110 | 0b111 => vector::disasm_vec_store(inst),
             _ => {
                 let mn = if f3 == i_f3::SW { "fsw" } else { "fsd" };
                 format!("{mn} {}, {imm_s}({})", freg(rs2), xreg(rs1))
@@ -214,7 +216,7 @@ pub fn disassemble(inst: u32) -> String {
 
         sys_op::OP_SYSTEM => disasm_system(inst, rd, rs1, f3),
 
-        v_opcodes::OP_V => disasm_vec::disasm_vec_arith(inst),
+        v_opcodes::OP_V => vector::disasm_vec_arith(inst),
 
         _ => format!("unknown ({inst:#010x})"),
     }

@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use rvsim_core::Simulator;
 use rvsim_core::common::HartId;
 use rvsim_core::isa::csr::CsrAddr;
-use rvsim_core::isa::privileged::mode::PrivilegeMode;
+use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::sim::loader;
 use std::io::Write;
 use std::io::{BufReader, BufWriter};

@@ -139,7 +139,7 @@ pub trait ExecutionEngine {
 pub struct PendingTrap {
     /// The exception, or the interrupt as it was when detected; an
     /// interrupt is re-evaluated when taken.
-    pub trap: crate::common::error::Trap,
+    pub trap: crate::isa::privileged::Trap,
     /// The PC the trap reports.
     pub epc: u64,
     /// The cycle the pipeline squashes into the handler.

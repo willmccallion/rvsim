@@ -15,10 +15,10 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
-use crate::common::{ExceptionStage, PhysAddr, Trap};
+use crate::common::{ExceptionStage, PhysAddr};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
-use crate::isa::instruction::InstSize;
+use crate::isa::instruction::{InstSize, is_compressed};
+use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
 use crate::sim::StageCtx;
 use crate::{trace_fetch, trace_trap};
@@ -70,8 +70,7 @@ pub fn fetch2_stage(
 
         let phys_addr = f1.paddr.val();
         let half_word = read_inst_half(state, phys_addr);
-        let is_compressed =
-            (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
+        let is_compressed = is_compressed(half_word);
 
         let (inst, step, inst_trap) = if is_compressed {
             let expanded = expand(half_word);

@@ -12,10 +12,10 @@ pub mod ptw;
 
 pub mod tlb;
 
-use crate::common::{AccessType, Asid, PhysAddr, TranslationResult, Trap, VirtAddr, Vpn};
+use crate::common::{AccessType, Asid, PhysAddr, TranslationResult, VirtAddr, Vpn};
 use crate::core::arch::csr::{Csrs, PagingMode};
 use crate::core::units::mmu::pmp::Pmp;
-use crate::isa::privileged::mode::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
 use self::tlb::{Tlb, TlbGeometry, TlbHit};
@@ -96,7 +96,7 @@ impl Mmu {
         csrs: &Csrs,
         pmp: Option<&Pmp>,
     ) -> TranslateOutcome {
-        use crate::common::constants::{PAGE_SHIFT, VPN_MASK};
+        use crate::common::{PAGE_SHIFT, VPN_MASK};
         use crate::core::arch::csr::{
             MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
             SATP_MODE_SHIFT,

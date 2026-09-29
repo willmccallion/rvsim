@@ -26,15 +26,15 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::constants::{COMPRESSED_INSTRUCTION_MASK, COMPRESSED_INSTRUCTION_VALUE};
-use crate::common::{AccessType, ExceptionStage, InstSeq, LineAddr, PhysAddr, Trap, VirtAddr};
+use crate::common::{AccessType, ExceptionStage, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::core::arch::csr;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::ControlInst;
 use crate::core::units::bru::btb::BranchKind;
-use crate::isa::instruction::InstSize;
+use crate::isa::instruction::{InstSize, is_compressed};
+use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
 use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
@@ -386,8 +386,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let phys_addr = paddr.val();
         let mut line = LineAddr::from_phys(paddr, line_bytes);
         let half_word = read_inst_half(state, phys_addr);
-        let is_compressed =
-            (half_word & COMPRESSED_INSTRUCTION_MASK) != COMPRESSED_INSTRUCTION_VALUE;
+        let is_compressed = is_compressed(half_word);
         let step = if is_compressed { InstSize::Compressed } else { InstSize::Standard };
 
         // A 32-bit instruction whose upper half lies in the next line
