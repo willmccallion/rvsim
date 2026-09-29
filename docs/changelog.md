@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `rvsim.presets` gains `cortex_a72()`, `m1()` and `p550()`, replacing the
+  machine configs under `scripts/benchmarks`.
+- Comparisons (`Result.compare`, `Sweep.run().compare`, `Stats.tabulate`),
+  `rvsim --watch` and the analysis examples read stats by path
+  (`core0.cache.l1d.misses`, `core0.bp.committed.accuracy`). The flat names
+  they used (`dcache_misses`, `branch_accuracy_pct`, `stalls_data`) no longer
+  exist, so those tables printed empty cells and `--watch` failed.
+  `Stats.from_core` reports whole-number counters as ints.
+- Configs that use vector functional units can be pickled, so `Sweep` runs
+  them in parallel.
+- Repository layout: the test runners moved from `testing/` to
+  `tests/conformance`, the analysis scripts to `examples/analysis`, and the
+  gem5 comparison, baseline recorders and Linux boot driver to `tools/`.
+  The Python package is split into `rvsim.config`, `rvsim.session` and
+  `rvsim.cli`; the names exported from `rvsim` are unchanged.
+- `rvsim-core` modules are layered (`common`, `isa`, `config`, `arch`,
+  `exec`, `sim`, `soc`, `uarch`, `system`), each depending only on the ones
+  before it. Rust paths into the crate have changed. At the crate root,
+  `SimState` is now `SystemState` and `SharedState` is `Uncore`; the other
+  re-exports are unchanged.
 - Multi-core systems: `Config(hart_count=N)` builds N cores with private
   caches, per-hart CLINT/PLIC contexts and device-tree entries; bare-metal
   programs start every hart with its id in `a0`.
