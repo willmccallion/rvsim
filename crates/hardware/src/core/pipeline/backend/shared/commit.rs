@@ -11,6 +11,7 @@ use crate::common::{LrScRecord, PhysAddr, PteUpdate, RegIdx, Trap};
 use crate::core::arch::csr;
 use crate::core::arch::vpr::Vpr;
 use crate::core::exec::cbo::CboEffect;
+use crate::core::exec::retire;
 use crate::core::exec::signals::{AluOp, ControlFlow, MemWidth, SystemOp, VectorOp};
 use crate::core::pipeline::checkpoint::{CheckpointId, CheckpointTable};
 use crate::core::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
@@ -178,7 +179,8 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     {
         let epc = rob.peek_head().map_or(state.hart.pc, |head| head.pc);
 
-        let interrupt = state.pending_interrupt().filter(|_| !device_access_in_flight(common, rob));
+        let interrupt =
+            retire::pending_interrupt(state.hart).filter(|_| !device_access_in_flight(common, rob));
         if let Some(interrupt_trap) = interrupt {
             // Fetch stops and everything already fetched retires first
             // (gem5 waits for its instruction list to empty); a WFI's
@@ -403,7 +405,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             entry.pc,
         );
         if entry.ctrl.fp_reg_write {
-            state.retire_fp_write(entry.rd, val);
+            retire::write_fp(state.hart, entry.rd, val);
             registers.retire_scalar(&entry, true);
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
@@ -416,7 +418,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 "CM: FP register write"
             );
         } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
-            state.retire_int_write(entry.rd, val);
+            retire::write_int(state.hart, entry.rd, val);
             registers.retire_scalar(&entry, false);
             trace_commit!(state.config.general.trace_instructions;
                 pc       = %crate::trace::Hex(entry.pc),
@@ -431,7 +433,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if let Some(writes) = &entry.vec_writes {
-            state.retire_vector_writes(writes);
+            retire::apply_vector_writes(state.hart, writes);
         }
 
         if entry.vec_dst_count > 0 {
@@ -440,7 +442,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
                 let vreg = VRegIdx::new(vd_base + i as u8);
                 registers.retire_vec(state.hart.regs.vpr_mut(), &entry, i, vreg);
             }
-            state.mark_vector_retired();
+            retire::mark_vector_retired(state.hart);
         }
 
         #[cfg(feature = "commit-log")]
@@ -469,7 +471,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         // Apply fp_flags before CSR writes to keep execute-time CSR reads of fflags consistent.
-        state.accrue_fp_flags(entry.fp_flags);
+        retire::accrue_fp_flags(state.hart, entry.fp_flags);
 
         if entry.vxsat {
             state.hart.csrs.vxsat = 1;
@@ -480,7 +482,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if let Some(vector) = entry.vec_csr_update {
-            state.retire_vector_config(vector);
+            retire::apply_vector_config(state.hart, vector);
         }
 
         if let Some(csr_update) = entry.csr_update {
@@ -544,7 +546,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
 
         if entry.ctrl.system_op == SystemOp::Wfi {
-            if !state.retire_wfi() {
+            if !retire::wfi(state.hart) {
                 event =
                     Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             }
@@ -583,7 +585,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         if entry.ctrl.system_op == SystemOp::FenceI {
             // Older stores have completed (stall above); refills see them.
-            state.retire_fence_i();
+            retire::fence_i(&mut state.core.l1_i_cache);
             // FENCE.I serializes: younger instructions were fetched before it.
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
@@ -591,7 +593,8 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 
         // SFENCE.VMA: SB is empty (stall above). Flush TLBs, clear reservation, full squash.
         if let Some(info) = entry.sfence_vma {
-            state.retire_sfence_vma(&info);
+            retire::sfence_vma(&mut state.core.mmu, &info);
+            state.clear_reservation();
             event = Some(CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
             break;
         }
@@ -674,7 +677,7 @@ fn schedule_trap(
 /// which may differ from what was detected, or be nothing at all.
 fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<CommitEvent> {
     let (is_interrupt, _) = pending.trap.cause();
-    let trap = if is_interrupt { state.pending_interrupt()? } else { pending.trap };
+    let trap = if is_interrupt { retire::pending_interrupt(state.hart)? } else { pending.trap };
     if is_interrupt {
         state.hart.wfi_waiting = false;
     }
