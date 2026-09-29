@@ -15,7 +15,7 @@ use rvsim_core::Simulator;
 use rvsim_core::common::HartId;
 use rvsim_core::isa::csr::CsrAddr;
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::sim::loader;
+use rvsim_core::system::loader;
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -66,7 +66,7 @@ impl PySimulator {
     /// Runs for up to `limit` cycles, or until the workload exits, checking
     /// Python signals as it goes.
     fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
-        use rvsim_core::sim::simulator::{StopAt, StopReason};
+        use rvsim_core::system::simulator::{StopAt, StopReason};
         let stop = StopAt { cycles: limit, ..StopAt::default() };
         let mut interrupted = None;
         let reason = self
@@ -638,7 +638,7 @@ impl PySimulator {
         guest_breaks: bool,
         console_output: bool,
     ) -> PyResult<(String, Option<u64>)> {
-        use rvsim_core::sim::simulator::{StopAt, StopReason};
+        use rvsim_core::system::simulator::{StopAt, StopReason};
         let pcs = match pc {
             None => Vec::new(),
             Some(PcStop::One(pc)) => vec![pc],
@@ -704,7 +704,7 @@ impl PySimulator {
     ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
     fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::sim::state::memory::TranslateResult;
+        use rvsim_core::system::state::memory::TranslateResult;
         // The Python binding can't park on a TLB miss, so we walk the PTW
         // synchronously here — emit each PTE MemReq, drain it inline, and
         // continue. This is an FFI-boundary helper; pipeline stages never

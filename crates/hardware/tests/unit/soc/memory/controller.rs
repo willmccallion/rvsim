@@ -13,12 +13,12 @@ use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{AccessSize, MemOp, Packet, WriteData};
-use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, SimpleController,
 };
+use rvsim_core::system::state::global_memory::GlobalMemory;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 

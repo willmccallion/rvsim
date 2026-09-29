@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use super::protocol::CoreSet;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::packet::MesiState;
-use crate::sim::state::SimState;
+use crate::system::state::SimState;
 
 /// One broken invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]

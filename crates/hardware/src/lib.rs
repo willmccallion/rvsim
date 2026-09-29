@@ -18,14 +18,17 @@ pub mod arch;
 /// Instruction semantics shared by every engine: decode, execute, retire.
 pub mod exec;
 
+/// Simulation kernel: events, packets, component ids, stats, tracing.
+pub mod sim;
+
 /// Microarchitecture: the timing model of a core.
 pub mod uarch;
 
-/// System-on-chip: bus, devices and memory.
+/// System-on-chip: bus, coherence, devices and memory.
 pub mod soc;
 
-/// Simulation: the `Simulator`, its state, loading and statistics.
-pub mod sim;
+/// The whole simulated system: `Simulator`, its state, loading, checkpoints.
+pub mod system;
 
 /// Address Space Identifier (ASID) from SATP[59:44]; prevents mixing with raw `u16` values.
 pub use crate::common::Asid;
@@ -40,6 +43,6 @@ pub use crate::isa::csr::CsrAddr;
 /// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
 pub use crate::isa::reg::RegIdx;
 /// Top-level simulator; owns the `SimState` and pipeline side-by-side.
-pub use crate::sim::simulator::Simulator;
+pub use crate::system::simulator::Simulator;
 /// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
-pub use crate::sim::{CoreCtx, SharedState, SimState, StageCtx};
+pub use crate::system::{CoreCtx, SharedState, SimState, StageCtx};

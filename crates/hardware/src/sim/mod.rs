@@ -1,21 +1,12 @@
-//! Simulation: builds the system, drives it cycle by cycle, and reports.
+//! The simulation kernel every timed component is built on.
 //!
-//! The `Simulator` owns the simulated chip and the bench-side state; this
-//! layer also loads programs, builds the device tree, saves and restores
-//! checkpoints, and collects statistics.
+//! The event queue and the `Handle` components receive events through, the
+//! packets they exchange, the identifiers that address them, statistics,
+//! and tracing.
 
-pub mod checkpoint;
 pub mod components;
-pub mod debug;
-pub mod dtb;
 pub mod events;
 pub mod handle;
-pub mod loader;
 pub mod packet;
-pub mod simulator;
-pub mod state;
 pub mod stats;
-pub mod topology;
 pub mod trace;
-
-pub use self::state::{CoreCtx, SharedState, SimState, StageCtx};

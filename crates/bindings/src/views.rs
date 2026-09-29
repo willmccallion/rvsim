@@ -269,7 +269,7 @@ pub struct VirtualMemory {
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
         use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::sim::state::memory::TranslateResult;
+        use rvsim_core::system::state::memory::TranslateResult;
 
         let mut cpu = self.cpu.borrow_mut(py);
         // FFI-boundary translate: synchronously drive the walk inline,

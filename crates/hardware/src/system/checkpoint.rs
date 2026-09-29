@@ -20,7 +20,7 @@ use crate::arch::pmp::PmpEntry;
 use crate::common::PhysAddr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
-use crate::sim::simulator::Simulator;
+use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
 /// The checkpoint format this build writes and restores.

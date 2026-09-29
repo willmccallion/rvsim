@@ -14,7 +14,7 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::trace_rename;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};

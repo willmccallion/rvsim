@@ -5,8 +5,8 @@
 
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData};
-use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::soc::memory::RamRegion;
+use rvsim_core::system::state::global_memory::GlobalMemory;
 
 const H0: HartId = HartId::new(0);
 const H1: HartId = HartId::new(1);

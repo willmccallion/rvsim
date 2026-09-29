@@ -8,8 +8,8 @@ use crate::common::multihart::{DATA_BASE, MultiHart};
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::{Config, HomeAgentConfig};
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::sim::checkpoint::CheckpointError;
 use rvsim_core::soc::coherence::CoherenceFabric;
+use rvsim_core::system::checkpoint::CheckpointError;
 use rvsim_core::uarch::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;

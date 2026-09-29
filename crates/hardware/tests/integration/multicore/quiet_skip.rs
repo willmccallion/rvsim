@@ -7,8 +7,8 @@
 use crate::common::builder::instruction::{ECALL, InstructionBuilder};
 use crate::common::multihart::MultiHart;
 use rvsim_core::config::{Config, Console, InterconnectConfig, MemoryController};
-use rvsim_core::sim::simulator::{StopAt, StopReason};
 use rvsim_core::sim::stats::StatFormat;
+use rvsim_core::system::simulator::{StopAt, StopReason};
 
 const T0: u32 = 5;
 const T1: u32 = 6;

@@ -27,7 +27,7 @@ use crate::arch::reservation::LrScRecord;
 use crate::common::PhysAddr;
 use crate::exec::memory::load_result;
 use crate::isa::op::{AtomicOp, MemWidth};
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::trace_fwd;
 use crate::trace_mem;
 use crate::trace_trap;

@@ -8,7 +8,7 @@ use crate::exec::execute::{branch_taken, check_target_alignment, is_jalr, jump_t
 use crate::exec::signals::ControlFlow;
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{BpOutcome, Rob};

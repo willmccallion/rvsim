@@ -5,7 +5,7 @@
 
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::config::Config;
-use rvsim_core::sim::SimState;
+use rvsim_core::system::SimState;
 
 const H0: HartId = HartId::new(0);
 const H1: HartId = HartId::new(1);

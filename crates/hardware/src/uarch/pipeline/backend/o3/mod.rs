@@ -16,7 +16,7 @@ use crate::exec::compute::vector::mem::{generate_element_addrs_vrf, is_vec_store
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::AtomicOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlen};
-use crate::sim::CoreCtx;
+use crate::system::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
@@ -211,7 +211,7 @@ impl O3Engine {
     /// Copy initial architectural register values into the identity-mapped PRF slots.
     ///
     /// Must be called after CPU register init but before the first pipeline tick.
-    pub fn sync_arch_regs(&mut self, state: &crate::sim::CoreCtx<'_>) {
+    pub fn sync_arch_regs(&mut self, state: &crate::system::CoreCtx<'_>) {
         use crate::isa::reg::RegIdx;
         use crate::isa::rvv::VRegIdx;
         use crate::uarch::pipeline::rename::prf::PhysReg;
@@ -1161,7 +1161,7 @@ impl ExecutionEngine for O3Engine {
 
     fn rename(
         &mut self,
-        state: &mut crate::sim::StageCtx<'_>,
+        state: &mut crate::system::StageCtx<'_>,
         id: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
         self.rename_one(state, id)
@@ -1211,7 +1211,7 @@ mod tests {
     #[test]
     fn test_o3_engine_new_and_flush() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let mut engine = O3Engine::new(
@@ -1229,7 +1229,7 @@ mod tests {
     #[test]
     fn test_o3_engine_sync_arch_regs() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let state = sys.core_ctx(0);
         let mut engine = O3Engine::new(
             &config,

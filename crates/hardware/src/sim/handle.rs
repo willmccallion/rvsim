@@ -9,8 +9,8 @@ use crate::config::Config;
 use crate::sim::components::ComponentId;
 use crate::sim::events::EventQueue;
 use crate::sim::packet::Packet;
-use crate::sim::state::global_memory::GlobalMemory;
 use crate::sim::stats::Stats;
+use crate::system::state::global_memory::GlobalMemory;
 
 /// Borrow bundle passed to every `Handle::handle` invocation.
 ///

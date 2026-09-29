@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn test_track_mode_cycles() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let paths = state.hart_paths();
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn test_post_tick_zero_reg() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.regs.write(reg::REG_ZERO, 42);

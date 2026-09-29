@@ -10,7 +10,7 @@ use crate::common::InstSeq;
 use crate::config::Config;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
-use crate::sim::topology::{CoreTopology, PrivateCache};
+use crate::system::topology::{CoreTopology, PrivateCache};
 use crate::uarch::bpred::BranchPredictorWrapper;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;
@@ -57,7 +57,7 @@ pub trait ExecutionEngine {
     /// FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
-        state: &mut crate::sim::CoreCtx<'_>,
+        state: &mut crate::system::CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect: &mut Option<u64>,
     );
@@ -70,15 +70,15 @@ pub trait ExecutionEngine {
     /// returns the entry the issue stage works on, or hands the
     /// instruction back when a resource `can_accept` does not cover is
     /// short; the frontend retries it next cycle.
-    fn rename(&mut self, state: &mut crate::sim::StageCtx<'_>, id: IdExEntry) -> Renamed;
+    fn rename(&mut self, state: &mut crate::system::StageCtx<'_>, id: IdExEntry) -> Renamed;
 
     /// Flush all speculative state. Committed stores in the store buffer remain.
-    fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>);
+    fn flush(&mut self, state: &mut crate::system::CoreCtx<'_>);
 
     /// Sends the next write of a committed store still buffered, as the
     /// commit stage does each cycle. Returns whether any committed store's
     /// write has yet to be acknowledged.
-    fn send_committed_write(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool;
+    fn send_committed_write(&mut self, state: &mut crate::system::CoreCtx<'_>) -> bool;
 
     /// The vector configuration an instruction decoded now runs under: the
     /// result of the youngest executed `vsetvl` still in the ROB, else the
@@ -530,7 +530,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     ///    re-inject into Execute→Memory1; completed fetches land in F1→F2.
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
-    pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+    pub fn tick(&mut self, state: &mut crate::system::CoreCtx<'_>) {
         crate::uarch::pipeline::mailbox::drain(self, &mut state.stage());
 
         let frontend_empty = self.frontend.is_empty()
@@ -567,14 +567,14 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// One cycle of draining a flushed pipeline: takes the memory system's
     /// acknowledgements and sends the next committed store's write. Returns
     /// whether any committed store has yet to finish writing.
-    pub fn drain_writes(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool {
+    pub fn drain_writes(&mut self, state: &mut crate::system::CoreCtx<'_>) -> bool {
         crate::uarch::pipeline::mailbox::drain(self, &mut state.stage());
         self.engine.send_committed_write(state)
     }
 
     /// Flush the entire pipeline; fetch restarts at the hart's
     /// architectural PC.
-    pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+    pub fn flush(&mut self, state: &mut crate::system::CoreCtx<'_>) {
         self.frontend.fetch_pc = state.hart.pc;
         self.redirect = None;
         self.discard_frontend_speculation();
@@ -634,7 +634,7 @@ impl PipelineDispatch {
     }
 
     /// Run one cycle.
-    pub fn tick(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+    pub fn tick(&mut self, state: &mut crate::system::CoreCtx<'_>) {
         match self {
             Self::InOrder(p) => p.tick(state),
             Self::OutOfOrder(p) => p.tick(state),
@@ -668,7 +668,7 @@ impl PipelineDispatch {
     }
 
     /// Flush.
-    pub fn flush(&mut self, state: &mut crate::sim::CoreCtx<'_>) {
+    pub fn flush(&mut self, state: &mut crate::system::CoreCtx<'_>) {
         match self {
             Self::InOrder(p) => p.flush(state),
             Self::OutOfOrder(p) => p.flush(state),
@@ -676,7 +676,7 @@ impl PipelineDispatch {
     }
 
     /// See [`Pipeline::drain_writes`].
-    pub fn drain_writes(&mut self, state: &mut crate::sim::CoreCtx<'_>) -> bool {
+    pub fn drain_writes(&mut self, state: &mut crate::system::CoreCtx<'_>) -> bool {
         match self {
             Self::InOrder(p) => p.drain_writes(state),
             Self::OutOfOrder(p) => p.drain_writes(state),
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
         let config = crate::config::Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let frontend = Frontend::new(state.hart.pc);

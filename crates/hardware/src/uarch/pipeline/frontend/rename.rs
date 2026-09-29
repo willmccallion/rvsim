@@ -2,7 +2,7 @@
 //! allocates its backend slots (ROB, store buffer, physical registers or
 //! scoreboard tags) and returns the entry the issue stage works on.
 
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
 

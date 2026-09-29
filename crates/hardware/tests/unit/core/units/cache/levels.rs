@@ -17,9 +17,9 @@ use rvsim_core::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
     ProbeKind, WriteData,
 };
-use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::memory::RamRegion;
+use rvsim_core::system::state::global_memory::GlobalMemory;
 use rvsim_core::uarch::cache::Cache;
 
 const LATENCY: u64 = 2;

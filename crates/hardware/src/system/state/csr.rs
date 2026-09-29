@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_mstatus() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn mstatus_reads_sd_when_only_the_vector_state_is_dirty() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, csr::MSTATUS_VS_DIRTY);
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_cpu_csr_read_write_fcsr() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::FCSR, 0xFF);

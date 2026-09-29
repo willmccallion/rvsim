@@ -11,7 +11,7 @@
 use crate::arch::translation::TranslationResult;
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
 use crate::sim::packet::MemRespData;
-use crate::sim::state::write_log::WriteSeq;
+use crate::system::state::write_log::WriteSeq;
 use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry, VecMemAccess, VecMemTarget};
 
@@ -197,7 +197,7 @@ pub struct OutstandingStore {
 /// access info). `pte_addr` is the physical address of the PTE the walker
 /// is currently waiting on — the drain stage reads its 64-bit value from
 /// the RAM fast path before handing it to
-/// [`CoreCtx::translate_continue`](crate::sim::CoreCtx::translate_continue).
+/// [`CoreCtx::translate_continue`](crate::system::CoreCtx::translate_continue).
 /// `continuation` says what to do once the walk completes.
 #[derive(Clone, Debug)]
 pub struct OutstandingWalk {

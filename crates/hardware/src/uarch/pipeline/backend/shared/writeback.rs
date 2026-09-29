@@ -9,7 +9,7 @@
 
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::AtomicOp;
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::trace_trap;
 use crate::trace_writeback;
 use crate::uarch::pipeline::exception::ExceptionStage;

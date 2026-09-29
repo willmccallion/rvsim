@@ -3,7 +3,7 @@
 //! The bus, the coherence fabric, the memory controllers and the MMIO
 //! devices.
 //!
-//! The CPU (`crate::sim::SimState`) owns instances of them directly. There is
+//! The CPU (`crate::system::SimState`) owns instances of them directly. There is
 //! no aggregate `Soc` struct — the fields are flat on `SimState`.
 
 /// System bus: routes requests to MMIO devices and the memory controller.

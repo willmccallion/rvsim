@@ -36,11 +36,11 @@ use crate::exec::compute::misaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::isa::privileged::Trap;
-use crate::sim::StageCtx;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{self, AccessSize, MemOp, Packet};
-use crate::sim::state::memory::TranslateResult;
-use crate::sim::state::views::PteUpdateOutcome;
+use crate::system::StageCtx;
+use crate::system::state::memory::TranslateResult;
+use crate::system::state::views::PteUpdateOutcome;
 use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{

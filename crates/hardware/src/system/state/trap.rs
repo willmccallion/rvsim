@@ -162,7 +162,7 @@ mod tests {
     fn test_trap_direct_mode_ecall() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.regs.write(reg::REG_A7, sys_ops::SYS_EXIT);
@@ -176,7 +176,7 @@ mod tests {
     fn test_trap_direct_mode_illegal_instruction() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.trap(&Trap::IllegalInstruction(0), 0x1000);
@@ -187,7 +187,7 @@ mod tests {
     fn test_trap_direct_mode_breakpoint_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mtvec = 0x8000_1000;
@@ -204,7 +204,7 @@ mod tests {
     fn test_trap_direct_mode_breakpoint_no_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.trap(&Trap::Breakpoint(0x400), 0x400);
@@ -215,7 +215,7 @@ mod tests {
     fn test_trap_direct_mode_ecall_with_mtvec() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mtvec = 0x8000_2000;
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn test_do_mret() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mepc = 0x2000;
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn test_do_sret() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.sepc = 0x3000;

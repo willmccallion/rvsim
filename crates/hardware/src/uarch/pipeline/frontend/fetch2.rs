@@ -19,7 +19,7 @@ use crate::common::PhysAddr;
 use crate::isa::instruction::{InstSize, is_compressed};
 use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::{trace_fetch, trace_trap};

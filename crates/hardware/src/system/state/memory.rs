@@ -182,7 +182,7 @@ mod tests {
     fn test_translate_direct_mode() {
         let mut config = Config::default();
         config.general.direct_mode = true;
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);

@@ -2,7 +2,7 @@
 //! enum that names every addressable target on the event queue.
 //!
 //! Components (caches, memory controllers, pipelines, devices) live in flat
-//! `Vec<T>` arenas on the [`Simulator`](crate::sim::simulator::Simulator).
+//! `Vec<T>` arenas on the [`Simulator`](crate::system::simulator::Simulator).
 //! Cross-references travel as typed ID newtypes so the compiler refuses to
 //! mix, say, a `CacheId` with a `MemCtrlId` even though both wrap `u32`.
 

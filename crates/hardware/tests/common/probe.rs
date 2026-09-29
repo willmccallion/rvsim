@@ -21,8 +21,8 @@ use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
-use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
+use rvsim_core::system::state::global_memory::GlobalMemory;
 
 /// Maps a `width_bytes` value (1/2/4/8) to the matching [`AccessSize`].
 fn access_size_for(width: u8) -> AccessSize {

@@ -6,8 +6,8 @@ use crate::config::Config;
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
-use crate::sim::SimState;
 use crate::soc::bus::Bus;
+use crate::system::SimState;
 use object::{Object, ObjectSymbol};
 use std::fs;
 
@@ -86,7 +86,7 @@ pub fn setup_kernel_load(
         let dtb_data = load_binary(path)?;
         state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     } else {
-        let dtb_data = crate::sim::dtb::generate_dtb(config);
+        let dtb_data = crate::system::dtb::generate_dtb(config);
         state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     }
 

@@ -8,7 +8,7 @@ use rvsim_core::arch::csr;
 use rvsim_core::config::Config;
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::isa::reg;
-use rvsim_core::sim::loader;
+use rvsim_core::system::loader;
 use std::io::Write;
 use tempfile::NamedTempFile;
 

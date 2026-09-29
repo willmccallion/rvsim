@@ -13,11 +13,11 @@ use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
-use rvsim_core::sim::state::global_memory::GlobalMemory;
 use rvsim_core::sim::stats::Stats;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
 use rvsim_core::soc::memory::buffer::DramBuffer;
+use rvsim_core::system::state::global_memory::GlobalMemory;
 use std::sync::Arc;
 
 pub(super) const MMIO: u64 = 0x1000_1000;

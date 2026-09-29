@@ -41,7 +41,7 @@ use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
 ///
 /// The pipeline is kept apart from the units so it can run with the units,
 /// its hart and the uncore borrowed through a
-/// [`CoreCtx`](crate::sim::CoreCtx).
+/// [`CoreCtx`](crate::system::CoreCtx).
 #[derive(Debug)]
 pub struct Core {
     /// The core's functional units.

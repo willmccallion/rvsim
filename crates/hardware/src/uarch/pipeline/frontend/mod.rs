@@ -19,7 +19,7 @@ pub mod fetch1;
 pub mod fetch2;
 pub mod rename;
 
-use crate::sim::StageCtx;
+use crate::system::StageCtx;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::frontend::fetch1::FetchBuffer;
 use crate::uarch::pipeline::latches::{

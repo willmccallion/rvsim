@@ -39,12 +39,10 @@ use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerTy
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
-use crate::sim::debug::HartDebug;
 use crate::sim::events::EventQueue;
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
-use crate::sim::topology::Topology;
 use crate::soc::bus::Bus;
 use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{
@@ -55,6 +53,8 @@ use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
+use crate::system::debug::HartDebug;
+use crate::system::topology::Topology;
 use crate::uarch::cache::Cache;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};

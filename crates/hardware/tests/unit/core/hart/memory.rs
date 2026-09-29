@@ -8,7 +8,7 @@
 use rvsim_core::SimState;
 use rvsim_core::common::{AccessType, VirtAddr};
 use rvsim_core::config::Config;
-use rvsim_core::sim::state::memory::TranslateResult;
+use rvsim_core::system::state::memory::TranslateResult;
 
 fn create_test_cpu() -> SimState {
     let config = Config::default();

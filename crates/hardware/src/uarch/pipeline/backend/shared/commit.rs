@@ -20,10 +20,10 @@ use crate::isa::op::{AluOp, MemWidth, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
-use crate::sim::CoreCtx;
 use crate::sim::components::{ComponentId, ReqId};
-use crate::sim::debug::PC_TRACE_MAX;
 use crate::sim::packet::{AccessSize, Maintenance, MemOp, Packet, WriteData, WriteOrigin};
+use crate::system::CoreCtx;
+use crate::system::debug::PC_TRACE_MAX;
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -1394,7 +1394,7 @@ mod tests {
     #[test]
     fn test_commit_stage_normal() {
         let config = Config::default();
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         let mut rob = Rob::new(4);

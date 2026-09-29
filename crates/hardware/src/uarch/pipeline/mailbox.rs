@@ -6,7 +6,7 @@
 //! Each `MemResp` resolves to one of four cases:
 //!
 //! 1. **Walk response** — read the PTE bytes from RAM at `walk.pte_addr`,
-//!    hand them to [`StageCtx::translate_continue`](crate::sim::StageCtx::translate_continue),
+//!    hand them to [`StageCtx::translate_continue`](crate::system::StageCtx::translate_continue),
 //!    then either issue the next PTE request (multi-level walk) or trigger
 //!    the parked continuation (fetch / load / store).
 //! 2. **Fetch response** — release the fetch group's
@@ -21,11 +21,11 @@
 use crate::arch::translation::{PteUpdate, TranslationResult};
 use crate::common::{PAGE_SHIFT, PhysAddr};
 use crate::exec::cbo;
-use crate::sim::StageCtx;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, WriteOrigin};
-use crate::sim::state::memory::TranslateResult;
-use crate::sim::state::views::PteUpdateOutcome;
+use crate::system::StageCtx;
+use crate::system::state::memory::TranslateResult;
+use crate::system::state::views::PteUpdateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};

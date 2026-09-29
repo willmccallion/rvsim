@@ -1,7 +1,7 @@
 //! The generated device tree enumerates every hart.
 
 use rvsim_core::config::Config;
-use rvsim_core::sim::dtb::generate_dtb;
+use rvsim_core::system::dtb::generate_dtb;
 use std::collections::BTreeMap;
 
 const FDT_BEGIN_NODE: u32 = 1;

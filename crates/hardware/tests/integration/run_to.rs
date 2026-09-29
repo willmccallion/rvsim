@@ -5,7 +5,7 @@
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
 use rvsim_core::config::{Config, Console};
-use rvsim_core::sim::simulator::{StopAt, StopReason};
+use rvsim_core::system::simulator::{StopAt, StopReason};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SIM_CONTROL: u32 = 5;

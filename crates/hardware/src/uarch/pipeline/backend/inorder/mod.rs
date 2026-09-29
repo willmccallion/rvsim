@@ -19,8 +19,8 @@ use crate::exec::compute::vector::shadow::ElementWrite;
 use crate::exec::execute::unit_disabled;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
-use crate::sim::CoreCtx;
 use crate::sim::components::{CacheId, PipelineId};
+use crate::system::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -511,7 +511,7 @@ impl ExecutionEngine for InOrderEngine {
 
     fn rename(
         &mut self,
-        state: &mut crate::sim::StageCtx<'_>,
+        state: &mut crate::system::StageCtx<'_>,
         id: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
         self.rename_one(state, id)
@@ -564,7 +564,7 @@ mod tests {
         let config = Config::default();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut sys = crate::sim::SimState::build(&config, "");
+        let mut sys = crate::system::SimState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
         engine.flush(&mut state);

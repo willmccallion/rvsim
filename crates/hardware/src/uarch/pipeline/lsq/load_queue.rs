@@ -17,7 +17,7 @@
 
 use crate::common::{HartId, PhysAddr, VirtAddr};
 use crate::isa::op::MemWidth;
-use crate::sim::state::write_log::{WriteLog, WriteSeq};
+use crate::system::state::write_log::{WriteLog, WriteSeq};
 use crate::uarch::pipeline::latches::MicroOpIdx;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -312,7 +312,7 @@ impl LoadQueue {
 #[cfg(test)]
 mod coherence_tests {
     use super::*;
-    use crate::sim::state::write_log::Writer;
+    use crate::system::state::write_log::Writer;
 
     const H0: HartId = HartId::new(0);
     const H1: HartId = HartId::new(1);

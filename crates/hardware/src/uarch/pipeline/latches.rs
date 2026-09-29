@@ -17,7 +17,7 @@ use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{ElemIdx, Sew};
-use crate::sim::state::write_log::WriteSeq;
+use crate::system::state::write_log::WriteSeq;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
