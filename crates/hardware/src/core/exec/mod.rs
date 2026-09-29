@@ -7,6 +7,9 @@
 /// Cache-block operations (Zicbom, Zicboz): which may run, and what they do.
 pub mod cbo;
 
+/// Instruction decoding.
+pub mod decode;
+
 /// What executing an instruction computes and decides.
 pub mod execute;
 
