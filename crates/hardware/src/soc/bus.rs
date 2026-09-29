@@ -7,10 +7,10 @@
 use super::devices::clint::Clint;
 use super::devices::uart::Uart;
 use super::devices::{Device, SimOp};
-use super::memory::RamRegion;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::memory::RamRegion;
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use std::collections::HashMap;
 

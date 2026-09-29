@@ -7,6 +7,7 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{CacheId, ComponentId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::memory::GlobalMemory;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
 };
@@ -17,7 +18,6 @@ use rvsim_core::soc::coherence::interconnect::Crossbar;
 use rvsim_core::soc::coherence::messages::{CoherenceMsg, ReqKind, SnoopKind};
 use rvsim_core::soc::coherence::protocol::Mesi;
 use rvsim_core::soc::coherence::stats::CoherenceStatPaths;
-use rvsim_core::system::state::global_memory::GlobalMemory;
 
 const LLC: ComponentId = ComponentId::Cache(CacheId::new(6));
 const AGENTS: [ComponentId; 2] =

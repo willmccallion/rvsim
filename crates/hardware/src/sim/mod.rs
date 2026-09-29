@@ -7,6 +7,7 @@
 pub mod components;
 pub mod events;
 pub mod handle;
+pub mod memory;
 pub mod packet;
 pub mod stats;
 pub mod trace;

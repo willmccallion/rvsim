@@ -11,14 +11,13 @@ use rvsim_core::config::{
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::memory::{GlobalMemory, RamRegion};
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
     ProbeKind, WriteData,
 };
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::soc::memory::RamRegion;
-use rvsim_core::system::state::global_memory::GlobalMemory;
 use rvsim_core::uarch::cache::Cache;
 
 const LATENCY: u64 = 2;

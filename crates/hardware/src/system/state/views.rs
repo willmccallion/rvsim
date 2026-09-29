@@ -10,7 +10,6 @@
 
 use std::ops::Deref;
 
-use super::write_log::Writer;
 use super::{Uncore, csr, memory};
 use crate::arch::Hart;
 use crate::arch::translation::PteUpdate;
@@ -19,6 +18,7 @@ use crate::exec::state::ArchState;
 use crate::isa::csr::CsrAddr;
 use crate::isa::op::MemWidth;
 use crate::sim::events::EventQueue;
+use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::Counter;
 use crate::sim::stats::paths::HartPaths;
 use crate::uarch::CoreUnits;

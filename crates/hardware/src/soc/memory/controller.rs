@@ -13,9 +13,9 @@ use std::sync::Arc;
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
 use crate::soc::memory::buffer::DramBuffer;
-use crate::system::state::global_memory::GlobalMemory;
 
 /// Cache-line size used when building `LineAddr` from a `PhysAddr`.
 const CACHE_LINE_BYTES: u64 = 64;

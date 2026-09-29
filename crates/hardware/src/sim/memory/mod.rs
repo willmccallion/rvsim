@@ -4,13 +4,18 @@
 //! reservations and the log of writes that make other harts' writes
 //! observable.
 
-use super::reservations::ReservationSet;
-use super::write_log::{WriteLog, Writer};
+mod ram;
+pub mod reservations;
+pub mod write_log;
+
+pub use ram::RamRegion;
+
 use crate::common::PhysAddr;
 use crate::exec::compute::amo;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin};
-use crate::soc::memory::RamRegion;
+use reservations::ReservationSet;
+use write_log::{WriteLog, Writer};
 
 /// RAM with the reservations and write log that go with it.
 #[derive(Debug)]

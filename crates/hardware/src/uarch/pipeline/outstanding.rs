@@ -10,8 +10,8 @@
 
 use crate::arch::translation::TranslationResult;
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::sim::memory::write_log::WriteSeq;
 use crate::sim::packet::MemRespData;
-use crate::system::state::write_log::WriteSeq;
 use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry, VecMemAccess, VecMemTarget};
 

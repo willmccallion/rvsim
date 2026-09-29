@@ -17,12 +17,12 @@ use rvsim_core::config::Config;
 use rvsim_core::sim::components::{ComponentId, DeviceId, PipelineId, ReqId};
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::sim::handle::{Handle, HandleCtx};
+use rvsim_core::sim::memory::GlobalMemory;
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::system::state::global_memory::GlobalMemory;
 
 /// Maps a `width_bytes` value (1/2/4/8) to the matching [`AccessSize`].
 fn access_size_for(width: u8) -> AccessSize {

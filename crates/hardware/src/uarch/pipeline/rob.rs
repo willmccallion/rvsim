@@ -8,7 +8,7 @@
 //! 4. **Forwarding:** Provides the most recent result for any register from in-flight instructions.
 //! 5. **Flush:** Squashes speculative entries after a misprediction or trap.
 
-use crate::system::state::write_log::WriteSeq;
+use crate::sim::memory::write_log::WriteSeq;
 use std::collections::HashMap;
 
 use crate::arch::reservation::LrScRecord;

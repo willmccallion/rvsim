@@ -12,23 +12,14 @@ pub mod csr;
 /// Per-cycle hart bookkeeping (interrupts, hang detection, mode tracing).
 pub mod execution;
 
-/// RAM, reservations and write log: what every access takes effect against.
-pub mod global_memory;
-
 /// Address translation for the pipeline.
 pub mod memory;
-
-/// LR/SC reservations shared by all harts.
-pub mod reservations;
 
 /// Trap and exception handling logic.
 pub mod trap;
 
 /// The restricted view every stage but commit works on.
 pub mod views;
-
-/// Record of RAM writes for cross-hart visibility checks.
-pub mod write_log;
 
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
@@ -40,6 +31,8 @@ use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
+use crate::sim::memory::GlobalMemory;
+use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
@@ -58,12 +51,10 @@ use crate::system::topology::Topology;
 use crate::uarch::cache::Cache;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
-use global_memory::GlobalMemory;
 use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use write_log::Writer;
 
 pub use views::StageCtx;
 
@@ -551,7 +542,7 @@ impl SystemState {
         l3_cache.set_upstream_inclusion(llc_inclusion);
 
         let ram_region =
-            crate::soc::memory::RamRegion::new(ram_buffer.as_mut_ptr(), ram_base, ram_size as u64);
+            crate::sim::memory::RamRegion::new(ram_buffer.as_mut_ptr(), ram_base, ram_size as u64);
         bus.attach_ram(MemCtrlId::new(0), ram_region);
         let write_log_line_bytes = match config.cache.l1_d.line_bytes {
             0 => 64,

@@ -12,8 +12,8 @@
 use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::op::AtomicOp;
 use crate::sim::components::ReqId;
+use crate::sim::memory::write_log::WriteSeq;
 use crate::soc::coherence::messages::CoherenceMsg;
-use crate::system::state::write_log::WriteSeq;
 
 /// Width of a single memory access in bytes.
 ///
