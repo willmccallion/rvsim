@@ -98,7 +98,7 @@ pub struct ControlSignals {
     /// `rs3` is a floating-point register.
     pub rs3_fp: bool,
     /// Atomic memory operation type.
-    pub atomic_op: AtomicOp,
+    pub atomic_op: Option<AtomicOp>,
     /// An atomic with the `aq` bit: no younger load may perform before it.
     pub acquire: bool,
     /// An atomic with the `rl` bit: every older access, stores included,
@@ -158,9 +158,9 @@ impl ControlSignals {
     #[must_use]
     pub const fn performs_at_rob_head(&self) -> bool {
         match self.atomic_op {
-            AtomicOp::None => false,
-            AtomicOp::Lr => self.release,
-            _ => true,
+            None => false,
+            Some(AtomicOp::Lr) => self.release,
+            Some(_) => true,
         }
     }
 
@@ -175,9 +175,6 @@ impl ControlSignals {
     /// store, an atomic or a cache-block operation. It completes after the
     /// memory stages rather than when its unit finishes.
     pub const fn uses_memory_pipeline(&self) -> bool {
-        self.mem_read
-            || self.mem_write
-            || !matches!(self.atomic_op, AtomicOp::None)
-            || self.system_op.is_cbo()
+        self.mem_read || self.mem_write || self.atomic_op.is_some() || self.system_op.is_cbo()
     }
 }

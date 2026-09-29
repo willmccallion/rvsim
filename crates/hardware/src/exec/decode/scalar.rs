@@ -295,7 +295,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             };
 
             let f5 = d.funct7 >> 2;
-            c.atomic_op = match f5 {
+            c.atomic_op = Some(match f5 {
                 a_funct5::LR => AtomicOp::Lr,
                 a_funct5::SC => AtomicOp::Sc,
                 a_funct5::AMOSWAP => AtomicOp::Swap,
@@ -305,10 +305,10 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 a_funct5::AMOOR => AtomicOp::Or,
                 a_funct5::AMOMIN => AtomicOp::Min,
                 a_funct5::AMOMAX => AtomicOp::Max,
-                a_funct5::AMOMINU => AtomicOp::Minu,
-                a_funct5::AMOMAXU => AtomicOp::Maxu,
+                a_funct5::AMOMINU => AtomicOp::MinU,
+                a_funct5::AMOMAXU => AtomicOp::MaxU,
                 _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            });
 
             c.alu = AluOp::Add;
             c.a_src = OpASrc::Reg1;
@@ -316,7 +316,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             c.acquire = inst & AMO_AQ != 0;
             c.release = inst & AMO_RL != 0;
             c.mem_read = true;
-            c.mem_write = c.atomic_op != AtomicOp::Lr;
+            c.mem_write = c.atomic_op != Some(AtomicOp::Lr);
             c.reg_write = true;
             // AMO and LR always sign-extend the loaded old value. SC writes
             // a 0/1 success code and overrides load_data in memory2.

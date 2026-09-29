@@ -14,7 +14,6 @@ mod serialize;
 use crate::config::Config;
 use crate::exec::compute::vector::mem::{generate_element_addrs_vrf, is_vec_store};
 use crate::exec::signals::ControlFlow;
-use crate::isa::op::AtomicOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlen};
 use crate::system::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
@@ -490,7 +489,7 @@ impl ExecutionEngine for O3Engine {
         // Stores that resolve in memory2: store-conditionals, AMOs, vectors.
         for entry in &memory2_results {
             if entry.ctrl.mem_write
-                && (entry.ctrl.atomic_op != AtomicOp::None || entry.vec_mem.is_some())
+                && (entry.ctrl.atomic_op.is_some() || entry.vec_mem.is_some())
                 && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
             {
                 self.issue_queue.wakeup_mem_dep(&[store_tag]);
@@ -1039,7 +1038,7 @@ impl ExecutionEngine for O3Engine {
             for entry in entries {
                 let is_load = entry.inst.ctrl.mem_read;
                 let is_store = entry.inst.ctrl.uses_store_buffer();
-                let is_atomic = entry.inst.ctrl.atomic_op != crate::isa::op::AtomicOp::None;
+                let is_atomic = entry.inst.ctrl.atomic_op.is_some();
                 let mem_dep =
                     self.mdp.dispatch(entry.inst.pc, entry.rob_tag, is_load, is_store, is_atomic);
                 let ok = self.issue_queue.dispatch(

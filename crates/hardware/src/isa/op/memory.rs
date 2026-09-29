@@ -1,12 +1,8 @@
 //! Memory access widths and atomic memory operations.
 
 /// Atomic memory operation types (RISC-V A extension).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtomicOp {
-    /// No atomic operation.
-    #[default]
-    None,
-
     /// Load-reserved (atomic load with reservation).
     Lr,
 
@@ -35,10 +31,10 @@ pub enum AtomicOp {
     Max,
 
     /// Atomic minimum (unsigned).
-    Minu,
+    MinU,
 
     /// Atomic maximum (unsigned).
-    Maxu,
+    MaxU,
 }
 
 /// Memory access width for load and store operations.

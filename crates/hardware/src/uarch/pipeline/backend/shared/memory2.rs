@@ -96,10 +96,10 @@ pub fn memory2_stage(
         let mut load_data = 0u64;
         let mut lr_sc: Option<LrScRecord> = None;
 
-        if mem.ctrl.atomic_op == AtomicOp::Lr {
+        if mem.ctrl.atomic_op == Some(AtomicOp::Lr) {
             load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
             lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
-        } else if mem.ctrl.atomic_op != AtomicOp::None {
+        } else if mem.ctrl.atomic_op.is_some() {
             // The cache has performed the SC or AMO: `load_data` is the SC's
             // result or the AMO's old value, and nothing is left for the
             // store buffer to write. A younger load that already read the

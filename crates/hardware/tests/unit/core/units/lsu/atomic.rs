@@ -224,68 +224,68 @@ fn max_double_edge_i64_min_max() {
 
 #[test]
 fn minu_word_basic() {
-    assert_eq!(atomic_alu(AtomicOp::Minu, 10, 20, MemWidth::Word), sext32(10));
+    assert_eq!(atomic_alu(AtomicOp::MinU, 10, 20, MemWidth::Word), sext32(10));
 }
 
 #[test]
 fn minu_word_large_unsigned() {
     // 0xFFFF_FFFF vs 0x0000_0001 → unsigned min is 1
-    assert_eq!(atomic_alu(AtomicOp::Minu, U32_MAX, 1, MemWidth::Word), sext32(1));
+    assert_eq!(atomic_alu(AtomicOp::MinU, U32_MAX, 1, MemWidth::Word), sext32(1));
 }
 
 #[test]
 fn minu_word_high_bit_set_is_large() {
     // Unsigned: 0x8000_0000 > 0x7FFF_FFFF (unlike signed)
     assert_eq!(
-        atomic_alu(AtomicOp::Minu, I32_MIN_ZEXT, I32_MAX, MemWidth::Word),
+        atomic_alu(AtomicOp::MinU, I32_MIN_ZEXT, I32_MAX, MemWidth::Word),
         sext32(I32_MAX as u32)
     );
 }
 
 #[test]
 fn minu_double_basic() {
-    assert_eq!(atomic_alu(AtomicOp::Minu, 100, 200, MemWidth::Double), 100);
+    assert_eq!(atomic_alu(AtomicOp::MinU, 100, 200, MemWidth::Double), 100);
 }
 
 #[test]
 fn minu_double_large_unsigned() {
     // 0xFFFF...FFFF vs 1 → min is 1
-    assert_eq!(atomic_alu(AtomicOp::Minu, U64_MAX, 1, MemWidth::Double), 1);
+    assert_eq!(atomic_alu(AtomicOp::MinU, U64_MAX, 1, MemWidth::Double), 1);
 }
 
 #[test]
 fn minu_double_zero_is_minimum() {
-    assert_eq!(atomic_alu(AtomicOp::Minu, 0, U64_MAX, MemWidth::Double), 0);
+    assert_eq!(atomic_alu(AtomicOp::MinU, 0, U64_MAX, MemWidth::Double), 0);
 }
 
 #[test]
 fn maxu_word_basic() {
-    assert_eq!(atomic_alu(AtomicOp::Maxu, 10, 20, MemWidth::Word), sext32(20));
+    assert_eq!(atomic_alu(AtomicOp::MaxU, 10, 20, MemWidth::Word), sext32(20));
 }
 
 #[test]
 fn maxu_word_large_unsigned() {
     // Unsigned: 0xFFFF_FFFF is max
-    assert_eq!(atomic_alu(AtomicOp::Maxu, U32_MAX, 1, MemWidth::Word), sext32(U32_MAX as u32));
+    assert_eq!(atomic_alu(AtomicOp::MaxU, U32_MAX, 1, MemWidth::Word), sext32(U32_MAX as u32));
 }
 
 #[test]
 fn maxu_word_high_bit_set_is_large() {
     // Unsigned: 0x8000_0000 > 0x7FFF_FFFF
     assert_eq!(
-        atomic_alu(AtomicOp::Maxu, I32_MIN_ZEXT, I32_MAX, MemWidth::Word),
+        atomic_alu(AtomicOp::MaxU, I32_MIN_ZEXT, I32_MAX, MemWidth::Word),
         sext32(0x8000_0000u32)
     );
 }
 
 #[test]
 fn maxu_double_large_unsigned() {
-    assert_eq!(atomic_alu(AtomicOp::Maxu, U64_MAX, 1, MemWidth::Double), U64_MAX);
+    assert_eq!(atomic_alu(AtomicOp::MaxU, U64_MAX, 1, MemWidth::Double), U64_MAX);
 }
 
 #[test]
 fn maxu_double_zero_and_max() {
-    assert_eq!(atomic_alu(AtomicOp::Maxu, 0, U64_MAX, MemWidth::Double), U64_MAX);
+    assert_eq!(atomic_alu(AtomicOp::MaxU, 0, U64_MAX, MemWidth::Double), U64_MAX);
 }
 
 /// All Word-width operations must produce results sign-extended from bit 31.
@@ -352,12 +352,12 @@ fn max_word_equal_values() {
 
 #[test]
 fn minu_word_equal_values() {
-    assert_eq!(atomic_alu(AtomicOp::Minu, 42, 42, MemWidth::Word), sext32(42));
+    assert_eq!(atomic_alu(AtomicOp::MinU, 42, 42, MemWidth::Word), sext32(42));
 }
 
 #[test]
 fn maxu_word_equal_values() {
-    assert_eq!(atomic_alu(AtomicOp::Maxu, 42, 42, MemWidth::Word), sext32(42));
+    assert_eq!(atomic_alu(AtomicOp::MaxU, 42, 42, MemWidth::Word), sext32(42));
 }
 
 #[test]

@@ -4,7 +4,8 @@
 //! clears its hart's reservation as it writes.
 
 use rvsim_core::common::{HartId, PhysAddr};
-use rvsim_core::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData};
+use rvsim_core::isa::op::AtomicOp;
+use rvsim_core::sim::packet::{AccessSize, MemOp, MemRespData};
 use rvsim_core::soc::memory::RamRegion;
 use rvsim_core::system::state::global_memory::GlobalMemory;
 

@@ -39,8 +39,8 @@ pub fn atomic_alu(op: AtomicOp, mem_val: u64, reg_val: u64, width: MemWidth) -> 
             AtomicOp::Or => a | b,
             AtomicOp::Min => a.min(b),
             AtomicOp::Max => a.max(b),
-            AtomicOp::Minu => (mem_val as u32).min(reg_val as u32) as i32,
-            AtomicOp::Maxu => (mem_val as u32).max(reg_val as u32) as i32,
+            AtomicOp::MinU => (mem_val as u32).min(reg_val as u32) as i32,
+            AtomicOp::MaxU => (mem_val as u32).max(reg_val as u32) as i32,
             _ => 0,
         };
         res as i64 as u64
@@ -55,8 +55,8 @@ pub fn atomic_alu(op: AtomicOp, mem_val: u64, reg_val: u64, width: MemWidth) -> 
             AtomicOp::Or => a | b,
             AtomicOp::Min => a.min(b),
             AtomicOp::Max => a.max(b),
-            AtomicOp::Minu => (mem_val).min(reg_val) as i64,
-            AtomicOp::Maxu => (mem_val).max(reg_val) as i64,
+            AtomicOp::MinU => (mem_val).min(reg_val) as i64,
+            AtomicOp::MaxU => (mem_val).max(reg_val) as i64,
             _ => 0,
         };
         res as u64

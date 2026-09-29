@@ -8,8 +8,8 @@ use super::reservations::ReservationSet;
 use super::write_log::{WriteLog, Writer};
 use crate::common::PhysAddr;
 use crate::exec::compute::amo;
-use crate::isa::op::{self, MemWidth};
-use crate::sim::packet::{AccessSize, AtomicOp, MemOp, MemRespData, WriteData, WriteOrigin};
+use crate::isa::op::{AtomicOp, MemWidth};
+use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin};
 use crate::soc::memory::RamRegion;
 
 /// RAM with the reservations and write log that go with it.
@@ -123,7 +123,7 @@ impl GlobalMemory {
             MemOp::Atomic { op, data, hart } => {
                 let old = self.read(paddr, size.bytes());
                 let width = if size.bytes() == 4 { MemWidth::Word } else { MemWidth::Double };
-                let new = amo::atomic_alu(alu_op(*op), old.unwrap_or(0), *data, width);
+                let new = amo::atomic_alu(*op, old.unwrap_or(0), *data, width);
                 let response = self.performed(old);
                 self.write(Writer::Hart(*hart), paddr, new, size.bytes());
                 response
@@ -177,22 +177,5 @@ impl GlobalMemory {
         if let Some(log) = self.write_log.as_mut() {
             log.record(paddr, writer);
         }
-    }
-}
-
-/// The pipeline's name for an AMO's operation.
-const fn alu_op(op: AtomicOp) -> op::AtomicOp {
-    match op {
-        AtomicOp::Add => op::AtomicOp::Add,
-        AtomicOp::Swap => op::AtomicOp::Swap,
-        AtomicOp::Xor => op::AtomicOp::Xor,
-        AtomicOp::And => op::AtomicOp::And,
-        AtomicOp::Or => op::AtomicOp::Or,
-        AtomicOp::Min => op::AtomicOp::Min,
-        AtomicOp::Max => op::AtomicOp::Max,
-        AtomicOp::MinU => op::AtomicOp::Minu,
-        AtomicOp::MaxU => op::AtomicOp::Maxu,
-        AtomicOp::Lr => op::AtomicOp::Lr,
-        AtomicOp::Sc => op::AtomicOp::Sc,
     }
 }

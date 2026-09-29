@@ -10,6 +10,7 @@
 //! to keep the enum small.
 
 use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};
+use crate::isa::op::AtomicOp;
 use crate::sim::components::ReqId;
 use crate::soc::coherence::messages::CoherenceMsg;
 use crate::system::state::write_log::WriteSeq;
@@ -107,33 +108,6 @@ pub enum MemRespData {
         /// when more than one hart can write.
         observed: Option<WriteSeq>,
     },
-}
-
-/// Atomic memory operation kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AtomicOp {
-    /// `amoadd`.
-    Add,
-    /// `amoswap`.
-    Swap,
-    /// `amoxor`.
-    Xor,
-    /// `amoand`.
-    And,
-    /// `amoor`.
-    Or,
-    /// `amomin` (signed).
-    Min,
-    /// `amomax` (signed).
-    Max,
-    /// `amominu` (unsigned).
-    MinU,
-    /// `amomaxu` (unsigned).
-    MaxU,
-    /// `lr` (load-reserved).
-    Lr,
-    /// `sc` (store-conditional).
-    Sc,
 }
 
 /// Whose write a [`MemOp::Write`] is.

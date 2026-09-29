@@ -98,7 +98,7 @@ impl FuType {
             return Self::classify_vec(ctrl.vec_op);
         }
 
-        if ctrl.mem_read || ctrl.mem_write || ctrl.atomic_op != crate::isa::op::AtomicOp::None {
+        if ctrl.mem_read || ctrl.mem_write || ctrl.atomic_op.is_some() {
             return Self::Mem;
         }
         if ctrl.control_flow != ControlFlow::Sequential {

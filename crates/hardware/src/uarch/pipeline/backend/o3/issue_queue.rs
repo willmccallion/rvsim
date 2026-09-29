@@ -1031,7 +1031,7 @@ mod tests {
     fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         let mut rob = Rob::new(8);
         let acquire = ControlSignals {
-            atomic_op: crate::isa::op::AtomicOp::Swap,
+            atomic_op: Some(crate::isa::op::AtomicOp::Swap),
             acquire: true,
             mem_read: true,
             mem_write: true,

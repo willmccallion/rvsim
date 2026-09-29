@@ -34,10 +34,10 @@ use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line};
 use crate::exec::cbo;
 use crate::exec::compute::misaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
-use crate::isa::op::{AtomicOp, MemWidth};
+use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
 use crate::sim::components::ComponentId;
-use crate::sim::packet::{self, AccessSize, MemOp, Packet};
+use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::system::StageCtx;
 use crate::system::state::memory::TranslateResult;
 use crate::system::state::views::PteUpdateOutcome;
@@ -192,7 +192,7 @@ fn process_entry<E: ExecutionEngine>(
 
     // 2. Alignment.
     let size = misaligned::width_to_bytes(ex.ctrl.width);
-    let is_atomic = ex.ctrl.atomic_op != AtomicOp::None;
+    let is_atomic = ex.ctrl.atomic_op.is_some();
     if !misaligned::is_aligned(ex.alu, size)
         && (state.config.memory.misaligned_access_trap || is_atomic)
     {
@@ -306,7 +306,7 @@ fn process_entry<E: ExecutionEngine>(
             if !apply_dirty_updates(state, engine, dirty_updates) {
                 return EntryOutcome::Replay(ex);
             }
-            emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE, true);
+            emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE);
             return EntryOutcome::Done;
         }
         // LR: wait for older stores to this address to drain.
@@ -319,7 +319,7 @@ fn process_entry<E: ExecutionEngine>(
         if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
             return EntryOutcome::Replay(ex);
         }
-        emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates, true);
+        emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
         return EntryOutcome::Done;
     }
 
@@ -337,7 +337,7 @@ fn process_entry<E: ExecutionEngine>(
         }
         ForwardResult::Stall => EntryOutcome::Replay(ex),
         ForwardResult::Miss => {
-            emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates, false);
+            emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
             EntryOutcome::Done
         }
     }
@@ -785,7 +785,6 @@ fn emit_load_req<E: ExecutionEngine>(
     paddr: PhysAddr,
     vaddr: VirtAddr,
     dirty_updates: DirtyUpdates,
-    is_atomic: bool,
 ) {
     let access_size = match ex.ctrl.width {
         MemWidth::Byte => AccessSize::B1,
@@ -793,24 +792,9 @@ fn emit_load_req<E: ExecutionEngine>(
         MemWidth::Word => AccessSize::B4,
         MemWidth::Double | MemWidth::Nop => AccessSize::B8,
     };
-    let op = if is_atomic {
-        let packet_atomic = match ex.ctrl.atomic_op {
-            AtomicOp::Lr => packet::AtomicOp::Lr,
-            AtomicOp::Swap => packet::AtomicOp::Swap,
-            AtomicOp::Add => packet::AtomicOp::Add,
-            AtomicOp::Xor => packet::AtomicOp::Xor,
-            AtomicOp::And => packet::AtomicOp::And,
-            AtomicOp::Or => packet::AtomicOp::Or,
-            AtomicOp::Min => packet::AtomicOp::Min,
-            AtomicOp::Max => packet::AtomicOp::Max,
-            AtomicOp::Minu => packet::AtomicOp::MinU,
-            AtomicOp::Maxu => packet::AtomicOp::MaxU,
-            AtomicOp::Sc => packet::AtomicOp::Sc,
-            AtomicOp::None => unreachable!("is_atomic checked"),
-        };
-        MemOp::Atomic { op: packet_atomic, data: ex.store_data, hart: state.hart().hart_id }
-    } else {
-        MemOp::Read
+    let op = match ex.ctrl.atomic_op {
+        Some(op) => MemOp::Atomic { op, data: ex.store_data, hart: state.hart().hart_id },
+        None => MemOp::Read,
     };
 
     let target = mmio_or_l1d(state, engine, paddr, access_size);
