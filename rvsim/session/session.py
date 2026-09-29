@@ -579,7 +579,7 @@ class Session:
         every: Optional[int] = None,
         on_every: Optional[Callable[["Session"], None]] = None,
     ) -> Stopped:
-        """Runs until one of ``stops`` holds; see :mod:`rvsim.stops`."""
+        """Runs until one of ``stops`` holds; see :mod:`rvsim.session.stops`."""
         keys = [stop.key() for stop in stops]
         if None in keys or every is not None:
             self._untracked = self._untracked or f"a run to {stops}"
