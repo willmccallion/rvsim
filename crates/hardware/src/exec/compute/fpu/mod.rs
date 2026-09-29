@@ -16,10 +16,8 @@ mod convert;
 pub(crate) mod host;
 pub(crate) mod rmm;
 
-/// NaN boxing, unboxing, and canonical NaN propagation.
 pub mod nan_handling;
 
-/// Half-precision (Zfh) helpers and software rounding.
 pub mod half;
 
 use crate::isa::op::AluOp;

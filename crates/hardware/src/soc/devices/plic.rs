@@ -155,7 +155,7 @@ impl Plic {
 
     /// Recomputes every context's claim register from the pending, enable
     /// and threshold state; the harts see the result after
-    /// [`UPDATE_DELAY_CYCLES`]. Call once per cycle after
+    /// `UPDATE_DELAY_CYCLES`. Call once per cycle after
     /// [`Plic::update_irqs`].
     pub fn check_interrupts(&mut self) {
         let computed = (0..self.context_count()).map(|ctx| self.calc_max_id(ctx)).collect();

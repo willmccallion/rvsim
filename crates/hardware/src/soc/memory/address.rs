@@ -1,7 +1,7 @@
 //! Physical-address ↔ DRAM-coordinate mapping.
 //!
 //! [`AddressMapper`] converts a [`PhysAddr`] into a [`DramLocation`] tuple of
-//! (channel, subchannel, rank, bank_group, bank, row, column) using one of
+//! (channel, subchannel, rank, `bank_group`, bank, row, column) using one of
 //! several bit-interleave strategies. All counts must be powers of two;
 //! extraction is a set of table-driven bit-slices with no per-request
 //! branching.

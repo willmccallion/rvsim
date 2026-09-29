@@ -1,8 +1,8 @@
 //! Speculative rename map: architectural register → current physical register.
 //!
 //! Tracks the current mapping from architectural register names to physical
-//! register numbers. Maintained speculatively; the committed_rename_map
-//! in O3Engine tracks the last committed state for flush recovery.
+//! register numbers. Maintained speculatively; the `committed_rename_map`
+//! in `O3Engine` tracks the last committed state for flush recovery.
 
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;

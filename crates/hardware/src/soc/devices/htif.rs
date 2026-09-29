@@ -9,7 +9,7 @@
 //! * `0` — ignored (tests poll-write zero before writing the real value).
 //!
 //! This device occupies a single 16-byte slot on the bus at the address of the
-//! `tohost` ELF symbol. It shares the same `exit_request` atomic as SysCon so
+//! `tohost` ELF symbol. It shares the same `exit_request` atomic as `SysCon` so
 //! the simulation loop picks up the exit without any extra plumbing.
 
 use crate::common::LineAddr;

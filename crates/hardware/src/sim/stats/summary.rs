@@ -21,10 +21,10 @@ pub fn format(stats: &Stats, cycles: u64, instructions_retired: u64) -> String {
     format_sections(stats, cycles, instructions_retired, None)
 }
 
-/// Same as [`format`], but restricts output to a whitelist of top-level
+/// Same as [`format()`], but restricts output to a whitelist of top-level
 /// subjects.
 ///
-/// - `sections = None` → include everything (equivalent to [`format`]).
+/// - `sections = None` → include everything (equivalent to [`format()`]).
 /// - `sections = Some(&[])` → header only, no subject sections.
 /// - `sections = Some(&["core0", "hart0"])` → those subjects only.
 ///

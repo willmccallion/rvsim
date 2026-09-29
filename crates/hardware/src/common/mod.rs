@@ -1,18 +1,13 @@
 //! Common utilities and types shared across the simulator.
 
-/// Kinds of memory access (fetch, load, store).
 pub mod access;
 
-/// Address type definitions (physical and virtual addresses).
 pub mod addr;
 
-/// Top-level simulator error type.
 pub mod error;
 
-/// Hart and physical-core identifier newtypes.
 pub mod ids;
 
-/// Compile-time–gated tracing macros for every pipeline subsystem.
 pub mod trace;
 
 pub use access::AccessType;

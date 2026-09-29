@@ -1,12 +1,9 @@
 //! The architectural register files: GPRs, FPRs, and (optional) VPRs.
 
-/// Floating-point registers.
 pub mod fpr;
 
-/// General-purpose registers.
 pub mod gpr;
 
-/// Vector registers (RVV 1.0).
 pub mod vpr;
 
 use crate::arch::regs::fpr::Fpr;

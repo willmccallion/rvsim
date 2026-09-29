@@ -3,7 +3,7 @@
 //! This module provides a safe wrapper around raw memory allocation for the system RAM.
 //! It supports lazy allocation via `mmap` on Unix systems to optimize host memory usage
 //! and startup time. It provides interior mutability to allow shared access between
-//! the CPU (via the Memory device) and DMA-capable devices (like VirtIO).
+//! the CPU (via the Memory device) and DMA-capable devices (like virtio).
 
 use std::ops::{Index, IndexMut};
 use std::slice;

@@ -6,19 +6,14 @@
 //! so a core cannot reach another core's state by construction. See
 //! `docs/architecture/multicore.md`.
 
-/// Control and Status Register access and management.
 pub mod csr;
 
-/// Per-cycle hart bookkeeping (interrupts, hang detection, mode tracing).
 pub mod execution;
 
-/// Address translation for the pipeline.
 pub mod memory;
 
-/// Trap and exception handling logic.
 pub mod trap;
 
-/// The restricted view every stage but commit works on.
 pub mod views;
 
 use crate::arch::csr::Csrs;

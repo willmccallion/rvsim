@@ -378,7 +378,7 @@ pub const VSM4_K: u32 = 0b100001; // 0x21
 pub const VAES_KF1: u32 = 0b100010; // 0x22
 /// `.vv` form of vaes{em,ef,dm,df}/vsm4r/vgmul (per-group key).
 pub const VCRYPTO_VV: u32 = 0b101000; // 0x28
-/// `.vs` form of vaes{em,ef,dm,df}/vsm4r and vaesz (broadcast vs2[0]).
+/// `.vs` form of vaes{em,ef,dm,df}/vsm4r and vaesz (broadcast vs2\[0\]).
 pub const VCRYPTO_VS: u32 = 0b101001; // 0x29
 /// `vaeskf2.vi` (Zvkned).
 pub const VAES_KF2: u32 = 0b101010; // 0x2A

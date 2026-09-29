@@ -202,7 +202,7 @@ pub struct BackendCommon {
     /// Loads forwarded from the store buffer, waiting out the L1D latency.
     pub forwarded_loads: Vec<crate::uarch::pipeline::outstanding::ForwardedLoad>,
     /// Secondary request of a line-straddling load, mapped to the request
-    /// its [`OutstandingLoad`] is filed under.
+    /// its [`OutstandingLoad`](crate::uarch::pipeline::outstanding::OutstandingLoad) is filed under.
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
     /// Fetch waits until this cycle for an L2 ITLB hit's latency.
     pub fetch_hold_until: u64,

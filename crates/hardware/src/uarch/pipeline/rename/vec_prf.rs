@@ -5,7 +5,7 @@
 //! is used as a sentinel for "no allocation" and is always ready.
 //!
 //! `VecPrfView` implements [`VectorRegFile`] by translating architectural
-//! VRegIdx to physical VecPhysReg via a mapping table, enabling the VPU
+//! `VRegIdx` to physical `VecPhysReg` via a mapping table, enabling the VPU
 //! execution functions to operate transparently on physical registers.
 
 use crate::exec::compute::vector::regfile::VectorRegFile;

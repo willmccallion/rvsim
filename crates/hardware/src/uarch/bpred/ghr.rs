@@ -9,7 +9,7 @@ const GHR_MAX_WORDS: usize = 16;
 /// A fixed-capacity shift register that stores branch outcome history.
 /// The effective history length (`len`) is determined by the predictor
 /// configuration (e.g., `max(hist_lengths)` for TAGE), while the storage
-/// capacity is bounded at compile time at [`GHR_MAX_WORDS`] × 64 = 1024 bits.
+/// capacity is bounded at compile time at `GHR_MAX_WORDS` × 64 = 1024 bits.
 ///
 /// Bit 0 is the most recently pushed outcome. Snapshots are captured at
 /// fetch time and carried through pipeline latches so that update and

@@ -1,6 +1,6 @@
 //! Device Tree Blob (DTB) generation.
 //!
-//! Generates a Flattened Device Tree (FDT) binary matching the `SoC` layout.
+//! Generates a Flattened Device Tree (FDT) binary matching the system-on-chip layout.
 //! This allows the simulator to provide a DTB to OpenSBI/Linux without
 //! requiring an external `dtc` compilation step.
 
@@ -204,7 +204,7 @@ fn isa_string(config: &Config) -> String {
 /// - CLINT at `clint_base` with timer and software interrupts for every hart
 /// - PLIC at 0x0c000000 with M- and S-mode contexts for every hart
 /// - UART at `uart_base`
-/// - `VirtIO` block device at `disk_base`
+/// - virtio block device at `disk_base`
 /// - One `cpu@N` per hart (the ISA string of its `misa`, SV39 MMU) and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let ram_base = config.system.ram_base;

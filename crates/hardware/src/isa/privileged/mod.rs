@@ -1,7 +1,6 @@
 //! Privileged architecture: privilege modes, paging modes, traps, and
 //! trap cause codes.
 
-/// Exception and interrupt cause code definitions.
 pub mod cause;
 
 mod mode;

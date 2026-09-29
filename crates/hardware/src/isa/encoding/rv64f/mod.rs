@@ -8,11 +8,8 @@
 //! - `funct3`: Function codes for rounding modes and comparison types.
 //! - `funct7`: Function codes for specific arithmetic operations.
 
-/// Function code 3 definitions for single-precision operations.
 pub mod funct3;
 
-/// Function code 7 definitions for single-precision operations.
 pub mod funct7;
 
-/// Single-precision floating-point opcodes.
 pub mod opcodes;

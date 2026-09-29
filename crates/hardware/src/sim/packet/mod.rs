@@ -9,7 +9,6 @@
 //! Hot-path responses inline up to 8 bytes; cache-line payloads box their data
 //! to keep the enum small.
 
-/// Coherence messages between private caches and the home agent.
 pub mod coherence;
 
 use crate::common::{HartId, LineAddr, PhysAddr, VirtAddr};

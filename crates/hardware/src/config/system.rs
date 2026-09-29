@@ -14,7 +14,7 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_uart_base")]
     pub uart_base: u64,
 
-    /// `VirtIO` disk MMIO base address
+    /// virtio disk MMIO base address
     #[serde(default = "SystemConfig::default_disk_base")]
     pub disk_base: u64,
 
@@ -51,12 +51,12 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_clint_divider")]
     pub clint_divider: u64,
 
-    /// Core clock in MHz; see [`defaults::CPU_CLOCK_MHZ`].
+    /// Core clock in MHz.
     #[serde(default = "SystemConfig::default_cpu_clock_mhz")]
     pub cpu_clock_mhz: u64,
 
     /// Wall-clock time the RTC reports at cycle zero, in seconds since the
-    /// Unix epoch; see [`defaults::RTC_EPOCH_SECONDS`].
+    /// Unix epoch.
     #[serde(default = "SystemConfig::default_rtc_epoch_seconds")]
     pub rtc_epoch_seconds: u64,
 
@@ -93,7 +93,7 @@ impl SystemConfig {
         defaults::UART_BASE
     }
 
-    /// Returns the default `VirtIO` disk MMIO base address.
+    /// Returns the default virtio disk MMIO base address.
     const fn default_disk_base() -> u64 {
         defaults::DISK_BASE
     }

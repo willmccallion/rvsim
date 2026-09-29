@@ -100,30 +100,30 @@ pub const XPERM8: u32 = 0b100;
 
 /// Mask to extract the unsigned I-type immediate (bits 31:20) from raw instruction.
 pub const I_IMM_MASK: u32 = 0xFFF0_0000;
-/// Shift to bring I-type immediate to bits [11:0].
+/// Shift to bring I-type immediate to bits \[11:0\].
 pub const I_IMM_SHIFT: u32 = 20;
 
-/// clz: imm[11:0] = 0x600 (funct7=0b0110000, rs2=0b00000).
+/// clz: imm\[11:0\] = 0x600 (funct7=0b0110000, rs2=0b00000).
 pub const CLZ_IMM: u32 = 0x600;
 
-/// ctz: imm[11:0] = 0x601 (funct7=0b0110000, rs2=0b00001).
+/// ctz: imm\[11:0\] = 0x601 (funct7=0b0110000, rs2=0b00001).
 pub const CTZ_IMM: u32 = 0x601;
 
-/// cpop: imm[11:0] = 0x602 (funct7=0b0110000, rs2=0b00010).
+/// cpop: imm\[11:0\] = 0x602 (funct7=0b0110000, rs2=0b00010).
 pub const CPOP_IMM: u32 = 0x602;
 
-/// sext.b: imm[11:0] = 0x604 (funct7=0b0110000, rs2=0b00100).
+/// sext.b: imm\[11:0\] = 0x604 (funct7=0b0110000, rs2=0b00100).
 pub const SEXT_B_IMM: u32 = 0x604;
 
-/// sext.h: imm[11:0] = 0x605 (funct7=0b0110000, rs2=0b00101).
+/// sext.h: imm\[11:0\] = 0x605 (funct7=0b0110000, rs2=0b00101).
 pub const SEXT_H_IMM: u32 = 0x605;
 
-/// orc.b: imm[11:0] = 0x287 (funct7=0b0010100, rs2=0b00111).
+/// orc.b: imm\[11:0\] = 0x287 (funct7=0b0010100, rs2=0b00111).
 pub const ORC_B_IMM: u32 = 0x287;
 
-/// rev8 (RV64): imm[11:0] = 0x6B8 (funct7=0b0110101, rs2=0b11000).
+/// rev8 (RV64): imm\[11:0\] = 0x6B8 (funct7=0b0110101, rs2=0b11000).
 pub const REV8_IMM: u32 = 0x6B8;
 
-/// brev8 (Zbkb): imm[11:0] = 0x687 (funct7=0b0110100, rs2=0b00111).
+/// brev8 (Zbkb): imm\[11:0\] = 0x687 (funct7=0b0110100, rs2=0b00111).
 /// Bit-reverse within each byte. Encoded as I-type with funct3 = `SRL_SRA`.
 pub const BREV8_IMM: u32 = 0x687;

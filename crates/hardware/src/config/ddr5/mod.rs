@@ -1,6 +1,5 @@
 //! Configuration for [`crate::soc::memory::ddr5::controller::Ddr5Controller`].
 
-/// JEDEC speed bins and the timing parameters derived from them.
 pub mod timing;
 
 use std::collections::BTreeMap;
@@ -362,10 +361,10 @@ impl Default for Ddr5ParamsRaw {
     }
 }
 
-/// Which [`EccPolicy`] a controller is built with.
+/// Which [`EccPolicy`](crate::soc::memory::ddr5::EccPolicy) a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum EccKind {
-    /// [`NoEcc`].
+    /// [`NoEcc`](crate::soc::memory::ddr5::NoEcc).
     #[default]
     None,
     /// Single-error-correct, double-error-detect side-band ECC.
@@ -380,22 +379,22 @@ pub enum EccKind {
     },
 }
 
-/// Which [`RefreshPolicy`] a controller is built with.
+/// Which [`RefreshPolicy`](crate::soc::memory::ddr5::RefreshPolicy) a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum RefreshKind {
-    /// [`AllBank`].
+    /// [`AllBank`](crate::soc::memory::ddr5::AllBank).
     #[default]
     AllBank,
-    /// [`SameBank`].
+    /// [`SameBank`](crate::soc::memory::ddr5::SameBank).
     SameBank,
 }
 
-/// Which [`MemScheduler`] a controller is built with.
+/// Which [`MemScheduler`](crate::soc::memory::ddr5::MemScheduler) a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum SchedulerKind {
-    /// [`Fcfs`].
+    /// [`Fcfs`](crate::soc::memory::ddr5::Fcfs).
     Fcfs,
-    /// [`FrFcfs`].
+    /// [`FrFcfs`](crate::soc::memory::ddr5::FrFcfs).
     #[default]
     FrFcfs,
 }

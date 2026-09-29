@@ -3,7 +3,7 @@
 //!
 //! An interconnect accepts messages from nodes, advances once per cycle,
 //! and hands over the messages that arrive that cycle. Every
-//! implementation keeps one queue per virtual channel ([`MsgClass`]) so a
+//! implementation keeps one queue per virtual channel ([`MsgClass`](crate::sim::packet::coherence::MsgClass)) so a
 //! stalled request can never block a response behind it, and arbitrates
 //! deterministically (oldest message first, then lowest port).
 

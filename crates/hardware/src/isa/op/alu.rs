@@ -169,7 +169,7 @@ pub enum AluOp {
     /// Shift-left-3 and add (sh3add).
     Sh3Add,
 
-    /// Add unsigned word (add.uw) — zero-extends rs1[31:0] before adding.
+    /// Add unsigned word (add.uw) — zero-extends rs1\[31:0\] before adding.
     AddUw,
 
     /// Shift-left-1 and add unsigned word (sh1add.uw).

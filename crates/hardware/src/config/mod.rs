@@ -6,7 +6,6 @@
 mod bpred;
 mod cache;
 mod coherence;
-/// DDR5 controller configuration.
 pub mod ddr5;
 mod defaults;
 mod general;

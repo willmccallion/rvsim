@@ -1,7 +1,7 @@
-//! VirtIO Block Device (MMIO).
+//! The virtio block device (MMIO).
 //!
-//! Implements a `VirtIO` block device over Memory-Mapped I/O (MMIO) for disk access.
-//! Supports the legacy `VirtIO` interface required by the Linux kernel.
+//! Implements a virtio block device over Memory-Mapped I/O (MMIO) for disk access.
+//! Supports the legacy virtio interface required by the Linux kernel.
 
 use crate::common::{IrqId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
@@ -17,85 +17,85 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-/// `VirtIO` MMIO magic value register offset.
+/// virtio MMIO magic value register offset.
 const REG_MAGIC: u64 = 0x00;
 
-/// `VirtIO` MMIO version register offset.
+/// virtio MMIO version register offset.
 const REG_VERSION: u64 = 0x04;
 
-/// `VirtIO` MMIO device ID register offset.
+/// virtio MMIO device ID register offset.
 const REG_DEVICE_ID: u64 = 0x08;
 
-/// `VirtIO` MMIO vendor ID register offset.
+/// virtio MMIO vendor ID register offset.
 const REG_VENDOR_ID: u64 = 0x0c;
 
-/// `VirtIO` MMIO device features register offset.
+/// virtio MMIO device features register offset.
 const REG_DEVICE_FEATURES: u64 = 0x10;
 
-/// `VirtIO` MMIO device features select register offset.
+/// virtio MMIO device features select register offset.
 const REG_DEVICE_FEATURES_SEL: u64 = 0x14;
 
-/// `VirtIO` MMIO driver features register offset — writes ignored (no feature negotiation).
+/// virtio MMIO driver features register offset — writes ignored (no feature negotiation).
 const _REG_DRIVER_FEATURES: u64 = 0x20;
 
-/// `VirtIO` MMIO driver features select register offset.
+/// virtio MMIO driver features select register offset.
 const REG_DRIVER_FEATURES_SEL: u64 = 0x24;
 
-/// `VirtIO` MMIO queue select register offset — writes ignored.
+/// virtio MMIO queue select register offset — writes ignored.
 const _REG_QUEUE_SEL: u64 = 0x30;
 
-/// `VirtIO` MMIO queue maximum size register offset.
+/// virtio MMIO queue maximum size register offset.
 const REG_QUEUE_NUM_MAX: u64 = 0x34;
 
-/// `VirtIO` MMIO queue size register offset.
+/// virtio MMIO queue size register offset.
 const REG_QUEUE_NUM: u64 = 0x38;
 
-/// `VirtIO` MMIO queue ready register offset.
+/// virtio MMIO queue ready register offset.
 const REG_QUEUE_READY: u64 = 0x44;
 
-/// `VirtIO` MMIO queue notify register offset.
+/// virtio MMIO queue notify register offset.
 const REG_QUEUE_NOTIFY: u64 = 0x50;
 
-/// `VirtIO` MMIO interrupt status register offset.
+/// virtio MMIO interrupt status register offset.
 const REG_INTERRUPT_STATUS: u64 = 0x60;
 
-/// `VirtIO` MMIO interrupt acknowledge register offset.
+/// virtio MMIO interrupt acknowledge register offset.
 const REG_INTERRUPT_ACK: u64 = 0x64;
 
-/// `VirtIO` MMIO device status register offset.
+/// virtio MMIO device status register offset.
 const REG_STATUS: u64 = 0x70;
 
-/// `VirtIO` MMIO queue descriptor table address (low 32 bits) register offset.
+/// virtio MMIO queue descriptor table address (low 32 bits) register offset.
 const REG_QUEUE_DESC_LOW: u64 = 0x80;
 
-/// `VirtIO` MMIO queue descriptor table address (high 32 bits) register offset.
+/// virtio MMIO queue descriptor table address (high 32 bits) register offset.
 const REG_QUEUE_DESC_HIGH: u64 = 0x84;
 
-/// `VirtIO` MMIO queue available ring address (low 32 bits) register offset.
+/// virtio MMIO queue available ring address (low 32 bits) register offset.
 const REG_QUEUE_AVAIL_LOW: u64 = 0x90;
 
-/// `VirtIO` MMIO queue available ring address (high 32 bits) register offset.
+/// virtio MMIO queue available ring address (high 32 bits) register offset.
 const REG_QUEUE_AVAIL_HIGH: u64 = 0x94;
 
-/// `VirtIO` MMIO queue used ring address (low 32 bits) register offset.
+/// virtio MMIO queue used ring address (low 32 bits) register offset.
 const REG_QUEUE_USED_LOW: u64 = 0xa0;
 
-/// `VirtIO` MMIO queue used ring address (high 32 bits) register offset.
+/// virtio MMIO queue used ring address (high 32 bits) register offset.
 const REG_QUEUE_USED_HIGH: u64 = 0xa4;
 
-/// `VirtIO` MMIO configuration space base offset.
+/// virtio MMIO configuration space base offset.
 const REG_CONFIG_BASE: u64 = 0x100;
 
-/// `VirtIO` MMIO magic value ("virt" in ASCII: 0x74726976).
+/// virtio MMIO magic value ("virt" in ASCII: 0x74726976).
 const VIRTIO_MMIO_MAGIC_VALUE: u32 = 0x74726976;
 
-/// `VirtIO` MMIO vendor ID value (QEMU vendor: 0x554d4551).
+/// virtio MMIO vendor ID value (QEMU vendor: 0x554d4551).
 const VIRTIO_MMIO_VENDOR_ID_VALUE: u32 = 0x554d4551;
 
-/// `VirtIO` MMIO device ID for block device (2).
+/// virtio MMIO device ID for block device (2).
 const VIRTIO_MMIO_DEVICE_ID_VALUE: u32 = 2;
 
-/// `VirtIO` specification version (2).
+/// virtio specification version (2).
 const VIRTIO_VERSION_VALUE: u32 = 2;
 
 /// Maximum queue size supported by this device (16 entries).
@@ -128,9 +128,9 @@ const SECTOR_SIZE: u64 = 512;
 /// Bytes a DMA transfer moves at most: one cache line.
 const LINE_BYTES: u64 = 64;
 
-/// `VirtIO` Block device structure.
+/// virtio Block device structure.
 ///
-/// Implements a memory-mapped block device compliant with the `VirtIO` specification.
+/// Implements a memory-mapped block device compliant with the virtio specification.
 /// It uses a shared DRAM buffer to perform DMA operations for reading and writing
 /// disk sectors.
 #[derive(Debug)]
@@ -314,7 +314,7 @@ unsafe impl Send for VirtioBlock {}
 unsafe impl Sync for VirtioBlock {}
 
 impl VirtioBlock {
-    /// Creates a new `VirtIO` Block device.
+    /// Creates a new virtio Block device.
     ///
     /// # Arguments
     ///

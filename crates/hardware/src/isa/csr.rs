@@ -502,7 +502,7 @@ pub const SATP_MODE_MASK: u64 = 0xF;
 /// Physical page number mask in `satp` register.
 pub const SATP_PPN_MASK: u64 = 0xFFF_FFFF_FFFF;
 
-/// Bit shift for ASID field in `satp` register (bits [59:44]).
+/// Bit shift for ASID field in `satp` register (bits \[59:44\]).
 pub const SATP_ASID_SHIFT: u64 = 44;
 
 /// Bit mask for ASID field in `satp` register (16 bits).

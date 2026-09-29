@@ -175,7 +175,7 @@ pub enum VectorOp {
     /// `vsext.vf8` — sign-extend SEW/8 to SEW.
     VSextVf8,
 
-    /// `vandn` — vector bitwise AND-NOT (vd[i] = vs2[i] & ~op1[i]).
+    /// `vandn` — vector bitwise AND-NOT (vd\[i\] = vs2\[i\] & ~op1\[i\]).
     VAndN,
     /// `vbrev.v` — reverse all bits within each element.
     VBrev,

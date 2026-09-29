@@ -12,7 +12,7 @@ use rvsim_core::system::state::StatsEpoch;
 
 /// Python-facing view over the hierarchical stats tree.
 ///
-/// Constructed by [`crate::simulator::PySimulator::stats`] as a snapshot at
+/// Constructed by `PySimulator::stats` as a snapshot at
 /// the read time. Supports path lookups, wildcard queries, subject-grouped
 /// aggregation, and rendering the auto-generated summary.
 #[pyclass(name = "Stats")]

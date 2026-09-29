@@ -2,7 +2,7 @@
 //!
 //! Each in-flight memory operation issued by the pipeline (instruction fetch,
 //! demand load, store write-allocate, atomic RMW, page-table walk) is recorded
-//! here keyed by its [`ReqId`]. When the matching
+//! here keyed by its [`ReqId`](crate::sim::components::ReqId). When the matching
 //! [`Packet::MemResp`](crate::sim::packet::Packet::MemResp) lands in the
 //! pipeline's mailbox, the drain stage looks up the entry, finishes the
 //! work the original stage couldn't (apply sign extension, complete the

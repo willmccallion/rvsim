@@ -4,25 +4,18 @@
 //! caches, TLBs, predictors and prefetchers. What instructions do is
 //! defined in [`crate::exec`]; this layer decides when it happens.
 
-/// Branch prediction.
 pub mod bpred;
 
-/// Caches, MSHRs and replacement policies.
 pub mod cache;
 
-/// Memory dependence prediction.
 pub mod mdp;
 
-/// TLBs, the page-table walker, and translation.
 pub mod mmu;
 
-/// Instruction pipelines: a shared front end and two back ends.
 pub mod pipeline;
 
-/// Hardware prefetchers.
 pub mod prefetch;
 
-/// Vector unit timing: lane occupancy and result chaining.
 pub mod vector;
 
 use crate::common::CoreId;
@@ -57,7 +50,7 @@ pub struct Core {
 /// cached here; they are read from the config on demand.
 #[derive(Debug)]
 pub struct CoreUnits {
-    /// Identifier for this physical core within the `SoC`.
+    /// Identifier for this physical core within the system-on-chip.
     pub core_id: CoreId,
     /// L1 Instruction Cache.
     pub l1_i_cache: Cache,

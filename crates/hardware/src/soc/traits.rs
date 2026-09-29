@@ -1,7 +1,7 @@
 //! `Device` trait implemented by all bus-attached MMIO components.
 //!
 //! Data-bearing operations (reads / writes) happen via the
-//! [`Handle`](crate::sim::handle::Handle) trait, which every device implements.
+//! [`crate::sim::handle::Handle`] trait, which every device implements.
 //! `Device` itself describes the device's location on the bus, its lifecycle
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 

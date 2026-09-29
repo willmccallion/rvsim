@@ -35,7 +35,7 @@ pub const fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> b
     (addr & line_mask) + (size - 1) >= cache_line_size
 }
 
-/// An Address Space Identifier (ASID) from SATP[59:44].
+/// An Address Space Identifier (ASID) from SATP\[59:44\].
 ///
 /// Used by the TLB to distinguish translations belonging to different address spaces,
 /// enabling OS context switches without a full TLB flush.

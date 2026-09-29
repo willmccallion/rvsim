@@ -24,7 +24,7 @@ pub const KERNEL_OFFSET: u64 = 0x0020_0000;
 /// Base address of UART 16550-compatible serial port MMIO region.
 pub const UART_BASE: u64 = 0x1000_0000;
 
-/// Base address of `VirtIO` block device MMIO region.
+/// Base address of virtio block device MMIO region.
 pub const DISK_BASE: u64 = 0x9000_0000;
 
 /// Base address of CLINT (Core Local Interruptor) timer MMIO region.

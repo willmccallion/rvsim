@@ -9,8 +9,6 @@
 //! - `opcodes`: M-extension specific constants.
 //! - `funct3`: Function codes identifying specific M-ops (MUL, DIV, etc.).
 
-/// Function code 3 definitions for multiply/divide operations.
 pub mod funct3;
 
-/// Multiply/divide extension opcodes.
 pub mod opcodes;

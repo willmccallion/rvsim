@@ -9,8 +9,6 @@
 //! - `opcodes`: Shared floating-point opcodes.
 //! - `funct7`: Format-specific operation codes.
 
-/// Function code 7 definitions for double-precision operations.
 pub mod funct7;
 
-/// Double-precision floating-point opcodes.
 pub mod opcodes;

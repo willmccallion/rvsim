@@ -1,37 +1,38 @@
 //! Cycle-accurate RV64GC + RVV 1.0 system simulator.
 //!
-//! The modules are layered; each depends only on those listed before it,
-//! except that the pipelines in `uarch` run on the per-core views `system`
-//! defines.
+//! The modules are layered; each depends only on those before it, except
+//! that the pipelines in [`uarch`] run on the per-core views [`system`]
+//! defines:
+//!
+//! 1. [`common`]: addresses, identifiers, access kinds and tracing.
+//! 2. [`isa`]: what the ISA defines: encodings, CSRs, fields, vocabulary.
+//! 3. [`config`]: simulator configuration.
+//! 4. [`arch`]: architectural state: harts, registers, CSRs, traps, PMP.
+//! 5. [`exec`]: instruction semantics every engine shares.
+//! 6. [`sim`]: the simulation kernel: events, packets, memory image, stats.
+//! 7. [`soc`]: the bus, coherence fabric, memory controllers and devices.
+//! 8. [`uarch`]: the timing model of a core.
+//! 9. [`system`]: the whole system: `Simulator`, its state, checkpoints.
 
-/// Addresses, identifiers, access kinds and tracing shared by every layer.
 pub mod common;
 
-/// What the RISC-V ISA defines: encodings, CSRs, fields and vocabulary.
 pub mod isa;
 
-/// Simulator configuration.
 pub mod config;
 
-/// Architectural state: harts, registers, CSRs, traps, PMP.
 pub mod arch;
 
-/// Instruction semantics shared by every engine: decode, execute, retire.
 pub mod exec;
 
-/// Simulation kernel: events, packets, component ids, memory image, stats.
 pub mod sim;
 
-/// System-on-chip: bus, coherence, devices and memory controllers.
 pub mod soc;
 
-/// Microarchitecture: the timing model of a core.
 pub mod uarch;
 
-/// The whole simulated system: `Simulator`, its state, loading, checkpoints.
 pub mod system;
 
-/// Address Space Identifier (ASID) from SATP[59:44]; prevents mixing with raw `u16` values.
+/// Address Space Identifier (ASID) from SATP\[59:44\]; prevents mixing with raw `u16` values.
 pub use crate::common::Asid;
 /// Interrupt Request Identifier for PLIC lines; prevents mixing with arbitrary `u32` values.
 pub use crate::common::IrqId;

@@ -58,7 +58,7 @@ pub const fn is_reduction(op: VectorOp) -> bool {
 
 /// Execute a reduction operation.
 ///
-/// The initial accumulator is extracted from `operand1` (which carries vs1[0]).
+/// The initial accumulator is extracted from `operand1` (which carries vs1\[0\]).
 /// Results are written to `vd[0]` in the VPR; remaining elements follow tail policy.
 ///
 /// # Integer reductions

@@ -119,7 +119,7 @@ impl CoreCtx<'_> {
         self.hart.is_valid_csr(addr)
     }
 
-    /// The value a CSR read-modify-write starts from; see [`read_for_update`].
+    /// The value a CSR read-modify-write starts from; see `read_for_update`.
     pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
         read_for_update(self.hart, self.uncore, addr)
     }

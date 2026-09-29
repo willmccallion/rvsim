@@ -1,4 +1,4 @@
-//! System Controller (SysCon).
+//! System Controller (`SysCon`).
 //!
 //! A simple memory-mapped device used to control system power and reset states.
 //! It is primarily used by the kernel or test environment to gracefully exit

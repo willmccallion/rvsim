@@ -21,7 +21,6 @@
 //! assert_eq!(text, "addi x10, x0, 10");
 //! ```
 
-/// Vector instruction disassembly (RVV 1.0).
 pub mod vector;
 
 use crate::isa::encoding::privileged as sys_op;

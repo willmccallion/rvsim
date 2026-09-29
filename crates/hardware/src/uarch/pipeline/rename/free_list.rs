@@ -1,8 +1,8 @@
 //! Physical register free list for O3 rename.
 //!
 //! Tracks which physical registers are available for allocation.
-//! On init: arch regs 0..num_arch are "in use" (held in rename map).
-//! Regs num_arch..prf_size are free.
+//! On init: arch regs `0..num_arch` are "in use" (held in rename map).
+//! Regs `num_arch..prf_size` are free.
 //!
 //! Generic over `PhysRegister` to support both scalar `PhysReg` and `VecPhysReg`.
 
