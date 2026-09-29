@@ -14,6 +14,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from rvsim.stats import Stats
+
 
 # Cycles simulated per chunk between renders. Larger = faster sim, less responsive UI.
 _CHUNK = 200_000
@@ -53,20 +55,19 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
     cycles = s.get("cycles", 0)
     ipc = s.get("ipc", 0.0)
     retired = s.get("instructions_retired", 0)
-    branch_acc = s.get("branch_accuracy_pct", 0.0)
-    branch_n = s.get("branch_predictions", 0)
-    branch_mis = s.get("branch_mispredictions", 0)
-    stall_mem = s.get("stalls_mem", 0)
-    stall_ctrl = s.get("stalls_control", 0)
-    stall_data = s.get("stalls_data", 0)
+    branch_acc = s.get("core0.bp.committed.accuracy", 0.0)
+    branch_hits = s.get("core0.bp.committed.hits", 0)
+    branch_mis = s.get("core0.bp.committed.mispredicts", 0)
+    stall_fu = s.get("core0.pipeline.stalls.fu_structural", 0)
+    stall_ctrl = s.get("core0.pipeline.stalls.control", 0)
+    stall_data = s.get("core0.pipeline.stalls.data", 0)
 
-    def hit_rate(hits, misses):
-        t = hits + misses
-        return hits / t if t else 1.0
+    def hit_rate(cache: str) -> float:
+        return 1.0 - s.get(f"core0.cache.{cache}.miss_rate", 0.0)
 
-    l1i_r = hit_rate(s.get("icache_hits", 0), s.get("icache_misses", 0))
-    l1d_r = hit_rate(s.get("dcache_hits", 0), s.get("dcache_misses", 0))
-    l2_r = hit_rate(s.get("l2_hits", 0), s.get("l2_misses", 0))
+    l1i_r = hit_rate("l1i")
+    l1d_r = hit_rate("l1d")
+    l2_r = hit_rate("l2")
 
     def sr(n):
         return n / cycles if cycles else 0.0
@@ -82,8 +83,8 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
     branch = _section(
         "branch",
         [
-            ("accuracy", f"{branch_acc:.2f}%", _bar(branch_acc / 100)),
-            ("lookups", _fmt(branch_n + branch_mis), ""),
+            ("accuracy", f"{branch_acc * 100:.2f}%", _bar(branch_acc)),
+            ("lookups", _fmt(branch_hits + branch_mis), ""),
             ("mispredicts", _fmt(branch_mis), ""),
         ],
     )
@@ -98,7 +99,7 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
     stalls = _section(
         "stalls",
         [
-            ("memory", f"{sr(stall_mem) * 100:.1f}%", _bar(sr(stall_mem))),
+            ("FUs", f"{sr(stall_fu) * 100:.1f}%", _bar(sr(stall_fu))),
             ("control", f"{sr(stall_ctrl) * 100:.1f}%", _bar(sr(stall_ctrl))),
             ("data", f"{sr(stall_data) * 100:.1f}%", _bar(sr(stall_data))),
         ],
@@ -155,7 +156,8 @@ def run_watch(
                 exit_code = code
 
             wall = time.monotonic() - start
-            live.update(_build(dict(cpu.stats), wall, binary, exit_code is not None))
+            stats = Stats.from_core(cpu.stats)
+            live.update(_build(stats, wall, binary, exit_code is not None))
 
             if exit_code is not None:
                 # Render the final "done" frame explicitly, then stop before

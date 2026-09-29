@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import re
 import sys
+from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
 __all__ = ["Stats", "Table"]
@@ -20,15 +21,15 @@ class Stats(dict):
     """
     Dict-like simulation statistics with querying and comparison.
 
-    All stats from the backend are accessible as keys. Typical keys include:
-    cycles, instructions_retired, ipc, stalls_control, stalls_data,
-    branch_predictions, branch_mispredictions, branch_accuracy_pct, etc.
+    Keys are the simulator's stat paths (``core0.cache.l1d.misses``,
+    ``core0.bp.committed.accuracy``, ``hart0.retired_insts``), plus the
+    run-level ``cycles``, ``instructions_retired`` and ``ipc``.
 
     Example::
 
         result.stats["ipc"]
-        result.stats.query("miss")
-        result.stats.query("branch")
+        result.stats["core0.pipeline.stalls.data"]
+        result.stats.query("miss_rate")
     """
 
     def __init__(self, data: Dict[str, Any]):
@@ -182,40 +183,95 @@ def _geometric_mean(values: Sequence[float]) -> float:
     return math.exp(sum(logs) / len(logs))
 
 
-_RATE_METRICS = {"ipc", "branch_accuracy_pct", "speculative_branch_accuracy_pct"}
-_COUNT_METRICS = {
-    "cycles",
-    "instructions_retired",
-    "stalls_control",
-    "stalls_data",
-    "stalls_fu_structural",
-    "stalls_backpressure",
-    "misprediction_penalty",
-    "pipeline_flushes",
-    "mem_ordering_violations",
-    "branch_predictions",
-    "branch_mispredictions",
-    "committed_branch_predictions",
-    "committed_branch_mispredictions",
-    "speculative_branch_predictions",
-    "speculative_branch_mispredictions",
-    "traps_taken",
-    "inst_load",
-    "inst_store",
-    "inst_branch",
-    "inst_alu",
-    "inst_system",
-    "inst_fp_load",
-    "inst_fp_store",
-    "inst_fp_arith",
-    "inst_fp_fma",
-    "inst_fp_div_sqrt",
-    "inst_vec_int",
-    "inst_vec_fp",
-    "inst_vec_load",
-    "inst_vec_store",
-    "inst_vec_misc",
-}
+_HEADLINE_METRICS = re.compile(
+    r"^(cycles|instructions_retired|ipc"
+    r"|core\d+\.bp\.committed\.accuracy"
+    r"|core\d+\.cache\.(l1i|l1d|l2)\.miss_rate"
+    r"|llc\.miss_rate)$"
+)
+"""Metrics a comparison shows when none are named."""
+
+_RATE_LEAVES = frozenset({"ipc", "cpi", "accuracy", "miss_rate"})
+_HIGHER_IS_BETTER_LEAVES = frozenset(
+    {"ipc", "accuracy", "hits", "instructions_retired", "retired_insts"}
+)
+_LOWER_IS_BETTER_LEAVES = frozenset(
+    {"cycles", "cpi", "miss_rate", "misses", "mispredicts"}
+)
+_LOWER_IS_BETTER_GROUPS = frozenset({"stalls", "flushes"})
+
+
+class _Better(Enum):
+    HIGHER = "higher"
+    LOWER = "lower"
+
+
+def _leaf(metric: str) -> str:
+    return metric.rsplit(".", 1)[-1]
+
+
+def _is_rate(metric: str) -> bool:
+    return _leaf(metric) in _RATE_LEAVES
+
+
+def _better(metric: str) -> Optional[_Better]:
+    """Which direction is an improvement for *metric*, if it has one."""
+    leaf = _leaf(metric)
+    if leaf in _HIGHER_IS_BETTER_LEAVES:
+        return _Better.HIGHER
+    if leaf in _LOWER_IS_BETTER_LEAVES:
+        return _Better.LOWER
+    if _LOWER_IS_BETTER_GROUPS & set(metric.split(".")[:-1]):
+        return _Better.LOWER
+    return None
+
+
+def _sibling(metric: str, leaf: str) -> str:
+    prefix = metric.rsplit(".", 1)[0]
+    return f"{prefix}.{leaf}"
+
+
+def _sum_of(stats_list: Sequence[Stats], key: str) -> Optional[float]:
+    values = [s.get(key) for s in stats_list]
+    if any(not isinstance(v, (int, float)) for v in values):
+        return None
+    return float(sum(values))
+
+
+def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> Optional[float]:
+    """*metric* over several runs, as if they were one run.
+
+    IPC and CPI are weighted by instructions retired; an accuracy or miss
+    rate is recomputed from the hit and miss counters next to it.
+    """
+    leaf = _leaf(metric)
+    if leaf == "accuracy":
+        hits = _sum_of(stats_list, _sibling(metric, "hits"))
+        misses = _sum_of(stats_list, _sibling(metric, "mispredicts"))
+        return _ratio(hits, misses)
+    if leaf == "miss_rate":
+        misses = _sum_of(stats_list, _sibling(metric, "misses"))
+        hits = _sum_of(stats_list, _sibling(metric, "hits"))
+        return _ratio(misses, hits)
+
+    values = [s.get(metric) for s in stats_list]
+    weights = [s.get("instructions_retired", 0) for s in stats_list]
+    if any(not isinstance(v, (int, float)) for v in values):
+        return None
+    if leaf == "ipc":
+        return _weighted_harmonic_mean(values, weights)
+    total_weight = sum(weights)
+    if total_weight == 0:
+        return None
+    return sum(v * w for v, w in zip(values, weights)) / total_weight
+
+
+def _ratio(numerator: Optional[float], other: Optional[float]) -> Optional[float]:
+    """``numerator / (numerator + other)``, as the simulator derives it."""
+    if numerator is None or other is None:
+        return None
+    total = numerator + other
+    return numerator / total if total else 0.0
 
 
 def _format_table(
@@ -366,7 +422,7 @@ def _compare_flat(
     if metrics is not None:
         show_metrics = [m for m in metrics if m in all_stat_keys]
     else:
-        show_metrics = sorted(all_stat_keys & (_RATE_METRICS | _COUNT_METRICS))
+        show_metrics = sorted(k for k in all_stat_keys if _HEADLINE_METRICS.match(k))
         if not show_metrics:
             show_metrics = sorted(all_stat_keys)
 
@@ -387,29 +443,12 @@ def _compare_flat(
 
     plain = _format_table(headers, rows)
 
-    _FLAT_LOWER_IS_BETTER = {
-        "cycles",
-        "stalls_control",
-        "stalls_data",
-        "branch_mispredictions",
-        "committed_branch_mispredictions",
-        "speculative_branch_mispredictions",
-    }
-    _FLAT_HIGHER_IS_BETTER = {
-        "branch_predictions",
-        "committed_branch_predictions",
-        "speculative_branch_predictions",
-        "instructions_retired",
-    }
     speedup_rows: List[List[str]] = []
     if baseline is not None and baseline in results:
         base_stats = results[baseline].stats
         for m in show_metrics:
-            if (
-                m not in _RATE_METRICS
-                and m not in _FLAT_LOWER_IS_BETTER
-                and m not in _FLAT_HIGHER_IS_BETTER
-            ):
+            better = _better(m)
+            if better is None:
                 continue
             row = [m]
             bv = base_stats.get(m, 0)
@@ -420,10 +459,7 @@ def _compare_flat(
                     and isinstance(v, (int, float))
                     and bv != 0
                 ):
-                    if m in _FLAT_LOWER_IS_BETTER:
-                        ratio = bv / v  # lower is better
-                    else:
-                        ratio = v / bv  # higher is better
+                    ratio = bv / v if better is _Better.LOWER else v / bv
                     row.append(f"{ratio:.3f}x")
                 else:
                     row.append("—")
@@ -488,7 +524,6 @@ def _compare_matrix(
         labels: List[str] = []
         grid: List[List[str]] = []
         values_per_config: Dict[str, List[float]] = {c: [] for c in config_names}
-        weights_per_config: Dict[str, List[float]] = {c: [] for c in config_names}
 
         for bname in binary_names:
             labels.append(bname)
@@ -502,51 +537,29 @@ def _compare_matrix(
                 row.append(_fmt(v))
                 if isinstance(v, (int, float)):
                     values_per_config[cname].append(float(v))
-                    inst = r.stats.get("instructions_retired", 1)
-                    weights_per_config[cname].append(float(inst))
             grid.append(row)
 
-        # Aggregate row
-        is_rate = metric in _RATE_METRICS
         agg_cells: List[str] = []
         for cname in config_names:
-            vals = values_per_config[cname]
-            wgts = weights_per_config[cname]
-            if not vals:
+            runs = [
+                results[b][cname].stats for b in binary_names if cname in results[b]
+            ]
+            if not values_per_config[cname]:
                 agg_cells.append("—")
-            elif is_rate:
-                agg_cells.append(f"{_weighted_harmonic_mean(vals, wgts):.4f}")
+            elif _is_rate(metric):
+                aggregate = _aggregate_rate(metric, runs)
+                agg_cells.append("—" if aggregate is None else f"{aggregate:.4f}")
             else:
-                agg_cells.append(_fmt(int(sum(vals))))
+                agg_cells.append(_fmt(int(sum(values_per_config[cname]))))
         labels.append("AGGREGATE")
         grid.append(agg_cells)
 
-        # Baseline speedup rows — only for metrics with clear directionality
-        _LOWER_IS_BETTER = {
-            "cycles",
-            "stalls_control",
-            "stalls_data",
-            "branch_mispredictions",
-            "committed_branch_mispredictions",
-            "speculative_branch_mispredictions",
-        }
-        _HIGHER_IS_BETTER = {
-            "branch_predictions",
-            "committed_branch_predictions",
-            "speculative_branch_predictions",
-            "instructions_retired",
-        }
+        better = _better(metric)
         show_speedup = (
-            baseline is not None
-            and baseline in config_names
-            and (
-                metric in _RATE_METRICS
-                or metric in _LOWER_IS_BETTER
-                or metric in _HIGHER_IS_BETTER
-            )
+            baseline is not None and baseline in config_names and better is not None
         )
         if show_speedup and baseline is not None:
-            higher_is_better = metric in _RATE_METRICS or metric in _HIGHER_IS_BETTER
+            higher_is_better = better is _Better.HIGHER
             tag = "baseline " + baseline
             labels.append(tag)
             grid.append([""] * len(config_names))
