@@ -69,6 +69,38 @@ class RateAggregation(unittest.TestCase):
         self.assertIsNone(_aggregate_rate("core0.bp.accuracy", runs))
 
 
+class FakeCore:
+    cycles = 10
+    instructions_retired = 5
+    ipc = 0.5
+
+    def __init__(self, values):
+        self.values = values
+
+    def query(self, pattern):
+        paths = list(self.values)
+        return type("Query", (), {"paths": lambda self: paths})()
+
+    def get(self, path):
+        return self.values[path]
+
+
+class FromCore(unittest.TestCase):
+    def test_whole_counters_become_ints(self):
+        core = FakeCore({"core0.cache.l1d.misses": 42.0})
+
+        stats = Stats.from_core(core)
+
+        self.assertIsInstance(stats["core0.cache.l1d.misses"], int)
+
+    def test_rates_stay_floats_even_when_whole(self):
+        core = FakeCore({"core0.bp.committed.accuracy": 1.0})
+
+        stats = Stats.from_core(core)
+
+        self.assertIsInstance(stats["core0.bp.committed.accuracy"], float)
+
+
 class DefaultComparison(unittest.TestCase):
     def test_shows_the_headline_paths_when_no_metrics_are_named(self):
         stats = run(
