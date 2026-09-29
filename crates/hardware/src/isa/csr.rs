@@ -8,7 +8,7 @@
 /// # Example
 ///
 /// ```ignore
-/// use rvsim_core::core::arch::csr;
+/// use rvsim_core::arch::csr;
 ///
 /// let val = cpu.csr_read(csr::SATP);
 /// ```

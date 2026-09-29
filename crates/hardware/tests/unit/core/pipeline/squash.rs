@@ -14,7 +14,7 @@ fn in_flight_load(tag: u32) -> OutstandingLoad {
         entry: ExMem1Entry { rob_tag: RobTag(tag), ..ExMem1Entry::default() },
         paddr: PhysAddr::new(0x8000_0000),
         vaddr: VirtAddr::new(0x8000_0000),
-        dirty_updates: rvsim_core::common::DirtyUpdates::NONE,
+        dirty_updates: rvsim_core::arch::translation::DirtyUpdates::NONE,
         side_effecting: false,
         parts: LoadParts::Whole(None),
     }

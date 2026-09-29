@@ -30,15 +30,16 @@ pub mod views;
 /// Record of RAM writes for cross-hart visibility checks.
 pub mod write_log;
 
+use crate::arch::csr::Csrs;
+use crate::arch::pmp::Pmp;
+use crate::arch::regs::RegisterFile;
+use crate::arch::{Hart, HartInit};
 use crate::coherence::{self, CoherenceFabric, FabricGeometry};
-use crate::common::{HartId, PhysAddr, RegisterFile};
+use crate::common::{HartId, PhysAddr};
 use crate::config::{Config, InclusionPolicy, MemoryController as MemControllerType};
-use crate::core::arch::csr::Csrs;
-use crate::core::hart::HartInit;
 use crate::core::pipeline::engine::PipelineDispatch;
 use crate::core::units::cache::Cache;
-use crate::core::units::mmu::pmp::Pmp;
-use crate::core::{Core, CoreUnits, Hart};
+use crate::core::{Core, CoreUnits};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
@@ -454,7 +455,7 @@ impl SimState {
     /// is cloned into bus-resident devices (`SysCon`, HTIF) so they can
     /// write the harness termination value when triggered.
     pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
-        use crate::core::arch::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
+        use crate::arch::csr::{MSTATUS_DEFAULT_RV64, MSTATUS_FS_INIT, MSTATUS_VS_INIT};
         use crate::isa::reg;
 
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));

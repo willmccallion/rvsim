@@ -1,8 +1,8 @@
 //! Binary Loader and System Initialization (ELF + kernel/OpenSBI/DTB).
 
+use crate::arch::csr;
 use crate::common::{PhysAddr, SimError};
 use crate::config::Config;
-use crate::core::arch::csr;
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;

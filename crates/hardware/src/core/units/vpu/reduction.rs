@@ -629,7 +629,7 @@ fn fp_widen_reduce_f16_to_f32(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::core::arch::vpr::Vpr;
+    use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 

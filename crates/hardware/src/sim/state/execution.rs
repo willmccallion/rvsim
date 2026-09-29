@@ -1,8 +1,8 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::{CoreCtx, SharedState};
+use crate::arch::csr;
 use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, SimError, VPN_MASK, Vpn};
-use crate::core::arch::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;

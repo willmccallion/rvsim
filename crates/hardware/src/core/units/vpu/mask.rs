@@ -333,7 +333,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::arch::vpr::Vpr;
+    use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
 

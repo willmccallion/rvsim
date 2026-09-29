@@ -879,12 +879,10 @@ pub struct MemoryConfig {
         default = "MemoryConfig::default_paging_mode_max",
         deserialize_with = "deserialize_paging_mode"
     )]
-    pub paging_mode_max: crate::core::arch::csr::PagingMode,
+    pub paging_mode_max: crate::arch::csr::PagingMode,
 }
 
-fn deserialize_misa<'de, D>(
-    deserializer: D,
-) -> Result<Option<crate::core::arch::csr::Misa>, D::Error>
+fn deserialize_misa<'de, D>(deserializer: D) -> Result<Option<crate::arch::csr::Misa>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -895,11 +893,11 @@ where
 
 fn deserialize_paging_mode<'de, D>(
     deserializer: D,
-) -> Result<crate::core::arch::csr::PagingMode, D::Error>
+) -> Result<crate::arch::csr::PagingMode, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use crate::core::arch::csr::PagingMode;
+    use crate::arch::csr::PagingMode;
     use serde::de::{Error, Unexpected};
 
     let s = String::deserialize(deserializer)?;
@@ -1016,8 +1014,8 @@ impl MemoryConfig {
     }
 
     /// Default paging-mode cap: accept every supported mode.
-    const fn default_paging_mode_max() -> crate::core::arch::csr::PagingMode {
-        crate::core::arch::csr::PagingMode::Sv57
+    const fn default_paging_mode_max() -> crate::arch::csr::PagingMode {
+        crate::arch::csr::PagingMode::Sv57
     }
 }
 
@@ -1043,7 +1041,7 @@ impl Default for MemoryConfig {
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
             misaligned_access_trap: false,
-            paging_mode_max: crate::core::arch::csr::PagingMode::Sv57,
+            paging_mode_max: crate::arch::csr::PagingMode::Sv57,
         }
     }
 }
@@ -1263,7 +1261,7 @@ pub struct PipelineConfig {
     /// `misa` from an ISA string such as `"RV64IMAFDC"`, instead of the
     /// default RV64IMAFDC.
     #[serde(default, deserialize_with = "deserialize_misa")]
-    pub misa_override: Option<crate::core::arch::csr::Misa>,
+    pub misa_override: Option<crate::arch::csr::Misa>,
 
     /// TAGE predictor configuration
     #[serde(default)]
@@ -2595,10 +2593,10 @@ impl Config {
     /// The hart's `misa`: the override when one is given, otherwise
     /// RV64IMAFDC plus V when the vector unit is the full V extension.
     #[must_use]
-    pub fn misa(&self) -> crate::core::arch::csr::Misa {
+    pub fn misa(&self) -> crate::arch::csr::Misa {
         self.pipeline
             .misa_override
-            .unwrap_or_else(|| crate::core::arch::csr::Misa::rv64imafdc(self.implements_full_v()))
+            .unwrap_or_else(|| crate::arch::csr::Misa::rv64imafdc(self.implements_full_v()))
     }
 
     /// True when the vector unit meets V's minimum: VLEN >= 128 (Zvl128b)

@@ -11,7 +11,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::error::ExceptionStage;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };

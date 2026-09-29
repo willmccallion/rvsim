@@ -3,7 +3,7 @@
 //! Verifies address matching (TOR, NA4, NAPOT), permission checks,
 //! M-mode bypass logic, and locking behaviour per RISC-V spec §3.7.
 
-use rvsim_core::core::units::mmu::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
+use rvsim_core::arch::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
 
 // Configuration byte helpers
 const R: u8 = 1 << 0;

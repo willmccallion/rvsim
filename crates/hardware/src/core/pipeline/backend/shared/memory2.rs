@@ -23,8 +23,8 @@
 //! - **LR:** record `LrScRecord::Lr` so commit installs the reservation.
 //! - **Non-memory ops:** pass through untouched.
 
+use crate::arch::reservation::LrScRecord;
 use crate::common::PhysAddr;
-use crate::common::error::LrScRecord;
 use crate::core::exec::memory::load_result;
 use crate::core::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::core::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};

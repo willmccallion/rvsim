@@ -15,7 +15,8 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::{ExceptionStage, PhysAddr};
+use crate::common::PhysAddr;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::isa::instruction::{InstSize, is_compressed};
 use crate::isa::privileged::Trap;

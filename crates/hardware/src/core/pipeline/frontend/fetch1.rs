@@ -26,9 +26,10 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::{AccessType, ExceptionStage, InstSeq, LineAddr, PhysAddr, VirtAddr};
-use crate::core::arch::csr;
+use crate::arch::csr;
+use crate::common::{AccessType, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::core::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 use crate::core::units::bru::ControlInst;
@@ -345,7 +346,10 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let translated = if fetch_trap.is_none() {
             state.translate(VirtAddr::new(current_pc), AccessType::Fetch, 2)
         } else {
-            TranslateResult::Ready(crate::common::TranslationResult::success(PhysAddr::new(0), 0))
+            TranslateResult::Ready(crate::arch::translation::TranslationResult::success(
+                PhysAddr::new(0),
+                0,
+            ))
         };
 
         let (paddr, trap) = match translated {

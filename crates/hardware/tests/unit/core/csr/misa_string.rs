@@ -1,6 +1,6 @@
 //! `misa` parsed from an ISA string, as `pipeline.misa_override` takes it.
 
-use rvsim_core::core::arch::csr::{self, Misa};
+use rvsim_core::arch::csr::{self, Misa};
 
 fn parse(isa: &str) -> Result<u64, String> {
     isa.parse::<Misa>().map(Misa::bits).map_err(|e| e.to_string())

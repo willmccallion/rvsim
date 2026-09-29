@@ -4,9 +4,9 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
+use rvsim_core::arch::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::arch::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;

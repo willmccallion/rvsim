@@ -12,6 +12,9 @@
 /// Execution engine traits and pipeline dispatch.
 pub mod engine;
 
+/// Where in the pipeline an exception was first detected.
+pub mod exception;
+
 /// Inter-stage pipeline latches.
 pub mod latches;
 

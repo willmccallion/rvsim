@@ -7,8 +7,8 @@
 //! it (FP flags, PTE A/D updates, SFENCE.VMA operands, LR/SC reservation
 //! records).
 
-use crate::common::ExceptionStage;
 use crate::core::exec::signals::ControlFlow;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::Mem2WbEntry;
 use crate::core::pipeline::rob::Rob;
 use crate::isa::op::AtomicOp;

@@ -8,7 +8,8 @@
 //! work the original stage couldn't (apply sign extension, complete the
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
-use crate::common::{LineAddr, PhysAddr, TranslationResult, VirtAddr};
+use crate::arch::translation::TranslationResult;
+use crate::common::{LineAddr, PhysAddr, VirtAddr};
 use crate::core::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry, VecMemAccess, VecMemTarget};
 use crate::core::units::mmu::ptw::WalkState;
 use crate::sim::packet::MemRespData;
@@ -54,7 +55,7 @@ pub struct OutstandingLoad {
     /// field and for trace output).
     pub vaddr: VirtAddr,
     /// The D-bit updates the access applies when it retires (an AMO's).
-    pub dirty_updates: crate::common::DirtyUpdates,
+    pub dirty_updates: crate::arch::translation::DirtyUpdates,
     /// The access reads a device, so it was issued non-speculatively from
     /// the ROB head and must complete before anything pre-empts it.
     pub side_effecting: bool,

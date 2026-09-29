@@ -4,9 +4,9 @@
 //! not swallow the instruction after it once the walk returns.
 
 use crate::common::harness::TestContext;
+use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::arch::csr;
 use rvsim_core::core::pipeline::engine::BackendType;
 use rvsim_core::isa::privileged::PrivilegeMode;
 

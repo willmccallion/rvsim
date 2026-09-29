@@ -1,5 +1,7 @@
 //! Control and Status Register (CSR) definitions and operations.
 
+mod access;
+
 use crate::isa::csr::CsrAddr;
 
 /// Vector start position CSR address.

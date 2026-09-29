@@ -3,7 +3,8 @@
 //! This module contains unit tests for trap types, translation results,
 //! and error handling mechanisms.
 
-use rvsim_core::common::{PhysAddr, TranslationResult};
+use rvsim_core::arch::translation::TranslationResult;
+use rvsim_core::common::PhysAddr;
 use rvsim_core::isa::privileged::Trap;
 
 #[test]

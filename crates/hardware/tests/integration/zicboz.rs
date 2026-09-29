@@ -131,7 +131,7 @@ fn cbo_zero_ignores_low_address_bits() {
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::new_with_config(&Config::default()).with_memory(RAM_SIZE, RAM_BASE);
-    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::core::arch::csr::MENVCFG_CBZE, 0);
+    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & rvsim_core::arch::csr::MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);

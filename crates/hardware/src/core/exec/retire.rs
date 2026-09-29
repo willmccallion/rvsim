@@ -4,10 +4,10 @@
 //! stages and the atomic core. Each function changes only what it is
 //! given.
 
-use crate::common::{Asid, PAGE_SHIFT, SfenceVmaInfo, VPN_MASK, Vpn};
-use crate::core::Hart;
-use crate::core::arch::csr;
-use crate::core::arch::trap::TrapHandler;
+use crate::arch::translation::SfenceVmaInfo;
+use crate::arch::trap::TrapHandler;
+use crate::arch::{Hart, csr};
+use crate::common::{Asid, PAGE_SHIFT, VPN_MASK, Vpn};
 use crate::core::units::cache::Cache;
 use crate::core::units::mmu::Mmu;
 use crate::core::units::vpu::shadow::VectorWrites;

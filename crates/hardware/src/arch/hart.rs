@@ -3,18 +3,15 @@
 //! `Hart` owns the per-thread architectural state: registers, CSRs, program
 //! counter, privilege mode, MMU, PMP, and load reservation. On a non-SMT core
 //! there is exactly one `Hart`; with SMT, sibling threads share the parent
-//! [`Core`](super::Core)'s pipeline and L1 caches but each retains its own
+//! [`Core`](crate::core::Core)'s pipeline and L1 caches but each retains its own
 //! `Hart`.
 //!
 //! Constructed with a [`HartId`] that the `mhartid` CSR reports.
 
-pub mod csr;
-pub mod lifecycle;
-pub mod trap;
-
-use crate::common::{HartId, RegisterFile};
-use crate::core::arch::csr::Csrs;
-use crate::core::units::mmu::pmp::Pmp;
+use crate::arch::csr::Csrs;
+use crate::arch::pmp::Pmp;
+use crate::arch::regs::RegisterFile;
+use crate::common::HartId;
 use crate::isa::privileged::PrivilegeMode;
 
 /// Per-thread RISC-V architectural state.
@@ -76,5 +73,13 @@ impl Hart {
             sw_seip: false,
             instructions_retired: 0,
         }
+    }
+}
+
+impl Hart {
+    /// Dumps the current hart state (PC and registers) to stdout.
+    pub fn dump_state(&self) {
+        println!("PC = {:#018x}", self.pc);
+        self.regs.dump();
     }
 }

@@ -257,7 +257,7 @@ impl Simulator {
         }
         let state = &self.state;
         let timers = state.harts.iter().filter_map(|hart| {
-            let sstc = hart.csrs.menvcfg & crate::core::arch::csr::MENVCFG_STCE != 0;
+            let sstc = hart.csrs.menvcfg & crate::arch::csr::MENVCFG_STCE != 0;
             sstc.then(|| state.bus.ticks_until_mtime(hart.csrs.stimecmp)).flatten()
         });
         let memory = state.mem_controller.quiet_until(now + 1).map(|at| at - (now + 1));

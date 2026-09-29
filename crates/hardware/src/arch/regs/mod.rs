@@ -1,8 +1,17 @@
-//! Unified register file combining GPR, FPR, and (optional) VPR.
+//! The architectural register files: GPRs, FPRs, and (optional) VPRs.
 
-use crate::core::arch::fpr::Fpr;
-use crate::core::arch::gpr::Gpr;
-use crate::core::arch::vpr::Vpr;
+/// Floating-point registers.
+pub mod fpr;
+
+/// General-purpose registers.
+pub mod gpr;
+
+/// Vector registers (RVV 1.0).
+pub mod vpr;
+
+use crate::arch::regs::fpr::Fpr;
+use crate::arch::regs::gpr::Gpr;
+use crate::arch::regs::vpr::Vpr;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::Vlen;
 

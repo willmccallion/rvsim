@@ -4,23 +4,15 @@
 //! pipeline, execution units, architecture-specific components, and the
 //! orchestrator that coordinates all components.
 
-/// Architecture-specific components (CSRs, register files, privilege modes, traps).
-pub mod arch;
-
 /// What each instruction does, shared by every engine that runs
 /// instructions: decode, execute semantics and retirement.
 pub mod exec;
-
-/// Per-thread RISC-V architectural state.
-pub mod hart;
 
 /// Instruction pipeline implementation (stages and latches).
 pub mod pipeline;
 
 /// Execution units (ALU, FPU, LSU, MMU, branch predictor, cache, prefetcher).
 pub mod units;
-
-pub use self::hart::Hart;
 
 use crate::common::CoreId;
 use crate::config::{Config, InclusionPolicy};

@@ -6,15 +6,14 @@
 //! either resolves the translation immediately or returns the first PTE
 //! address the caller must read via a `MemReq` packet.
 
-pub mod pmp;
-
 pub mod ptw;
 
 pub mod tlb;
 
-use crate::common::{AccessType, Asid, PhysAddr, TranslationResult, VirtAddr, Vpn};
-use crate::core::arch::csr::{Csrs, PagingMode};
-use crate::core::units::mmu::pmp::Pmp;
+use crate::arch::csr::{Csrs, PagingMode};
+use crate::arch::pmp::Pmp;
+use crate::arch::translation::TranslationResult;
+use crate::common::{AccessType, Asid, PhysAddr, VirtAddr, Vpn};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
@@ -96,11 +95,11 @@ impl Mmu {
         csrs: &Csrs,
         pmp: Option<&Pmp>,
     ) -> TranslateOutcome {
-        use crate::common::{PAGE_SHIFT, VPN_MASK};
-        use crate::core::arch::csr::{
+        use crate::arch::csr::{
             MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
             SATP_MODE_SHIFT,
         };
+        use crate::common::{PAGE_SHIFT, VPN_MASK};
 
         let satp = csrs.satp;
         let mode_raw = (satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
@@ -285,7 +284,7 @@ impl Mmu {
 }
 
 /// Returns true if `va` is a canonical virtual address for `mode`.
-const fn is_canonical_va(va: u64, mode: crate::core::arch::csr::PagingMode) -> bool {
+const fn is_canonical_va(va: u64, mode: crate::arch::csr::PagingMode) -> bool {
     let top = mode.va_top_bit();
     if top >= 63 {
         return true;

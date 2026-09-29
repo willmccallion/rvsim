@@ -1187,7 +1187,7 @@ fn exec_extension(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::core::arch::vpr::Vpr;
+    use crate::arch::regs::vpr::Vpr;
     use crate::isa::rvv::Vlen;
 
     /// Helper: create a 128-bit VLEN VPR.

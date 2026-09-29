@@ -2,7 +2,7 @@
 //!
 //! Tests for the RISC-V general-purpose register file implementation.
 
-use rvsim_core::core::arch::gpr::Gpr;
+use rvsim_core::arch::regs::gpr::Gpr;
 use rvsim_core::isa::reg::RegIdx;
 
 #[test]

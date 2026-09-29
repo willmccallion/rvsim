@@ -4,9 +4,9 @@
 //! predictions. What an instruction computes is in
 //! [`crate::core::exec::execute`].
 
-use crate::common::error::ExceptionStage;
 use crate::core::exec::execute::{branch_taken, check_target_alignment, is_jalr, jump_target};
 use crate::core::exec::signals::ControlFlow;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::{BpOutcome, Rob};
 use crate::core::pipeline::squash::{BranchRepair, Redirect};

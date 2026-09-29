@@ -3,9 +3,8 @@
 //! Operand selection, ALU/FPU evaluation, branch and jump targets, and the
 //! privilege and CSR checks that decide what a system instruction does.
 
-use crate::common::SfenceVmaInfo;
-use crate::core::Hart;
-use crate::core::arch::csr;
+use crate::arch::translation::SfenceVmaInfo;
+use crate::arch::{Hart, csr};
 use crate::core::exec::arch::ArchState;
 use crate::core::exec::cbo::{self, CboEffect};
 use crate::core::exec::inst::Inst;

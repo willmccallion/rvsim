@@ -640,8 +640,9 @@ impl ExecutionEngine for O3Engine {
                 state.shared.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).inc();
 
                 if let Some(trap) = entry.trap {
-                    let stage =
-                        entry.exception_stage.unwrap_or(crate::common::ExceptionStage::Execute);
+                    let stage = entry
+                        .exception_stage
+                        .unwrap_or(crate::core::pipeline::exception::ExceptionStage::Execute);
                     self.rob.fault(entry.rob_tag, trap, stage);
                 } else {
                     let val = if entry.ctrl.control_flow == ControlFlow::Jump {
@@ -872,7 +873,7 @@ impl ExecutionEngine for O3Engine {
                             self.rob.fault(
                                 ex_result.rob_tag,
                                 trap,
-                                crate::common::error::ExceptionStage::Execute,
+                                crate::core::pipeline::exception::ExceptionStage::Execute,
                             );
                             continue;
                         }
@@ -930,7 +931,7 @@ impl ExecutionEngine for O3Engine {
                         self.rob.fault(
                             ex_result.rob_tag,
                             trap,
-                            crate::common::error::ExceptionStage::Execute,
+                            crate::core::pipeline::exception::ExceptionStage::Execute,
                         );
                         continue;
                     }

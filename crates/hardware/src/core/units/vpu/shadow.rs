@@ -7,7 +7,7 @@
 //! file when the instruction retires, so execute never touches
 //! architectural state.
 
-use crate::core::arch::vpr::Vpr;
+use crate::arch::regs::vpr::Vpr;
 use crate::core::units::vpu::regfile::VectorRegFile;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 

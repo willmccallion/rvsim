@@ -9,8 +9,9 @@
 //! - Bare mode bypass
 
 use crate::common::harness::TestContext;
-use rvsim_core::common::{AccessType, TranslationResult, VirtAddr};
-use rvsim_core::core::arch::csr::{self, Csrs};
+use rvsim_core::arch::csr::{self, Csrs};
+use rvsim_core::arch::translation::TranslationResult;
+use rvsim_core::common::{AccessType, VirtAddr};
 use rvsim_core::core::units::mmu::tlb::TlbGeometry;
 use rvsim_core::core::units::mmu::{Mmu, TranslateOutcome};
 use rvsim_core::isa::privileged::{PrivilegeMode, Trap};

@@ -4,6 +4,9 @@
 /// Cache coherence: protocol, home agent, interconnect, fabric.
 pub mod coherence;
 
+/// Architectural state: harts, registers, CSRs, traps, PMP.
+pub mod arch;
+
 pub mod common;
 /// Simulator configuration (defaults, enums, hierarchical config structures).
 pub mod config;

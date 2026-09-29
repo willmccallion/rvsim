@@ -10,9 +10,9 @@
 
 use crate::common::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::common::harness::TestContext;
+use rvsim_core::arch::csr;
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::arch::csr;
 use rvsim_core::core::pipeline::engine::BackendType;
 
 const RAM_BASE: u64 = 0x8000_0000;

@@ -7,16 +7,14 @@
 //! raw PTE back to [`continue_walk`], which either completes translation
 //! or returns the next PTE to read.
 
-use crate::common::{
-    AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, PteUpdate, TranslationResult, VPN_MASK, VirtAddr,
-    Vpn,
-};
-use crate::core::arch::csr::{
+use crate::arch::csr::{
     Csrs, MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, PagingMode, SATP_ASID_MASK, SATP_ASID_SHIFT,
     SATP_PPN_MASK,
 };
+use crate::arch::pmp::{Pmp, PmpResult};
+use crate::arch::translation::{PteUpdate, TranslationResult};
+use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, VPN_MASK, VirtAddr, Vpn};
 use crate::core::units::mmu::Mmu;
-use crate::core::units::mmu::pmp::{Pmp, PmpResult};
 use crate::core::units::mmu::tlb::PageSize;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 

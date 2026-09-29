@@ -9,7 +9,7 @@ use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 /// Trait abstracting element-level access to vector registers.
 ///
 /// Implemented by:
-/// - [`Vpr`](crate::core::arch::vpr::Vpr) — architectural VRF (in-order backend)
+/// - [`Vpr`](crate::arch::regs::vpr::Vpr) — architectural VRF (in-order backend)
 /// - [`VecPrfView`](crate::core::pipeline::vec_prf::VecPrfView) — O3 physical VRF with renaming
 pub trait VectorRegFile {
     /// Read a single element from a vector register, zero-extended to u64.
@@ -31,7 +31,7 @@ pub trait VectorRegFile {
     fn vlen(&self) -> Vlen;
 }
 
-impl VectorRegFile for crate::core::arch::vpr::Vpr {
+impl VectorRegFile for crate::arch::regs::vpr::Vpr {
     #[inline]
     fn read_element(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> u64 {
         self.read_element(vreg, index, sew)
@@ -66,7 +66,7 @@ impl VectorRegFile for crate::core::arch::vpr::Vpr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::arch::vpr::Vpr;
+    use crate::arch::regs::vpr::Vpr;
 
     /// Verify that the trait methods on Vpr match the direct methods.
     #[test]

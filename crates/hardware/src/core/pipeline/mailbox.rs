@@ -18,9 +18,11 @@
 //!    sign-extension, AMO RMW, and SB ordering checks.
 //! 4. **Store ack** — fire-and-forget; drop the outstanding entry.
 
-use crate::common::{ExceptionStage, PAGE_SHIFT, PhysAddr, PteUpdate, TranslationResult};
+use crate::arch::translation::{PteUpdate, TranslationResult};
+use crate::common::{PAGE_SHIFT, PhysAddr};
 use crate::core::exec::cbo;
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::core::pipeline::latches::Mem1Mem2Entry;
 use crate::core::pipeline::outstanding::{

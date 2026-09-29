@@ -2228,7 +2228,7 @@ fn exec_fp_narrowing(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::core::arch::vpr::Vpr;
+    use crate::arch::regs::vpr::Vpr;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 
     fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {

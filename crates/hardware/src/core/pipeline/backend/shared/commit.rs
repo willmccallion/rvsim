@@ -7,9 +7,11 @@
 //! 4. Handle traps/interrupts.
 //! 5. Drain one committed store to memory per cycle.
 
-use crate::common::{LrScRecord, PhysAddr, PteUpdate};
-use crate::core::arch::csr;
-use crate::core::arch::vpr::Vpr;
+use crate::arch::csr;
+use crate::arch::regs::vpr::Vpr;
+use crate::arch::reservation::LrScRecord;
+use crate::arch::translation::PteUpdate;
+use crate::common::PhysAddr;
 use crate::core::exec::cbo::CboEffect;
 use crate::core::exec::retire;
 use crate::core::exec::signals::ControlFlow;

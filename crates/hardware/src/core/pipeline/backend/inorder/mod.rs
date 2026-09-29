@@ -13,7 +13,6 @@ pub mod execute;
 pub mod issue;
 mod rename;
 
-use crate::common::error::ExceptionStage;
 use crate::config::Config;
 use crate::core::exec::execute::unit_disabled;
 use crate::core::pipeline::backend::shared::commit::{
@@ -24,6 +23,7 @@ use crate::core::pipeline::backend::shared::vec_mem::{
 };
 use crate::core::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::core::pipeline::engine::{BackendCommon, ExecutionEngine};
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::scoreboard::Scoreboard;

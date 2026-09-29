@@ -1,9 +1,9 @@
 //! CLINT and PLIC lines reach the hart they belong to and no other.
 
 use rvsim_core::Simulator;
+use rvsim_core::arch::csr::{MIP_MEIP, MIP_MSIP, MIP_MTIP};
 use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
-use rvsim_core::core::arch::csr::{MIP_MEIP, MIP_MSIP, MIP_MTIP};
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;

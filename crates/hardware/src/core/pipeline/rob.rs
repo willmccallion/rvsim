@@ -11,11 +11,13 @@
 use crate::sim::state::write_log::WriteSeq;
 use std::collections::HashMap;
 
+use crate::arch::reservation::LrScRecord;
+use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::InstSeq;
-use crate::common::error::{DirtyUpdates, ExceptionStage, LrScRecord, SfenceVmaInfo};
 use crate::core::exec::execute::CsrWrite;
 use crate::core::exec::signals::ControlSignals;
 use crate::core::pipeline::checkpoint::CheckpointId;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::prf::PhysReg;
 use crate::core::pipeline::vec_prf::VecPhysReg;
 use crate::core::units::vpu::shadow::{ElementWrite, VectorWrites};

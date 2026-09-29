@@ -1,6 +1,6 @@
 //! The architectural state an instruction reads as it executes.
 
-use crate::core::Hart;
+use crate::arch::Hart;
 use crate::isa::csr::CsrAddr;
 
 /// What executing an instruction may read, whichever engine executes it:

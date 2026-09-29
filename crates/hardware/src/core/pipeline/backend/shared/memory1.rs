@@ -29,11 +29,11 @@
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
 
-use crate::common::{
-    AccessType, DirtyUpdates, ExceptionStage, PhysAddr, TranslationResult, VirtAddr,
-};
+use crate::arch::translation::{DirtyUpdates, TranslationResult};
+use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::core::exec::cbo;
 use crate::core::pipeline::engine::{ExecutionEngine, TrapProgress};
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
 };

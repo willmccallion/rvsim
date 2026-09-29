@@ -4,12 +4,12 @@
 //! [`shared::execute`](crate::core::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
-use crate::common::error::ExceptionStage;
 use crate::core::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::core::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
 use crate::core::pipeline::backend::shared::vector_config::set_vector_config;
+use crate::core::pipeline::exception::ExceptionStage;
 use crate::core::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::core::pipeline::rob::Rob;
 use crate::core::pipeline::squash::{Redirect, SquashCause};
@@ -375,7 +375,7 @@ mod tests {
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
 
-        state.hart.csrs.mstatus &= !crate::core::arch::csr::MSTATUS_FS; // Clear FS bits
+        state.hart.csrs.mstatus &= !crate::arch::csr::MSTATUS_FS; // Clear FS bits
 
         let tag = rob
             .allocate(

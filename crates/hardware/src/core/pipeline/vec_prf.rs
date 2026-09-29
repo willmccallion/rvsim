@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_vec_prf_view_same_results_as_vpr() {
-        use crate::core::arch::vpr::Vpr;
+        use crate::arch::regs::vpr::Vpr;
 
         let vlen = Vlen::new_unchecked(128);
         let mut vpr = Vpr::new(vlen);

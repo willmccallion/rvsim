@@ -4,7 +4,7 @@
 
 use crate::common::builder::instruction::InstructionBuilder;
 use crate::common::harness::TestContext;
-use rvsim_core::core::arch::csr;
+use rvsim_core::arch::csr;
 
 const T0: u32 = 5;
 const PROGRAM_BASE: u64 = 0x8000_0000;

@@ -83,7 +83,7 @@ pub trait ExecutionEngine {
     /// The vector configuration an instruction decoded now runs under: the
     /// result of the youngest executed `vsetvl` still in the ROB, else the
     /// architectural CSRs.
-    fn vector_config(&self, csrs: &crate::core::arch::csr::Csrs) -> crate::isa::rvv::VectorConfig {
+    fn vector_config(&self, csrs: &crate::arch::csr::Csrs) -> crate::isa::rvv::VectorConfig {
         self.rob().youngest_vec_csr_update().unwrap_or_else(|| csrs.vector_config())
     }
 
@@ -500,7 +500,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// flight in the pipeline, its store buffers or the write-combining
     /// buffer. What the frontend fetched past the WFI may stay: the
     /// frontend does not tick while the hart waits.
-    pub fn is_idle(&self, hart: &crate::core::Hart, units: &crate::core::CoreUnits) -> bool {
+    pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::core::CoreUnits) -> bool {
         let common = self.engine.common();
         hart.wfi_waiting
             && hart.csrs.mip & hart.csrs.mie == 0
@@ -626,7 +626,7 @@ impl PipelineDispatch {
     }
 
     /// See [`Pipeline::is_idle`].
-    pub fn is_idle(&self, hart: &crate::core::Hart, units: &crate::core::CoreUnits) -> bool {
+    pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::core::CoreUnits) -> bool {
         match self {
             Self::InOrder(p) => p.is_idle(hart, units),
             Self::OutOfOrder(p) => p.is_idle(hart, units),

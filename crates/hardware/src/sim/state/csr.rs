@@ -1,8 +1,7 @@
 //! CSR Access Logic with read/write side effects (TLB flushes, interrupt synchronization).
 
 use super::{CoreCtx, SharedState};
-use crate::core::Hart;
-use crate::core::arch::csr;
+use crate::arch::{Hart, csr};
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::Trap;
 
@@ -359,7 +358,7 @@ impl CoreCtx<'_> {
 mod tests {
     use crate::config::Config;
 
-    use crate::core::arch::csr;
+    use crate::arch::csr;
 
     #[test]
     fn test_cpu_csr_read_write_mstatus() {

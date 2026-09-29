@@ -8,8 +8,8 @@
 //! permission, but every CBO reports a fault as a store fault, as the CMO
 //! specification (and Spike) does.
 
+use crate::arch::csr::{CboInvalAction, Csrs, cbo_inval_action, cbocf_allowed, cboz_allowed};
 use crate::common::AccessType;
-use crate::core::arch::csr::{CboInvalAction, Csrs, cbo_inval_action, cbocf_allowed, cboz_allowed};
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::SystemOp;
 use crate::isa::privileged::{PrivilegeMode, Trap};

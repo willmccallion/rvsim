@@ -6,11 +6,13 @@
 //! returned walk state until the PTE response arrives in its mailbox.
 
 use super::{CoreCtx, SharedState};
-use crate::common::{AccessType, PhysAddr, TranslationResult, VirtAddr};
+use crate::arch::Hart;
+use crate::arch::pmp::PmpResult;
+use crate::arch::translation::TranslationResult;
+use crate::common::{AccessType, PhysAddr, VirtAddr};
+use crate::core::CoreUnits;
 use crate::core::units::mmu::TranslateOutcome;
-use crate::core::units::mmu::pmp::PmpResult;
 use crate::core::units::mmu::ptw::WalkState;
-use crate::core::{CoreUnits, Hart};
 use crate::isa::privileged::Trap;
 
 /// Outcome of [`SimState::translate`] / [`SimState::translate_continue`].
@@ -71,9 +73,9 @@ pub(super) fn translate(
     }
 
     let effective_priv = if access != AccessType::Fetch
-        && (hart.csrs.mstatus & crate::core::arch::csr::MSTATUS_MPRV) != 0
+        && (hart.csrs.mstatus & crate::arch::csr::MSTATUS_MPRV) != 0
     {
-        use crate::core::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
+        use crate::arch::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
         use crate::isa::privileged::PrivilegeMode;
         let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
         PrivilegeMode::from_u8(mpp)
