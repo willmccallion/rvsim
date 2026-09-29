@@ -38,14 +38,14 @@ pub(super) fn translate(
         );
         if pmp_result != PmpResult::Allow {
             return TranslateOutcome::Ready(TranslationResult::fault(
-                fault_for(access, vaddr.val()),
+                Trap::access_fault(access, vaddr.val()),
                 0,
             ));
         }
 
         if !uncore.bus.is_valid_address(paddr) {
             return TranslateOutcome::Ready(TranslationResult::fault(
-                fault_for(access, vaddr.val()),
+                Trap::access_fault(access, vaddr.val()),
                 0,
             ));
         }
@@ -116,8 +116,10 @@ fn finalize_outcome(
                     is_machine,
                 );
                 if pmp_result != PmpResult::Allow || !uncore.bus.is_valid_address(result.paddr) {
-                    result =
-                        TranslationResult::fault(fault_for(access, vaddr.val()), result.cycles);
+                    result = TranslationResult::fault(
+                        Trap::access_fault(access, vaddr.val()),
+                        result.cycles,
+                    );
                 }
             }
             TranslateOutcome::Ready(result)
@@ -145,14 +147,6 @@ impl CoreCtx<'_> {
         bus_transit_cycles: u64,
     ) -> TranslateOutcome {
         translate_continue(self.core, self.hart, self.uncore, state, raw_pte, bus_transit_cycles)
-    }
-}
-
-const fn fault_for(access: AccessType, addr: u64) -> Trap {
-    match access {
-        AccessType::Fetch => Trap::InstructionAccessFault(addr),
-        AccessType::Read => Trap::LoadAccessFault(addr),
-        AccessType::Write => Trap::StoreAccessFault(addr),
     }
 }
 

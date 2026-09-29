@@ -20,6 +20,8 @@ pub mod plru;
 
 pub mod random;
 
+mod recency;
+
 pub use fifo::FifoPolicy;
 pub use lru::LruPolicy;
 pub use mru::MruPolicy;

@@ -183,7 +183,7 @@ impl Mmu {
 
                 if privilege == PrivilegeMode::User && !hit.u {
                     return TranslateOutcome::Ready(TranslationResult::fault(
-                        page_fault(vaddr.val(), access),
+                        Trap::page_fault(access, vaddr.val()),
                         0,
                     ));
                 }
@@ -191,7 +191,7 @@ impl Mmu {
                     let sum = csrs.mstatus & MSTATUS_SUM != 0;
                     if !sum {
                         return TranslateOutcome::Ready(TranslationResult::fault(
-                            page_fault(vaddr.val(), access),
+                            Trap::page_fault(access, vaddr.val()),
                             0,
                         ));
                     }
@@ -242,7 +242,7 @@ impl Mmu {
 
                 if privilege == PrivilegeMode::User && !u {
                     return TranslateOutcome::Ready(TranslationResult::fault(
-                        page_fault(vaddr.val(), access),
+                        Trap::page_fault(access, vaddr.val()),
                         l2_latency,
                     ));
                 }
@@ -250,7 +250,7 @@ impl Mmu {
                     let sum = csrs.mstatus & MSTATUS_SUM != 0;
                     if !sum {
                         return TranslateOutcome::Ready(TranslationResult::fault(
-                            page_fault(vaddr.val(), access),
+                            Trap::page_fault(access, vaddr.val()),
                             l2_latency,
                         ));
                     }
@@ -310,13 +310,4 @@ const fn is_canonical_va(va: u64, mode: crate::isa::privileged::PagingMode) -> b
     let upper = va >> (top + 1);
     let expected = if top_bit == 1 { (1u64 << (63 - top)) - 1 } else { 0 };
     upper == expected
-}
-
-/// Creates an appropriate page fault trap for the access type.
-const fn page_fault(addr: u64, access: AccessType) -> Trap {
-    match access {
-        AccessType::Fetch => Trap::InstructionPageFault(addr),
-        AccessType::Read => Trap::LoadPageFault(addr),
-        AccessType::Write => Trap::StorePageFault(addr),
-    }
 }

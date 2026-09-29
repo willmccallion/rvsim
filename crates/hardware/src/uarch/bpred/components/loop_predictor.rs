@@ -8,6 +8,7 @@
 //! committed count, as gem5's `LoopPredictor` does.
 
 use crate::config::LoopConfig;
+use crate::uarch::bpred::components::xorshift64;
 
 /// An entry of the loop table.
 #[derive(Clone, Copy, Debug, Default)]
@@ -307,12 +308,7 @@ impl LoopPredictor {
     /// The next value of a xorshift generator, where gem5 draws from a
     /// Mersenne twister.
     const fn next_random(&mut self) -> u64 {
-        let mut x = self.random;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.random = x;
-        x
+        xorshift64(&mut self.random)
     }
 }
 

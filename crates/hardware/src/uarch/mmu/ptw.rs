@@ -224,14 +224,14 @@ pub fn continue_walk(
 
     if !pte.is_valid() {
         return WalkStep::Done(TranslationResult::fault(
-            page_fault(state.vaddr.val(), state.access),
+            Trap::page_fault(state.access, state.vaddr.val()),
             state.cycles,
         ));
     }
 
     if pte.has_reserved_bits() {
         return WalkStep::Done(TranslationResult::fault(
-            page_fault(state.vaddr.val(), state.access),
+            Trap::page_fault(state.access, state.vaddr.val()),
             state.cycles,
         ));
     }
@@ -239,7 +239,7 @@ pub fn continue_walk(
     if pte.is_pointer() {
         if state.level == 0 {
             return WalkStep::Done(TranslationResult::fault(
-                page_fault(state.vaddr.val(), state.access),
+                Trap::page_fault(state.access, state.vaddr.val()),
                 state.cycles,
             ));
         }
@@ -251,7 +251,7 @@ pub fn continue_walk(
     // Leaf PTE: validate, set A/D, install in TLB, return success.
     if pte.can_write() && !pte.can_read() {
         return WalkStep::Done(TranslationResult::fault(
-            page_fault(state.vaddr.val(), state.access),
+            Trap::page_fault(state.access, state.vaddr.val()),
             state.cycles,
         ));
     }
@@ -260,7 +260,7 @@ pub fn continue_walk(
         let ppn_mask = (1u64 << (u64::from(state.level) * VPN_BITS_PER_LEVEL)) - 1;
         if (pte.ppn_raw() & ppn_mask) != 0 {
             return WalkStep::Done(TranslationResult::fault(
-                page_fault(state.vaddr.val(), state.access),
+                Trap::page_fault(state.access, state.vaddr.val()),
                 state.cycles,
             ));
         }
@@ -268,7 +268,7 @@ pub fn continue_walk(
 
     if check_permissions(pte, state.access, state.privilege, csrs).is_err() {
         return WalkStep::Done(TranslationResult::fault(
-            page_fault(state.vaddr.val(), state.access),
+            Trap::page_fault(state.access, state.vaddr.val()),
             state.cycles,
         ));
     }
@@ -276,13 +276,13 @@ pub fn continue_walk(
     if csrs.menvcfg & MENVCFG_ADUE == 0 {
         if !pte.is_accessed() {
             return WalkStep::Done(TranslationResult::fault(
-                page_fault(state.vaddr.val(), state.access),
+                Trap::page_fault(state.access, state.vaddr.val()),
                 state.cycles,
             ));
         }
         if state.access == AccessType::Write && !pte.is_dirty() {
             return WalkStep::Done(TranslationResult::fault(
-                page_fault(state.vaddr.val(), state.access),
+                Trap::page_fault(state.access, state.vaddr.val()),
                 state.cycles,
             ));
         }
@@ -304,7 +304,7 @@ pub fn continue_walk(
     let pte_raw = pte.raw();
     let Some(size) = PageSize::from_level(state.level) else {
         return WalkStep::Done(TranslationResult::fault(
-            page_fault(state.vaddr.val(), state.access),
+            Trap::page_fault(state.access, state.vaddr.val()),
             state.cycles,
         ));
     };
@@ -409,13 +409,4 @@ fn access_bit_updates(
         set_bits: PTE_ACCESSED_BIT | PTE_DIRTY_BIT,
     });
     (accessed, dirty)
-}
-
-/// Constructs the appropriate Trap for a failed page access.
-const fn page_fault(addr: u64, access: AccessType) -> Trap {
-    match access {
-        AccessType::Fetch => Trap::InstructionPageFault(addr),
-        AccessType::Read => Trap::LoadPageFault(addr),
-        AccessType::Write => Trap::StorePageFault(addr),
-    }
 }

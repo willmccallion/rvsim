@@ -7,13 +7,12 @@
 //! needed again in the immediate future.
 
 use super::ReplacementPolicy;
+use super::recency::RecencyStacks;
 
 /// MRU Policy state.
 #[derive(Debug)]
 pub struct MruPolicy {
-    /// A vector of usage stacks (one per set).
-    /// Index 0 is the MRU position (victim), last index is LRU.
-    usage: Vec<Vec<usize>>,
+    usage: RecencyStacks,
 }
 
 impl MruPolicy {
@@ -24,11 +23,7 @@ impl MruPolicy {
     /// * `sets` - The number of sets in the cache.
     /// * `ways` - The associativity (number of ways) of the cache.
     pub fn new(sets: usize, ways: usize) -> Self {
-        let mut usage = Vec::with_capacity(sets);
-        for _ in 0..sets {
-            usage.push((0..ways).collect());
-        }
-        Self { usage }
+        Self { usage: RecencyStacks::new(sets, ways) }
     }
 }
 
@@ -37,17 +32,13 @@ impl ReplacementPolicy for MruPolicy {
     ///
     /// Moves the accessed `way` to the front of the usage stack (MRU position).
     fn update(&mut self, set: usize, way: usize) {
-        let stack = &mut self.usage[set];
-        if let Some(pos) = stack.iter().position(|&x| x == way) {
-            let _ = stack.remove(pos);
-        }
-        stack.insert(0, way);
+        self.usage.touch(set, way);
     }
 
     /// Identifies the victim way to evict.
     ///
     /// Returns the way at the top of the usage stack (the Most Recently Used).
     fn get_victim(&mut self, set: usize) -> usize {
-        self.usage[set].first().copied().unwrap_or(0)
+        self.usage.most_recent(set)
     }
 }

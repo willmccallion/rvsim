@@ -8,6 +8,7 @@ use super::sc_types::{TageConfLevel, TageScMeta};
 use super::tage_history::{HistoryBranch, HistoryCheckpoint, TageHistories};
 use super::tagged_bank::MAX_BANKS;
 use crate::config::{TageAllocation, TageBanking, TageConfig, TageHashing, TageUpdate};
+use crate::uarch::bpred::components::xorshift64;
 
 /// An entry in a TAGE tagged bank.
 #[derive(Clone, Copy, Debug, Default)]
@@ -545,12 +546,7 @@ impl TageCore {
     /// The next value of a xorshift generator: gem5 draws from a Mersenne
     /// twister, and a fixed seed keeps runs reproducible.
     const fn next_random(&mut self) -> u64 {
-        let mut x = self.random;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.random = x;
-        x
+        xorshift64(&mut self.random)
     }
 
     /// The PC as the table and tag hashes take it: shifted past its low

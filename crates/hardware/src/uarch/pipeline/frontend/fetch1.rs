@@ -40,6 +40,7 @@ use crate::uarch::bpred::btb::BranchKind;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine};
 use crate::uarch::pipeline::exception::ExceptionStage;
+use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 
@@ -111,18 +112,6 @@ impl GroupBuilder {
             entries: self.entries,
         })
     }
-}
-
-/// Reads a 16-bit instruction half-word from the RAM fast-path pointer.
-///
-/// Returns 0 for addresses outside DRAM. Architecturally, fetching from
-/// MMIO returns garbage; the decoded `0` results in an illegal-instruction
-/// trap, which matches what real hardware would do.
-fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
-    state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
-        // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
-        unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
-    })
 }
 
 /// What fetch predicts for one instruction: where it goes next, whether

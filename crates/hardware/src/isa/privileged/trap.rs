@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use crate::common::AccessType;
+
 /// RISC-V trap types representing exceptions and interrupts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trap {
@@ -93,6 +95,26 @@ impl fmt::Display for Trap {
 }
 
 impl Trap {
+    /// The page fault an `access` to `addr` raises.
+    #[must_use]
+    pub const fn page_fault(access: AccessType, addr: u64) -> Self {
+        match access {
+            AccessType::Fetch => Self::InstructionPageFault(addr),
+            AccessType::Read => Self::LoadPageFault(addr),
+            AccessType::Write => Self::StorePageFault(addr),
+        }
+    }
+
+    /// The access fault an `access` to `addr` raises.
+    #[must_use]
+    pub const fn access_fault(access: AccessType, addr: u64) -> Self {
+        match access {
+            AccessType::Fetch => Self::InstructionAccessFault(addr),
+            AccessType::Read => Self::LoadAccessFault(addr),
+            AccessType::Write => Self::StoreAccessFault(addr),
+        }
+    }
+
     /// `(is_interrupt, code)` as `mcause` encodes it, without the interrupt bit.
     #[must_use]
     pub const fn cause(&self) -> (bool, u64) {

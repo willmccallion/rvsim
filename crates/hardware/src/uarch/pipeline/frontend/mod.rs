@@ -151,3 +151,15 @@ impl<E: ExecutionEngine> Frontend<E> {
         self.decode_rename.clear();
     }
 }
+
+/// Reads a 16-bit instruction half-word from the RAM fast-path pointer.
+///
+/// Returns 0 for addresses outside DRAM. Architecturally, fetching from
+/// MMIO returns garbage; the decoded `0` results in an illegal-instruction
+/// trap, which matches what real hardware would do.
+pub(super) fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
+    state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
+        // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
+        unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
+    })
+}
