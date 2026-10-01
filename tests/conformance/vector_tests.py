@@ -2,7 +2,8 @@
 """Run the chipsalliance vector cosim suite across every PIPELINES config.
 
 For each test ELF under tests/builds/vector/vlen{N}/:
-  1. Compute the spike reference signature ONCE (cached on disk).
+  1. Compute the spike reference signature ONCE (cached on disk, keyed by
+     the ELF contents, VLEN, ISA string and spike binary).
   2. For every pipeline config in tests/conformance/configs/pipelines.py, run the same
      ELF on rvsim via tests/conformance/_worker.py and diff against the cached spike sig.
 
@@ -19,6 +20,7 @@ Usage:
 import argparse
 import concurrent.futures as cf
 import glob
+import hashlib
 import json
 import os
 import struct
@@ -72,14 +74,33 @@ def compute_spike_sig(elf_path, vlen, march, sig_path):
     return None
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def reference_sig_key(elf_path, vlen, march, spike_digest):
+    """Identify a spike signature by everything that determines it."""
+    digest = hashlib.sha256()
+    for part in (file_sha256(elf_path), str(vlen), march, spike_digest):
+        digest.update(part.encode())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
+
+
 def cache_spike_sigs(elfs, vlen, march, cache_dir, jobs):
     """Compute spike sigs for every test in parallel, return {elf: sig_path}."""
     os.makedirs(cache_dir, exist_ok=True)
+    spike_digest = file_sha256(SPIKE)
     todo = []
     sig_paths = {}
     for elf in elfs:
         name = os.path.basename(elf)[:-4]
-        sig_path = os.path.join(cache_dir, f"{name}.sig")
+        key = reference_sig_key(elf, vlen, march, spike_digest)
+        sig_path = os.path.join(cache_dir, f"{name}.{key}.sig")
         sig_paths[elf] = sig_path
         if not os.path.isfile(sig_path):
             todo.append((elf, sig_path))
