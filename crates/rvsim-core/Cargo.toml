@@ -38,8 +38,5 @@ log = "0.4"
 tempfile = "3.8"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
-[build-dependencies]
-which = "6"
-
 [lints]
 workspace = true
