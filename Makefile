@@ -1,25 +1,20 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-#  rvsim — Build, Test, and Run
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Run from repo root.  make help  for all targets.
-#  Override tools:  CARGO=cargo  MATURIN=maturin  PYTHON=python3
-# ═══════════════════════════════════════════════════════════════════════════════
+# Run from the repo root; `make help` lists the targets.
+# Override tools: CARGO=cargo MATURIN=maturin PYTHON=python3
 
 SHELL           := $(shell command -v bash)
 .DEFAULT_GOAL   := help
 
-# ── Tools ─────────────────────────────────────────────────────────────────────
 CARGO           ?= cargo
 MATURIN         ?= $(shell [ -f .venv/bin/maturin ] && echo .venv/bin/maturin || echo maturin)
 PYTHON          ?= $(shell [ -f .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3)
 
 # Centralized build directory
 BUILD_DIR       := target
+TEST_BUILDS     := tests/builds
 
 # Redirect Python byte-code cache to target/
 export PYTHONPYCACHEPREFIX := $(BUILD_DIR)/pycache
 
-# ── Colors (only when stdout is a terminal) ───────────────────────────────────
 ifneq ($(TERM),)
   GREEN  := \033[32m
   CYAN   := \033[36m
@@ -32,7 +27,6 @@ else
   RESET  :=
 endif
 
-# ── Phony ─────────────────────────────────────────────────────────────────────
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: compare-gem5
@@ -44,9 +38,6 @@ endif
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Help
-# ═══════════════════════════════════════════════════════════════════════════════
 HELP_W := 28
 help:
 	@printf "\n$(BOLD)rvsim$(RESET) — RISC-V cycle-level simulator\n\n"
@@ -90,10 +81,6 @@ help:
 	@printf "    %-$(HELP_W)s  Remove software artifacts only\n" "make clean-software"
 	@printf "\n"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Build
-# ═══════════════════════════════════════════════════════════════════════════════
-
 build: python
 
 software:
@@ -124,10 +111,6 @@ python:
 python-wheel:
 	@printf "$(GREEN)Building Python wheel into $(BUILD_DIR)/wheels…$(RESET)\n"
 	$(MATURIN) build --release --out $(BUILD_DIR)/wheels
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Development
-# ═══════════════════════════════════════════════════════════════════════════════
 
 check:
 	@printf "$(GREEN)Running cargo check…$(RESET)\n"
@@ -187,19 +170,17 @@ lint: fmt-check clippy
 
 arch-test:
 	@printf "$(GREEN)Running riscv-arch-test compliance suite via riscof…$(RESET)\n"
-	@if [ ! -d tests/conformance/riscof/riscv-arch-test ]; then \
+	@if [ ! -d $(TEST_BUILDS)/riscv-arch-test ]; then \
 		printf "$(GREEN)Cloning riscv-arch-test suite…$(RESET)\n"; \
-		.venv/bin/riscof arch-test --clone --dir tests/conformance/riscof/riscv-arch-test; \
+		.venv/bin/riscof arch-test --clone --dir $(TEST_BUILDS)/riscv-arch-test; \
 	fi
-	@mkdir -p tests/builds/riscof-work
+	@mkdir -p $(TEST_BUILDS)/riscof-work
 	cd tests/conformance/riscof && ../../../.venv/bin/riscof run --no-browser \
 		--config config.ini \
-		--suite riscv-arch-test/riscv-test-suite/ \
-		--env riscv-arch-test/riscv-test-suite/env \
+		--suite ../../builds/riscv-arch-test/riscv-test-suite/ \
+		--env ../../builds/riscv-arch-test/riscv-test-suite/env \
 		--work-dir ../../builds/riscof-work
 
-# ── Centralized test build artifact directory ────────────────────────────────
-TEST_BUILDS    := tests/builds
 SPIKE_LOCAL    := $(TEST_BUILDS)/spike-install/bin/spike
 VECTOR_PATTERN ?= .*
 VECTOR_VLEN    ?= 128
@@ -216,7 +197,7 @@ $(SPIKE_LOCAL):
 		../spike-src/configure --prefix=$$(pwd)/../spike-install >/dev/null && \
 		$(MAKE) -j$$(nproc) install >/dev/null
 
-# ── riscv-tests source + build (was software/riscv-tests) ─────────────────────
+# riscv-tests source + build (was software/riscv-tests)
 $(TEST_BUILDS)/riscv-tests:
 	@printf "$(GREEN)Cloning riscv-tests…$(RESET)\n"
 	@mkdir -p $(TEST_BUILDS)
@@ -246,7 +227,7 @@ riscv-tests: riscv-tests-build python
 	@printf "$(GREEN)Running riscv-tests across all PIPELINES…$(RESET)\n"
 	.venv/bin/python tests/conformance/riscv_tests.py
 
-# ── Vector tests (chipsalliance generator + spike cosim) ──────────────────────
+# Vector tests (chipsalliance generator + spike cosim)
 vector-test-build: $(SPIKE_LOCAL)
 	@printf "$(GREEN)Building RVV test ELFs (VLEN=$(VECTOR_VLEN), pattern='$(VECTOR_PATTERN)')…$(RESET)\n"
 	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_PATTERN)' bash tests/conformance/vector/build_tests.sh
@@ -258,7 +239,7 @@ vector-test: vector-test-build python
 vector-test-smoke:
 	@$(MAKE) vector-test VECTOR_PATTERN='^v(add|sub|and|or|xor|sll|srl|sra|min|max|mul)\.'
 
-# ── Multi-config runners ──────────────────────────────────────────────────────
+# Multi-config runners
 # Each runs every test in its suite across every Config in
 # tests/conformance/configs/pipelines.py.
 arch-test-multi: arch-test python
@@ -269,7 +250,7 @@ vector-test-multi: vector-test-build python
 	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
 	.venv/bin/python tests/conformance/vector_tests.py --vlen $(VECTOR_VLEN)
 
-# ── The big one ──────────────────────────────────────────────────────────────
+# The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
 # summary, exits non-zero on any failure. Several CPU-hours.
 test-all: riscv-tests-build $(TEST_BUILDS)/riscof-work vector-test-build python
@@ -291,10 +272,6 @@ clean-tests:
 prerelease:
 	@tools/prerelease
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Run
-# ═══════════════════════════════════════════════════════════════════════════════
-
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
 	.venv/bin/rvsim -f software/bin/benchmarks/qsort.elf
@@ -304,10 +281,6 @@ run-linux:
 	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s) with DDR5-5600 over a mesh…$(RESET)\n"
 	.venv/bin/rvsim tools/boot_linux.py --harts $(HARTS)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Profiling
-# ═══════════════════════════════════════════════════════════════════════════════
-
 profile-build:
 	@printf "$(GREEN)Building with profiling symbols…$(RESET)\n"
 	.venv/bin/maturin develop --profile profiling
@@ -315,10 +288,6 @@ profile-build:
 flamegraph:
 	@printf "$(GREEN)Recording flamegraph…$(RESET)\n"
 	$$HOME/.cargo/bin/flamegraph -o flamegraph.svg -F 99 -- .venv/bin/rvsim $(ARGS)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Housekeeping
-# ═══════════════════════════════════════════════════════════════════════════════
 
 clean:
 	@printf "$(GREEN)Cleaning all artifacts (removing $(BUILD_DIR))…$(RESET)\n"
