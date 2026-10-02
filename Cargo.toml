@@ -63,6 +63,7 @@ unused_results = "deny"
 # calls into the C floating-point environment (feclearexcept/fetestexcept).
 # All unsafe blocks are individually justified with SAFETY comments.
 rust_2018_idioms = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 # Strong baseline
@@ -75,6 +76,10 @@ unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+# Every unsafe block names the invariant it relies on, one operation at a time.
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
 
 # Style/naming allows: standard for simulators and hardware code
 module_name_repetitions = "allow"

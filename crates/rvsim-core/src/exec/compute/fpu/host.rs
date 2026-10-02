@@ -56,6 +56,7 @@ unsafe extern "C" {
 
 /// Reads and maps host FPU exception flags to RISC-V `FpFlags`.
 pub fn read_host_fp_flags() -> FpFlags {
+    // SAFETY: `fetestexcept` only reads this thread's FP environment.
     let host = unsafe { fetestexcept(FE_ALL_EXCEPT) };
     let mut flags = FpFlags::NONE;
     if host & FE_INVALID != 0 {
@@ -78,9 +79,8 @@ pub fn read_host_fp_flags() -> FpFlags {
 
 /// Clears all host FPU exception flags.
 pub fn clear_host_fp_flags() {
-    unsafe {
-        let _ = feclearexcept(FE_ALL_EXCEPT);
-    }
+    // SAFETY: `feclearexcept` only clears this thread's FP exception flags.
+    let _ = unsafe { feclearexcept(FE_ALL_EXCEPT) };
 }
 
 /// Maps a RISC-V rounding mode to the host FPU `FE_*` constant.
@@ -102,16 +102,17 @@ pub(super) const fn rm_to_host_round(rm: RoundingMode) -> i32 {
 /// Sets the host FPU rounding mode for a RISC-V rounding mode, returning
 /// the previous host mode for later restoration.
 pub fn set_host_round_mode(rm: RoundingMode) -> i32 {
+    // SAFETY: `fegetround` only reads this thread's rounding mode.
     let old = unsafe { fegetround() };
-    unsafe {
-        let _ = fesetround(rm_to_host_round(rm));
-    }
+    // SAFETY: `fesetround` takes an `FE_*` constant and only sets this
+    // thread's rounding mode; the caller restores `old` afterwards.
+    let _ = unsafe { fesetround(rm_to_host_round(rm)) };
     old
 }
 
 /// Restores the host FPU rounding mode to a previously saved value.
 pub fn restore_host_round_mode(mode: i32) {
-    unsafe {
-        let _ = fesetround(mode);
-    }
+    // SAFETY: `mode` came from `fegetround`, and `fesetround` only sets this
+    // thread's rounding mode.
+    let _ = unsafe { fesetround(mode) };
 }
