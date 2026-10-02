@@ -5,6 +5,7 @@
 
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
+use rvsim_core::common::{PhysAddr, VirtAddr};
 use rvsim_core::isa::csr::CsrAddr;
 use rvsim_core::isa::reg::RegIdx;
 
@@ -81,16 +82,14 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        Ok(self.cpu.borrow(py).inner.state.harts[self.hart].regs.read(RegIdx::new(idx as u8)))
+        Ok(self.cpu.borrow(py).inner.hart(self.hart).regs.read(RegIdx::new(idx as u8)))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.state.harts[self.hart]
-            .regs
-            .write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.hart_mut(self.hart).regs.write(RegIdx::new(idx as u8), value);
         Ok(())
     }
 
@@ -98,7 +97,7 @@ impl Registers {
         let cpu = self.cpu.borrow(py);
         let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.state.harts[self.hart].regs.read(RegIdx::new(i));
+                let v = cpu.inner.hart(self.hart).regs.read(RegIdx::new(i));
                 if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
@@ -131,6 +130,7 @@ impl Csrs {
         };
         self.cpu
             .borrow_mut(py)
+            .inner
             .read_csr(self.hart, CsrAddr::from_u32(addr))
             .ok_or_else(|| PyKeyError::new_err(format!("CSR {addr:#x} is not implemented")))
     }
@@ -162,7 +162,7 @@ impl Hart {
     /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self, py: Python<'_>) -> u64 {
-        self.cpu.borrow(py).inner.state.harts[self.index].pc
+        self.cpu.borrow(py).inner.hart(self.index).pc
     }
 
     #[setter]
@@ -179,7 +179,7 @@ impl Hart {
     /// Instructions this hart has retired.
     #[getter]
     fn instructions_retired(&self, py: Python<'_>) -> u64 {
-        self.cpu.borrow(py).inner.state.harts[self.index].instructions_retired
+        self.cpu.borrow(py).inner.hart(self.index).instructions_retired
     }
 
     /// Register file — ``cpu.harts[n].regs[10]``.
@@ -196,7 +196,7 @@ impl Hart {
 
     fn __repr__(&self, py: Python<'_>) -> String {
         let cpu = self.cpu.borrow(py);
-        let hart = &cpu.inner.state.harts[self.index];
+        let hart = cpu.inner.hart(self.index);
         format!(
             "Hart(id={}, pc={:#x}, privilege={})",
             self.index,
@@ -217,7 +217,7 @@ pub struct Harts {
 #[pymethods]
 impl Harts {
     fn __len__(&self, py: Python<'_>) -> usize {
-        self.cpu.borrow(py).inner.state.harts.len()
+        self.cpu.borrow(py).inner.hart_count()
     }
 
     fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<Hart> {
@@ -237,6 +237,31 @@ impl Harts {
     }
 }
 
+/// How many bits one memory read returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Width {
+    /// A 32-bit read.
+    Bits32,
+    /// A 64-bit read.
+    Bits64,
+}
+
+impl Width {
+    const fn bytes(self) -> u8 {
+        match self {
+            Self::Bits32 => 4,
+            Self::Bits64 => 8,
+        }
+    }
+
+    const fn bits(self) -> u8 {
+        match self {
+            Self::Bits32 => 32,
+            Self::Bits64 => 64,
+        }
+    }
+}
+
 /// Subscript memory access returned by `cpu.mem32` or `cpu.mem64`.
 ///
 /// ``cpu.mem32[addr]`` reads a u32. ``cpu.mem64[addr]`` reads a u64.
@@ -246,25 +271,19 @@ impl Harts {
 pub struct Memory {
     /// The simulator whose memory this reads.
     pub(crate) cpu: Py<PySimulator>,
-    /// Bits per read: 32 or 64.
-    pub(crate) width: u8,
+    /// Bits per read.
+    pub(crate) width: Width,
 }
 
 #[pymethods]
 impl Memory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> u64 {
         let mut cpu = self.cpu.borrow_mut(py);
-        let paddr = rvsim_core::common::PhysAddr::new(addr);
-        let width = match self.width {
-            32 => 4,
-            64 => 8,
-            _ => unreachable!(),
-        };
-        cpu.inner.probe_mem_load(paddr, width)
+        cpu.inner.probe_mem_load(PhysAddr::new(addr), self.width.bytes())
     }
 
     fn __repr__(&self) -> String {
-        format!("Memory(u{})", self.width)
+        format!("Memory(u{})", self.width.bits())
     }
 }
 
@@ -278,47 +297,23 @@ impl Memory {
 pub struct VirtualMemory {
     /// The simulator whose memory this reads.
     pub(crate) cpu: Py<PySimulator>,
-    /// Bits per read: 32 or 64.
-    pub(crate) width: u8,
+    /// Bits per read.
+    pub(crate) width: Width,
 }
 
 #[pymethods]
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
-        use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::uarch::mmu::TranslateOutcome;
-
         let mut cpu = self.cpu.borrow_mut(py);
-        // FFI-boundary translate: synchronously drive the walk inline,
-        // because the Python caller can't park.
-        let mut outcome =
-            cpu.inner.state.core_ctx(0).translate(VirtAddr::new(addr), AccessType::Read, 8);
-        let paddr = loop {
-            match outcome {
-                TranslateOutcome::Ready(result) => {
-                    if let Some(trap) = result.trap {
-                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                            "translation failed for VA {addr:#x}: {trap:?}"
-                        )));
-                    }
-                    break result.paddr;
-                }
-                TranslateOutcome::NeedPte { pte_addr, state } => {
-                    let raw_pte = cpu.inner.probe_mem_load(pte_addr, 8);
-                    outcome = cpu.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
-                }
-            }
-        };
-
-        let width = match self.width {
-            32 => 4,
-            64 => 8,
-            _ => unreachable!(),
-        };
-        Ok(cpu.inner.probe_mem_load(paddr, width))
+        let paddr = cpu.inner.translate_now(0, VirtAddr::new(addr)).map_err(|trap| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "translation failed for VA {addr:#x}: {trap:?}"
+            ))
+        })?;
+        Ok(cpu.inner.probe_mem_load(paddr, self.width.bytes()))
     }
 
     fn __repr__(&self) -> String {
-        format!("VirtualMemory(u{})", self.width)
+        format!("VirtualMemory(u{})", self.width.bits())
     }
 }

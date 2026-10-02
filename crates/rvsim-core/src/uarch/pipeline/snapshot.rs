@@ -1,8 +1,6 @@
-//! Pipeline snapshot: a point-in-time read-only copy of all inter-stage latches.
-//!
-//! Calling `PipelineDispatch::snapshot()` clones the latch vectors so Python can
-//! inspect the full pipeline state after any `tick()` without holding a borrow
-//! on the live simulator.
+//! A point-in-time copy of every inter-stage latch, as the pipeline holds
+//! them. [`crate::system::snapshot::PipelineSnapshot`] is the plain-data
+//! form a host sees.
 
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Fetch1Fetch2Entry, IdExEntry, IfIdEntry, Mem1Mem2Entry, Mem2WbEntry,
@@ -16,7 +14,7 @@ use crate::uarch::pipeline::latches::{
 /// Each field is a `Vec` of latch entries; the length is at most `pipeline_width`.
 /// An empty vec means the stage is stalled or idle this cycle.
 #[derive(Clone, Debug, Default)]
-pub struct PipelineSnapshot {
+pub struct LatchSnapshot {
     /// Fetch1 → Fetch2 latch (PC gen / I-TLB).
     pub fetch1_fetch2: Vec<Fetch1Fetch2Entry>,
     /// Fetch2 → Decode latch (I-cache access).

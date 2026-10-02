@@ -15,16 +15,23 @@
 //! Memory traffic (instruction fetch, load, store, page-table walk) flows
 //! exclusively through scheduled `MemReq` / `MemResp` packets.
 
-use crate::common::SimError;
+use crate::arch::Hart;
+use crate::common::{AccessType, PhysAddr, SimError, VirtAddr};
 use crate::config::Config;
-use crate::isa::privileged::PrivilegeMode;
+use crate::isa::csr::CsrAddr;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::Packet;
+use crate::sim::stats::Stats;
+use crate::soc::devices::Uart;
 use crate::soc::topology::{CacheSlot, PrivateCache};
+use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
+use crate::system::{StatsDump, StatsEpoch, TraceControl, coherence_audit, loader};
+use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -112,6 +119,247 @@ impl Simulator {
     pub fn build(config: &Config, disk_path: &str) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
         Self::new(SystemState::new(config, disk_path, exit_signal))
+    }
+
+    /// Loads the ELF image `data` as the program to run: its segments go
+    /// into RAM, hart 0 starts at its entry point in machine mode, and an
+    /// HTIF device is placed at its `tohost` symbol when it has one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::NotAnElf`] when `data` is not an ELF image.
+    pub fn load_elf(&mut self, data: &[u8]) -> Result<(), SimError> {
+        let loaded =
+            loader::try_load_elf(data, &mut self.state.memory).ok_or(SimError::NotAnElf)?;
+        self.set_pc(0, loaded.entry);
+        if let Some(tohost) = loaded.tohost_addr {
+            let exit_signal = Arc::clone(&self.state.exit_signal);
+            self.state.uncore.add_htif(tohost, &exit_signal);
+            self.state.direct_mode = false;
+            self.state.harts[0].privilege = PrivilegeMode::Machine;
+        }
+        self.sync_arch_regs();
+        Ok(())
+    }
+
+    /// Places firmware, a kernel and a device tree in RAM as `boot` says
+    /// and points every hart at the firmware.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::FileRead`] when an image cannot be read.
+    pub fn boot_kernel(&mut self, boot: &loader::KernelBoot) -> Result<(), SimError> {
+        let config = self.state.config.clone();
+        loader::setup_kernel_load(&mut self.state, &config, boot)?;
+        self.state.direct_mode = false;
+        self.sync_arch_regs();
+        Ok(())
+    }
+
+    /// The number of harts.
+    #[must_use]
+    pub const fn hart_count(&self) -> usize {
+        self.state.harts.len()
+    }
+
+    /// Hart `hart`'s architectural state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    #[must_use]
+    pub fn hart(&self, hart: usize) -> &Hart {
+        &self.state.harts[hart]
+    }
+
+    /// Hart `hart`'s architectural state, to change it. Use
+    /// [`Self::set_pc`] for the PC, which the pipeline must hear about.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    pub fn hart_mut(&mut self, hart: usize) -> &mut Hart {
+        &mut self.state.harts[hart]
+    }
+
+    /// Reads CSR `addr` on `hart` the way a CSR instruction would; `None`
+    /// when the hart does not implement it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    pub fn read_csr(&mut self, hart: usize, addr: CsrAddr) -> Option<u64> {
+        let hart_id = self.state.harts[hart].hart_id;
+        let core = self.state.topology.core_of_hart(hart_id)?;
+        let ctx = self.state.core_ctx(core.as_index());
+        ctx.is_valid_csr(addr).then(|| ctx.csr_read(addr))
+    }
+
+    /// Translates `vaddr` for a read on `hart` through its current page
+    /// tables, walking them now rather than through the pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns the trap the access would take.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    pub fn translate_now(&mut self, hart: usize, vaddr: VirtAddr) -> Result<PhysAddr, Trap> {
+        let hart_id = self.state.harts[hart].hart_id;
+        let Some(core) = self.state.topology.core_of_hart(hart_id) else {
+            return Ok(PhysAddr::new(vaddr.val()));
+        };
+        let core = core.as_index();
+        let mut outcome = self.state.core_ctx(core).translate(vaddr, AccessType::Read, 8);
+        loop {
+            match outcome {
+                TranslateOutcome::Ready(result) => {
+                    return result.trap.map_or(Ok(result.paddr), Err);
+                }
+                TranslateOutcome::NeedPte { pte_addr, state } => {
+                    let raw_pte = self.probe_mem_load(pte_addr, 8);
+                    outcome = self.state.core_ctx(core).translate_continue(state, raw_pte, 0);
+                }
+            }
+        }
+    }
+
+    /// Cycles since the system started, carried across checkpoints.
+    #[must_use]
+    pub const fn cycle(&self) -> u64 {
+        self.state.uncore.cycle
+    }
+
+    /// Instructions retired by every hart since the system started.
+    #[must_use]
+    pub fn instructions_retired(&self) -> u64 {
+        self.state.instructions_retired()
+    }
+
+    /// The stats tree.
+    #[must_use]
+    pub const fn stats(&self) -> &Stats {
+        &self.state.uncore.stats
+    }
+
+    /// Cycles and instructions retired since the stats were last reset.
+    #[must_use]
+    pub fn stats_window(&self) -> (u64, u64) {
+        self.state.stats_window()
+    }
+
+    /// Where the current stats window began.
+    #[must_use]
+    pub const fn stats_epoch(&self) -> StatsEpoch {
+        self.state.uncore.stats_epoch
+    }
+
+    /// Zeroes every stat and starts a new window here.
+    pub fn reset_stats(&mut self) {
+        self.state.reset_stats();
+    }
+
+    /// The stats the guest dumped through the sim-control device, oldest
+    /// first.
+    #[must_use]
+    pub fn stats_dumps(&self) -> &[StatsDump] {
+        &self.state.uncore.stats_dumps
+    }
+
+    /// What the trace macros print.
+    #[must_use]
+    pub const fn trace(&self) -> &TraceControl {
+        &self.state.uncore.trace
+    }
+
+    /// What the trace macros print, to change it.
+    pub const fn trace_mut(&mut self) -> &mut TraceControl {
+        &mut self.state.uncore.trace
+    }
+
+    /// Whether the system runs in direct mode: no translation, a flat
+    /// memory, and `ecall` ending the program.
+    #[must_use]
+    pub const fn direct_mode(&self) -> bool {
+        self.state.uncore.direct_mode
+    }
+
+    /// Sets direct mode; see [`Self::direct_mode`].
+    pub const fn set_direct_mode(&mut self, direct: bool) {
+        self.state.uncore.direct_mode = direct;
+    }
+
+    /// The last instructions `hart` retired, oldest first, as `(pc,
+    /// encoding)` pairs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    #[must_use]
+    pub fn pc_trace(&self, hart: usize) -> &[(u64, u32)] {
+        &self.state.uncore.per_hart_debug[hart].pc_trace
+    }
+
+    /// Whether idle cores have their cycles counted instead of ticked and
+    /// cycles in which the whole system only waits are skipped. On by
+    /// default; the result is the same either way.
+    #[must_use]
+    pub const fn skip_idle_cores(&self) -> bool {
+        self.skip_idle_cores
+    }
+
+    /// Sets whether idle time is skipped; see [`Self::skip_idle_cores`].
+    pub const fn set_skip_idle_cores(&mut self, skip: bool) {
+        self.skip_idle_cores = skip;
+    }
+
+    /// Opens `path` as the commit log every retired instruction is written
+    /// to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::FileRead`] when the file cannot be created.
+    #[cfg(feature = "commit-log")]
+    pub fn open_commit_log(&mut self, path: &str) -> Result<(), SimError> {
+        self.state.uncore.open_commit_log(path)
+    }
+
+    /// The `len` bytes of RAM at `paddr`; `None` outside RAM.
+    #[must_use]
+    pub fn read_phys_bytes(&self, paddr: PhysAddr, len: usize) -> Option<Box<[u8]>> {
+        self.state.uncore.memory.read_bytes(paddr, len)
+    }
+
+    /// What the guest has printed to a captured console since the last
+    /// call; empty when the console is not captured.
+    pub fn take_console_output(&mut self) -> Vec<u8> {
+        self.state.uncore.bus.uart_mut().map(Uart::take_output).unwrap_or_default()
+    }
+
+    /// Types `bytes` into the console.
+    pub fn send_console_input(&mut self, bytes: &[u8]) {
+        if let Some(uart) = self.state.uncore.bus.uart_mut() {
+            uart.send_input(bytes);
+        }
+    }
+
+    /// What core `core`'s pipeline holds at the end of the last tick.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `core` is not a core index.
+    #[must_use]
+    pub fn pipeline_snapshot(&self, core: usize) -> PipelineSnapshot {
+        let width = self.state.uncore.config.pipeline.width;
+        PipelineSnapshot::from(&self.state.cores[core].pipeline.snapshot(width))
+    }
+
+    /// Every coherence invariant the private caches and the home agent
+    /// break right now; empty when they agree.
+    #[must_use]
+    pub fn audit_coherence(&self) -> Vec<coherence_audit::Violation> {
+        coherence_audit::audit(&self.state)
     }
 
     /// Discards every core's speculative work, leaves each hart at its
