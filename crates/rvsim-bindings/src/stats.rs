@@ -15,7 +15,7 @@ use rvsim_core::soc::uncore::StatsEpoch;
 /// Constructed by `PySimulator::stats` as a snapshot at
 /// the read time. Supports path lookups, wildcard queries, subject-grouped
 /// aggregation, and rendering the auto-generated summary.
-#[pyclass(name = "Stats")]
+#[pyclass(name = "Stats", module = "rvsim._core")]
 #[derive(Clone, Debug)]
 pub struct PyStats {
     stats: Stats,
@@ -168,7 +168,7 @@ impl PyStats {
 
 /// A wildcard-query result set: `(path, value)` pairs with aggregation
 /// helpers.
-#[pyclass(name = "QueryResult")]
+#[pyclass(name = "QueryResult", module = "rvsim._core")]
 #[derive(Clone, Debug)]
 pub struct PyQueryResult {
     matches: Vec<(String, f64)>,

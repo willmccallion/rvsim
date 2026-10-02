@@ -3,7 +3,12 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "mkdocs.yml"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "rvsim/**"
+      - "crates/rvsim-bindings/**"
+      - "pyproject.toml"
   workflow_dispatch:
 
 permissions:
@@ -26,7 +31,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r docs/requirements.txt
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The API reference is generated from the package's docstrings,
+      # including the compiled extension's, so the package is installed first.
+      - run: pip install -r docs/requirements.txt .
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:

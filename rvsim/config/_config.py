@@ -261,7 +261,7 @@ def _config_to_dict(config) -> dict[str, Any]:
 
 
 def load_config(path: str) -> Config:
-    """Load a :class:`Config` from a Python file.
+    """Load a `Config` from a Python file.
 
     The module is imported and the first of these is used as the entry point:
     a function named after the file, a ``config`` variable, or a ``get_config``

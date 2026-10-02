@@ -83,7 +83,8 @@ otherwise reopen.
   obvious from the diff.
 - Describe what the code does. Leave out plans, milestones and task numbers.
 - Update the documentation and [`docs/changelog.md`](docs/changelog.md) for
-  user-visible changes.
+  user-visible changes. The API reference is generated from docstrings;
+  `mkdocs build --strict` (with the extension installed) checks them.
 
 ## AI-assisted contributions
 

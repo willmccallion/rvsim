@@ -1,9 +1,9 @@
 """
-Points a :class:`~rvsim.Session` runs to.
+Points a `rvsim.Session` runs to.
 
 A run ends the moment one of its stops holds; ``a | b`` stops at whichever
 comes first. Counts are relative to where the run starts. Every run also
-ends if the workload does, reported as :class:`Exit`.
+ends if the workload does, reported as `Exit`.
 """
 
 from __future__ import annotations
@@ -238,7 +238,7 @@ class Stopped:
     """Where a run stopped, and which stop ended it."""
 
     by: Stop
-    """The stop that held; an :class:`Exit` when the workload ended."""
+    """The stop that held; an `Exit` when the workload ended."""
     cycle: int
     """The cycle count since the system started."""
     instructions: int
@@ -246,11 +246,11 @@ class Stopped:
     exit_code: int | None = None
     """The workload's exit code, when it ended."""
     hart: int | None = None
-    """The hart that reached a :class:`Pc` stop."""
+    """The hart that reached a `Pc` stop."""
     label: int | None = None
-    """The guest's label, for a :class:`Marker`."""
+    """The guest's label, for a `Marker`."""
     match: re.Match[str] | None = None
-    """The console match, for a :class:`Console` or :class:`LoginShell`."""
+    """The console match, for a `Console` or `LoginShell`."""
 
     @property
     def exited(self) -> bool:

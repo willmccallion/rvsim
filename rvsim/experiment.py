@@ -46,7 +46,7 @@ class Environment:
         self, quiet: bool = True, limit: int | None = None, progress: int = 0
     ) -> Result:
         """
-        Run the simulation and return a :class:`Result`.
+        Run the simulation and return a `Result`.
 
         Args:
             quiet: Suppress exceptions and return error Result instead.

@@ -41,7 +41,7 @@ enum PcStop {
 }
 
 /// The running simulator.
-#[pyclass(name = "Simulator", subclass)]
+#[pyclass(name = "Simulator", subclass, module = "rvsim._core")]
 #[derive(Debug)]
 pub struct PySimulator {
     /// The simulator the Python object wraps.
@@ -148,13 +148,17 @@ impl PySimulator {
     /// HTIF registration, kernel loading) happens inside Rust — nothing leaks to Python.
     ///
     /// Args:
-    ///     `config_dict`: The nested config dict (from ``Config.to_dict()``).
-    ///     `elf_data`: Raw bytes of an ELF binary (bare-metal mode). Optional.
-    ///     `kernel_path`: Path to a kernel image (kernel mode). Optional.
-    ///     `firmware_path`: Path to an `OpenSBI` ``fw_jump`` image (kernel
+    ///     config_dict: The nested config dict (from ``Config.to_dict()``).
+    ///     elf_data: Raw bytes of an ELF binary (bare-metal mode). Optional.
+    ///     kernel_path: Path to a kernel image (kernel mode). Optional.
+    ///     firmware_path: Path to an `OpenSBI` ``fw_jump`` image (kernel
     ///         mode). Optional; found under ``software/linux/output`` if absent.
-    ///     `dtb_path`: Path to a DTB file (kernel mode). Optional.
-    ///     `disk_path`: Path to a disk image. Optional.
+    ///     dtb_path: Path to a DTB file (kernel mode). Optional.
+    ///     disk_path: Path to a disk image. Optional.
+    #[allow(
+        clippy::doc_markdown,
+        reason = "Google-style Args: names are bare for the docs generator"
+    )]
     #[new]
     #[pyo3(signature = (config_dict, *, elf_data=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None))]
     fn new(
@@ -234,7 +238,7 @@ impl PySimulator {
     /// Whether instruction tracing is armed (read/write). Events go to
     /// stderr through the ``RUST_LOG`` filter (``rvsim::trap=trace``,
     /// ``rvsim::fetch=trace``, ...), each tagged with the hart it belongs
-    /// to; :meth:`trace_filter` narrows them further.
+    /// to; `trace_filter` narrows them further.
     #[getter]
     fn trace(&self) -> bool {
         self.inner.state.trace.armed
@@ -250,9 +254,13 @@ impl PySimulator {
     /// Args:
     ///     harts: Hart ids whose events print; ``None`` for every hart.
     ///     cycles: ``(first, last)`` cycle window; ``None`` for no window.
-    ///     `trap_causes`: `mcause` values (interrupt bit included) whose
+    ///     trap_causes: `mcause` values (interrupt bit included) whose
     ///         trap-taken events print; ``None`` prints every trap except
     ///         timer interrupts and ecalls.
+    #[allow(
+        clippy::doc_markdown,
+        reason = "Google-style Args: names are bare for the docs generator"
+    )]
     #[pyo3(signature = (harts=None, cycles=None, trap_causes=None))]
     fn trace_filter(
         &mut self,
@@ -267,8 +275,24 @@ impl PySimulator {
         trace.trap_causes = trap_causes.unwrap_or_default();
     }
 
-    /// Snapshot of the stats tree — path lookups, wildcard queries, and the
-    /// auto-summary. See [`crate::stats::PyStats`].
+    /// A snapshot of the stats since the start of simulation, the last
+    /// checkpoint restore or the last `reset_stats`.
+    ///
+    /// Subtracting two snapshots gives the stats of the region between them
+    /// while the whole run's stats stay intact: counters are subtracted and
+    /// derived stats (IPC, miss rates, accuracies) recomputed from the
+    /// differences. Histograms keep exact counts, sums and means but report
+    /// no minimum or maximum, which two cumulative snapshots cannot recover.
+    /// Subtracting a later snapshot, or across a `reset_stats`,
+    /// raises ``ValueError``.
+    ///
+    /// Example:
+    ///     ```python
+    ///     start = cpu.stats
+    ///     cpu.run(limit=1_000_000)
+    ///     region = cpu.stats - start
+    ///     print(region.ipc, region["core0.bp.committed.accuracy"])
+    ///     ```
     #[getter]
     fn stats(&self) -> PyStats {
         let (cycles, instructions_retired) = self.inner.state.stats_window();
@@ -290,14 +314,17 @@ impl PySimulator {
         self.inner.skip_idle_cores = skip;
     }
 
-    /// Zero every stat; cycles and instructions in summaries count from here.
+    /// Zero every stat; `stats` then counts from here, as gem5's
+    /// ``m5 resetstats`` does. Prefer subtracting snapshots, which keeps the
+    /// whole run's stats.
     fn reset_stats(&mut self) {
         self.inner.state.reset_stats();
     }
 
     /// The stats the guest dumped through the sim-control device, oldest
     /// first, as ``(label, Stats)`` pairs; each covers the window since the
-    /// last reset before it.
+    /// last reset before it. Software running in the guest marks its own
+    /// regions this way; `stats_between` subtracts two dumps.
     #[getter]
     fn stats_dumps(&self) -> Vec<(u64, PyStats)> {
         self.inner
@@ -415,7 +442,7 @@ impl PySimulator {
 
     /// Execute until one instruction commits.
     ///
-    /// Returns an :class:`Instruction` or ``None`` if the simulation exited
+    /// Returns an `Instruction` or ``None`` if the simulation exited
     /// before an instruction could commit.
     #[pyo3(signature = (max_cycles=100_000))]
     fn step(&mut self, py: Python<'_>, max_cycles: u64) -> PyResult<Option<PyInstruction>> {
@@ -459,13 +486,17 @@ impl PySimulator {
     /// Args:
     ///     limit: Max cycles to simulate. ``None`` means unlimited.
     ///     progress: Print progress to stderr every N cycles. 0 = silent.
-    ///     `stats_sections`: Print stats on completion. ``None`` suppresses
+    ///     stats_sections: Print stats on completion. ``None`` suppresses
     ///         the report; ``[]`` prints all subjects; a list of subjects
     ///         (e.g. ``["core0", "hart0"]``) restricts output to those
-    ///         subjects. Use :meth:`Stats.subjects` to enumerate.
+    ///         subjects. Use `Stats.subjects` to enumerate.
     ///
     /// Returns:
     ///     Exit code or ``None`` if *limit* was reached without exiting.
+    #[allow(
+        clippy::doc_markdown,
+        reason = "Google-style Args: names are bare for the docs generator"
+    )]
     #[pyo3(signature = (limit=None, progress=0, stats_sections=None))]
     fn run(
         &mut self,
@@ -507,7 +538,7 @@ impl PySimulator {
     ///     limit: Maximum total cycles. ``None`` runs until program exits.
     ///
     /// Returns:
-    ///     List of :class:`Stats` snapshots, one per interval.
+    ///     List of `Stats` snapshots, one per interval.
     #[pyo3(signature = (every, limit=None))]
     fn sample(&mut self, py: Python<'_>, every: u64, limit: Option<u64>) -> PyResult<Vec<PyStats>> {
         let mut snapshots: Vec<PyStats> = Vec::new();
@@ -624,12 +655,16 @@ impl PySimulator {
     ///         (all harts).
     ///     pc: Stop when any hart's next instruction to retire is at this
     ///         address, or at any of a list of them.
-    ///     `guest_breaks`: Stop when guest software runs ``rvsim break``.
-    ///     `console_output`: Stop when a captured console holds output
-    ///         :meth:`read_console` has not taken.
+    ///     guest_breaks: Stop when guest software runs ``rvsim break``.
+    ///     console_output: Stop when a captured console holds output
+    ///         `read_console` has not taken.
     ///
     /// Runs at least one cycle, so running on from a stop at ``pc`` moves
     /// past it.
+    #[allow(
+        clippy::doc_markdown,
+        reason = "Google-style Args: names are bare for the docs generator"
+    )]
     #[pyo3(signature = (*, cycles=None, instructions=None, pc=None, guest_breaks=true, console_output=false))]
     fn run_to(
         &mut self,
@@ -762,7 +797,7 @@ impl PySimulator {
 
     /// Capture a snapshot of the current pipeline state.
     ///
-    /// Returns a :class:`PipelineSnapshot` with the contents of every inter-stage
+    /// Returns a `PipelineSnapshot` with the contents of every inter-stage
     /// latch as of the *end* of the last ``tick()``.  Call after ``tick()`` or
     /// ``step()`` to inspect what is currently in-flight.
     ///
@@ -773,11 +808,21 @@ impl PySimulator {
         PyPipelineSnapshot::new(self.inner.state.cores[0].pipeline.snapshot(width))
     }
 
-    /// Save a checkpoint of the system's architectural state to a file.
+    /// Save a checkpoint of the system's architectural state to ``path``.
     ///
-    /// The checkpoint holds every hart's registers (vector ones too), CSRs,
-    /// PMP, privilege, PC and load reservation, the devices' registers, and
-    /// RAM. The system is drained first.
+    /// A checkpoint holds RAM (skipping 4 KiB pages of zeros), the cycle
+    /// counter, every hart's architectural state (PC, privilege, integer,
+    /// floating-point and vector registers, every CSR, PMP entries and its
+    /// LR reservation) and the devices' registers (CLINT timers and
+    /// ``mtime``, PLIC priorities, enables, thresholds and claims, UART
+    /// registers and unread input, the virtio disk's queue and every sector
+    /// the guest has written).
+    ///
+    /// Saving first drains the machine the way gem5 does: speculative work
+    /// is discarded, committed stores still in the store buffers reach RAM,
+    /// each hart is left at its committed PC and a disk request in flight
+    /// completes at once, so a run that continues after a save is not
+    /// cycle-identical to one without it.
     fn save(&mut self, path: &str) -> PyResult<()> {
         let file = std::fs::File::create(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot create checkpoint file: {e}")))?;
@@ -786,10 +831,19 @@ impl PySimulator {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Restore a checkpoint saved by :meth:`save`.
+    /// Restore a checkpoint saved by `save`.
     ///
-    /// The simulator may use any configuration with the same hart count, RAM
-    /// size and VLEN; caches, TLBs and predictors start cold.
+    /// A checkpoint restores into any configuration with the same hart
+    /// count, RAM size and VLEN, so a system can boot on a cheap
+    /// configuration and continue on a detailed one. It does not hold cache
+    /// contents, TLBs, predictor state or in-flight memory traffic: after a
+    /// restore the caches, TLBs and the coherence home agent start empty, as
+    /// gem5's do, so warm the system up before measuring. The disk's written
+    /// sectors are replayed over the image this simulator loaded, so it must
+    /// load the same image the checkpoint was taken on; the image file
+    /// itself is never modified. A restore into a mismatched system, or onto
+    /// a different disk image, raises an error naming what differs and
+    /// leaves the simulator untouched.
     fn restore(&mut self, path: &str) -> PyResult<()> {
         let file = std::fs::File::open(path)
             .map_err(|e| PyRuntimeError::new_err(format!("cannot open checkpoint file: {e}")))?;

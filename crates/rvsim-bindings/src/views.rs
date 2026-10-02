@@ -66,7 +66,7 @@ fn csr_name_to_addr(name: &str) -> Option<u32> {
 /// Subscript register access returned by `cpu.regs` and `cpu.harts[n].regs`.
 ///
 /// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10.
-#[pyclass(name = "Registers")]
+#[pyclass(name = "Registers", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Registers {
     /// The simulator the registers belong to.
@@ -109,7 +109,7 @@ impl Registers {
 /// Subscript CSR access returned by `cpu.csrs` and `cpu.harts[n].csrs`.
 ///
 /// ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
-#[pyclass(name = "Csrs")]
+#[pyclass(name = "Csrs", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Csrs {
     /// The simulator the CSRs belong to.
@@ -141,7 +141,7 @@ impl Csrs {
 }
 
 /// One hart's architectural state, returned by `cpu.harts[n]`.
-#[pyclass(name = "Hart")]
+#[pyclass(name = "Hart", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Hart {
     /// The simulator the hart belongs to.
@@ -207,7 +207,7 @@ impl Hart {
 }
 
 /// The system's harts, returned by `cpu.harts`.
-#[pyclass(name = "Harts")]
+#[pyclass(name = "Harts", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Harts {
     /// The simulator the harts belong to.
@@ -241,7 +241,7 @@ impl Harts {
 ///
 /// ``cpu.mem32[addr]`` reads a u32. ``cpu.mem64[addr]`` reads a u64.
 /// These use **physical** addresses — no MMU translation.
-#[pyclass(name = "Memory")]
+#[pyclass(name = "Memory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Memory {
     /// The simulator whose memory this reads.
@@ -273,7 +273,7 @@ impl Memory {
 /// ``cpu.vmem64[addr]`` translates `addr` through the current page tables
 /// (using SATP), then reads the resulting physical address.
 /// Returns 0 if translation fails (page fault).
-#[pyclass(name = "VirtualMemory")]
+#[pyclass(name = "VirtualMemory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct VirtualMemory {
     /// The simulator whose memory this reads.

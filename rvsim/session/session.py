@@ -1,7 +1,7 @@
 """Run a workload in phases: fast-forward to a point of interest, switch to
 the configuration under study, warm it up, and measure regions.
 
-A :class:`Session` owns the running simulator and keeps its console, so a
+A `Session` owns the running simulator and keeps its console, so a
 script can type into a guest shell and wait for output. Fast-forwards are
 cached: the checkpoint at the stop is saved under a key made of the
 workload's files, everything the session did before, the fast-forward
@@ -173,7 +173,7 @@ class Session:
     ``fast_forward_config`` (``config`` unless given) and return to
     ``config`` at their stop, so what a session measures always runs on the
     configuration it was given or last switched to. Direct changes made
-    through :attr:`sim` are not part of the history cache keys are made
+    through `sim` are not part of the history cache keys are made
     of; fast-forward with ``cache=False`` after them.
     """
 
@@ -204,7 +204,7 @@ class Session:
                 with an optional ``disk`` image and ``dtb``.
             fast_forward_config: The configuration fast-forwards run on.
             cache_dir: Where cached fast-forward checkpoints live
-                (:func:`default_cache_dir` by default).
+                (`default_cache_dir` by default).
             echo: Copy the console to stdout (``True``) or to a stream.
             console_log: Write the console to this file.
             progress: Report long runs' progress on stderr.
@@ -315,7 +315,7 @@ class Session:
     def resume(
         cls, path: str, config: ConfigLike | None = None, **kwargs: Any
     ) -> Session:
-        """A session continuing from a checkpoint :meth:`save` wrote, on
+        """A session continuing from a checkpoint `save` wrote, on
         ``config`` (the configuration it was saved on by default).
 
         Raises ``ValueError`` if the workload's files changed since."""
@@ -395,7 +395,7 @@ class Session:
         TLBs and predictors cold, so what follows does not depend on
         whether the cache held the stop.
 
-        Raises :class:`WorkloadEnded` if the workload ends first."""
+        Raises `WorkloadEnded` if the workload ends first."""
         began = time.perf_counter()
         key = self._cache_key(until) if cache else None
         if key is not None and self._cache.has(key):
@@ -483,7 +483,7 @@ class Session:
     def expect(self, pattern: str | re.Pattern[str]) -> re.Match[str]:
         """Runs until the console prints ``pattern`` and returns the match.
 
-        Raises :class:`WorkloadEnded` if the workload ends first."""
+        Raises `WorkloadEnded` if the workload ends first."""
         stop = Console(pattern)
         stopped = self.run(stop)
         if stopped.exited:
@@ -502,7 +502,7 @@ class Session:
 
     def save(self, path: str) -> str:
         """Saves the session's state to ``path`` (with its console and
-        history beside it in ``path.json``) for :meth:`resume`.
+        history beside it in ``path.json``) for `resume`.
 
         Saving drains the pipelines first, as gem5 does, so this session
         continues a few cycles later than it would have; a session resumed
@@ -614,7 +614,7 @@ class Session:
         every: int | None = None,
         on_every: Callable[[Session], None] | None = None,
     ) -> Stopped:
-        """Runs until one of ``stops`` holds; see :mod:`rvsim.session.stops`."""
+        """Runs until one of ``stops`` holds; see `rvsim.session.stops`."""
         keys = [stop.key() for stop in stops]
         if None in keys or every is not None:
             self._untracked = self._untracked or f"a run to {stops}"
@@ -859,7 +859,7 @@ class _Run:
         return max(1, remaining - self.sim.instructions_retired)
 
     def _periodic(self) -> Stopped | None:
-        """Runs the callbacks that are due; a :class:`When` that holds
+        """Runs the callbacks that are due; a `When` that holds
         stops the run."""
         now = self.sim.cycle
         if self.next_every is not None and now >= self.next_every:

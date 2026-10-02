@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The API reference at `docs/api.md` is generated from the package's
+  docstrings, including the compiled extension's, by mkdocstrings; the
+  extension's classes report `rvsim._core` as their module.
 - The core no longer prints to stdout or stderr. Device, loader and
   HTIF messages are `tracing` events (targets `rvsim::syscon`,
   `rvsim::loader`, `rvsim::htif`, `rvsim::dma`), shown with

@@ -1,6 +1,6 @@
 """Run workloads in phases and measure regions of them.
 
-See :class:`Session`; the points a run stops at are in :mod:`rvsim.session.stops`.
+See `Session`; the points a run stops at are in `rvsim.session.stops`.
 """
 
 from .cache import default_cache_dir
