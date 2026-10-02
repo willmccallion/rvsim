@@ -261,12 +261,11 @@ impl SystemState {
             MSTATUS_DEFAULT_RV64
         };
 
-        let vlenb = config.pipeline.vlen / 8;
         let csrs = Csrs {
             mstatus,
             misa: configured_misa,
             stimecmp: u64::MAX,
-            vlenb: vlenb as u64,
+            vlenb: config.pipeline.vlen.bytes() as u64,
             ..Default::default()
         };
 
@@ -274,21 +273,12 @@ impl SystemState {
         // id, a1 = hart count, sp = a stack top every hart shares (a
         // multi-hart runtime carves per-hart stacks below it).
         let fresh_regs = |hart_id: HartId| {
-            let mut regs = if direct_mode {
+            let mut regs = RegisterFile::new(config.pipeline.vlen);
+            if direct_mode {
                 let sp = config.general.initial_sp.unwrap_or(config.system.ram_base + 0x100_0000);
-                let mut r = RegisterFile::new();
-                r.write(reg::REG_SP, sp);
-                r.write(reg::REG_A0, u64::from(hart_id.val()));
-                r.write(reg::REG_A1, hart_count as u64);
-                r
-            } else {
-                RegisterFile::new()
-            };
-            // Initialize vector register file if VLEN > 0
-            if config.pipeline.vlen > 0
-                && let Ok(vlen) = crate::isa::rvv::Vlen::new(config.pipeline.vlen)
-            {
-                regs.init_vpr(vlen);
+                regs.write(reg::REG_SP, sp);
+                regs.write(reg::REG_A0, u64::from(hart_id.val()));
+                regs.write(reg::REG_A1, hart_count as u64);
             }
             regs
         };

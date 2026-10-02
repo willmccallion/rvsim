@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `vlen` is checked as the configuration is read: a value that is not a
+  power of two in `[128, 2048]` raises `ValueError`. Every hart has its
+  vector registers from construction; `rvsim-core`'s `PipelineConfig::vlen`
+  is a `Vlen`, `RegisterFile::new` takes it, and the `Option` around the
+  vector register file is gone.
 - A panic inside the simulator raises `pyo3_runtime.PanicException` in
   Python instead of aborting the interpreter: release builds unwind.
 - `rvsim-core` owns RAM in one place: `sim::memory::Ram` is the zeroed

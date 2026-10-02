@@ -10,7 +10,7 @@ mod length;
 mod vtype;
 
 pub use group::{Eew, ElemIdx, Emul, Nf, VRegIdx};
-pub use length::{Vl, Vlen, Vlmax};
+pub use length::{InvalidVlen, Vl, Vlen, Vlmax};
 pub use vtype::{
     LmulGroup, MaskPolicy, Sew, TailPolicy, VectorConfig, Vlmul, VtypeFields, Vxrm, encode_vtype,
     parse_vtype, parse_vtype_with_elen,

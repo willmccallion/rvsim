@@ -7,7 +7,7 @@ import inspect
 import pickle
 import unittest
 
-from rvsim import Config, presets
+from rvsim import Config, Simulator, presets
 
 
 class Replace(unittest.TestCase):
@@ -56,3 +56,13 @@ class Pickle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Validation(unittest.TestCase):
+    def test_a_vlen_the_vector_unit_cannot_have_is_refused(self):
+        for vlen in (0, 64, 100, 4096):
+            with self.subTest(vlen=vlen), self.assertRaisesRegex(ValueError, "VLEN"):
+                Simulator(Config(vlen=vlen))
+
+    def test_a_power_of_two_vlen_in_range_is_accepted(self):
+        Simulator(Config(vlen=256))

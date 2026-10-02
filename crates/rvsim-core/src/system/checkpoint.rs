@@ -89,8 +89,8 @@ struct HartState {
     instructions_retired: u64,
     gpr: Vec<u64>,
     fpr: Vec<u64>,
-    /// All 32 vector registers, register 0 first, when the hart has them.
-    vpr: Option<Vec<u8>>,
+    /// All 32 vector registers, register 0 first.
+    vpr: Vec<u8>,
     csrs: Csrs,
     pmp: Vec<PmpEntry>,
     /// The line the hart holds reserved by an LR.
@@ -108,7 +108,7 @@ impl HartState {
             instructions_retired: hart.instructions_retired,
             gpr: registers.clone().map(|i| hart.regs.read(RegIdx::new(i))).collect(),
             fpr: registers.map(|i| hart.regs.read_f(RegIdx::new(i))).collect(),
-            vpr: hart.regs.has_vpr().then(|| hart.regs.vpr().bytes().to_vec()),
+            vpr: hart.regs.vpr().bytes().to_vec(),
             csrs: hart.csrs.clone(),
             pmp: hart.pmp.entries().to_vec(),
             reservation: reservation.map(|line| line.val()),
@@ -127,11 +127,7 @@ impl HartState {
         for (i, &value) in (0u8..).zip(&self.fpr) {
             hart.regs.write_f(RegIdx::new(i), value);
         }
-        if let Some(bytes) = &self.vpr
-            && hart.regs.has_vpr()
-        {
-            hart.regs.vpr_mut().set_bytes(bytes);
-        }
+        hart.regs.vpr_mut().set_bytes(&self.vpr);
         hart.csrs = self.csrs.clone();
         hart.pmp.restore(&self.pmp);
     }
@@ -193,7 +189,7 @@ impl Simulator {
             trace: state.trace.armed,
             ram_base: ram.map_or(0, Ram::base),
             ram_size: ram.map_or(0, Ram::size),
-            vlen_bits: state.config.pipeline.vlen as u64,
+            vlen_bits: state.config.pipeline.vlen.bits() as u64,
             harts: state
                 .harts
                 .iter()
@@ -234,7 +230,7 @@ impl Simulator {
         mismatch("harts", header.harts.len() as u64, self.state.harts.len() as u64)?;
         mismatch("RAM bytes", header.ram_size, ram.map_or(0, Ram::size))?;
         mismatch("RAM base", header.ram_base, ram.map_or(0, Ram::base))?;
-        mismatch("VLEN", header.vlen_bits, self.state.config.pipeline.vlen as u64)?;
+        mismatch("VLEN", header.vlen_bits, self.state.config.pipeline.vlen.bits() as u64)?;
         self.state.bus.check_device_states(&header.devices).map_err(CheckpointError::Device)?;
 
         self.drain();

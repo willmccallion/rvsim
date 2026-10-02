@@ -60,18 +60,49 @@ impl Vlmax {
 }
 
 /// VLEN (vector register width in bits). Immutable per-core configuration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+///
+/// Deserializes from the raw bit count, so a configuration with a VLEN the
+/// vector unit cannot have is refused as it is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(try_from = "usize")]
 pub struct Vlen(usize);
 
+/// A VLEN that is not a power of two in `[128, 2048]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("VLEN must be a power of two in [128, 2048], got {0}")]
+pub struct InvalidVlen(pub usize);
+
+impl Default for Vlen {
+    /// V's minimum, 128 bits.
+    fn default() -> Self {
+        Self::MIN
+    }
+}
+
+impl TryFrom<usize> for Vlen {
+    type Error = InvalidVlen;
+
+    fn try_from(bits: usize) -> Result<Self, InvalidVlen> {
+        Self::new(bits)
+    }
+}
+
 impl Vlen {
+    /// The narrowest vector register V allows, 128 bits.
+    pub const MIN: Self = Self(128);
+
+    /// The widest vector register V allows, 2048 bits.
+    pub const MAX: Self = Self(2048);
+
     /// Creates a `Vlen` from a raw value.
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the value is not a power of 2 in range [128, 2048].
-    pub const fn new(val: usize) -> Result<Self, &'static str> {
-        if !val.is_power_of_two() || val < 128 || val > 2048 {
-            return Err("VLEN must be power of 2 in range [128, 2048]");
+    /// Returns [`InvalidVlen`] if the value is not a power of 2 in range
+    /// [128, 2048].
+    pub const fn new(val: usize) -> Result<Self, InvalidVlen> {
+        if !val.is_power_of_two() || val < Self::MIN.0 || val > Self::MAX.0 {
+            return Err(InvalidVlen(val));
         }
         Ok(Self(val))
     }

@@ -16,7 +16,6 @@ mod serialize;
 mod squash;
 
 use crate::config::Config;
-use crate::isa::rvv::Vlen;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
@@ -179,8 +178,7 @@ impl O3Engine {
             redirect_latency: config.pipeline.redirect_latency(),
             vec_prf: {
                 let prf_vpr_size = config.pipeline.prf_vpr_size;
-                let vlen = Vlen::new_unchecked(config.pipeline.vlen);
-                let mut vprf = VecPhysRegFile::new(prf_vpr_size, vlen);
+                let mut vprf = VecPhysRegFile::new(prf_vpr_size, config.pipeline.vlen);
                 vprf.mark_arch_ready(32); // identity-mapped arch slots 0..31
                 vprf
             },

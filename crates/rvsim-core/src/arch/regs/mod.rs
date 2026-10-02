@@ -1,4 +1,4 @@
-//! The architectural register files: GPRs, FPRs, and (optional) VPRs.
+//! The architectural register files: GPRs, FPRs and VPRs.
 
 pub mod fpr;
 
@@ -20,56 +20,31 @@ use crate::isa::rvv::Vlen;
 pub struct RegisterFile {
     gpr: Gpr,
     fpr: Fpr,
-    vpr: Option<Vpr>,
+    vpr: Vpr,
 }
 
 impl Default for RegisterFile {
+    /// Zeroed registers with V's minimum VLEN.
     fn default() -> Self {
-        Self::new()
+        Self::new(Vlen::default())
     }
 }
 
 impl RegisterFile {
-    /// Creates a new register file with all registers initialized to zero.
-    /// Vector registers are not allocated (use `init_vpr` to enable).
-    pub const fn new() -> Self {
-        Self { gpr: Gpr::new(), fpr: Fpr::new(), vpr: None }
+    /// Creates a register file with every register zero and vector
+    /// registers `vlen` bits wide.
+    pub fn new(vlen: Vlen) -> Self {
+        Self { gpr: Gpr::new(), fpr: Fpr::new(), vpr: Vpr::new(vlen) }
     }
 
-    /// Initializes the vector register file with the given VLEN.
-    pub fn init_vpr(&mut self, vlen: Vlen) {
-        self.vpr = Some(Vpr::new(vlen));
+    /// The vector register file.
+    pub const fn vpr(&self) -> &Vpr {
+        &self.vpr
     }
 
-    /// Returns a reference to the vector register file.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the VPR has not been initialized.
-    #[allow(clippy::option_if_let_else)]
-    pub fn vpr(&self) -> &Vpr {
-        match &self.vpr {
-            Some(v) => v,
-            None => panic!("VPR not initialized"),
-        }
-    }
-
-    /// Returns a mutable reference to the vector register file.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the VPR has not been initialized.
-    #[allow(clippy::option_if_let_else)]
-    pub fn vpr_mut(&mut self) -> &mut Vpr {
-        match &mut self.vpr {
-            Some(v) => v,
-            None => panic!("VPR not initialized"),
-        }
-    }
-
-    /// Returns true if the vector register file is initialized.
-    pub const fn has_vpr(&self) -> bool {
-        self.vpr.is_some()
+    /// The vector register file, to write.
+    pub const fn vpr_mut(&mut self) -> &mut Vpr {
+        &mut self.vpr
     }
 
     /// Reads a value from a general-purpose register. Register `x0` always returns 0.

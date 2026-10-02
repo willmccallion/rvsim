@@ -13,7 +13,7 @@ use rvsim_core::isa::reg::RegIdx;
 /// Ensures that all general-purpose registers are initialized to zero upon creation.
 #[test]
 fn gpr_initial_values_are_zero() {
-    let regs = RegisterFile::new();
+    let regs = RegisterFile::default();
     for i in 0u8..32 {
         assert_eq!(regs.read(RegIdx::new(i)), 0, "x{} should be 0 initially", i);
     }
@@ -22,7 +22,7 @@ fn gpr_initial_values_are_zero() {
 /// Verifies that a value written to a general-purpose register can be correctly read back.
 #[test]
 fn gpr_write_and_read() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(1), 42);
     assert_eq!(regs.read(RegIdx::new(1)), 42);
 }
@@ -31,7 +31,7 @@ fn gpr_write_and_read() {
 /// as per the RISC-V specification.
 #[test]
 fn gpr_x0_always_zero() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(0), 0xDEAD_BEEF);
     assert_eq!(regs.read(RegIdx::new(0)), 0, "x0 must always read as 0");
 }
@@ -40,7 +40,7 @@ fn gpr_x0_always_zero() {
 /// while ensuring x0 remains zero.
 #[test]
 fn gpr_write_all_registers() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     for i in 0u8..32 {
         regs.write(RegIdx::new(i), i as u64 * 100);
     }
@@ -53,7 +53,7 @@ fn gpr_write_all_registers() {
 /// Verifies that writing a new value to a register correctly overwrites the previous value.
 #[test]
 fn gpr_overwrite() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(5), 100);
     assert_eq!(regs.read(RegIdx::new(5)), 100);
     regs.write(RegIdx::new(5), 200);
@@ -63,7 +63,7 @@ fn gpr_overwrite() {
 /// Verifies that registers can store the maximum possible 64-bit unsigned integer value.
 #[test]
 fn gpr_max_value() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(31), u64::MAX);
     assert_eq!(regs.read(RegIdx::new(31)), u64::MAX);
 }
@@ -71,7 +71,7 @@ fn gpr_max_value() {
 /// Verifies that all floating-point registers (FPRs) are initialized to zero.
 #[test]
 fn fpr_initial_values_are_zero() {
-    let regs = RegisterFile::new();
+    let regs = RegisterFile::default();
     for i in 0u8..32 {
         assert_eq!(regs.read_f(RegIdx::new(i)), 0, "f{} should be 0 initially", i);
     }
@@ -80,7 +80,7 @@ fn fpr_initial_values_are_zero() {
 /// Verifies that a value written to a floating-point register can be read back correctly.
 #[test]
 fn fpr_write_and_read() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     #[allow(clippy::approx_constant)]
     let val = f64::to_bits(3.14);
     regs.write_f(RegIdx::new(0), val);
@@ -92,7 +92,7 @@ fn fpr_write_and_read() {
 #[test]
 fn fpr_f0_is_writable() {
     // Unlike x0, f0 is a normal register
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     #[allow(clippy::approx_constant)]
     let val = f64::to_bits(2.71828);
     regs.write_f(RegIdx::new(0), val);
@@ -102,7 +102,7 @@ fn fpr_f0_is_writable() {
 /// Verifies that all 32 floating-point registers can store and retrieve values independently.
 #[test]
 fn fpr_write_all_registers() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     for i in 0u8..32 {
         regs.write_f(RegIdx::new(i), (i as u64 + 1) * 1000);
     }
@@ -116,7 +116,7 @@ fn fpr_write_all_registers() {
 #[test]
 fn fpr_nan_boxing_bits() {
     // Storing a NaN-boxed f32 should preserve the raw bits
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     let boxed: u64 = 0xFFFF_FFFF_3FC0_0000; // NaN-boxed 1.5f32
     regs.write_f(RegIdx::new(10), boxed);
     assert_eq!(regs.read_f(RegIdx::new(10)), boxed);
@@ -126,7 +126,7 @@ fn fpr_nan_boxing_bits() {
 /// are independent and do not share storage.
 #[test]
 fn gpr_fpr_independent() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(5), 0xAAAA);
     regs.write_f(RegIdx::new(5), 0xBBBB);
     assert_eq!(regs.read(RegIdx::new(5)), 0xAAAA);
@@ -140,11 +140,11 @@ fn gpr_fpr_independent() {
 #[test]
 fn dump_does_not_panic() {
     // Test with zero-initialized registers
-    let regs = RegisterFile::new();
+    let regs = RegisterFile::default();
     regs.dump();
 
     // Test with some non-zero values
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(1), 0x1234_5678_9ABC_DEF0);
     regs.write(RegIdx::new(10), u64::MAX);
     regs.write(RegIdx::new(31), 0xDEAD_BEEF);
@@ -154,7 +154,7 @@ fn dump_does_not_panic() {
 /// Verifies that dump works correctly after register modifications.
 #[test]
 fn dump_after_modifications() {
-    let mut regs = RegisterFile::new();
+    let mut regs = RegisterFile::default();
 
     // Write to multiple registers
     for i in 1u8..32 {

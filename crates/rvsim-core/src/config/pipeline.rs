@@ -7,6 +7,7 @@ use crate::config::{
     TournamentConfig,
 };
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::rvv::Vlen;
 use serde::Deserialize;
 
 /// The widest unit-stride vector access: one 64-byte line, the smallest
@@ -173,9 +174,9 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub store_set: StoreSetConfig,
 
-    /// Vector register width in bits (VLEN). Must be power of 2 in [128, 2048].
-    #[serde(default = "PipelineConfig::default_vlen")]
-    pub vlen: usize,
+    /// Vector register width in bits (VLEN), a power of 2 in [128, 2048].
+    #[serde(default)]
+    pub vlen: Vlen,
 
     /// Number of vector execution lanes. Defaults to vlen/64 (min 1).
     #[serde(default)]
@@ -315,14 +316,14 @@ impl PipelineConfig {
     /// Vector execution lanes: `num_vec_lanes`, or one per 64 bits of VLEN.
     #[must_use]
     pub fn vector_lanes(&self) -> usize {
-        self.num_vec_lanes.unwrap_or_else(|| (self.vlen / 64).max(1))
+        self.num_vec_lanes.unwrap_or_else(|| (self.vlen.bits() / 64).max(1))
     }
 
     /// Bytes one unit-stride vector access moves: `vector_mem_width`, or one
     /// register (VLEN/8) up to the widest access a line allows.
     #[must_use]
     pub fn vector_mem_width_bytes(&self) -> usize {
-        self.vector_mem_width.unwrap_or_else(|| (self.vlen / 8).min(MAX_VECTOR_MEM_WIDTH))
+        self.vector_mem_width.unwrap_or_else(|| self.vlen.bytes().min(MAX_VECTOR_MEM_WIDTH))
     }
 
     const fn default_load_ports() -> usize {
@@ -341,11 +342,6 @@ impl PipelineConfig {
 
     const fn default_trap_latency() -> u64 {
         defaults::TRAP_LATENCY
-    }
-
-    /// Returns the default VLEN.
-    const fn default_vlen() -> usize {
-        128
     }
 
     /// Returns the default vector PRF size.
@@ -400,7 +396,7 @@ impl Default for PipelineConfig {
             checkpoint_count: defaults::CHECKPOINT_COUNT,
             mem_dep_predictor: MemDepPredictorKind::default(),
             store_set: StoreSetConfig::default(),
-            vlen: 128,
+            vlen: Vlen::default(),
             num_vec_lanes: None,
             vector_mem_width: None,
             prf_vpr_size: 64,
