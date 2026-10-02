@@ -140,6 +140,8 @@ test:
 test-python: python
 	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
 	.venv/bin/python -m unittest discover -s tests/python
+	@printf "$(GREEN)Checking rvsim/_core.pyi against the extension…$(RESET)\n"
+	.venv/bin/python -m mypy.stubtest rvsim._core
 
 # Runs gem5 only when it is available; otherwise compares with the stored
 # tools/gem5_compare/results/gem5.json.

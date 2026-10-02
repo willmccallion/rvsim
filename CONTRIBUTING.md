@@ -43,7 +43,7 @@ Run these before opening a pull request:
 make fmt-check   # rustfmt and ruff format
 make clippy      # clippy, with warnings as errors
 make test        # Rust unit and integration tests
-make test-python # Python API tests
+make test-python # Python API tests, and rvsim/_core.pyi against the extension
 ```
 
 Changes to the ISA, the pipelines or the memory system should also pass the

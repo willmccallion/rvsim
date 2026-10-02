@@ -99,6 +99,7 @@ pub enum PrefetcherKind {
 
 /// Cache hierarchy configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CacheHierarchyConfig {
     /// L1 instruction cache
     pub l1_i: CacheConfig,
@@ -118,6 +119,7 @@ pub struct CacheHierarchyConfig {
 
 /// Individual cache level configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     /// Enable this cache level
     #[serde(default)]

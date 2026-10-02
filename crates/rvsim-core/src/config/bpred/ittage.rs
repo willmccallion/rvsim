@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 /// Indirect Target TAGE configuration (used by SC-L-TAGE).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IttageConfig {
     /// Number of tagged tables
     #[serde(default = "IttageConfig::default_num_banks")]

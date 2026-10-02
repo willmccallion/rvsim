@@ -9,6 +9,7 @@ use serde::Deserialize;
 /// Defines memory-mapped I/O base addresses, RAM configuration,
 /// and system bus parameters.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemConfig {
     /// UART MMIO base address
     #[serde(default = "SystemConfig::default_uart_base")]

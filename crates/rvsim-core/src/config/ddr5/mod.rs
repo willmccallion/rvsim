@@ -283,6 +283,7 @@ impl Ddr5Params {
 
 /// The on-disk shape of [`Ddr5Params`], before validation.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct Ddr5ParamsRaw {
     /// JEDEC speed bin the timing table is derived from.

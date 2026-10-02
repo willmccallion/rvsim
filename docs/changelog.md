@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A configuration key the core does not know is refused with
+  `ValueError` instead of being ignored; `rvsim/_core.pyi` is checked
+  against the built extension by `make test-python`, and now lists
+  `Simulator.stats_between`.
 - `rvsim._core.version()` reports the built version instead of a
   hard-coded `0.1.0`; a session's cached checkpoints record it.
 - The published x86-64 Linux wheel runs on any x86-64 CPU. The previous
