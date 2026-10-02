@@ -25,7 +25,10 @@ A module in `rvsim-core` may depend only on the layers listed before it in
 You need Rust, Python 3.10 or newer, and a `riscv64` GCC toolchain for the
 guest programs. `nix develop` provides all of them. The Rust version is
 pinned in `rust-toolchain.toml` (rustup picks it up automatically) and the
-Python tools in `requirements-dev.txt`; CI uses the same pins.
+Python tools in `requirements-dev.txt`; CI uses the same pins. The dev
+shell sets `RUSTFLAGS="-C target-cpu=native"` so local builds use this
+machine's instruction set; CI and the release wheels build without it so
+they run on any x86-64.
 
 ```sh
 make python      # build the extension into .venv (maturin develop --release)
