@@ -87,6 +87,11 @@
             # the wrong toolchain. Force native for spike's configure.
             unset CC CXX AR RANLIB
 
+            # Dev-shell builds use every instruction this machine has. CI and
+            # the release wheels build outside the shell, without this, so
+            # they run on any x86-64.
+            export RUSTFLAGS="-C target-cpu=native"
+
             export TOOLCHAIN_BIN="$PWD/.nix-toolchain-bin"
             mkdir -p "$TOOLCHAIN_BIN"
             for tool in gcc g++ as ld objdump objcopy strip ar nm ranlib readelf; do

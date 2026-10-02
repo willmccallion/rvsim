@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The published x86-64 Linux wheel runs on any x86-64 CPU. The previous
+  wheels were built with `-C target-cpu=native` from a committed cargo
+  config and needed the build machine's AVX2, BMI2 and FMA.
 - `vlen` is checked as the configuration is read: a value that is not a
   power of two in `[128, 2048]` raises `ValueError`. Every hart has its
   vector registers from construction; `rvsim-core`'s `PipelineConfig::vlen`
