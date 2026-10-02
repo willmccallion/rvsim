@@ -2,7 +2,7 @@
 # Builds libc and example programs for the simulator
 # Supports RV64GC (IMAFD + C) with double-precision hard-float ABI
 
-TARGET ?= riscv64-none-elf
+TARGET ?= riscv64-elf
 CC = $(TARGET)-gcc
 LD = $(TARGET)-ld
 
