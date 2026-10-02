@@ -67,9 +67,12 @@ fn csr_name_to_addr(name: &str) -> Option<u32> {
 ///
 /// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10.
 #[pyclass(name = "Registers")]
+#[derive(Debug)]
 pub struct Registers {
-    pub cpu: Py<PySimulator>,
-    pub hart: usize,
+    /// The simulator the registers belong to.
+    pub(crate) cpu: Py<PySimulator>,
+    /// The hart whose registers these are.
+    pub(crate) hart: usize,
 }
 
 #[pymethods]
@@ -107,9 +110,12 @@ impl Registers {
 ///
 /// ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
 #[pyclass(name = "Csrs")]
+#[derive(Debug)]
 pub struct Csrs {
-    pub cpu: Py<PySimulator>,
-    pub hart: usize,
+    /// The simulator the CSRs belong to.
+    pub(crate) cpu: Py<PySimulator>,
+    /// The hart whose CSRs these are.
+    pub(crate) hart: usize,
 }
 
 #[pymethods]
@@ -129,16 +135,19 @@ impl Csrs {
             .ok_or_else(|| PyKeyError::new_err(format!("CSR {addr:#x} is not implemented")))
     }
 
-    const fn __repr__(&self) -> &'static str {
-        "Csrs(...)"
+    fn __repr__(&self) -> String {
+        format!("Csrs(hart={})", self.hart)
     }
 }
 
 /// One hart's architectural state, returned by `cpu.harts[n]`.
 #[pyclass(name = "Hart")]
+#[derive(Debug)]
 pub struct Hart {
-    pub cpu: Py<PySimulator>,
-    pub index: usize,
+    /// The simulator the hart belongs to.
+    pub(crate) cpu: Py<PySimulator>,
+    /// The hart's index.
+    pub(crate) index: usize,
 }
 
 #[pymethods]
@@ -199,8 +208,10 @@ impl Hart {
 
 /// The system's harts, returned by `cpu.harts`.
 #[pyclass(name = "Harts")]
+#[derive(Debug)]
 pub struct Harts {
-    pub cpu: Py<PySimulator>,
+    /// The simulator the harts belong to.
+    pub(crate) cpu: Py<PySimulator>,
 }
 
 #[pymethods]
@@ -231,9 +242,12 @@ impl Harts {
 /// ``cpu.mem32[addr]`` reads a u32. ``cpu.mem64[addr]`` reads a u64.
 /// These use **physical** addresses — no MMU translation.
 #[pyclass(name = "Memory")]
+#[derive(Debug)]
 pub struct Memory {
-    pub cpu: Py<PySimulator>,
-    pub width: u8,
+    /// The simulator whose memory this reads.
+    pub(crate) cpu: Py<PySimulator>,
+    /// Bits per read: 32 or 64.
+    pub(crate) width: u8,
 }
 
 #[pymethods]
@@ -260,9 +274,12 @@ impl Memory {
 /// (using SATP), then reads the resulting physical address.
 /// Returns 0 if translation fails (page fault).
 #[pyclass(name = "VirtualMemory")]
+#[derive(Debug)]
 pub struct VirtualMemory {
-    pub cpu: Py<PySimulator>,
-    pub width: u8,
+    /// The simulator whose memory this reads.
+    pub(crate) cpu: Py<PySimulator>,
+    /// Bits per read: 32 or 64.
+    pub(crate) width: u8,
 }
 
 #[pymethods]

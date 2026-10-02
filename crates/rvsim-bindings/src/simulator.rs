@@ -42,8 +42,10 @@ enum PcStop {
 
 /// The running simulator.
 #[pyclass(name = "Simulator", subclass)]
+#[derive(Debug)]
 pub struct PySimulator {
-    pub inner: Simulator,
+    /// The simulator the Python object wraps.
+    pub(crate) inner: Simulator,
 }
 
 impl PySimulator {
@@ -284,7 +286,7 @@ impl PySimulator {
     }
 
     #[setter]
-    fn set_skip_idle_cores(&mut self, skip: bool) {
+    const fn set_skip_idle_cores(&mut self, skip: bool) {
         self.inner.skip_idle_cores = skip;
     }
 
@@ -364,7 +366,7 @@ impl PySimulator {
 
     /// Number of harts in the system.
     #[getter]
-    fn hart_count(&self) -> usize {
+    const fn hart_count(&self) -> usize {
         self.inner.state.harts.len()
     }
 
@@ -558,9 +560,9 @@ impl PySimulator {
     fn run_until(
         slf: Bound<'_, Self>,
         py: Python<'_>,
-        predicate: Option<Py<PyAny>>,
+        predicate: Option<&Bound<'_, PyAny>>,
         pc: Option<u64>,
-        privilege: Option<String>,
+        privilege: Option<&str>,
         limit: Option<u64>,
         chunk: u64,
     ) -> PyResult<Option<u64>> {
@@ -594,15 +596,15 @@ impl PySimulator {
             let stop = {
                 let cpu = slf_py.borrow(py);
                 pc.is_some_and(|p| cpu.inner.state.harts[0].pc == p)
-                    || privilege.as_deref().is_some_and(|priv_str| cpu.privilege_str(0) == priv_str)
+                    || privilege.is_some_and(|priv_str| cpu.privilege_str(0) == priv_str)
             };
             if stop {
                 return Ok(None);
             }
 
-            if let Some(ref pred) = predicate {
-                let result = pred.call1(py, (slf_py.clone_ref(py),))?;
-                if result.extract::<bool>(py)? {
+            if let Some(pred) = predicate {
+                let result = pred.call1((slf_py.clone_ref(py),))?;
+                if result.extract::<bool>()? {
                     return Ok(None);
                 }
             }
