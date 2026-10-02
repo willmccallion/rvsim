@@ -67,10 +67,8 @@ impl RegisterFile {
         self.fpr.write(idx, val);
     }
 
-    /// Dumps the contents of all general-purpose registers to stderr.
-    ///
-    /// Useful for debugging and tracing register state during simulation.
-    pub fn dump(&self) {
-        self.gpr.dump();
+    /// The general-purpose registers, to display.
+    pub const fn gpr(&self) -> &Gpr {
+        &self.gpr
     }
 }

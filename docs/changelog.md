@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The core no longer prints to stdout or stderr. Device, loader and
+  HTIF messages are `tracing` events (targets `rvsim::syscon`,
+  `rvsim::loader`, `rvsim::htif`, `rvsim::dma`), shown with
+  `RUST_LOG`; `Hart` and the general-purpose register file implement
+  `Display` in place of the `dump` helpers.
 - A configuration key the core does not know is refused with
   `ValueError` instead of being ignored; `rvsim/_core.pyi` is checked
   against the built extension by `make test-python`, and now lists

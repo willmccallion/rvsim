@@ -41,10 +41,10 @@ impl Htif {
             self.exit_signal.store(0, Ordering::Relaxed);
         } else if val & 1 != 0 {
             let test_num = val >> 1;
-            eprintln!("[HTIF] FAIL: test case {test_num} (tohost={val:#x})");
+            tracing::warn!(target: "rvsim::htif", test = test_num, tohost = val, "test failed");
             self.exit_signal.store(test_num, Ordering::Relaxed);
         } else {
-            eprintln!("[HTIF] Unhandled tohost value: {val:#x}");
+            tracing::warn!(target: "rvsim::htif", tohost = val, "unhandled tohost value");
             self.exit_signal.store(val, Ordering::Relaxed);
         }
     }

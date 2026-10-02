@@ -37,15 +37,15 @@ impl SysCon {
     fn act_on_command(&self, val: u32) {
         match val {
             0x5555 => {
-                println!("[SysCon] Poweroff signal received.");
+                tracing::info!(target: "rvsim::syscon", "poweroff");
                 self.exit_signal.store(0, Ordering::Relaxed);
             }
             0x7777 => {
-                println!("[SysCon] Reset signal received (Simulated as Exit).");
+                tracing::info!(target: "rvsim::syscon", "reset, taken as exit");
                 self.exit_signal.store(0, Ordering::Relaxed);
             }
             0x3333 => {
-                println!("[SysCon] Failure signal received.");
+                tracing::info!(target: "rvsim::syscon", "failure");
                 self.exit_signal.store(1, Ordering::Relaxed);
             }
             _ => {}

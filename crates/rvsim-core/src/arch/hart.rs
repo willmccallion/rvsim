@@ -76,10 +76,10 @@ impl Hart {
     }
 }
 
-impl Hart {
-    /// Dumps the current hart state (PC and registers) to stdout.
-    pub fn dump_state(&self) {
-        println!("PC = {:#018x}", self.pc);
-        self.regs.dump();
+/// The PC, then the general-purpose registers.
+impl std::fmt::Display for Hart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "PC = {:#018x}", self.pc)?;
+        write!(f, "{}", self.regs.gpr())
     }
 }

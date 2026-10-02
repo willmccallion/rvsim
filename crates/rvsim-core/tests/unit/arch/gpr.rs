@@ -98,11 +98,13 @@ fn test_gpr_zero_after_writes() {
 }
 
 #[test]
-fn test_gpr_dump_does_not_panic() {
+fn test_gpr_display_lists_every_register() {
     let mut gpr = Gpr::new();
     gpr.write(RegIdx::new(1), 0x1234_5678);
     gpr.write(RegIdx::new(31), 0xFFFF_FFFF);
-    gpr.dump(); // Should not panic
+    let text = gpr.to_string();
+    assert!(text.contains("x1 =0x0000000012345678"), "{text}");
+    assert!(text.contains("x31=0x00000000ffffffff"), "{text}");
 }
 
 #[test]

@@ -101,7 +101,7 @@ pub fn setup_kernel_load(
             let kernel_data = load_binary(kernel_path)?;
             state.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
         } else {
-            println!("[Loader] WARNING: Linux Image not found at {kernel_path}");
+            tracing::warn!(target: "rvsim::loader", path = kernel_path, "no kernel image; booting firmware only");
         }
 
         // Every hart starts in OpenSBI with its own id in a0; the firmware's
