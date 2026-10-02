@@ -26,7 +26,10 @@ impl TestContext {
     /// pipeline width or backend type when reproducing pipeline-integration
     /// bugs). Otherwise identical to `new()`.
     pub fn new_with_config(config: &Config) -> Self {
-        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_test_writer()
+            .try_init();
 
         // Pipeline tests exercise stage behaviour, not the memory system:
         // give every miss a single-cycle memory controller and a zero-latency
