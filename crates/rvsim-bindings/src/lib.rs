@@ -1,20 +1,5 @@
 //! Python bindings for the RISC-V system simulator (`PyO3`).
 
-// PyO3 bindings — relax documentation and pedantic lints for binding-layer code.
-#![allow(
-    missing_docs,
-    missing_debug_implementations,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::missing_const_for_fn,
-    clippy::needless_pass_by_value,
-    clippy::uninlined_format_args,
-    clippy::format_collect,
-    clippy::unused_self,
-    clippy::used_underscore_binding
-)]
-
 use pyo3::prelude::*;
 
 /// Python dict to Rust `Config` conversion.
@@ -33,6 +18,10 @@ pub mod utils;
 pub mod views;
 
 /// Registers all public classes and functions onto the Python module.
+///
+/// # Errors
+///
+/// Returns the error Python raised while adding a class or function.
 pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<simulator::PySimulator>()?;
 

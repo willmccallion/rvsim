@@ -179,11 +179,13 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 /// - ``mem1_mem2``: also ``vaddr``, ``paddr``
 /// - ``mem2_wb``: ``rd``, ``alu``, ``load_data``, ``rob_tag``
 #[pyclass(name = "PipelineSnapshot", subclass)]
+#[derive(Debug)]
 pub struct PyPipelineSnapshot {
     inner: PipelineSnapshot,
 }
 
 impl PyPipelineSnapshot {
+    /// Wraps a snapshot for Python.
     #[must_use]
     pub const fn new(inner: PipelineSnapshot) -> Self {
         Self { inner }

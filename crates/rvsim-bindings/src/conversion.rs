@@ -8,6 +8,11 @@ use rvsim_core::config::Config;
 use serde_json;
 
 /// Converts a Python dict to a simulator `Config` via JSON serialization.
+///
+/// # Errors
+///
+/// Returns `ValueError` when the dict is not a configuration the core
+/// accepts, naming the field at fault.
 pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Config> {
     let json = py.import("json")?;
     let dumps = json.getattr("dumps")?;
