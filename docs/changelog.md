@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A panic inside the simulator raises `pyo3_runtime.PanicException` in
+  Python instead of aborting the interpreter: release builds unwind.
 - `rvsim-core` owns RAM in one place: `sim::memory::Ram` is the zeroed
   image the `GlobalMemory` holds, and every reader and writer (the memory
   controllers, virtio DMA, instruction fetch, the loader, host probes and
