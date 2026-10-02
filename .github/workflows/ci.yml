@@ -33,14 +33,18 @@ jobs:
       - run: cargo doc --workspace --no-deps
 
   python:
-    name: Python
+    name: Python ${{ matrix.python }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: pip install -r requirements-dev.txt
