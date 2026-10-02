@@ -34,11 +34,15 @@ impl Gpr {
             self.regs[idx.as_usize()] = val;
         }
     }
+}
 
-    /// Dumps the contents of all general-purpose registers to stdout.
-    pub fn dump(&self) {
-        for i in (0..32).step_by(2) {
-            println!("x{:<2}={:#018x} x{:<2}={:#018x}", i, self.regs[i], i + 1, self.regs[i + 1]);
+/// Two registers per line, `x0` first, as hexadecimal.
+impl std::fmt::Display for Gpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, [even, odd]) in self.regs.as_chunks::<2>().0.iter().enumerate() {
+            let first = i * 2;
+            writeln!(f, "x{first:<2}={even:#018x} x{:<2}={odd:#018x}", first + 1)?;
         }
+        Ok(())
     }
 }

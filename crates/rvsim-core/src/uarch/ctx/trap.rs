@@ -37,9 +37,7 @@ impl CoreCtx<'_> {
                     return;
                 }
 
-                eprintln!(
-                    "\n[!] Unhandled ecall in direct mode: a7={val_a7} a0={val_a0} at PC {epc:#x}"
-                );
+                tracing::error!(target: "rvsim::trap", a7 = val_a7, a0 = val_a0, pc = epc, "unhandled ecall in direct mode");
                 self.signal_exit(1);
                 return;
             }
@@ -48,7 +46,7 @@ impl CoreCtx<'_> {
                 self.signal_exit(0);
                 return;
             }
-            eprintln!("\n[!] Fatal trap in direct mode: {cause:?} at PC {epc:#x}");
+            tracing::error!(target: "rvsim::trap", ?cause, pc = epc, "fatal trap in direct mode");
             self.signal_exit(1);
             return;
         }

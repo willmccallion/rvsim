@@ -133,39 +133,17 @@ fn gpr_fpr_independent() {
     assert_eq!(regs.read_f(RegIdx::new(5)), 0xBBBB);
 }
 
-/// Verifies that the dump method can be called without panicking.
-///
-/// The dump method outputs register state to stdout for debugging purposes.
-/// This test ensures it executes correctly with various register states.
+/// The register file displays two registers per line, `x0` first.
 #[test]
-fn dump_does_not_panic() {
-    // Test with zero-initialized registers
-    let regs = RegisterFile::default();
-    regs.dump();
-
-    // Test with some non-zero values
+fn registers_display_two_per_line_in_hex() {
     let mut regs = RegisterFile::default();
     regs.write(RegIdx::new(1), 0x1234_5678_9ABC_DEF0);
-    regs.write(RegIdx::new(10), u64::MAX);
     regs.write(RegIdx::new(31), 0xDEAD_BEEF);
-    regs.dump();
-}
 
-/// Verifies that dump works correctly after register modifications.
-#[test]
-fn dump_after_modifications() {
-    let mut regs = RegisterFile::default();
+    let text = regs.gpr().to_string();
 
-    // Write to multiple registers
-    for i in 1u8..32 {
-        regs.write(RegIdx::new(i), i as u64 * 0x1000);
-    }
-
-    // Call dump - should not panic and should be able to dump all values
-    regs.dump();
-
-    // Verify registers still have correct values after dump
-    for i in 1u8..32 {
-        assert_eq!(regs.read(RegIdx::new(i)), i as u64 * 0x1000);
-    }
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 16);
+    assert_eq!(lines[0], "x0 =0x0000000000000000 x1 =0x123456789abcdef0");
+    assert_eq!(lines[15], "x30=0x0000000000000000 x31=0x00000000deadbeef");
 }

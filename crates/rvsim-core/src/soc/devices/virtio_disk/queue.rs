@@ -39,7 +39,7 @@ impl VirtioBlock {
     pub(super) fn dma_write(memory: &mut GlobalMemory, addr: u64, data: &[u8]) {
         let paddr = PhysAddr::new(addr);
         if !memory.ram().is_some_and(|ram| ram.contains(paddr, data.len() as u64)) {
-            println!("[VirtIO] DMA Write Out of Bounds: 0x{:x} (Size: {})", addr, data.len());
+            tracing::warn!(target: "rvsim::dma", addr, len = data.len(), "virtio: DMA write outside RAM dropped");
             return;
         }
         memory.write_bytes(Writer::External, paddr, data);
@@ -84,10 +84,7 @@ impl VirtioBlock {
             let head_idx = Self::dma_read_u16(memory, avail_addr + ring_offset);
             self.last_avail_idx = self.last_avail_idx.wrapping_add(1);
             if head_idx as u32 >= self.queue_num {
-                println!(
-                    "[VirtIO] Error: Head descriptor index {} out of bounds (Queue Size {})",
-                    head_idx, self.queue_num
-                );
+                tracing::warn!(target: "rvsim::dma", head_idx, queue_num = self.queue_num, "virtio: head descriptor index outside the queue");
                 continue;
             }
             return Some((head_idx, ring_offset));
@@ -232,10 +229,7 @@ impl VirtioBlock {
         let descriptors = match self.walk_chain(head_idx, memory) {
             Ok(descriptors) => descriptors,
             Err(bad_idx) => {
-                println!(
-                    "[VirtIO] Error: Descriptor index {} out of bounds (Queue Size {})",
-                    bad_idx, self.queue_num
-                );
+                tracing::warn!(target: "rvsim::dma", index = bad_idx, queue_num = self.queue_num, "virtio: descriptor index outside the queue");
                 Vec::new()
             }
         };

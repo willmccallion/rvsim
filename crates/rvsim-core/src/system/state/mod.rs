@@ -133,13 +133,6 @@ impl SystemState {
         }
     }
 
-    /// Dumps every hart's state (PC and registers) to stdout.
-    pub fn dump_state(&self) {
-        for hart in &self.harts {
-            hart.dump_state();
-        }
-    }
-
     /// Convenience constructor: allocates a fresh `exit_signal` slot and
     /// builds the system. Use this when the caller doesn't need to share the
     /// signal `Arc` with other components before construction.
@@ -439,10 +432,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_dump_state_no_panic() {
+    fn a_hart_displays_its_pc_and_registers() {
         let config = Config::default();
         let state = SystemState::build(&config, "");
-        state.dump_state();
+        let text = state.harts[0].to_string();
+        assert!(text.starts_with("PC = 0x0000000080000000\n"), "{text}");
+        assert_eq!(text.lines().count(), 17, "{text}");
     }
 
     #[test]
