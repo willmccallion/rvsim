@@ -161,7 +161,7 @@ pub enum ConfigError {
     /// The Simple controller's bandwidth must be positive.
     #[error("simple_bandwidth_gib_s must be a positive number")]
     SimpleBandwidth,
-    /// `misa_override` sets V, which needs VLEN >= 128 and ELEN = 64.
+    /// `misa_override` sets V, which needs ELEN = 64.
     #[error("misa_override sets V, but vlen {vlen} / elen {elen} is not the full V extension")]
     VWithoutFullVector {
         /// Configured VLEN in bits.
@@ -250,10 +250,10 @@ impl Config {
             .unwrap_or_else(|| crate::isa::misa::Misa::rv64imafdc(self.implements_full_v()))
     }
 
-    /// True when the vector unit meets V's minimum: VLEN >= 128 (Zvl128b)
-    /// and ELEN = 64 (Zve64d).
+    /// True when the vector unit meets V's minimum: ELEN = 64 (Zve64d);
+    /// every [`Vlen`](crate::isa::rvv::Vlen) already satisfies Zvl128b.
     const fn implements_full_v(&self) -> bool {
-        self.pipeline.vlen >= 128 && self.isa.vector.elen == 64
+        self.isa.vector.elen == 64
     }
 
     /// Checks the combinations the simulator cannot build.
@@ -276,7 +276,7 @@ impl Config {
         }
         if self.misa().has_v() && !self.implements_full_v() {
             return Err(ConfigError::VWithoutFullVector {
-                vlen: self.pipeline.vlen,
+                vlen: self.pipeline.vlen.bits(),
                 elen: self.isa.vector.elen,
             });
         }

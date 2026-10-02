@@ -1084,21 +1084,29 @@ fn the_default_hart_reports_v_when_it_implements_the_full_vector_extension() {
 }
 
 #[test]
-fn a_hart_below_v_s_minimum_vlen_or_elen_does_not_report_v() {
-    let mut short = Config::default();
-    short.pipeline.vlen = 64;
+fn a_hart_below_v_s_minimum_elen_does_not_report_v() {
     let mut narrow = Config::default();
     narrow.isa.vector.elen = 32;
 
-    let v = |config: &Config| config.misa().bits() & rvsim_core::isa::csr::MISA_EXT_V;
-    assert_eq!((v(&short), v(&narrow)), (0, 0));
+    assert_eq!(narrow.misa().bits() & rvsim_core::isa::csr::MISA_EXT_V, 0);
 }
 
 #[test]
 fn a_misa_override_claiming_v_needs_the_full_vector_extension() {
     let mut config = Config::default();
-    config.pipeline.vlen = 64;
+    config.isa.vector.elen = 32;
     config.pipeline.misa_override = Some("RV64GCV".parse().expect("valid ISA string"));
 
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn a_vlen_the_vector_unit_cannot_have_is_refused_when_the_config_is_read() {
+    for bits in [0, 64, 100, 4096] {
+        let json = format!(r#"{{"vlen": {bits}}}"#);
+        let error = serde_json::from_str::<PipelineConfig>(&json).expect_err("refused");
+        assert!(error.to_string().contains("VLEN"), "{bits}: {error}");
+    }
+    let pipeline: PipelineConfig = serde_json::from_str(r#"{"vlen": 256}"#).expect("valid");
+    assert_eq!(pipeline.vlen.bits(), 256);
 }
