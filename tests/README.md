@@ -1,7 +1,7 @@
 # Tests
 
-Rust unit and integration tests live next to the crate in
-`crates/rvsim-core/tests/`. This directory holds everything that drives the
+Rust unit and integration tests live in the crate, under
+`crates/rvsim-core/src/tests/`. This directory holds everything that drives the
 simulator from Python.
 
 | Path | What it covers | Command |

@@ -30,6 +30,33 @@ pub mod uarch;
 
 pub mod system;
 
+#[cfg(test)]
+#[allow(
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    missing_docs,
+    missing_debug_implementations,
+    clippy::must_use_candidate,
+    clippy::return_self_not_must_use,
+    clippy::missing_const_for_fn,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::doc_markdown,
+    clippy::format_collect,
+    clippy::uninlined_format_args,
+    clippy::float_cmp,
+    clippy::single_char_pattern,
+    clippy::semicolon_if_nothing_returned,
+    unused_results,
+    clippy::used_underscore_binding,
+    clippy::unused_self,
+    clippy::fn_params_excessive_bools,
+    clippy::let_underscore_untyped,
+    clippy::redundant_clone,
+    clippy::large_types_passed_by_value
+)]
+mod tests;
+
 /// Address Space Identifier (ASID) from SATP\[59:44\]; prevents mixing with raw `u16` values.
 pub use crate::common::Asid;
 /// Interrupt Request Identifier for PLIC lines; prevents mixing with arbitrary `u32` values.

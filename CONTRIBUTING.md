@@ -13,7 +13,7 @@ merged.
 | `rvsim/` | The Python package: configuration, sessions, presets, the `rvsim` CLI. |
 | `software/` | Guest-side libc, linker scripts and the Linux image build. |
 | `examples/` | Guest programs and benchmarks, and Python analysis scripts. |
-| `tests/` | Python API tests and the ISA conformance runners. See [`tests/README.md`](tests/README.md). |
+| `tests/` | Python API tests and the ISA conformance runners. See [`tests/README.md`](tests/README.md). The Rust tests live in `crates/rvsim-core/src/tests/`. |
 | `tools/` | Developer tools: the gem5 comparison, baseline recorders, the Linux boot driver. |
 | `docs/` | The documentation site, including architecture notes and decision records. |
 
