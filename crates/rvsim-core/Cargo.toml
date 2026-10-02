@@ -31,11 +31,6 @@ commit-log = []
 
 [dev-dependencies]
 proptest = "1.4"
-mockall = "0.13"
-pretty_assertions = "1.4"
-rstest = "0.23"
-env_logger = "0.11"
-log = "0.4"
 tempfile = "3.8"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
