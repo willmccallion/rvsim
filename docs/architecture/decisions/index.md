@@ -13,3 +13,4 @@ after the fact; a later decision that changes one says which it replaces.
 | [5](0005-faults-are-taken-at-commit.md) | Faults travel with the instruction and are taken at commit |
 | [6](0006-serialization-follows-the-cpu-model.md) | Serialization follows the gem5 CPU model each backend stands for |
 | [7](0007-a-core-owns-its-pipeline.md) | A core owns its pipeline |
+| [8](0008-the-model-is-crate-private.md) | The model is crate-private |

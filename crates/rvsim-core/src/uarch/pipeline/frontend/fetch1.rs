@@ -193,7 +193,6 @@ fn park_fetch_walk<E: ExecutionEngine>(
         req_id,
         OutstandingWalk {
             state: walk_state,
-            pte_addr,
             continuation: WalkContinuation::Fetch { fetch_seq, entry },
         },
     );

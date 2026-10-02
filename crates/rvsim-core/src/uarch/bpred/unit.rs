@@ -139,6 +139,7 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         }
     }
 
+    #[cfg(test)]
     /// The direction predictor.
     pub const fn direction(&self) -> &P {
         &self.direction

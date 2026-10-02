@@ -73,18 +73,14 @@ impl LoadQueue {
         Self { entries, valid_count: 0 }
     }
 
-    /// Returns the capacity.
-    #[inline]
-    pub const fn capacity(&self) -> usize {
-        self.entries.len()
-    }
-
+    #[cfg(test)]
     /// Returns the number of valid entries.
     #[inline]
     pub const fn len(&self) -> usize {
         self.valid_count
     }
 
+    #[cfg(test)]
     /// Returns true if the load queue is empty.
     #[inline]
     pub const fn is_empty(&self) -> bool {
@@ -97,6 +93,7 @@ impl LoadQueue {
         self.valid_count == self.entries.len()
     }
 
+    #[cfg(test)]
     /// Returns the number of free slots.
     #[inline]
     pub const fn free_slots(&self) -> usize {

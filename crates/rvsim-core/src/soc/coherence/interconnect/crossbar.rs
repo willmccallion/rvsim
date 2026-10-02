@@ -197,8 +197,12 @@ mod tests {
         xbar.send(5, Node::Core(CoreId::new(1)), req(1, 1));
         xbar.send(4, Node::Core(CoreId::new(0)), req(2, 0));
         let delivered = run(&mut xbar, 5, 20);
-        let order: Vec<u64> = delivered.iter().map(|(_, _, m)| m.txn().val()).collect();
-        assert_eq!(order, vec![2, 1], "the request that waited longer goes first");
+        let order: Vec<ReqId> = delivered.iter().map(|(_, _, m)| m.txn()).collect();
+        assert_eq!(
+            order,
+            vec![ReqId::new(2), ReqId::new(1)],
+            "the request that waited longer goes first"
+        );
         assert_eq!(delivered[0].0, 5 + 1 + 1);
         assert_eq!(delivered[1].0, 6 + 1 + 1, "the second transfer starts when the port frees");
     }
@@ -219,7 +223,7 @@ mod tests {
             },
         );
         let delivered = run(&mut xbar, 0, 20);
-        let comp_at = delivered.iter().find(|(_, _, m)| m.txn().val() == 2).map(|d| d.0);
+        let comp_at = delivered.iter().find(|(_, _, m)| m.txn() == ReqId::new(2)).map(|d| d.0);
         assert_eq!(comp_at, Some(2), "the response channel is not behind the data channel");
     }
 }

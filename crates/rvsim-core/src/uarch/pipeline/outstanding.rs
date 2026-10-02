@@ -187,24 +187,18 @@ pub enum StoreOwner {
 pub struct OutstandingStore {
     /// Who is told when it is acknowledged.
     pub owner: StoreOwner,
-    /// Physical address written.
-    pub paddr: PhysAddr,
 }
 
 /// A page-table walk in flight.
 ///
 /// `state` holds the live walker state (current level, page-table root PPN,
-/// access info). `pte_addr` is the physical address of the PTE the walker
-/// is currently waiting on — the drain stage reads its 64-bit value from
-/// the RAM fast path before handing it to
+/// access info); the drain stage hands the PTE the walk is waiting on to
 /// [`CoreCtx::translate_continue`](crate::uarch::ctx::CoreCtx::translate_continue).
 /// `continuation` says what to do once the walk completes.
 #[derive(Clone, Debug)]
 pub struct OutstandingWalk {
     /// PTW state being advanced.
     pub state: WalkState,
-    /// Physical address of the PTE that the outstanding `MemReq` is reading.
-    pub pte_addr: PhysAddr,
     /// What to do once the walk completes.
     pub continuation: WalkContinuation,
 }

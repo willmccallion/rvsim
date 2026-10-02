@@ -133,6 +133,7 @@ impl SystemState {
         }
     }
 
+    #[cfg(test)]
     /// Convenience constructor: allocates a fresh `exit_signal` slot and
     /// builds the system. Use this when the caller doesn't need to share the
     /// signal `Arc` with other components before construction.
@@ -219,7 +220,7 @@ impl SystemState {
             MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
                 PhysAddr::new(ram_base),
                 ram_size as u64,
-                config.memory.ddr5.to_config(),
+                &config.memory.ddr5.to_config(),
                 MemCtrlId::new(0),
                 config.system.cpu_clock_mhz,
             )),
@@ -365,7 +366,6 @@ impl SystemState {
                 #[cfg(feature = "commit-log")]
                 commit_log: None,
                 exit_signal,
-                exit_code: None,
                 direct_mode,
                 event_queue: EventQueue::new(),
                 stats,

@@ -60,12 +60,14 @@ impl CheckpointTable {
         self.slots.len()
     }
 
+    #[cfg(test)]
     /// Returns true if all slots are occupied.
     #[inline]
     pub const fn is_full(&self) -> bool {
         self.count == self.slots.len()
     }
 
+    #[cfg(test)]
     /// Returns the number of free slots.
     #[inline]
     pub const fn available(&self) -> usize {
@@ -80,6 +82,7 @@ impl CheckpointTable {
         Some(ReservedCheckpoint { table: self, index })
     }
 
+    #[cfg(test)]
     /// Allocates a checkpoint slot saving `rename_map` for `branch_tag`.
     /// Returns `None` if the table is full.
     pub fn allocate(&mut self, branch_tag: RobTag, rename_map: &RenameMap) -> Option<CheckpointId> {

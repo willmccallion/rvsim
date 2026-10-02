@@ -154,8 +154,6 @@ pub struct WalkState {
     pub access: AccessType,
     /// Privilege mode at the start of the walk.
     pub privilege: PrivilegeMode,
-    /// Paging mode (drives level count).
-    pub mode: PagingMode,
     /// Current page-table level being read (counting down to 0).
     pub level: u32,
     /// PPN of the current page table.
@@ -200,7 +198,6 @@ pub fn start_walk(
         vaddr,
         access: request.access,
         privilege: request.privilege,
-        mode: request.mode,
         level: (request.mode.levels() as u32) - 1,
         ppn_raw,
         asid,

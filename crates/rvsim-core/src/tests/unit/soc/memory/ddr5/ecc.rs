@@ -3,7 +3,7 @@
 
 use crate::config::ddr5::{Ddr5Timing, EccKind};
 use crate::sim::packet::{DramCmdKind, Packet};
-use crate::soc::memory::ddr5::{EccPolicy, SideBandEcc};
+use crate::soc::memory::ddr5::ecc::{EccPolicy, SideBandEcc};
 use crate::tests::unit::soc::memory::ddr5::common::{Harness, tiny_config};
 
 #[test]

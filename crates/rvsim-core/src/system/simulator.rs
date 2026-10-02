@@ -89,14 +89,14 @@ const MAX_QUIET_SKIP: u64 = 1 << 32;
 #[derive(Debug)]
 pub struct Simulator {
     /// The whole system: harts, cores and their pipelines, and the uncore.
-    pub state: SystemState,
+    pub(crate) state: SystemState,
     /// Privilege mode of each hart at the start of the current tick, kept
     /// between ticks to avoid reallocating.
     prev_privileges: Vec<PrivilegeMode>,
     /// Count an idle core's cycle instead of ticking its pipeline, and skip
     /// the cycles in which the whole system only waits. The result is the
     /// same; tests turn it off to check that.
-    pub skip_idle_cores: bool,
+    skip_idle_cores: bool,
 }
 
 impl Simulator {
@@ -104,7 +104,7 @@ impl Simulator {
     /// hart's PC. Use this when the caller needs to interleave setup between
     /// state construction and the first tick (e.g. loading an ELF image and
     /// registering HTIF, which set the reset PC).
-    pub fn new(mut state: SystemState) -> Self {
+    pub(crate) fn new(mut state: SystemState) -> Self {
         for core in 0..state.cores.len() {
             let (pipeline, ctx) = state.pipeline_ctx(core);
             pipeline.restart_fetch_at(ctx.hart.pc);
@@ -729,9 +729,6 @@ impl Simulator {
                     self_id: ComponentId::Device(id),
                 };
                 uncore.bus.handle_device(id, packet, source, &mut ctx);
-            }
-            ComponentId::Hart(_) | ComponentId::Core(_) => {
-                // Reserved for future per-hart packets.
             }
         }
     }

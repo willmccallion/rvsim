@@ -86,7 +86,7 @@ pub fn check_vec_mem_emul(
     inst: u32,
     op: VectorOp,
     ctrl: &ControlSignals,
-    vtype: &VtypeFields,
+    vtype: VtypeFields,
 ) -> Result<(), Trap> {
     if vtype.vill {
         return Ok(());
@@ -177,11 +177,6 @@ pub const fn is_vec_store(op: VectorOp) -> bool {
             | VectorOp::VStoreMask
             | VectorOp::VStoreWholeReg
     )
-}
-
-/// Returns true if the given `VectorOp` is any vector memory operation.
-pub const fn is_vec_mem(op: VectorOp) -> bool {
-    is_vec_load(op) || is_vec_store(op)
 }
 
 /// The register of the destination group element `elem` of field `seg`
@@ -401,13 +396,5 @@ mod tests {
         assert!(is_vec_store(VectorOp::VStoreWholeReg));
         assert!(!is_vec_store(VectorOp::VLoadUnit));
         assert!(!is_vec_store(VectorOp::VAdd));
-    }
-
-    #[test]
-    fn test_is_vec_mem() {
-        assert!(is_vec_mem(VectorOp::VLoadUnit));
-        assert!(is_vec_mem(VectorOp::VStoreUnit));
-        assert!(!is_vec_mem(VectorOp::VAdd));
-        assert!(!is_vec_mem(VectorOp::None));
     }
 }

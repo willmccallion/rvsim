@@ -1068,16 +1068,9 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
         "not answered yet"
     );
 
-    let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
-    bench.deliver(
-        Packet::ProbeResp { line_addr: line, txn: forwarded[0], had_copy: true, dirty: false },
-        UPSTREAM,
-    );
+    bench.deliver(Packet::ProbeResp { txn: forwarded[0], had_copy: true, dirty: false }, UPSTREAM);
     assert!(bench.drain().is_empty());
-    bench.deliver(
-        Packet::ProbeResp { line_addr: line, txn: forwarded[1], had_copy: true, dirty: true },
-        third,
-    );
+    bench.deliver(Packet::ProbeResp { txn: forwarded[1], had_copy: true, dirty: true }, third);
     let events = bench.drain();
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
@@ -1324,15 +1317,7 @@ mod coherent {
             "no writeback: the data goes with the snoop answer"
         );
 
-        bench.deliver(
-            Packet::ProbeResp {
-                line_addr: line(0x1000),
-                txn: sent[0].1,
-                had_copy: true,
-                dirty: true,
-            },
-            UPSTREAM,
-        );
+        bench.deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
         let events = bench.drain();
         assert_eq!(snoop_responses(&events), vec![(true, true)]);
         assert!(events.iter().any(
@@ -1351,15 +1336,8 @@ mod coherent {
         let events = bench.drain();
         let sent = probes(&events);
         assert_eq!(sent[0].0, ProbeKind::Downgrade);
-        bench.deliver(
-            Packet::ProbeResp {
-                line_addr: line(0x1000),
-                txn: sent[0].1,
-                had_copy: false,
-                dirty: false,
-            },
-            UPSTREAM,
-        );
+        bench
+            .deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
         let events = bench.drain();
         assert_eq!(snoop_responses(&events), vec![(true, false)]);
         assert_eq!(bench.state_of(0x1000), Some(MesiState::Shared));
@@ -1375,15 +1353,8 @@ mod coherent {
         bench.snoop(0x1000, SnoopKind::Unique);
         let events = bench.drain();
         let sent = probes(&events);
-        bench.deliver(
-            Packet::ProbeResp {
-                line_addr: line(0x1000),
-                txn: sent[0].1,
-                had_copy: false,
-                dirty: false,
-            },
-            UPSTREAM,
-        );
+        bench
+            .deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
         assert_eq!(snoop_responses(&bench.drain()), vec![(false, false)]);
 
         bench.complete(reqs[0].0, 0x1000, MesiState::Exclusive, true);
@@ -1405,15 +1376,8 @@ mod coherent {
 
         bench.snoop(0x1000, SnoopKind::Unique);
         let sent = probes(&bench.drain());
-        bench.deliver(
-            Packet::ProbeResp {
-                line_addr: line(0x1000),
-                txn: sent[0].1,
-                had_copy: false,
-                dirty: false,
-            },
-            UPSTREAM,
-        );
+        bench
+            .deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
         let _ = bench.drain();
         assert_eq!(bench.state_of(0x1000), None);
 
@@ -1494,15 +1458,7 @@ mod coherent {
         bench.snoop(0x1000, SnoopKind::Unique);
         let sent = probes(&bench.drain());
         assert_eq!(sent.len(), 1, "the L1 is asked");
-        bench.deliver(
-            Packet::ProbeResp {
-                line_addr: line(0x1000),
-                txn: sent[0].1,
-                had_copy: true,
-                dirty: true,
-            },
-            UPSTREAM,
-        );
+        bench.deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: true, dirty: true }, UPSTREAM);
         assert_eq!(snoop_responses(&bench.drain()), vec![(true, true)]);
 
         bench.line_request(2, 0x1000, MemOp::Writeback { dirty: true });

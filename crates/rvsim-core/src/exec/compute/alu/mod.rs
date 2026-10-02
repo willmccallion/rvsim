@@ -38,33 +38,6 @@ use crate::isa::op::AluOp;
 ///
 /// The 64-bit result of the ALU operation. For 32-bit operations,
 /// the result is sign-extended to 64 bits.
-///
-/// # Examples
-///
-/// ```
-/// use rvsim_core::exec::compute::alu;
-/// use rvsim_core::isa::op::AluOp;
-///
-/// // 64-bit addition
-/// let result = alu::execute(AluOp::Add, 42, 8, 0, false);
-/// assert_eq!(result, 50);
-///
-/// // 32-bit addition with sign extension
-/// let result = alu::execute(AluOp::Add, 0xFFFFFFFF, 1, 0, true);
-/// assert_eq!(result, 0); // Wraps to 0 and sign-extends
-///
-/// // Logical shift left
-/// let result = alu::execute(AluOp::Sll, 0x1, 4, 0, false);
-/// assert_eq!(result, 0x10);
-///
-/// // Signed comparison
-/// let result = alu::execute(AluOp::Slt, -5_i64 as u64, 10, 0, false);
-/// assert_eq!(result, 1); // -5 < 10
-///
-/// // Unsigned division
-/// let result = alu::execute(AluOp::Divu, 100, 7, 0, false);
-/// assert_eq!(result, 14);
-/// ```
 pub const fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
     match op {
         AluOp::Add

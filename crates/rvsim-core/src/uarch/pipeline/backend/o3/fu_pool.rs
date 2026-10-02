@@ -54,29 +54,6 @@ pub enum FuType {
 pub const FU_TYPE_COUNT: usize = 17;
 
 impl FuType {
-    /// Human-readable name for stats output.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::IntAlu => "int_alu",
-            Self::IntMul => "int_mul",
-            Self::IntDiv => "int_div",
-            Self::FpAdd => "fp_add",
-            Self::FpMul => "fp_mul",
-            Self::FpFma => "fp_fma",
-            Self::FpDivSqrt => "fp_div_sqrt",
-            Self::Branch => "branch",
-            Self::Mem => "mem",
-            Self::VecIntAlu => "vec_int_alu",
-            Self::VecIntMul => "vec_int_mul",
-            Self::VecIntDiv => "vec_int_div",
-            Self::VecFpAlu => "vec_fp_alu",
-            Self::VecFpFma => "vec_fp_fma",
-            Self::VecFpDivSqrt => "vec_fp_div_sqrt",
-            Self::VecMem => "vec_mem",
-            Self::VecPermute => "vec_permute",
-        }
-    }
-
     /// Returns true if this FU type is a vector execution unit.
     pub const fn is_vector(self) -> bool {
         matches!(
@@ -361,11 +338,6 @@ impl FuPool {
     /// (vector ops, whose latency depends on VL and the lane count).
     pub fn acquire_with_latency(&mut self, unit: FreeUnit, now: u64, latency: u64) -> u64 {
         self.units[unit.0].acquire_with_latency(now, latency)
-    }
-
-    /// Returns the latency of the first unit of `fu_type`.
-    pub fn get_latency(&self, fu_type: FuType) -> u64 {
-        self.units.iter().find(|u| u.fu_type == fu_type).map_or(1, |u| u.latency)
     }
 
     /// Returns whether the first unit of `fu_type` is pipelined.

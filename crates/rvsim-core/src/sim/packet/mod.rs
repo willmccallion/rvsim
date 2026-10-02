@@ -251,8 +251,6 @@ pub enum ProbeKind {
 pub enum MesiState {
     /// Line is dirty and held exclusively here.
     Modified,
-    /// Line is dirty and held here; other caches may have clean copies.
-    Owned,
     /// Line is clean and held exclusively here.
     Exclusive,
     /// Line is clean; may be held in other caches too.
@@ -262,33 +260,7 @@ pub enum MesiState {
     Invalid,
 }
 
-/// Fence kind, mirroring the RISC-V `fence` instruction `pred`/`succ` bits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FenceKind {
-    /// `fence.i` (instruction fence).
-    I,
-    /// `fence r,...`.
-    R,
-    /// `fence w,...`.
-    W,
-    /// `fence rw,rw`.
-    RW,
-    /// TSO ordering hint.
-    Tso,
-}
-
-/// Scope of a fence — which agents and which memory regions it orders.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FenceScope {
-    /// Local hart only.
-    Local,
-    /// Visible across all harts on this core (SMT siblings).
-    Core,
-    /// Visible across the system (all cores, all devices).
-    System,
-}
-
-/// DRAM command kind (used by `Packet::DramCmd` in Phase 7+).
+/// DRAM command kind, carried by [`Packet::DramCmd`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DramCmdKind {
     /// ACTIVATE: open a row into the row buffer.
@@ -356,8 +328,6 @@ pub enum Packet {
     /// Answer to a [`Packet::Probe`]: the line has been dropped or
     /// downgraded (its dirty data, if any, was written back first).
     ProbeResp {
-        /// Line probed.
-        line_addr: LineAddr,
         /// Correlator from the probe.
         txn: ReqId,
         /// Whether the responder (or a cache above it) held the line at all.
@@ -369,13 +339,6 @@ pub enum Packet {
     CacheInval {
         /// Line to invalidate.
         line_addr: LineAddr,
-    },
-    /// Prefetcher-generated request.
-    Prefetch {
-        /// Line to fetch.
-        line_addr: LineAddr,
-        /// Cache level that issued the prefetch.
-        source_level: CacheLevel,
     },
     /// A coherence message between a private L2 and the home agent.
     Coh(CoherenceMsg),
@@ -391,20 +354,6 @@ pub enum Packet {
         kind: DramCmdKind,
         /// Row index for activate / precharge.
         row: u32,
-    },
-    /// Self-scheduled refresh tick on a rank.
-    RefreshTick {
-        /// Channel index.
-        channel: u8,
-        /// Rank index.
-        rank: u8,
-    },
-    /// Ordering fence; targets the LSU / store buffer / write-combining buffer.
-    Fence {
-        /// Kind of fence (I, R, W, RW, TSO).
-        kind: FenceKind,
-        /// Scope of fence visibility.
-        scope: FenceScope,
     },
 }
 

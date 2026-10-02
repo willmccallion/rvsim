@@ -183,7 +183,7 @@ fn complete_walk<E: ExecutionEngine>(
             let req_id = common.alloc_req_id();
             let _ = common.outstanding_walks.insert(
                 req_id,
-                OutstandingWalk { state: walk_state, pte_addr, continuation: walk.continuation },
+                OutstandingWalk { state: walk_state, continuation: walk.continuation },
             );
             emit_pte_req(pipeline, state, req_id, pte_addr);
         }
@@ -276,16 +276,15 @@ fn set_accessed_bit<E: ExecutionEngine>(
 }
 
 /// Sends the L1D the timing of a PTE the walker has already written.
-pub(crate) fn send_pte_write(
+pub fn send_pte_write(
     common: &mut BackendCommon,
     state: &mut StageCtx<'_>,
     pte_addr: PhysAddr,
     pte: u64,
 ) {
     let req_id = common.alloc_req_id();
-    let _ = common
-        .outstanding_stores
-        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked, paddr: pte_addr });
+    let _ =
+        common.outstanding_stores.insert(req_id, OutstandingStore { owner: StoreOwner::Untracked });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
     let cycle = state.cycle;
     state.events().schedule(

@@ -15,8 +15,6 @@ pub struct Writeback {
     pub line: LineAddr,
     /// Correlator of the request sent downstream.
     pub req_id: ReqId,
-    /// Whether the line carried modified data.
-    pub dirty: bool,
 }
 
 /// Bounded set of writebacks awaiting the next level's acknowledgement.
@@ -35,12 +33,14 @@ impl WritebackBuffer {
         Self { entries: Vec::with_capacity(capacity), capacity }
     }
 
+    #[cfg(test)]
     /// Writebacks in flight.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[cfg(test)]
     /// True when nothing is in flight.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -92,7 +92,7 @@ mod tests {
     fn completion_frees_the_matching_entry_only() {
         let mut buffer = WritebackBuffer::new(1);
         let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
-        buffer.allocate(Writeback { line, req_id: ReqId::new(5), dirty: true });
+        buffer.allocate(Writeback { line, req_id: ReqId::new(5) });
         assert!(buffer.is_full());
         assert!(buffer.holds(line));
         assert!(!buffer.complete(ReqId::new(6)));

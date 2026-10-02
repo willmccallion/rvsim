@@ -60,7 +60,6 @@ impl O3Engine {
                 registers: CommitRegisters::Renamed {
                     rename_map: &mut self.committed_rename_map,
                     free_list: &mut self.free_list,
-                    prf: &mut self.prf,
                     load_queue: &mut self.load_queue,
                     checkpoints: &mut self.checkpoints,
                     vec_prf: &mut self.vec_prf,

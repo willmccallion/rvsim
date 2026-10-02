@@ -125,18 +125,14 @@ impl SnoopFilter {
         Self { sets: (0..num_sets).map(|_| vec![None; ways]).collect(), line_bytes }
     }
 
-    /// Lines the filter can track.
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.sets.len() * self.sets[0].len()
-    }
-
+    #[cfg(test)]
     /// Lines currently tracked.
     #[must_use]
     pub fn len(&self) -> usize {
         self.sets.iter().flatten().filter(|e| e.is_some()).count()
     }
 
+    #[cfg(test)]
     /// True when nothing is tracked.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -202,7 +198,7 @@ impl HomeAgent for SnoopFilter {
     }
 
     fn on_grant(&mut self, line: LineAddr, core: CoreId, state: MesiState, now: u64) {
-        let owner = matches!(state, MesiState::Modified | MesiState::Exclusive | MesiState::Owned);
+        let owner = matches!(state, MesiState::Modified | MesiState::Exclusive);
         if let Some(entry) = self.entry_mut(line) {
             entry.holders.sharers.insert(core);
             if owner {

@@ -101,7 +101,7 @@ pub(super) fn send_block_op(
     let req_id = common.alloc_req_id();
     let _ = common
         .outstanding_stores
-        .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer, paddr: block });
+        .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -206,7 +206,7 @@ pub(super) fn emit_line_write(
     owner: StoreOwner,
 ) -> ReqId {
     let req_id = common.alloc_req_id();
-    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner, paddr: line });
+    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner });
     let origin = WriteOrigin::Hart(state.hart.hart_id);
     let cycle = state.cycle;
     state.event_queue.schedule(
@@ -338,8 +338,7 @@ pub(super) fn emit_store_write_packet_to(
 ) -> ReqId {
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
-    let _ =
-        common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner, paddr });
+    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,

@@ -74,48 +74,6 @@ pub const fn width_to_bytes(width: crate::isa::op::MemWidth) -> u64 {
     }
 }
 
-/// Splits an unaligned load into multiple byte reads and reassembles
-/// the result in little-endian order.
-///
-/// # Arguments
-///
-/// * `addr` - The byte address of the access.
-/// * `size` - The number of bytes to read (1, 2, 4, or 8).
-/// * `read_byte` - A closure that reads a single byte from the given address.
-///
-/// # Returns
-///
-/// The reassembled value in little-endian byte order.
-pub fn split_load<F>(addr: u64, size: u64, mut read_byte: F) -> u64
-where
-    F: FnMut(u64) -> u8,
-{
-    let mut result: u64 = 0;
-    for i in 0..size {
-        let byte = read_byte(addr + i) as u64;
-        result |= byte << (i * 8);
-    }
-    result
-}
-
-/// Splits an unaligned store into multiple byte writes.
-///
-/// # Arguments
-///
-/// * `addr` - The byte address of the access.
-/// * `size` - The number of bytes to write (1, 2, 4, or 8).
-/// * `val` - The value to store (little-endian).
-/// * `write_byte` - A closure that writes a single byte to the given address.
-pub fn split_store<F>(addr: u64, size: u64, val: u64, mut write_byte: F)
-where
-    F: FnMut(u64, u8),
-{
-    for i in 0..size {
-        let byte = ((val >> (i * 8)) & 0xFF) as u8;
-        write_byte(addr + i, byte);
-    }
-}
-
 /// The start of the second page an access of `size` bytes at `addr`
 /// spills into, if it crosses a page boundary.
 #[must_use]

@@ -126,16 +126,10 @@ pub struct RobEntry {
     pub inst_size: InstSize,
     /// Destination register index.
     pub rd: RegIdx,
-    /// Whether rd is a floating-point register.
-    pub rd_fp: bool,
     /// Computed result value (ALU output, load data, or link address).
     /// `None` while the instruction is still executing (`Issued` state);
     /// `Some(value)` once the instruction completes.
     pub result: Option<u64>,
-    /// Data for store instructions (rs2 value).
-    pub store_data: u64,
-    /// Virtual address for loads/stores (ALU output for memory ops).
-    pub store_addr: u64,
     /// Control signals from decode.
     pub ctrl: ControlSignals,
     /// Current lifecycle state.
@@ -226,12 +220,6 @@ impl Rob {
         }
     }
 
-    /// Returns the ROB capacity.
-    #[inline]
-    pub const fn capacity(&self) -> usize {
-        self.entries.len()
-    }
-
     /// Returns the number of occupied entries.
     #[inline]
     pub const fn len(&self) -> usize {
@@ -264,7 +252,6 @@ impl Rob {
         inst: u32,
         inst_size: InstSize,
         rd: RegIdx,
-        rd_fp: bool,
         ctrl: ControlSignals,
         phys_dst: PhysReg,
         old_phys_dst: PhysReg,
@@ -287,10 +274,7 @@ impl Rob {
             inst,
             inst_size,
             rd,
-            rd_fp,
             result: None,
-            store_data: 0,
-            store_addr: 0,
             ctrl,
             state: RobState::Issued,
             trap: None,
@@ -424,15 +408,6 @@ impl Rob {
         }
     }
 
-    /// Marks the CSR update for a given entry as already applied (so commit skips it).
-    pub fn mark_csr_applied(&mut self, tag: RobTag) {
-        if let Some(entry) = self.find_entry_mut(tag)
-            && let Some(ref mut csr_update) = entry.csr_update
-        {
-            csr_update.applied = true;
-        }
-    }
-
     /// Records a branch's or jump's resolved outcome for commit.
     pub fn set_control_outcome(&mut self, tag: RobTag, outcome: BpOutcome, target: Option<u64>) {
         if let Some(entry) = self.find_entry_mut(tag) {
@@ -520,22 +495,9 @@ impl Rob {
         }
     }
 
-    /// Sets the store address and data for a given entry.
-    pub fn set_store_info(&mut self, tag: RobTag, addr: u64, data: u64) {
-        if let Some(entry) = self.find_entry_mut(tag) {
-            entry.store_addr = addr;
-            entry.store_data = data;
-        }
-    }
-
     /// Returns a reference to the head entry (oldest), if the ROB is non-empty.
     pub fn peek_head(&self) -> Option<&RobEntry> {
         if self.count == 0 { None } else { Some(&self.entries[self.head]) }
-    }
-
-    /// Returns a mutable reference to the head entry.
-    pub fn peek_head_mut(&mut self) -> Option<&mut RobEntry> {
-        if self.count == 0 { None } else { Some(&mut self.entries[self.head]) }
     }
 
     /// Commits (retires) the head entry. Returns the entry if it was Completed or Faulted.
@@ -625,64 +587,6 @@ impl Rob {
         }
     }
 
-    /// Finds the latest in-flight result for a given register.
-    /// Searches from tail backwards (most recent first).
-    /// Returns `Some(value)` if a Completed entry writes to the register.
-    pub fn find_latest_result(&self, reg: RegIdx, is_fp: bool) -> Option<u64> {
-        if self.count == 0 || (!is_fp && reg.is_zero()) {
-            return None;
-        }
-
-        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
-
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rd == reg && entry.rd_fp == is_fp {
-                if entry.state == RobState::Completed {
-                    return entry.result;
-                }
-                // Producer not ready — caller must stall or use bypass.
-                return None;
-            }
-            if idx == 0 {
-                idx = self.entries.len() - 1;
-            } else {
-                idx -= 1;
-            }
-        }
-
-        None
-    }
-
-    /// Finds the latest in-flight value for a register, including Issued entries.
-    /// This is used by rename to check if there's any pending write.
-    /// Returns `Some((value, is_ready))` where `is_ready` indicates if the value is available.
-    pub fn find_latest_producer(&self, reg: RegIdx, is_fp: bool) -> Option<(u64, bool)> {
-        if self.count == 0 || (!is_fp && reg.is_zero()) {
-            return None;
-        }
-
-        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
-
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rd == reg && entry.rd_fp == is_fp {
-                let writes = if is_fp { entry.ctrl.fp_reg_write } else { entry.ctrl.reg_write };
-                if writes {
-                    let ready = entry.state == RobState::Completed;
-                    return Some((entry.result.unwrap_or(0), ready));
-                }
-            }
-            if idx == 0 {
-                idx = self.entries.len() - 1;
-            } else {
-                idx -= 1;
-            }
-        }
-
-        None
-    }
-
     /// Returns the tag of the ROB entry immediately before `tag` in program
     /// order, or `None` if `tag` is at the head (no preceding in-flight entry).
     ///
@@ -759,31 +663,6 @@ impl Rob {
         let entries = &self.entries;
         let head = self.head;
         (0..self.count).map(move |i| &entries[(head + i) % entries.len()]).filter(|e| e.valid)
-    }
-
-    /// Returns true if all ROB entries older than `tag` are Completed or Faulted.
-    ///
-    /// Used by the issue queue to enforce serializing behavior: system/CSR
-    /// instructions must not issue until all older instructions have finished
-    /// executing (e.g., FP instructions that set fflags).
-    pub fn all_before_completed(&self, tag: RobTag) -> bool {
-        if self.count == 0 {
-            return true;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return true;
-                }
-                if entry.state == RobState::Issued {
-                    return false;
-                }
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        true
     }
 
     /// Returns true if all older ROB entries matching a FENCE's predecessor

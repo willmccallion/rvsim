@@ -13,8 +13,8 @@
 
 mod arith;
 mod convert;
-pub(crate) mod host;
-pub(crate) mod rmm;
+pub mod host;
+pub mod rmm;
 
 pub mod nan_handling;
 
@@ -33,57 +33,6 @@ use half::execute_f16;
 use host::{clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode};
 use nan_handling::{is_snan_f32, is_snan_f64};
 use rmm::rmm_fixup;
-
-/// Executes a floating-point operation.
-///
-/// Performs the specified floating-point operation on operands `a`, `b`,
-/// and optionally `c` (for fused multiply-add operations). Supports
-/// both single-precision (32-bit) and double-precision (64-bit) operations
-/// based on the `is32` flag.
-///
-/// All f32 inputs are validated for proper NaN boxing. All NaN results
-/// are replaced with the canonical quiet NaN (RISC-V spec §11.3, §12.2).
-///
-/// # Arguments
-///
-/// * `op`   - The floating-point operation to perform
-/// * `a`    - First operand (64-bit IEEE 754 representation)
-/// * `b`    - Second operand (64-bit IEEE 754 representation)
-/// * `c`    - Third operand for FMA operations (64-bit IEEE 754 representation)
-/// * `is32` - If true, perform single-precision operation (32-bit)
-///
-/// # Returns
-///
-/// The 64-bit result of the floating-point operation. For single-precision
-/// operations, the result is NaN-boxed to 64 bits.
-///
-/// # Examples
-///
-/// ```
-/// use rvsim_core::exec::compute::fpu::{self, nan_handling::box_f32};
-/// use rvsim_core::isa::op::AluOp;
-///
-/// // Single-precision addition with NaN boxing
-/// let a = box_f32(2.5_f32);
-/// let b = box_f32(3.5_f32);
-/// let result = fpu::execute(AluOp::FAdd, a, b, 0, true);
-/// // Result should be NaN-boxed 6.0
-///
-/// // Double-precision multiplication
-/// let a = f64::to_bits(2.0_f64);
-/// let b = f64::to_bits(3.5_f64);
-/// let result = fpu::execute(AluOp::FMul, a, b, 0, false);
-/// assert_eq!(f64::from_bits(result), 7.0);
-///
-/// // Single-precision comparison (FEQ)
-/// let a = box_f32(5.0_f32);
-/// let b = box_f32(5.0_f32);
-/// let result = fpu::execute(AluOp::FEq, a, b, 0, true);
-/// assert_eq!(result, 1); // Equal
-/// ```
-pub fn execute(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> u64 {
-    if is32 { execute_f32(op, a, b, c) } else { execute_f64(op, a, b, c) }
-}
 
 /// Executes a floating-point operation and returns accrued exception flags.
 ///
@@ -410,13 +359,4 @@ pub fn execute_full_rm(
     // FCvt conversions between FP formats are handled directly in the
     // pipeline execute stages so they don't reach this branch.
     execute_full(op, a, b, c, is32)
-}
-
-/// Executes a floating-point operation with an explicit rounding mode,
-/// discarding accrued exception flags.
-///
-/// Thin wrapper around [`execute_full_rm`] preserved for existing
-/// callers (unit tests) that want only the result value.
-pub fn execute_with_rm(op: AluOp, a: u64, b: u64, c: u64, is32: bool, rm: RoundingMode) -> u64 {
-    execute_full_rm(op, a, b, c, false, is32, rm).0
 }

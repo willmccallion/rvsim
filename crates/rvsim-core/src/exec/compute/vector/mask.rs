@@ -10,30 +10,8 @@
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::{MaskLogicalOp, MaskOp, MaskSetOp, VectorOp};
+use crate::isa::op::{MaskLogicalOp, MaskOp, MaskSetOp};
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
-
-/// Returns `true` if `op` is a mask operation handled by this module.
-pub const fn is_mask_op(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VMAndMM
-            | VectorOp::VMNandMM
-            | VectorOp::VMAndnMM
-            | VectorOp::VMOrMM
-            | VectorOp::VMNorMM
-            | VectorOp::VMOrnMM
-            | VectorOp::VMXorMM
-            | VectorOp::VMXnorMM
-            | VectorOp::VCPopM
-            | VectorOp::VFirstM
-            | VectorOp::VMSbfM
-            | VectorOp::VMSifM
-            | VectorOp::VMSofM
-            | VectorOp::VIotaM
-            | VectorOp::VIdV
-    )
-}
 
 /// Execute a mask operation; `vs1` is the second mask of a logical op.
 ///
@@ -297,7 +275,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isa::op::VecClass;
+    use crate::isa::op::{VecClass, VectorOp};
 
     /// The mask operation `op` decodes to.
     fn mask_op(op: VectorOp) -> MaskOp {
@@ -673,26 +651,5 @@ mod tests {
         assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), 0xFF); // undisturbed
         assert_eq!(vpr.read_element(vd, ElemIdx::new(2), Sew::E32), 2);
         assert_eq!(vpr.read_element(vd, ElemIdx::new(3), Sew::E32), 0xFF); // undisturbed
-    }
-
-    #[test]
-    fn test_is_mask_op() {
-        assert!(is_mask_op(VectorOp::VMAndMM));
-        assert!(is_mask_op(VectorOp::VMNandMM));
-        assert!(is_mask_op(VectorOp::VMAndnMM));
-        assert!(is_mask_op(VectorOp::VMOrMM));
-        assert!(is_mask_op(VectorOp::VMNorMM));
-        assert!(is_mask_op(VectorOp::VMOrnMM));
-        assert!(is_mask_op(VectorOp::VMXorMM));
-        assert!(is_mask_op(VectorOp::VMXnorMM));
-        assert!(is_mask_op(VectorOp::VCPopM));
-        assert!(is_mask_op(VectorOp::VFirstM));
-        assert!(is_mask_op(VectorOp::VMSbfM));
-        assert!(is_mask_op(VectorOp::VMSifM));
-        assert!(is_mask_op(VectorOp::VMSofM));
-        assert!(is_mask_op(VectorOp::VIotaM));
-        assert!(is_mask_op(VectorOp::VIdV));
-        // Negative check.
-        assert!(!is_mask_op(VectorOp::VAdd));
     }
 }

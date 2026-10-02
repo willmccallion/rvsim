@@ -1,8 +1,8 @@
 use crate::Simulator;
-use crate::SystemState;
 use crate::common::PhysAddr;
 use crate::config::{Config, MemoryControllerKind};
 use crate::isa::reg::RegIdx;
+use crate::system::SystemState;
 use crate::tests::support::mocks::memory::MockMemory;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -40,7 +40,7 @@ impl TestContext {
         config.system.bus_latency = 0;
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let state = crate::SystemState::new(&config, "", exit_signal);
+        let state = SystemState::new(&config, "", exit_signal);
         let sim = Simulator::new(state);
 
         Self { sim }

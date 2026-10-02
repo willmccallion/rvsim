@@ -42,7 +42,7 @@ use crate::uarch::pipeline::rob::RobTag;
 /// Returns the oldest memory-ordering violation observed this cycle (older
 /// `RobTag`, lower index). The caller flushes the pipeline at that tag.
 pub fn memory2_stage(
-    state: &mut StageCtx<'_>,
+    state: &StageCtx<'_>,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     store_buffer: &mut StoreBuffer,

@@ -50,7 +50,7 @@ pub struct RowId(u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ReqId(u64);
 
-macro_rules! impl_id_methods {
+macro_rules! impl_id_new {
     ($id:ident, $raw:ty) => {
         impl $id {
             /// Creates a new identifier from a raw value.
@@ -58,13 +58,25 @@ macro_rules! impl_id_methods {
             pub const fn new(val: $raw) -> Self {
                 Self(val)
             }
+        }
+    };
+}
 
+macro_rules! impl_id_val {
+    ($id:ident, $raw:ty) => {
+        impl $id {
             /// Returns the raw value.
             #[inline(always)]
             pub const fn val(self) -> $raw {
                 self.0
             }
+        }
+    };
+}
 
+macro_rules! impl_id_index {
+    ($id:ident) => {
+        impl $id {
             /// Returns the value as a `usize` for use as a vector index.
             #[inline(always)]
             pub const fn as_index(self) -> usize {
@@ -101,18 +113,29 @@ impl ReqId {
     }
 }
 
-impl_id_methods!(CacheId, u32);
-impl_id_methods!(PipelineId, u32);
-impl_id_methods!(MemCtrlId, u32);
-impl_id_methods!(DeviceId, u32);
-impl_id_methods!(ReqId, u64);
-impl_id_methods!(ChannelId, u8);
-impl_id_methods!(SubchannelId, u8);
-impl_id_methods!(RankId, u8);
-impl_id_methods!(BankGroupId, u8);
-impl_id_methods!(RowId, u32);
-
-use crate::common::{CoreId, HartId};
+impl_id_new!(CacheId, u32);
+impl_id_val!(CacheId, u32);
+impl_id_new!(PipelineId, u32);
+impl_id_val!(PipelineId, u32);
+impl_id_index!(PipelineId);
+impl_id_new!(MemCtrlId, u32);
+impl_id_val!(MemCtrlId, u32);
+impl_id_new!(DeviceId, u32);
+impl_id_index!(DeviceId);
+impl_id_new!(ReqId, u64);
+impl_id_new!(ChannelId, u8);
+impl_id_val!(ChannelId, u8);
+impl_id_index!(ChannelId);
+impl_id_new!(SubchannelId, u8);
+impl_id_index!(SubchannelId);
+impl_id_new!(RankId, u8);
+impl_id_val!(RankId, u8);
+impl_id_index!(RankId);
+impl_id_new!(BankGroupId, u8);
+impl_id_val!(BankGroupId, u8);
+impl_id_index!(BankGroupId);
+impl_id_new!(RowId, u32);
+impl_id_val!(RowId, u32);
 
 /// Addressable target on the event queue: any component that can receive packets.
 ///
@@ -120,10 +143,6 @@ use crate::common::{CoreId, HartId};
 /// `Bus(BusId)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ComponentId {
-    /// A hardware thread (architectural state).
-    Hart(HartId),
-    /// A physical core (caches, pipeline, branch predictor).
-    Core(CoreId),
     /// A pipeline instance (one per core).
     Pipeline(PipelineId),
     /// A cache at any level.
@@ -146,15 +165,13 @@ mod tests {
     fn ids_round_trip() {
         let c = CacheId::new(7);
         assert_eq!(c.val(), 7);
-        assert_eq!(c.as_index(), 7);
         let p = PipelineId::new(2);
         let m = MemCtrlId::new(0);
         let d = DeviceId::new(3);
-        let r = ReqId::new(0xDEAD_BEEF);
         assert_eq!(p.val(), 2);
+        assert_eq!(p.as_index(), 2);
         assert_eq!(m.val(), 0);
-        assert_eq!(d.val(), 3);
-        assert_eq!(r.val(), 0xDEAD_BEEF);
+        assert_eq!(d.as_index(), 3);
     }
 
     #[test]

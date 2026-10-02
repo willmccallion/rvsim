@@ -2,8 +2,8 @@
 //!
 //! Tests for the Platform-Level Interrupt Controller device.
 
-use crate::SystemState;
 use crate::config::Config;
+use crate::system::SystemState;
 
 #[test]
 fn test_plic_name() {

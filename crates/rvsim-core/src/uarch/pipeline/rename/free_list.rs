@@ -20,7 +20,6 @@ pub trait PhysRegister: Copy + Eq + std::fmt::Debug {
 #[derive(Debug)]
 pub struct FreeList<R: PhysRegister> {
     queue: VecDeque<R>,
-    capacity: usize,
 }
 
 impl<R: PhysRegister> FreeList<R> {
@@ -32,7 +31,7 @@ impl<R: PhysRegister> FreeList<R> {
         for i in num_arch..prf_size {
             queue.push_back(R::from_index(i as u16));
         }
-        Self { queue, capacity: prf_size }
+        Self { queue }
     }
 
     /// Allocate a free physical register. Returns None if no registers are free.
@@ -57,11 +56,6 @@ impl<R: PhysRegister> FreeList<R> {
     /// else can take registers before [`Reserved::take`] does.
     pub fn reserve(&mut self, count: usize) -> Option<Reserved<'_, R>> {
         (count <= self.queue.len()).then_some(Reserved { list: self, count })
-    }
-
-    /// Total capacity of the physical register file.
-    pub const fn capacity(&self) -> usize {
-        self.capacity
     }
 }
 
@@ -116,9 +110,8 @@ mod tests {
     }
 
     #[test]
-    fn test_capacity() {
+    fn architectural_registers_start_allocated() {
         let fl = FreeList::<PhysReg>::new(128, 32);
-        assert_eq!(fl.capacity(), 128);
         assert_eq!(fl.available(), 96);
     }
 

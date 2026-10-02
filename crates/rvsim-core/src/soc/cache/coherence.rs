@@ -196,7 +196,7 @@ impl Cache {
                 at,
                 from,
                 ctx.self_id,
-                Packet::ProbeResp { line_addr: line, txn, had_copy, dirty },
+                Packet::ProbeResp { txn, had_copy, dirty },
             ),
             ProbeOrigin::Snoop { txn } => {
                 let (Some(from), Some(downstream)) = (self.coherent, self.downstream) else {

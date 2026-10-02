@@ -55,7 +55,7 @@ impl CacheLine {
     }
 
     const fn dirty(self) -> bool {
-        matches!(self.state, MesiState::Modified | MesiState::Owned)
+        matches!(self.state, MesiState::Modified)
     }
 }
 
@@ -279,12 +279,6 @@ impl Cache {
         self.coherent = Some(core);
     }
 
-    /// The core this cache requests on behalf of, when coherent.
-    #[must_use]
-    pub const fn coherent_core(&self) -> Option<CoreId> {
-        self.coherent
-    }
-
     /// Lines with a fetch, writeback, probe or snoop in progress.
     #[must_use]
     pub fn lines_in_flight(&self) -> Vec<LineAddr> {
@@ -316,18 +310,14 @@ impl Cache {
         self.lines.len()
     }
 
-    /// Outstanding line fetches.
-    #[must_use]
-    pub const fn mshrs(&self) -> &MshrTable {
-        &self.mshrs
-    }
-
+    #[cfg(test)]
     /// Writebacks in flight to the next level.
     #[must_use]
     pub const fn writebacks(&self) -> &WritebackBuffer {
         &self.writebacks
     }
 
+    #[cfg(test)]
     /// Requests waiting for the cache to unblock.
     #[must_use]
     pub fn blocked_requests(&self) -> usize {
@@ -442,7 +432,7 @@ impl Handle for Cache {
             }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
-            _ => {}
+            Packet::DramCmd { .. } => {}
         }
     }
 }

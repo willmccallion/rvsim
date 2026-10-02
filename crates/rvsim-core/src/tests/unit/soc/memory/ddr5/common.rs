@@ -54,7 +54,7 @@ pub fn make_controller(config: Ddr5Config) -> Ddr5Controller {
 
 /// Ddr5Controller over 16 MiB of RAM at a given core clock.
 pub fn make_controller_with_clock(config: Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
-    Ddr5Controller::new(PhysAddr::new(0), 1 << 24, config, MemCtrlId::new(0), cpu_mhz)
+    Ddr5Controller::new(PhysAddr::new(0), 1 << 24, &config, MemCtrlId::new(0), cpu_mhz)
 }
 
 /// Encodes a physical address for the tiny topology.

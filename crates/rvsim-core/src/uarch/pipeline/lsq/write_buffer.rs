@@ -238,6 +238,7 @@ impl WriteCombiningBuffer {
         !self.in_flight.is_empty() || self.slots.iter().any(Option::is_some)
     }
 
+    #[cfg(test)]
     /// Lines holding stores.
     #[must_use]
     pub fn active_count(&self) -> usize {

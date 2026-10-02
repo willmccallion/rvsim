@@ -68,6 +68,7 @@ impl Scoreboard {
         self.vpr[vreg.as_usize()] = Some(tag);
     }
 
+    #[cfg(test)]
     /// Get the ROB tag of the latest pending writer for a vector register.
     pub const fn get_vec_producer(&self, vreg: VRegIdx) -> Option<RobTag> {
         self.vpr[vreg.as_usize()]
@@ -106,7 +107,7 @@ impl Scoreboard {
                 for i in 0..entry.vec_dst_count {
                     let vd_idx = idx as u8 + i;
                     if vd_idx < 32 {
-                        self.vpr[vd_idx as usize] = Some(entry.tag);
+                        self.set_vec_producer(VRegIdx::new(vd_idx), entry.tag);
                     }
                 }
             }

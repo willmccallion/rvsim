@@ -1,16 +1,22 @@
 //! Cycle-level RV64GC + RVV 1.0 system simulator.
 //!
-//! The modules are layered; each depends only on those before it:
+//! The crate's interface is the system: build a [`Simulator`] from a
+//! [`Config`], load a program or boot a kernel, run it, and read its harts,
+//! memory, statistics and pipeline state back. The modules are layered;
+//! each depends only on those before it:
 //!
 //! 1. [`common`]: addresses, identifiers, access kinds and tracing.
 //! 2. [`isa`]: what the ISA defines: encodings, CSRs, fields, vocabulary.
 //! 3. [`config`]: simulator configuration.
 //! 4. [`arch`]: architectural state: harts, registers, CSRs, traps, PMP.
-//! 5. [`exec`]: instruction semantics every engine shares.
-//! 6. [`sim`]: the simulation kernel: events, packets, memory image, stats.
-//! 7. [`soc`]: the uncore: bus, caches, coherence, memory controllers, devices.
-//! 8. [`uarch`]: the timing model of a core and the views it runs on.
-//! 9. [`system`]: the whole system: `Simulator`, its state, checkpoints.
+//! 5. `exec`: instruction semantics every engine shares.
+//! 6. `sim`: the simulation kernel: events, packets, memory image, [`stats`].
+//! 7. `soc`: the uncore: bus, caches, coherence, memory controllers, devices.
+//! 8. `uarch`: the timing model of a core and the views it runs on.
+//! 9. [`system`]: the whole system: `Simulator`, loading, checkpoints.
+//!
+//! Layers 5 to 8 are the model and stay inside the crate; the first four
+//! and the last are the interface.
 
 pub mod common;
 
@@ -20,13 +26,13 @@ pub mod config;
 
 pub mod arch;
 
-pub mod exec;
+pub(crate) mod exec;
 
-pub mod sim;
+pub(crate) mod sim;
 
-pub mod soc;
+pub(crate) mod soc;
 
-pub mod uarch;
+pub(crate) mod uarch;
 
 pub mod system;
 
@@ -73,11 +79,5 @@ pub use crate::config::Config;
 pub use crate::isa::csr::CsrAddr;
 /// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.
 pub use crate::isa::reg::RegIdx;
-/// Everything outside the cores: bus, devices, LLC, RAM, clock and stats.
-pub use crate::soc::uncore::Uncore;
-/// Simulator-side architectural state: hart, core, bus, caches, MMU, stats.
-pub use crate::system::SystemState;
-/// Top-level simulator; owns the `SystemState` and pipeline side-by-side.
+/// The simulated system: build it, load it, run it, inspect it.
 pub use crate::system::simulator::Simulator;
-/// The views a pipeline works on: commit's and every other stage's.
-pub use crate::uarch::ctx::{CoreCtx, StageCtx};

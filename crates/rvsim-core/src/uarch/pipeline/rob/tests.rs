@@ -18,7 +18,6 @@ fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag>
         0,
         InstSize::Standard,
         RegIdx::new(rd),
-        false,
         ctrl,
         PhysReg(0),
         PhysReg(0),
@@ -38,7 +37,6 @@ fn test_allocate_and_commit() {
             0x13,
             InstSize::Standard,
             RegIdx::new(1),
-            false,
             make_ctrl(true, false),
             PhysReg(0),
             PhysReg(0),
@@ -128,31 +126,6 @@ fn test_flush_after() {
 }
 
 #[test]
-fn test_find_latest_result() {
-    let mut rob = Rob::new(8);
-    let t1 = alloc(&mut rob, 0x1000, 5, make_ctrl(true, false)).unwrap();
-    let t2 = alloc(&mut rob, 0x1004, 5, make_ctrl(true, false)).unwrap();
-
-    rob.complete(t1, 100);
-    rob.complete(t2, 200);
-
-    // Should find t2's result (most recent)
-    assert_eq!(rob.find_latest_result(RegIdx::new(5), false), Some(200));
-    // x0 always returns None
-    assert_eq!(rob.find_latest_result(RegIdx::new(0), false), None);
-    // Non-existent register
-    assert_eq!(rob.find_latest_result(RegIdx::new(10), false), None);
-}
-
-#[test]
-fn test_find_latest_result_not_ready() {
-    let mut rob = Rob::new(8);
-    alloc(&mut rob, 0x1000, 5, make_ctrl(true, false));
-    // Entry is still Issued, so result is not ready
-    assert_eq!(rob.find_latest_result(RegIdx::new(5), false), None);
-}
-
-#[test]
 fn test_csr_update() {
     let mut rob = Rob::new(4);
     let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
@@ -193,7 +166,6 @@ fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<Rob
         inst,
         InstSize::Standard,
         RegIdx::new(0),
-        false,
         ctrl,
         PhysReg(0),
         PhysReg(0),

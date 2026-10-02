@@ -101,6 +101,7 @@ nav:
       - 5. Faults at commit: architecture/decisions/0005-faults-are-taken-at-commit.md
       - 6. Serialization: architecture/decisions/0006-serialization-follows-the-cpu-model.md
       - 7. Core owns its pipeline: architecture/decisions/0007-a-core-owns-its-pipeline.md
+      - 8. Crate-private model: architecture/decisions/0008-the-model-is-crate-private.md
   - Error against gem5: error.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md

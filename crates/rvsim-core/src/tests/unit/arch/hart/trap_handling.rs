@@ -3,11 +3,11 @@
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
 
-use crate::SystemState;
 use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
+use crate::system::SystemState;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::default();

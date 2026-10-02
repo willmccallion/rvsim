@@ -45,6 +45,7 @@ impl CoreSet {
         self.0 == 0
     }
 
+    #[cfg(test)]
     /// Number of members.
     #[must_use]
     pub const fn len(self) -> usize {
@@ -73,14 +74,6 @@ pub struct Holders {
     pub owner: Option<CoreId>,
 }
 
-impl Holders {
-    /// True when nobody holds the line.
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.sharers.is_empty()
-    }
-}
-
 /// A pure coherence state machine.
 pub trait CoherenceProtocol: Send + Sync + std::fmt::Debug {
     /// Snoops the home must issue so that `requester` can be granted
@@ -96,9 +89,6 @@ pub trait CoherenceProtocol: Send + Sync + std::fmt::Debug {
     /// State the requester installs once the snoops are done.
     /// `others_remain` says some other core keeps a (uncore) copy.
     fn grant(&self, kind: ReqKind, others_remain: bool) -> MesiState;
-
-    /// State a snooped holder ends in.
-    fn after_snoop(&self, current: MesiState, snoop: SnoopKind) -> MesiState;
 
     /// Name for stats and traces.
     fn name(&self) -> &'static str;
@@ -152,18 +142,6 @@ impl CoherenceProtocol for Mesi {
         }
     }
 
-    fn after_snoop(&self, current: MesiState, snoop: SnoopKind) -> MesiState {
-        match (current, snoop) {
-            (MesiState::Invalid, _)
-            | (_, SnoopKind::Unique | SnoopKind::Invalid | SnoopKind::MakeInvalid) => {
-                MesiState::Invalid
-            }
-            (_, SnoopKind::Shared) => MesiState::Shared,
-            (MesiState::Modified | MesiState::Owned, SnoopKind::Clean) => MesiState::Exclusive,
-            (state, SnoopKind::Clean) => state,
-        }
-    }
-
     fn name(&self) -> &'static str {
         "MESI"
     }
@@ -214,16 +192,6 @@ mod tests {
         assert_eq!(snoops, vec![(C0, SnoopKind::Unique)]);
         assert_eq!(mesi.grant(ReqKind::ReadUnique, false), MesiState::Modified);
         assert_eq!(mesi.grant(ReqKind::CleanUnique, false), MesiState::Modified);
-    }
-
-    #[test]
-    fn snooped_holders_downgrade_or_invalidate() {
-        let mesi = Mesi;
-        assert_eq!(mesi.after_snoop(MesiState::Modified, SnoopKind::Shared), MesiState::Shared);
-        assert_eq!(mesi.after_snoop(MesiState::Exclusive, SnoopKind::Shared), MesiState::Shared);
-        assert_eq!(mesi.after_snoop(MesiState::Shared, SnoopKind::Unique), MesiState::Invalid);
-        assert_eq!(mesi.after_snoop(MesiState::Modified, SnoopKind::Invalid), MesiState::Invalid);
-        assert_eq!(mesi.after_snoop(MesiState::Invalid, SnoopKind::Shared), MesiState::Invalid);
     }
 
     #[test]

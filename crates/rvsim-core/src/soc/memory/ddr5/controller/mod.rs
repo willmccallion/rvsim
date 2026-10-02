@@ -106,7 +106,6 @@ impl ClockRatio {
 #[derive(Debug)]
 pub struct Ddr5Controller {
     base: PhysAddr,
-    line_count: u64,
     channels: Vec<DramChannel>,
     mapper: AddressMapper,
     config: Ddr5Config,
@@ -139,7 +138,7 @@ impl Ddr5Controller {
     pub fn new(
         base: PhysAddr,
         ram_bytes: u64,
-        config: Ddr5Config,
+        config: &Ddr5Config,
         self_id: MemCtrlId,
         cpu_clock_mhz: u64,
     ) -> Self {
@@ -188,10 +187,9 @@ impl Ddr5Controller {
         );
         Self {
             base,
-            line_count,
             channels,
             mapper,
-            config,
+            config: *config,
             self_id,
             clock: ClockRatio::new(cpu_clock_mhz, config.timing.data_rate_mts),
             scheduler: config.scheduler.build(),
@@ -206,47 +204,42 @@ impl Ddr5Controller {
             next_dram_cycle: 0,
         }
     }
-
-    /// Bytes of RAM behind the controller.
-    #[must_use]
-    pub const fn ram_bytes(&self) -> u64 {
-        self.line_count * CACHE_LINE_BYTES
-    }
-
-    /// Static configuration snapshot.
-    #[must_use]
-    pub const fn config(&self) -> &Ddr5Config {
-        &self.config
-    }
-
-    /// Core-to-DRAM clock conversion in use.
-    #[must_use]
-    pub const fn clock(&self) -> ClockRatio {
-        self.clock
-    }
 }
 
 impl Handle for Ddr5Controller {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let arrival = self.clock.to_dram(ctx.cycle);
-            if matches!(op, MemOp::Maintain { dirty: false, .. }) {
-                // The point of coherence acknowledges a maintenance
-                // operation that brings no data without a DRAM access.
-                self.pending_responses.push(ScheduledResponse {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
-                    payload: Payload::Ready(MemRespData::Small(0)),
-                    hit_level: HitLevel::Dram,
-                    fire_at: arrival + self.config.frontend_latency,
-                    target: source,
-                });
-                return;
+        match packet {
+            Packet::MemReq { req_id, paddr, size, op, .. } => {
+                let arrival = self.clock.to_dram(ctx.cycle);
+                if matches!(op, MemOp::Maintain { dirty: false, .. }) {
+                    // The point of coherence acknowledges a maintenance
+                    // operation that brings no data without a DRAM access.
+                    self.pending_responses.push(ScheduledResponse {
+                        req_id,
+                        line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
+                        payload: Payload::Ready(MemRespData::Small(0)),
+                        hit_level: HitLevel::Dram,
+                        fire_at: arrival + self.config.frontend_latency,
+                        target: source,
+                    });
+                    return;
+                }
+                self.enqueue(req_id, paddr, size, op, source, arrival);
             }
-            self.enqueue(req_id, paddr, size, op, source, arrival);
+            Packet::DramCmd { channel, rank, bank, kind, row } => {
+                tracing::trace!(
+                    target: "rvsim::dram",
+                    cycle = ctx.cycle,
+                    channel,
+                    rank,
+                    bank,
+                    ?kind,
+                    row,
+                    "dram command"
+                );
+            }
+            _ => {}
         }
-        // Other packet kinds (DramCmd / RefreshTick trace events, plus any
-        // stray packets not addressed to memory controllers) are ignored.
     }
 }
 

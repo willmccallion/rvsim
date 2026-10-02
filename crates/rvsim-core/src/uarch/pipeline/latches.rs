@@ -50,6 +50,7 @@ impl<T> Latch<T> {
         self.entries.is_empty()
     }
 
+    #[cfg(test)]
     /// Entries held, visible or not.
     #[must_use]
     pub const fn len(&self) -> usize {

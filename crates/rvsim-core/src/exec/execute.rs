@@ -5,7 +5,7 @@
 
 use crate::arch::Hart;
 use crate::arch::translation::SfenceVmaInfo;
-use crate::exec::cbo::{self, CboEffect};
+use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
 use crate::exec::compute::vector::fpu::is_vec_fp;
@@ -146,8 +146,9 @@ pub enum SystemEffect {
     AtRetire,
     /// SFENCE.VMA: the translations it names are flushed at retirement.
     SfenceVma(SfenceVmaInfo),
-    /// A permitted cache-block operation on the block at `rs1`.
-    Cbo(CboEffect),
+    /// A permitted cache-block operation on the block at `rs1`; memory1
+    /// evaluates its effect when it translates the block.
+    Cbo,
     /// A permitted CSR access.
     Csr(CsrAccess),
 }
@@ -171,7 +172,7 @@ pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
         SystemOp::CboZero | SystemOp::CboInval | SystemOp::CboClean | SystemOp::CboFlush => {
             let hart = state.hart();
             match cbo::gate(&hart.csrs, hart.privilege, inst.ctrl.system_op, inst.bits) {
-                Ok(effect) => SystemEffect::Cbo(effect),
+                Ok(_) => SystemEffect::Cbo,
                 Err(trap) => SystemEffect::Trap(trap),
             }
         }

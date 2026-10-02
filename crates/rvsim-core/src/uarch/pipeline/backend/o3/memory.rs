@@ -20,7 +20,7 @@ impl O3Engine {
     pub(super) fn memory2(&mut self, state: &mut CoreCtx<'_>) -> Option<OrderViolation> {
         let mut memory2_results = Vec::with_capacity(self.mem1_mem2.len());
         let violation = memory2::memory2_stage(
-            &mut state.stage(),
+            &state.stage(),
             &mut self.mem1_mem2,
             &mut memory2_results,
             &mut self.store_buffer,
@@ -100,7 +100,7 @@ impl O3Engine {
             })
             .collect();
 
-        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&state.stage(), &mut self.mem2_wb, &mut self.rob);
 
         for (rd_phys, val) in wakeups {
             self.prf.write(rd_phys, val);

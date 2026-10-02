@@ -167,12 +167,7 @@ impl StoreBuffer {
         Self { entries, head: 0, tail: 0, count: 0 }
     }
 
-    /// Returns the capacity.
-    #[inline]
-    pub const fn capacity(&self) -> usize {
-        self.entries.len()
-    }
-
+    #[cfg(test)]
     /// Returns the number of occupied entries.
     #[inline]
     pub const fn len(&self) -> usize {
@@ -211,12 +206,6 @@ impl StoreBuffer {
     #[inline]
     pub const fn is_full(&self) -> bool {
         self.count == self.entries.len()
-    }
-
-    /// Returns the number of free slots.
-    #[inline]
-    pub const fn free_slots(&self) -> usize {
-        self.entries.len() - self.count
     }
 
     /// Allocates a slot for a new store. Returns false if the buffer is full.
@@ -453,7 +442,7 @@ impl StoreBuffer {
 
     /// Takes the oldest committed store whose write has not been sent, in
     /// program order. `None` when there is none.
-    pub fn begin_write(&mut self) -> Option<PendingWrite> {
+    pub fn begin_write(&self) -> Option<PendingWrite> {
         let cap = self.entries.len();
         let mut idx = self.head;
         for _ in 0..self.count {
@@ -598,6 +587,7 @@ impl StoreBuffer {
         self.count = new_count;
     }
 
+    #[cfg(test)]
     /// Flushes all entries (including committed ones).
     pub fn flush_all(&mut self) {
         for entry in &mut self.entries {
@@ -652,7 +642,7 @@ impl StoreBuffer {
 }
 
 /// Converts a `MemWidth` to byte count.
-pub(crate) const fn width_to_bytes(w: MemWidth) -> usize {
+pub const fn width_to_bytes(w: MemWidth) -> usize {
     match w {
         MemWidth::Byte => 1,
         MemWidth::Half => 2,
