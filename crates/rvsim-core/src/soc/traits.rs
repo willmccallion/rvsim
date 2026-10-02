@@ -5,8 +5,9 @@
 //! `Device` itself describes the device's location on the bus, its lifecycle
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 
-use crate::common::{IrqId, PhysAddr};
+use crate::common::IrqId;
 use crate::sim::handle::Handle;
+use crate::sim::memory::GlobalMemory;
 use crate::soc::devices::{Clint, Plic, SimOp, Uart};
 
 /// Trait for memory-mapped I/O devices attached to the system bus.
@@ -59,13 +60,6 @@ pub trait Device: Handle + Send + Sync {
         None
     }
 
-    /// RAM ranges the device wrote by DMA since the last call, so the
-    /// system can publish them like any other write (reservations, the
-    /// write log).
-    fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
-        Vec::new()
-    }
-
     /// Requests the guest made of the simulator since the last call.
     fn take_sim_ops(&mut self) -> Vec<SimOp> {
         Vec::new()
@@ -73,7 +67,7 @@ pub trait Device: Handle + Send + Sync {
 
     /// Finishes the device's work in flight before a checkpoint, the way
     /// a pipeline drain writes its committed stores.
-    fn drain(&mut self) {}
+    fn drain(&mut self, _memory: &mut GlobalMemory) {}
 
     /// The device's architectural state for a checkpoint; `None` for a
     /// device with none.

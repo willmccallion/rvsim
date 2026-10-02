@@ -106,11 +106,16 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
 
 /// Dispatches a `MemReq::Write` to `device`, then answers every DMA request
 /// it puts on the bus until it has none left, so a request the write
-/// notified runs to completion.
-pub fn write_and_run_dma<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) {
+/// notified runs to completion against `memory`.
+pub fn write_and_run_dma<H: Handle>(
+    device: &mut H,
+    memory: &mut GlobalMemory,
+    paddr: PhysAddr,
+    value: u64,
+    width: u8,
+) {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
-    let mut memory = GlobalMemory::new(None, 1, 64);
     let config = Config::default();
     let mut cycle = 0;
     let mut pending = vec![Packet::MemReq {
@@ -125,7 +130,7 @@ pub fn write_and_run_dma<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64,
             let mut ctx = HandleCtx {
                 scheduler: &mut queue,
                 stats: &mut stats,
-                memory: &mut memory,
+                memory: &mut *memory,
                 config: &config,
                 cycle,
                 self_id: ComponentId::Device(DeviceId::new(0)),

@@ -12,7 +12,7 @@ use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
-use rvsim_core::common::HartId;
+use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::isa::csr::CsrAddr;
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader;
@@ -173,7 +173,7 @@ impl PySimulator {
         let mut elf_entry: Option<u64> = None;
         let mut tohost_addr: Option<u64> = None;
         if let Some(data) = elf_data {
-            if let Some(result) = loader::try_load_elf(&data, &mut cpu.bus) {
+            if let Some(result) = loader::try_load_elf(&data, &mut cpu.memory) {
                 elf_entry = Some(result.entry);
                 if let Some(tohost) = result.tohost_addr {
                     cpu.add_htif(tohost, &exit_signal);
@@ -744,12 +744,8 @@ impl PySimulator {
         paddr: u64,
         length: usize,
     ) -> Bound<'py, pyo3::types::PyBytes> {
-        if let Some(r) =
-            self.inner.state.bus.ram_region().filter(|r| r.contains(paddr, length as u64))
-        {
-            // SAFETY: bounds-checked by `RamRegion::contains(paddr, length)` above.
-            let slice = unsafe { std::slice::from_raw_parts(r.ptr(paddr), length) };
-            pyo3::types::PyBytes::new(py, slice)
+        if let Some(bytes) = self.inner.state.memory.read_bytes(PhysAddr::new(paddr), length) {
+            pyo3::types::PyBytes::new(py, &bytes)
         } else {
             let mut buf = vec![0u8; length];
             for (i, byte) in buf.iter_mut().enumerate() {

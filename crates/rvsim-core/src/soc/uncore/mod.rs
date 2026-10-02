@@ -154,7 +154,7 @@ impl Uncore {
     /// address is left to the device that receives the packet.
     pub fn publish_write(&mut self, writer: Writer, paddr: PhysAddr, data: u64, width: MemWidth) {
         let width_bytes = width.bytes();
-        if width_bytes == 0 || self.bus.ram_region_for(paddr.val(), width_bytes).is_none() {
+        if width_bytes == 0 || !self.bus.is_ram(paddr, width_bytes) {
             return;
         }
         self.memory.write(writer, paddr, data, width_bytes as usize);
@@ -194,9 +194,9 @@ impl Uncore {
         self.bus.add_device(Box::new(htif));
     }
 
-    /// Loads a binary into memory at the given physical address.
-    pub const fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
-        self.bus.load_binary_at(data, addr);
+    /// Places `image` in RAM at `addr` before the system runs.
+    pub fn load_binary_at(&mut self, image: &[u8], addr: PhysAddr) {
+        self.memory.load(addr, image);
     }
 
     /// Returns the `CacheId` of the shared LLC.

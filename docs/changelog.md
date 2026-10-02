@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `rvsim-core` owns RAM in one place: `sim::memory::Ram` is the zeroed
+  image the `GlobalMemory` holds, and every reader and writer (the memory
+  controllers, virtio DMA, instruction fetch, the loader, host probes and
+  checkpoints) goes through it. The raw-pointer `RamRegion` and
+  `DramBuffer` types, `Bus::ram_region`, `Bus::load_binary_at` and
+  `Device::take_dma_writes` are gone; `Device::drain` takes the memory,
+  `VirtioBlock::new` takes only its MMIO base, and the memory controllers
+  no longer take a buffer. A DMA write is noted in the reservation set
+  and write log as it lands. `Simulator` and `SystemState` are `Send` and
+  `Sync` by construction rather than by unchecked `unsafe impl`s.
 - `rvsim.presets` gains `cortex_a72()`, `m1()` and `p550()`, replacing the
   machine configs under `scripts/benchmarks`.
 - Comparisons (`Result.compare`, `Sweep.run().compare`, `Stats.tabulate`),

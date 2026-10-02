@@ -1,62 +1,162 @@
-//! A direct view of the RAM buffer, bypassing bus dispatch.
+//! Physical RAM: a zeroed byte image mapped at a base address.
 
-/// Direct view of a contiguous physical RAM region. Lets the pipeline
-/// bypass bus device dispatch on the hot load/store path.
+use std::fmt;
+use std::ptr::NonNull;
+
+use crate::common::PhysAddr;
+
+/// `size` zeroed bytes of RAM at `base`.
 ///
-/// `Copy`-able so `Bus::ram_region()` can return it by value without
-/// extending any borrows on the bus itself.
-#[derive(Clone, Copy, Debug)]
-pub struct RamRegion {
-    ptr: *mut u8,
+/// The image is uniquely owned, so every read borrows it and every write
+/// borrows it mutably; nothing else can alias its bytes.
+#[derive(Debug)]
+pub struct Ram {
+    bytes: ZeroedBytes,
     base: u64,
-    size: u64,
 }
 
-// Pipeline accesses RamRegion across thread boundaries (sweep workers run
-// independent simulations); the underlying buffer is owned by an Arc on
-// the Memory device, so the pointer is valid for the simulator's lifetime.
-unsafe impl Send for RamRegion {}
-unsafe impl Sync for RamRegion {}
-
-impl RamRegion {
-    /// Constructs a region from the Memory device's raw pointer and address range.
-    pub const fn new(ptr: *mut u8, base: u64, size: u64) -> Self {
-        Self { ptr, base, size }
+impl Ram {
+    /// `size` zeroed bytes at `base`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the host cannot map `size` bytes.
+    #[must_use]
+    pub fn new(base: u64, size: usize) -> Self {
+        Self { bytes: ZeroedBytes::new(size), base }
     }
 
-    /// Base physical address of the region.
-    #[inline]
+    /// The first physical address of the image.
+    #[must_use]
     pub const fn base(&self) -> u64 {
         self.base
     }
 
-    /// Size of the region in bytes.
-    #[inline]
+    /// The image's size in bytes.
+    #[must_use]
     pub const fn size(&self) -> u64 {
-        self.size
+        self.bytes.len as u64
     }
 
-    /// Raw pointer to the start of the region.
-    #[inline]
-    pub const fn as_ptr(&self) -> *mut u8 {
-        self.ptr
+    /// True when `[addr, addr + len)` lies inside the image.
+    #[must_use]
+    pub const fn contains(&self, addr: PhysAddr, len: u64) -> bool {
+        let addr = addr.val();
+        addr >= self.base && addr.saturating_add(len) <= self.base.saturating_add(self.size())
     }
 
-    /// True when `[addr, addr+len)` is fully inside this region.
-    #[inline]
-    pub const fn contains(&self, addr: u64, len: u64) -> bool {
-        addr >= self.base && addr.saturating_add(len) <= self.base.saturating_add(self.size)
+    /// Every byte of the image, in address order.
+    #[must_use]
+    pub const fn bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
     }
 
-    /// Returns the raw byte pointer for the given physical address.
-    ///
-    /// # Safety
-    ///
-    /// Caller must verify [`Self::contains`] for `addr` and the access
-    /// width before dereferencing.
-    #[inline]
-    pub const unsafe fn ptr(&self, addr: u64) -> *mut u8 {
-        // SAFETY: caller guarantees the offset is in-bounds via `contains`.
-        unsafe { self.ptr.add((addr - self.base) as usize) }
+    /// Every byte of the image, to overwrite.
+    pub const fn bytes_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut_slice()
+    }
+
+    /// The `len` bytes at `addr`; `None` when any of them is outside the
+    /// image.
+    #[must_use]
+    pub fn get(&self, addr: PhysAddr, len: usize) -> Option<&[u8]> {
+        let offset = self.offset(addr, len)?;
+        self.bytes.as_slice().get(offset..offset + len)
+    }
+
+    /// The `len` bytes at `addr`, to overwrite; `None` when any of them is
+    /// outside the image.
+    pub fn get_mut(&mut self, addr: PhysAddr, len: usize) -> Option<&mut [u8]> {
+        let offset = self.offset(addr, len)?;
+        self.bytes.as_mut_slice().get_mut(offset..offset + len)
+    }
+
+    fn offset(&self, addr: PhysAddr, len: usize) -> Option<usize> {
+        self.contains(addr, len as u64).then(|| (addr.val() - self.base) as usize)
+    }
+}
+
+/// An owned zero-filled allocation. On Unix it is an anonymous mapping the
+/// kernel backs lazily, so a large RAM costs memory only for the pages the
+/// guest touches; elsewhere it is a heap allocation.
+struct ZeroedBytes {
+    ptr: NonNull<u8>,
+    len: usize,
+}
+
+impl fmt::Debug for ZeroedBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ZeroedBytes").field("len", &self.len).finish_non_exhaustive()
+    }
+}
+
+// SAFETY: the allocation is owned by exactly one `ZeroedBytes`, every
+// access goes through `&self` / `&mut self` slices, and it may be freed
+// from any thread.
+unsafe impl Send for ZeroedBytes {}
+
+// SAFETY: shared access only yields `&[u8]`; mutation needs `&mut self`.
+unsafe impl Sync for ZeroedBytes {}
+
+impl ZeroedBytes {
+    fn new(len: usize) -> Self {
+        if len == 0 {
+            return Self { ptr: NonNull::dangling(), len };
+        }
+        Self { ptr: Self::allocate(len), len }
+    }
+
+    #[cfg(unix)]
+    fn allocate(len: usize) -> NonNull<u8> {
+        // SAFETY: an anonymous private mapping has no file or address
+        // requirements; the arguments are the documented flags for one.
+        let raw = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        assert!(raw != libc::MAP_FAILED, "cannot map {len} bytes of RAM");
+        NonNull::new(raw.cast::<u8>()).unwrap_or(NonNull::dangling())
+    }
+
+    #[cfg(not(unix))]
+    fn allocate(len: usize) -> NonNull<u8> {
+        let raw = Box::into_raw(vec![0u8; len].into_boxed_slice());
+        NonNull::new(raw.cast::<u8>()).unwrap_or(NonNull::dangling())
+    }
+
+    const fn as_slice(&self) -> &[u8] {
+        // SAFETY: `ptr` is a live readable allocation of `len` bytes (or
+        // dangling with `len == 0`), and `&self` keeps it from being freed
+        // or written while the slice lives.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+
+    const fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: as `as_slice`, and `&mut self` makes this the only access.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for ZeroedBytes {
+    fn drop(&mut self) {
+        if self.len == 0 {
+            return;
+        }
+        #[cfg(unix)]
+        // SAFETY: `ptr` and `len` are what `mmap` returned, and no slice of
+        // the mapping outlives `self`.
+        let _ = unsafe { libc::munmap(self.ptr.as_ptr().cast(), self.len) };
+        #[cfg(not(unix))]
+        // SAFETY: `ptr` and `len` are what `Box::into_raw` gave for a boxed
+        // slice of `len` bytes, and no slice of it outlives `self`.
+        drop(unsafe {
+            Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len))
+        });
     }
 }

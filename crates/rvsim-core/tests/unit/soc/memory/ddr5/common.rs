@@ -2,7 +2,6 @@
 
 use rvsim_core::common::{HartId, PhysAddr};
 use rvsim_core::sim::packet::WriteOrigin;
-use std::sync::Arc;
 
 use rvsim_core::config::Config;
 use rvsim_core::config::ddr5::Ddr5Config;
@@ -12,7 +11,6 @@ use rvsim_core::sim::handle::{Handle, HandleCtx};
 use rvsim_core::sim::memory::GlobalMemory;
 use rvsim_core::sim::packet::{AccessSize, DramCmdKind, MemOp, Packet, WriteData};
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::MemoryController;
 use rvsim_core::soc::memory::ddr5::Ddr5Controller;
 
@@ -49,15 +47,14 @@ pub fn controller_latency(cfg: &Ddr5Config) -> u64 {
     cfg.frontend_latency + cfg.backend_latency
 }
 
-/// Ddr5Controller wrapped with a large DRAM buffer, clocked 1:1.
+/// Ddr5Controller over 16 MiB of RAM, clocked 1:1.
 pub fn make_controller(config: Ddr5Config) -> Ddr5Controller {
     make_controller_with_clock(config, ONE_TO_ONE_CPU_MHZ)
 }
 
-/// Ddr5Controller wrapped with a large DRAM buffer at a given core clock.
+/// Ddr5Controller over 16 MiB of RAM at a given core clock.
 pub fn make_controller_with_clock(config: Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
-    let buffer = Arc::new(DramBuffer::new(1 << 24));
-    Ddr5Controller::new(buffer, PhysAddr::new(0), config, MemCtrlId::new(0), cpu_mhz)
+    Ddr5Controller::new(PhysAddr::new(0), 1 << 24, config, MemCtrlId::new(0), cpu_mhz)
 }
 
 /// Encodes a physical address for the tiny topology.

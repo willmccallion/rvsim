@@ -4,6 +4,7 @@
 //! including loading binaries from disk and setting up kernel boot configurations.
 
 use rvsim_core::SystemState;
+use rvsim_core::common::PhysAddr;
 use rvsim_core::config::Config;
 use rvsim_core::isa::csr;
 use rvsim_core::isa::privileged::PrivilegeMode;
@@ -114,11 +115,7 @@ fn test_setup_kernel_load_with_dtb_file() {
 
     // Verify DTB was loaded into memory at expected address
     let dtb_addr = config.system.ram_base + 0x2200000;
-    // Probe RAM directly via the bus's RamRegion: the bus's Handle defers
-    // RAM reads to the memory controller, which is out of reach inside the
-    // probe's local event queue. Loader-side data lives in DRAM unconditionally.
-    let loaded_byte = unsafe { state.bus.ram_region().expect("ram region").ptr(dtb_addr).read() };
-    assert_eq!(loaded_byte, 0xd0);
+    assert_eq!(state.memory.read(PhysAddr::new(dtb_addr), 1), Some(0xd0));
 }
 
 #[test]
@@ -134,8 +131,7 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     let ram_base = config.system.ram_base;
-    let first_byte = unsafe { state.bus.ram_region().expect("ram region").ptr(ram_base).read() };
-    assert_eq!(first_byte, 0x73);
+    assert_eq!(state.memory.read(PhysAddr::new(ram_base), 1), Some(0x73));
     assert_eq!(state.harts[0].pc, ram_base);
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
     assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0, "fw_jump takes no info struct");
@@ -189,12 +185,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
-    let instruction = unsafe {
-        state.bus.ram_region().expect("ram region").ptr(ram_base).cast::<u32>().read_unaligned()
-    };
-
-    // MRET opcode is 0x30200073
-    assert_eq!(instruction, 0x30200073);
+    assert_eq!(state.memory.read(PhysAddr::new(ram_base), 4), Some(0x3020_0073));
 }
 
 #[test]

@@ -11,7 +11,7 @@ use rvsim_core::config::{
 use rvsim_core::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use rvsim_core::sim::events::{Event, EventQueue};
 use rvsim_core::sim::handle::{Handle, HandleCtx};
-use rvsim_core::sim::memory::{GlobalMemory, RamRegion};
+use rvsim_core::sim::memory::{GlobalMemory, Ram};
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
@@ -58,8 +58,6 @@ struct Bench {
     cache: Cache,
     queue: EventQueue,
     stats: Stats,
-    /// Backs `memory`, which points into it.
-    ram: Vec<u8>,
     memory: GlobalMemory,
     config: Config,
     cycle: u64,
@@ -67,14 +65,11 @@ struct Bench {
 
 impl Bench {
     fn new(cache: Cache) -> Self {
-        let mut ram = vec![0u8; RAM_BYTES];
-        let region = RamRegion::new(ram.as_mut_ptr(), 0, RAM_BYTES as u64);
         Self {
             cache,
             queue: EventQueue::new(),
             stats: Stats::new(),
-            ram,
-            memory: GlobalMemory::new(Some(region), 1, 64),
+            memory: GlobalMemory::new(Some(Ram::new(0, RAM_BYTES)), 1, 64),
             config: Config::default(),
             cycle: 100,
         }
@@ -123,14 +118,12 @@ impl Bench {
 
     /// The 8 bytes of RAM at `addr`.
     fn ram_value(&self, addr: u64) -> u64 {
-        let at = addr as usize;
-        u64::from_le_bytes(self.ram[at..at + 8].try_into().expect("8 bytes"))
+        self.memory.read(PhysAddr::new(addr), 8).expect("inside RAM")
     }
 
     /// Puts `value` in RAM at `addr`, behind the cache's back.
     fn set_ram(&mut self, addr: u64, value: u64) {
-        let at = addr as usize;
-        self.ram[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        self.memory.load(PhysAddr::new(addr), &value.to_le_bytes());
     }
 
     /// Everything scheduled so far, in delivery order.

@@ -4,6 +4,8 @@
 use crate::common::PhysAddr;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::HandleCtx;
+use crate::sim::memory::GlobalMemory;
+use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData, WriteOrigin};
 use std::collections::VecDeque;
 
@@ -14,55 +16,33 @@ use super::{
 };
 
 impl VirtioBlock {
-    /// Reads `len` bytes from system RAM at physical address `addr` via DMA.
-    /// Returns zeroed bytes if the address is out of bounds.
-    pub(super) fn dma_read(&self, addr: u64, len: usize) -> Vec<u8> {
-        if addr < self.ram_base {
-            return vec![0; len];
-        }
-        let offset = (addr - self.ram_base) as usize;
-
-        if offset >= self.ram.len() || offset + len > self.ram.len() {
-            return vec![0; len];
-        }
-
-        self.ram.read_slice(offset, len).to_vec()
+    /// Reads `len` bytes of RAM at physical address `addr` by DMA; zeros
+    /// outside RAM.
+    pub(super) fn dma_read(memory: &GlobalMemory, addr: u64, len: usize) -> Vec<u8> {
+        memory.read_bytes(PhysAddr::new(addr), len).map_or_else(|| vec![0; len], Vec::from)
     }
 
-    pub(super) fn dma_read_u16(&self, addr: u64) -> u16 {
-        let b = self.dma_read(addr, 2);
-        u16::from_le_bytes([b[0], b[1]])
+    pub(super) fn dma_read_u16(memory: &GlobalMemory, addr: u64) -> u16 {
+        memory.read(PhysAddr::new(addr), 2).unwrap_or(0) as u16
     }
 
-    pub(super) fn dma_read_u32(&self, addr: u64) -> u32 {
-        let b = self.dma_read(addr, 4);
-        u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+    pub(super) fn dma_read_u32(memory: &GlobalMemory, addr: u64) -> u32 {
+        memory.read(PhysAddr::new(addr), 4).unwrap_or(0) as u32
     }
 
-    pub(super) fn dma_read_u64(&self, addr: u64) -> u64 {
-        let b = self.dma_read(addr, 8);
-        u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
+    pub(super) fn dma_read_u64(memory: &GlobalMemory, addr: u64) -> u64 {
+        memory.read(PhysAddr::new(addr), 8).unwrap_or(0)
     }
 
-    /// Writes `data` to system RAM at physical address `addr` via DMA.
-    pub(super) fn dma_write(&mut self, addr: u64, data: &[u8]) {
-        if addr < self.ram_base {
-            println!("[VirtIO] DMA Write Out of Bounds (Low): 0x{addr:x}");
+    /// Writes `data` to RAM at physical address `addr` by DMA, as a write
+    /// every hart observes; a write outside RAM is dropped.
+    pub(super) fn dma_write(memory: &mut GlobalMemory, addr: u64, data: &[u8]) {
+        let paddr = PhysAddr::new(addr);
+        if !memory.ram().is_some_and(|ram| ram.contains(paddr, data.len() as u64)) {
+            println!("[VirtIO] DMA Write Out of Bounds: 0x{:x} (Size: {})", addr, data.len());
             return;
         }
-        let offset = (addr - self.ram_base) as usize;
-
-        if offset >= self.ram.len() || offset + data.len() > self.ram.len() {
-            println!(
-                "[VirtIO] DMA Write Out of Bounds (High): 0x{:x} (Size: {})",
-                addr,
-                data.len()
-            );
-            return;
-        }
-
-        self.ram.write_slice(offset, data);
-        self.dma_writes.push((PhysAddr::new(addr), data.len()));
+        memory.write_bytes(Writer::External, paddr, data);
     }
 
     /// Processes the `VirtQueue` (triggered on Queue Notify write).
@@ -71,8 +51,10 @@ impl VirtioBlock {
     /// the last transfer has returned.
     pub(super) fn start_next_request(&mut self, ctx: &mut HandleCtx<'_>) {
         while self.job.is_none() {
-            let Some((head_idx, ring_offset)) = self.next_available_chain() else { return };
-            let phases = self.plan_request(head_idx, ring_offset);
+            let Some((head_idx, ring_offset)) = self.next_available_chain(ctx.memory) else {
+                return;
+            };
+            let phases = self.plan_request(head_idx, ring_offset, ctx.memory);
             tracing::trace!(
                 target: "rvsim::dma",
                 cycle = ctx.cycle,
@@ -88,18 +70,18 @@ impl VirtioBlock {
     /// Takes the next chain the driver made available: its head index and
     /// its slot's offset in the ring. Chains with an invalid head are
     /// skipped.
-    pub(super) fn next_available_chain(&mut self) -> Option<(u16, u64)> {
+    pub(super) fn next_available_chain(&mut self, memory: &GlobalMemory) -> Option<(u16, u64)> {
         loop {
             if self.queue_num == 0 {
                 return None;
             }
             let avail_addr = self.avail_addr();
-            let avail_idx = self.dma_read_u16(avail_addr + 2);
+            let avail_idx = Self::dma_read_u16(memory, avail_addr + 2);
             if self.last_avail_idx == avail_idx {
                 return None;
             }
             let ring_offset = 4 + (self.last_avail_idx as u64 % self.queue_num as u64) * 2;
-            let head_idx = self.dma_read_u16(avail_addr + ring_offset);
+            let head_idx = Self::dma_read_u16(memory, avail_addr + ring_offset);
             self.last_avail_idx = self.last_avail_idx.wrapping_add(1);
             if head_idx as u32 >= self.queue_num {
                 println!(
@@ -120,7 +102,7 @@ impl VirtioBlock {
             let Some(phase) = job.phases.pop_front() else {
                 let head_idx = job.head_idx;
                 self.job = None;
-                self.complete_request(head_idx);
+                self.complete_request(head_idx, ctx.memory);
                 tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, head_idx, "virtio: request completed");
                 return;
             };
@@ -175,13 +157,18 @@ impl VirtioBlock {
     /// The DMA a request needs, as the bus sees it: the ring and
     /// descriptor reads, the data moved in line-sized chunks, then the
     /// status and used-ring writes.
-    pub(super) fn plan_request(&self, head_idx: u16, ring_offset: u64) -> VecDeque<Vec<DmaAccess>> {
+    pub(super) fn plan_request(
+        &self,
+        head_idx: u16,
+        ring_offset: u64,
+        memory: &GlobalMemory,
+    ) -> VecDeque<Vec<DmaAccess>> {
         let avail_addr = self.avail_addr();
         let mut control = vec![
             DmaAccess::read(avail_addr + 2, AccessSize::B2),
             DmaAccess::read(avail_addr + ring_offset, AccessSize::B2),
         ];
-        let descriptors = self.walk_chain(head_idx).unwrap_or_default();
+        let descriptors = self.walk_chain(head_idx, memory).unwrap_or_default();
         for (index, _) in descriptors.iter().enumerate() {
             let desc = self.desc_addr() + index as u64 * DESC_SIZE;
             control.push(DmaAccess::read(desc, AccessSize::B8));
@@ -193,7 +180,7 @@ impl VirtioBlock {
             let (h_addr, _, _) = descriptors[0];
             control.push(DmaAccess::read(h_addr, AccessSize::B8));
             control.push(DmaAccess::read(h_addr + 8, AccessSize::B8));
-            let header = self.dma_read(h_addr, 16);
+            let header = Self::dma_read(memory, h_addr, 16);
             let type_val = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
             let is_write = type_val == 1;
             let is_flush = type_val == 4;
@@ -206,7 +193,7 @@ impl VirtioBlock {
             completion.push(DmaAccess::write(s_addr, AccessSize::B1));
         }
         let used_addr = self.used_addr();
-        let current_used = self.dma_read_u16(used_addr + 2);
+        let current_used = Self::dma_read_u16(memory, used_addr + 2);
         let used_elem = used_addr + 4 + (current_used as u64 % self.queue_num as u64) * 8;
         completion.push(DmaAccess::write(used_elem, AccessSize::B8));
         completion.push(DmaAccess::write(used_addr + 2, AccessSize::B2));
@@ -214,7 +201,11 @@ impl VirtioBlock {
     }
 
     /// Follows a descriptor chain; `Err` names an index outside the queue.
-    pub(super) fn walk_chain(&self, head_idx: u16) -> Result<Vec<(u64, u32, u16)>, u16> {
+    pub(super) fn walk_chain(
+        &self,
+        head_idx: u16,
+        memory: &GlobalMemory,
+    ) -> Result<Vec<(u64, u32, u16)>, u16> {
         let desc_addr = self.desc_addr();
         let mut current_idx = head_idx;
         let mut descriptors = Vec::new();
@@ -223,10 +214,10 @@ impl VirtioBlock {
                 return Err(current_idx);
             }
             let addr_offset = desc_addr + (current_idx as u64 * DESC_SIZE);
-            let addr = self.dma_read_u64(addr_offset + DESC_OFFSET_ADDR);
-            let len = self.dma_read_u32(addr_offset + DESC_OFFSET_LEN);
-            let flags = self.dma_read_u16(addr_offset + DESC_OFFSET_FLAGS);
-            let next = self.dma_read_u16(addr_offset + DESC_OFFSET_NEXT);
+            let addr = Self::dma_read_u64(memory, addr_offset + DESC_OFFSET_ADDR);
+            let len = Self::dma_read_u32(memory, addr_offset + DESC_OFFSET_LEN);
+            let flags = Self::dma_read_u16(memory, addr_offset + DESC_OFFSET_FLAGS);
+            let next = Self::dma_read_u16(memory, addr_offset + DESC_OFFSET_NEXT);
             descriptors.push((addr, len, flags));
             if (flags & VRING_DESC_F_NEXT) == 0 {
                 return Ok(descriptors);
@@ -237,8 +228,8 @@ impl VirtioBlock {
 
     /// Performs a request whose DMA has finished: moves the data, writes
     /// the status and the used ring, and raises the interrupt.
-    pub(super) fn complete_request(&mut self, head_idx: u16) {
-        let descriptors = match self.walk_chain(head_idx) {
+    pub(super) fn complete_request(&mut self, head_idx: u16, memory: &mut GlobalMemory) {
+        let descriptors = match self.walk_chain(head_idx, memory) {
             Ok(descriptors) => descriptors,
             Err(bad_idx) => {
                 println!(
@@ -252,7 +243,7 @@ impl VirtioBlock {
         let mut len_written = 0;
         if descriptors.len() >= 3 {
             let (h_addr, _, _) = descriptors[0];
-            let header = self.dma_read(h_addr, 16);
+            let header = Self::dma_read(memory, h_addr, 16);
             let type_val = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
             let sector = u64::from_le_bytes([
                 header[8], header[9], header[10], header[11], header[12], header[13], header[14],
@@ -272,7 +263,7 @@ impl VirtioBlock {
                 let mut current_disk_offset = sector_offset;
 
                 for (d_addr, d_len, _) in &descriptors[1..descriptors.len() - 1] {
-                    let data = self.dma_read(*d_addr, *d_len as usize);
+                    let data = Self::dma_read(memory, *d_addr, *d_len as usize);
                     if current_disk_offset + data.len() <= self.disk_image.len() {
                         self.disk_image[current_disk_offset..current_disk_offset + data.len()]
                             .copy_from_slice(&data);
@@ -293,23 +284,23 @@ impl VirtioBlock {
                         let copy_len = std::cmp::min(*d_len as usize, available);
                         let start = sector_offset + current_offset;
                         let sector_data = self.disk_image[start..start + copy_len].to_vec();
-                        self.dma_write(*d_addr, &sector_data);
+                        Self::dma_write(memory, *d_addr, &sector_data);
                         len_written += copy_len as u32;
                     }
                     current_offset += *d_len as usize;
                 }
             }
 
-            self.dma_write(s_addr, &[0]);
+            Self::dma_write(memory, s_addr, &[0]);
         }
 
         let used_addr = self.used_addr();
         let used_idx_addr = used_addr + 2;
-        let current_used = self.dma_read_u16(used_idx_addr);
+        let current_used = Self::dma_read_u16(memory, used_idx_addr);
         let used_elem = used_addr + 4 + (current_used as u64 % self.queue_num as u64) * 8;
-        self.dma_write(used_elem, &u32::from(head_idx).to_le_bytes());
-        self.dma_write(used_elem + 4, &len_written.to_le_bytes());
-        self.dma_write(used_idx_addr, &current_used.wrapping_add(1).to_le_bytes());
+        Self::dma_write(memory, used_elem, &u32::from(head_idx).to_le_bytes());
+        Self::dma_write(memory, used_elem + 4, &len_written.to_le_bytes());
+        Self::dma_write(memory, used_idx_addr, &current_used.wrapping_add(1).to_le_bytes());
         self.interrupt_status |= 1;
     }
 

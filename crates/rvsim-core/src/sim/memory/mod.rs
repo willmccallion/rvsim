@@ -8,7 +8,7 @@ mod ram;
 pub mod reservations;
 pub mod write_log;
 
-pub use ram::RamRegion;
+pub use ram::Ram;
 
 use crate::common::PhysAddr;
 use crate::exec::compute::amo;
@@ -20,7 +20,7 @@ use write_log::{WriteLog, Writer};
 /// RAM with the reservations and write log that go with it.
 #[derive(Debug)]
 pub struct GlobalMemory {
-    ram: Option<RamRegion>,
+    ram: Option<Ram>,
     reservations: ReservationSet,
     write_log: Option<WriteLog>,
 }
@@ -29,11 +29,23 @@ impl GlobalMemory {
     /// Memory over `ram` shared by `hart_count` harts; the write log is kept
     /// only when more than one hart can write, at `line_bytes` granularity.
     #[must_use]
-    pub fn new(ram: Option<RamRegion>, hart_count: usize, line_bytes: u64) -> Self {
+    pub fn new(ram: Option<Ram>, hart_count: usize, line_bytes: u64) -> Self {
         let write_log = ram
+            .as_ref()
             .filter(|_| hart_count > 1)
             .map(|ram| WriteLog::new(ram.base(), ram.size(), line_bytes, hart_count));
         Self { ram, reservations: ReservationSet::new(hart_count), write_log }
+    }
+
+    /// The RAM image; `None` in a system without RAM.
+    #[must_use]
+    pub const fn ram(&self) -> Option<&Ram> {
+        self.ram.as_ref()
+    }
+
+    /// The RAM image, to overwrite wholesale (a checkpoint restore).
+    pub const fn ram_mut(&mut self) -> Option<&mut Ram> {
+        self.ram.as_mut()
     }
 
     /// The LR/SC reservations.
@@ -56,49 +68,60 @@ impl GlobalMemory {
     /// The `bytes` (at most 8) at `paddr`, little-endian; `None` outside RAM.
     #[must_use]
     pub fn read(&self, paddr: PhysAddr, bytes: usize) -> Option<u64> {
-        let ram = self.ram.filter(|ram| ram.contains(paddr.val(), bytes as u64))?;
-        let value = (0..bytes).fold(0u64, |value, i| {
-            // SAFETY: `contains` bounds-checked `[paddr, paddr + bytes)`.
-            let byte = unsafe { *ram.ptr(paddr.val() + i as u64) };
-            value | (u64::from(byte) << (8 * i))
-        });
-        Some(value)
+        let slice = self.ram.as_ref()?.get(paddr, bytes)?;
+        let mut word = [0u8; 8];
+        word.get_mut(..bytes)?.copy_from_slice(slice);
+        Some(u64::from_le_bytes(word))
     }
 
     /// The `len` bytes at `paddr` in address order; `None` outside RAM.
     #[must_use]
     pub fn read_bytes(&self, paddr: PhysAddr, len: usize) -> Option<Box<[u8]>> {
-        let ram = self.ram.filter(|ram| ram.contains(paddr.val(), len as u64))?;
-        let bytes = (0..len)
-            // SAFETY: `contains` bounds-checked `[paddr, paddr + len)`.
-            .map(|i| unsafe { *ram.ptr(paddr.val() + i as u64) })
-            .collect();
-        Some(bytes)
+        Some(self.ram.as_ref()?.get(paddr, len)?.into())
     }
 
     /// Writes the low `bytes` (at most 8) of `data` at `paddr` as `writer`,
     /// breaking the reservations the write must break. Outside RAM nothing
     /// is written.
     pub fn write(&mut self, writer: Writer, paddr: PhysAddr, data: u64, bytes: usize) {
-        let Some(ram) = self.ram.filter(|ram| ram.contains(paddr.val(), bytes as u64)) else {
+        let word = data.to_le_bytes();
+        let Some(bytes) = word.get(..bytes) else { return };
+        let Some(slice) = self.ram.as_mut().and_then(|ram| ram.get_mut(paddr, bytes.len())) else {
             return;
         };
-        for i in 0..bytes {
-            // SAFETY: `contains` bounds-checked `[paddr, paddr + bytes)`.
-            unsafe { *ram.ptr(paddr.val() + i as u64) = (data >> (8 * i)) as u8 };
-        }
+        slice.copy_from_slice(bytes);
         self.note_write(writer, paddr);
+    }
+
+    /// Writes `bytes` at `paddr` as `writer`, noting the write on every
+    /// line it touches. Outside RAM nothing is written.
+    pub fn write_bytes(&mut self, writer: Writer, paddr: PhysAddr, bytes: &[u8]) {
+        let Some(slice) = self.ram.as_mut().and_then(|ram| ram.get_mut(paddr, bytes.len())) else {
+            return;
+        };
+        slice.copy_from_slice(bytes);
+        self.note_write_range(writer, paddr, bytes.len());
+    }
+
+    /// Places `image` at `paddr` before the system runs: no reservation
+    /// breaks and no log entry, as nothing has observed memory yet. Outside
+    /// RAM nothing is written.
+    pub fn load(&mut self, paddr: PhysAddr, image: &[u8]) {
+        if let Some(slice) = self.ram.as_mut().and_then(|ram| ram.get_mut(paddr, image.len())) {
+            slice.copy_from_slice(image);
+        }
     }
 
     /// Writes the bytes of the line at `line` that `mask` selects, as
     /// `writer`. Outside RAM nothing is written.
     fn write_line(&mut self, writer: Writer, line: PhysAddr, bytes: &[u8], mask: u64) {
-        let Some(ram) = self.ram.filter(|ram| ram.contains(line.val(), bytes.len() as u64)) else {
+        let Some(slice) = self.ram.as_mut().and_then(|ram| ram.get_mut(line, bytes.len())) else {
             return;
         };
-        for (i, byte) in bytes.iter().enumerate().filter(|&(i, _)| mask >> i & 1 == 1) {
-            // SAFETY: `contains` bounds-checked the whole line.
-            unsafe { *ram.ptr(line.val() + i as u64) = *byte };
+        for (i, (dst, src)) in slice.iter_mut().zip(bytes).enumerate() {
+            if mask >> i & 1 == 1 {
+                *dst = *src;
+            }
         }
         self.note_write(writer, line);
     }
@@ -158,19 +181,13 @@ impl GlobalMemory {
         }
     }
 
-    /// Records a write that bypassed [`Self::write`] (the loader, a
-    /// host-side probe, or a device's DMA writing RAM directly).
-    pub fn record_external_write(&mut self, paddr: PhysAddr) {
-        self.note_write(Writer::External, paddr);
-    }
-
-    /// Records an external write of `len` bytes from `paddr`, line by line.
-    pub fn record_external_write_range(&mut self, paddr: PhysAddr, len: usize) {
+    /// Notes a write of `len` bytes from `paddr`, line by line.
+    fn note_write_range(&mut self, writer: Writer, paddr: PhysAddr, len: usize) {
         let line_bytes = self.write_log.as_ref().map_or(64, WriteLog::line_bytes);
         let first = paddr.val() / line_bytes;
         let last = paddr.val().saturating_add(len.saturating_sub(1) as u64) / line_bytes;
         for line in first..=last {
-            self.note_write(Writer::External, PhysAddr::new(line * line_bytes));
+            self.note_write(writer, PhysAddr::new(line * line_bytes));
         }
     }
 

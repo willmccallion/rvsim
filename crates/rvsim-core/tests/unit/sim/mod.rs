@@ -4,4 +4,5 @@
 //! including binary loading and system initialization.
 
 pub mod global_memory;
+pub mod ram;
 pub mod stats_query;

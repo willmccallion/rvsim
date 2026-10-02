@@ -211,22 +211,10 @@ pub(super) fn updated_pte(state: &CoreCtx<'_>, update: &PteUpdate) -> Option<u64
 
 /// The word at `paddr` as it is in RAM right now; `None` outside pure RAM.
 fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Option<u64> {
-    if width == MemWidth::Nop {
+    if width == MemWidth::Nop || !state.bus.is_ram(paddr, width.bytes()) {
         return None;
     }
-    let region = state.bus.ram_region_for(paddr.val(), width.bytes())?;
-    // SAFETY: `ram_region_for` confirms pure-RAM coverage and bounds-checks.
-    let raw = unsafe {
-        let ptr = region.ptr(paddr.val());
-        match width {
-            MemWidth::Byte => u64::from(*ptr),
-            MemWidth::Half => u64::from(ptr.cast::<u16>().read_unaligned()),
-            MemWidth::Word => u64::from(ptr.cast::<u32>().read_unaligned()),
-            MemWidth::Double => ptr.cast::<u64>().read_unaligned(),
-            MemWidth::Nop => 0,
-        }
-    };
-    Some(raw)
+    state.memory.read(paddr, width.bytes() as usize)
 }
 
 /// Takes `trap` now when there is no trap latency, else parks it for

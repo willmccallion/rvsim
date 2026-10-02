@@ -198,7 +198,7 @@ fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
 
     assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(far), 8), 0);
     assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(PROGRAM_BASE), 4), 0x0000_1297);
-    let ram = restored.sim.state.bus.ram_region().expect("the system has RAM").size() as usize;
+    let ram = restored.sim.state.memory.ram().expect("the system has RAM").size() as usize;
     assert!(
         checkpoint.len() < ram / 100,
         "a {}-byte checkpoint of {ram} bytes of RAM",

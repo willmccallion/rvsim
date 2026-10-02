@@ -180,7 +180,7 @@ pub(super) fn drain_vec_store_line(
     let Some((rob_tag, line)) = vec_store_buffer.take_drainable_line() else { return false };
     let paddr = PhysAddr::new(line.line_addr);
     let owner = StoreOwner::VecStoreBuffer;
-    let requests = if state.bus.ram_region_for(paddr.val(), VSB_LINE_BYTES as u64).is_some() {
+    let requests = if state.bus.is_ram(paddr, VSB_LINE_BYTES as u64) {
         vec![emit_line_write(state, common, paddr, &line.data, line.valid_mask, owner)]
     } else {
         let write = StoreWrite { origin: WriteOrigin::Hart(state.hart.hart_id), owner };

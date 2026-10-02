@@ -32,20 +32,18 @@ mod power;
 mod refresh;
 mod schedule;
 
-use std::sync::Arc;
-
 use crate::common::{LineAddr, PhysAddr};
 use crate::config::ddr5::Ddr5Config;
 use crate::sim::components::{
     BankGroupId, ChannelId, ComponentId, MemCtrlId, RankId, ReqId, RowId, SubchannelId,
 };
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{
     AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, MesiState, Packet,
 };
 use crate::soc::memory::address::AddressMapper;
-use crate::soc::memory::buffer::DramBuffer;
-use crate::soc::memory::controller::MemoryController;
+use crate::soc::memory::controller::{MemoryController, read_response};
 use crate::soc::memory::ddr5::ecc::EccPolicy;
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
 use crate::soc::memory::ddr5::scheduler::MemScheduler;
@@ -107,8 +105,8 @@ impl ClockRatio {
 /// DDR5 memory controller.
 #[derive(Debug)]
 pub struct Ddr5Controller {
-    buffer: Arc<DramBuffer>,
     base: PhysAddr,
+    line_count: u64,
     channels: Vec<DramChannel>,
     mapper: AddressMapper,
     config: Ddr5Config,
@@ -128,10 +126,10 @@ pub struct Ddr5Controller {
 }
 
 impl Ddr5Controller {
-    /// Constructs a controller. `base` is the physical address at which the
-    /// backing buffer's first byte is mapped. `self_id` names the controller
-    /// so the emitted `DramCmd` events can target it. `cpu_clock_mhz` fixes
-    /// the ratio between simulator cycles and the DRAM command clock.
+    /// Constructs a controller over `ram_bytes` bytes of RAM at `base`.
+    /// `self_id` names the controller so the emitted `DramCmd` events can
+    /// target it. `cpu_clock_mhz` fixes the ratio between simulator cycles
+    /// and the DRAM command clock.
     ///
     /// # Panics
     ///
@@ -139,8 +137,8 @@ impl Ddr5Controller {
     /// [`AddressMapper::new`]) or if `cpu_clock_mhz` is zero.
     #[must_use]
     pub fn new(
-        buffer: Arc<DramBuffer>,
         base: PhysAddr,
+        ram_bytes: u64,
         config: Ddr5Config,
         self_id: MemCtrlId,
         cpu_clock_mhz: u64,
@@ -163,11 +161,12 @@ impl Ddr5Controller {
         let refresh_policy = config.refresh.build();
         let refresh_interval = refresh_policy.interval(&config.timing, layout);
         let ecc: Box<dyn EccPolicy> = config.ecc.build();
+        let line_count = (ram_bytes / CACHE_LINE_BYTES).max(1);
         let scrubber = ecc.scrub_interval(&config.timing).map(|interval| Scrubber {
             interval,
             next_at: interval,
             cursor: 0,
-            line_count: (buffer.len() as u64 / CACHE_LINE_BYTES).max(1),
+            line_count,
         });
         let bank_count = layout.bank_count() as usize;
         let channels = (0..config.channels)
@@ -188,8 +187,8 @@ impl Ddr5Controller {
             bank_count,
         );
         Self {
-            buffer,
             base,
+            line_count,
             channels,
             mapper,
             config,
@@ -208,10 +207,10 @@ impl Ddr5Controller {
         }
     }
 
-    /// Clone handle for the backing buffer (used by RAM fast-path aliasing).
+    /// Bytes of RAM behind the controller.
     #[must_use]
-    pub fn buffer(&self) -> Arc<DramBuffer> {
-        Arc::clone(&self.buffer)
+    pub const fn ram_bytes(&self) -> u64 {
+        self.line_count * CACHE_LINE_BYTES
     }
 
     /// Static configuration snapshot.
@@ -256,7 +255,7 @@ impl MemoryController for Ddr5Controller {
         let target = self.clock.to_dram(ctx.cycle);
         while self.next_dram_cycle <= target {
             let now = self.next_dram_cycle;
-            self.tick_dram_cycle(now);
+            self.tick_dram_cycle(now, ctx.memory);
             self.next_dram_cycle += 1;
         }
         self.flush(ctx);
@@ -372,7 +371,7 @@ impl Ddr5Controller {
         self.enqueue(ReqId::new(u64::MAX), paddr, AccessSize::Line, MemOp::Read, source, now);
     }
 
-    fn tick_dram_cycle(&mut self, now: u64) {
+    fn tick_dram_cycle(&mut self, now: u64, memory: &GlobalMemory) {
         self.inject_scrub_read(now);
         let chan_count = self.channels.len();
         for chan_idx in 0..chan_count {
@@ -381,8 +380,8 @@ impl Ddr5Controller {
                 let chan = ChannelId::new(index_to_u8(chan_idx));
                 let subch = SubchannelId::new(index_to_u8(subch_idx));
                 self.channels[chan_idx].subchannels[subch_idx].counters.clocks += 1;
-                self.admit(chan, subch, now);
-                self.tick_subchannel(chan, subch, now);
+                self.admit(chan, subch, now, memory);
+                self.tick_subchannel(chan, subch, now, memory);
             }
         }
     }
@@ -390,7 +389,13 @@ impl Ddr5Controller {
     /// Issues at most one command on `(chan, subch)` for DRAM clock `now`.
     /// If no ready request can advance legally at `now`, the subchannel goes
     /// idle for this clock.
-    fn tick_subchannel(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
+    fn tick_subchannel(
+        &mut self,
+        chan: ChannelId,
+        subch: SubchannelId,
+        now: u64,
+        memory: &GlobalMemory,
+    ) {
         self.release_refreshed_banks(chan, subch, now);
         self.update_drain_state(chan, subch);
         if self.command_bus_busy(chan, subch, now) {
@@ -406,10 +411,13 @@ impl Ddr5Controller {
         let Some(index) = self.pick_request_index(chan, subch, pick_writes, now) else {
             return;
         };
-        self.step_request(chan, subch, pick_writes, index, now);
+        let slot = schedule::QueueSlot { writes: pick_writes, index };
+        self.step_request(chan, subch, slot, now, memory);
     }
 
-    fn service_buffer(&self, request: &PendingReq) -> Payload {
+    /// What `request`'s response carries: the bytes a read returns as of
+    /// now, or the hart's access to perform as the response leaves.
+    fn service(request: &PendingReq, memory: &GlobalMemory) -> Payload {
         if request.op.takes_effect_when_served(request.size) {
             return Payload::Perform {
                 paddr: request.paddr,
@@ -417,10 +425,9 @@ impl Ddr5Controller {
                 op: request.op.clone(),
             };
         }
-        let offset = (request.paddr.val().saturating_sub(self.base.val())) as usize;
         Payload::Ready(match &request.op {
             MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
-                read_from_buffer(&self.buffer, offset, request.size)
+                read_response(memory, request.paddr, request.size)
             }
             MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => {
                 MemRespData::Small(0)
@@ -618,13 +625,4 @@ const fn index_to_u8(idx: usize) -> u8 {
 
 const fn column_lead(t: &crate::config::ddr5::timing::Ddr5Timing, is_read: bool) -> u64 {
     if is_read { t.t_cas } else { t.t_cwl }
-}
-
-fn read_from_buffer(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> MemRespData {
-    if size == AccessSize::Line {
-        let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
-        return MemRespData::Line(s.to_vec().into_boxed_slice());
-    }
-    let bytes = buffer.read_slice(offset, size.bytes());
-    MemRespData::Small(bytes.iter().rev().fold(0, |value, &byte| (value << 8) | u64::from(byte)))
 }

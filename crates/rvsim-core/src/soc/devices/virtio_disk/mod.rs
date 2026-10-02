@@ -9,12 +9,11 @@ mod queue;
 use crate::common::{IrqId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
-use crate::soc::memory::buffer::DramBuffer;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -131,25 +130,18 @@ const LINE_BYTES: u64 = 64;
 
 /// virtio Block device structure.
 ///
-/// Implements a memory-mapped block device compliant with the virtio specification.
-/// It uses a shared DRAM buffer to perform DMA operations for reading and writing
-/// disk sectors.
+/// Implements a memory-mapped block device compliant with the virtio
+/// specification. Its DMA reads and writes the system's memory image.
 #[derive(Debug)]
 pub struct VirtioBlock {
     /// Base physical address of the device MMIO region.
     base_addr: u64,
-    /// Base physical address of system RAM.
-    ram_base: u64,
     /// Disk image data.
     disk_image: Vec<u8>,
     /// Digest of the image as loaded.
     image_digest: u64,
     /// Sectors the guest has written since the image was loaded.
     written: BTreeSet<u64>,
-    /// Shared reference to system RAM for DMA.
-    ram: Arc<DramBuffer>,
-    /// DMA writes not yet published to the system.
-    dma_writes: Vec<(PhysAddr, usize)>,
 
     /// Device status register.
     status: u32,
@@ -309,26 +301,14 @@ fn line_chunks(addr: u64, len: u64, write: bool) -> Vec<DmaAccess> {
     chunks
 }
 
-unsafe impl Send for VirtioBlock {}
-unsafe impl Sync for VirtioBlock {}
-
 impl VirtioBlock {
-    /// Creates a new virtio Block device.
-    ///
-    /// # Arguments
-    ///
-    /// * `base_addr` - MMIO base address.
-    /// * `ram_base` - System RAM base address.
-    /// * `ram` - Shared DRAM buffer for DMA access.
-    pub const fn new(base_addr: u64, ram_base: u64, ram: Arc<DramBuffer>) -> Self {
+    /// A device with no disk image, mapped at `base_addr`.
+    pub const fn new(base_addr: u64) -> Self {
         Self {
             base_addr,
-            ram_base,
             disk_image: Vec::new(),
             image_digest: FNV_OFFSET,
             written: BTreeSet::new(),
-            ram,
-            dma_writes: Vec::new(),
             status: 0,
             queue_num: 0,
             queue_ready: 0,
@@ -482,18 +462,14 @@ impl Device for VirtioBlock {
         if self.job.is_some() { Some(0) } else { None }
     }
 
-    fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
-        std::mem::take(&mut self.dma_writes)
-    }
-
     /// Completes the request in flight and every chain still available
     /// at once: after a restore nothing would notify the device again.
-    fn drain(&mut self) {
+    fn drain(&mut self, memory: &mut GlobalMemory) {
         if let Some(job) = self.job.take() {
-            self.complete_request(job.head_idx);
+            self.complete_request(job.head_idx, memory);
         }
-        while let Some((head_idx, _)) = self.next_available_chain() {
-            self.complete_request(head_idx);
+        while let Some((head_idx, _)) = self.next_available_chain(memory) {
+            self.complete_request(head_idx, memory);
         }
     }
 
