@@ -6,16 +6,20 @@ use pyo3::prelude::*;
 
 /// A single committed instruction from the pipeline.
 #[pyclass(name = "Instruction")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyInstruction {
+    /// The address it retired from.
     #[pyo3(get)]
-    pub pc: u64,
+    pub(crate) pc: u64,
+    /// Its encoding.
     #[pyo3(get)]
-    pub raw: u32,
+    pub(crate) raw: u32,
+    /// Its disassembly.
     #[pyo3(get)]
-    pub asm: String,
+    pub(crate) asm: String,
+    /// Cycles `step` ran to retire it.
     #[pyo3(get)]
-    pub cycles: u64,
+    pub(crate) cycles: u64,
 }
 
 #[pymethods]

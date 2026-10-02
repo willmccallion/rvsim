@@ -16,7 +16,7 @@ use rvsim_core::soc::uncore::StatsEpoch;
 /// the read time. Supports path lookups, wildcard queries, subject-grouped
 /// aggregation, and rendering the auto-generated summary.
 #[pyclass(name = "Stats")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyStats {
     stats: Stats,
     cycles: u64,
@@ -169,7 +169,7 @@ impl PyStats {
 /// A wildcard-query result set: `(path, value)` pairs with aggregation
 /// helpers.
 #[pyclass(name = "QueryResult")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyQueryResult {
     matches: Vec<(String, f64)>,
 }
@@ -182,12 +182,12 @@ impl PyQueryResult {
     }
 
     /// Number of matched paths.
-    fn __len__(&self) -> usize {
+    const fn __len__(&self) -> usize {
         self.matches.len()
     }
 
     /// True when no path matched.
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.matches.is_empty()
     }
 
