@@ -13,7 +13,7 @@ Cycle-level RISC-V 64-bit system simulator with a composable Python API for arch
 
 ---
 
-rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 `riscv-tests`. The chipsalliance `riscv-vector-tests` suite is cross-checked against spike.
+rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
 > **Accuracy.** rvsim simulates every cycle, but it is not yet cycle-accurate: its timing model follows gem5's O3 CPU, and on our microbenchmarks its cycle counts are still tens of percent away from gem5's (see [Error against gem5](https://willmccallion.github.io/rvsim/error/)). We are working to close that gap.
 
@@ -92,9 +92,9 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
 
-The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against spike.
+The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
-Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. The RISCOF compliance framework is integrated under `tests/conformance/riscof/`.
+Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. [`riscv-arch-test`](https://github.com/riscv-non-isa/riscv-arch-test) runs through the [RISCOF](https://github.com/riscv-software-src/riscof) framework under `tests/conformance/riscof/`.
 
 ### SoC Devices
 
