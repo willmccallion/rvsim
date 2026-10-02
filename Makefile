@@ -278,8 +278,10 @@ run-example: software
 
 HARTS ?= 8
 run-linux:
+	@test -x .venv/bin/rvsim || $(MAKE) python
+	@test -f software/linux/output/Image -a -f software/linux/output/fw_jump.bin || $(MAKE) linux
 	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s) with DDR5-5600 over a mesh…$(RESET)\n"
-	.venv/bin/rvsim tools/boot_linux.py --harts $(HARTS)
+	.venv/bin/rvsim tools/boot_linux.py --no-build --harts $(HARTS)
 
 profile-build:
 	@printf "$(GREEN)Building with profiling symbols…$(RESET)\n"

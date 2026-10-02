@@ -62,8 +62,37 @@ BR2_PACKAGE_LINUX_TOOLS_PERF=y
 """
 
 
+HOST_TOOLS = (
+    "bash",
+    "bc",
+    "bison",
+    "bzip2",
+    "cpio",
+    "file",
+    "flex",
+    "g++",
+    "gcc",
+    "gzip",
+    "ld",
+    "make",
+    "patch",
+    "perl",
+    "rsync",
+    "sed",
+    "tar",
+    "unzip",
+    "wget",
+    "which",
+)
+
+
 def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def missing_host_tools() -> list[str]:
+    """The Buildroot host prerequisites not on PATH."""
+    return [tool for tool in HOST_TOOLS if shutil.which(tool) is None]
 
 
 def download_buildroot(linux_dir: str, buildroot_dir: str) -> None:
@@ -94,6 +123,13 @@ def write_defconfig(buildroot_dir: str) -> None:
 
 def build(linux_dir: str) -> int:
     """Download, configure, and build Buildroot + compile DTB. Returns 0 on success."""
+    missing = missing_host_tools()
+    if missing:
+        print("[Linux] Missing host tools Buildroot needs:", ", ".join(missing))
+        print(
+            "[Linux] Install them, or run `make linux` to build inside the Nix FHS shell."
+        )
+        return 1
     buildroot_dir = os.path.join(linux_dir, f"buildroot-{BUILDROOT_VER}")
     download_buildroot(linux_dir, buildroot_dir)
     write_defconfig(buildroot_dir)
