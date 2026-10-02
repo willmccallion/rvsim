@@ -4,11 +4,11 @@
 
 use pyo3::prelude::*;
 
-/// Returns the emulator version string.
+/// The version of the extension, as built.
 #[pyfunction]
 #[must_use]
 pub fn version() -> String {
-    "0.1.0".to_string()
+    env!("CARGO_PKG_VERSION").to_owned()
 }
 
 /// Disassemble a 32-bit RISC-V instruction encoding into a mnemonic string.

@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `rvsim._core.version()` reports the built version instead of a
+  hard-coded `0.1.0`; a session's cached checkpoints record it.
 - The published x86-64 Linux wheel runs on any x86-64 CPU. The previous
   wheels were built with `-C target-cpu=native` from a committed cargo
   config and needed the build machine's AVX2, BMI2 and FMA.
