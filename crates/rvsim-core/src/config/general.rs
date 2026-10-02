@@ -8,6 +8,7 @@ use serde::Deserialize;
 /// Contains high-level simulation configuration such as tracing,
 /// initial program counter, and direct (bare-metal) execution mode.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GeneralConfig {
     /// Enable instruction tracing to stderr and debug output (hang detection, status updates, mode switches)
     #[serde(default)]

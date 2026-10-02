@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 /// Top-level ISA capability descriptor.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IsaConfig {
     /// Vector extension capabilities.
     #[serde(default)]
@@ -29,6 +30,7 @@ pub struct IsaConfig {
 
 /// Vector ISA capabilities (RVV 1.0 and sub-extensions).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VectorIsa {
     /// Maximum vector element width in bits (`ELEN`). Spec values: 32 (`Zve32x`)
     /// or 64 (`Zve64x`). `vsetvl` rejects requested `SEW > ELEN` with `vill = 1`.

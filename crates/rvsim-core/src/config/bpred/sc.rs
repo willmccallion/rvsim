@@ -8,6 +8,7 @@ use serde::Deserialize;
 /// with that many bits of the component's history, and a weight on the
 /// component's sum.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct GehlConfig {
     /// History bits each table hashes, longest first; none turns the
@@ -33,6 +34,7 @@ impl Default for GehlConfig {
 
 /// A GEHL component over per-branch local histories.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct LocalGehlConfig {
     /// Local histories kept, a power of two.
@@ -54,6 +56,7 @@ impl Default for LocalGehlConfig {
 /// Seznec's statistical corrector (used by SC-L-TAGE). The defaults are
 /// the 64KB TAGE-SC-L's (CBP-5), as gem5's `TAGE_SC_L_64KB` sizes it.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct ScConfig {
     /// Each of the three bias tables holds `2^log_bias` counters.

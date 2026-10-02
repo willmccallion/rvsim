@@ -37,6 +37,7 @@ pub enum MemoryControllerKind {
 /// Specifies RAM size, memory controller type, DRAM timing parameters,
 /// and TLB configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MemoryConfig {
     /// RAM size in bytes
     #[serde(default = "MemoryConfig::default_ram_size")]

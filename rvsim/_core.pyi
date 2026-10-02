@@ -1,15 +1,33 @@
 """Type stubs for the compiled extension module ``rvsim._core``."""
 
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, final
 
-from typing_extensions import Self
+from typing_extensions import Self, disjoint_base
+
+__all__ = [
+    "CHECKPOINT_VERSION",
+    "Csrs",
+    "Hart",
+    "Harts",
+    "Instruction",
+    "Memory",
+    "PipelineSnapshot",
+    "QueryResult",
+    "Registers",
+    "Simulator",
+    "Stats",
+    "VirtualMemory",
+    "disassemble",
+    "version",
+]
 
 CHECKPOINT_VERSION: int
 
 def version() -> str: ...
 def disassemble(inst: int) -> str: ...
 
+@final
 class Instruction:
     """One retired instruction, returned by :meth:`Simulator.step`."""
 
@@ -22,6 +40,7 @@ class Instruction:
     @property
     def cycles(self) -> int: ...
 
+@final
 class QueryResult:
     """``(path, value)`` pairs a wildcard :meth:`Stats.query` matched."""
 
@@ -32,6 +51,7 @@ class QueryResult:
     def by_subject(self) -> dict[str, float]: ...
     def paths(self) -> list[str]: ...
 
+@final
 class Stats:
     """The simulator's hierarchical statistics tree."""
 
@@ -44,12 +64,13 @@ class Stats:
     @property
     def cpi(self) -> float: ...
     def get(self, path: str, default: float | None = None) -> float | None: ...
-    def __getitem__(self, path: str) -> float: ...
-    def __contains__(self, path: str) -> bool: ...
+    def __getitem__(self, path: str, /) -> float: ...
+    def __contains__(self, path: str, /) -> bool: ...
     def query(self, pattern: str) -> QueryResult: ...
     def summary(self, sections: list[str] | None = None) -> str: ...
     def subjects(self) -> list[str]: ...
 
+@final
 class PipelineSnapshot:
     """Point-in-time contents of every inter-stage latch; each stage is a
     list of slot dicts (length at most ``width``)."""
@@ -75,17 +96,20 @@ class PipelineSnapshot:
     def render(self) -> str: ...
     def visualize(self) -> None: ...
 
+@final
 class Registers:
     """A hart's integer registers, indexed 0-31."""
 
-    def __getitem__(self, idx: int) -> int: ...
-    def __setitem__(self, idx: int, value: int) -> None: ...
+    def __getitem__(self, idx: int, /) -> int: ...
+    def __setitem__(self, idx: int, value: int, /) -> None: ...
 
+@final
 class Csrs:
     """A hart's CSRs, indexed by address or lower-case name."""
 
-    def __getitem__(self, key: int | str) -> int: ...
+    def __getitem__(self, key: int | str, /) -> int: ...
 
+@final
 class Hart:
     @property
     def id(self) -> int: ...
@@ -103,20 +127,24 @@ class Hart:
     @property
     def csrs(self) -> Csrs: ...
 
+@final
 class Harts:
     def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> Hart: ...
+    def __getitem__(self, index: int, /) -> Hart: ...
 
+@final
 class Memory:
     """Physical memory read as 32- or 64-bit words by address."""
 
-    def __getitem__(self, addr: int) -> int: ...
+    def __getitem__(self, addr: int, /) -> int: ...
 
+@final
 class VirtualMemory:
     """Memory read through hart 0's current translation."""
 
-    def __getitem__(self, addr: int) -> int: ...
+    def __getitem__(self, addr: int, /) -> int: ...
 
+@disjoint_base
 class Simulator:
     def __new__(
         cls,
@@ -206,5 +234,6 @@ class Simulator:
     def write_console(self, text: str) -> None: ...
     @property
     def stats_dumps(self) -> list[tuple[int, Stats]]: ...
+    def stats_between(self, start: int, end: int) -> Stats: ...
     def save(self, path: str) -> None: ...
     def restore(self, path: str) -> None: ...

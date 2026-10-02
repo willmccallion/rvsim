@@ -66,10 +66,10 @@ use serde::Deserialize;
 ///     },
 ///     "system": {
 ///         "ram_base": 2147483648,
-///         "ram_size": 134217728,
 ///         "kernel_offset": 2097152
 ///     },
 ///     "memory": {
+///         "ram_size": 134217728,
 ///         "controller": "Dram",
 ///         "t_cas": 14,
 ///         "t_ras": 14,
@@ -127,6 +127,7 @@ use serde::Deserialize;
 /// assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 /// ```
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// General simulation settings
     pub general: GeneralConfig,

@@ -66,3 +66,10 @@ class Validation(unittest.TestCase):
 
     def test_a_power_of_two_vlen_in_range_is_accepted(self):
         Simulator(Config(vlen=256))
+
+    def test_a_field_the_core_does_not_know_is_refused(self):
+        config = Config().to_dict()
+        config["pipeline"]["widht"] = 4
+
+        with self.assertRaisesRegex(ValueError, "unknown field `widht`"):
+            Simulator(config)

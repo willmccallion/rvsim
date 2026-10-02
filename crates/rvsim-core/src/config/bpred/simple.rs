@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 /// Perceptron branch predictor configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PerceptronConfig {
     /// Global history length
     #[serde(default = "PerceptronConfig::default_history")]
@@ -35,6 +36,7 @@ impl PerceptronConfig {
 
 /// Tournament branch predictor configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TournamentConfig {
     /// Global predictor size (log2)
     #[serde(default = "TournamentConfig::default_global")]

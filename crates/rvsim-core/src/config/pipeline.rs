@@ -34,6 +34,7 @@ pub enum MemDepPredictorKind {
 
 /// Pipeline and branch predictor configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PipelineConfig {
     /// Superscalar width (instructions per cycle)
     #[serde(default = "PipelineConfig::default_width")]
@@ -409,6 +410,7 @@ impl Default for PipelineConfig {
 
 /// Store-set memory dependence predictor configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StoreSetConfig {
     /// SSIT (Store Set ID Table) size — indexed by `(pc >> 2) % ssit_size`.
     #[serde(default = "StoreSetConfig::default_ssit_size")]
@@ -462,6 +464,7 @@ where
 
 /// Configuration for the functional unit pool.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FuConfig {
     /// Number of integer ALU units.
     pub num_int_alu: usize,

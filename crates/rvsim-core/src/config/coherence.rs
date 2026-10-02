@@ -119,6 +119,7 @@ pub enum CoherenceProtocolConfig {
 
 /// Coherence fabric configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoherenceConfig {
     /// Protocol.
     #[serde(default)]

@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 /// TAGE (Tagged Geometric) predictor configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TageConfig {
     /// Number of tagged tables
     #[serde(default = "TageConfig::default_banks")]
@@ -100,6 +101,7 @@ pub enum TageHashing {
 /// `long_factor * table_size`; each enabled bank takes the next
 /// `table_size`-entry slice from a PC- and path-hashed start.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TageBanking {
     /// Slices in the short-tag array.
     pub short_factor: usize,
