@@ -751,30 +751,14 @@ impl Rob {
     /// Iterate over all valid entries with `tag > keep_tag` (i.e., entries that
     /// would be squashed by `flush_after(keep_tag)`).
     pub fn iter_after(&self, keep_tag: RobTag) -> impl Iterator<Item = &RobEntry> {
-        let cap = self.entries.len();
-        let head = self.head;
-        let count = self.count;
-        let entries_ptr = self.entries.as_ptr();
-        (0..count).filter_map(move |i| {
-            let idx = (head + i) % cap;
-            // SAFETY: idx is always in bounds (< cap), and we hold a shared ref to Rob.
-            let e = unsafe { &*entries_ptr.add(idx) };
-            if e.valid && e.tag.is_newer_than(keep_tag) { Some(e) } else { None }
-        })
+        self.iter_all().filter(move |e| e.tag.is_newer_than(keep_tag))
     }
 
     /// Iterate over all valid entries (head to tail).
     pub fn iter_all(&self) -> impl Iterator<Item = &RobEntry> {
-        let cap = self.entries.len();
+        let entries = &self.entries;
         let head = self.head;
-        let count = self.count;
-        let entries_ptr = self.entries.as_ptr();
-        (0..count).filter_map(move |i| {
-            let idx = (head + i) % cap;
-            // SAFETY: idx is always in bounds (< cap), and we hold a shared ref to Rob.
-            let e = unsafe { &*entries_ptr.add(idx) };
-            if e.valid { Some(e) } else { None }
-        })
+        (0..self.count).map(move |i| &entries[(head + i) % entries.len()]).filter(|e| e.valid)
     }
 
     /// Returns true if all ROB entries older than `tag` are Completed or Faulted.
