@@ -185,18 +185,6 @@ impl VecStoreBuffer {
         Self { entries: Vec::with_capacity(capacity), capacity, forwarding }
     }
 
-    /// Returns the configured maximum number of in-flight vector stores.
-    #[inline]
-    pub const fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    /// Returns the active forwarding policy.
-    #[inline]
-    pub const fn forwarding(&self) -> VecStoreForwarding {
-        self.forwarding
-    }
-
     /// Returns the number of in-flight entries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -333,6 +321,7 @@ impl VecStoreBuffer {
         self.release_finished();
     }
 
+    #[cfg(test)]
     /// Returns `true` if the entry for `rob_tag` exists and has finished
     /// receiving all element-resolves. Used by callers that need to know
     /// whether a vec store can be safely drained at flush time.
@@ -616,16 +605,6 @@ impl VecStoreBuffer {
                 entry.valid = false;
                 entry.lines.clear();
             }
-        }
-    }
-
-    /// Drops every entry, committed or not. Intended only for callers that
-    /// have already drained committed work to memory.
-    pub fn flush_all(&mut self) {
-        for entry in &mut self.entries {
-            entry.valid = false;
-            entry.lines.clear();
-            entry.sent.clear();
         }
     }
 

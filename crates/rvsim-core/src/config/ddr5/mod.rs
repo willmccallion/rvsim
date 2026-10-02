@@ -1,4 +1,4 @@
-//! Configuration for [`crate::soc::memory::ddr5::controller::Ddr5Controller`].
+//! Configuration of the DDR5 memory controller.
 
 pub mod timing;
 
@@ -362,10 +362,10 @@ impl Default for Ddr5ParamsRaw {
     }
 }
 
-/// Which [`EccPolicy`](crate::soc::memory::ddr5::EccPolicy) a controller is built with.
+/// Which ECC policy a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum EccKind {
-    /// [`NoEcc`](crate::soc::memory::ddr5::NoEcc).
+    /// No ECC: every line is trusted as read.
     #[default]
     None,
     /// Single-error-correct, double-error-detect side-band ECC.
@@ -380,22 +380,22 @@ pub enum EccKind {
     },
 }
 
-/// Which [`RefreshPolicy`](crate::soc::memory::ddr5::RefreshPolicy) a controller is built with.
+/// Which refresh policy a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum RefreshKind {
-    /// [`AllBank`](crate::soc::memory::ddr5::AllBank).
+    /// `REFab`: every bank of a rank refreshes at once.
     #[default]
     AllBank,
-    /// [`SameBank`](crate::soc::memory::ddr5::SameBank).
+    /// `REFsb`: one bank per bank group refreshes while the rest stay open.
     SameBank,
 }
 
-/// Which [`MemScheduler`](crate::soc::memory::ddr5::MemScheduler) a controller is built with.
+/// Which request scheduler a controller is built with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum SchedulerKind {
-    /// [`Fcfs`](crate::soc::memory::ddr5::Fcfs).
+    /// First come, first served.
     Fcfs,
-    /// [`FrFcfs`](crate::soc::memory::ddr5::FrFcfs).
+    /// First ready, first come, first served: row-buffer hits go first.
     #[default]
     FrFcfs,
 }

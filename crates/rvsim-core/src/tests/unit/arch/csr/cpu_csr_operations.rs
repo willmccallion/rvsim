@@ -4,11 +4,11 @@
 //! including side effects like TLB flushes, interrupt inhibition, and
 //! synchronization between MSTATUS and SSTATUS.
 
-use crate::SystemState;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::PagingMode;
+use crate::system::SystemState;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SystemState {

@@ -43,21 +43,19 @@ impl OperandReady {
 pub struct OperandState {
     /// Which physical register provides this operand value.
     pub phys: PhysReg,
-    /// ROB tag of the producer (legacy path; None when using PRF).
-    pub tag: Option<RobTag>,
     /// Readiness and value of this operand.
     pub readiness: OperandReady,
 }
 
 impl OperandState {
     /// Convenience: create a ready operand with a known value.
-    const fn ready(phys: PhysReg, tag: Option<RobTag>, value: u64) -> Self {
-        Self { phys, tag, readiness: OperandReady::Ready(value) }
+    const fn ready(phys: PhysReg, value: u64) -> Self {
+        Self { phys, readiness: OperandReady::Ready(value) }
     }
 
     /// Convenience: create a not-ready operand.
-    const fn not_ready(phys: PhysReg, tag: Option<RobTag>) -> Self {
-        Self { phys, tag, readiness: OperandReady::NotReady }
+    const fn not_ready(phys: PhysReg) -> Self {
+        Self { phys, readiness: OperandReady::NotReady }
     }
 }
 
@@ -228,7 +226,7 @@ impl IssueQueue {
             let s3 = if entry.inst.ctrl.rs3_fp {
                 resolve_operand_prf(entry.inst.rs3, true, entry.rs3_phys, prf, state)
             } else {
-                OperandState::ready(PhysReg(0), None, 0)
+                OperandState::ready(PhysReg(0), 0)
             };
             (s1, s2, s3)
         } else {
@@ -249,7 +247,7 @@ impl IssueQueue {
             let s3 = if entry.inst.ctrl.rs3_fp {
                 resolve_operand_legacy(entry.inst.rs3, true, entry.rs3_tag, rob, state)
             } else {
-                OperandState::ready(PhysReg(0), None, 0)
+                OperandState::ready(PhysReg(0), 0)
             };
             (s1, s2, s3)
         };
@@ -312,21 +310,6 @@ impl IssueQueue {
                 iq.src2.readiness = OperandReady::Ready(value);
             }
             if iq.src3.phys == p && !iq.src3.readiness.is_ready() {
-                iq.src3.readiness = OperandReady::Ready(value);
-            }
-        }
-    }
-
-    /// Broadcast a completed result via ROB tag (legacy wakeup path).
-    pub fn wakeup(&mut self, tag: RobTag, value: u64) {
-        for iq in self.slots.iter_mut().flatten() {
-            if iq.src1.tag == Some(tag) && !iq.src1.readiness.is_ready() {
-                iq.src1.readiness = OperandReady::Ready(value);
-            }
-            if iq.src2.tag == Some(tag) && !iq.src2.readiness.is_ready() {
-                iq.src2.readiness = OperandReady::Ready(value);
-            }
-            if iq.src3.tag == Some(tag) && !iq.src3.readiness.is_ready() {
                 iq.src3.readiness = OperandReady::Ready(value);
             }
         }
@@ -566,6 +549,7 @@ impl IssueQueue {
         self.count == 0
     }
 
+    #[cfg(test)]
     /// Current number of entries.
     pub const fn len(&self) -> usize {
         self.count
@@ -581,16 +565,16 @@ fn resolve_operand_prf(
     _state: &StageCtx<'_>,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
-        return OperandState::ready(PhysReg(0), None, 0);
+        return OperandState::ready(PhysReg(0), 0);
     }
 
     if prf.is_ready(phys) {
-        OperandState::ready(phys, None, prf.read(phys))
+        OperandState::ready(phys, prf.read(phys))
     } else {
         if phys.0 == 0 {
-            return OperandState::ready(PhysReg(0), None, 0);
+            return OperandState::ready(PhysReg(0), 0);
         }
-        OperandState::not_ready(phys, None)
+        OperandState::not_ready(phys)
     }
 }
 
@@ -603,25 +587,25 @@ fn resolve_operand_legacy(
     state: &StageCtx<'_>,
 ) -> OperandState {
     if !is_fp && reg.is_zero() {
-        return OperandState::ready(PhysReg(0), None, 0);
+        return OperandState::ready(PhysReg(0), 0);
     }
 
     tag.map_or_else(
         || {
             let value =
                 if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
-            OperandState::ready(PhysReg(0), None, value)
+            OperandState::ready(PhysReg(0), value)
         },
         |t| match rob.find_entry(t) {
             Some(entry) if entry.state == RobState::Completed => {
-                OperandState::ready(PhysReg(0), Some(t), entry.result.unwrap_or(0))
+                OperandState::ready(PhysReg(0), entry.result.unwrap_or(0))
             }
-            Some(_) => OperandState::not_ready(PhysReg(0), Some(t)),
+            Some(_) => OperandState::not_ready(PhysReg(0)),
             None => {
                 // ROB entry already committed — read from register file.
                 let value =
                     if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
-                OperandState::ready(PhysReg(0), None, value)
+                OperandState::ready(PhysReg(0), value)
             }
         },
     )

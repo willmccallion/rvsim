@@ -77,8 +77,6 @@ pub struct InOrderEngine {
     /// Results a unit has yet to deliver: forwarded to dependents and sent
     /// down the memory stages at `complete_cycle`.
     pending: Vec<PendingResult>,
-    /// Pipeline width.
-    pub width: usize,
     /// Instructions renamed and dispatched per cycle.
     rename_width: usize,
     /// Instructions issued per cycle.
@@ -206,7 +204,7 @@ impl InOrderEngine {
         let vec_op = entry.inst.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vtype = parse_vtype(state.hart.csrs.vtype);
-        if let Err(trap) = check_vec_mem_emul(entry.inst.bits, vec_op, &entry.inst.ctrl, &vtype) {
+        if let Err(trap) = check_vec_mem_emul(entry.inst.bits, vec_op, &entry.inst.ctrl, vtype) {
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;
         }
@@ -323,7 +321,6 @@ impl InOrderEngine {
             issuer: InOrderIssueUnit::new(config.pipeline.rob_size),
             fu_pool: FuPool::new(&config.pipeline.fu_config),
             pending: Vec::new(),
-            width: config.pipeline.width,
             rename_width: config.pipeline.rename_width(),
             issue_width: config.pipeline.issue_width(),
             commit_width: config.pipeline.commit_width(),
@@ -386,10 +383,10 @@ impl ExecutionEngine for InOrderEngine {
         }
 
         self.retire_vec_mem_elements(state);
-        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&state.stage(), &mut self.mem2_wb, &mut self.rob);
 
         let _ = memory2::memory2_stage(
-            &mut state.stage(),
+            &state.stage(),
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
             &mut self.store_buffer,
@@ -559,7 +556,7 @@ mod tests {
         let config = Config::default();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        assert_eq!(engine.width, config.pipeline.width);
+        assert_eq!(engine.can_accept(), config.pipeline.width);
     }
 
     #[test]
@@ -575,13 +572,5 @@ mod tests {
         assert_eq!(engine.execute_mem1.len(), 0);
         assert_eq!(engine.mem1_mem2.len(), 0);
         assert_eq!(engine.mem2_wb.len(), 0);
-    }
-
-    #[test]
-    fn test_inorder_engine_can_accept() {
-        let config = Config::default();
-        let engine =
-            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        assert_eq!(engine.can_accept(), engine.width);
     }
 }

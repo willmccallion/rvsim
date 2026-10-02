@@ -3,7 +3,7 @@
 
 use crate::config::ddr5::SchedulerKind;
 use crate::sim::packet::DramCmdKind;
-use crate::soc::memory::ddr5::{Candidate, Fcfs, FrFcfs, MemScheduler};
+use crate::soc::memory::ddr5::scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler};
 use crate::tests::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
 
 /// Opens row 0 of bank 0, then queues a row-1 miss followed by a row-0 hit

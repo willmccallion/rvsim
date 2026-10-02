@@ -234,6 +234,7 @@ impl CoherenceMsg {
         }
     }
 
+    #[cfg(test)]
     /// Transaction correlator.
     #[must_use]
     pub const fn txn(self) -> ReqId {

@@ -158,7 +158,6 @@ impl O3Engine {
             id.inst.bits,
             id.inst.size,
             id.inst.rd,
-            id.inst.ctrl.fp_reg_write,
             id.inst.ctrl,
             rd_phys,
             old_phys_dst,

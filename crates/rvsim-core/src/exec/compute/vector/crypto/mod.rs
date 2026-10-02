@@ -28,7 +28,7 @@ mod sm3;
 mod sm4;
 
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::{CryptoOp, VectorOp};
+use crate::isa::op::CryptoOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 use aes::{
     aes_kf1, aes_kf2, aes_round_dec, aes_round_dec_final, aes_round_enc, aes_round_enc_final,
@@ -47,30 +47,6 @@ const EGS_SM3: usize = 8;
 
 /// Element group size for SHA-2 (4 × SEW=32 = 128 bits, also 4 × SEW=64 = 256 bits).
 const EGS_SHA: usize = 4;
-
-/// Returns true if `op` is a vector crypto instruction handled in this module.
-#[allow(clippy::module_name_repetitions)]
-pub const fn is_crypto(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VAesEm
-            | VectorOp::VAesEf
-            | VectorOp::VAesDm
-            | VectorOp::VAesDf
-            | VectorOp::VAesZ
-            | VectorOp::VAesKf1
-            | VectorOp::VAesKf2
-            | VectorOp::VSha2Ms
-            | VectorOp::VSha2Ch
-            | VectorOp::VSha2Cl
-            | VectorOp::VSm3Me
-            | VectorOp::VSm3C
-            | VectorOp::VSm4R
-            | VectorOp::VSm4K
-            | VectorOp::VGhsh
-            | VectorOp::VGmul
-    )
-}
 
 /// Read four 32-bit elements starting at `base_elem` into a `[u32; 4]` array.
 #[inline]

@@ -5,7 +5,7 @@
 //! predictors, along with branch target buffer (BTB) and return address
 //! stack (RAS), composed into a prediction unit.
 
-pub use self::direction::{BranchClass, DirectionPredictor, Retired};
+pub use self::direction::DirectionPredictor;
 pub use self::ghr::Ghr;
 pub use self::unit::{BranchPredUnit, ControlInst};
 

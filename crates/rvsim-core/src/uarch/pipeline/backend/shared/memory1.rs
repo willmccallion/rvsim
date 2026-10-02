@@ -864,7 +864,6 @@ fn park_walk<E: ExecutionEngine>(
         req_id,
         OutstandingWalk {
             state: walk_state,
-            pte_addr,
             continuation: WalkContinuation::LoadStore {
                 entry: ex,
                 translations: Box::new(translations),

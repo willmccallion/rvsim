@@ -8,9 +8,8 @@
 //!
 //! The low [`CACHE_LINE_OFFSET_BITS`] bits of a physical address are the
 //! intra-line byte offset and are not part of any DRAM coordinate — every
-//! mapping places its lowest-order field at bit [`CACHE_LINE_OFFSET_BITS`].
-//! [`AddressMapper::compose`] therefore reproduces the original address modulo
-//! the cache line: `compose(decompose(a)) == a & !((1 << CACHE_LINE_OFFSET_BITS) - 1)`.
+//! mapping places its lowest-order field at bit [`CACHE_LINE_OFFSET_BITS`],
+//! so decomposing an address loses only its offset within the line.
 
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
@@ -42,7 +41,6 @@ pub struct DramLocation {
 /// Precomputed bit-widths and shifts for a specific mapping configuration.
 #[derive(Copy, Clone, Debug)]
 pub struct AddressMapper {
-    kind: AddressMappingKind,
     channel_bits: u8,
     subchannel_bits: u8,
     rank_bits: u8,
@@ -140,7 +138,6 @@ impl AddressMapper {
         };
 
         Self {
-            kind,
             channel_bits,
             subchannel_bits,
             rank_bits,
@@ -156,13 +153,6 @@ impl AddressMapper {
             row_shift,
             column_shift,
         }
-    }
-
-    /// The interleave strategy this mapper uses.
-    #[inline]
-    #[must_use]
-    pub const fn kind(&self) -> AddressMappingKind {
-        self.kind
     }
 
     /// Splits a physical address into DRAM coordinates.
@@ -184,12 +174,18 @@ impl AddressMapper {
         }
     }
 
+    #[cfg(test)]
     /// Reassembles a physical address from DRAM coordinates. Inverse of
     /// [`Self::decompose`] modulo field masking.
     #[must_use]
     pub const fn compose(&self, loc: DramLocation) -> PhysAddr {
         let raw = insert(0, self.channel_shift, self.channel_bits, loc.channel.val() as u64)
-            | insert(0, self.subchannel_shift, self.subchannel_bits, loc.subchannel.val() as u64)
+            | insert(
+                0,
+                self.subchannel_shift,
+                self.subchannel_bits,
+                loc.subchannel.as_index() as u64,
+            )
             | insert(0, self.rank_shift, self.rank_bits, loc.rank.val() as u64)
             | insert(0, self.bank_group_shift, self.bank_group_bits, loc.bank_group.val() as u64)
             | insert(0, self.bank_shift, self.bank_bits, loc.bank as u64)
@@ -209,6 +205,7 @@ const fn extract(raw: u64, shift: u8, bits: u8) -> u64 {
     (raw >> shift) & mask(bits)
 }
 
+#[cfg(test)]
 #[inline]
 const fn insert(base: u64, shift: u8, bits: u8, value: u64) -> u64 {
     base | ((value & mask(bits)) << shift)

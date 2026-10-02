@@ -144,15 +144,11 @@ fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
 }
 
 fn ready_operand(value: u64) -> OperandState {
-    OperandState::ready(PhysReg(0), None, value)
+    OperandState::ready(PhysReg(0), value)
 }
 
 fn not_ready_operand_phys(phys: PhysReg) -> OperandState {
-    OperandState::not_ready(phys, None)
-}
-
-fn not_ready_operand_tag(tag: RobTag) -> OperandState {
-    OperandState::not_ready(PhysReg(0), Some(tag))
+    OperandState::not_ready(phys)
 }
 
 #[test]
@@ -220,35 +216,6 @@ fn test_wakeup_phys_chain() {
     iq.wakeup_phys(p5, 999);
 
     // Now should be selectable
-    let selected = select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
-    assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].entry.inst.rv1, 999);
-}
-
-#[test]
-fn test_wakeup_legacy_chain() {
-    let mut iq = IssueQueue::new(16);
-
-    // Entry depends on tag 5
-    let entry = make_entry(10);
-    iq.slots[0] = Some(IssueQueueEntry {
-        entry,
-        src1: not_ready_operand_tag(RobTag(5)),
-        src2: ready_operand(0),
-        src3: ready_operand(0),
-        vec_src1: VecOperandState::default(),
-        vec_src2: VecOperandState::default(),
-        vec_src3: VecOperandState::default(),
-        mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
-        mask_ready: true,
-        needs_mask: false,
-    });
-    iq.count = 1;
-
-    // Wakeup with tag 5
-    iq.wakeup(RobTag(5), 999);
-
     let selected = select(&mut iq, 4, &StoreBuffer::new(16), &Rob::new(64), usize::MAX, usize::MAX);
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].entry.inst.rv1, 999);
@@ -401,7 +368,6 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
             0,
             InstSize::Standard,
             RegIdx::new(0),
-            false,
             ctrl,
             PhysReg(0),
             PhysReg(0),

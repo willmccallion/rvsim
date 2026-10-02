@@ -363,11 +363,7 @@ const fn is_dataless_maintenance(op: &MemOp) -> bool {
 }
 
 /// The bytes a read of `size` at `paddr` returns; zeros outside RAM.
-pub(crate) fn read_response(
-    memory: &GlobalMemory,
-    paddr: PhysAddr,
-    size: AccessSize,
-) -> MemRespData {
+pub fn read_response(memory: &GlobalMemory, paddr: PhysAddr, size: AccessSize) -> MemRespData {
     if size == AccessSize::Line {
         let line = memory
             .read_bytes(paddr, CACHE_LINE_BYTES as usize)

@@ -11,7 +11,7 @@ use super::folded_history::FoldedHistory;
 use crate::uarch::bpred::Ghr;
 
 /// Maximum number of banks supported: [`crate::config::MAX_TAGE_BANKS`].
-pub(crate) const MAX_BANKS: usize = crate::config::MAX_TAGE_BANKS;
+pub const MAX_BANKS: usize = crate::config::MAX_TAGE_BANKS;
 
 /// Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 ///
@@ -104,37 +104,6 @@ impl GeoBankSet {
         self.num_banks
     }
 
-    /// Table mask for indexing.
-    #[inline]
-    pub const fn table_mask(&self) -> usize {
-        self.table_mask
-    }
-
-    /// Table bits (log2 of table size).
-    #[inline]
-    pub const fn table_bits(&self) -> usize {
-        self.table_bits
-    }
-
-    /// History length for a given bank.
-    #[inline]
-    pub const fn hist_length(&self, bank: usize) -> usize {
-        self.hist_lengths[bank]
-    }
-
-    /// Tag width for a given bank.
-    #[inline]
-    pub const fn tag_width(&self, bank: usize) -> usize {
-        self.tag_widths[bank]
-    }
-
-    /// The speculative folded histories of `bank`: the index fold, the tag
-    /// fold and the tag fold one bit narrower.
-    #[inline]
-    pub const fn folds(&self, bank: usize) -> (u64, u64, u64) {
-        (self.idx_csr[bank].val, self.tag_csr[bank].val, self.tag_csr2[bank].val)
-    }
-
     /// Computes the table index for a bank using pre-computed speculative CSRs. `O(1)`.
     #[inline]
     pub const fn spec_index(&self, pc: u64, bank: usize) -> usize {
@@ -154,6 +123,7 @@ impl GeoBankSet {
         ((pc_hash as usize ^ h1 as usize ^ h2 as usize) & ((1 << width) - 1)) as u16
     }
 
+    #[cfg(test)]
     /// Computes the table index for a bank by recomputing CSRs from a GHR snapshot.
     /// `O(hist_length)`. Used at commit time.
     pub fn snapshot_index(&self, pc: u64, bank: usize, ghr: &Ghr) -> usize {
@@ -166,6 +136,7 @@ impl GeoBankSet {
         (pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & self.table_mask
     }
 
+    #[cfg(test)]
     /// Computes the tag for a bank by recomputing CSRs from a GHR snapshot.
     /// `O(hist_length)`. Used at commit time.
     pub fn snapshot_tag(&self, pc: u64, bank: usize, ghr: &Ghr) -> u16 {
@@ -247,31 +218,6 @@ impl GeoBankSet {
             self.committed_tag_csr[i].update(taken, old_bit);
             self.committed_tag_csr2[i].update(taken, old_bit);
         }
-    }
-
-    /// Computes all bank indices and tags from committed CSRs. `O(num_banks)`.
-    /// Returns `([indices; MAX_BANKS], [tags; MAX_BANKS])`.
-    pub fn committed_all(&self, pc: u64) -> ([usize; MAX_BANKS], [u16; MAX_BANKS]) {
-        let mut indices = [0usize; MAX_BANKS];
-        let mut tags = [0u16; MAX_BANKS];
-        let pc_idx_hash = pc >> 2;
-        let pc_tag_hash = (pc >> 2) ^ (pc >> 18);
-
-        for i in 0..self.num_banks {
-            let tw = self.tag_widths[i];
-
-            indices[i] = (pc_idx_hash as usize
-                ^ self.committed_idx_csr[i].val as usize
-                ^ self.committed_idx_csr2[i].val as usize)
-                & self.table_mask;
-
-            tags[i] = ((pc_tag_hash as usize
-                ^ self.committed_tag_csr[i].val as usize
-                ^ self.committed_tag_csr2[i].val as usize)
-                & ((1 << tw) - 1)) as u16;
-        }
-
-        (indices, tags)
     }
 }
 

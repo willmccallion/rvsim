@@ -23,12 +23,12 @@ pub struct Violation {
 }
 
 const fn is_owner(state: MesiState) -> bool {
-    matches!(state, MesiState::Modified | MesiState::Exclusive | MesiState::Owned)
+    matches!(state, MesiState::Modified | MesiState::Exclusive)
 }
 
 /// Checks every invariant and returns what is broken (empty when all hold).
 #[must_use]
-pub fn audit(state: &SystemState) -> Vec<Violation> {
+pub(crate) fn audit(state: &SystemState) -> Vec<Violation> {
     let mut violations = Vec::new();
     let Some(fabric) = state.uncore.coherence.as_ref() else { return violations };
 

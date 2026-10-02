@@ -133,7 +133,7 @@ fn execute_system(
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
-        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
+        SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
         // Nothing younger is renamed until this commits (serialize-after),
         // so the write needs no squash.
         SystemEffect::Csr(access) => {
@@ -169,7 +169,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
@@ -239,7 +238,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
@@ -311,7 +309,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
@@ -383,7 +380,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
@@ -458,7 +454,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
@@ -537,7 +532,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ControlSignals::default(),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),

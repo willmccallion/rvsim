@@ -77,22 +77,11 @@ impl MshrTable {
         Self { entries: Vec::with_capacity(capacity), capacity }
     }
 
+    #[cfg(test)]
     /// Room for `capacity` outstanding lines.
     #[must_use]
     pub const fn capacity(&self) -> usize {
         self.capacity
-    }
-
-    /// Outstanding lines.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// True when no line is outstanding.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 
     /// True when no more lines can be fetched until a fill returns.

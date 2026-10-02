@@ -13,7 +13,6 @@ use crate::common::{HartId, PhysAddr, SimError};
 use crate::config::Config;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
-use crate::sim::components::CacheId;
 use crate::sim::events::EventQueue;
 use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
@@ -103,8 +102,6 @@ pub struct Uncore {
     /// Atomic slot bus-resident devices (HTIF, `SysCon`) write the harness
     /// termination value into. `u64::MAX` means "no exit pending".
     pub exit_signal: Arc<AtomicU64>,
-    /// Latched termination value the harness returns from `take_exit`.
-    pub exit_code: Option<u64>,
     /// Direct mode (no translation, flat memory). Initialised from
     /// `config.general.direct_mode` and runtime-mutable (the ELF loader
     /// writes it after init).
@@ -197,12 +194,6 @@ impl Uncore {
     /// Places `image` in RAM at `addr` before the system runs.
     pub fn load_binary_at(&mut self, image: &[u8], addr: PhysAddr) {
         self.memory.load(addr, image);
-    }
-
-    /// Returns the `CacheId` of the shared LLC.
-    #[must_use]
-    pub const fn l3_cache_id(&self) -> CacheId {
-        self.topology.llc
     }
 
     /// Opens a commit log file for writing retired instruction traces.

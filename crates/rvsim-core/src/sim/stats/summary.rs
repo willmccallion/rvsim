@@ -13,8 +13,8 @@ use super::{Meta, Stats};
 
 /// Renders the stats tree as a human-readable summary string.
 ///
-/// `cycles` and `instructions_retired` are passed in because they live on
-/// [`SystemState`](crate::system::state::SystemState), not in the tree itself. They're
+/// `cycles` and `instructions_retired` are passed in because the system
+/// counts them outside the tree. They're
 /// emitted first as a fixed header so the derived rates that follow have
 /// context.
 pub fn format(stats: &Stats, cycles: u64, instructions_retired: u64) -> String {

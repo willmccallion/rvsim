@@ -16,7 +16,7 @@ use crate::uarch::pipeline::latches::Mem2WbEntry;
 use crate::uarch::pipeline::rob::Rob;
 
 /// Executes the Writeback stage: marks ROB entries Completed (or Faulted).
-pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
+pub fn writeback_stage(state: &StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
     let entries = std::mem::take(input);
 
     for wb in entries {

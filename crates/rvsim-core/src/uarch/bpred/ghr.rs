@@ -45,6 +45,7 @@ impl Ghr {
         Self { bits: [0; GHR_MAX_WORDS], len: max_bits as u16 }
     }
 
+    #[cfg(test)]
     /// Returns the low 64 bits of the GHR.
     ///
     /// Backward-compatible accessor for predictors that only use 64 bits.

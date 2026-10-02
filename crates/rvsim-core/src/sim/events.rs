@@ -96,12 +96,6 @@ impl EventQueue {
         }
     }
 
-    /// Number of events currently in the queue.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.heap.len()
-    }
-
     /// True when the queue holds no events.
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -112,8 +106,8 @@ impl EventQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{HartId, LineAddr, PhysAddr};
-    use crate::sim::components::{CacheId, ReqId};
+    use crate::common::{LineAddr, PhysAddr};
+    use crate::sim::components::{CacheId, PipelineId, ReqId};
     use crate::sim::packet::{HitLevel, MemRespData, MesiState};
 
     fn make_resp(req_id: u64) -> Packet {
@@ -129,7 +123,7 @@ mod tests {
     #[test]
     fn pop_ready_respects_cycle() {
         let mut q = EventQueue::new();
-        let src = ComponentId::Hart(HartId::new(0));
+        let src = ComponentId::Pipeline(PipelineId::new(0));
         let dst = ComponentId::Cache(CacheId::new(0));
         q.schedule(10, dst, src, make_resp(1));
         assert!(q.pop_ready(5).is_none());
@@ -140,7 +134,7 @@ mod tests {
     #[test]
     fn events_ordered_by_fire_at_then_seq() {
         let mut q = EventQueue::new();
-        let src = ComponentId::Hart(HartId::new(0));
+        let src = ComponentId::Pipeline(PipelineId::new(0));
         let dst = ComponentId::Cache(CacheId::new(0));
         // Out-of-order schedule; same fire_at for two of them.
         q.schedule(20, dst, src, make_resp(20));
@@ -150,13 +144,13 @@ mod tests {
         let a = q.pop_ready(100).unwrap();
         assert_eq!(a.fire_at, 10);
         match a.packet {
-            Packet::MemResp { req_id, .. } => assert_eq!(req_id.val(), 10),
+            Packet::MemResp { req_id, .. } => assert_eq!(req_id, ReqId::new(10)),
             _ => panic!("wrong packet"),
         }
         let b = q.pop_ready(100).unwrap();
         assert_eq!(b.fire_at, 10);
         match b.packet {
-            Packet::MemResp { req_id, .. } => assert_eq!(req_id.val(), 11),
+            Packet::MemResp { req_id, .. } => assert_eq!(req_id, ReqId::new(11)),
             _ => panic!("wrong packet"),
         }
         let c = q.pop_ready(100).unwrap();

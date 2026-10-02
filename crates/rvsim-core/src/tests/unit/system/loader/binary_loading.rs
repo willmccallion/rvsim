@@ -3,12 +3,12 @@
 //! This module contains unit tests for the binary loading functionality,
 //! including loading binaries from disk and setting up kernel boot configurations.
 
-use crate::SystemState;
 use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
+use crate::system::SystemState;
 use crate::system::loader;
 use std::io::Write;
 use tempfile::NamedTempFile;

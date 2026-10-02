@@ -60,7 +60,7 @@ impl Cache {
     pub(super) fn write_back(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
         let Some(downstream) = self.downstream else { return };
         let req_id = self.alloc_req_id();
-        self.writebacks.allocate(Writeback { line, req_id, dirty });
+        self.writebacks.allocate(Writeback { line, req_id });
         ctx.stats.counter(self.stat_paths.writebacks).inc();
         let packet = self.coherent.map_or_else(
             || Packet::MemReq {

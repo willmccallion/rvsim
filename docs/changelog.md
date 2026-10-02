@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (Rust API).** `rvsim-core`'s model is crate-private: the
+  `exec`, `sim`, `soc` and `uarch` modules, `SystemState`, `Uncore`,
+  `CoreCtx` and `StageCtx` are no longer exported. The crate's interface
+  is `Simulator` (loading, running, harts, CSRs, translation, stats,
+  trace, console and a plain-data `system::snapshot::PipelineSnapshot`),
+  the `common`, `isa`, `config` and `arch` modules, and the statistics
+  tree at `rvsim_core::stats`. Items the model had stopped using are
+  gone with the change. See design decision 8. No behaviour change.
 - `rvsim-core` classifies vector ops by execution unit: `VectorOp::class`
   yields a `VecClass` whose narrow op types (`VecAluOp`, `ReduceOp`,
   `MaskOp`, `PermuteOp`, `CryptoOp`) the vector executors take, and

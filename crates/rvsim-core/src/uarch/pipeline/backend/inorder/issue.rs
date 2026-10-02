@@ -220,11 +220,6 @@ impl InOrderIssueUnit {
         self.capacity - self.queue.len()
     }
 
-    /// How many instructions are in the issue queue?
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
     /// Whether the issue queue is empty.
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()

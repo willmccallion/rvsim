@@ -27,7 +27,7 @@ use crate::{trace_fetch, trace_trap};
 
 /// Executes the Fetch2 stage: decode each F1→F2 entry into an `IfIdEntry`.
 pub fn fetch2_stage(
-    state: &mut StageCtx<'_>,
+    state: &StageCtx<'_>,
     input: &mut Vec<Fetch1Fetch2Entry>,
     output: &mut Vec<IfIdEntry>,
 ) {

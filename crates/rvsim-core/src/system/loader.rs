@@ -71,7 +71,7 @@ impl Firmware {
 /// # Errors
 ///
 /// Returns [`SimError::FileRead`] if any required binary file cannot be read from disk.
-pub fn setup_kernel_load(
+pub(crate) fn setup_kernel_load(
     state: &mut SystemState,
     config: &Config,
     boot: &KernelBoot,
@@ -162,7 +162,7 @@ pub fn setup_kernel_load(
 
 /// Result of loading an ELF file.
 #[derive(Debug)]
-pub struct ElfLoadResult {
+pub(crate) struct ElfLoadResult {
     /// Entry point address from the ELF header.
     pub entry: u64,
     /// Address of the `tohost` symbol, if present.
@@ -174,7 +174,7 @@ pub struct ElfLoadResult {
 /// If the file starts with the ELF magic (`\x7fELF`), parses the ELF,
 /// loads all `PT_LOAD` segments, and extracts the `tohost` symbol address.
 /// Returns `None` if the data is not a valid ELF.
-pub fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<ElfLoadResult> {
+pub(crate) fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<ElfLoadResult> {
     if data.len() < 4 || &data[..4] != b"\x7fELF" {
         return None;
     }

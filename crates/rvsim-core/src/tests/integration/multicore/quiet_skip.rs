@@ -97,7 +97,7 @@ fn config() -> Config {
 /// The exit code, the final cycle, `mcycle` on each hart and every stat.
 fn run(skip_idle_cores: bool) -> (StopReason, u64, Vec<u64>, String) {
     let mut system = MultiHart::with_config(&config(), &program());
-    system.sim.skip_idle_cores = skip_idle_cores;
+    system.sim.set_skip_idle_cores(skip_idle_cores);
     let reason = system
         .sim
         .run_to(&StopAt { cycles: Some(2_000_000), ..StopAt::default() })

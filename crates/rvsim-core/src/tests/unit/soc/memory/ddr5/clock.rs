@@ -1,7 +1,7 @@
 //! Core-to-DRAM clock conversion.
 
 use crate::config::ddr5::Ddr5Timing;
-use crate::soc::memory::ddr5::ClockRatio;
+use crate::soc::memory::ddr5::controller::ClockRatio;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, make_controller_with_clock, read_op, tiny_config,
 };

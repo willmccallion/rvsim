@@ -48,6 +48,7 @@ impl GSharePredictor {
         Self { ghr: 0, pht: vec![1; TABLE_SIZE] }
     }
 
+    #[cfg(test)]
     /// The speculative global history, newest outcome in bit 0.
     pub const fn history(&self) -> u64 {
         self.ghr

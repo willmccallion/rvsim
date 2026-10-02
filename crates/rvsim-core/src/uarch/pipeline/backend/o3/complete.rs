@@ -86,7 +86,7 @@ impl O3Engine {
         let mut i = 0;
         while i < self.vec_pending.len() {
             let vp = &mut self.vec_pending[i];
-            if !vp.wakeup_fired && now >= vp.first_group_ready {
+            if vp.should_wakeup(now) {
                 wake_vector_dests(
                     &mut self.vec_prf,
                     &mut self.issue_queue,
@@ -95,7 +95,7 @@ impl O3Engine {
                 vp.wakeup_fired = true;
             }
             // Some vl=0 ops reach full_complete before first_group_ready; wake here too.
-            if now >= vp.full_complete && slots > 0 {
+            if vp.is_complete(now) && slots > 0 {
                 slots -= 1;
                 if !vp.wakeup_fired {
                     wake_vector_dests(

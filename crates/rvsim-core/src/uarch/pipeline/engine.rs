@@ -637,6 +637,7 @@ impl PipelineDispatch {
         }
     }
 
+    #[cfg(test)]
     /// The PC fetch continues from.
     #[must_use]
     pub const fn fetch_pc(&self) -> u64 {

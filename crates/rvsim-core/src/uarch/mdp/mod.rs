@@ -10,5 +10,4 @@ mod predictor;
 mod store_set;
 mod unit;
 
-pub use predictor::MdpStats;
 pub use unit::{MemDepState, MemDepUnit};

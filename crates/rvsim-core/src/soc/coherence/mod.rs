@@ -15,7 +15,7 @@ pub mod protocol;
 pub mod stats;
 
 pub use fabric::{CoherenceFabric, FabricLayout};
-pub use protocol::{CoherenceProtocol, CoreSet, Holders, Mesi};
+pub use protocol::{CoherenceProtocol, Mesi};
 
 use crate::config::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,

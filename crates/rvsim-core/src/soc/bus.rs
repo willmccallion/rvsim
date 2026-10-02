@@ -163,12 +163,6 @@ impl Bus {
             && !self.htif_range.is_some_and(|(start, stop)| paddr < stop && end > start)
     }
 
-    /// Returns the cached `(start, end_exclusive)` HTIF range.
-    #[inline]
-    pub const fn htif_range(&self) -> Option<(u64, u64)> {
-        self.htif_range
-    }
-
     /// Returns cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
     pub const fn calculate_transit_time(&self, bytes: usize) -> u64 {
         self.latency_cycles + self.transfer_cycles(bytes)
@@ -205,12 +199,6 @@ impl Bus {
             let (start, size) = dev.address_range();
             raw >= start && raw < start + size
         })
-    }
-
-    /// Number of harts whose interrupt lines this bus drives.
-    #[must_use]
-    pub const fn hart_count(&self) -> usize {
-        self.hart_irqs.len()
     }
 
     /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].

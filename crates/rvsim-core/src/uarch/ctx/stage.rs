@@ -20,7 +20,6 @@ use crate::isa::op::MemWidth;
 use crate::sim::events::EventQueue;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::Counter;
-use crate::sim::stats::paths::HartPaths;
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
@@ -29,21 +28,9 @@ use crate::uarch::mmu::ptw::WalkState;
 /// A stage's view of its core: the hart read-only, the micro-architecture
 /// mutable, and the uncore's stats and event queue.
 ///
-/// Architectural state is out of reach; this does not compile:
-///
-/// ```compile_fail
-/// fn execute(state: &mut rvsim_core::StageCtx<'_>) {
-///     state.hart().regs.write(rvsim_core::RegIdx::new(1), 0);
-/// }
-/// ```
-///
-/// and neither does a CSR or memory write:
-///
-/// ```compile_fail
-/// fn execute(state: &mut rvsim_core::StageCtx<'_>) {
-///     state.csr_write(rvsim_core::CsrAddr::new(0x300), 0);
-/// }
-/// ```
+/// Architectural state is out of reach: [`Self::hart`] hands out a shared
+/// reference, and the view has no CSR or memory write. Only
+/// [`CoreCtx`](super::CoreCtx), which commit holds, can change the hart.
 #[derive(Debug)]
 pub struct StageCtx<'a> {
     hart: &'a Hart,
@@ -129,13 +116,6 @@ impl<'a> StageCtx<'a> {
         &mut self.uncore.event_queue
     }
 
-    /// Stat paths of the hart this view executes.
-    #[inline]
-    #[must_use]
-    pub fn hart_paths(&self) -> HartPaths {
-        self.uncore.hart_stat_paths[self.hart.hart_id.as_index()]
-    }
-
     /// Begins (or completes) translation of a virtual address.
     pub fn translate(
         &mut self,
@@ -178,24 +158,6 @@ impl<'a> StageCtx<'a> {
                 PteUpdateOutcome::Written(pte)
             }
         }
-    }
-
-    /// Reads a CSR.
-    #[must_use]
-    pub fn csr_read(&self, addr: CsrAddr) -> u64 {
-        csr::read(self.hart, self.uncore, addr)
-    }
-
-    /// The value a CSR read-modify-write starts from.
-    #[must_use]
-    pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        csr::read_for_update(self.hart, self.uncore, addr)
-    }
-
-    /// True when the hart implements the CSR at `addr`.
-    #[must_use]
-    pub const fn is_valid_csr(&self, addr: CsrAddr) -> bool {
-        self.hart.is_valid_csr(addr)
     }
 
     /// True when an execute trigger fires for `pc` at the current privilege.

@@ -5,9 +5,9 @@
 //! superseded by integration tests that drive the packet-based cache
 //! hierarchy through a `Simulator`.
 
-use crate::SystemState;
 use crate::common::{AccessType, VirtAddr};
 use crate::config::Config;
+use crate::system::SystemState;
 use crate::uarch::mmu::TranslateOutcome;
 
 fn create_test_cpu() -> SystemState {

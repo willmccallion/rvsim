@@ -54,7 +54,7 @@ fn program() -> Vec<u32> {
 /// The exit code, the final cycle and the text of every stat.
 fn run(backend: BackendKind, skip_idle_cores: bool) -> (Option<u64>, u64, String) {
     let mut system = MultiHart::new(2, backend, &program());
-    system.sim.skip_idle_cores = skip_idle_cores;
+    system.sim.set_skip_idle_cores(skip_idle_cores);
     let exit = system.run_until_exit(200_000);
     let mut stats = Vec::new();
     system.sim.state.stats.dump(StatFormat::Text, &mut stats).expect("dump");

@@ -105,12 +105,6 @@ impl Topology {
         Self { cores, llc, mem_ctrls: vec![MemCtrlId::new(0)] }
     }
 
-    /// Number of cores.
-    #[must_use]
-    pub const fn core_count(&self) -> usize {
-        self.cores.len()
-    }
-
     /// Number of harts across all cores.
     #[must_use]
     pub fn hart_count(&self) -> usize {

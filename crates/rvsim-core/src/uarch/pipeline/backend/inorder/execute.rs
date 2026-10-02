@@ -148,7 +148,7 @@ fn execute_system(
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
-        SystemEffect::Cbo(_) => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
+        SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
         SystemEffect::Csr(access) => {
             if let Some(update) = access.update {
                 rob.set_csr_update(id.rob_tag, update.into());

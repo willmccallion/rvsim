@@ -120,11 +120,6 @@ impl CoreCtx<'_> {
         self.hart.is_valid_csr(addr)
     }
 
-    /// The value a CSR read-modify-write starts from; see `read_for_update`.
-    pub fn csr_read_for_update(&self, addr: CsrAddr) -> u64 {
-        read_for_update(self.hart, self.uncore, addr)
-    }
-
     /// Reads a value from a Control and Status Register (CSR).
     pub fn csr_read(&self, addr: CsrAddr) -> u64 {
         read(self.hart, self.uncore, addr)
@@ -336,24 +331,6 @@ impl CoreCtx<'_> {
             }
             _ => {}
         }
-    }
-
-    /// Returns true if an execute trigger fires for the given PC and current privilege.
-    #[inline]
-    pub fn check_execute_trigger(&self, pc: u64) -> bool {
-        self.hart.check_execute_trigger(pc)
-    }
-
-    /// Returns true if a load trigger fires for the given address and current privilege.
-    #[inline]
-    pub fn check_load_trigger(&self, addr: u64) -> bool {
-        self.hart.check_load_trigger(addr)
-    }
-
-    /// Returns true if a store trigger fires for the given address and current privilege.
-    #[inline]
-    pub fn check_store_trigger(&self, addr: u64) -> bool {
-        self.hart.check_store_trigger(addr)
     }
 }
 

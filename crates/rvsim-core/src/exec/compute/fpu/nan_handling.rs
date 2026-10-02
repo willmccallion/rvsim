@@ -93,45 +93,6 @@ pub const fn unbox_f32(val: u64) -> f32 {
     }
 }
 
-/// Canonicalizes a single-precision floating-point result.
-///
-/// If the value is any kind of NaN (quiet or signaling, any payload),
-/// it is replaced with the canonical quiet NaN (`0x7fc00000`).
-/// Non-NaN values pass through unchanged.
-///
-/// This ensures RISC-V compliance: all NaN results must be the canonical
-/// quiet NaN (RISC-V spec §11.3).
-///
-/// # Arguments
-///
-/// * `f` - The f32 result to canonicalize.
-///
-/// # Returns
-///
-/// The original value if not NaN, or canonical NaN if it was any NaN.
-#[inline]
-pub const fn canonicalize_f32(f: f32) -> f32 {
-    if f.is_nan() { f32::from_bits(CANONICAL_NAN_F32) } else { f }
-}
-
-/// Canonicalizes a double-precision floating-point result.
-///
-/// If the value is any kind of NaN (quiet or signaling, any payload),
-/// it is replaced with the canonical quiet NaN (`0x7ff8000000000000`).
-/// Non-NaN values pass through unchanged.
-///
-/// # Arguments
-///
-/// * `f` - The f64 result to canonicalize.
-///
-/// # Returns
-///
-/// The original value if not NaN, or canonical NaN if it was any NaN.
-#[inline]
-pub const fn canonicalize_f64(f: f64) -> f64 {
-    if f.is_nan() { f64::from_bits(CANONICAL_NAN_F64) } else { f }
-}
-
 /// IEEE 754-2008 `minNum` for single-precision (RISC-V FMIN.S).
 ///
 /// If exactly one operand is NaN, returns the non-NaN operand.

@@ -11,28 +11,8 @@
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::{PermuteOp, SlideOffset, VectorOp};
+use crate::isa::op::{PermuteOp, SlideOffset};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
-
-/// Returns `true` if `op` is a permutation operation handled by this module.
-pub const fn is_permute(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VMvXS
-            | VectorOp::VMvSX
-            | VectorOp::VSlideUp(_)
-            | VectorOp::VSlideDown(_)
-            | VectorOp::VSlide1Up
-            | VectorOp::VSlide1Down
-            | VectorOp::VRgather
-            | VectorOp::VRgatherEi16
-            | VectorOp::VCompress
-            | VectorOp::VMv1r
-            | VectorOp::VMv2r
-            | VectorOp::VMv4r
-            | VectorOp::VMv8r
-    )
-}
 
 /// The sources a permutation may draw on: `operand1` as the instruction
 /// encodes it, the `vs1` register, and the value of `rs1`.

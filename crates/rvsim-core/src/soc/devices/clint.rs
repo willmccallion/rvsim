@@ -100,12 +100,6 @@ impl Clint {
         }
     }
 
-    /// Number of harts this CLINT serves.
-    #[must_use]
-    pub const fn hart_count(&self) -> usize {
-        self.msip.len()
-    }
-
     /// Current value of the shared `mtime` counter.
     #[must_use]
     pub const fn mtime(&self) -> u64 {

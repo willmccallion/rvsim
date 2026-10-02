@@ -12,7 +12,7 @@ mod retire;
 mod stats;
 mod writes;
 
-pub(crate) use writes::{committed_writes_pending, send_one_write};
+pub use writes::{committed_writes_pending, send_one_write};
 
 use crate::arch::regs::vpr::Vpr;
 use crate::common::PhysAddr;
@@ -27,7 +27,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::checkpoint::{CheckpointId, CheckpointTable};
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::map::RenameMap;
-use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
+use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
@@ -90,8 +90,6 @@ pub enum CommitRegisters<'a> {
         rename_map: &'a mut RenameMap,
         /// Free scalar physical registers.
         free_list: &'a mut FreeList<PhysReg>,
-        /// Scalar physical register values.
-        prf: &'a mut PhysRegFile,
         /// In-flight loads, released as they retire.
         load_queue: &'a mut LoadQueue,
         /// Branch checkpoints, freed as their branch retires.
@@ -250,7 +248,6 @@ mod tests {
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
-                false,
                 ctrl,
                 crate::uarch::pipeline::rename::prf::PhysReg(1),
                 crate::uarch::pipeline::rename::prf::PhysReg(0),
