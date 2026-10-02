@@ -21,7 +21,7 @@ commit-log = ["rvsim-core/commit-log"]
 
 
 [dependencies]
-rvsim-core = { path = "../rvsim-core", version = "1.0.0" }
+rvsim-core = { path = "../rvsim-core", version = "1.2.2" }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 pyo3       = { workspace = true, features = ["abi3-py310"] }
