@@ -6,7 +6,7 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{ExtendOp, IntOp, MaccOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vxrm};
 
 /// Compute the fixed-point rounding increment for averaging / scaling ops.
@@ -37,66 +37,60 @@ pub(super) const fn rounding_incr(v: u64, d: u32, vxrm: Vxrm) -> u64 {
 
 /// Compute one element for standard (non-widening, non-narrowing) integer ops.
 #[inline]
-pub(super) fn compute_standard(
-    op: VectorOp,
-    vs2: u64,
-    op1: u64,
-    sew: Sew,
-    vxrm: Vxrm,
-) -> (u64, bool) {
+pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vxrm) -> (u64, bool) {
     let mask = sew.mask();
     let bits = sew.bits();
     let s2 = sign_extend(vs2, sew);
     let s1 = sign_extend(op1, sew);
 
     match op {
-        VectorOp::VAdd => (vs2.wrapping_add(op1) & mask, false),
-        VectorOp::VSub => (vs2.wrapping_sub(op1) & mask, false),
-        VectorOp::VRsub => (op1.wrapping_sub(vs2) & mask, false),
+        IntOp::Add => (vs2.wrapping_add(op1) & mask, false),
+        IntOp::Sub => (vs2.wrapping_sub(op1) & mask, false),
+        IntOp::Rsub => (op1.wrapping_sub(vs2) & mask, false),
 
-        VectorOp::VAnd => (vs2 & op1, false),
-        VectorOp::VOr => (vs2 | op1, false),
-        VectorOp::VXor => (vs2 ^ op1, false),
+        IntOp::And => (vs2 & op1, false),
+        IntOp::Or => (vs2 | op1, false),
+        IntOp::Xor => (vs2 ^ op1, false),
 
-        VectorOp::VSll => {
+        IntOp::Sll => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             ((vs2 << shamt) & mask, false)
         }
-        VectorOp::VSrl => {
+        IntOp::Srl => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             ((vs2 >> shamt) & mask, false)
         }
-        VectorOp::VSra => {
+        IntOp::Sra => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let result = (s2 >> shamt) as u64;
             (result & mask, false)
         }
 
-        VectorOp::VMin => ((if s2 < s1 { vs2 } else { op1 }) & mask, false),
-        VectorOp::VMinU => (if vs2 < op1 { vs2 } else { op1 }, false),
-        VectorOp::VMax => ((if s2 > s1 { vs2 } else { op1 }) & mask, false),
-        VectorOp::VMaxU => (if vs2 > op1 { vs2 } else { op1 }, false),
+        IntOp::Min => ((if s2 < s1 { vs2 } else { op1 }) & mask, false),
+        IntOp::MinU => (if vs2 < op1 { vs2 } else { op1 }, false),
+        IntOp::Max => ((if s2 > s1 { vs2 } else { op1 }) & mask, false),
+        IntOp::MaxU => (if vs2 > op1 { vs2 } else { op1 }, false),
 
-        VectorOp::VMul => (vs2.wrapping_mul(op1) & mask, false),
+        IntOp::Mul => (vs2.wrapping_mul(op1) & mask, false),
 
-        VectorOp::VMulh => {
+        IntOp::Mulh => {
             let prod = (s2 as i128).wrapping_mul(s1 as i128);
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
-        VectorOp::VMulhu => {
+        IntOp::Mulhu => {
             let prod = (vs2 as u128).wrapping_mul(op1 as u128);
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
-        VectorOp::VMulhsu => {
+        IntOp::Mulhsu => {
             let prod = (s2 as i128).wrapping_mul(op1 as i128);
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
 
-        VectorOp::VDivU => (vs2.checked_div(op1).map_or(mask, |q| q & mask), false),
-        VectorOp::VDiv => {
+        IntOp::DivU => (vs2.checked_div(op1).map_or(mask, |q| q & mask), false),
+        IntOp::Div => {
             if op1 == 0 {
                 // div by zero: all-1s (which is -1 signed)
                 (mask, false)
@@ -112,14 +106,14 @@ pub(super) fn compute_standard(
                 }
             }
         }
-        VectorOp::VRemU => {
+        IntOp::RemU => {
             if op1 == 0 {
                 (vs2, false)
             } else {
                 ((vs2 % op1) & mask, false)
             }
         }
-        VectorOp::VRem => {
+        IntOp::Rem => {
             if op1 == 0 {
                 (vs2, false)
             } else {
@@ -135,11 +129,11 @@ pub(super) fn compute_standard(
             }
         }
 
-        VectorOp::VSAddU => {
+        IntOp::SAddU => {
             let sum = vs2.wrapping_add(op1) & mask;
             if sum < vs2 { (mask, true) } else { (sum, false) }
         }
-        VectorOp::VSAdd => {
+        IntOp::SAdd => {
             let sum = s2 as i128 + s1 as i128;
             if sum > sew.signed_max() as i128 {
                 ((sew.signed_max() as u64) & mask, true)
@@ -149,14 +143,14 @@ pub(super) fn compute_standard(
                 (sum as u64 & mask, false)
             }
         }
-        VectorOp::VSSubU => {
+        IntOp::SSubU => {
             if vs2 < op1 {
                 (0, true)
             } else {
                 (vs2.wrapping_sub(op1) & mask, false)
             }
         }
-        VectorOp::VSSub => {
+        IntOp::SSub => {
             let diff = s2 as i128 - s1 as i128;
             if diff > sew.signed_max() as i128 {
                 ((sew.signed_max() as u64) & mask, true)
@@ -167,32 +161,32 @@ pub(super) fn compute_standard(
             }
         }
 
-        VectorOp::VAAddU => {
+        IntOp::AAddU => {
             let sum = (vs2 as u128) + (op1 as u128);
             let r = rounding_incr(sum as u64, 1, vxrm);
             let result = ((sum >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
-        VectorOp::VAAdd => {
+        IntOp::AAdd => {
             let sum = (s2 as i128) + (s1 as i128);
             let r = rounding_incr(sum as u64, 1, vxrm);
             let result = ((sum >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
-        VectorOp::VASubU => {
+        IntOp::ASubU => {
             let diff = (vs2 as i128) - (op1 as i128);
             let r = rounding_incr(diff as u64, 1, vxrm);
             let result = ((diff >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
-        VectorOp::VASub => {
+        IntOp::ASub => {
             let diff = (s2 as i128) - (s1 as i128);
             let r = rounding_incr(diff as u64, 1, vxrm);
             let result = ((diff >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
 
-        VectorOp::VSmul => {
+        IntOp::Smul => {
             let prod = (s2 as i128) * (s1 as i128);
             let shift = bits - 1;
             let r = rounding_incr(prod as u64, shift as u32, vxrm);
@@ -213,27 +207,27 @@ pub(super) fn compute_standard(
             (clamped & mask, sat)
         }
 
-        VectorOp::VSSrl => {
+        IntOp::SSrl => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let r = rounding_incr(vs2, shamt, vxrm);
             let result = (vs2 >> shamt).wrapping_add(r);
             (result & mask, false)
         }
-        VectorOp::VSSra => {
+        IntOp::SSra => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let r = rounding_incr(vs2, shamt, vxrm);
             let result = ((s2 >> shamt) as u64).wrapping_add(r);
             (result & mask, false)
         }
 
-        VectorOp::VAndN => ((vs2 & !op1) & mask, false),
+        IntOp::AndN => ((vs2 & !op1) & mask, false),
 
-        VectorOp::VBrev => {
+        IntOp::Brev => {
             let v = vs2 & mask;
             let r = bit_reverse(v, bits);
             (r & mask, false)
         }
-        VectorOp::VBrev8 => {
+        IntOp::Brev8 => {
             let mut out: u64 = 0;
             let nbytes = bits / 8;
             for i in 0..nbytes {
@@ -242,7 +236,7 @@ pub(super) fn compute_standard(
             }
             (out & mask, false)
         }
-        VectorOp::VRev8 => {
+        IntOp::Rev8 => {
             let mut out: u64 = 0;
             let nbytes = bits / 8;
             for i in 0..nbytes {
@@ -252,28 +246,28 @@ pub(super) fn compute_standard(
             }
             (out & mask, false)
         }
-        VectorOp::VClz => {
+        IntOp::Clz => {
             let v = vs2 & mask;
             let lz = if v == 0 { bits as u32 } else { v.leading_zeros() - (64 - bits as u32) };
             (u64::from(lz) & mask, false)
         }
-        VectorOp::VCtz => {
+        IntOp::Ctz => {
             let v = vs2 & mask;
             let tz = if v == 0 { bits as u32 } else { v.trailing_zeros() };
             (u64::from(tz) & mask, false)
         }
-        VectorOp::VCpopV => {
+        IntOp::CpopV => {
             let v = vs2 & mask;
             (u64::from(v.count_ones()) & mask, false)
         }
-        VectorOp::VRol => {
+        IntOp::Rol => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let v = vs2 & mask;
             let r =
                 if shamt == 0 { v } else { ((v << shamt) | (v >> (bits as u32 - shamt))) & mask };
             (r, false)
         }
-        VectorOp::VRor => {
+        IntOp::Ror => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let v = vs2 & mask;
             let r =
@@ -282,18 +276,16 @@ pub(super) fn compute_standard(
         }
 
         // Zvbc: defined only for SEW=64 in the spec; the bit loop generalises.
-        VectorOp::VClMul => {
+        IntOp::ClMul => {
             let a = vs2 & mask;
             let b = op1 & mask;
             (clmul_low(a, b, bits) & mask, false)
         }
-        VectorOp::VClMulH => {
+        IntOp::ClMulH => {
             let a = vs2 & mask;
             let b = op1 & mask;
             (clmul_high(a, b, bits) & mask, false)
         }
-
-        _ => unreachable!(),
     }
 }
 
@@ -338,7 +330,7 @@ pub(super) const fn clmul_high(a: u64, b: u64, bits: usize) -> u64 {
 
 /// Standard (non-widening, non-narrowing) element-wise loop.
 pub(super) fn exec_standard(
-    op: VectorOp,
+    op: IntOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -377,7 +369,7 @@ pub(super) fn exec_standard(
 
 /// Multiply-accumulate loop (vmacc, vnmsac, vmadd, vnmsub).
 pub(super) fn exec_macc(
-    op: VectorOp,
+    op: MaccOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -410,14 +402,13 @@ pub(super) fn exec_macc(
 
         let result = match op {
             // vd = vs1 * vs2 + vd
-            VectorOp::VMacc => op1_val.wrapping_mul(vs2_val).wrapping_add(vd_val) & mask,
+            MaccOp::Macc => op1_val.wrapping_mul(vs2_val).wrapping_add(vd_val) & mask,
             // vd = -(vs1 * vs2) + vd
-            VectorOp::VNMSac => vd_val.wrapping_sub(op1_val.wrapping_mul(vs2_val)) & mask,
+            MaccOp::NMSac => vd_val.wrapping_sub(op1_val.wrapping_mul(vs2_val)) & mask,
             // vd = vs1 * vd + vs2
-            VectorOp::VMadd => op1_val.wrapping_mul(vd_val).wrapping_add(vs2_val) & mask,
+            MaccOp::Madd => op1_val.wrapping_mul(vd_val).wrapping_add(vs2_val) & mask,
             // vd = -(vs1 * vd) + vs2
-            VectorOp::VNMSub => vs2_val.wrapping_sub(op1_val.wrapping_mul(vd_val)) & mask,
-            _ => unreachable!(),
+            MaccOp::NMSub => vs2_val.wrapping_sub(op1_val.wrapping_mul(vd_val)) & mask,
         };
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
@@ -464,23 +455,14 @@ pub(super) fn exec_merge(
 
 /// Extension loop (vzext, vsext).
 pub(super) fn exec_extension(
-    op: VectorOp,
+    op: ExtendOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-
-    let (factor, is_signed) = match op {
-        VectorOp::VZextVf2 => (2, false),
-        VectorOp::VZextVf4 => (4, false),
-        VectorOp::VZextVf8 => (8, false),
-        VectorOp::VSextVf2 => (2, true),
-        VectorOp::VSextVf4 => (4, true),
-        VectorOp::VSextVf8 => (8, true),
-        _ => unreachable!(),
-    };
+    let (factor, is_signed) = (usize::from(op.factor), op.signed);
 
     let Some(src_sew) = frac_sew(ctx.sew, factor) else {
         return VecExecResult {

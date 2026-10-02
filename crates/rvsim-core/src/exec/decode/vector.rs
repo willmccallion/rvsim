@@ -6,7 +6,7 @@ use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
 use crate::isa::instruction::Decoded;
-use crate::isa::op::{VecSrcEncoding, VectorOp};
+use crate::isa::op::{SlideOffset, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VRegIdx};
 
@@ -278,8 +278,8 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VXOR => VectorOp::VXor,
         v_f6::VADD => VectorOp::VAdd,
         v_f6::VRGATHER => VectorOp::VRgather,
-        v_f6::VSLIDEUP => VectorOp::VSlideUp,
-        v_f6::VSLIDEDOWN => VectorOp::VSlideDown,
+        v_f6::VSLIDEUP => VectorOp::VSlideUp(SlideOffset::Rs1),
+        v_f6::VSLIDEDOWN => VectorOp::VSlideDown(SlideOffset::Rs1),
         v_f6::VADC => VectorOp::VAdc,
         v_f6::VMADC => VectorOp::VMadc,
         v_f6::VSBC => VectorOp::VSbc,
@@ -324,8 +324,8 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VXOR => VectorOp::VXor,
         v_f6::VADD => VectorOp::VAdd,
         v_f6::VRGATHER => VectorOp::VRgather,
-        v_f6::VSLIDEUP => VectorOp::VSlideUp,
-        v_f6::VSLIDEDOWN => VectorOp::VSlideDown,
+        v_f6::VSLIDEUP => VectorOp::VSlideUp(SlideOffset::Imm(v_enc::uimm5(inst) as u8)),
+        v_f6::VSLIDEDOWN => VectorOp::VSlideDown(SlideOffset::Imm(v_enc::uimm5(inst) as u8)),
         // VSMUL funct6 in OPIVI is whole-register move; simm5 encodes nregs.
         v_f6::VSMUL => {
             let vs1_field = v_enc::vs1(inst);

@@ -7,10 +7,10 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, mask_active};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{MaskLogicalOp, MaskOp, MaskSetOp, VectorOp};
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
 /// Returns `true` if `op` is a mask operation handled by this module.
@@ -35,52 +35,26 @@ pub const fn is_mask_op(op: VectorOp) -> bool {
     )
 }
 
-/// Execute a mask operation.
+/// Execute a mask operation; `vs1` is the second mask of a logical op.
 ///
-/// For scalar-producing ops ([`VectorOp::VCPopM`], [`VectorOp::VFirstM`]),
-/// the result is returned in [`VecExecResult::scalar_result`]. For
-/// vector-producing ops, results are written to `vd` in the VPR.
+/// For scalar-producing ops (`vcpop.m`, `vfirst.m`), the result is returned
+/// in [`VecExecResult::scalar_result`]. For vector-producing ops, results
+/// are written to `vd` in the VPR.
 pub fn vec_mask_execute(
-    op: VectorOp,
+    op: MaskOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     match op {
-        VectorOp::VMAndMM
-        | VectorOp::VMNandMM
-        | VectorOp::VMAndnMM
-        | VectorOp::VMOrMM
-        | VectorOp::VMNorMM
-        | VectorOp::VMOrnMM
-        | VectorOp::VMXorMM
-        | VectorOp::VMXnorMM => exec_mask_logical(op, vpr, vd, vs2, operand1, ctx),
-
-        VectorOp::VCPopM => exec_vcpop(vpr, vs2, ctx),
-        VectorOp::VFirstM => exec_vfirst(vpr, vs2, ctx),
-
-        VectorOp::VMSbfM | VectorOp::VMSifM | VectorOp::VMSofM => {
-            exec_mask_set(op, vpr, vd, vs2, ctx)
-        }
-
-        VectorOp::VIotaM => exec_viota(vpr, vd, vs2, ctx),
-        VectorOp::VIdV => exec_vid(vpr, vd, ctx),
-
-        _ => unreachable!("not a mask op: {:?}", op),
-    }
-}
-
-/// Extract the vs1 register index from a [`VecOperand`].
-///
-/// Mask logical operations always use vector-vector form, so `operand1`
-/// must be [`VecOperand::Vector`].
-#[inline]
-fn vs1_idx(operand1: &VecOperand) -> VRegIdx {
-    match operand1 {
-        VecOperand::Vector(idx) => *idx,
-        _ => unreachable!("mask logical ops require VecOperand::Vector for vs1"),
+        MaskOp::Logical(op) => exec_mask_logical(op, vpr, vd, vs2, vs1, ctx),
+        MaskOp::CPop => exec_vcpop(vpr, vs2, ctx),
+        MaskOp::First => exec_vfirst(vpr, vs2, ctx),
+        MaskOp::Set(op) => exec_mask_set(op, vpr, vd, vs2, ctx),
+        MaskOp::Iota => exec_viota(vpr, vd, vs2, ctx),
+        MaskOp::Id => exec_vid(vpr, vd, ctx),
     }
 }
 
@@ -98,17 +72,16 @@ const fn scalar_result(val: u64) -> VecExecResult {
 
 /// Compute the logical result for a single mask bit pair.
 #[inline]
-fn compute_mask_logical(op: VectorOp, s2: bool, s1: bool) -> bool {
+const fn compute_mask_logical(op: MaskLogicalOp, s2: bool, s1: bool) -> bool {
     match op {
-        VectorOp::VMAndMM => s2 & s1,
-        VectorOp::VMNandMM => !(s2 & s1),
-        VectorOp::VMAndnMM => s2 && !s1,
-        VectorOp::VMOrMM => s2 | s1,
-        VectorOp::VMNorMM => !(s2 | s1),
-        VectorOp::VMOrnMM => s2 || !s1,
-        VectorOp::VMXorMM => s2 ^ s1,
-        VectorOp::VMXnorMM => !(s2 ^ s1),
-        _ => unreachable!(),
+        MaskLogicalOp::And => s2 & s1,
+        MaskLogicalOp::Nand => !(s2 & s1),
+        MaskLogicalOp::AndNot => s2 && !s1,
+        MaskLogicalOp::Or => s2 | s1,
+        MaskLogicalOp::Nor => !(s2 | s1),
+        MaskLogicalOp::OrNot => s2 || !s1,
+        MaskLogicalOp::Xor => s2 ^ s1,
+        MaskLogicalOp::Xnor => !(s2 ^ s1),
     }
 }
 
@@ -119,14 +92,13 @@ fn compute_mask_logical(op: VectorOp, s2: bool, s1: bool) -> bool {
 /// encoding). Tail bits (`>= vl`) follow the tail-agnostic policy: write 1
 /// if [`TailPolicy::Agnostic`].
 fn exec_mask_logical(
-    op: VectorOp,
+    op: MaskLogicalOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let vs1 = vs1_idx(operand1);
     let vlen_bits = vpr.vlen().bits();
 
     for i in 0..vlen_bits {
@@ -195,7 +167,7 @@ fn exec_vfirst(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecE
 /// Inactive elements (when `vm=false` and v0 bit is clear) follow the mask
 /// policy. Tail bits follow the tail-agnostic policy.
 fn exec_mask_set(
-    op: VectorOp,
+    op: MaskSetOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
@@ -228,15 +200,13 @@ fn exec_mask_set(
         } else if src_bit {
             found_first = true;
             match op {
-                VectorOp::VMSbfM => false,
-                VectorOp::VMSifM | VectorOp::VMSofM => true,
-                _ => unreachable!(),
+                MaskSetOp::BeforeFirst => false,
+                MaskSetOp::IncludingFirst | MaskSetOp::OnlyFirst => true,
             }
         } else {
             match op {
-                VectorOp::VMSbfM | VectorOp::VMSifM => true,
-                VectorOp::VMSofM => false,
-                _ => unreachable!(),
+                MaskSetOp::BeforeFirst | MaskSetOp::IncludingFirst => true,
+                MaskSetOp::OnlyFirst => false,
             }
         };
 
@@ -327,6 +297,15 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isa::op::VecClass;
+
+    /// The mask operation `op` decodes to.
+    fn mask_op(op: VectorOp) -> MaskOp {
+        match op.class() {
+            VecClass::Mask(mask) => mask,
+            other => panic!("{op:?} is not a mask op: {other:?}"),
+        }
+    }
     use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, Sew, TailPolicy, Vlen, Vlmul, Vxrm};
@@ -402,8 +381,7 @@ mod tests {
         vpr.write_mask_bit(vs1, ElemIdx::new(2), true);
 
         let ctx = default_ctx(4);
-        let operand = VecOperand::Vector(vs1);
-        let _ = vec_mask_execute(VectorOp::VMAndMM, &mut vpr, vd, vs2, &operand, &ctx);
+        let _ = vec_mask_execute(mask_op(VectorOp::VMAndMM), &mut vpr, vd, vs2, vs1, &ctx);
 
         // Expected: 0 & 0 = 0b0101
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
@@ -424,8 +402,7 @@ mod tests {
         vpr.write_mask_bit(vs1, ElemIdx::new(0), true);
 
         let ctx = default_ctx(2);
-        let operand = VecOperand::Vector(vs1);
-        let _ = vec_mask_execute(VectorOp::VMNandMM, &mut vpr, vd, vs2, &operand, &ctx);
+        let _ = vec_mask_execute(mask_op(VectorOp::VMNandMM), &mut vpr, vd, vs2, vs1, &ctx);
 
         assert!(!vpr.read_mask_bit(vd, ElemIdx::new(0)));
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(1)));
@@ -446,8 +423,7 @@ mod tests {
         vpr.write_mask_bit(vs2, ElemIdx::new(2), true);
 
         let ctx = default_ctx(3);
-        let operand = VecOperand::Vector(vs1);
-        let _ = vec_mask_execute(VectorOp::VMXnorMM, &mut vpr, vd, vs2, &operand, &ctx);
+        let _ = vec_mask_execute(mask_op(VectorOp::VMXnorMM), &mut vpr, vd, vs2, vs1, &ctx);
 
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(1)));
@@ -468,8 +444,7 @@ mod tests {
         let mut ctx = default_ctx(2);
         ctx.vta = TailPolicy::Agnostic;
 
-        let operand = VecOperand::Vector(vs1);
-        let _ = vec_mask_execute(VectorOp::VMAndMM, &mut vpr, vd, vs2, &operand, &ctx);
+        let _ = vec_mask_execute(mask_op(VectorOp::VMAndMM), &mut vpr, vd, vs2, vs1, &ctx);
 
         // Tail bits (>= vl=2) should be all-1s when tail-agnostic.
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(2)));
@@ -578,7 +553,7 @@ mod tests {
         vpr.write_mask_bit(vs2, ElemIdx::new(3), true);
 
         let ctx = default_ctx(4);
-        let _ = exec_mask_set(VectorOp::VMSbfM, &mut vpr, vd, vs2, &ctx);
+        let _ = exec_mask_set(MaskSetOp::BeforeFirst, &mut vpr, vd, vs2, &ctx);
 
         // Bits before first (0,1) → set. First (2) → clear. After (3) → clear.
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
@@ -596,7 +571,7 @@ mod tests {
         vpr.write_mask_bit(vs2, ElemIdx::new(2), true);
 
         let ctx = default_ctx(4);
-        let _ = exec_mask_set(VectorOp::VMSifM, &mut vpr, vd, vs2, &ctx);
+        let _ = exec_mask_set(MaskSetOp::IncludingFirst, &mut vpr, vd, vs2, &ctx);
 
         // Bits before and including first (0,1,2) → set. After (3) → clear.
         assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
@@ -615,7 +590,7 @@ mod tests {
         vpr.write_mask_bit(vs2, ElemIdx::new(3), true);
 
         let ctx = default_ctx(4);
-        let _ = exec_mask_set(VectorOp::VMSofM, &mut vpr, vd, vs2, &ctx);
+        let _ = exec_mask_set(MaskSetOp::OnlyFirst, &mut vpr, vd, vs2, &ctx);
 
         // Only the first set bit (2) → set. All others → clear.
         assert!(!vpr.read_mask_bit(vd, ElemIdx::new(0)));
@@ -632,7 +607,7 @@ mod tests {
 
         // No bits set in vs2 → all output bits set (before a nonexistent first).
         let ctx = default_ctx(4);
-        let _ = exec_mask_set(VectorOp::VMSbfM, &mut vpr, vd, vs2, &ctx);
+        let _ = exec_mask_set(MaskSetOp::BeforeFirst, &mut vpr, vd, vs2, &ctx);
 
         for i in 0..4 {
             assert!(vpr.read_mask_bit(vd, ElemIdx::new(i)));

@@ -273,8 +273,8 @@ pub(super) fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp
         | VectorOp::VIdV
         | VectorOp::VMvXS
         | VectorOp::VMvSX
-        | VectorOp::VSlideUp
-        | VectorOp::VSlideDown
+        | VectorOp::VSlideUp(_)
+        | VectorOp::VSlideDown(_)
         | VectorOp::VSlide1Up
         | VectorOp::VSlide1Down
         | VectorOp::VRgather

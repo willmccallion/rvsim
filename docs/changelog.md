@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `rvsim-core` classifies vector ops by execution unit: `VectorOp::class`
+  yields a `VecClass` whose narrow op types (`VecAluOp`, `ReduceOp`,
+  `MaskOp`, `PermuteOp`, `CryptoOp`) the vector executors take, and
+  `VectorOp::VSlideUp` / `VSlideDown` carry their `SlideOffset`. The
+  executors' entry points changed accordingly. Rename reserves
+  physical registers and checkpoint slots before it commits to an
+  instruction instead of re-checking afterwards. No behaviour change.
 - The API reference at `docs/api.md` is generated from the package's
   docstrings, including the compiled extension's, by mkdocstrings; the
   extension's classes report `rvsim._core` as their module.
