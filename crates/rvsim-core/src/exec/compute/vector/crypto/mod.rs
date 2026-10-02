@@ -28,7 +28,7 @@ mod sm3;
 mod sm4;
 
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{CryptoOp, VectorOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 use aes::{
     aes_kf1, aes_kf2, aes_round_dec, aes_round_dec_final, aes_round_enc, aes_round_enc_final,
@@ -118,7 +118,7 @@ fn write_egs8_u32(vpr: &mut impl VectorRegFile, vreg: VRegIdx, base_elem: usize,
 /// Returns nothing; results are written directly to `vd` in `vpr`.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_crypto(
-    op: VectorOp,
+    op: CryptoOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -128,7 +128,7 @@ pub fn execute_crypto(
     inst: u32,
     broadcast_vs2: bool,
 ) {
-    let egs = if matches!(op, VectorOp::VSm3Me | VectorOp::VSm3C) { EGS_SM3 } else { EGS_AES };
+    let egs = if matches!(op, CryptoOp::Sm3Me | CryptoOp::Sm3C) { EGS_SM3 } else { EGS_AES };
     let _ = EGS_SHA;
 
     if vl < egs {
@@ -141,104 +141,104 @@ pub fn execute_crypto(
     let mut base = (vstart / egs) * egs;
     while base + egs <= vl {
         match op {
-            VectorOp::VAesEm => {
+            CryptoOp::AesEm => {
                 let state = read_egs4_u32(vpr, vd_idx, base);
                 let key = read_egs4_u32(vpr, vs2_idx, key_base(base));
                 let r = aes_round_enc(state, key);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesEf => {
+            CryptoOp::AesEf => {
                 let state = read_egs4_u32(vpr, vd_idx, base);
                 let key = read_egs4_u32(vpr, vs2_idx, key_base(base));
                 let r = aes_round_enc_final(state, key);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesDm => {
+            CryptoOp::AesDm => {
                 let state = read_egs4_u32(vpr, vd_idx, base);
                 let key = read_egs4_u32(vpr, vs2_idx, key_base(base));
                 let r = aes_round_dec(state, key);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesDf => {
+            CryptoOp::AesDf => {
                 let state = read_egs4_u32(vpr, vd_idx, base);
                 let key = read_egs4_u32(vpr, vs2_idx, key_base(base));
                 let r = aes_round_dec_final(state, key);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesZ => {
+            CryptoOp::AesZ => {
                 // VAesZ is .vs-only per Zvkned, so vs2 always reads element 0.
                 let state = read_egs4_u32(vpr, vd_idx, base);
                 let key = read_egs4_u32(vpr, vs2_idx, 0);
                 let r = aes_round_zero(state, key);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesKf1 => {
+            CryptoOp::AesKf1 => {
                 // zimm5 = vs1 field as round number (1..10 valid).
                 let rnd = (inst >> 15) & 0x1f;
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = aes_kf1(prev, rnd);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VAesKf2 => {
+            CryptoOp::AesKf2 => {
                 let rnd = (inst >> 15) & 0x1f;
                 let curr = read_egs4_u32(vpr, vd_idx, base);
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = aes_kf2(curr, prev, rnd);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSha2Ms => {
+            CryptoOp::Sha2Ms => {
                 let vd = read_egs4_u32(vpr, vd_idx, base);
                 let vs2 = read_egs4_u32(vpr, vs2_idx, base);
                 let vs1 = read_egs4_u32(vpr, vs1_idx, base);
                 let r = sha256_ms(vd, vs2, vs1);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSha2Cl => {
+            CryptoOp::Sha2Cl => {
                 let vd = read_egs4_u32(vpr, vd_idx, base);
                 let vs2 = read_egs4_u32(vpr, vs2_idx, base);
                 let vs1 = read_egs4_u32(vpr, vs1_idx, base);
                 let r = sha256_compress_low(vd, vs2, vs1);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSha2Ch => {
+            CryptoOp::Sha2Ch => {
                 let vd = read_egs4_u32(vpr, vd_idx, base);
                 let vs2 = read_egs4_u32(vpr, vs2_idx, base);
                 let vs1 = read_egs4_u32(vpr, vs1_idx, base);
                 let r = sha256_compress_high(vd, vs2, vs1);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSm3Me => {
+            CryptoOp::Sm3Me => {
                 let vs1 = read_egs8_u32(vpr, vs1_idx, base);
                 let vs2 = read_egs8_u32(vpr, vs2_idx, base);
                 let r = sm3_me(vs1, vs2);
                 write_egs8_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSm3C => {
+            CryptoOp::Sm3C => {
                 let rnd = (inst >> 15) & 0x1f;
                 let vd = read_egs8_u32(vpr, vd_idx, base);
                 let vs2 = read_egs8_u32(vpr, vs2_idx, base);
                 let r = sm3_c(vd, vs2, rnd);
                 write_egs8_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSm4R => {
+            CryptoOp::Sm4R => {
                 let vd = read_egs4_u32(vpr, vd_idx, base);
                 let vs2 = read_egs4_u32(vpr, vs2_idx, key_base(base));
                 let r = sm4_r(vd, vs2);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VSm4K => {
+            CryptoOp::Sm4K => {
                 let rnd = (inst >> 15) & 0x1f;
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = sm4_k(prev, rnd);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VGmul => {
+            CryptoOp::Gmul => {
                 let vd = read_egs4_u32(vpr, vd_idx, base);
                 let vs2 = read_egs4_u32(vpr, vs2_idx, base);
                 let r = gf128_mul(vd, vs2);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            VectorOp::VGhsh => {
+            CryptoOp::Ghsh => {
                 // Per Zvkg: vd = (vd ^ vs1) * vs2  (Y partial-hash, X cipher
                 // output, H subkey).
                 let vd = read_egs4_u32(vpr, vd_idx, base);
@@ -248,7 +248,6 @@ pub fn execute_crypto(
                 let r = gf128_mul(xored, vs2);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
-            _ => unreachable!("execute_crypto called with non-crypto op {:?}", op),
         }
         base += egs;
     }

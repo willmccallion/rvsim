@@ -191,7 +191,7 @@ impl FuType {
 
             VFSlide1Up | VFSlide1Down | VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM
             | VMOrnMM | VMXorMM | VMXnorMM | VCPopM | VFirstM | VMSbfM | VMSifM | VMSofM
-            | VIotaM | VIdV | VMvXS | VMvSX | VSlideUp | VSlideDown | VSlide1Up | VSlide1Down
+            | VIotaM | VIdV | VMvXS | VMvSX | VSlideUp(_) | VSlideDown(_) | VSlide1Up | VSlide1Down
             | VRgather | VRgatherEi16 | VCompress | VMv1r | VMv2r | VMv4r | VMv8r => {
                 Self::VecPermute
             }
@@ -538,7 +538,10 @@ mod tests {
 
     #[test]
     fn test_classify_vec_permute() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VSlideUp, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: VectorOp::VSlideUp(crate::isa::op::SlideOffset::Rs1),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecPermute);
     }
 

@@ -26,11 +26,13 @@ use crate::exec::compute::fpu::nan_handling::{
 };
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, sign_extend, widen_sew,
+    FpSew, FpWiden, VecExecCtx, VecExecResult, mask_active, sign_extend, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
-use crate::isa::op::VectorOp;
+use crate::isa::op::{
+    FpReduceOp, FpWidenReduceOp, IntReduceOp, ReduceOp, VectorOp, WidenIntReduceOp,
+};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
 
 /// Returns `true` if `op` is a reduction handled by this module.
@@ -56,77 +58,48 @@ pub const fn is_reduction(op: VectorOp) -> bool {
     )
 }
 
-/// Execute a reduction operation.
+/// Execute a reduction of `vs2` seeded from `vs1[0]`.
 ///
-/// The initial accumulator is extracted from `operand1` (which carries vs1\[0\]).
-/// Results are written to `vd[0]` in the VPR; remaining elements follow tail policy.
+/// Results are written to `vd[0]` in the VPR; remaining elements follow the
+/// tail policy.
 ///
 /// # Integer reductions
 ///
-/// `VRedSum`, `VRedAnd`, `VRedOr`, `VRedXor`, `VRedMinU`, `VRedMin`,
-/// `VRedMaxU`, `VRedMax` operate at SEW width.
+/// Operate at SEW width.
 ///
 /// # Widening integer reductions
 ///
-/// `VWRedSumU` and `VWRedSum` read source elements at SEW, extend to 2*SEW,
-/// and accumulate at 2*SEW width.
+/// Read source elements at SEW, extend to 2*SEW, and accumulate at 2*SEW.
 ///
 /// # FP reductions
 ///
-/// `VFRedOSum`, `VFRedUSum`, `VFRedMax`, `VFRedMin` operate at SEW (32 or 64).
-/// Ordered sums process elements sequentially; unordered sums use the same
-/// sequential ordering for deterministic results.
+/// Operate at SEW (16 with Zvfh, 32 or 64). Ordered sums process elements
+/// sequentially; unordered sums use the same sequential ordering for
+/// deterministic results.
 ///
 /// # FP widening reductions
 ///
-/// `VFWRedOSum`, `VFWRedUSum` read source elements at SEW (E32), widen to
-/// f64, and accumulate at 2*SEW (E64).
-#[allow(clippy::too_many_arguments)]
+/// Read source elements at SEW, widen, and accumulate at 2*SEW.
 pub fn vec_reduce(
-    op: VectorOp,
+    op: ReduceOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     match op {
-        VectorOp::VRedSum
-        | VectorOp::VRedAnd
-        | VectorOp::VRedOr
-        | VectorOp::VRedXor
-        | VectorOp::VRedMinU
-        | VectorOp::VRedMin
-        | VectorOp::VRedMaxU
-        | VectorOp::VRedMax => exec_int_reduction(op, vpr, vd, vs2, operand1, ctx),
-
-        VectorOp::VWRedSumU | VectorOp::VWRedSum => {
-            exec_widen_int_reduction(op, vpr, vd, vs2, operand1, ctx)
-        }
-
-        VectorOp::VFRedOSum | VectorOp::VFRedUSum | VectorOp::VFRedMax | VectorOp::VFRedMin => {
-            exec_fp_reduction(op, vpr, vd, vs2, operand1, ctx)
-        }
-
-        VectorOp::VFWRedOSum | VectorOp::VFWRedUSum => {
-            exec_fp_widen_reduction(op, vpr, vd, vs2, operand1, ctx)
-        }
-
-        _ => unreachable!("vec_reduce called with non-reduction op: {:?}", op),
+        ReduceOp::Int(op) => exec_int_reduction(op, vpr, vd, vs2, vs1, ctx),
+        ReduceOp::WidenInt(op) => exec_widen_int_reduction(op, vpr, vd, vs2, vs1, ctx),
+        ReduceOp::Fp(op) => exec_fp_reduction(op, vpr, vd, vs2, vs1, ctx),
+        ReduceOp::FpWiden(op) => exec_fp_widen_reduction(op, vpr, vd, vs2, vs1, ctx),
     }
 }
 
-/// Read the initial accumulator value from `operand1` at the given element width.
-///
-/// For `VecOperand::Vector(vs1)` this reads element 0 from the vector register.
-/// For scalar/immediate operands the value is masked to the element width.
+/// The initial accumulator: element 0 of `vs1` at `sew`.
 #[inline]
-fn read_initial_accum(vpr: &impl VectorRegFile, operand1: &VecOperand, sew: Sew) -> u64 {
-    match operand1 {
-        VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(0), sew),
-        VecOperand::Scalar(s) => *s & sew.mask(),
-        VecOperand::Immediate(imm) => (*imm as u64) & sew.mask(),
-    }
+fn read_initial_accum(vpr: &impl VectorRegFile, vs1: VRegIdx, sew: Sew) -> u64 {
+    vpr.read_element(vs1, ElemIdx::new(0), sew)
 }
 
 /// Execute an integer reduction at SEW width.
@@ -135,17 +108,17 @@ fn read_initial_accum(vpr: &impl VectorRegFile, operand1: &VecOperand, sew: Sew)
 /// from `vs1[0]`) using the operation specified by `op`. The result is written
 /// to `vd[0]`; elements `1..vlmax` of `vd` follow the tail policy.
 fn exec_int_reduction(
-    op: VectorOp,
+    op: IntReduceOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let sew = ctx.sew;
     let mask = sew.mask();
 
-    let mut acc = read_initial_accum(vpr, operand1, sew);
+    let mut acc = read_initial_accum(vpr, vs1, sew);
 
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
@@ -172,37 +145,36 @@ fn exec_int_reduction(
 /// Combines the current accumulator with a new element according to the
 /// reduction operation.
 #[inline]
-fn int_reduce_step(op: VectorOp, acc: u64, elem: u64, sew: Sew, mask: u64) -> u64 {
+const fn int_reduce_step(op: IntReduceOp, acc: u64, elem: u64, sew: Sew, mask: u64) -> u64 {
     match op {
-        VectorOp::VRedSum => acc.wrapping_add(elem) & mask,
-        VectorOp::VRedAnd => acc & elem,
-        VectorOp::VRedOr => acc | elem,
-        VectorOp::VRedXor => acc ^ elem,
-        VectorOp::VRedMinU => {
+        IntReduceOp::Sum => acc.wrapping_add(elem) & mask,
+        IntReduceOp::And => acc & elem,
+        IntReduceOp::Or => acc | elem,
+        IntReduceOp::Xor => acc ^ elem,
+        IntReduceOp::MinU => {
             if elem < acc {
                 elem
             } else {
                 acc
             }
         }
-        VectorOp::VRedMin => {
+        IntReduceOp::Min => {
             let sa = sign_extend(acc, sew);
             let se = sign_extend(elem, sew);
             if se < sa { elem } else { acc }
         }
-        VectorOp::VRedMaxU => {
+        IntReduceOp::MaxU => {
             if elem > acc {
                 elem
             } else {
                 acc
             }
         }
-        VectorOp::VRedMax => {
+        IntReduceOp::Max => {
             let sa = sign_extend(acc, sew);
             let se = sign_extend(elem, sew);
             if se > sa { elem } else { acc }
         }
-        _ => unreachable!(),
     }
 }
 
@@ -211,11 +183,11 @@ fn int_reduce_step(op: VectorOp, acc: u64, elem: u64, sew: Sew, mask: u64) -> u6
 /// Source elements are read at SEW and extended to 2*SEW before accumulation.
 /// The accumulator (from `vs1[0]`) and the result are at 2*SEW width.
 fn exec_widen_int_reduction(
-    op: VectorOp,
+    op: WidenIntReduceOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let src_sew = ctx.sew;
@@ -224,7 +196,7 @@ fn exec_widen_int_reduction(
     };
     let dst_mask = dst_sew.mask();
 
-    let mut acc = read_initial_accum(vpr, operand1, dst_sew);
+    let mut acc = read_initial_accum(vpr, vs1, dst_sew);
 
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
@@ -233,9 +205,8 @@ fn exec_widen_int_reduction(
         let elem = vpr.read_element(vs2, ElemIdx::new(i), src_sew);
 
         let wide = match op {
-            VectorOp::VWRedSumU => elem,
-            VectorOp::VWRedSum => (sign_extend(elem, src_sew) as u64) & dst_mask,
-            _ => unreachable!(),
+            WidenIntReduceOp::SumU => elem,
+            WidenIntReduceOp::Sum => (sign_extend(elem, src_sew) as u64) & dst_mask,
         };
 
         acc = acc.wrapping_add(wide) & dst_mask;
@@ -262,37 +233,25 @@ fn exec_widen_int_reduction(
 /// FP min/max reductions (`VFRedMin`, `VFRedMax`) use IEEE 754-2008 minNum/maxNum
 /// semantics, matching the scalar `fmin`/`fmax` helpers.
 fn exec_fp_reduction(
-    op: VectorOp,
+    op: FpReduceOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let sew = ctx.sew;
+    let Some(fp_sew) = FpSew::of(sew, ctx.zvfh) else {
+        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+    };
 
     let saved_rm = set_host_round_mode(ctx.frm);
-    let flags = match sew {
-        Sew::E16 if ctx.zvfh => {
-            let (result_bits, flags) = fp_reduce_f16(op, vpr, vs2, operand1, ctx);
-            vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            flags
-        }
-        Sew::E32 => {
-            let (result_bits, flags) = fp_reduce_f32(op, vpr, vs2, operand1, ctx);
-            vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            flags
-        }
-        Sew::E64 => {
-            let (result_bits, flags) = fp_reduce_f64(op, vpr, vs2, operand1, ctx);
-            vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
-            flags
-        }
-        _ => {
-            restore_host_round_mode(saved_rm);
-            return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
-        }
+    let (result_bits, flags) = match fp_sew {
+        FpSew::F16 => fp_reduce_f16(op, vpr, vs2, vs1, ctx),
+        FpSew::F32 => fp_reduce_f32(op, vpr, vs2, vs1, ctx),
+        FpSew::F64 => fp_reduce_f64(op, vpr, vs2, vs1, ctx),
     };
+    vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
     restore_host_round_mode(saved_rm);
 
     if ctx.vta.is_agnostic() {
@@ -310,14 +269,14 @@ fn exec_fp_reduction(
 /// Returns `(result_bits, fp_flags)` where `result_bits` is the NaN-boxed
 /// canonical f32 result suitable for writing at SEW=32.
 fn fp_reduce_f32(
-    op: VectorOp,
+    op: FpReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
     let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, operand1, sew);
+    let init_bits = read_initial_accum(vpr, vs1, sew);
     let mut acc = f32::from_bits(init_bits as u32);
     let mut flags = FpFlags::NONE;
 
@@ -329,24 +288,23 @@ fn fp_reduce_f32(
         let elem = f32::from_bits(elem_bits as u32);
 
         match op {
-            VectorOp::VFRedOSum | VectorOp::VFRedUSum => {
+            FpReduceOp::OSum | FpReduceOp::USum => {
                 clear_host_fp_flags();
                 acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(elem));
                 flags = flags | read_host_fp_flags();
             }
-            VectorOp::VFRedMin => {
+            FpReduceOp::Min => {
                 if is_snan_f32(acc) || is_snan_f32(elem) {
                     flags = flags | FpFlags::NV;
                 }
                 acc = fmin_f32(acc, elem);
             }
-            VectorOp::VFRedMax => {
+            FpReduceOp::Max => {
                 if is_snan_f32(acc) || is_snan_f32(elem) {
                     flags = flags | FpFlags::NV;
                 }
                 acc = fmax_f32(acc, elem);
             }
-            _ => unreachable!(),
         }
     }
 
@@ -358,14 +316,14 @@ fn fp_reduce_f32(
 /// Returns `(result_bits, fp_flags)` where `result_bits` is the canonicalized
 /// f64 bit pattern suitable for writing at SEW=64.
 fn fp_reduce_f64(
-    op: VectorOp,
+    op: FpReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
     let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, operand1, sew);
+    let init_bits = read_initial_accum(vpr, vs1, sew);
     let mut acc = f64::from_bits(init_bits);
     let mut flags = FpFlags::NONE;
 
@@ -377,24 +335,23 @@ fn fp_reduce_f64(
         let elem = f64::from_bits(elem_bits);
 
         match op {
-            VectorOp::VFRedOSum | VectorOp::VFRedUSum => {
+            FpReduceOp::OSum | FpReduceOp::USum => {
                 clear_host_fp_flags();
                 acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(elem));
                 flags = flags | read_host_fp_flags();
             }
-            VectorOp::VFRedMin => {
+            FpReduceOp::Min => {
                 if is_snan_f64(acc) || is_snan_f64(elem) {
                     flags = flags | FpFlags::NV;
                 }
                 acc = fmin_f64(acc, elem);
             }
-            VectorOp::VFRedMax => {
+            FpReduceOp::Max => {
                 if is_snan_f64(acc) || is_snan_f64(elem) {
                     flags = flags | FpFlags::NV;
                 }
                 acc = fmax_f64(acc, elem);
             }
-            _ => unreachable!(),
         }
     }
 
@@ -411,14 +368,14 @@ fn fp_reduce_f64(
 /// Returns `(result_bits, fp_flags)` where the f16 bit pattern is in the low
 /// 16 bits of the u64 (upper bits zero).
 fn fp_reduce_f16(
-    op: VectorOp,
+    op: FpReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
     let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, operand1, sew) as u16;
+    let init_bits = read_initial_accum(vpr, vs1, sew) as u16;
     let mut acc_bits: u16 = init_bits;
     let mut flags = FpFlags::NONE;
 
@@ -429,7 +386,7 @@ fn fp_reduce_f16(
         let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), sew) as u16;
 
         match op {
-            VectorOp::VFRedOSum | VectorOp::VFRedUSum => {
+            FpReduceOp::OSum | FpReduceOp::USum => {
                 if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
                     flags = flags | FpFlags::NV;
                 }
@@ -444,7 +401,7 @@ fn fp_reduce_f16(
                 acc_bits = rounded;
                 flags = flags | host_flags | round_flags;
             }
-            VectorOp::VFRedMin => {
+            FpReduceOp::Min => {
                 if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
                     flags = flags | FpFlags::NV;
                 }
@@ -458,7 +415,7 @@ fn fp_reduce_f16(
                     bits
                 };
             }
-            VectorOp::VFRedMax => {
+            FpReduceOp::Max => {
                 if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
                     flags = flags | FpFlags::NV;
                 }
@@ -472,7 +429,6 @@ fn fp_reduce_f16(
                     bits
                 };
             }
-            _ => unreachable!(),
         }
     }
 
@@ -486,25 +442,22 @@ fn fp_reduce_f16(
 /// precision. Supported widenings: E32→E64, and E16→E32 when Zvfh is
 /// enabled.
 fn exec_fp_widen_reduction(
-    op: VectorOp,
+    op: FpWidenReduceOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let src_sew = ctx.sew;
-    let Some(dst_sew) = widen_sew(src_sew) else {
+    let Some(widen) = FpSew::of(ctx.sew, ctx.zvfh).and_then(FpSew::widening) else {
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
     };
+    let dst_sew = widen.dst();
     let saved_rm = set_host_round_mode(ctx.frm);
 
-    let (result_bits, flags) = match (src_sew, dst_sew) {
-        (Sew::E32, Sew::E64) => fp_widen_reduce_f32_to_f64(op, vpr, vs2, operand1, ctx, dst_sew),
-        (Sew::E16, Sew::E32) if ctx.zvfh => {
-            fp_widen_reduce_f16_to_f32(op, vpr, vs2, operand1, ctx, dst_sew)
-        }
-        _ => unreachable!("widening FP reduction unsupported src={:?} dst={:?}", src_sew, dst_sew),
+    let (result_bits, flags) = match widen {
+        FpWiden::F32ToF64 => fp_widen_reduce_f32_to_f64(op, vpr, vs2, vs1, ctx, dst_sew),
+        FpWiden::F16ToF32 => fp_widen_reduce_f16_to_f32(op, vpr, vs2, vs1, ctx, dst_sew),
     };
 
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, result_bits);
@@ -523,14 +476,14 @@ fn exec_fp_widen_reduction(
 
 /// E32→E64 widening FP reduction. Accumulator is f64, source elements f32.
 fn fp_widen_reduce_f32_to_f64(
-    op: VectorOp,
+    op: FpWidenReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
     dst_sew: Sew,
 ) -> (u64, FpFlags) {
-    let init_bits = read_initial_accum(vpr, operand1, dst_sew);
+    let init_bits = read_initial_accum(vpr, vs1, dst_sew);
     let mut acc = f64::from_bits(init_bits);
     let mut flags = FpFlags::NONE;
     for i in ctx.vstart..ctx.vl {
@@ -540,12 +493,11 @@ fn fp_widen_reduce_f32_to_f64(
         let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), Sew::E32) as u32;
         let wide = f32::from_bits(elem_bits) as f64;
         match op {
-            VectorOp::VFWRedOSum | VectorOp::VFWRedUSum => {
+            FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
                 clear_host_fp_flags();
                 acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(wide));
                 flags = flags | read_host_fp_flags();
             }
-            _ => unreachable!(),
         }
     }
     (canonicalize_f64_bits(acc), flags)
@@ -553,14 +505,14 @@ fn fp_widen_reduce_f32_to_f64(
 
 /// E16→E32 widening FP reduction (Zvfh). Accumulator is f32, source elements f16.
 fn fp_widen_reduce_f16_to_f32(
-    op: VectorOp,
+    op: FpWidenReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
     dst_sew: Sew,
 ) -> (u64, FpFlags) {
-    let init_bits = read_initial_accum(vpr, operand1, dst_sew) as u32;
+    let init_bits = read_initial_accum(vpr, vs1, dst_sew) as u32;
     let mut acc = f32::from_bits(init_bits);
     let mut flags = FpFlags::NONE;
     for i in ctx.vstart..ctx.vl {
@@ -570,7 +522,7 @@ fn fp_widen_reduce_f16_to_f32(
         let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), Sew::E16) as u16;
         let wide = f16_to_f32(elem_bits);
         match op {
-            VectorOp::VFWRedOSum | VectorOp::VFWRedUSum => {
+            FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
                 if is_snan_f16(elem_bits) {
                     flags = flags | FpFlags::NV;
                 }
@@ -578,7 +530,6 @@ fn fp_widen_reduce_f16_to_f32(
                 acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(wide));
                 flags = flags | read_host_fp_flags();
             }
-            _ => unreachable!(),
         }
     }
     (box_f32_canon(acc), flags)
@@ -588,6 +539,15 @@ fn fp_widen_reduce_f16_to_f32(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::isa::op::VecClass;
+
+    /// The reduction `op` decodes to.
+    fn reduce_op(op: VectorOp) -> ReduceOp {
+        match op.class() {
+            VecClass::Reduce(reduce) => reduce,
+            other => panic!("{op:?} is not a reduction: {other:?}"),
+        }
+    }
     use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
@@ -627,8 +587,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 100);
 
-        let operand1 = VecOperand::Vector(vs1);
-        let _result = vec_reduce(VectorOp::VRedSum, &mut vpr, vd, vs2, &operand1, &ctx);
+        let _result = vec_reduce(reduce_op(VectorOp::VRedSum), &mut vpr, vd, vs2, vs1, &ctx);
         // 100 + 10 + 20 + 30 + 40 = 200
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 200);
     }
@@ -646,8 +605,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 0xFFFF_FFFF);
 
-        let operand1 = VecOperand::Vector(vs1);
-        let _result = vec_reduce(VectorOp::VRedAnd, &mut vpr, vd, vs2, &operand1, &ctx);
+        let _result = vec_reduce(reduce_op(VectorOp::VRedAnd), &mut vpr, vd, vs2, vs1, &ctx);
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 0xFF);
     }
 
@@ -667,8 +625,7 @@ mod tests {
         // accumulator = 100
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 100);
 
-        let operand1 = VecOperand::Vector(vs1);
-        let _result = vec_reduce(VectorOp::VRedMin, &mut vpr, vd, vs2, &operand1, &ctx);
+        let _result = vec_reduce(reduce_op(VectorOp::VRedMin), &mut vpr, vd, vs2, vs1, &ctx);
         // min(100, 5, -3, 10, 1) = -3
         let val = vpr.read_element(vd, ElemIdx::new(0), Sew::E32);
         assert_eq!(val as u32, (-3i32) as u32);
@@ -688,8 +645,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 10.0f32.to_bits() as u64);
 
-        let operand1 = VecOperand::Vector(vs1);
-        let _result = vec_reduce(VectorOp::VFRedOSum, &mut vpr, vd, vs2, &operand1, &ctx);
+        let _result = vec_reduce(reduce_op(VectorOp::VFRedOSum), &mut vpr, vd, vs2, vs1, &ctx);
         let val = f32::from_bits(vpr.read_element(vd, ElemIdx::new(0), Sew::E32) as u32);
         assert_eq!(val, 20.0); // 10 + 1 + 2 + 3 + 4
     }

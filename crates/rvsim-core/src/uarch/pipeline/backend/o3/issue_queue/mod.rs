@@ -206,9 +206,9 @@ impl IssueQueue {
         vec_prf: Option<&VecPhysRegFile>,
         mem_dep: MemDepState,
     ) -> bool {
-        if self.count >= self.capacity {
+        let Some(free) = self.slots.iter().position(Option::is_none) else {
             return false;
-        }
+        };
 
         let (src1, src2, src3) = if let Some(prf) = prf {
             let s1 = resolve_operand_prf(
@@ -297,15 +297,9 @@ impl IssueQueue {
             needs_mask,
         };
 
-        for slot in &mut self.slots {
-            if slot.is_none() {
-                *slot = Some(iq_entry);
-                self.count += 1;
-                return true;
-            }
-        }
-
-        unreachable!("count < capacity but no free slot found");
+        self.slots[free] = Some(iq_entry);
+        self.count += 1;
+        true
     }
 
     /// Broadcast a completed result via physical register (PRF wakeup path).

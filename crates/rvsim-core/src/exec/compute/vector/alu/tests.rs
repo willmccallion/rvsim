@@ -3,11 +3,20 @@
 use super::*;
 use crate::arch::regs::vpr::Vpr;
 use crate::exec::compute::vector::context::{VecExecResult, VecOperand};
+use crate::isa::op::{VecAluOp, VecClass, VectorOp};
 use crate::isa::rvv::{ElemIdx, Vlen};
 
 /// Helper: create a 128-bit VLEN VPR.
 fn make_vpr() -> Vpr {
     Vpr::new(Vlen::new_unchecked(128))
+}
+
+/// The ALU operation `op` decodes to.
+fn alu(op: VectorOp) -> VecAluOp {
+    match op.class() {
+        VecClass::Alu(op) => op,
+        other => panic!("{op:?} is not an ALU op: {other:?}"),
+    }
 }
 
 /// Helper: execute with common defaults (LMUL=1, unmasked, vstart=0,
@@ -22,7 +31,7 @@ fn run(
     vl: usize,
 ) -> VecExecResult {
     vec_execute(
-        op,
+        alu(op),
         vpr,
         vd,
         vs2,
@@ -200,7 +209,7 @@ fn test_vwaddu() {
     // E16 + E16 → E32
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 0xFFFF);
     let res = vec_execute(
-        VectorOp::VWAddU,
+        alu(VectorOp::VWAddU),
         &mut vpr,
         vd,
         vs2,
@@ -236,7 +245,7 @@ fn test_vwaddu_mf8_widen() {
     }
 
     let _ = vec_execute(
-        VectorOp::VWAddU,
+        alu(VectorOp::VWAddU),
         &mut vpr,
         vd,
         vs2,
@@ -267,7 +276,7 @@ fn test_vwadd_signed() {
     // -1 at E8 (0xFF) + -2 at E8 (0xFE) → -3 at E16 (0xFFFD)
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        VectorOp::VWAdd,
+        alu(VectorOp::VWAdd),
         &mut vpr,
         vd,
         vs2,
@@ -329,7 +338,7 @@ fn test_masked_operation() {
     vpr.write_element(vd, ElemIdx::new(1), Sew::E32, 0xBEEF);
 
     let _ = vec_execute(
-        VectorOp::VAdd,
+        alu(VectorOp::VAdd),
         &mut vpr,
         vd,
         vs2,
@@ -361,7 +370,7 @@ fn test_tail_agnostic() {
     vpr.write_element(vd, ElemIdx::new(1), Sew::E32, 0x1234);
 
     let _ = vec_execute(
-        VectorOp::VAdd,
+        alu(VectorOp::VAdd),
         &mut vpr,
         vd,
         vs2,
@@ -395,7 +404,7 @@ fn test_vmerge() {
     vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, 0xBBBB);
 
     let _ = vec_execute(
-        VectorOp::VMerge,
+        alu(VectorOp::VMerge),
         &mut vpr,
         vd,
         vs2,
@@ -439,7 +448,7 @@ fn test_vsext_vf2() {
     // Write -1 as E8 (0xFF), sign-extend to E16 should be 0xFFFF
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        VectorOp::VSextVf2,
+        alu(VectorOp::VSextVf2),
         &mut vpr,
         vd,
         vs2,
@@ -464,7 +473,7 @@ fn test_vzext_vf2() {
 
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        VectorOp::VZextVf2,
+        alu(VectorOp::VZextVf2),
         &mut vpr,
         vd,
         vs2,
@@ -492,7 +501,7 @@ fn test_vadc() {
     vpr.write_mask_bit(v0, ElemIdx::new(0), true); // carry = 1
 
     let _ = vec_execute(
-        VectorOp::VAdc,
+        alu(VectorOp::VAdc),
         &mut vpr,
         vd,
         vs2,
@@ -520,7 +529,7 @@ fn test_vnsrl() {
     // Write 0x1234 at E16, narrow to E8 with shift right by 8
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 0x1234);
     let _ = vec_execute(
-        VectorOp::VNSrl,
+        alu(VectorOp::VNSrl),
         &mut vpr,
         vd,
         vs2,

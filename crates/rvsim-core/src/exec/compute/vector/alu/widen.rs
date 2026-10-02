@@ -1,19 +1,18 @@
 //! Widening and narrowing integer operations.
 
 use crate::exec::compute::vector::alu::integer::rounding_incr;
-use crate::exec::compute::vector::alu::is_wide_vs2;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{NarrowOp, WidenMaccOp, WidenOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vxrm};
 
 /// Compute one widening element. Reads sources at `sew`, writes at `wsew`.
 /// For `.w` variants, vs2 is already at `wsew`.
 #[inline]
-pub(super) fn compute_widening(
-    op: VectorOp,
+pub(super) const fn compute_widening(
+    op: WidenOp,
     vs2_val: u64,
     op1_val: u64,
     sew: Sew,
@@ -32,43 +31,41 @@ pub(super) fn compute_widening(
     let u2_wide = vs2_val & wmask;
 
     match op {
-        VectorOp::VWAddU => u2_narrow.wrapping_add(u1) & wmask,
-        VectorOp::VWAdd => s2_narrow.wrapping_add(s1) & wmask,
-        VectorOp::VWSubU => u2_narrow.wrapping_sub(u1) & wmask,
-        VectorOp::VWSub => s2_narrow.wrapping_sub(s1) & wmask,
+        WidenOp::AddU => u2_narrow.wrapping_add(u1) & wmask,
+        WidenOp::Add => s2_narrow.wrapping_add(s1) & wmask,
+        WidenOp::SubU => u2_narrow.wrapping_sub(u1) & wmask,
+        WidenOp::Sub => s2_narrow.wrapping_sub(s1) & wmask,
 
-        VectorOp::VWAddUW => u2_wide.wrapping_add(u1) & wmask,
-        VectorOp::VWAddW => s2_wide.wrapping_add(s1) & wmask,
-        VectorOp::VWSubUW => u2_wide.wrapping_sub(u1) & wmask,
-        VectorOp::VWSubW => s2_wide.wrapping_sub(s1) & wmask,
+        WidenOp::AddUW => u2_wide.wrapping_add(u1) & wmask,
+        WidenOp::AddW => s2_wide.wrapping_add(s1) & wmask,
+        WidenOp::SubUW => u2_wide.wrapping_sub(u1) & wmask,
+        WidenOp::SubW => s2_wide.wrapping_sub(s1) & wmask,
 
-        VectorOp::VWMulU => {
+        WidenOp::MulU => {
             let prod = (u2_narrow as u128) * (u1 as u128);
             prod as u64 & wmask
         }
-        VectorOp::VWMul => {
+        WidenOp::Mul => {
             let prod = (sign_extend(vs2_val, sew) as i128) * (sign_extend(op1_val, sew) as i128);
             prod as u64 & wmask
         }
-        VectorOp::VWMulSU => {
+        WidenOp::MulSU => {
             let prod = (sign_extend(vs2_val, sew) as i128) * (u1 as i128);
             prod as u64 & wmask
         }
 
-        VectorOp::VWsll => {
+        WidenOp::Sll => {
             let wbits = wsew.bits() as u64;
             let shamt = (op1_val & (wbits - 1)) as u32;
             (u2_narrow << shamt) & wmask
         }
-
-        _ => unreachable!(),
     }
 }
 
 /// Compute one widening multiply-accumulate element.
 #[inline]
-pub(super) fn compute_widening_macc(
-    op: VectorOp,
+pub(super) const fn compute_widening_macc(
+    op: WidenMaccOp,
     vs2_val: u64,
     op1_val: u64,
     vd_val: u64,
@@ -81,33 +78,32 @@ pub(super) fn compute_widening_macc(
     let acc = vd_val & wmask;
 
     match op {
-        VectorOp::VWMaccU => {
+        WidenMaccOp::MaccU => {
             let prod = (u2 as u128) * (u1 as u128);
             (prod as u64).wrapping_add(acc) & wmask
         }
-        VectorOp::VWMacc => {
+        WidenMaccOp::Macc => {
             let prod = (sign_extend(vs2_val, sew) as i128) * (sign_extend(op1_val, sew) as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
-        VectorOp::VWMaccSU => {
+        WidenMaccOp::MaccSU => {
             // signed(rs1/vs1) * unsigned(vs2)
             let prod = (sign_extend(op1_val, sew) as i128) * (u2 as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
-        VectorOp::VWMaccUS => {
+        WidenMaccOp::MaccUS => {
             // unsigned(rs1) * signed(vs2)  (.vx form only)
             let prod = (u1 as i128) * (sign_extend(vs2_val, sew) as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
-        _ => unreachable!(),
     }
 }
 
 /// Compute one narrowing element. Reads vs2 at `wsew` (2*SEW), shift amount
 /// from op1 at `sew`, writes result at `sew`.
 #[inline]
-pub(super) fn compute_narrowing(
-    op: VectorOp,
+pub(super) const fn compute_narrowing(
+    op: NarrowOp,
     vs2_val: u64,
     op1_val: u64,
     sew: Sew,
@@ -119,21 +115,21 @@ pub(super) fn compute_narrowing(
     let shamt = (op1_val & (wbits as u64 - 1)) as u32;
 
     match op {
-        VectorOp::VNSrl => {
+        NarrowOp::Srl => {
             let result = vs2_val >> shamt;
             (result & mask, false)
         }
-        VectorOp::VNSra => {
+        NarrowOp::Sra => {
             let s = sign_extend(vs2_val, wsew);
             let result = (s >> shamt) as u64;
             (result & mask, false)
         }
-        VectorOp::VNClipU => {
+        NarrowOp::ClipU => {
             let r = rounding_incr(vs2_val, shamt, vxrm);
             let shifted = (vs2_val >> shamt).wrapping_add(r);
             if shifted > mask { (mask, true) } else { (shifted & mask, false) }
         }
-        VectorOp::VNClip => {
+        NarrowOp::Clip => {
             let s = sign_extend(vs2_val, wsew);
             let r = rounding_incr(vs2_val, shamt, vxrm) as i64;
             let shifted = (s >> shamt).wrapping_add(r);
@@ -147,13 +143,12 @@ pub(super) fn compute_narrowing(
                 (shifted as u64 & mask, false)
             }
         }
-        _ => unreachable!(),
     }
 }
 
 /// Widening (non-accumulate) loop.
 pub(super) fn exec_widening(
-    op: VectorOp,
+    op: WidenOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -169,7 +164,7 @@ pub(super) fn exec_widening(
     };
     // Destination VLMAX is computed at the wider SEW with doubled LMUL.
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let vs2_sew = if is_wide_vs2(op) { wsew } else { ctx.sew };
+    let vs2_sew = if op.reads_wide_vs2() { wsew } else { ctx.sew };
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -199,7 +194,7 @@ pub(super) fn exec_widening(
 
 /// Widening multiply-accumulate loop.
 pub(super) fn exec_widening_macc(
-    op: VectorOp,
+    op: WidenMaccOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -244,7 +239,7 @@ pub(super) fn exec_widening_macc(
 
 /// Narrowing loop.
 pub(super) fn exec_narrowing(
-    op: VectorOp,
+    op: NarrowOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,

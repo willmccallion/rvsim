@@ -227,6 +227,48 @@ pub fn execute_full(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> (u64, FpFl
     (result, flags)
 }
 
+/// The integer type an `fcvt` from floating point produces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IntTarget {
+    I32,
+    U32,
+    I64,
+    U64,
+}
+
+impl IntTarget {
+    /// The target of `op`, when it converts floating point to an integer.
+    const fn of(op: AluOp) -> Option<Self> {
+        match op {
+            AluOp::FCvtWS => Some(Self::I32),
+            AluOp::FCvtWUS => Some(Self::U32),
+            AluOp::FCvtLS => Some(Self::I64),
+            AluOp::FCvtLUS => Some(Self::U64),
+            _ => None,
+        }
+    }
+
+    /// The largest value, as the sign-extended register image RISC-V
+    /// writes for the type.
+    const fn max(self) -> u64 {
+        match self {
+            Self::I32 => i32::MAX as i64 as u64,
+            Self::U32 => u32::MAX as i32 as i64 as u64,
+            Self::I64 => i64::MAX as u64,
+            Self::U64 => u64::MAX,
+        }
+    }
+
+    /// The smallest value, as the register image.
+    const fn min(self) -> u64 {
+        match self {
+            Self::I32 => i32::MIN as i64 as u64,
+            Self::U32 | Self::U64 => 0,
+            Self::I64 => i64::MIN as u64,
+        }
+    }
+}
+
 /// Executes a floating-point operation with an explicit rounding mode,
 /// returning the result and accrued exception flags.
 ///
@@ -248,56 +290,19 @@ pub fn execute_full_rm(
         return execute_f16(op, a, b, c, rm);
     }
     // Float-to-integer conversions need rounding-mode-aware handling.
-    if matches!(op, AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS) {
+    if let Some(target) = IntTarget::of(op) {
         let val = if is32 { unbox_f32(a) as f64 } else { f64::from_bits(a) };
         let mut flags = FpFlags::NONE;
 
         if val.is_nan() {
             // NaN → positive max for the target type
             flags = flags | FpFlags::NV;
-            let result = match op {
-                AluOp::FCvtWS => i32::MAX as i64 as u64,
-                AluOp::FCvtWUS => u32::MAX as i32 as i64 as u64,
-                AluOp::FCvtLS => i64::MAX as u64,
-                AluOp::FCvtLUS => u64::MAX,
-                _ => unreachable!(),
-            };
-            return (result, flags);
+            return (target.max(), flags);
         }
 
         if val.is_infinite() {
             flags = flags | FpFlags::NV;
-            let result = match op {
-                AluOp::FCvtWS => {
-                    if val > 0.0 {
-                        i32::MAX as i64 as u64
-                    } else {
-                        i32::MIN as i64 as u64
-                    }
-                }
-                AluOp::FCvtWUS => {
-                    if val > 0.0 {
-                        u32::MAX as i32 as i64 as u64
-                    } else {
-                        0
-                    }
-                }
-                AluOp::FCvtLS => {
-                    if val > 0.0 {
-                        i64::MAX as u64
-                    } else {
-                        i64::MIN as u64
-                    }
-                }
-                AluOp::FCvtLUS => {
-                    if val > 0.0 {
-                        u64::MAX
-                    } else {
-                        0
-                    }
-                }
-                _ => unreachable!(),
-            };
+            let result = if val > 0.0 { target.max() } else { target.min() };
             return (result, flags);
         }
 
@@ -306,38 +311,37 @@ pub fn execute_full_rm(
         let inexact = val != rounded;
 
         // Range check the ROUNDED value
-        let (overflow, result) = match op {
-            AluOp::FCvtWS => {
+        let (overflow, result) = match target {
+            IntTarget::I32 => {
                 if (I32_MIN_F64..I32_MAX_P1_F64).contains(&rounded) {
                     (false, rounded as i32 as i64 as u64)
                 } else {
-                    (true, if rounded > 0.0 { i32::MAX } else { i32::MIN } as i64 as u64)
+                    (true, if rounded > 0.0 { target.max() } else { target.min() })
                 }
             }
-            AluOp::FCvtWUS => {
+            IntTarget::U32 => {
                 if (0.0..U32_MAX_P1_F64).contains(&rounded) {
                     (false, rounded as u32 as i32 as i64 as u64)
                 } else {
-                    (true, if rounded > 0.0 { u32::MAX as i32 as i64 as u64 } else { 0 })
+                    (true, if rounded > 0.0 { target.max() } else { target.min() })
                 }
             }
-            AluOp::FCvtLS => {
+            IntTarget::I64 => {
                 if (I64_MIN_F64..I64_MAX_P1_F64).contains(&rounded) {
                     (false, rounded as i64 as u64)
                 } else {
-                    (true, if rounded > 0.0 { i64::MAX } else { i64::MIN } as u64)
+                    (true, if rounded > 0.0 { target.max() } else { target.min() })
                 }
             }
-            AluOp::FCvtLUS => {
+            IntTarget::U64 => {
                 if rounded < 0.0 {
-                    (true, 0u64)
+                    (true, target.min())
                 } else if rounded >= U64_MAX_P1_F64 {
-                    (true, u64::MAX)
+                    (true, target.max())
                 } else {
                     (false, rounded as u64)
                 }
             }
-            _ => unreachable!(),
         };
 
         if overflow {

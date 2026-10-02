@@ -1,28 +1,26 @@
 //! Integer comparisons and add/subtract-with-carry into mask registers.
 
-use crate::exec::compute::vector::alu::is_mask_producing_carry;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{CarryOp, CompareOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 /// Evaluate a comparison for one element, returning a bool for the mask bit.
 #[inline]
-pub(super) fn compute_compare(op: VectorOp, vs2: u64, op1: u64, sew: Sew) -> bool {
+pub(super) const fn compute_compare(op: CompareOp, vs2: u64, op1: u64, sew: Sew) -> bool {
     let s2 = sign_extend(vs2, sew);
     let s1 = sign_extend(op1, sew);
     match op {
-        VectorOp::VMSeq => vs2 == op1,
-        VectorOp::VMSne => vs2 != op1,
-        VectorOp::VMSltu => vs2 < op1,
-        VectorOp::VMSlt => s2 < s1,
-        VectorOp::VMSleu => vs2 <= op1,
-        VectorOp::VMSle => s2 <= s1,
-        VectorOp::VMSgtu => vs2 > op1,
-        VectorOp::VMSgt => s2 > s1,
-        _ => unreachable!(),
+        CompareOp::Eq => vs2 == op1,
+        CompareOp::Ne => vs2 != op1,
+        CompareOp::LtU => vs2 < op1,
+        CompareOp::Lt => s2 < s1,
+        CompareOp::LeU => vs2 <= op1,
+        CompareOp::Le => s2 <= s1,
+        CompareOp::GtU => vs2 > op1,
+        CompareOp::Gt => s2 > s1,
     }
 }
 
@@ -32,7 +30,7 @@ pub(super) fn compute_compare(op: VectorOp, vs2: u64, op1: u64, sew: Sew) -> boo
 /// bits `[vl, VLEN)` in the destination mask register (RVV 1.0 §3.4.3), so
 /// the loop must iterate over all VLEN mask bits, not just VLMAX elements.
 pub(super) fn exec_comparison(
-    op: VectorOp,
+    op: CompareOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -75,7 +73,7 @@ pub(super) fn exec_comparison(
 /// non-mask variants (`vadc`, `vsbc`), the tail is `[vl, VLMAX)` at SEW.
 /// We iterate to the larger of the two bounds so both cases are covered.
 pub(super) fn exec_carry(
-    op: VectorOp,
+    op: CarryOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -85,7 +83,7 @@ pub(super) fn exec_carry(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let vlen_bits = vpr.vlen().bits();
     let mask = ctx.sew.mask();
-    let writes_mask = is_mask_producing_carry(op);
+    let writes_mask = op.writes_mask();
     // Mask-producing ops need tail up to VLEN bits; element-producing up to VLMAX.
     let loop_end = if writes_mask { vlen_bits } else { vlmax };
 
@@ -111,24 +109,23 @@ pub(super) fn exec_carry(
         let carry = if ctx.vm { 0u64 } else { mask_active(vpr, i) as u64 };
 
         match op {
-            VectorOp::VAdc => {
+            CarryOp::Adc => {
                 let result = vs2_val.wrapping_add(op1_val).wrapping_add(carry) & mask;
                 vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
             }
-            VectorOp::VMadc => {
+            CarryOp::Madc => {
                 let sum = (vs2_val as u128) + (op1_val as u128) + (carry as u128);
                 let cout = sum > mask as u128;
                 vpr.write_mask_bit(vd_idx, ElemIdx::new(i), cout);
             }
-            VectorOp::VSbc => {
+            CarryOp::Sbc => {
                 let result = vs2_val.wrapping_sub(op1_val).wrapping_sub(carry) & mask;
                 vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
             }
-            VectorOp::VMsbc => {
+            CarryOp::Msbc => {
                 let borrow = (vs2_val as u128) < (op1_val as u128) + (carry as u128);
                 vpr.write_mask_bit(vd_idx, ElemIdx::new(i), borrow);
             }
-            _ => unreachable!(),
         }
     }
 

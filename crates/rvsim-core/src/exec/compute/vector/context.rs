@@ -88,3 +88,57 @@ pub(super) const fn widen_sew(sew: Sew) -> Option<Sew> {
         Sew::E64 => None,
     }
 }
+
+/// An element width the vector FP unit implements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpSew {
+    /// Half precision (Zvfh).
+    F16,
+    /// Single precision.
+    F32,
+    /// Double precision.
+    F64,
+}
+
+/// A widening FP step: the source and the 2×SEW destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpWiden {
+    /// f16 sources into an f32 accumulator.
+    F16ToF32,
+    /// f32 sources into an f64 accumulator.
+    F32ToF64,
+}
+
+impl FpSew {
+    /// The FP width of `sew`, if the unit implements it (f16 needs Zvfh).
+    #[must_use]
+    pub const fn of(sew: Sew, zvfh: bool) -> Option<Self> {
+        match sew {
+            Sew::E16 if zvfh => Some(Self::F16),
+            Sew::E32 => Some(Self::F32),
+            Sew::E64 => Some(Self::F64),
+            Sew::E8 | Sew::E16 => None,
+        }
+    }
+
+    /// The widening step from this width; `None` from f64.
+    #[must_use]
+    pub const fn widening(self) -> Option<FpWiden> {
+        match self {
+            Self::F16 => Some(FpWiden::F16ToF32),
+            Self::F32 => Some(FpWiden::F32ToF64),
+            Self::F64 => None,
+        }
+    }
+}
+
+impl FpWiden {
+    /// The destination element width.
+    #[must_use]
+    pub const fn dst(self) -> Sew {
+        match self {
+            Self::F16ToF32 => Sew::E32,
+            Self::F32ToF64 => Sew::E64,
+        }
+    }
+}

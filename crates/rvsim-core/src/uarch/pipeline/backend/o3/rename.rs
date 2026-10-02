@@ -18,6 +18,10 @@ use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
+use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
+use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
+use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
+use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
@@ -35,11 +39,22 @@ impl O3Engine {
         let vector = self.vector_config(&state.hart().csrs);
         let is_branch_or_jump =
             matches!(id.inst.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
-        if is_branch_or_jump && self.checkpoints.capacity() > 0 && self.checkpoints.is_full() {
-            state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
-            return Renamed::Stalled(Box::new(id));
-        }
-        if !self.has_slots_for(&id) {
+        let checkpoint = if is_branch_or_jump && self.checkpoints.capacity() > 0 {
+            let Some(reserved) = self.checkpoints.reserve() else {
+                state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
+                return Renamed::Stalled(Box::new(id));
+            };
+            Some(reserved)
+        } else {
+            None
+        };
+        let slots = BackendSlots {
+            store_buffer: &self.store_buffer,
+            vec_store_buffer: &self.vec_store_buffer,
+            load_queue: &self.load_queue,
+            free_list: &self.free_list,
+        };
+        if !slots.has_room_for(&id) {
             return Renamed::Stalled(Box::new(id));
         }
 
@@ -131,12 +146,12 @@ impl O3Engine {
         };
 
         let vec_dst_count = if id.inst.ctrl.vec_reg_write && grp.vd > 0 { grp.vd } else { 0 };
-        if vec_dst_count > 0 && self.vec_free_list.available() < vec_dst_count as usize {
+        let Some(vec_dst_regs) = self.vec_free_list.reserve(vec_dst_count as usize) else {
             if needs_dst {
                 self.free_list.reclaim(rd_phys);
             }
             return Renamed::Stalled(Box::new(id));
-        }
+        };
 
         let Some(rob_tag) = self.rob.allocate(
             id.inst.pc,
@@ -164,13 +179,9 @@ impl O3Engine {
         if vec_dst_count > 0 {
             let mut vec_old_phys = [VecPhysReg::ZERO; 8];
             let vd_base = id.inst.ctrl.vd.as_u8();
-            for i in 0..vec_dst_count as usize {
+            for (i, new_p) in vec_dst_regs.take().enumerate() {
                 let vreg = VRegIdx::new(vd_base + i as u8);
-                let old_p = self.rename_map.get_vec(vreg);
-                let Some(new_p) = self.vec_free_list.allocate() else {
-                    unreachable!("vec free list pre-check guarantees capacity");
-                };
-                vec_old_phys[i] = old_p;
+                vec_old_phys[i] = self.rename_map.get_vec(vreg);
                 vd_phys[i] = new_p;
                 self.rename_map.set_vec(vreg, new_p);
                 self.vec_prf.allocate(new_p);
@@ -193,13 +204,8 @@ impl O3Engine {
         );
 
         // Snapshot rename map *after* rd has been renamed.
-        if is_branch_or_jump && self.checkpoints.capacity() > 0 {
-            let map_snapshot = self.rename_map.clone();
-
-            let Some(ckpt_id) = self.checkpoints.allocate(rob_tag, &map_snapshot) else {
-                unreachable!("checkpoint table full after stall check");
-            };
-
+        if let Some(checkpoint) = checkpoint {
+            let ckpt_id = checkpoint.fill(rob_tag, &self.rename_map);
             self.rob.set_checkpoint_id(rob_tag, ckpt_id);
         }
 
@@ -272,12 +278,22 @@ impl O3Engine {
         }
         Renamed::Accepted(Box::new(entry))
     }
+}
 
-    /// True when the backend has the slots `id` needs besides the ROB and
-    /// issue-queue slots `can_accept` covers: a physical register for a
-    /// destination, and a store-buffer, vector-store-buffer or load-queue
-    /// slot for a memory op.
-    fn has_slots_for(&self, id: &IdExEntry) -> bool {
+/// The backend structures an instruction needs a slot in besides the ROB
+/// and issue queue `can_accept` covers.
+struct BackendSlots<'a> {
+    store_buffer: &'a StoreBuffer,
+    vec_store_buffer: &'a VecStoreBuffer,
+    load_queue: &'a LoadQueue,
+    free_list: &'a FreeList<PhysReg>,
+}
+
+impl BackendSlots<'_> {
+    /// True when `id` can take a physical register for a destination, and
+    /// a store-buffer, vector-store-buffer or load-queue slot for a memory
+    /// op, as gem5's rename checks each instruction's own resources.
+    fn has_room_for(&self, id: &IdExEntry) -> bool {
         let needs_dst =
             (id.inst.ctrl.reg_write && !id.inst.rd.is_zero()) || id.inst.ctrl.fp_reg_write;
         let store_slot = if id.inst.ctrl.uses_store_buffer() {

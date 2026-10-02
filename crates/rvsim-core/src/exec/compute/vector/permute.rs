@@ -11,7 +11,7 @@
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{PermuteOp, SlideOffset, VectorOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 /// Returns `true` if `op` is a permutation operation handled by this module.
@@ -20,8 +20,8 @@ pub const fn is_permute(op: VectorOp) -> bool {
         op,
         VectorOp::VMvXS
             | VectorOp::VMvSX
-            | VectorOp::VSlideUp
-            | VectorOp::VSlideDown
+            | VectorOp::VSlideUp(_)
+            | VectorOp::VSlideDown(_)
             | VectorOp::VSlide1Up
             | VectorOp::VSlide1Down
             | VectorOp::VRgather
@@ -34,59 +34,54 @@ pub const fn is_permute(op: VectorOp) -> bool {
     )
 }
 
+/// The sources a permutation may draw on: `operand1` as the instruction
+/// encodes it, the `vs1` register, and the value of `rs1`.
+#[derive(Clone, Copy, Debug)]
+pub struct PermuteSources {
+    /// The first operand as encoded (vector, scalar or immediate).
+    pub operand1: VecOperand,
+    /// The `vs1` register, for the forms that only take a vector there.
+    pub vs1: VRegIdx,
+    /// The value of `rs1`, for the forms that only take a scalar.
+    pub rs1: u64,
+}
+
 /// Execute a permutation operation.
 ///
-/// For scalar-producing ops ([`VectorOp::VMvXS`]), the scalar value is
-/// returned in [`VecExecResult::scalar_result`].  For vector-producing ops,
-/// results are written directly to `vd` in the VPR.
+/// For scalar-producing ops (`vmv.x.s`), the scalar value is returned in
+/// [`VecExecResult::scalar_result`]. For vector-producing ops, results are
+/// written directly to `vd` in the VPR.
 pub fn vec_permute_execute(
-    op: VectorOp,
+    op: PermuteOp,
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    sources: PermuteSources,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     match op {
-        VectorOp::VMvXS => exec_vmv_xs(vpr, vs2, ctx),
-        VectorOp::VMvSX => exec_vmv_sx(vpr, vd, operand1, ctx),
-        VectorOp::VSlideUp => exec_slideup(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VSlideDown => exec_slidedown(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VSlide1Up => exec_slide1up(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VSlide1Down => exec_slide1down(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VRgather => exec_rgather(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VRgatherEi16 => exec_rgather_ei16(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VCompress => exec_compress(vpr, vd, vs2, operand1, ctx),
-        VectorOp::VMv1r => exec_whole_reg_move(vpr, vd, vs2, 1),
-        VectorOp::VMv2r => exec_whole_reg_move(vpr, vd, vs2, 2),
-        VectorOp::VMv4r => exec_whole_reg_move(vpr, vd, vs2, 4),
-        VectorOp::VMv8r => exec_whole_reg_move(vpr, vd, vs2, 8),
-        _ => unreachable!("not a permutation op: {:?}", op),
+        PermuteOp::MvXS => exec_vmv_xs(vpr, vs2, ctx),
+        PermuteOp::MvSX => exec_vmv_sx(vpr, vd, sources.rs1, ctx),
+        PermuteOp::SlideUp(offset) => {
+            exec_slideup(vpr, vd, vs2, slide_offset(offset, sources.rs1), ctx)
+        }
+        PermuteOp::SlideDown(offset) => {
+            exec_slidedown(vpr, vd, vs2, slide_offset(offset, sources.rs1), ctx)
+        }
+        PermuteOp::Slide1Up => exec_slide1up(vpr, vd, vs2, sources.rs1, ctx),
+        PermuteOp::Slide1Down => exec_slide1down(vpr, vd, vs2, sources.rs1, ctx),
+        PermuteOp::Rgather => exec_rgather(vpr, vd, vs2, &sources.operand1, ctx),
+        PermuteOp::RgatherEi16 => exec_rgather_ei16(vpr, vd, vs2, sources.vs1, ctx),
+        PermuteOp::Compress => exec_compress(vpr, vd, vs2, sources.vs1, ctx),
+        PermuteOp::WholeMove(nregs) => exec_whole_reg_move(vpr, vd, vs2, nregs),
     }
 }
 
-/// Extract the offset value from operand1 (scalar or immediate).
-///
-/// For `VecOperand::Scalar(v)`, the offset is `v`.
-/// For `VecOperand::Immediate(v)`, the offset is the unsigned (zero-extended)
-/// value.  Vector operands are not valid for slide offsets and will panic in
-/// debug builds.
-#[inline]
-fn offset_from_operand(operand1: &VecOperand) -> usize {
-    match operand1 {
-        VecOperand::Scalar(v) => *v as usize,
-        VecOperand::Immediate(v) => *v as u64 as usize,
-        VecOperand::Vector(_) => unreachable!("slide offset must be scalar or immediate"),
-    }
-}
-
-/// Extract a scalar value from operand1 at the given SEW width.
-#[inline]
-fn scalar_from_operand(operand1: &VecOperand, sew: Sew) -> u64 {
-    match operand1 {
-        VecOperand::Scalar(v) => *v & sew.mask(),
-        VecOperand::Immediate(v) => (*v as u64) & sew.mask(),
-        VecOperand::Vector(_) => unreachable!("expected scalar or immediate operand"),
+/// The element offset of a slide.
+const fn slide_offset(offset: SlideOffset, rs1: u64) -> usize {
+    match offset {
+        SlideOffset::Rs1 => rs1 as usize,
+        SlideOffset::Imm(imm) => imm as usize,
     }
 }
 
@@ -114,10 +109,10 @@ fn exec_vmv_xs(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecE
 fn exec_vmv_sx(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
-    operand1: &VecOperand,
+    rs1: u64,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let scalar = scalar_from_operand(operand1, ctx.sew);
+    let scalar = rs1 & ctx.sew.mask();
 
     if ctx.vl > 0 {
         vpr.write_element(vd, ElemIdx::new(0), ctx.sew, scalar);
@@ -144,11 +139,10 @@ fn exec_slideup(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    offset: usize,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let offset = offset_from_operand(operand1);
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -187,11 +181,10 @@ fn exec_slidedown(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    offset: usize,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let offset = offset_from_operand(operand1);
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -231,11 +224,11 @@ fn exec_slide1up(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    rs1: u64,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let scalar = scalar_from_operand(operand1, ctx.sew);
+    let scalar = rs1 & ctx.sew.mask();
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -272,11 +265,11 @@ fn exec_slide1down(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    rs1: u64,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let scalar = scalar_from_operand(operand1, ctx.sew);
+    let scalar = rs1 & ctx.sew.mask();
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -363,16 +356,10 @@ fn exec_rgather_ei16(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-
-    // operand1 must be a vector register for vrgatherei16.
-    let vs1 = match operand1 {
-        VecOperand::Vector(v) => *v,
-        _ => unreachable!("vrgatherei16 requires vector operand for indices"),
-    };
 
     for i in 0..vlmax {
         if i < ctx.vstart {
@@ -414,15 +401,9 @@ fn exec_compress(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    operand1: &VecOperand,
+    vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    // vs1 provides the mask for vcompress (NOT v0).
-    let vs1 = match operand1 {
-        VecOperand::Vector(v) => *v,
-        _ => unreachable!("vcompress requires vector operand for mask (vs1)"),
-    };
-
     let mut dst = 0usize;
 
     // Phase 1: pack active elements selected by vs1 mask.

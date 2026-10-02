@@ -38,13 +38,12 @@ pub enum PmpAddrMatch {
 
 impl PmpAddrMatch {
     /// Decode from the 2-bit A field in a pmpcfg byte.
-    pub fn from_bits(bits: u8) -> Self {
+    pub const fn from_bits(bits: u8) -> Self {
         match bits & A_MASK {
             0 => Self::Off,
             1 => Self::Tor,
             2 => Self::Na4,
-            3 => Self::Napot,
-            _ => unreachable!(),
+            _ => Self::Napot,
         }
     }
 }
@@ -71,7 +70,7 @@ pub struct PmpEntry {
 
 impl PmpEntry {
     /// Returns the address-matching mode.
-    pub fn match_mode(&self) -> PmpAddrMatch {
+    pub const fn match_mode(&self) -> PmpAddrMatch {
         PmpAddrMatch::from_bits((self.cfg >> A_SHIFT) & A_MASK)
     }
 

@@ -52,9 +52,32 @@ impl<R: PhysRegister> FreeList<R> {
         self.queue.len()
     }
 
+    /// Reserves `count` registers without allocating them yet, or `None`
+    /// when fewer are free. The reservation borrows the list, so nothing
+    /// else can take registers before [`Reserved::take`] does.
+    pub fn reserve(&mut self, count: usize) -> Option<Reserved<'_, R>> {
+        (count <= self.queue.len()).then_some(Reserved { list: self, count })
+    }
+
     /// Total capacity of the physical register file.
     pub const fn capacity(&self) -> usize {
         self.capacity
+    }
+}
+
+/// `count` registers a [`FreeList::reserve`] call set aside, to take in
+/// allocation order.
+#[derive(Debug)]
+pub struct Reserved<'a, R: PhysRegister> {
+    list: &'a mut FreeList<R>,
+    count: usize,
+}
+
+impl<R: PhysRegister> Reserved<'_, R> {
+    /// Allocates the reserved registers, in the order the list hands them
+    /// out.
+    pub fn take(self) -> impl Iterator<Item = R> {
+        self.list.queue.drain(..self.count)
     }
 }
 
@@ -97,6 +120,37 @@ mod tests {
         let fl = FreeList::<PhysReg>::new(128, 32);
         assert_eq!(fl.capacity(), 128);
         assert_eq!(fl.available(), 96);
+    }
+
+    #[test]
+    fn a_reservation_hands_out_the_registers_allocate_would() {
+        let mut fl = FreeList::<PhysReg>::new(8, 4);
+        let expected: Vec<PhysReg> = {
+            let mut probe = FreeList::<PhysReg>::new(8, 4);
+            (0..3).map(|_| probe.allocate().unwrap()).collect()
+        };
+
+        let taken: Vec<PhysReg> = fl.reserve(3).expect("three are free").take().collect();
+
+        assert_eq!(taken, expected);
+        assert_eq!(fl.available(), 1);
+    }
+
+    #[test]
+    fn a_reservation_beyond_the_free_registers_is_refused_and_takes_nothing() {
+        let mut fl = FreeList::<PhysReg>::new(8, 4);
+
+        assert!(fl.reserve(5).is_none());
+        assert_eq!(fl.available(), 4);
+    }
+
+    #[test]
+    fn a_dropped_reservation_leaves_the_list_untouched() {
+        let mut fl = FreeList::<PhysReg>::new(8, 4);
+
+        assert!(fl.reserve(2).is_some());
+
+        assert_eq!(fl.available(), 4);
     }
 
     #[test]
