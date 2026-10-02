@@ -32,7 +32,7 @@ module-name = "rvsim._core"
 include = ["LICENSE-APACHE", "LICENSE-MIT"]
 
 [tool.ruff]
-extend-exclude = ["tests/builds", "third_party"]
+extend-exclude = ["tests/builds", "third_party", "docs/spec", "*.md"]
 
 [tool.ruff.lint.per-file-ignores]
 # The runners record any worker failure as that test's error and carry on.

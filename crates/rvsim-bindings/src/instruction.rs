@@ -5,7 +5,7 @@
 use pyo3::prelude::*;
 
 /// A single committed instruction from the pipeline.
-#[pyclass(name = "Instruction")]
+#[pyclass(name = "Instruction", module = "rvsim._core")]
 #[derive(Clone, Debug)]
 pub struct PyInstruction {
     /// The address it retired from.

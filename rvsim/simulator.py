@@ -1,10 +1,10 @@
 """
 The simulator.
 
-- :class:`Simulator`: the native simulator. Accepts a :class:`Config` (or
+- `Simulator`: the native simulator. Accepts a `Config` (or
   config dict) plus optional ``binary`` / ``kernel`` / ``disk`` / ``dtb`` paths.
-- :class:`Instruction`: returned by ``sim.step()`` with pc, raw, asm, cycles.
-- :class:`PipelineSnapshot`: returned by ``sim.pipeline_snapshot()``; its
+- `Instruction`: returned by ``sim.step()`` with pc, raw, asm, cycles.
+- `PipelineSnapshot`: returned by ``sim.pipeline_snapshot()``; its
   ``.render()`` / ``.visualize()`` draw every inter-stage latch as a
   Gantt-style diagram.
 """

@@ -72,7 +72,7 @@ class Stats(dict):
 
     @staticmethod
     def tabulate(rows: dict[str, Stats], *, title: str = "") -> Table:
-        """Build a comparison table from labeled :class:`Stats` objects.
+        """Build a comparison table from labeled `Stats` objects.
 
         Each *Stats* is typically a ``.query()`` result, so all share similar
         keys.  Columns are the sorted union of all keys across the provided
@@ -83,7 +83,7 @@ class Stats(dict):
             title: Optional table title rendered above the header.
 
         Returns:
-            :class:`Table` with ``__repr__``/``__str__`` rendering.
+            `Table` with ``__repr__``/``__str__`` rendering.
         """
         if not rows:
             return Table([], [], [], title)
@@ -309,7 +309,7 @@ def _format_table(
 
 
 class Table:
-    """Rendered comparison table.  Created by :func:`tabulate`, displayed via
+    """Rendered comparison table.  Created by `tabulate`, displayed via
     ``print()`` or REPL auto-repr."""
 
     __slots__ = ("__col_header", "__grid", "__labels", "__metrics", "__title")

@@ -54,8 +54,30 @@ markdown_extensions:
   - def_list
   - footnotes
 
+# A local clone of the ISA manual may live under docs/spec (gitignored).
+exclude_docs: |
+  spec/
+
 plugins:
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            extensions:
+              - docs/griffe_core_docstrings.py:CoreDocstrings
+            docstring_style: google
+            docstring_section_style: table
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            inherited_members: true
+            filters: ["!^_"]
+            heading_level: 3
 
 nav:
   - Home: index.md

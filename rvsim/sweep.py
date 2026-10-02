@@ -97,7 +97,7 @@ class Sweep:
             max_workers: Max parallel workers. ``None`` = number of CPUs.
 
         Returns:
-            :class:`SweepResults` with per-binary, per-config results.
+            `SweepResults` with per-binary, per-config results.
         """
         # Build work items
         work: list[tuple] = []

@@ -29,7 +29,7 @@ def disassemble(inst: int) -> str: ...
 
 @final
 class Instruction:
-    """One retired instruction, returned by :meth:`Simulator.step`."""
+    """One retired instruction, returned by `Simulator.step`."""
 
     @property
     def pc(self) -> int: ...
@@ -42,7 +42,7 @@ class Instruction:
 
 @final
 class QueryResult:
-    """``(path, value)`` pairs a wildcard :meth:`Stats.query` matched."""
+    """``(path, value)`` pairs a wildcard `Stats.query` matched."""
 
     def sum(self) -> float: ...
     def __len__(self) -> int: ...

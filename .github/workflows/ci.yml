@@ -48,7 +48,7 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: pip install -r requirements-dev.txt
-      - run: ruff format --check rvsim tests examples tools
-      - run: ruff check rvsim tests examples tools
+      - run: ruff format --check rvsim tests examples tools docs
+      - run: ruff check rvsim tests examples tools docs
       - run: make python
       - run: make test-python

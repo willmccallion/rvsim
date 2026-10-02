@@ -178,7 +178,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 /// - ``execute_mem1`` / ``mem1_mem2``: ``rd``, ``alu``, ``store_data``, ``rob_tag``
 /// - ``mem1_mem2``: also ``vaddr``, ``paddr``
 /// - ``mem2_wb``: ``rd``, ``alu``, ``load_data``, ``rob_tag``
-#[pyclass(name = "PipelineSnapshot", subclass)]
+#[pyclass(name = "PipelineSnapshot", subclass, module = "rvsim._core")]
 #[derive(Debug)]
 pub struct PyPipelineSnapshot {
     inner: PipelineSnapshot,
