@@ -41,6 +41,10 @@ pub enum SimError {
         cycle_count: u64,
     },
 
+    /// The bytes given as a program are not an ELF image.
+    #[error("not an ELF image")]
+    NotAnElf,
+
     /// A kernel panic was detected via the `tohost`/panic sentinel mechanism.
     ///
     /// The guest OS crashed. Inspect the serial output for the panic message.

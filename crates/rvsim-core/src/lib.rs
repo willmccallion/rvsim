@@ -30,6 +30,10 @@ pub mod uarch;
 
 pub mod system;
 
+/// The statistics tree a run produces: counters, histograms and derived
+/// stats keyed by path.
+pub use crate::sim::stats;
+
 #[cfg(test)]
 #[allow(
     clippy::missing_panics_doc,

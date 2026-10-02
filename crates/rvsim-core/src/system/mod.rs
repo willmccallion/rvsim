@@ -9,6 +9,8 @@ pub mod coherence_audit;
 pub mod dtb;
 pub mod loader;
 pub mod simulator;
+pub mod snapshot;
 pub mod state;
 
 pub use self::state::SystemState;
+pub use crate::soc::uncore::{StatsDump, StatsEpoch, TraceControl};

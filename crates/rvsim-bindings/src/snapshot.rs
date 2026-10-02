@@ -8,7 +8,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use rvsim_core::isa::disasm::disassemble;
 use rvsim_core::isa::reg::RegIdx;
-use rvsim_core::uarch::pipeline::snapshot::PipelineSnapshot;
+use rvsim_core::system::snapshot::{
+    DecodedSlot, ExecutedSlot, FetchSlot, FetchedSlot, MemorySlot, PipelineSnapshot, RenamedSlot,
+    WritebackSlot,
+};
 
 const ABI: [&str; 32] = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
@@ -69,45 +72,25 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
         }};
     }
 
-    stage!(
-        "F1",
-        snap.fetch1_fetch2,
-        |e: &rvsim_core::uarch::pipeline::latches::Fetch1Fetch2Entry| { format!("{:#010x}", e.pc) }
-    );
+    stage!("F1", snap.fetch1_fetch2, |e: &FetchSlot| { format!("{:#010x}", e.pc) });
 
-    stage!("F2", snap.fetch2_decode, |e: &rvsim_core::uarch::pipeline::latches::IfIdEntry| {
-        cell(&disassemble(e.inst))
-    });
+    stage!("F2", snap.fetch2_decode, |e: &FetchedSlot| { cell(&disassemble(e.raw)) });
 
-    stage!("DE", snap.decode_rename, |e: &rvsim_core::uarch::pipeline::latches::IdExEntry| {
-        cell(&disassemble(e.inst.bits))
-    });
+    stage!("DE", snap.decode_rename, |e: &DecodedSlot| { cell(&disassemble(e.raw)) });
 
-    stage!(
-        "RN",
-        snap.rename_issue,
-        |e: &rvsim_core::uarch::pipeline::latches::RenameIssueEntry| {
-            cell(&disassemble(e.inst.bits))
-        }
-    );
+    stage!("RN", snap.rename_issue, |e: &RenamedSlot| { cell(&disassemble(e.raw)) });
 
-    stage!("IS", snap.issue_queue, |e: &rvsim_core::uarch::pipeline::latches::RenameIssueEntry| {
-        let asm = disassemble(e.inst.bits);
-        let stalled = e.rs1_tag.is_some() || e.rs2_tag.is_some();
+    stage!("IS", snap.issue_queue, |e: &RenamedSlot| {
+        let asm = disassemble(e.raw);
+        let stalled = !e.rs1_ready || !e.rs2_ready;
         if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
     });
 
-    stage!("EX", snap.execute_mem1, |e: &rvsim_core::uarch::pipeline::latches::ExMem1Entry| {
-        cell(&disassemble(e.inst))
-    });
+    stage!("EX", snap.execute_mem1, |e: &ExecutedSlot| { cell(&disassemble(e.raw)) });
 
-    stage!("M1", snap.mem1_mem2, |e: &rvsim_core::uarch::pipeline::latches::Mem1Mem2Entry| {
-        cell(&disassemble(e.inst))
-    });
+    stage!("M1", snap.mem1_mem2, |e: &MemorySlot| { cell(&disassemble(e.raw)) });
 
-    stage!("M2", snap.mem2_wb, |e: &rvsim_core::uarch::pipeline::latches::Mem2WbEntry| {
-        cell(&disassemble(e.inst))
-    });
+    stage!("M2", snap.mem2_wb, |e: &WritebackSlot| { cell(&disassemble(e.raw)) });
 
     // WB and CM have no outbound latch to inspect — both show empty.
     {
@@ -229,7 +212,7 @@ impl PyPipelineSnapshot {
             .fetch2_decode
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
+                let d = slot_dict(py, e.pc, e.raw)?;
                 d.set_item("pred_taken", e.pred_taken)?;
                 d.set_item("pred_target", e.pred_target)?;
                 Ok(d.into_any().unbind())
@@ -248,13 +231,13 @@ impl PyPipelineSnapshot {
             .decode_rename
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
-                d.set_item("rs1", e.inst.rs1.as_u8())?;
-                d.set_item("rs2", e.inst.rs2.as_u8())?;
-                d.set_item("rd", e.inst.rd.as_u8())?;
-                d.set_item("imm", e.inst.imm)?;
-                d.set_item("rv1", e.inst.rv1)?;
-                d.set_item("rv2", e.inst.rv2)?;
+                let d = slot_dict(py, e.pc, e.raw)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
+                d.set_item("imm", e.imm)?;
+                d.set_item("rv1", e.rv1)?;
+                d.set_item("rv2", e.rv2)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -271,15 +254,15 @@ impl PyPipelineSnapshot {
             .rename_issue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
-                d.set_item("rs1", e.inst.rs1.as_u8())?;
-                d.set_item("rs2", e.inst.rs2.as_u8())?;
-                d.set_item("rd", e.inst.rd.as_u8())?;
-                d.set_item("rv1", e.inst.rv1)?;
-                d.set_item("rv2", e.inst.rv2)?;
-                d.set_item("rob_tag", e.rob_tag.0)?;
-                d.set_item("rs1_ready", e.rs1_tag.is_none())?;
-                d.set_item("rs2_ready", e.rs2_tag.is_none())?;
+                let d = slot_dict(py, e.pc, e.raw)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
+                d.set_item("rv1", e.rv1)?;
+                d.set_item("rv2", e.rv2)?;
+                d.set_item("rob_tag", e.rob_tag)?;
+                d.set_item("rs1_ready", e.rs1_ready)?;
+                d.set_item("rs2_ready", e.rs2_ready)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -297,15 +280,15 @@ impl PyPipelineSnapshot {
             .issue_queue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.inst.pc, e.inst.bits)?;
-                d.set_item("rs1", e.inst.rs1.as_u8())?;
-                d.set_item("rs2", e.inst.rs2.as_u8())?;
-                d.set_item("rd", e.inst.rd.as_u8())?;
-                d.set_item("rv1", e.inst.rv1)?;
-                d.set_item("rv2", e.inst.rv2)?;
-                d.set_item("rob_tag", e.rob_tag.0)?;
-                d.set_item("rs1_ready", e.rs1_tag.is_none())?;
-                d.set_item("rs2_ready", e.rs2_tag.is_none())?;
+                let d = slot_dict(py, e.pc, e.raw)?;
+                d.set_item("rs1", e.rs1.as_u8())?;
+                d.set_item("rs2", e.rs2.as_u8())?;
+                d.set_item("rd", e.rd.as_u8())?;
+                d.set_item("rv1", e.rv1)?;
+                d.set_item("rv2", e.rv2)?;
+                d.set_item("rob_tag", e.rob_tag)?;
+                d.set_item("rs1_ready", e.rs1_ready)?;
+                d.set_item("rs2_ready", e.rs2_ready)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -324,11 +307,11 @@ impl PyPipelineSnapshot {
             .execute_mem1
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
+                let d = slot_dict(py, e.pc, e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("store_data", e.store_data)?;
-                d.set_item("rob_tag", e.rob_tag.0)?;
+                d.set_item("rob_tag", e.rob_tag)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -345,13 +328,13 @@ impl PyPipelineSnapshot {
             .mem1_mem2
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
+                let d = slot_dict(py, e.pc, e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("vaddr", e.vaddr.val())?;
                 d.set_item("paddr", e.paddr.val())?;
                 d.set_item("store_data", e.store_data)?;
-                d.set_item("rob_tag", e.rob_tag.0)?;
+                d.set_item("rob_tag", e.rob_tag)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -370,11 +353,11 @@ impl PyPipelineSnapshot {
             .mem2_wb
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.inst)?;
+                let d = slot_dict(py, e.pc, e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("load_data", e.load_data)?;
-                d.set_item("rob_tag", e.rob_tag.0)?;
+                d.set_item("rob_tag", e.rob_tag)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;

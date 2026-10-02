@@ -19,7 +19,7 @@ use crate::uarch::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
-use crate::uarch::pipeline::snapshot::PipelineSnapshot;
+use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
 
 /// What renaming one decoded instruction produced.
@@ -672,9 +672,9 @@ impl PipelineDispatch {
     }
 
     /// Capture a point-in-time snapshot of all inter-stage latch contents.
-    pub fn snapshot(&self, width: usize) -> PipelineSnapshot {
+    pub fn snapshot(&self, width: usize) -> LatchSnapshot {
         match self {
-            Self::InOrder(p) => PipelineSnapshot {
+            Self::InOrder(p) => LatchSnapshot {
                 fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
                 fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
                 decode_rename: p.frontend.decode_rename.entries().to_vec(),
@@ -685,7 +685,7 @@ impl PipelineDispatch {
                 mem2_wb: p.engine.mem2_wb.clone(),
                 width,
             },
-            Self::OutOfOrder(p) => PipelineSnapshot {
+            Self::OutOfOrder(p) => LatchSnapshot {
                 fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
                 fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
                 decode_rename: p.frontend.decode_rename.entries().to_vec(),

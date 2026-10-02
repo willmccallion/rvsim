@@ -8,14 +8,13 @@ use crate::conversion::py_dict_to_config;
 use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
-use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory};
+use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
-use rvsim_core::common::{HartId, PhysAddr};
-use rvsim_core::isa::csr::CsrAddr;
+use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
-use rvsim_core::system::loader;
+use rvsim_core::system::loader::KernelBoot;
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -50,19 +49,11 @@ pub struct PySimulator {
 
 impl PySimulator {
     pub(crate) fn privilege_str(&self, hart: usize) -> &'static str {
-        match self.inner.state.harts[hart].privilege {
+        match self.inner.hart(hart).privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",
             PrivilegeMode::User => "U",
         }
-    }
-
-    /// Reads `addr` on `hart` the way a CSR instruction would; `None`
-    /// when the hart does not implement that CSR.
-    pub(crate) fn read_csr(&mut self, hart: usize, addr: CsrAddr) -> Option<u64> {
-        let core = self.inner.state.topology.core_of_hart(HartId::new(hart as u32))?;
-        let ctx = self.inner.state.core_ctx(core.as_index());
-        ctx.is_valid_csr(addr).then(|| ctx.csr_read(addr))
     }
 
     /// Runs for up to `limit` cycles, or until the workload exits, checking
@@ -132,8 +123,8 @@ impl PySimulator {
 
             eprint!(
                 "\r\x1b[36m[rvsim]\x1b[0m  {:>14} cycles  {:>14} insns",
-                fmt_commas(self.inner.state.cycle),
-                fmt_commas(self.inner.state.instructions_retired()),
+                fmt_commas(self.inner.cycle()),
+                fmt_commas(self.inner.instructions_retired()),
             );
             let _ = std::io::stderr().flush();
         }
@@ -172,48 +163,14 @@ impl PySimulator {
     ) -> PyResult<Self> {
         let config = py_dict_to_config(py, config_dict)?;
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let disk = disk_path.unwrap_or_default();
-        let exit_signal = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
-        let mut cpu = rvsim_core::SystemState::new(&config, &disk, exit_signal.clone());
-
-        let mut elf_entry: Option<u64> = None;
-        let mut tohost_addr: Option<u64> = None;
+        let mut sim = Simulator::build(&config, &disk_path.unwrap_or_default());
         if let Some(data) = elf_data {
-            if let Some(result) = loader::try_load_elf(&data, &mut cpu.memory) {
-                elf_entry = Some(result.entry);
-                if let Some(tohost) = result.tohost_addr {
-                    cpu.add_htif(tohost, &exit_signal);
-                    tohost_addr = Some(tohost);
-                }
-            } else {
-                return Err(PyRuntimeError::new_err(
-                    "Not a valid ELF file. Only ELF binaries are supported.",
-                ));
-            }
+            sim.load_elf(&data).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         }
-
-        let mut sim = Simulator::new(cpu);
-
-        if let Some(entry) = elf_entry {
-            sim.set_pc(0, entry);
-        }
-
-        if tohost_addr.is_some() {
-            sim.state.direct_mode = false;
-            sim.state.harts[0].privilege = PrivilegeMode::Machine;
-        }
-
         if let Some(kernel) = kernel_path {
-            let boot =
-                loader::KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };
-            loader::setup_kernel_load(&mut sim.state, &config, &boot)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-            sim.state.direct_mode = false;
+            let boot = KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };
+            sim.boot_kernel(&boot).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         }
-
-        // Sync arch regs into the O3 PRF — must happen after all reg init.
-        sim.sync_arch_regs();
-
         Ok(Self { inner: sim })
     }
 
@@ -221,7 +178,7 @@ impl PySimulator {
     /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self) -> u64 {
-        self.inner.state.harts[0].pc
+        self.inner.hart(0).pc
     }
 
     #[setter]
@@ -240,13 +197,13 @@ impl PySimulator {
     /// ``rvsim::fetch=trace``, ...), each tagged with the hart it belongs
     /// to; `trace_filter` narrows them further.
     #[getter]
-    fn trace(&self) -> bool {
-        self.inner.state.trace.armed
+    const fn trace(&self) -> bool {
+        self.inner.trace().armed
     }
 
     #[setter]
-    fn set_trace(&mut self, value: bool) {
-        self.inner.state.trace.armed = value;
+    const fn set_trace(&mut self, value: bool) {
+        self.inner.trace_mut().armed = value;
     }
 
     /// Narrows what an armed trace prints.
@@ -268,7 +225,7 @@ impl PySimulator {
         cycles: Option<(u64, u64)>,
         trap_causes: Option<Vec<u64>>,
     ) {
-        let trace = &mut self.inner.state.trace;
+        let trace = self.inner.trace_mut();
         trace.harts = harts.unwrap_or_default().into_iter().map(HartId::new).collect();
         trace.cycle_from = cycles.map(|(from, _)| from);
         trace.cycle_to = cycles.map(|(_, to)| to);
@@ -295,9 +252,9 @@ impl PySimulator {
     ///     ```
     #[getter]
     fn stats(&self) -> PyStats {
-        let (cycles, instructions_retired) = self.inner.state.stats_window();
-        let epoch = self.inner.state.stats_epoch;
-        PyStats::new(self.inner.state.stats.clone(), cycles, instructions_retired, epoch)
+        let (cycles, instructions_retired) = self.inner.stats_window();
+        let epoch = self.inner.stats_epoch();
+        PyStats::new(self.inner.stats().clone(), cycles, instructions_retired, epoch)
     }
 
     /// Whether idle cores (waiting in WFI with nothing in flight) have their
@@ -306,19 +263,19 @@ impl PySimulator {
     /// results are the same either way, so this exists to check that.
     #[getter]
     const fn skip_idle_cores(&self) -> bool {
-        self.inner.skip_idle_cores
+        self.inner.skip_idle_cores()
     }
 
     #[setter]
     const fn set_skip_idle_cores(&mut self, skip: bool) {
-        self.inner.skip_idle_cores = skip;
+        self.inner.set_skip_idle_cores(skip);
     }
 
     /// Zero every stat; `stats` then counts from here, as gem5's
     /// ``m5 resetstats`` does. Prefer subtracting snapshots, which keeps the
     /// whole run's stats.
     fn reset_stats(&mut self) {
-        self.inner.state.reset_stats();
+        self.inner.reset_stats();
     }
 
     /// The stats the guest dumped through the sim-control device, oldest
@@ -328,8 +285,7 @@ impl PySimulator {
     #[getter]
     fn stats_dumps(&self) -> Vec<(u64, PyStats)> {
         self.inner
-            .state
-            .stats_dumps
+            .stats_dumps()
             .iter()
             .map(|dump| {
                 let stats = PyStats::new(
@@ -380,33 +336,33 @@ impl PySimulator {
 
     /// Cycles since the system started, carried across checkpoints.
     #[getter]
-    fn cycle(&self) -> u64 {
-        self.inner.state.cycle
+    const fn cycle(&self) -> u64 {
+        self.inner.cycle()
     }
 
     /// Instructions retired by every hart since the system started,
     /// carried across checkpoints.
     #[getter]
     fn instructions_retired(&self) -> u64 {
-        self.inner.state.instructions_retired()
+        self.inner.instructions_retired()
     }
 
     /// Number of harts in the system.
     #[getter]
     const fn hart_count(&self) -> usize {
-        self.inner.state.harts.len()
+        self.inner.hart_count()
     }
 
     /// Memory view for 32-bit reads — ``cpu.mem32[addr]``.
     #[getter]
     fn mem32(slf: Bound<'_, Self>) -> Memory {
-        Memory { cpu: slf.unbind(), width: 32 }
+        Memory { cpu: slf.unbind(), width: Width::Bits32 }
     }
 
     /// Memory view for 64-bit reads — ``cpu.mem64[addr]``.
     #[getter]
     fn mem64(slf: Bound<'_, Self>) -> Memory {
-        Memory { cpu: slf.unbind(), width: 64 }
+        Memory { cpu: slf.unbind(), width: Width::Bits64 }
     }
 
     /// Virtual memory view for 32-bit reads — ``cpu.vmem32[vaddr]``.
@@ -415,7 +371,7 @@ impl PySimulator {
     /// before reading. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem32(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { cpu: slf.unbind(), width: 32 }
+        VirtualMemory { cpu: slf.unbind(), width: Width::Bits32 }
     }
 
     /// Virtual memory view for 64-bit reads — ``cpu.vmem64[vaddr]``.
@@ -424,20 +380,20 @@ impl PySimulator {
     /// before reading. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem64(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { cpu: slf.unbind(), width: 64 }
+        VirtualMemory { cpu: slf.unbind(), width: Width::Bits64 }
     }
 
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
     #[getter]
     fn pc_trace(&self) -> Vec<(u64, u32)> {
-        self.inner.state.per_hart_debug[0].pc_trace.clone()
+        self.inner.pc_trace(0).to_vec()
     }
 
     /// Open a commit log file. Each retired instruction is written as
     /// ``core   0: 0x<pc> (0x<inst>)``. Requires the ``commit-log`` feature.
     #[cfg(feature = "commit-log")]
     fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
-        self.inner.state.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Execute until one instruction commits.
@@ -446,7 +402,7 @@ impl PySimulator {
     /// before an instruction could commit.
     #[pyo3(signature = (max_cycles=100_000))]
     fn step(&mut self, py: Python<'_>, max_cycles: u64) -> PyResult<Option<PyInstruction>> {
-        let before_last = self.inner.state.per_hart_debug[0].pc_trace.last().copied();
+        let before_last = self.inner.pc_trace(0).last().copied();
         let mut cycles_run: u64 = 0;
 
         loop {
@@ -466,17 +422,12 @@ impl PySimulator {
             }
             cycles_run += 1;
 
-            let new_last = self.inner.state.per_hart_debug[0].pc_trace.last().copied();
+            let new_last = self.inner.pc_trace(0).last().copied();
             if new_last != before_last
                 && let Some((pc, inst)) = new_last
             {
                 let asm = rvsim_core::isa::disasm::disassemble(inst);
-                return Ok(Some(PyInstruction {
-                    pc,
-                    raw: inst,
-                    asm,
-                    cycles: self.inner.state.cycle,
-                }));
+                return Ok(Some(PyInstruction { pc, raw: inst, asm, cycles: self.inner.cycle() }));
             }
         }
     }
@@ -512,18 +463,12 @@ impl PySimulator {
         };
 
         if let Some(sections) = stats_sections {
+            let (cycle, retired) = (self.inner.cycle(), self.inner.instructions_retired());
             let text = if sections.is_empty() {
-                self.inner
-                    .state
-                    .stats
-                    .summary(self.inner.state.cycle, self.inner.state.instructions_retired())
+                self.inner.stats().summary(cycle, retired)
             } else {
                 let refs: Vec<&str> = sections.iter().map(String::as_str).collect();
-                self.inner.state.stats.summary_sections(
-                    self.inner.state.cycle,
-                    self.inner.state.instructions_retired(),
-                    &refs,
-                )
+                self.inner.stats().summary_sections(cycle, retired, &refs)
             };
             println!("{text}");
         }
@@ -558,10 +503,10 @@ impl PySimulator {
             let exit = self.run_for_cycles(py, chunk)?;
             cycles_run += chunk;
 
-            let (cycles, instructions_retired) = self.inner.state.stats_window();
-            let epoch = self.inner.state.stats_epoch;
+            let (cycles, instructions_retired) = self.inner.stats_window();
+            let epoch = self.inner.stats_epoch();
             snapshots.push(PyStats::new(
-                self.inner.state.stats.clone(),
+                self.inner.stats().clone(),
                 cycles,
                 instructions_retired,
                 epoch,
@@ -626,7 +571,7 @@ impl PySimulator {
 
             let stop = {
                 let cpu = slf_py.borrow(py);
-                pc.is_some_and(|p| cpu.inner.state.harts[0].pc == p)
+                pc.is_some_and(|p| cpu.inner.hart(0).pc == p)
                     || privilege.is_some_and(|priv_str| cpu.privilege_str(0) == priv_str)
             };
             if stop {
@@ -710,21 +655,12 @@ impl PySimulator {
     /// The console output since the last call, when the config's
     /// ``console`` is ``"captured"``.
     fn read_console(&mut self) -> String {
-        let output = self
-            .inner
-            .state
-            .bus
-            .uart_mut()
-            .map(rvsim_core::soc::devices::Uart::take_output)
-            .unwrap_or_default();
-        String::from_utf8_lossy(&output).into_owned()
+        String::from_utf8_lossy(&self.inner.take_console_output()).into_owned()
     }
 
     /// Type ``text`` into a captured console.
     fn write_console(&mut self, text: &str) {
-        if let Some(uart) = self.inner.state.bus.uart_mut() {
-            uart.send_input(text.as_bytes());
-        }
+        self.inner.send_console_input(text.as_bytes());
     }
 
     /// Advance one cycle.
@@ -740,30 +676,11 @@ impl PySimulator {
     /// Returns:
     ///     Physical address as ``int``, or raises ``ValueError`` on page fault.
     fn translate(&mut self, vaddr: u64) -> PyResult<u64> {
-        use rvsim_core::common::{AccessType, VirtAddr};
-        use rvsim_core::uarch::mmu::TranslateOutcome;
-        // The Python binding can't park on a TLB miss, so we walk the PTW
-        // synchronously here — emit each PTE MemReq, drain it inline, and
-        // continue. This is an FFI-boundary helper; pipeline stages never
-        // take this path.
-        let mut outcome =
-            self.inner.state.core_ctx(0).translate(VirtAddr::new(vaddr), AccessType::Read, 8);
-        loop {
-            match outcome {
-                TranslateOutcome::Ready(result) => {
-                    if let Some(trap) = result.trap {
-                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                            "translation failed for VA {vaddr:#x}: {trap:?}"
-                        )));
-                    }
-                    return Ok(result.paddr.val());
-                }
-                TranslateOutcome::NeedPte { pte_addr, state } => {
-                    let raw_pte = self.inner.probe_mem_load(pte_addr, 8);
-                    outcome = self.inner.state.core_ctx(0).translate_continue(state, raw_pte, 0);
-                }
-            }
-        }
+        self.inner.translate_now(0, VirtAddr::new(vaddr)).map(|paddr| paddr.val()).map_err(|trap| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "translation failed for VA {vaddr:#x}: {trap:?}"
+            ))
+        })
     }
 
     /// Read raw bytes from physical memory.
@@ -781,7 +698,7 @@ impl PySimulator {
         paddr: u64,
         length: usize,
     ) -> Bound<'py, pyo3::types::PyBytes> {
-        if let Some(bytes) = self.inner.state.memory.read_bytes(PhysAddr::new(paddr), length) {
+        if let Some(bytes) = self.inner.read_phys_bytes(PhysAddr::new(paddr), length) {
             pyo3::types::PyBytes::new(py, &bytes)
         } else {
             let mut buf = vec![0u8; length];
@@ -804,8 +721,7 @@ impl PySimulator {
     /// This performs a shallow clone of the latch vectors — it has no effect on
     /// simulation correctness or timing.
     fn pipeline_snapshot(&self) -> PyPipelineSnapshot {
-        let width = self.inner.state.config.pipeline.width;
-        PyPipelineSnapshot::new(self.inner.state.cores[0].pipeline.snapshot(width))
+        PyPipelineSnapshot::new(self.inner.pipeline_snapshot(0))
     }
 
     /// Save a checkpoint of the system's architectural state to ``path``.
