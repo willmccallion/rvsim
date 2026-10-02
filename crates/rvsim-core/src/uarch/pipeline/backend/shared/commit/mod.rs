@@ -220,7 +220,7 @@ fn count_retire_width(state: &mut CoreCtx<'_>, retired: usize, rob_empty_at_star
 /// True when `[paddr, paddr + width)` is RAM with no MMIO overlay, i.e. a
 /// write there can be published directly rather than through a device.
 fn is_pure_ram(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> bool {
-    state.bus.ram_region_for(paddr.val(), width.bytes()).is_some()
+    state.bus.is_ram(paddr, width.bytes())
 }
 
 #[cfg(test)]

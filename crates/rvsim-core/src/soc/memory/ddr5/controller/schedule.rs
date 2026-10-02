@@ -1,18 +1,33 @@
 //! Admitting requests to the queues and choosing which to serve next.
 
 use crate::sim::components::{ChannelId, SubchannelId};
+use crate::sim::memory::GlobalMemory;
 use crate::soc::memory::ddr5::scheduler::Candidate;
 use crate::soc::memory::ddr5::state::{BankState, PendingReq, WriteDrainState};
 
 use super::Ddr5Controller;
 use super::{BankCmdCtx, Payload, ScheduledResponse, is_read_op};
 
+/// A request's place in a subchannel's queues: the `index`th entry of the
+/// write queue, or of the read queue.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct QueueSlot {
+    pub(super) writes: bool,
+    pub(super) index: usize,
+}
+
 impl Ddr5Controller {
     /// Moves arrived requests from `inbound` into the read / write queues in
     /// arrival order, stopping at the first one its queue cannot hold.
     /// Writes are acknowledged on admission; a read whose line is still in
     /// the write queue is answered from the queue.
-    pub(super) fn admit(&mut self, chan: ChannelId, subch: SubchannelId, now: u64) {
+    pub(super) fn admit(
+        &mut self,
+        chan: ChannelId,
+        subch: SubchannelId,
+        now: u64,
+        memory: &GlobalMemory,
+    ) {
         let read_cap = self.config.read_queue_entries;
         let write_cap = self.config.write_queue_entries;
         let frontend = self.config.frontend_latency;
@@ -27,7 +42,7 @@ impl Ddr5Controller {
                 if sc.write_queue.iter().any(|w| w.line == request.line) {
                     sc.counters.reads_hit_write_queue += 1;
                     if !request.scrub {
-                        let payload = self.service_buffer(&request);
+                        let payload = Self::service(&request, memory);
                         self.pending_responses.push(ScheduledResponse::for_request(
                             &request,
                             now + frontend,
@@ -182,14 +197,14 @@ impl Ddr5Controller {
         &mut self,
         chan: ChannelId,
         subch: SubchannelId,
-        pick_writes: bool,
-        index: usize,
+        slot: QueueSlot,
         now: u64,
+        memory: &GlobalMemory,
     ) {
         let request = {
             let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
-            let queue = if pick_writes { &sc.write_queue } else { &sc.read_queue };
-            match queue.get(index) {
+            let queue = if slot.writes { &sc.write_queue } else { &sc.read_queue };
+            match queue.get(slot.index) {
                 Some(req) => req.clone(),
                 None => return,
             }
@@ -207,7 +222,7 @@ impl Ddr5Controller {
         let is_read = is_read_op(&request.op);
         let activated = match snapshot.state {
             BankState::Active if snapshot.open_row == Some(request.loc.row) => {
-                self.try_issue_column(&ctx, pick_writes, index, &request, is_read, now);
+                self.try_issue_column(&ctx, slot, &request, is_read, now, memory);
                 false
             }
             BankState::Active => {
@@ -224,22 +239,19 @@ impl Ddr5Controller {
         };
         if activated {
             let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-            let queue = if pick_writes { &mut sc.write_queue } else { &mut sc.read_queue };
-            if let Some(req) = queue.get_mut(index) {
+            let queue = if slot.writes { &mut sc.write_queue } else { &mut sc.read_queue };
+            if let Some(req) = queue.get_mut(slot.index) {
                 req.activated = true;
             }
         }
     }
 
-    pub(super) fn pop_request(
-        &mut self,
-        chan: ChannelId,
-        subch: SubchannelId,
-        pick_writes: bool,
-        index: usize,
-    ) {
+    pub(super) fn pop_request(&mut self, chan: ChannelId, subch: SubchannelId, slot: QueueSlot) {
         let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-        let _ =
-            if pick_writes { sc.write_queue.remove(index) } else { sc.read_queue.remove(index) };
+        let _ = if slot.writes {
+            sc.write_queue.remove(slot.index)
+        } else {
+            sc.read_queue.remove(slot.index)
+        };
     }
 }

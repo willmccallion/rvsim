@@ -1,8 +1,7 @@
-//! Physical System Memory (DRAM): backing buffer, mapping device, and latency controller.
+//! Memory controllers: address mapping and the latency models that answer
+//! the bus's requests to RAM.
 
 pub mod address;
-
-pub mod buffer;
 
 pub mod controller;
 

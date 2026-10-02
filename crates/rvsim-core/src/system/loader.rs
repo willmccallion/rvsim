@@ -6,7 +6,7 @@ use crate::isa::csr;
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
-use crate::soc::bus::Bus;
+use crate::sim::memory::GlobalMemory;
 use crate::system::SystemState;
 use object::{Object, ObjectSymbol};
 use std::fs;
@@ -169,12 +169,12 @@ pub struct ElfLoadResult {
     pub tohost_addr: Option<u64>,
 }
 
-/// Attempts to load an ELF file into memory via the bus.
+/// Attempts to load an ELF file into `memory`.
 ///
 /// If the file starts with the ELF magic (`\x7fELF`), parses the ELF,
 /// loads all `PT_LOAD` segments, and extracts the `tohost` symbol address.
 /// Returns `None` if the data is not a valid ELF.
-pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
+pub fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<ElfLoadResult> {
     if data.len() < 4 || &data[..4] != b"\x7fELF" {
         return None;
     }
@@ -191,16 +191,16 @@ pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
         let paddr = segment.address();
         if let Ok(seg_data) = segment.data() {
             if !seg_data.is_empty() {
-                bus.load_binary_at(seg_data, PhysAddr::new(paddr));
+                memory.load(PhysAddr::new(paddr), seg_data);
             }
             let p_filesz = seg_data.len() as u64;
             if p_memsz > p_filesz {
                 let bss_start = paddr + p_filesz;
                 let bss_size = (p_memsz - p_filesz) as usize;
-                bus.load_binary_at(&vec![0u8; bss_size], PhysAddr::new(bss_start));
+                memory.load(PhysAddr::new(bss_start), &vec![0u8; bss_size]);
             }
         } else if p_memsz > 0 {
-            bus.load_binary_at(&vec![0u8; p_memsz as usize], PhysAddr::new(paddr));
+            memory.load(PhysAddr::new(paddr), &vec![0u8; p_memsz as usize]);
         }
     }
 
@@ -213,22 +213,21 @@ pub fn try_load_elf(data: &[u8], bus: &mut Bus) -> Option<ElfLoadResult> {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::soc::bus::Bus;
     use std::io::Write;
 
     #[test]
     fn test_try_load_elf_invalid() {
-        let mut bus = Bus::new(8, 0, 1);
+        let mut memory = GlobalMemory::new(None, 1, 64);
         let data = b"NOT AN ELF FILE";
-        let result = try_load_elf(data, &mut bus);
+        let result = try_load_elf(data, &mut memory);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_try_load_elf_too_short() {
-        let mut bus = Bus::new(8, 0, 1);
+        let mut memory = GlobalMemory::new(None, 1, 64);
         let data = b"EL";
-        let result = try_load_elf(data, &mut bus);
+        let result = try_load_elf(data, &mut memory);
         assert!(result.is_none());
     }
 

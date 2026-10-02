@@ -15,7 +15,7 @@ use crate::config::{Config, InclusionPolicy, MemoryControllerKind};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
-use crate::sim::memory::GlobalMemory;
+use crate::sim::memory::{GlobalMemory, Ram};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::HartPaths;
 use crate::sim::stats::{StatSource, Stats};
@@ -25,7 +25,6 @@ use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{
     Clint, GoldfishRtc, Htif, Plic, SimControl, SimOp, SysCon, Uart, VirtioBlock,
 };
-use crate::soc::memory::buffer::DramBuffer;
 use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
@@ -51,9 +50,6 @@ pub struct SystemState {
     /// The uncore.
     pub uncore: Uncore,
 }
-
-unsafe impl Send for SystemState {}
-unsafe impl Sync for SystemState {}
 
 impl Deref for SystemState {
     type Target = Uncore;
@@ -168,14 +164,13 @@ impl SystemState {
 
         let ram_base = config.system.ram_base;
         let ram_size = config.memory.ram_size;
-        let ram_buffer = Arc::new(DramBuffer::new(ram_size));
 
         let uart =
             Uart::new(config.system.uart_base, config.system.console, config.system.cpu_clock_mhz);
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
         let plic = Plic::new(0x0c00_0000, hart_count);
 
-        let mut disk = VirtioBlock::new(config.system.disk_base, ram_base, ram_buffer.clone());
+        let mut disk = VirtioBlock::new(config.system.disk_base);
         if !disk_path.is_empty()
             && let Ok(disk_data) = fs::read(disk_path)
             && !disk_data.is_empty()
@@ -208,35 +203,29 @@ impl SystemState {
 
         let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller
         {
-            MemoryControllerKind::Dram => Box::new(DramController::new(
-                ram_buffer.clone(),
-                PhysAddr::new(ram_base),
-                DramConfig {
-                    t_cas: config.memory.t_cas,
-                    t_ras: config.memory.t_ras,
-                    t_pre: config.memory.t_pre,
-                    t_rrd: config.memory.t_rrd,
-                    num_banks: config.memory.num_banks,
-                    row_size_bytes: config.memory.row_size_bytes,
-                    t_refi: config.memory.t_refi,
-                    t_rfc: config.memory.t_rfc,
-                },
-            )),
+            MemoryControllerKind::Dram => Box::new(DramController::new(DramConfig {
+                t_cas: config.memory.t_cas,
+                t_ras: config.memory.t_ras,
+                t_pre: config.memory.t_pre,
+                t_rrd: config.memory.t_rrd,
+                num_banks: config.memory.num_banks,
+                row_size_bytes: config.memory.row_size_bytes,
+                t_refi: config.memory.t_refi,
+                t_rfc: config.memory.t_rfc,
+            })),
             MemoryControllerKind::Simple => {
                 let bytes_per_second = config
                     .memory
                     .simple_bandwidth_bytes_per_second()
                     .unwrap_or(std::num::NonZeroU64::MAX);
                 Box::new(SimpleController::new(
-                    ram_buffer.clone(),
-                    PhysAddr::new(ram_base),
                     config.memory.row_miss_latency,
                     Bandwidth::new(bytes_per_second, config.system.cpu_clock_mhz * 1_000_000),
                 ))
             }
             MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
-                ram_buffer.clone(),
                 PhysAddr::new(ram_base),
+                ram_size as u64,
                 config.memory.ddr5.to_config(),
                 MemCtrlId::new(0),
                 config.system.cpu_clock_mhz,
@@ -252,9 +241,7 @@ impl SystemState {
         };
         l3_cache.set_upstream_inclusion(llc_inclusion);
 
-        let ram_region =
-            crate::sim::memory::RamRegion::new(ram_buffer.as_mut_ptr(), ram_base, ram_size as u64);
-        bus.attach_ram(MemCtrlId::new(0), ram_region);
+        bus.attach_ram(MemCtrlId::new(0), ram_base, ram_size as u64);
         let write_log_line_bytes = match config.cache.l1_d.line_bytes {
             0 => 64,
             line_bytes => line_bytes as u64,
@@ -384,7 +371,11 @@ impl SystemState {
                 mem_controller,
                 l3_cache,
                 coherence,
-                memory: GlobalMemory::new(Some(ram_region), hart_count, write_log_line_bytes),
+                memory: GlobalMemory::new(
+                    Some(Ram::new(ram_base, ram_size)),
+                    hart_count,
+                    write_log_line_bytes,
+                ),
                 config: config.clone(),
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
                 panic_detected_at_cycle: None,

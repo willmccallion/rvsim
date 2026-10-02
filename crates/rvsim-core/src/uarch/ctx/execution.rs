@@ -1,7 +1,7 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::CoreCtx;
-use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, VPN_MASK, Vpn};
+use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, VPN_MASK, Vpn};
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::PrivilegeMode;
@@ -59,7 +59,7 @@ impl CoreCtx<'_> {
                     ((self.hart.csrs.satp >> csr::SATP_ASID_SHIFT) & csr::SATP_ASID_MASK) as u16,
                 );
                 // Hang detection reads the instruction at the stuck PC for
-                // tracing; uses the RAM fast-path pointer (bench-side
+                // tracing straight from the memory image (bench-side
                 // observability — no cache modelling needed).
                 let paddr_raw = if let Some(hit) =
                     self.core.mmu.dtlb.peek(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
@@ -68,11 +68,7 @@ impl CoreCtx<'_> {
                 } else {
                     self.hart.pc
                 };
-                let inst =
-                    self.bus.ram_region().filter(|r| r.contains(paddr_raw, 4)).map_or(0u32, |r| {
-                        // SAFETY: `RamRegion::contains` bounds-checks the access.
-                        unsafe { r.ptr(paddr_raw).cast::<u32>().read_unaligned() }
-                    });
+                let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
 
                 if inst == WFI {
                     trace_trap!(self.config.general.trace_instructions;

@@ -19,6 +19,7 @@ pub mod fetch1;
 pub mod fetch2;
 pub mod rename;
 
+use crate::common::PhysAddr;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::frontend::fetch1::FetchBuffer;
@@ -152,14 +153,11 @@ impl<E: ExecutionEngine> Frontend<E> {
     }
 }
 
-/// Reads a 16-bit instruction half-word from the RAM fast-path pointer.
+/// Reads a 16-bit instruction half-word from the memory image.
 ///
 /// Returns 0 for addresses outside DRAM. Architecturally, fetching from
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
 pub(super) fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
-    state.bus.ram_region().filter(|r| r.contains(paddr, 2)).map_or(0u16, |r| {
-        // SAFETY: `RamRegion::contains(paddr, 2)` bounds-checks the access.
-        unsafe { r.ptr(paddr).cast::<u16>().read_unaligned() }
-    })
+    state.memory.read(PhysAddr::new(paddr), 2).unwrap_or(0) as u16
 }

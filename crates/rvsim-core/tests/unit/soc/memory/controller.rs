@@ -15,12 +15,10 @@ use rvsim_core::sim::memory::GlobalMemory;
 use rvsim_core::sim::packet::WriteOrigin;
 use rvsim_core::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use rvsim_core::sim::stats::Stats;
-use rvsim_core::soc::memory::buffer::DramBuffer;
 use rvsim_core::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, SimpleController,
 };
 use std::num::NonZeroU64;
-use std::sync::Arc;
 
 /// Issues a `MemReq::Read` at `paddr` at `cycle` and returns the latency the
 /// controller computed (fire_at − cycle of the scheduled `MemResp`).
@@ -99,9 +97,8 @@ fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
 
 /// A simple controller moving `bytes_per_cycle` at a 1 Hz core clock.
 fn simple_with_bandwidth(latency: u64, bytes_per_cycle: u64) -> SimpleController {
-    let buffer = Arc::new(DramBuffer::new(0x10000));
     let bandwidth = Bandwidth::new(NonZeroU64::new(bytes_per_cycle).unwrap(), 1);
-    SimpleController::new(buffer, PhysAddr::new(0), latency, bandwidth)
+    SimpleController::new(latency, bandwidth)
 }
 
 /// A simple controller whose bandwidth never holds a request up.
@@ -146,21 +143,16 @@ fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64
 }
 
 fn dram_no_refresh(t_cas: u64, t_ras: u64, t_pre: u64) -> DramController {
-    let buffer = Arc::new(DramBuffer::new(0x10000));
-    DramController::new(
-        buffer,
-        PhysAddr::new(0),
-        DramConfig {
-            t_cas,
-            t_ras,
-            t_pre,
-            t_rrd: 4,
-            num_banks: 8,
-            row_size_bytes: 2048,
-            t_refi: 0,
-            t_rfc: 0,
-        },
-    )
+    DramController::new(DramConfig {
+        t_cas,
+        t_ras,
+        t_pre,
+        t_rrd: 4,
+        num_banks: 8,
+        row_size_bytes: 2048,
+        t_refi: 0,
+        t_rfc: 0,
+    })
 }
 
 fn dram_default() -> DramController {

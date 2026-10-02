@@ -534,7 +534,7 @@ fn translate_cbo<E: ExecutionEngine>(
 
     // Device regions do not support cache-block operations, `cbo.zero`
     // included, which the CMO specification leaves to each I/O region.
-    if state.bus.ram_region_for(paddr.val(), CBOZ_BLOCK_SIZE).is_none() {
+    if !state.bus.is_ram(paddr, CBOZ_BLOCK_SIZE) {
         push_trap(engine, ex, Trap::StoreAccessFault(tval), ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
@@ -600,7 +600,7 @@ fn apply_dirty_updates<E: ExecutionEngine>(
 /// True when `[paddr, paddr + size)` is not plain RAM: a device register,
 /// or the HTIF window a device overlays.
 fn reads_a_device(state: &StageCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
-    state.bus.ram_region_for(paddr.val(), size).is_none()
+    !state.bus.is_ram(paddr, size)
 }
 
 /// True when an access that has an effect nothing can undo may take it:
@@ -898,7 +898,7 @@ fn mmio_or_l1d<E: ExecutionEngine>(
     paddr: PhysAddr,
     size: AccessSize,
 ) -> ComponentId {
-    if state.bus.ram_region_for(paddr.val(), size.bytes() as u64).is_some() {
+    if state.bus.is_ram(paddr, size.bytes() as u64) {
         ComponentId::Cache(engine.common().l1_d_id)
     } else {
         ComponentId::Bus

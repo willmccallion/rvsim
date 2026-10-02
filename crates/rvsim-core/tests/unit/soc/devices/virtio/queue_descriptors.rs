@@ -6,12 +6,9 @@
 use rvsim_core::common::IrqId;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
-use rvsim_core::soc::memory::buffer::DramBuffer;
-use std::sync::Arc;
 
 fn make_virtio() -> VirtioBlock {
-    let ram = Arc::new(DramBuffer::new(4096));
-    VirtioBlock::new(0x1000_1000, 0x8000_0000, ram)
+    VirtioBlock::new(0x1000_1000)
 }
 
 #[test]

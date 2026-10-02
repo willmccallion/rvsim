@@ -21,6 +21,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
+use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::Packet;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::state::SystemState;
@@ -91,9 +92,6 @@ pub struct Simulator {
     pub skip_idle_cores: bool,
 }
 
-unsafe impl Send for Simulator {}
-unsafe impl Sync for Simulator {}
-
 impl Simulator {
     /// Wraps an existing `SystemState`, pointing each core's fetch at its
     /// hart's PC. Use this when the caller needs to interleave setup between
@@ -128,10 +126,7 @@ impl Simulator {
         }
         while self.drain_writes_for_a_cycle() {}
         let uncore = &mut self.state.uncore;
-        uncore.bus.drain_devices();
-        for (paddr, len) in uncore.bus.take_dma_writes() {
-            uncore.memory.record_external_write_range(paddr, len);
-        }
+        uncore.bus.drain_devices(&mut uncore.memory);
     }
 
     /// Runs one cycle of the memory system in which each drained core sends
@@ -448,9 +443,6 @@ impl Simulator {
                     self_id: ComponentId::Bus,
                 };
                 uncore.bus.handle(packet, source, &mut ctx);
-                for (paddr, len) in uncore.bus.take_dma_writes() {
-                    uncore.memory.record_external_write_range(paddr, len);
-                }
             }
             ComponentId::MemCtrl(id) => {
                 let uncore = &mut self.state.uncore;
@@ -489,9 +481,6 @@ impl Simulator {
                     self_id: ComponentId::Device(id),
                 };
                 uncore.bus.handle_device(id, packet, source, &mut ctx);
-                for (paddr, len) in uncore.bus.take_dma_writes() {
-                    uncore.memory.record_external_write_range(paddr, len);
-                }
             }
             ComponentId::Hart(_) | ComponentId::Core(_) => {
                 // Reserved for future per-hart packets.
@@ -523,8 +512,8 @@ impl Simulator {
     /// Synchronously reads `width` bytes from physical memory.
     ///
     /// Used at the FFI boundary (Python bindings, save/restore tooling) to
-    /// inspect memory without driving the full pipeline. RAM addresses use
-    /// the fast-path pointer; MMIO addresses dispatch a `MemReq` through the
+    /// inspect memory without driving the full pipeline. RAM addresses read
+    /// the memory image; MMIO addresses dispatch a `MemReq` through the
     /// bus's `Handle` impl with a local event queue and read the response
     /// data out of the synchronously-scheduled `MemResp`.
     ///
@@ -532,39 +521,19 @@ impl Simulator {
     /// through the global event queue and consume responses via the
     /// mailbox-drain stage.
     pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: u8) -> u64 {
-        let raw = paddr.val();
-        if let Some(r) = self.state.bus.ram_region().filter(|r| r.contains(raw, u64::from(width))) {
-            // SAFETY: bounds-checked by `RamRegion::contains(raw, width)`.
-            return unsafe {
-                match width {
-                    1 => u64::from(*r.ptr(raw)),
-                    2 => u64::from(r.ptr(raw).cast::<u16>().read_unaligned()),
-                    4 => u64::from(r.ptr(raw).cast::<u32>().read_unaligned()),
-                    8 => r.ptr(raw).cast::<u64>().read_unaligned(),
-                    _ => 0,
-                }
-            };
+        if let Some(value) = self.state.memory.read(paddr, usize::from(width)) {
+            return value;
         }
         self.probe_mmio(paddr, width, crate::sim::packet::MemOp::Read)
     }
 
-    /// Synchronously writes `width` bytes to physical memory. For RAM the
-    /// fast-path pointer is used directly; for MMIO a `MemReq` is dispatched
-    /// through the bus's `Handle` impl so the device's side effect runs.
+    /// Synchronously writes `width` bytes to physical memory. RAM takes the
+    /// write as an external one every hart observes; for MMIO a `MemReq` is
+    /// dispatched through the bus's `Handle` impl so the device's side
+    /// effect runs.
     pub fn probe_mem_store(&mut self, paddr: crate::common::PhysAddr, value: u64, width: u8) {
-        let raw = paddr.val();
-        if let Some(r) = self.state.bus.ram_region().filter(|r| r.contains(raw, u64::from(width))) {
-            // SAFETY: bounds-checked above.
-            unsafe {
-                match width {
-                    1 => *r.ptr(raw) = value as u8,
-                    2 => r.ptr(raw).cast::<u16>().write_unaligned(value as u16),
-                    4 => r.ptr(raw).cast::<u32>().write_unaligned(value as u32),
-                    8 => r.ptr(raw).cast::<u64>().write_unaligned(value),
-                    _ => {}
-                }
-            }
-            self.state.memory.record_external_write(paddr);
+        if self.state.memory.ram().is_some_and(|ram| ram.contains(paddr, u64::from(width))) {
+            self.state.memory.write(Writer::External, paddr, value, usize::from(width));
             return;
         }
         let op = crate::sim::packet::MemOp::Write {

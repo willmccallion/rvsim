@@ -2,10 +2,12 @@
 //! constraints, and placing their data on the bus.
 
 use crate::sim::components::{BankGroupId, ChannelId, RankId, RowId, SubchannelId};
+use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::state::{Bank, BankState, BusOp, PendingReq};
 
 use super::Ddr5Controller;
+use super::schedule::QueueSlot;
 use super::{
     ACT_CMD_CYCLES, ActivateBounds, BankCmdCtx, COLUMN_CMD_CYCLES, EmittedCommand,
     PRECHARGE_CMD_CYCLES, ScheduledResponse, bank_index_u8, column_lead, index_to_u8,
@@ -194,11 +196,11 @@ impl Ddr5Controller {
     pub(super) fn try_issue_column(
         &mut self,
         ctx: &BankCmdCtx,
-        pick_writes: bool,
-        index: usize,
+        slot: QueueSlot,
         request: &PendingReq,
         is_read: bool,
         now: u64,
+        memory: &GlobalMemory,
     ) {
         let bank = self.bank_snapshot(*ctx);
         let column_aligned = self.column_issue_earliest(ctx, &bank, is_read);
@@ -214,11 +216,11 @@ impl Ddr5Controller {
         self.commit_column(ctx, fire_at, data_start, data_end, is_read);
         self.account_column(ctx, request, is_read, data_end);
         if is_read && !request.scrub {
-            let payload = self.service_buffer(request);
+            let payload = Self::service(request, memory);
             let ready = data_end + self.config.frontend_latency + self.config.backend_latency;
             self.pending_responses.push(ScheduledResponse::for_request(request, ready, payload));
         }
-        self.pop_request(ctx.chan, ctx.subch, pick_writes, index);
+        self.pop_request(ctx.chan, ctx.subch, slot);
     }
 
     /// Records the statistics of a column command that just issued.

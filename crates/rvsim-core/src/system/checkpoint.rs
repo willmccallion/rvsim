@@ -20,6 +20,7 @@ use crate::arch::pmp::PmpEntry;
 use crate::common::PhysAddr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
+use crate::sim::memory::Ram;
 use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
@@ -182,7 +183,7 @@ impl Simulator {
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
         self.drain();
         let state = &self.state;
-        let region = state.bus.ram_region();
+        let ram = state.memory.ram();
         let reservations = state.memory.reservations();
         let header = Header {
             magic: MAGIC.into(),
@@ -190,8 +191,8 @@ impl Simulator {
             cycle: state.cycle,
             direct_mode: state.direct_mode,
             trace: state.trace.armed,
-            ram_base: region.map_or(0, |r| r.base()),
-            ram_size: region.map_or(0, |r| r.size()),
+            ram_base: ram.map_or(0, Ram::base),
+            ram_size: ram.map_or(0, Ram::size),
             vlen_bits: state.config.pipeline.vlen as u64,
             harts: state
                 .harts
@@ -203,12 +204,8 @@ impl Simulator {
         let header = serde_json::to_vec(&header)?;
         out.write_all(&(header.len() as u64).to_le_bytes())?;
         out.write_all(&header)?;
-        if let Some(region) = region {
-            // SAFETY: the region is `size()` bytes of RAM the bus owns, and
-            // nothing writes it while the drained simulator is borrowed here.
-            let ram =
-                unsafe { std::slice::from_raw_parts(region.as_ptr(), region.size() as usize) };
-            write_pages(ram, out)?;
+        if let Some(ram) = ram {
+            write_pages(ram.bytes(), out)?;
         }
         out.flush()?;
         Ok(())
@@ -233,21 +230,16 @@ impl Simulator {
         if header.version != VERSION {
             return Err(CheckpointError::Version { found: header.version });
         }
-        let region = self.state.bus.ram_region();
+        let ram = self.state.memory.ram();
         mismatch("harts", header.harts.len() as u64, self.state.harts.len() as u64)?;
-        mismatch("RAM bytes", header.ram_size, region.map_or(0, |r| r.size()))?;
-        mismatch("RAM base", header.ram_base, region.map_or(0, |r| r.base()))?;
+        mismatch("RAM bytes", header.ram_size, ram.map_or(0, Ram::size))?;
+        mismatch("RAM base", header.ram_base, ram.map_or(0, Ram::base))?;
         mismatch("VLEN", header.vlen_bits, self.state.config.pipeline.vlen as u64)?;
         self.state.bus.check_device_states(&header.devices).map_err(CheckpointError::Device)?;
 
         self.drain();
-        if let Some(region) = region {
-            // SAFETY: the region is `size()` bytes of RAM the bus owns, and
-            // nothing else touches it while the drained simulator is
-            // borrowed mutably here.
-            let ram =
-                unsafe { std::slice::from_raw_parts_mut(region.as_ptr(), region.size() as usize) };
-            read_pages(input, ram)?;
+        if let Some(ram) = self.state.memory.ram_mut() {
+            read_pages(input, ram.bytes_mut())?;
         }
         self.apply_header(&header)
     }

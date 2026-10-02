@@ -1,21 +1,19 @@
-//! Memory controllers: own a backing DRAM buffer and respond to `MemReq`
-//! packets with `MemResp` after a model-determined latency.
+//! Memory controllers: respond to `MemReq` packets with `MemResp` after a
+//! model-determined latency.
 //!
 //! `SimpleController` is a fixed-latency model serialised on a bandwidth
 //! (gem5's `SimpleMemory`). `DramController` tracks per-bank
-//! row buffers, tRRD between activations, and periodic refresh. Both read /
-//! write the underlying [`DramBuffer`] directly so the response carries actual
+//! row buffers, tRRD between activations, and periodic refresh. Both read
+//! the memory image as they serve a request so the response carries actual
 //! data.
 
 use std::num::NonZeroU64;
-use std::sync::Arc;
 
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
-use crate::soc::memory::buffer::DramBuffer;
 
 /// Cache-line size used when building `LineAddr` from a `PhysAddr`.
 const CACHE_LINE_BYTES: u64 = 64;
@@ -74,32 +72,18 @@ impl Bandwidth {
     }
 }
 
-/// Fixed-latency memory controller backed by a [`DramBuffer`], serialised
-/// on its bandwidth.
+/// Fixed-latency memory controller serialised on its bandwidth.
 #[derive(Debug)]
 pub struct SimpleController {
-    buffer: Arc<DramBuffer>,
-    base: PhysAddr,
     latency: u64,
     bandwidth: Bandwidth,
     busy_until: u64,
 }
 
 impl SimpleController {
-    /// Creates a simple controller. `base` is the physical address at which the
-    /// buffer's first byte is mapped.
-    pub const fn new(
-        buffer: Arc<DramBuffer>,
-        base: PhysAddr,
-        latency: u64,
-        bandwidth: Bandwidth,
-    ) -> Self {
-        Self { buffer, base, latency, bandwidth, busy_until: 0 }
-    }
-
-    /// Returns a clone of the underlying DRAM buffer handle.
-    pub fn buffer(&self) -> Arc<DramBuffer> {
-        Arc::clone(&self.buffer)
+    /// A controller answering every request after `latency` cycles.
+    pub const fn new(latency: u64, bandwidth: Bandwidth) -> Self {
+        Self { latency, bandwidth, busy_until: 0 }
     }
 }
 
@@ -110,7 +94,7 @@ impl Handle for SimpleController {
                 acknowledge_now(req_id, paddr, source, ctx);
                 return;
             }
-            let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
+            let data = service_request(paddr, size, &op, ctx.memory);
             let started = ctx.cycle.max(self.busy_until);
             self.busy_until = started + self.bandwidth.occupancy(size.bytes() as u64);
             ctx.scheduler.schedule(
@@ -135,8 +119,6 @@ impl Handle for SimpleController {
 /// periodically marks all banks as unavailable for `t_rfc` cycles.
 #[derive(Debug)]
 pub struct DramController {
-    buffer: Arc<DramBuffer>,
-    base: PhysAddr,
     banks: Vec<BankState>,
     num_banks: usize,
     t_cas: u64,
@@ -155,7 +137,7 @@ pub struct DramController {
 
 impl DramController {
     /// Creates a DRAM controller from a [`DramConfig`].
-    pub fn new(buffer: Arc<DramBuffer>, base: PhysAddr, cfg: DramConfig) -> Self {
+    pub fn new(cfg: DramConfig) -> Self {
         debug_assert!(
             cfg.row_size_bytes.is_power_of_two(),
             "row_size_bytes must be a power of two"
@@ -171,8 +153,6 @@ impl DramController {
         }
 
         Self {
-            buffer,
-            base,
             banks,
             num_banks: cfg.num_banks,
             t_cas: cfg.t_cas,
@@ -186,11 +166,6 @@ impl DramController {
             last_activate_cycle: None,
             next_refresh_cycle: if cfg.t_refi > 0 { cfg.t_refi } else { u64::MAX },
         }
-    }
-
-    /// Returns a clone of the underlying DRAM buffer handle.
-    pub fn buffer(&self) -> Arc<DramBuffer> {
-        Arc::clone(&self.buffer)
     }
 
     #[inline]
@@ -280,7 +255,7 @@ impl Handle for DramController {
                 return;
             }
             let latency = self.compute_latency(paddr.val(), ctx.cycle);
-            let data = service_request(&self.buffer, self.base, paddr, size, &op, ctx.memory);
+            let data = service_request(paddr, size, &op, ctx.memory);
             ctx.scheduler.schedule(
                 ctx.cycle + latency,
                 source,
@@ -346,8 +321,6 @@ impl MemoryController for DramController {
 /// Serves a request at the controller: a hart's access takes effect in
 /// `memory` now; a line read returns the line.
 fn service_request(
-    buffer: &Arc<DramBuffer>,
-    base: PhysAddr,
     paddr: PhysAddr,
     size: AccessSize,
     op: &MemOp,
@@ -356,10 +329,9 @@ fn service_request(
     if op.takes_effect_when_served(size) {
         return memory.perform(paddr, size, op);
     }
-    let offset = (paddr.val().saturating_sub(base.val())) as usize;
     match op {
         MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
-            read_response(buffer, offset, size)
+            read_response(memory, paddr, size)
         }
         MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => {
             MemRespData::Small(0)
@@ -390,11 +362,17 @@ const fn is_dataless_maintenance(op: &MemOp) -> bool {
     matches!(op, MemOp::Maintain { dirty: false, .. })
 }
 
-fn read_response(buffer: &Arc<DramBuffer>, offset: usize, size: AccessSize) -> MemRespData {
+/// The bytes a read of `size` at `paddr` returns; zeros outside RAM.
+pub(crate) fn read_response(
+    memory: &GlobalMemory,
+    paddr: PhysAddr,
+    size: AccessSize,
+) -> MemRespData {
     if size == AccessSize::Line {
-        let s = buffer.read_slice(offset, CACHE_LINE_BYTES as usize);
-        return MemRespData::Line(s.to_vec().into_boxed_slice());
+        let line = memory
+            .read_bytes(paddr, CACHE_LINE_BYTES as usize)
+            .unwrap_or_else(|| vec![0; CACHE_LINE_BYTES as usize].into_boxed_slice());
+        return MemRespData::Line(line);
     }
-    let bytes = buffer.read_slice(offset, size.bytes());
-    MemRespData::Small(bytes.iter().rev().fold(0, |value, &byte| (value << 8) | u64::from(byte)))
+    MemRespData::Small(memory.read(paddr, size.bytes()).unwrap_or(0))
 }

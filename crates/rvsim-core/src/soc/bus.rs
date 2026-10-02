@@ -2,7 +2,7 @@
 //!
 //! Routes packets to MMIO devices or the memory controller, ticks devices,
 //! folds CLINT and PLIC state into one set of interrupt lines per hart, and
-//! exposes a fast-path RAM region pointer for pipeline bit-exact reads.
+//! says which addresses are plain RAM.
 
 use super::devices::clint::Clint;
 use super::devices::uart::Uart;
@@ -10,7 +10,7 @@ use super::devices::{Device, SimOp};
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::memory::RamRegion;
+use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use std::collections::HashMap;
 
@@ -28,6 +28,14 @@ pub struct HartIrqs {
     pub seip: bool,
 }
 
+/// The RAM range `[start, end)` and the memory controller serving it.
+#[derive(Clone, Copy, Debug)]
+struct RamWindow {
+    ctrl: MemCtrlId,
+    start: u64,
+    end: u64,
+}
+
 /// System bus that routes packets to MMIO devices or the memory controller.
 pub struct Bus {
     /// Registered MMIO devices.
@@ -41,11 +49,8 @@ pub struct Bus {
     plic_idx: Option<usize>,
     /// Interrupt lines per hart as of the last [`Bus::tick`].
     hart_irqs: Vec<HartIrqs>,
-    /// Memory controller target for RAM-range accesses.
-    ram_ctrl: Option<(MemCtrlId, u64, u64)>,
-    /// Fast-path view of the DRAM region for bit-exact pipeline reads
-    /// (instruction fetch, direct-mode loads).
-    ram_region: Option<RamRegion>,
+    /// The RAM range and the memory controller that serves it.
+    ram: Option<RamWindow>,
     /// HTIF address range, checked before the RAM fast path so HTIF tohost
     /// stores route through the device.
     htif_range: Option<(u64, u64)>,
@@ -68,7 +73,7 @@ impl std::fmt::Debug for Bus {
             .field("uart_idx", &self.uart_idx)
             .field("clint_idx", &self.clint_idx)
             .field("num_devices", &self.devices.len())
-            .field("ram_ctrl", &self.ram_ctrl)
+            .field("ram", &self.ram)
             .finish_non_exhaustive()
     }
 }
@@ -85,8 +90,7 @@ impl Bus {
             clint_idx: None,
             plic_idx: None,
             hart_irqs: vec![HartIrqs::default(); hart_count],
-            ram_ctrl: None,
-            ram_region: None,
+            ram: None,
             htif_range: None,
             pending: HashMap::new(),
             request_busy_until: 0,
@@ -144,29 +148,19 @@ impl Bus {
         });
     }
 
-    /// Tells the bus which memory controller handles RAM-range accesses and
-    /// the `RamRegion` fast-path view.
-    pub const fn attach_ram(&mut self, ctrl_id: MemCtrlId, region: RamRegion) {
-        self.ram_ctrl = Some((ctrl_id, region.base(), region.base() + region.size()));
-        self.ram_region = Some(region);
+    /// Tells the bus that `ctrl` serves the `size` bytes of RAM at `base`.
+    pub const fn attach_ram(&mut self, ctrl: MemCtrlId, base: u64, size: u64) {
+        self.ram = Some(RamWindow { ctrl, start: base, end: base + size });
     }
 
-    /// Returns the cached fast-path view of the DRAM region.
-    #[inline]
-    pub const fn ram_region(&self) -> Option<RamRegion> {
-        self.ram_region
-    }
-
-    /// Returns the RAM fast-path view only when `[paddr, paddr+size)` is pure
-    /// RAM — i.e. does not overlap an MMIO overlay (HTIF lives inside the RAM
-    /// range, so its bytes belong to the device, not to `RamRegion`).
-    pub fn ram_region_for(&self, paddr: u64, size: u64) -> Option<RamRegion> {
-        self.ram_region.filter(|r| {
-            if !r.contains(paddr, size) {
-                return false;
-            }
-            !self.htif_range.is_some_and(|(start, end)| paddr < end && paddr + size > start)
-        })
+    /// True when `[paddr, paddr + size)` is plain RAM: inside the RAM range
+    /// and clear of the HTIF window a device overlays on it.
+    #[must_use]
+    pub fn is_ram(&self, paddr: PhysAddr, size: u64) -> bool {
+        let paddr = paddr.val();
+        let Some(end) = paddr.checked_add(size) else { return false };
+        self.ram.is_some_and(|ram| paddr >= ram.start && end <= ram.end)
+            && !self.htif_range.is_some_and(|(start, stop)| paddr < stop && end > start)
     }
 
     /// Returns the cached `(start, end_exclusive)` HTIF range.
@@ -201,26 +195,10 @@ impl Bus {
         start + self.calculate_transit_time(bytes)
     }
 
-    /// Writes a binary blob into RAM at the given physical address.
-    pub const fn load_binary_at(&mut self, data: &[u8], addr: PhysAddr) {
-        if let Some(region) = self.ram_region
-            && region.contains(addr.val(), data.len() as u64)
-        {
-            // SAFETY: contains() above confirms the range is in-bounds.
-            unsafe {
-                let base = region.ptr(addr.val());
-                std::ptr::copy_nonoverlapping(data.as_ptr(), base, data.len());
-            }
-        }
-    }
-
     /// Returns whether the given physical address is backed by any device or RAM.
     pub fn is_valid_address(&self, paddr: PhysAddr) -> bool {
         let raw = paddr.val();
-        if let Some((_, start, end)) = self.ram_ctrl
-            && raw >= start
-            && raw < end
-        {
+        if self.ram.is_some_and(|ram| raw >= ram.start && raw < ram.end) {
             return true;
         }
         self.devices.iter().any(|dev| {
@@ -237,20 +215,15 @@ impl Bus {
 
     /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].
     #[must_use]
-    /// RAM ranges any device wrote by DMA since the last call.
-    pub fn take_dma_writes(&mut self) -> Vec<(PhysAddr, usize)> {
-        self.devices.iter_mut().flat_map(|d| d.take_dma_writes()).collect()
-    }
-
     /// Requests the guest made of the simulator since the last call.
     pub fn take_sim_ops(&mut self) -> Vec<SimOp> {
         self.devices.iter_mut().flat_map(|d| d.take_sim_ops()).collect()
     }
 
     /// Finishes every device's work in flight before a checkpoint.
-    pub fn drain_devices(&mut self) {
+    pub fn drain_devices(&mut self, memory: &mut GlobalMemory) {
         for device in &mut self.devices {
-            device.drain();
+            device.drain(memory);
         }
     }
 
@@ -435,17 +408,17 @@ impl Handle for Bus {
         match packet {
             Packet::MemReq { req_id, paddr, .. } => {
                 let raw = paddr.val();
-                let ram_hit = self.ram_ctrl.filter(|(_, start, end)| raw >= *start && raw < *end);
+                let ram_hit = self.ram.filter(|ram| raw >= ram.start && raw < ram.end);
                 let is_htif =
                     self.htif_range.is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
-                if let Some((ctrl_id, _, _)) = ram_hit
+                if let Some(ram) = ram_hit
                     && !is_htif
                 {
                     let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
                     let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
                     ctx.scheduler.schedule(
                         arrives,
-                        ComponentId::MemCtrl(ctrl_id),
+                        ComponentId::MemCtrl(ram.ctrl),
                         ctx.self_id,
                         packet,
                     );

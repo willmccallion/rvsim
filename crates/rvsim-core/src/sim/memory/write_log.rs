@@ -26,8 +26,8 @@ pub struct WriteSeq(u64);
 pub enum Writer {
     /// A hart's committed store, SC, AMO or vector store.
     Hart(HartId),
-    /// The loader or a host-side probe; counts as "another hart" for every
-    /// hart.
+    /// A device's DMA or a host-side probe; counts as "another hart" for
+    /// every hart.
     External,
 }
 

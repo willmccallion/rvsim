@@ -3,20 +3,17 @@
 //! Tests for disk I/O operations, queue descriptor handling,
 //! and more advanced VirtIO functionality.
 
-use rvsim_core::soc::devices::Device;
+use rvsim_core::common::{HartId, PhysAddr};
+use rvsim_core::sim::memory::{GlobalMemory, Ram};
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
-use rvsim_core::soc::memory::buffer::DramBuffer;
-use std::sync::Arc;
 
 fn make_virtio() -> VirtioBlock {
-    let ram = Arc::new(DramBuffer::new(4096));
-    VirtioBlock::new(0x1000_1000, 0x8000_0000, ram)
+    VirtioBlock::new(0x1000_1000)
 }
 
-fn make_virtio_with_ram() -> (VirtioBlock, Arc<DramBuffer>) {
-    let ram = Arc::new(DramBuffer::new(0x10000)); // 64KB RAM
-    let virtio = VirtioBlock::new(0x1000_1000, 0x8000_0000, Arc::clone(&ram));
-    (virtio, ram)
+/// A device and a system memory of 64 KiB at `RAM_BASE`.
+fn make_virtio_with_ram() -> (VirtioBlock, GlobalMemory) {
+    (make_virtio(), GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x10000)), 1, 64))
 }
 
 #[test]
@@ -112,7 +109,7 @@ fn virtio_queue_sel_read_after_write() {
 
 #[test]
 fn virtio_queue_notify_triggers_processing() {
-    let (mut vio, _ram) = make_virtio_with_ram();
+    let (mut vio, _memory) = make_virtio_with_ram();
 
     // Set up a basic queue configuration first
     crate::support::probe::write(
@@ -822,61 +819,72 @@ const DATA_BUFFER: u64 = RAM_BASE + 0x3000;
 const STATUS_BYTE: u64 = RAM_BASE + 0x4000;
 const SECTOR: usize = 512;
 
-fn write_descriptor(ram: &DramBuffer, index: u64, addr: u64, len: u32, flags: u16, next: u16) {
-    let base = (DESC_TABLE - RAM_BASE + index * 16) as usize;
-    ram.write_slice(base, &addr.to_le_bytes());
-    ram.write_slice(base + 8, &len.to_le_bytes());
-    ram.write_slice(base + 12, &flags.to_le_bytes());
-    ram.write_slice(base + 14, &next.to_le_bytes());
+fn write_descriptor(
+    memory: &mut GlobalMemory,
+    index: u64,
+    addr: u64,
+    len: u32,
+    flags: u16,
+    next: u16,
+) {
+    let base = DESC_TABLE + index * 16;
+    memory.load(PhysAddr::new(base), &addr.to_le_bytes());
+    memory.load(PhysAddr::new(base + 8), &len.to_le_bytes());
+    memory.load(PhysAddr::new(base + 12), &flags.to_le_bytes());
+    memory.load(PhysAddr::new(base + 14), &next.to_le_bytes());
 }
 
 /// Posts a one-sector read of sector 0 into `DATA_BUFFER` and notifies the device.
-fn submit_sector_read(vio: &mut VirtioBlock, ram: &DramBuffer) {
+fn submit_sector_read(vio: &mut VirtioBlock, memory: &mut GlobalMemory) {
     const F_NEXT: u16 = 1;
     const F_WRITE: u16 = 2;
-    write_descriptor(ram, 0, REQUEST_HEADER, 16, F_NEXT, 1);
-    write_descriptor(ram, 1, DATA_BUFFER, SECTOR as u32, F_NEXT | F_WRITE, 2);
-    write_descriptor(ram, 2, STATUS_BYTE, 1, F_WRITE, 0);
-    ram.write_slice((REQUEST_HEADER - RAM_BASE) as usize, &[0u8; 16]);
-    let avail = (AVAIL_RING - RAM_BASE) as usize;
-    ram.write_slice(avail + 2, &1u16.to_le_bytes());
-    ram.write_slice(avail + 4, &0u16.to_le_bytes());
+    write_descriptor(memory, 0, REQUEST_HEADER, 16, F_NEXT, 1);
+    write_descriptor(memory, 1, DATA_BUFFER, SECTOR as u32, F_NEXT | F_WRITE, 2);
+    write_descriptor(memory, 2, STATUS_BYTE, 1, F_WRITE, 0);
+    memory.load(PhysAddr::new(REQUEST_HEADER), &[0u8; 16]);
+    memory.load(PhysAddr::new(AVAIL_RING + 2), &1u16.to_le_bytes());
+    memory.load(PhysAddr::new(AVAIL_RING + 4), &0u16.to_le_bytes());
 
-    let reg = |offset: u64| rvsim_core::common::PhysAddr::new(0x1000_1000 + offset);
+    let reg = |offset: u64| PhysAddr::new(0x1000_1000 + offset);
     crate::support::probe::write(vio, reg(0x38), 8, 4);
     crate::support::probe::write(vio, reg(0x80), DESC_TABLE, 4);
     crate::support::probe::write(vio, reg(0x90), AVAIL_RING, 4);
     crate::support::probe::write(vio, reg(0xa0), USED_RING, 4);
     crate::support::probe::write(vio, reg(0x44), 1, 4);
-    crate::support::probe::write_and_run_dma(vio, reg(0x50), 0, 4);
+    crate::support::probe::write_and_run_dma(vio, memory, reg(0x50), 0, 4);
+}
+
+fn ram_bytes(memory: &GlobalMemory, addr: u64, len: usize) -> Vec<u8> {
+    memory.read_bytes(PhysAddr::new(addr), len).expect("inside RAM").into()
 }
 
 #[test]
 fn a_sector_read_lands_in_the_guest_buffer() {
-    let (mut vio, ram) = make_virtio_with_ram();
+    let (mut vio, mut memory) = make_virtio_with_ram();
     vio.load(vec![0x42; SECTOR]);
 
-    submit_sector_read(&mut vio, &ram);
+    submit_sector_read(&mut vio, &mut memory);
 
-    assert_eq!(ram.read_slice((DATA_BUFFER - RAM_BASE) as usize, SECTOR), vec![0x42; SECTOR]);
-    assert_eq!(ram.read_u8((STATUS_BYTE - RAM_BASE) as usize), 0, "VIRTIO_BLK_S_OK");
+    assert_eq!(ram_bytes(&memory, DATA_BUFFER, SECTOR), vec![0x42; SECTOR]);
+    assert_eq!(ram_bytes(&memory, STATUS_BYTE, 1), [0], "VIRTIO_BLK_S_OK");
 }
 
 #[test]
-fn every_dma_write_of_a_request_is_reported_once() {
-    let (mut vio, ram) = make_virtio_with_ram();
+fn every_dma_write_of_a_request_is_logged_for_the_harts() {
+    let mut vio = make_virtio();
+    let mut memory = GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x10000)), 2, 64);
     vio.load(vec![0x42; SECTOR]);
+    let reader = HartId::new(0);
+    let stamp = memory.write_log().expect("two harts share a write log").now();
 
-    submit_sector_read(&mut vio, &ram);
-    let writes = vio.take_dma_writes();
+    submit_sector_read(&mut vio, &mut memory);
 
-    let touched = |addr: u64| {
-        writes.iter().any(|(paddr, len)| paddr.val() <= addr && addr < paddr.val() + *len as u64)
-    };
-    assert!(touched(DATA_BUFFER), "data buffer: {writes:?}");
-    assert!(touched(DATA_BUFFER + SECTOR as u64 - 1), "end of data buffer: {writes:?}");
-    assert!(touched(STATUS_BYTE), "status byte: {writes:?}");
-    assert!(touched(USED_RING + 2), "used index: {writes:?}");
-    assert!(touched(USED_RING + 4), "used element: {writes:?}");
-    assert!(vio.take_dma_writes().is_empty(), "reported writes are drained");
+    let log = memory.write_log().expect("two harts share a write log");
+    let written = |addr: u64| log.written_by_other_since(PhysAddr::new(addr), reader, stamp);
+    assert!(written(DATA_BUFFER), "data buffer");
+    assert!(written(DATA_BUFFER + SECTOR as u64 - 1), "end of data buffer");
+    assert!(written(STATUS_BYTE), "status byte");
+    assert!(written(USED_RING + 2), "used index");
+    assert!(written(USED_RING + 4), "used element");
+    assert!(!written(DATA_BUFFER + 0x800), "a line the request never touched");
 }

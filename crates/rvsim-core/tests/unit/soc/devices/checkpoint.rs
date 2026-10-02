@@ -10,8 +10,6 @@ use rvsim_core::soc::devices::clint::Clint;
 use rvsim_core::soc::devices::plic::Plic;
 use rvsim_core::soc::devices::uart::Uart;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
-use rvsim_core::soc::memory::buffer::DramBuffer;
-use std::sync::Arc;
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
@@ -86,13 +84,12 @@ fn a_uart_keeps_its_registers() {
 
 #[test]
 fn a_virtio_disk_keeps_its_queue_configuration() {
-    let ram = Arc::new(DramBuffer::new(0x1000));
-    let mut disk = VirtioBlock::new(VIRTIO_BASE, 0x8000_0000, Arc::clone(&ram));
+    let mut disk = VirtioBlock::new(VIRTIO_BASE);
     write(&mut disk, VIRTIO_BASE + 0x38, 8, 4);
     write(&mut disk, VIRTIO_BASE + 0x80, 0x8000_1000, 4);
     write(&mut disk, VIRTIO_BASE + 0x70, 0x0f, 4);
 
-    let mut disk = restored(&disk, VirtioBlock::new(VIRTIO_BASE, 0x8000_0000, ram));
+    let mut disk = restored(&disk, VirtioBlock::new(VIRTIO_BASE));
 
     assert_eq!(disk.state().queue_num, 8);
     assert_eq!(disk.state().queue_desc_low, 0x8000_1000);

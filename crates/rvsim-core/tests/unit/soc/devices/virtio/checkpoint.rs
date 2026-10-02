@@ -2,27 +2,25 @@
 //! restores onto the disk image it was taken on.
 
 use super::dma_timing::{
-    DATA, MMIO, RAM_BASE, Request, SECTOR, device_with_a_queued, disk_image, notify,
+    DATA, MMIO, Request, SECTOR, device_with_a_queued, disk_image, notify, place,
 };
 use rvsim_core::sim::events::EventQueue;
 use rvsim_core::soc::devices::Device;
 use rvsim_core::soc::devices::virtio_disk::VirtioBlock;
-use rvsim_core::soc::memory::buffer::DramBuffer;
-use std::sync::Arc;
 
 const WRITTEN: u8 = 0xab;
 
 /// A device that has written `WRITTEN` over `SECTOR`.
 fn device_after_a_write() -> VirtioBlock {
-    let (mut device, ram) = device_with_a_queued(Request::Write);
-    ram.write_slice(DATA as usize, &[WRITTEN; 512]);
-    notify(&mut device, &mut EventQueue::new());
-    device.drain();
+    let (mut device, mut memory) = device_with_a_queued(Request::Write);
+    place(&mut memory, DATA, &[WRITTEN; 512]);
+    notify(&mut device, &mut memory, &mut EventQueue::new());
+    device.drain(&mut memory);
     device
 }
 
 fn fresh_device(image: Vec<u8>) -> VirtioBlock {
-    let mut device = VirtioBlock::new(MMIO, RAM_BASE, Arc::new(DramBuffer::new(0x10000)));
+    let mut device = VirtioBlock::new(MMIO);
     device.load(image);
     device
 }
