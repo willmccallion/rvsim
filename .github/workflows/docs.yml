@@ -37,7 +37,7 @@ jobs:
       # including the compiled extension's, so the package is installed first.
       - run: pip install -r docs/requirements.txt .
       - run: mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - id: deployment
