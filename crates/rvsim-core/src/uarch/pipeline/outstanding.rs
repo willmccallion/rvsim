@@ -229,10 +229,11 @@ pub enum WalkContinuation {
 }
 
 /// A load answered from the store buffer: its data is known at once, but
-/// it reaches memory2 only after the L1D hit latency, like any other load.
+/// it reaches memory2 only after the forwarding latency, by default the
+/// L1D hit latency like any other load.
 #[derive(Clone, Debug)]
 pub struct ForwardedLoad {
-    /// Cycle the data would have come back from the cache.
+    /// Cycle the data reaches memory2.
     pub ready_cycle: u64,
     /// The completed memory1 entry.
     pub entry: crate::uarch::pipeline::latches::Mem1Mem2Entry,

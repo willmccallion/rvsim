@@ -214,6 +214,7 @@ fn pointer_chase(links: u32) -> Vec<u32> {
 fn load_to_use(backend: BackendKind, l1d_latency: u64) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
+    config.pipeline.writeback_width = Some(8);
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.latency = l1d_latency;
     let short = cycles_to_finish(&config, &pointer_chase(10));
@@ -239,12 +240,17 @@ fn store_load_chain(links: u32) -> Vec<u32> {
     program
 }
 
-/// Cycles each store/load link adds with an L1D of `l1d_latency`. Every
-/// load waits for its store's address, so the loads never speculate.
-fn forwarded_link(backend: BackendKind, l1d_latency: u64) -> u64 {
+/// Cycles each store/load link adds with an L1D of `l1d_latency` and the
+/// given store-forward latency. Every load waits for its store's address,
+/// so the loads never speculate; a two-wide front end keeps a link's two
+/// instructions from being fetch-bound.
+fn forwarded_link(backend: BackendKind, l1d_latency: u64, forward_latency: Option<u64>) -> u64 {
     let mut config = Config::default();
     config.pipeline.backend = backend;
+    config.pipeline.width = 2;
+    config.pipeline.writeback_width = Some(8);
     config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
+    config.pipeline.store_forward_latency = forward_latency;
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.latency = l1d_latency;
     let short = cycles_to_finish(&config, &store_load_chain(10));
@@ -255,7 +261,7 @@ fn forwarded_link(backend: BackendKind, l1d_latency: u64) -> u64 {
 fn assert_forwarded_load_takes_an_l1d_hit_latency(backend: BackendKind) {
     for l1d_latency in [1, 4, 9] {
         assert_eq!(
-            forwarded_link(backend, l1d_latency),
+            forwarded_link(backend, l1d_latency, None),
             load_to_use(backend, l1d_latency) + 1,
             "{backend:?} l1d latency {l1d_latency}: a link is one store-to-load cycle plus a hit"
         );
@@ -270,6 +276,53 @@ fn inorder_forwarded_load_takes_an_l1d_hit_latency() {
 #[test]
 fn o3_forwarded_load_takes_an_l1d_hit_latency() {
     assert_forwarded_load_takes_an_l1d_hit_latency(BackendKind::OutOfOrder);
+}
+
+fn assert_forwarded_load_takes_the_configured_latency(backend: BackendKind) {
+    for (l1d_latency, forward_latency) in [(1, 3), (4, 1), (4, 9)] {
+        assert_eq!(
+            forwarded_link(backend, l1d_latency, Some(forward_latency)),
+            load_to_use(backend, forward_latency) + 1,
+            "{backend:?} l1d latency {l1d_latency}, forward latency {forward_latency}: \
+             a link is one store-to-load cycle plus the forward latency"
+        );
+    }
+}
+
+#[test]
+fn inorder_forwarded_load_takes_the_configured_latency() {
+    assert_forwarded_load_takes_the_configured_latency(BackendKind::InOrder);
+}
+
+#[test]
+fn o3_forwarded_load_takes_the_configured_latency() {
+    assert_forwarded_load_takes_the_configured_latency(BackendKind::OutOfOrder);
+}
+
+fn assert_zero_latency_forward_saves_a_cycle(backend: BackendKind) {
+    assert_eq!(
+        forwarded_link(backend, 1, Some(0)),
+        forwarded_link(backend, 1, Some(1)) - 1,
+        "{backend:?}: a zero-latency forward writes back a cycle before a one-cycle one"
+    );
+}
+
+#[test]
+fn inorder_zero_latency_forward_saves_a_cycle() {
+    assert_zero_latency_forward_saves_a_cycle(BackendKind::InOrder);
+}
+
+#[test]
+fn o3_zero_latency_forward_saves_a_cycle() {
+    assert_zero_latency_forward_saves_a_cycle(BackendKind::OutOfOrder);
+}
+
+/// At zero latency a forwarded load costs its address generation and
+/// nothing more, as gem5's O3 LSQ writes it back in its execute cycle: a
+/// link is the store's resolve cycle plus that one cycle.
+#[test]
+fn o3_zero_latency_forwarded_load_costs_one_cycle_after_its_store() {
+    assert_eq!(forwarded_link(BackendKind::OutOfOrder, 1, Some(0)), 2);
 }
 
 #[test]

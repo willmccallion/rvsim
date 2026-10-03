@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Config(store_forward_latency=N)` sets the cycles a load forwarded from
+  the store buffer takes to reach writeback, where a load the L1D answers
+  takes the L1D hit latency; unset keeps the L1D hit latency, `1` is
+  gem5's O3 LSQ, and `0` writes the load back in the cycle it matches.
+  The gem5 comparison runs at `1`.
 - **Breaking (Rust API).** `rvsim-core`'s model is crate-private: the
   `exec`, `sim`, `soc` and `uarch` modules, `SystemState`, `Uncore`,
   `CoreCtx` and `StageCtx` are no longer exported. The crate's interface

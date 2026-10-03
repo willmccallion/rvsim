@@ -51,6 +51,16 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub redirect_latency: Option<u64>,
 
+    /// Cycles from a load matching a store in the store buffer to its data
+    /// reaching writeback, where a load the L1D answers takes the L1D hit
+    /// latency. The L1D hit latency when unset, as a core whose forwarding
+    /// shares the load pipeline; `1` is gem5's O3 LSQ, whose forwarded load
+    /// writes back the cycle after it executes; `0` writes the load back in
+    /// the cycle it matches. A forwarded vector span takes at least one
+    /// cycle.
+    #[serde(default)]
+    pub store_forward_latency: Option<u64>,
+
     /// Instructions fetched per cycle; `width` when unset.
     #[serde(default)]
     pub fetch_width: Option<usize>,
@@ -367,6 +377,7 @@ impl Default for PipelineConfig {
             width: defaults::PIPELINE_WIDTH,
             trap_latency: defaults::TRAP_LATENCY,
             redirect_latency: None,
+            store_forward_latency: None,
             fetch_width: None,
             decode_width: None,
             rename_width: None,
