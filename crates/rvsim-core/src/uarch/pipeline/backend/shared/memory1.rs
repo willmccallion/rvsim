@@ -16,8 +16,10 @@
 //!   - On a fault (PMP / page fault / unmapped paddr), emit a trapped
 //!     `Mem1Mem2Entry`.
 //!   - For demand **loads**: check store-buffer forwarding first.
-//!     - SB hit → push directly to M1→M2 with `load_data` filled and
-//!       `sb_forwarded = true`. No `MemReq` issued.
+//!     - SB hit → the load reaches M1→M2 with `load_data` filled and
+//!       `sb_forwarded = true` after the forwarding latency, or at zero
+//!       latency is finalized here and written back this cycle. No
+//!       `MemReq` issued.
 //!     - SB partial overlap → move to `BackendCommon::mem1_replay` and retry
 //!       next cycle; the store it overlaps must drain first.
 //!     - SB miss → emit `MemReq` to L1D and park [`OutstandingLoad`].
@@ -41,6 +43,7 @@ use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
+use crate::uarch::pipeline::backend::shared::memory2;
 use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{
@@ -694,8 +697,18 @@ fn push_resolved_store<E: ExecutionEngine>(
         .push(Mem1Mem2Entry { dirty_updates, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) });
 }
 
-/// Pushes an SB-forwarded load into M1→M2 with the forwarded raw value
-/// already in `load_data`.
+/// Cycles a forwarded load's data takes to reach writeback: the configured
+/// store-forward latency, else the L1D hit latency it would have paid.
+fn forward_latency(state: &StageCtx<'_>) -> u64 {
+    state.config.pipeline.store_forward_latency.unwrap_or_else(|| {
+        let l1_d = &state.core().l1_d_cache;
+        if l1_d.is_enabled() { l1_d.latency.max(1) } else { 1 }
+    })
+}
+
+/// Completes an SB-forwarded load with the forwarded raw value in
+/// `load_data`: finalized and written back this cycle at zero latency,
+/// otherwise reaching memory2 after the forwarding latency.
 fn push_sb_forwarded_load<E: ExecutionEngine>(
     state: &StageCtx<'_>,
     engine: &mut E,
@@ -705,23 +718,27 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
     dirty_updates: DirtyUpdates,
     raw_val: u64,
 ) {
-    // Forwarded data still takes the load pipeline's time to arrive.
-    let latency =
-        if state.core().l1_d_cache.is_enabled() { state.core().l1_d_cache.latency } else { 1 };
     let entry = Mem1Mem2Entry {
         load_data: raw_val,
         sb_forwarded: true,
         dirty_updates,
         ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr)
     };
+    let latency = forward_latency(state);
+    if latency == 0 {
+        let result = memory2::finalize_load(state, entry, engine.load_queue_mut(), "M1");
+        engine.common_mut().forwarded_results.push(result);
+        return;
+    }
     engine
         .common_mut()
         .forwarded_loads
-        .push(ForwardedLoad { ready_cycle: state.cycle + latency.max(1), entry });
+        .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
 }
 
-/// Parks a vector span a store forwarded, which arrives after the load
-/// pipeline's latency like a scalar forward.
+/// Parks a vector span a store forwarded, which arrives after the
+/// forwarding latency like a scalar forward; its elements are taken apart
+/// in memory2, so it takes at least one cycle.
 fn push_forwarded_span<E: ExecutionEngine>(
     state: &StageCtx<'_>,
     engine: &mut E,
@@ -733,14 +750,13 @@ fn push_forwarded_span<E: ExecutionEngine>(
     if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) = ex.vec_mem.as_mut() {
         span.data = Some(data);
     }
-    let latency =
-        if state.core().l1_d_cache.is_enabled() { state.core().l1_d_cache.latency } else { 1 };
+    let latency = forward_latency(state).max(1);
     let entry =
         Mem1Mem2Entry { sb_forwarded: true, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) };
     engine
         .common_mut()
         .forwarded_loads
-        .push(ForwardedLoad { ready_cycle: state.cycle + latency.max(1), entry });
+        .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
 }
 
 /// Issues a vector span's read of its `bytes` bytes to the L1D and parks it.

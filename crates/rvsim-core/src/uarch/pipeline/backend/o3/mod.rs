@@ -254,6 +254,7 @@ impl ExecutionEngine for O3Engine {
         self.squash_on_violation(state, now, older_violation(memory2_violation, memory1_violation));
 
         let memory_blocked = self.note_memory_backpressure(state);
+        writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);
         writeback_slots -= self.writeback_finished_results(state, now, writeback_slots);
         self.issue_vec_mem_waves();
         self.send_vector_memory_micro_ops();

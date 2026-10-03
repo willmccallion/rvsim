@@ -402,6 +402,8 @@ impl ExecutionEngine for InOrderEngine {
         // Ops behind an unresolved translation walk go back; ops waiting on
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
+        // A load forwarded at zero latency skips memory2 and writes back next cycle.
+        self.mem2_wb.append(&mut self.common.forwarded_results);
         for span in resolved.expanded_spans {
             let _ = expand_span(&span, &mut self.vec_mem_inflight);
         }

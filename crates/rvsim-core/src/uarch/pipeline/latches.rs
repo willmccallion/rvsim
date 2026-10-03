@@ -489,6 +489,32 @@ pub struct Mem2WbEntry {
     pub observed: Option<WriteSeq>,
 }
 
+impl Mem2WbEntry {
+    /// Carries `mem`, its trap included, into writeback with its final
+    /// register value and the reservation record it leaves for commit.
+    pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {
+        Self {
+            rob_tag: mem.rob_tag,
+            pc: mem.pc,
+            inst: mem.inst,
+            inst_size: mem.inst_size,
+            rd: mem.rd,
+            rd_phys: mem.rd_phys,
+            alu: mem.alu,
+            load_data,
+            ctrl: mem.ctrl,
+            trap: mem.trap,
+            exception_stage: mem.exception_stage,
+            fp_flags: mem.fp_flags,
+            dirty_updates: mem.dirty_updates,
+            sfence_vma: mem.sfence_vma,
+            lr_sc,
+            vec_mem: mem.vec_mem,
+            observed: mem.observed,
+        }
+    }
+}
+
 #[cfg(test)]
 mod latch_tests {
     use super::Latch;

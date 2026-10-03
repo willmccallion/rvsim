@@ -36,6 +36,7 @@ wide = base.replace(width=8)
 | `vector_mem_width` | `int` | `vlen / 8`, at most `64` | Bytes one unit-stride vector memory access moves: the vector load-store datapath width, a power of two from 8 to 64 |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
 | `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect, as gem5's `iewToCommitDelay` + `commitToFetchDelay` and Minor's execute-to-fetch branch latch; commit retires nothing the pending squash will remove |
+| `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `1` is gem5's O3 LSQ, whose forwarded load writes back the cycle after it executes; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
 | `backend` | `Backend.*` | `OutOfOrder()` | Pipeline backend: `Backend.InOrder()` or `Backend.OutOfOrder(...)` |
 | `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Branch predictor type |
 | `btb_size` | `int` | `4096` | Branch target buffer entries |

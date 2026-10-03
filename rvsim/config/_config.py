@@ -70,6 +70,7 @@ class Config:
         writeback_width: int | None = None,
         trap_latency: int = 13,
         redirect_latency: int | None = None,
+        store_forward_latency: int | None = None,
         branch_predictor: BranchPredictor.Static
         | BranchPredictor.GShare
         | BranchPredictor.TAGE
@@ -138,6 +139,7 @@ class Config:
         self.writeback_width = writeback_width
         self.trap_latency = trap_latency
         self.redirect_latency = redirect_latency
+        self.store_forward_latency = store_forward_latency
         self.branch_predictor = copy.deepcopy(branch_predictor)
         self.backend = (
             copy.deepcopy(backend) if backend is not None else Backend.InOrder()

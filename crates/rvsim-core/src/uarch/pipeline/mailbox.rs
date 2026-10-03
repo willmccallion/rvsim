@@ -70,7 +70,8 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
     );
 }
 
-/// Moves forwarded loads whose L1D latency has elapsed into the M1→M2 latch.
+/// Moves forwarded loads whose forwarding latency has elapsed into the
+/// M1→M2 latch.
 fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
     let mut ready = Vec::new();
     engine.common_mut().forwarded_loads.retain(|load| {

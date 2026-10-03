@@ -6,6 +6,7 @@ pub mod bus_occupancy;
 pub mod cbo_translation;
 pub mod device_latency;
 pub mod fill_latency;
+pub mod forward_latency;
 pub mod lsq_partial_overlap;
 pub mod mmio_loads;
 pub mod store_completion;

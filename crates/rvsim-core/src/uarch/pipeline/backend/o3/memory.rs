@@ -7,6 +7,7 @@ use crate::isa::rvv::ElemIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::{expand_span, retire_access};
 use crate::uarch::pipeline::backend::shared::{memory1, memory2, writeback};
+use crate::uarch::pipeline::latches::Mem2WbEntry;
 
 use super::O3Engine;
 use super::complete::wake_vector_dests;
@@ -81,11 +82,35 @@ impl O3Engine {
     /// slots left.
     pub(super) fn writeback_memory_results(&mut self, state: &mut CoreCtx<'_>) -> usize {
         let later = self.mem2_wb.split_off(self.mem2_wb.len().min(self.writeback_width));
-        let slots_left = self.writeback_width - self.mem2_wb.len();
+        let now = std::mem::replace(&mut self.mem2_wb, later);
+        let used = now.len();
+        self.write_back(state, now);
+        self.writeback_width - used
+    }
 
-        // Taken before writeback consumes the latch, so dependents wake via the PRF.
-        let wakeups: Vec<_> = self
-            .mem2_wb
+    /// Writes back the loads memory1 forwarded this cycle at zero latency,
+    /// as many as `slots` allow; the rest wait with the memory results for
+    /// a later cycle. Returns how many slots it used.
+    pub(super) fn writeback_forwarded_loads(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        slots: usize,
+    ) -> usize {
+        let mut now = std::mem::take(&mut self.common.forwarded_results);
+        let mut later = now.split_off(slots.min(now.len()));
+        let used = now.len();
+        self.write_back(state, now);
+        if !later.is_empty() {
+            later.append(&mut self.mem2_wb);
+            self.mem2_wb = later;
+        }
+        used
+    }
+
+    /// Completes `entries` in the ROB and wakes their dependents.
+    fn write_back(&mut self, state: &mut CoreCtx<'_>, mut entries: Vec<Mem2WbEntry>) {
+        // Taken before writeback consumes the entries, so dependents wake via the PRF.
+        let wakeups: Vec<_> = entries
             .iter()
             .filter(|wb| wb.trap.is_none())
             .map(|wb| {
@@ -100,14 +125,12 @@ impl O3Engine {
             })
             .collect();
 
-        writeback::writeback_stage(&state.stage(), &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&state.stage(), &mut entries, &mut self.rob);
 
         for (rd_phys, val) in wakeups {
             self.prf.write(rd_phys, val);
             self.issue_queue.wakeup_phys(rd_phys, val);
         }
-        self.mem2_wb = later;
-        slots_left
     }
 
     /// Memory1: translates and starts the accesses whose addresses are ready.

@@ -71,25 +71,12 @@ pub fn memory2_stage(
                 trap    = ?trap,
                 "M2: trap propagated through memory2"
             );
-            output.push(Mem2WbEntry {
-                rob_tag: mem.rob_tag,
-                pc: mem.pc,
-                inst: mem.inst,
-                inst_size: mem.inst_size,
-                rd: mem.rd,
-                rd_phys: mem.rd_phys,
-                alu: mem.alu,
-                load_data: 0,
-                ctrl: mem.ctrl,
-                trap: mem.trap,
-                exception_stage: mem.exception_stage,
-                fp_flags: mem.fp_flags,
-                dirty_updates: mem.dirty_updates,
-                sfence_vma: mem.sfence_vma,
-                lr_sc: None,
-                vec_mem: mem.vec_mem,
-                observed: mem.observed,
-            });
+            output.push(Mem2WbEntry::from_memory2(mem, 0, None));
+            continue;
+        }
+
+        if mem.ctrl.atomic_op.is_none() && mem.ctrl.mem_read {
+            output.push(finalize_load(state, mem, load_queue.as_deref_mut(), "M2"));
             continue;
         }
 
@@ -112,42 +99,6 @@ pub fn memory2_stage(
                 merge_violation(&mut violation, (violating_tag, mem.pc));
             }
             load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
-        } else if mem.ctrl.mem_read {
-            // Demand load. Sign / zero extend `load_data` (which memory1 or
-            // mailbox-drain populated) and apply FP NaN-boxing.
-            load_data = load_result(
-                mem.load_data,
-                mem.ctrl.width,
-                mem.ctrl.signed_load,
-                mem.ctrl.fp_reg_write,
-            );
-            if mem.sb_forwarded {
-                trace_fwd!(state.config.general.trace_instructions;
-                    event         = "forward",
-                    load_pc       = %crate::common::trace::Hex(mem.pc),
-                    load_tag      = mem.rob_tag.0,
-                    paddr         = %crate::common::trace::Hex(mem.paddr.val()),
-                    width         = ?mem.ctrl.width,
-                    signed        = mem.ctrl.signed_load,
-                    forwarded_val = %crate::common::trace::Hex(load_data),
-                    "M2: load satisfied from store buffer (memory1 hit)"
-                );
-            } else {
-                trace_mem!(state.config.general.trace_instructions;
-                    stage     = "M2",
-                    rob_tag   = mem.rob_tag.0,
-                    pc        = %crate::common::trace::Hex(mem.pc),
-                    op        = "load",
-                    paddr     = %crate::common::trace::Hex(mem.paddr.val()),
-                    width     = ?mem.ctrl.width,
-                    load_data = %crate::common::trace::Hex(load_data),
-                    "M2: load value finalized"
-                );
-            }
-            if let Some(ref mut lq) = load_queue {
-                let micro_op = mem.vec_mem.as_ref().map(|v| v.micro_op);
-                lq.fill_data(mem.rob_tag, micro_op, load_data, mem.observed);
-            }
         } else if mem.ctrl.mem_write {
             // A scalar store resolved in memory1; a vector store element
             // resolves here and checks the load queue for ordering violations.
@@ -181,28 +132,53 @@ pub fn memory2_stage(
             );
         }
 
-        output.push(Mem2WbEntry {
-            rob_tag: mem.rob_tag,
-            pc: mem.pc,
-            inst: mem.inst,
-            inst_size: mem.inst_size,
-            rd: mem.rd,
-            rd_phys: mem.rd_phys,
-            alu: mem.alu,
-            load_data,
-            ctrl: mem.ctrl,
-            trap: None,
-            exception_stage: None,
-            fp_flags: mem.fp_flags,
-            dirty_updates: mem.dirty_updates,
-            sfence_vma: mem.sfence_vma,
-            lr_sc,
-            vec_mem: mem.vec_mem,
-            observed: mem.observed,
-        });
+        output.push(Mem2WbEntry::from_memory2(mem, load_data, lr_sc));
     }
 
     violation
+}
+
+/// Finalizes a demand load's value: sign or zero extends the raw bytes
+/// memory1, the mailbox drain or a forwarding store put in `load_data`,
+/// NaN-boxes an FP load, and gives the load queue the value. `stage` names
+/// the stage doing it in the trace.
+pub fn finalize_load(
+    state: &StageCtx<'_>,
+    mem: Mem1Mem2Entry,
+    load_queue: Option<&mut LoadQueue>,
+    stage: &'static str,
+) -> Mem2WbEntry {
+    let load_data =
+        load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, mem.ctrl.fp_reg_write);
+    if mem.sb_forwarded {
+        trace_fwd!(state.config.general.trace_instructions;
+            event         = "forward",
+            stage         = stage,
+            load_pc       = %crate::common::trace::Hex(mem.pc),
+            load_tag      = mem.rob_tag.0,
+            paddr         = %crate::common::trace::Hex(mem.paddr.val()),
+            width         = ?mem.ctrl.width,
+            signed        = mem.ctrl.signed_load,
+            forwarded_val = %crate::common::trace::Hex(load_data),
+            "load satisfied from store buffer (memory1 hit)"
+        );
+    } else {
+        trace_mem!(state.config.general.trace_instructions;
+            stage         = stage,
+            rob_tag   = mem.rob_tag.0,
+            pc        = %crate::common::trace::Hex(mem.pc),
+            op        = "load",
+            paddr     = %crate::common::trace::Hex(mem.paddr.val()),
+            width     = ?mem.ctrl.width,
+            load_data = %crate::common::trace::Hex(load_data),
+            "load value finalized"
+        );
+    }
+    if let Some(lq) = load_queue {
+        let micro_op = mem.vec_mem.as_ref().map(|v| v.micro_op);
+        lq.fill_data(mem.rob_tag, micro_op, load_data, mem.observed);
+    }
+    Mem2WbEntry::from_memory2(mem, load_data, None)
 }
 
 /// The element writes a vector store micro-op resolves: its own, or each
