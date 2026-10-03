@@ -70,7 +70,7 @@ flowchart LR
 
 **Reorder buffer** — circular buffer with O(1) tag lookup via HashMap. Supports partial flush after branch misprediction (preserves older in-flight work).
 
-**Branch misprediction recovery** — the squash is taken `redirect_latency` cycles after the branch's result completes: GHR repaired from the per-instruction snapshot with the real outcome pushed, RAS restored from its snapshot, rename map restored from a checkpoint or rebuilt, everything after the mispredicting instruction's ROB tag flushed, and fetch redirected. A memory-ordering or coherence violation squashes through the same path.
+**Branch misprediction recovery** — the squash is taken `redirect_latency` cycles after the branch's result completes: GHR repaired from the per-instruction snapshot with the real outcome pushed, RAS restored from its snapshot, rename map restored from a checkpoint or rebuilt, everything after the mispredicting instruction's ROB tag flushed, and fetch redirected. Fetch spends that cycle squashing and fetches the target the cycle after, as gem5's fetch does. Commit squashes the flushed ROB entries at `squash_width` per cycle; dispatch holds while it sees commit squashing and rename while it sees dispatch held, each a cycle late, so rename resumes one cycle after the squash finishes, as gem5's `ROBSquashing` and IEW stall signals propagate; decode of the correct path proceeds meanwhile. A memory-ordering or coherence violation squashes through the same path.
 
 **Memory dependence prediction.** The Memory Dependence Unit (MDU) determines at dispatch time whether a load can speculatively bypass unresolved older stores. Two predictors are available:
 

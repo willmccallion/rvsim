@@ -505,6 +505,15 @@ impl ExecutionEngine for InOrderEngine {
         false
     }
 
+    /// Minor's fetch follows a branch the cycle it arrives.
+    fn fetch_squashes_for_a_cycle(&self) -> bool {
+        false
+    }
+
+    fn is_recovering_from_squash(&self) -> bool {
+        false
+    }
+
     fn load_queue_mut(
         &mut self,
     ) -> Option<&mut crate::uarch::pipeline::lsq::load_queue::LoadQueue> {

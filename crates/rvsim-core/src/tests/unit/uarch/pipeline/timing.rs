@@ -159,6 +159,47 @@ fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
     }
 }
 
+/// Runs the mispredicted branch on a four-wide O3 core squashing
+/// `squash_width` ROB entries per cycle; returns the squashed entries,
+/// the cycles rename was held, and the cycles to reach the target.
+fn squash_recovery(squash_width: usize) -> (f64, f64, u64) {
+    let mut config = redirect_config(BackendKind::OutOfOrder, 4, 2);
+    config.pipeline.squash_width = squash_width;
+    let mut tc = TestContext::new_with_config(&config)
+        .with_memory(MEM_SIZE, BASE_ADDR)
+        .load_program(BASE_ADDR, &mispredicted_branch());
+    let cycles = tc
+        .run_until(5_000, |tc| tc.get_reg(TARGET_REG) == TARGET_VALUE)
+        .expect("branch target never reached");
+    let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
+    let stats = &tc.sim.state.stats;
+    assert_eq!(stats.get(paths.flushes_total), Some(1.0), "one squash");
+    let squashed = stats.get(paths.flushes_squashed_insns).unwrap_or(0.0);
+    (squashed, stats.get(paths.stalls_squash).unwrap_or(0.0), cycles)
+}
+
+/// Commit squashes `squash_width` ROB entries per cycle, as gem5's
+/// `squashWidth`, and rename resumes the cycle after it finishes.
+#[test]
+fn o3_rename_waits_the_squashed_entries_over_the_squash_width_plus_a_cycle() {
+    for squash_width in [1, 3, 8] {
+        let (squashed, stalled, _) = squash_recovery(squash_width);
+        assert!(squashed > 1.0, "the wrong path reached the ROB");
+        assert_eq!(
+            stalled,
+            (squashed / squash_width as f64).ceil() + 1.0,
+            "squash width {squash_width}: {squashed} entries"
+        );
+    }
+}
+
+#[test]
+fn o3_a_wider_squash_recovers_sooner() {
+    let (_, _, one) = squash_recovery(1);
+    let (_, _, eight) = squash_recovery(8);
+    assert!(eight < one, "one per cycle: {one}, eight per cycle: {eight}");
+}
+
 /// A store to one address, a load from another that the blind
 /// memory-dependence predictor makes wait for the store's address, and
 /// the load's dependent. `with_store = false` puts a `nop` in the store's

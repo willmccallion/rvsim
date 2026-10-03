@@ -164,7 +164,6 @@ PIPELINE STALLS
   stalls.dispatch        15732923 (6.35%)
   stalls.checkpoint      9576 (0.00%)
   stalls.squash          30287660 (12.23%)
-  stalls.rename_rebuild  2545723 (1.03%)
 
 BRANCH PREDICTION (COMMITTED)
   bp.committed_lookups   35704632

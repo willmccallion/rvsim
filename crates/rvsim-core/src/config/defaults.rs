@@ -202,6 +202,10 @@ pub const STORE_PORTS: usize = 1;
 /// Default checkpoint count for O(1) branch recovery (32 slots).
 /// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
 pub const CHECKPOINT_COUNT: usize = 32;
+
+/// Reorder-buffer entries commit squashes per cycle after a misprediction,
+/// trap or ordering violation (gem5's O3 `squashWidth`).
+pub const SQUASH_WIDTH: usize = 8;
 /// Cycles from commit detecting a trap to the squash into its handler
 /// (gem5's O3 `trapLatency`).
 pub const TRAP_LATENCY: u64 = 13;

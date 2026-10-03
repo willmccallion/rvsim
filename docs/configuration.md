@@ -55,6 +55,7 @@ Backend.OutOfOrder(
     store_ports=1,           # Store ports per cycle
     prf_gpr_size=256,        # Physical GPR file size
     prf_fpr_size=128,        # Physical FPR file size
+    squash_width=8,          # ROB entries squashed per cycle after a mispredict (gem5's squashWidth)
     fu_config=Fu([...]),     # Functional unit pool (see below)
 )
 ```

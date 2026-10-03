@@ -76,8 +76,6 @@ pub struct O3Engine {
     pub pending_results: Vec<PendingResult>,
     /// Memory ops whose address unit is still generating their address.
     pub pending_addresses: Vec<PendingResult>,
-    /// Pipeline width (max instructions issued/committed per cycle).
-    pub width: usize,
     /// Instructions renamed and dispatched per cycle.
     rename_width: usize,
     /// Instructions issued per cycle.
@@ -103,7 +101,10 @@ pub struct O3Engine {
     pub mdp: MemDepUnit,
     /// Checkpoint table for O(1) branch misprediction recovery.
     pub checkpoints: CheckpointTable,
-    /// Stall cycles remaining for in-progress squash recovery (blocks dispatch while > 0).
+    /// ROB entries commit squashes per cycle (gem5's `squashWidth`).
+    squash_width: usize,
+    /// Cycles commit still spends squashing the ROB; rename is blocked
+    /// while it does.
     pub squash_stall_remaining: u64,
     /// Whether rename holds the instruction after a serializing one.
     serialization: serialize::Serialization,
@@ -160,7 +161,6 @@ impl O3Engine {
             fu_pool,
             pending_results: Vec::new(),
             pending_addresses: Vec::new(),
-            width: config.pipeline.width,
             rename_width: config.pipeline.rename_width(),
             issue_width: config.pipeline.issue_width(),
             commit_width: config.pipeline.commit_width(),
@@ -173,6 +173,7 @@ impl O3Engine {
             cycle: 0,
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
+            squash_width: config.pipeline.squash_width,
             squash_stall_remaining: 0,
             serialization: serialize::Serialization::Off,
             redirect_latency: config.pipeline.redirect_latency(),
@@ -386,6 +387,14 @@ impl ExecutionEngine for O3Engine {
     fn has_register_renaming(&self) -> bool {
         true
     }
+
+    fn fetch_squashes_for_a_cycle(&self) -> bool {
+        true
+    }
+
+    fn is_recovering_from_squash(&self) -> bool {
+        self.squash_stall_remaining > 0
+    }
 }
 
 #[cfg(test)]
@@ -406,7 +415,7 @@ mod tests {
             crate::sim::components::CacheId::new(0),
             crate::sim::components::CacheId::new(1),
         );
-        assert_eq!(engine.width, config.pipeline.width);
+        assert_eq!(engine.rename_width, config.pipeline.rename_width());
 
         engine.flush(&mut state);
         assert_eq!(engine.execute_mem1.len(), 0);

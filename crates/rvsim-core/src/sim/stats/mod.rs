@@ -614,7 +614,6 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
         Meta::cycles("rename stalls behind a serializing instruction"),
     );
     s.register(pipe.stalls_squash, Meta::cycles("squash-recovery cycles"));
-    s.register(pipe.stalls_rename_rebuild, Meta::cycles("rename-map rebuild cycles"));
     s.register(pipe.flushes_total, Meta::events("total pipeline flushes"));
     s.register(pipe.flushes_branch, Meta::events("flushes: branch mispredict"));
     s.register(pipe.flushes_system, Meta::events("flushes: system serialization"));

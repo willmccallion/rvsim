@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The out-of-order backend recovers from a squash as gem5's O3 does:
+  fetch spends the redirect cycle squashing and fetches the target the
+  cycle after; commit drains the flushed ROB entries at
+  `Backend.OutOfOrder(squash_width=8)` per cycle (gem5's `squashWidth`)
+  and rename resumes the cycle after it finishes; the rename map is
+  restored at once. It drained them at the pipeline width and charged a
+  further rename-map rebuild walk when no checkpoint matched, which put
+  the correct path's execution three cycles behind gem5's after every
+  misprediction. `pipeline.stalls.rename_rebuild` is gone.
 - `Config(store_forward_latency=N)` sets the cycles a load forwarded from
   the store buffer takes to reach writeback, where a load the L1D answers
   takes the L1D hit latency; unset keeps the L1D hit latency, `1` is

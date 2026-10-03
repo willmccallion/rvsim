@@ -29,8 +29,8 @@ pub(super) const fn older_violation(
 }
 
 impl O3Engine {
-    /// Counts a cycle of squash recovery, during which the ROB's read ports
-    /// are busy reclaiming registers and rebuilding the rename map.
+    /// Counts a cycle commit spends squashing the ROB, during which rename
+    /// is blocked.
     pub(super) fn count_squash_stall(&mut self, state: &mut CoreCtx<'_>) {
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
@@ -38,12 +38,14 @@ impl O3Engine {
         }
     }
 
-    /// Squash stall penalty: ROB has `width` read ports for reclaim + rename rebuild.
-    pub(super) fn compute_squash_stall(&self, squashed: usize, surviving: usize) -> u64 {
-        let w = self.width.max(1);
-        let squash_cycles = squashed.div_ceil(w).saturating_sub(1);
-        let rebuild_cycles = surviving.div_ceil(w);
-        (squash_cycles + rebuild_cycles) as u64
+    /// Cycles rename waits after a squash is taken. Commit squashes the ROB
+    /// at `squash_width` entries per cycle (gem5's `ROB::doSquash`), at
+    /// least one cycle; dispatch holds while it sees commit squashing and
+    /// rename while it sees dispatch held, each a cycle late, so rename
+    /// resumes one cycle after the squash finishes. The rename map itself
+    /// is restored at once, as gem5 undoes its history buffer.
+    pub(super) fn squash_cycles(&self, squashed: usize) -> u64 {
+        squashed.div_ceil(self.squash_width.max(1)).max(1) as u64 + 1
     }
 
     /// Retires what the ROB head allows. A trap or a re-execution at commit
@@ -70,10 +72,9 @@ impl O3Engine {
 
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
-                // Full flush: committed_rename_map is used directly, no rebuild.
                 let squashed = self.rob.len();
                 self.flush(state);
-                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+                self.squash_stall_remaining = self.squash_cycles(squashed);
                 state.trap(&trap, pc);
                 *redirect = Some(state.hart.pc);
                 true
@@ -81,7 +82,7 @@ impl O3Engine {
             Some(CommitEvent::ReExecute(pc) | CommitEvent::SquashAfter(pc)) => {
                 let squashed = self.rob.len();
                 self.flush(state);
-                self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
+                self.squash_stall_remaining = self.squash_cycles(squashed);
                 state.hart.pc = pc;
                 *redirect = Some(pc);
                 true
@@ -214,23 +215,15 @@ impl O3Engine {
         self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
         self.execute_mem1.retain(|e| survives(e.rob_tag));
 
-        // Restore speculative rename map: checkpoint (O(1)) or forward ROB walk rebuild.
-        let surviving = self.rob.len();
         let checkpoint = keep_tag
             .filter(|_| self.checkpoints.capacity() > 0)
             .and_then(|tag| self.checkpoints.find_by_tag(tag).map(|ckpt| ckpt.rename_map.clone()));
         if let Some(rename_map) = checkpoint {
             self.rename_map = rename_map;
-            self.squash_stall_remaining = self.compute_squash_stall(squashed, 0);
         } else {
             self.rebuild_rename_map();
-            self.squash_stall_remaining = self.compute_squash_stall(squashed, surviving);
-            state
-                .uncore
-                .stats
-                .counter(paths.stalls_rename_rebuild)
-                .add(surviving.div_ceil(self.width.max(1)) as u64);
         }
+        self.squash_stall_remaining = self.squash_cycles(squashed);
         if let Some(keep_tag) = keep_tag {
             self.checkpoints.flush_after(keep_tag);
         } else {

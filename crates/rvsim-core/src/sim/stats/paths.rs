@@ -125,8 +125,6 @@ stat_paths! {
         stalls_serialize: "pipeline.stalls.serialize",
         /// Squash-recovery cycles.
         stalls_squash: "pipeline.stalls.squash",
-        /// Rename-map rebuild cycles.
-        stalls_rename_rebuild: "pipeline.stalls.rename_rebuild",
         /// Total pipeline flushes.
         flushes_total: "pipeline.flushes.total",
         /// Flushes caused by branch mispredict.

@@ -396,6 +396,7 @@ def _backend_to_pipeline_fields(be) -> dict:
             "prf_fpr_size": be.prf_fpr_size,
             "fu_config": _fu_config_to_dict(be.fu_config),
             "checkpoint_count": be.checkpoint_count,
+            "squash_width": be.squash_width,
             "prf_vpr_size": be.prf_vpr_size,
             "vec_chaining": be.vec_chaining,
             "vec_store_buffer_size": be.vec_store_buffer_size,
