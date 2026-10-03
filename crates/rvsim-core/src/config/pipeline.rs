@@ -177,6 +177,12 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_checkpoint_count")]
     pub checkpoint_count: usize,
 
+    /// Reorder-buffer entries commit squashes per cycle after a
+    /// misprediction, trap or ordering violation; rename is blocked until
+    /// it has finished (gem5's `squashWidth`).
+    #[serde(default = "PipelineConfig::default_squash_width")]
+    pub squash_width: usize,
+
     /// Memory dependence predictor type
     #[serde(default)]
     pub mem_dep_predictor: MemDepPredictorKind,
@@ -351,6 +357,10 @@ impl PipelineConfig {
         defaults::CHECKPOINT_COUNT
     }
 
+    const fn default_squash_width() -> usize {
+        defaults::SQUASH_WIDTH
+    }
+
     const fn default_trap_latency() -> u64 {
         defaults::TRAP_LATENCY
     }
@@ -406,6 +416,7 @@ impl Default for PipelineConfig {
             store_ports: defaults::STORE_PORTS,
             fu_config: FuConfig::default(),
             checkpoint_count: defaults::CHECKPOINT_COUNT,
+            squash_width: defaults::SQUASH_WIDTH,
             mem_dep_predictor: MemDepPredictorKind::default(),
             store_set: StoreSetConfig::default(),
             vlen: Vlen::default(),

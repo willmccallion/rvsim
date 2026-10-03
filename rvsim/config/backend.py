@@ -202,6 +202,7 @@ class Backend:
             prf_fpr_size: int = 128,
             fu_config=None,
             checkpoint_count: int = 0,
+            squash_width: int = 8,
             prf_vpr_size: int = 64,
             vec_chaining: bool = True,
             vec_store_buffer_size: int = 8,
@@ -217,6 +218,7 @@ class Backend:
             self.prf_fpr_size = prf_fpr_size
             self.fu_config = fu_config if fu_config is not None else Fu()
             self.checkpoint_count = checkpoint_count
+            self.squash_width = squash_width
             self.prf_vpr_size = prf_vpr_size
             self.vec_chaining = vec_chaining
             self.vec_store_buffer_size = vec_store_buffer_size

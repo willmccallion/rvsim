@@ -79,6 +79,13 @@ pub trait ExecutionEngine {
     /// intra-bundle RAW hazard check.
     fn has_register_renaming(&self) -> bool;
 
+    /// Whether fetch spends the cycle a redirect reaches it squashing and
+    /// fetches from the target the cycle after, as gem5's O3 fetch does.
+    fn fetch_squashes_for_a_cycle(&self) -> bool;
+
+    /// Whether a taken squash still holds rename, so the cycle is not idle.
+    fn is_recovering_from_squash(&self) -> bool;
+
     /// The reorder buffer.
     fn rob(&self) -> &Rob;
 
@@ -516,6 +523,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             && !common.fetch_walk_pending
             && self.rename_output.is_empty()
             && self.redirect.is_none()
+            && !self.engine.is_recovering_from_squash()
     }
 
     /// Run one cycle of the entire pipeline.
@@ -537,12 +545,16 @@ impl<E: ExecutionEngine> Pipeline<E> {
         let mut dispatch = self.rename_output.take(state.cycle);
         self.engine.tick(state, &mut dispatch, &mut self.redirect);
 
-        if let Some(pc) = self.redirect.take() {
-            self.discard_frontend_speculation();
-            self.frontend.fetch_pc = pc;
-        }
+        let fetch_squashing = match self.redirect.take() {
+            Some(pc) => {
+                self.discard_frontend_speculation();
+                self.frontend.fetch_pc = pc;
+                self.engine.fetch_squashes_for_a_cycle()
+            }
+            None => false,
+        };
 
-        if state.check_exit().is_none() && !state.hart.wfi_waiting {
+        if !fetch_squashing && state.check_exit().is_none() && !state.hart.wfi_waiting {
             self.frontend.tick(&mut state.stage(), &mut self.engine, &mut self.rename_output);
         }
     }
