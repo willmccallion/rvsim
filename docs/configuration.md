@@ -1,6 +1,13 @@
 # Configuration
 
-Every aspect of the simulated machine is runtime-configurable through the `Config` class. Parameters are flat (no nested objects) and use builder-style type classes for caches, predictors, and backends.
+Every aspect of the simulated machine is set through the `Config` class.
+Its parameters are flat keywords; caches, predictors, backends, memory
+controllers and the coherence fabric are small builder classes passed to
+them. A `Config` is serialised to the Rust core when a simulator is built,
+where it is validated as a whole: an unknown key, or a combination no
+machine can have (for example a BTB whose set count is not a power of two,
+or an exclusive L1/L2 with more than one core), raises `ValueError` before
+anything runs.
 
 ## Basic Usage
 
@@ -16,13 +23,18 @@ config = Config(
 )
 ```
 
-Use `replace()` to derive new configs from a base:
+Use `replace()` to derive new configs from a base; every `Config` keeps
+its own copies of its components, so changing one never changes another:
 
 ```python
 base = Config(width=4, branch_predictor=BranchPredictor.TAGE())
 narrow = base.replace(width=2)
 wide = base.replace(width=8)
 ```
+
+`rvsim.presets` holds complete machines: `basic()`, `fast()`, `p550()`,
+`cortex_a72()`, `m1()`, and `linux()` for a system that boots the bundled
+Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 
 ---
 
@@ -31,34 +43,55 @@ wide = base.replace(width=8)
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `width` | `int` | `4` | Instructions per cycle for every stage that has no width of its own |
-| `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths, as gem5's `fetchWidth` … `commitWidth` |
-| `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle, as gem5's `wbWidth`; the rest wait for later cycles |
-| `vector_mem_width` | `int` | `vlen / 8`, at most `64` | Bytes one unit-stride vector memory access moves: the vector load-store datapath width, a power of two from 8 to 64 |
+| `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths |
+| `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
-| `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect, as gem5's `iewToCommitDelay` + `commitToFetchDelay` and Minor's execute-to-fetch branch latch; commit retires nothing the pending squash will remove |
-| `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `1` is gem5's O3 LSQ, whose forwarded load writes back the cycle after it executes; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
-| `backend` | `Backend.*` | `OutOfOrder()` | Pipeline backend: `Backend.InOrder()` or `Backend.OutOfOrder(...)` |
-| `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Branch predictor type |
+| `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |
+| `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
+| `backend` | `Backend.*` | `OutOfOrder()` | `Backend.OutOfOrder(...)` or `Backend.InOrder()` |
+| `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Direction predictor (see below) |
 | `btb_size` | `int` | `4096` | Branch target buffer entries |
-| `btb_ways` | `int` | `4` | BTB associativity |
+| `btb_ways` | `int` | `4` | BTB associativity; `btb_size / btb_ways` must be a power of two |
 | `ras_size` | `int` | `32` | Return address stack depth |
+| `mem_dep_predictor` | `MemDepPredictor.*` | `StoreSet()` | Memory dependence predictor (see below) |
 
 ### Backend: Out-of-Order
 
 ```python
 Backend.OutOfOrder(
-    rob_size=128,            # Reorder buffer entries
-    issue_queue_size=32,     # Issue queue entries (CAM wakeup/select)
-    store_buffer_size=32,    # Store buffer entries
-    load_queue_size=32,      # Load queue entries (memory ordering)
-    load_ports=2,            # Load ports per cycle
-    store_ports=1,           # Store ports per cycle
-    prf_gpr_size=256,        # Physical GPR file size
-    prf_fpr_size=128,        # Physical FPR file size
-    squash_width=8,          # ROB entries squashed per cycle after a mispredict (gem5's squashWidth)
-    fu_config=Fu([...]),     # Functional unit pool (see below)
+    rob_size=128,                 # Reorder buffer entries
+    issue_queue_size=32,          # Unified issue queue entries (CAM wakeup/select)
+    store_buffer_size=32,         # Store buffer entries
+    load_queue_size=32,           # Load queue entries
+    load_ports=2,                 # Loads issued per cycle
+    store_ports=1,                # Stores issued per cycle
+    prf_gpr_size=256,             # Physical integer registers
+    prf_fpr_size=128,             # Physical floating-point registers
+    fu_config=Fu([...]),          # Functional unit pool (see below); Fu() by default
+    checkpoint_count=0,           # Rename-map checkpoints for branch recovery (0: rebuild from the ROB)
+    squash_width=8,               # ROB entries commit squashes per cycle after a squash
+    prf_vpr_size=64,              # Physical vector registers
+    vec_chaining=True,            # Let a dependent vector op start on the first element group
+    vec_store_buffer_size=8,      # In-flight vector stores
+    vec_store_forwarding="byte_mask",  # Vector store-to-load forwarding: "byte_mask", "stall" or "off"
 )
 ```
+
+- **Register files.** `prf_gpr_size` and `prf_fpr_size` must each hold
+  the 32 architectural registers plus one for every instruction that can
+  be in flight with a destination; 32 + `rob_size` always suffices.
+- **Squash recovery.** After a misprediction, trap or ordering violation,
+  commit squashes the flushed ROB entries `squash_width` per cycle and
+  rename waits until it has finished, one cycle more; the rename map
+  itself is restored at once, from a checkpoint when the squashing branch
+  has one.
+- **Stores** issue in two halves when their data is not ready: the
+  address as soon as the base register is, the data when the value is
+  (see [Pipeline](architecture/pipeline.md)).
+- **Vector store forwarding.** `byte_mask` forwards any bytes a vector
+  store holds, as most out-of-order cores do; `stall` makes an overlapping
+  load wait for the store to be written, as Saturn does; `off` treats every
+  overlap as a stall.
 
 ### Backend: In-Order
 
@@ -66,149 +99,146 @@ Backend.OutOfOrder(
 Backend.InOrder()
 ```
 
-No parameters — the in-order backend uses a fixed scoreboard-based pipeline. Pipeline width is controlled by the top-level `width` parameter.
+The in-order backend takes no parameters of its own. It issues in program
+order, up to `issue_width` per cycle, with a scoreboard tracking operands;
+its functional units are the default `Fu()` pool, and it has a 64-entry
+ROB and a 16-entry store buffer.
 
-### Functional Units (O3 only)
-
-Configure the functional unit pool for the out-of-order backend:
+### Functional Units
 
 ```python
 from rvsim import Fu
 
 fu = Fu([
-    Fu.IntAlu(count=4, latency=1),       # Integer ALU: add, sub, logic, shift
-    Fu.IntMul(count=1, latency=3),       # Integer multiplier
-    Fu.IntDiv(count=1, latency=35),      # Integer divider (non-pipelined)
-    Fu.FpAdd(count=2, latency=4),        # FP add/sub/compare/convert
+    Fu.IntAlu(count=4, latency=1),       # add, sub, logic, shift, compare
+    Fu.IntMul(count=1, latency=3),       # multiply (pipelined)
+    Fu.IntDiv(count=1, latency=35),      # divide and remainder (not pipelined)
+    Fu.FpAdd(count=2, latency=4),        # FP add, subtract, compare, convert
     Fu.FpMul(count=2, latency=5),        # FP multiply
     Fu.FpFma(count=2, latency=5),        # FP fused multiply-add
-    Fu.FpDivSqrt(count=1, latency=21),   # FP divide/sqrt (non-pipelined)
-    Fu.Branch(count=2, latency=1),       # Branch/jump resolution
-    Fu.Mem(count=2, latency=1),          # Load/store address calculation
+    Fu.FpDivSqrt(count=1, latency=21),   # FP divide and square root (not pipelined)
+    Fu.Branch(count=2, latency=1),       # branch and jump resolution
+    Fu.Mem(count=2, latency=1),          # load and store address generation
+    Fu.VecIntAlu(count=1, latency=1),    # vector integer arithmetic and logic
+    Fu.VecIntMul(count=1, latency=3),    # vector integer multiply
+    Fu.VecIntDiv(count=1, latency=20),   # vector integer divide (not pipelined)
+    Fu.VecFpAlu(count=1, latency=4),     # vector FP add, compare, convert
+    Fu.VecFpFma(count=1, latency=5),     # vector FP multiply and fused multiply-add
+    Fu.VecFpDivSqrt(count=1, latency=20),  # vector FP divide and square root (not pipelined)
+    Fu.VecMem(count=1, latency=1),       # vector load and store address generation
+    Fu.VecPermute(count=1, latency=1),   # slides, gathers, compress, moves
 ])
 ```
 
-Omitting a FU type means the backend has zero units of that type. Make sure to include every type your workload exercises.
+The list above is `Fu()`, the default. A scalar unit type left out of a
+`Fu` list has no units, so an instruction that needs one never issues:
+include every scalar type your workload uses. A vector unit type left out
+gets one unit with the default latency. A vector instruction's time on its
+unit also scales with `vl` over the number of lanes (`num_vec_lanes`,
+below).
 
 ---
 
-## Branch Predictor
+## Branch Prediction
 
 ```python
-BranchPredictor.Static()          # Always predict not-taken
-BranchPredictor.GShare()          # Global history XOR PC
-BranchPredictor.Tournament(       # Two-level adaptive
+BranchPredictor.Static()          # Always predicts not-taken
+BranchPredictor.GShare()          # PC XOR global history, 2-bit counters
+BranchPredictor.Tournament(       # gem5's TournamentBP (Alpha 21264): local, global, choice
     global_size_bits=12,
     local_hist_bits=10,
     local_pred_bits=10,
 )
-BranchPredictor.Perceptron(       # Neural predictor
+BranchPredictor.Perceptron(       # Perceptron predictor
     history_length=32,
     table_bits=10,
 )
-BranchPredictor.TAGE(             # Tagged geometric history length
-    num_banks=4,
+BranchPredictor.TAGE(             # TAGEBase-style TAGE (defaults shown)
+    num_banks=8,
     table_size=2048,
-    reset_interval=2000,
-    history_lengths=[5, 15, 44, 130],
-    tag_widths=[9, 9, 10, 10],
+    reset_interval=256_000,
+    history_lengths=[5, 11, 22, 44, 89, 178, 356, 712],
+    tag_widths=[8, 8, 9, 9, 10, 10, 11, 11],
 )
-BranchPredictor.ScLTage(          # SC-L-TAGE + ITTAGE (highest accuracy)
-    # TAGE parameters (defaults: the 64KB TAGE-SC-L's 36 banked tables)
-    num_banks=36,
-    table_size=1024,
-    reset_interval=1024,  # CBP-5: allocation penalties before useful bits halve
-    history="pc_bits",
-    hashing="tage_sc_l",
-    banking=BranchPredictor.TageBanking(
-        short_factor=10, long_factor=20, first_long_bank=12,
-        enabled=[...],  # one flag per bank; the default is gem5's noSkip
-    ),
-    # Loop predictor (2^log_size entries, 2^log_assoc ways)
-    loop_log_size=5,
-    loop_log_assoc=2,
-    # Statistical corrector (defaults: Seznec's 64KB TAGE-SC-L)
-    sc_counter_bits=6,
-    sc_backward=BranchPredictor.ScGehl([40, 24, 10], log_entries=10, weight_init=7),
-    sc_path=BranchPredictor.ScGehl([25, 16, 9], log_entries=9, weight_init=7),
-    sc_local=[
-        BranchPredictor.ScLocalGehl(256, index_shift=2, lengths=[11, 6, 3], log_entries=10),
-        BranchPredictor.ScLocalGehl(16, index_shift=5, lengths=[16, 11, 6], log_entries=9, mix_pc=True),
-        BranchPredictor.ScLocalGehl(16, index_shift=10, lengths=[9, 4], log_entries=10),
-    ],
-    sc_imli=BranchPredictor.ScGehl([8], log_entries=8, weight_init=7),
-    sc_imli_history=BranchPredictor.ScGehl([10, 4], log_entries=9, weight_init=0),
-    # Indirect target TAGE
-    ittage_num_banks=8,
-    ittage_table_size=256,
-    ittage_reset_interval=256_000,
-)
+BranchPredictor.ScLTage()         # 64KB TAGE-SC-L with ITTAGE (Seznec's CBP-5 configuration)
 ```
+
+`TAGE` and `ScLTage` take further keywords for every structure of the
+predictor (allocation and update rules, history kind, hashing, banking,
+the bimodal table, USE_ALT_ON_NA counters); `ScLTage` adds the loop
+predictor (`loop_*`), the statistical corrector (`sc_*`, with
+`BranchPredictor.ScGehl` and `BranchPredictor.ScLocalGehl` components) and
+ITTAGE (`ittage_*`). Their defaults reproduce Seznec's 64KB TAGE-SC-L.
+[Branch Prediction](architecture/branch-prediction.md) describes each
+parameter.
 
 ---
 
 ## Memory Dependence Prediction
 
-Controls how loads decide whether they can bypass unresolved older stores.
+Controls how a load decides whether it may issue ahead of older stores
+whose addresses are not known yet.
 
 ```python
-MemDepPredictor.Blind()           # Conservative: loads wait for all older stores
-MemDepPredictor.StoreSet(         # Store-set predictor (Chrysos & Emer 1998), default
-    ssit_size=1024,               # Store Set ID Table entries
-    lfst_size=1024,               # Last Fetched Store Table entries
+MemDepPredictor.Blind()           # Loads wait for every older store's address
+MemDepPredictor.StoreSet(         # Store-set predictor (Chrysos & Emer 1998), the default
+    ssit_size=1024,               # Store Set ID Table entries (PC -> store set)
+    lfst_size=1024,               # Last Fetched Store Table entries (store set -> last store)
 )
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `mem_dep_predictor` | `MemDepPredictor.*` | `StoreSet()` | Memory dependence predictor type |
-| `ssit_size` | `int` | `1024` | SSIT entries (StoreSet only) — maps PC → store set ID |
-| `lfst_size` | `int` | `1024` | LFST entries (StoreSet only) — maps store set ID → last dispatched store |
+The store-set predictor learns from ordering violations and wipes both
+tables every 250,000 memory instructions.
 
 ---
 
 ## Caches
 
-Each cache level is configured independently:
+Each level is configured independently. The builder's own defaults (a
+4 KiB direct-mapped cache) are shown; `Config`'s default levels are in the
+table below.
 
 ```python
 Cache(
-    size="32KB",          # Size: "4KB", "32KB", "1MB", etc.
-    line="64B",           # Line size (default: 64B)
-    ways=8,               # Associativity
-    latency=1,            # Hit latency in cycles
-    mshr_count=8,         # Outstanding line fetches (0 = simulator default, 8)
-    write_buffers=8,      # Victims in flight to the next level (0 = default, 8)
-    targets_per_mshr=20,  # Requests one MSHR can hold (0 = default, 20)
-    response_latency=1,   # Cycles from a fill to answering its requests
-    policy=ReplacementPolicy.LRU(),       # Eviction policy
-    prefetcher=Prefetcher.Stride(),       # Hardware prefetcher
+    size="4KB",           # "4KB", "32KB", "1MB", or bytes
+    line="64B",           # Line size; at least the 64-byte block CBOs act on
+    ways=1,               # Associativity
+    latency=1,            # Tag and data access latency in cycles
+    response_latency=1,   # Cycles from a fill arriving to answering its requests
+    mshr_count=0,         # Lines fetched at once (0 = the default, 8)
+    write_buffers=0,      # Evicted lines in flight to the next level (0 = the default, 8)
+    targets_per_mshr=0,   # Requests one MSHR can hold (0 = the default, 20)
+    policy=None,          # Eviction policy; ReplacementPolicy.LRU() when None
+    prefetcher=None,      # Hardware prefetcher; Prefetcher.Off() when None
 )
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `l1i` | `Cache` | `32KB/4-way/1cy` | L1 instruction cache |
-| `l1d` | `Cache` | `32KB/4-way/1cy` | L1 data cache |
-| `l2` | `Cache` | `256KB/8-way/10cy` | L2 unified cache |
-| `l3` | `Cache` or `None` | `None` | L3 cache (disabled by default) |
-| `inclusion_policy` | `Cache.*` | `Cache.NINE()` | L1-L2 inclusion policy |
-| `wcb_entries` | `int` | `0` | Write-combining buffer entries |
+| `l1i` | `Cache` or `None` | 32 KiB, 4-way, 1 cycle, next-line prefetch | L1 instruction cache |
+| `l1d` | `Cache` or `None` | 32 KiB, 4-way, 1 cycle, stride prefetch | L1 data cache |
+| `l2` | `Cache` or `None` | 256 KiB, 8-way, 10 cycles | Private L2 |
+| `l3` | `Cache` or `None` | `None` | Shared last-level cache |
+| `inclusion_policy` | `Cache.*` | `Cache.NINE()` | Relationship between L1 and L2 |
+| `wcb_entries` | `int` | `0` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
+
+A load that hits takes one cycle of address generation plus the L1D's
+`latency` to reach its dependents, so `latency=3` models a 4-cycle
+load-to-use. `None` disables a level.
 
 !!! tip "MSHRs and writeback buffers"
     Every level fetches at most `mshr_count` lines at a time and keeps at
     most `write_buffers` evicted lines in flight to the next level; while
-    either is exhausted, or one MSHR holds `targets_per_mshr` requests
-    (gem5's `tgts_per_mshr`), the cache blocks and later requests queue.
-    Passing `0` (the Python default) leaves the simulator default in place
-    (8, 8 and 20, gem5's L1 value; gem5's L2 uses 12); a `mshr_count=1`
-    cache is a blocking cache that serialises its misses.
+    either is exhausted, or one MSHR holds `targets_per_mshr` requests, the
+    cache blocks and later requests queue. Passing `0` leaves the simulator
+    default in place (8, 8 and 20); `mshr_count=1` gives a blocking cache
+    that serialises its misses.
 
 ### Replacement Policies
 
 ```python
 ReplacementPolicy.LRU()      # Least recently used (default)
-ReplacementPolicy.PLRU()     # Pseudo-LRU (tree-based)
+ReplacementPolicy.PLRU()     # Tree pseudo-LRU
 ReplacementPolicy.FIFO()     # First in, first out
 ReplacementPolicy.Random()   # Random eviction
 ReplacementPolicy.MRU()      # Most recently used
@@ -217,108 +247,134 @@ ReplacementPolicy.MRU()      # Most recently used
 ### Prefetchers
 
 ```python
-Prefetcher.Off()                              # Disabled (default)
-Prefetcher.NextLine(degree=1)                 # Prefetch next line on access
-Prefetcher.Stride(degree=1, table_size=64)    # PC-indexed stride detection
-Prefetcher.Stream(degree=1)                   # Sequential stream detection
-Prefetcher.Tagged(degree=1)                   # Prefetch-on-prefetch
+Prefetcher.Off()                              # None (the default for Cache())
+Prefetcher.NextLine(degree=1)                 # The next `degree` lines on every access
+Prefetcher.Stride(degree=1, table_size=64)    # PC-indexed constant-stride detection
+Prefetcher.Stream(degree=1)                   # Ascending or descending streams
+Prefetcher.Tagged(degree=1)                   # Next lines on a miss or a first use of a prefetched line
 ```
+
+A prefetch is a real fetch: it takes an MSHR (never the last free one)
+and travels down the hierarchy like a demand miss.
 
 ### Inclusion Policies
 
 ```python
-Cache.NINE()        # No inclusion, non-exclusive (default)
-Cache.Inclusive()    # L2 eviction back-invalidates matching L1 lines
-Cache.Exclusive()   # L1 eviction swaps line into L2
+Cache.NINE()        # Neither inclusive nor exclusive (default)
+Cache.Inclusive()   # An L2 eviction back-invalidates the L1 copies
+Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 ```
 
 ---
 
-## Memory
+## Memory and Translation
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ram_size` | `str` or `int` | `"256MB"` | Main memory size |
-| `memory_controller` | `MemoryController.*` | `Simple()` | Memory controller type |
-| `tlb_size` | `int` | `32` | iTLB and dTLB entries (fully associative) |
-| `l2_tlb_size` | `int` | `512` | Shared L2 TLB entries |
+| `memory_controller` | `MemoryController.*` | `Simple()` | Memory controller (see below) |
+| `tlb_size` | `int` | `64` | Entries in each of the instruction and data L1 TLBs |
+| `tlb_ways` | `int` | `0` | L1 TLB associativity; `0` is fully associative |
+| `l2_tlb_size` | `int` | `0` | Entries in the shared L2 TLB; `0` disables it |
 | `l2_tlb_ways` | `int` | `4` | L2 TLB associativity |
 | `l2_tlb_latency` | `int` | `4` | L2 TLB hit latency in cycles |
+| `paging_mode_max` | `str` | `"sv57"` | Strongest paging mode `satp` accepts (`"bare"`, `"sv39"`, `"sv48"`, `"sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
+| `misaligned_access_trap` | `bool` | `False` | Raise address-misaligned exceptions instead of performing misaligned accesses in hardware |
+| `svadu` | `bool` | `False` | Implement Svadu: with `menvcfg.ADUE` set the page-table walker sets A and D bits itself; otherwise a missing A or D bit faults (Svade) |
 
-### Memory Controller
+### Memory Controllers
 
 ```python
-MemoryController.Simple(      # Fixed latency (default), serialised on a
-    bandwidth_gib_s=12.8,     # bandwidth: each request busies the controller
-)                             # for its bytes' time
-MemoryController.DRAM(        # Row-buffer aware timing
-    t_cas=14,                 # Column access strobe latency
-    t_ras=14,                 # Row access strobe latency
-    t_pre=14,                 # Precharge latency
-    row_miss_latency=120,     # Full row-miss penalty
+MemoryController.Simple(      # Fixed latency (default), serialised on a bandwidth:
+    bandwidth_gib_s=12.8,     # each request busies the controller for its bytes' time
 )
-MemoryController.DDR5(        # Command-level DDR5 (see architecture/memory.md)
-    speed_bin="4800B",        # JEDEC bin: "4800B" or "5600B"
-    channels=2,               # Channels × 2 sub-channels each
+MemoryController.DRAM(        # Row-buffer DRAM: per-bank open rows and refresh
+    t_cas=14,                 # Column access, cycles
+    t_ras=14,                 # Row activate, cycles
+    t_pre=14,                 # Precharge, cycles
+)
+MemoryController.DDR5(        # Command-level JEDEC DDR5 (see Memory Hierarchy)
+    speed_bin="4800B",        # "4800B" or "5600B"
+    channels=2,               # Channels; each has two 32-bit sub-channels
+    subchannels_per_channel=2,
     ranks_per_channel=2,
     bank_groups_per_rank=8,
     banks_per_group=4,
-    row_bits=16,              # 16 Gb x8 devices
-    column_bits=6,            # 4 KiB rows per sub-channel (64 B lines)
+    row_bits=16,
+    column_bits=6,            # Rows of 64 << column_bits bytes
     read_queue_entries=64,
     write_queue_entries=64,
     write_high_watermark=54,  # Start draining writes at this depth
     write_low_watermark=32,   # Return to reads at this depth
     min_writes_per_switch=16,
-    frontend_latency_ns=10,   # Controller pipeline, gem5 defaults
+    frontend_latency_ns=10,   # Controller pipeline
     backend_latency_ns=10,
     scheduler="FrFcfs",       # or "Fcfs"
     refresh="AllBank",        # or "SameBank"
     address_mapping="RoRaBaChCo",  # or "RoRaBaCoCh", "RoCoRaBaCh"
     power_down_idle_ns=None,  # e.g. 200 to enable rank power-down
-    ecc="None",               # "SecDed" / "ChipKill"
+    ecc="None",               # "SecDed" or "ChipKill"
     patrol_scrub_ns=None,     # e.g. 100_000 to enable patrol scrubbing
-    timing={"t_rcd": 40},     # Per-field overrides in DRAM command clocks
+    timing=None,              # Per-field overrides in DRAM command clocks, e.g. {"t_rcd": 40}
 )
 ```
 
-The DDR5 controller runs at the DRAM command clock (half the data rate);
-`Config(cpu_clock_mhz=...)` sets the core clock it converts to and from.
-Its statistics appear under `memctrl0.ch<C>.sc<S>.*` (see
-`Stats.query("memctrl0.**")`).
+The Simple controller's latency is 120 cycles. On the DRAM controller a
+row hit costs `t_cas` and a row miss `t_pre + t_ras + t_cas`; its
+`row_miss_latency` argument has no effect (#100). The DDR5 controller runs
+at the DRAM command clock (half the data rate) and converts to and from the
+core clock through `cpu_clock_mhz`; its statistics appear under
+`memctrl0.ch<C>.sc<S>.*`. Every controller sits behind the system bus, so a
+miss to memory also pays `bus_latency` each way.
+
+---
+
+## Vector Extension
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vlen` | `int` | `128` | Vector register length in bits, a power of two from 128 to 2048 |
+| `num_vec_lanes` | `int` | `vlen / 64`, at least 1 | 64-bit lanes the vector units process per cycle |
+| `vector_mem_width` | `int` | `vlen / 8`, at most `64` | Bytes one unit-stride vector memory access moves (the vector load-store datapath), a power of two from 8 to 64 |
+
+ELEN is 64 and Zvfh is implemented.
 
 ---
 
 ## System
 
-These parameters control the SoC memory map and device configuration. You normally don't need to change them.
+These parameters set the SoC's memory map, clocks and devices. You
+normally need to change only `cpu_clock_mhz`, `hart_count` and the
+console.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
+| `cpu_clock_mhz` | `int` | `2400` | Core clock: converts between cycles and nanoseconds for the DDR5 controller, device latencies and the RTC |
+| `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
+| `bus_width` | `int` | `8` | System bus width in bytes |
+| `bus_latency` | `int` | `4` | System bus latency in cycles, each way |
+| `device_latency_ns` | `int` | `100` | Time every device takes to answer a register access |
+| `device_latency_ns_overrides` | `dict` | `None` | Per-device access latency by name (`UART0`, `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`) |
+| `clint_divider` | `int` | `10` | CPU cycles per `mtime` tick |
+| `rtc_epoch_seconds` | `int` | `1767225600` | Wall-clock time the RTC reports at cycle zero (2026-01-01), advanced by simulated time so runs are reproducible |
 | `ram_base` | `int` | `0x8000_0000` | RAM base address |
 | `uart_base` | `int` | `0x1000_0000` | UART base address |
 | `disk_base` | `int` | `0x9000_0000` | VirtIO disk base address |
 | `clint_base` | `int` | `0x0200_0000` | CLINT base address |
 | `syscon_base` | `int` | `0x0010_0000` | SYSCON base address |
-| `sim_control_base` | `int` | `0x0010_2000` | Sim-control device base address (guest stats reset / dump / exit) |
-| `kernel_offset` | `int` | `0x0020_0000` | Kernel load offset from ram_base |
-| `bus_width` | `int` | `8` | Bus width in bytes |
-| `bus_latency` | `int` | `4` | Bus transaction latency in cycles |
-| `clint_divider` | `int` | `10` | Timer tick divider (mtime increments every N cycles) |
-| `cpu_clock_mhz` | `int` | `2400` | Core clock, used to convert between simulator cycles and the DDR5 command clock |
-| `rtc_epoch_seconds` | `int` | `1767225600` | Wall-clock time the RTC reports at cycle zero (2026-01-01), advanced by simulated time so runs are reproducible |
-| `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
+| `sim_control_base` | `int` | `0x0010_2000` | Sim-control device base address (guest statistics reset, dump and exit) |
+| `kernel_offset` | `int` | `0x0020_0000` | Kernel load offset from `ram_base` |
 
 ---
 
 ## Multi-core
 
 `hart_count=N` builds `N` single-threaded cores, each with its own
-pipeline, branch predictor and private L1/L2, sharing the LLC, memory and
-devices. Every hart has its own CLINT timer and software-interrupt slots
-and its own PLIC contexts, and the generated device tree enumerates them.
-Bare-metal programs start every hart at the entry point with `a0` holding
-the hart id and `a1` the hart count.
+pipeline, branch predictor, TLBs and private L1 and L2, sharing the LLC,
+memory and devices. Every hart has its own CLINT timer and
+software-interrupt registers and its own PLIC contexts, and the generated
+device tree enumerates them. Bare-metal programs start every hart at the
+entry point with `a0` holding the hart id and `a1` the hart count.
 
 ```python
 from rvsim import Config, Coherence, HomeAgent, Interconnect
@@ -339,7 +395,7 @@ LLC that serialises requests per line and decides who is snooped, and an
 interconnect that carries request, snoop, response and data messages on
 separate virtual channels. The L2 is made inclusive of its L1s so snoops
 are answered from its tags; `Cache.Exclusive()` is therefore rejected
-with `hart_count > 1`. A single core builds no fabric and is unaffected.
+with `hart_count > 1`. A single core builds no fabric.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -350,7 +406,7 @@ with `hart_count > 1`. A single core builds no fabric and is unaffected.
 ### Home agents
 
 ```python
-HomeAgent.SnoopFilter(capacity_factor=1.5, ways=8)  # exact sharers + owner per tracked line (default)
+HomeAgent.SnoopFilter(capacity_factor=1.5, ways=8)  # exact sharers and owner per tracked line (default)
 HomeAgent.Broadcast()                                # track nothing; snoop every other core
 ```
 
@@ -377,7 +433,8 @@ place the cores and the home on their nodes and charge every hop.
 The fabric reports under `coherence.ha.*` (requests by kind, snoops,
 cache-to-cache transfers, recalls, transaction latency) and
 `coherence.interconnect.*` (messages, bytes, busy and blocked cycles);
-each private L2 counts its snoops under `core<N>.l2.coherence.*`.
+each private cache counts its snoops under
+`core<N>.cache.<level>.coherence.*`. See [Multi-core](architecture/multicore.md).
 
 ---
 
@@ -385,11 +442,11 @@ each private L2 counts its snoops under `core<N>.l2.coherence.*`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `trace` | `bool` | `False` | Enable per-instruction commit logging |
-| `initial_sp` | `int` or `None` | `None` | Initial stack pointer (auto-configured if None) |
-| `uart_quiet` | `bool` | `False` | Suppress UART output (useful for sweeps); shorthand for `console="quiet"` |
-| `console` | `str` | `None` | Where the UART console connects: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (output kept in memory for `read_console()`, input given with `write_console()`); overrides the `uart_*` shorthands |
-| `uart_to_stderr` | `bool` | `False` | Route UART output to stderr instead of stdout |
+| `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
+| `initial_sp` | `int` or `None` | `None` | Stack pointer a bare-metal program starts with; `ram_base + 16 MiB` when unset |
+| `console` | `str` or `None` | `None` | Where the UART connects: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
+| `uart_quiet` | `bool` | `False` | Shorthand for `console="quiet"` |
+| `uart_to_stderr` | `bool` | `False` | Shorthand for `console="stderr"` |
 
 ---
 
@@ -408,7 +465,7 @@ Config(
 )
 ```
 
-### High-performance O3 core
+### High-performance out-of-order core
 
 ```python
 Config(
@@ -420,6 +477,7 @@ Config(
         store_buffer_size=32,
         prf_gpr_size=256,
         prf_fpr_size=128,
+        checkpoint_count=32,
         fu_config=Fu([
             Fu.IntAlu(count=4, latency=1),
             Fu.IntMul(count=1, latency=3),
@@ -434,16 +492,18 @@ Config(
     ),
     branch_predictor=BranchPredictor.ScLTage(),
     mem_dep_predictor=MemDepPredictor.StoreSet(),
-    l1d=Cache("32KB", ways=8, latency=1, mshr_count=8,
+    l1d=Cache("32KB", ways=8, latency=3, mshr_count=8,
               prefetcher=Prefetcher.Stride(degree=2, table_size=128)),
     l1i=Cache("32KB", ways=8, latency=1,
               prefetcher=Prefetcher.NextLine(degree=2)),
-    l2=Cache("256KB", ways=8, latency=10, mshr_count=16),
+    l2=Cache("256KB", ways=8, latency=12, mshr_count=16),
     l3=Cache("4MB", ways=16, latency=30, mshr_count=32),
-    memory_controller=MemoryController.DRAM(t_cas=14, row_miss_latency=120),
+    memory_controller=MemoryController.DDR5(speed_bin="5600B"),
+    l2_tlb_size=1024,
 )
 ```
 
 ### Linux-capable system
 
-See [Linux Boot](examples/linux-boot.md) for a complete config that boots Linux.
+`presets.linux()` places a core in a system that boots the bundled Linux
+image; see [Linux Boot](examples/linux-boot.md).
