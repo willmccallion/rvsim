@@ -106,6 +106,7 @@ nav:
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md
     - Linux Boot: examples/linux-boot.md
+    - Linux Benchmarks: examples/linux-benchmarks.md
     - Benchmark Configs: examples/benchmark-configs.md
   - Changelog:
     - changelog.md
