@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The documentation describes the simulator as it is: a design page and
+  ADRs 9 to 13 on the state split, semantics versus timing, perform-point
+  memory, following real cores and split stores; every configuration
+  parameter with its default; the full ISA and CSR set; the sim-control
+  device and boot loader; a catalogue of every stat path and how to
+  measure a region; `rvsim bench`; and the `fast()` and `linux()`
+  presets. Claims that had drifted from the code (TLB sizes, a prefetch
+  filter that does not exist, the DRAM row-miss cost, a builder API, the
+  in-order backend's width) are corrected.
 - The out-of-order backend issues a plain scalar store in two halves, as
   real out-of-order cores do: the address as soon as the base register is
   ready, the data when its value is. A younger load that waits for older
