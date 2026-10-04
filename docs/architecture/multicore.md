@@ -100,9 +100,9 @@ another core because no path exists from a view to another view. Both
 views deref to the uncore so `ctx.bus`, `ctx.config` and `ctx.cycle`
 read naturally.
 
-SMT (several harts per core) fits without change: the view's `hart` is the
-hart the pipeline is currently working on behalf of; `Core::hart_ids`
-lists the residents.
+SMT (several harts per core) would fit the same shape: the view's `hart`
+is the hart the pipeline is working on behalf of, and `Topology` already
+records which harts a core hosts. Today every core hosts exactly one hart.
 
 ### Topology and identifiers
 
@@ -125,7 +125,7 @@ their pending tables by request ID with no collision between cores.
 Order is fixed and is the same for one core and for sixty-four:
 
 1. **Uncore pre-cycle.** Exit and kernel-panic checks; devices tick once,
-   producing an `IrqLines` entry per hart (CLINT `msip`/`mtip` per hart,
+   producing a `HartIrqs` entry per hart (CLINT `msip`/`mtip` per hart,
    PLIC `meip`/`seip` per hart context); the master clock advances.
 2. **Per-hart pre-tick**, in hart order: interrupt lines into `mip`,
    `stimecmp` compare, hang detection, mode-cycle statistics.
@@ -339,7 +339,8 @@ at a time.
 
 ### Invariants
 
-`coherence::audit` checks the whole system: for every line not in the
+`Simulator::audit_coherence` (in `system::coherence_audit`) checks the
+whole system: for every line not in the
 middle of a transaction, at most one L2 holds it Modified or Exclusive and
 then no other L2 holds it; an L1 never holds a line its L2 does not, nor
 in a stronger state; the snoop filter's sharers and owner match what the
@@ -360,16 +361,30 @@ fabric: the L2 talks to the LLC directly and stays cycle-identical.
   from the owner instead of writing back.
 - Directory at scale, hierarchical clusters, token coherence: new
   `HomeAgent` impls; a cluster is a `HomeAgent` that wraps two agents.
-- Memory consistency experiments: a `ConsistencyModel` gate in the load
-  queue, orthogonal to coherence.
+- Memory consistency experiments: a gate in the load queue choosing which
+  reorderings are allowed, orthogonal to coherence (not built).
 
 ## Statistics
 
 Every core's counters are rooted at `core<N>` and every hart's at
-`hart<N>`; the fabric reports under `coherence.*` (per-HA and per-link),
-memory controllers under `memctrl<N>`. Paths are allocated once per
-component at construction, as the DDR5 controller does, so the hot path
-increments a counter through a pre-resolved `&'static str`.
+`hart<N>`; `system.retired_insts` and `system.traps` sum over the harts.
+With more than one core the fabric adds:
+
+- `coherence.ha.*`: requests by kind, snoops sent, cache-to-cache
+  transfers, snoop-filter hits, misses and recalls, requests serialised
+  behind another on the same line, and stalls for a free transaction.
+- `coherence.interconnect.*`: messages, bytes, and the cycles links were
+  busy or blocked.
+- `core<N>.cache.<level>.coherence.*` and `llc.coherence.*`: the snoops a
+  cache answered, the invalidations and downgrades they caused, and the
+  upgrades it requested.
+- `core<N>.lsq.coherence_violations` and `.coherence_replays`: loads
+  squashed because another hart's write reached a line after they read it
+  out of order, and LRs and AMOs re-executed after a remote write.
+
+Paths are allocated once per component at construction, so the hot path
+increments a counter through a pre-resolved `&'static str`. The full list
+is in [Stats & Observability](stats.md#catalogue).
 
 ## Implementation stages
 
