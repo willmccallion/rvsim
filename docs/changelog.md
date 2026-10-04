@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `presets.p550()` and `presets.cortex_a72()` follow the measured
+  hardware: the P550's 4-way L1s, 3-cycle L1D load-to-use, 13-cycle L2,
+  38-cycle L3, 194 ns memory, 4-cycle FP units, one load and one store
+  AGU, 32-entry L1 TLBs and 512-entry L2 TLB, misaligned-access trap and
+  1.4 GHz clock; the A72's 4-cycle L1D, 21-cycle L2, 162 ns memory, two
+  integer ALUs with one multiply pipe, 32-entry load and 16-entry store
+  queues, 31-entry return stack, 32/1024-entry TLBs and 1.5 GHz clock.
+  Each value cites its source in the preset. The P550 preset no longer
+  pins the stack at 1 MiB, where programs with large static data overran
+  it. `tools/diag/latency_probe.py` measures a preset's load-to-use
+  latency at each cache level with a pointer chase, which is how the
+  values were set.
 - The out-of-order backend's rename allocates into the ROB, issue-queue,
   load-queue and store-buffer entries that were free at the end of the
   previous cycle, as pipelined allocation bookkeeping does, instead of
