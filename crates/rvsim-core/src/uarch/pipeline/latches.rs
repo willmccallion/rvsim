@@ -340,6 +340,9 @@ pub struct ExMem1Entry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (None for scalar ops).
     pub vec_mem: Option<VecMemAccess>,
+    /// A store's address half: `store_data` is not its data, which its
+    /// data half delivers to the store buffer separately.
+    pub store_data_follows: bool,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -416,6 +419,7 @@ impl ExMem1Entry {
             fp_flags: 0,
             sfence_vma: None,
             vec_mem: None,
+            store_data_follows: false,
         }
     }
 }

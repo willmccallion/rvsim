@@ -164,6 +164,16 @@ impl ControlSignals {
         }
     }
 
+    /// True for a plain scalar store, whose address and data the
+    /// out-of-order backend issues as two halves: the address as soon as
+    /// its base register is ready, the data when its value is.
+    pub const fn splits_store(&self) -> bool {
+        self.mem_write
+            && self.atomic_op.is_none()
+            && !self.system_op.is_cbo()
+            && matches!(self.vec_op, VectorOp::None)
+    }
+
     /// True for an instruction that takes a store-buffer slot: a store, an
     /// SC or AMO, or a cache-block operation, which is ordered as a store.
     #[must_use]

@@ -127,6 +127,57 @@ pub struct IssueQueueEntry {
     pub mask_ready: bool,
     /// Whether this instruction requires a ready mask register (vm=0 for vector ops).
     pub needs_mask: bool,
+    /// How far a plain store's two halves have issued.
+    pub store_issue: StoreIssue,
+}
+
+/// How far a plain store's address and data halves have issued. A store
+/// issues its address as soon as its base register is ready, so younger
+/// loads learn early whether it aliases them, and its data when the value
+/// is ready; a store whose operands are both ready issues whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreIssue {
+    /// Not a store that issues in halves.
+    Whole,
+    /// Neither half has issued.
+    Unissued,
+    /// The address half has issued; the data half waits for its value.
+    AddressIssued,
+}
+
+/// The part of an entry that is ready to issue this cycle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IssuePart {
+    /// The whole instruction.
+    Whole,
+    /// A store's address half.
+    StoreAddress,
+    /// A store's data half.
+    StoreData,
+}
+
+impl IssueQueueEntry {
+    /// Which part of the entry has the operands it needs this cycle.
+    fn ready_part(&self) -> Option<IssuePart> {
+        // Faulted instructions don't need operands — always ready.
+        if self.entry.trap.is_some() {
+            return Some(IssuePart::Whole);
+        }
+        let others_ready = self.src3.readiness.is_ready()
+            && self.vec_src1.ready
+            && self.vec_src2.ready
+            && self.vec_src3.ready
+            && self.mask_ready;
+        let address = self.src1.readiness.is_ready() && others_ready;
+        let data = self.src2.readiness.is_ready();
+        match self.store_issue {
+            StoreIssue::Whole => (address && data).then_some(IssuePart::Whole),
+            StoreIssue::Unissued => {
+                address.then_some(if data { IssuePart::Whole } else { IssuePart::StoreAddress })
+            }
+            StoreIssue::AddressIssued => data.then_some(IssuePart::StoreData),
+        }
+    }
 }
 
 /// An instruction selected from the IQ for execution.
@@ -143,6 +194,18 @@ pub struct SelectedEntry {
     pub fu_type: FuType,
     /// The free unit reserved for it.
     pub unit: FreeUnit,
+    /// It is a store's address half: its data half delivers the data.
+    pub data_follows: bool,
+}
+
+/// A store's data half, which writes its value into the store's
+/// store-buffer slot and takes no functional unit or store port.
+#[derive(Clone, Copy, Debug)]
+pub struct StoreDataIssue {
+    /// The store.
+    pub rob_tag: RobTag,
+    /// The data register's value.
+    pub value: u64,
 }
 
 /// What issue may use in one cycle.
@@ -168,6 +231,8 @@ pub struct IssueBudget<'a> {
 pub struct Selection {
     /// Chosen instructions, oldest first.
     pub entries: Vec<SelectedEntry>,
+    /// Chosen store data halves.
+    pub store_data: Vec<StoreDataIssue>,
     /// Ready instructions left waiting for a functional unit.
     pub unit_stalls: usize,
 }
@@ -281,6 +346,11 @@ impl IssueQueue {
         let mask_phys = if needs_mask { entry.mask_phys } else { VecPhysReg::ZERO };
         let mask_ready = !needs_mask || vec_prf.is_none_or(|vprf| vprf.is_ready(mask_phys));
 
+        let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
+            StoreIssue::Unissued
+        } else {
+            StoreIssue::Whole
+        };
         let iq_entry = IssueQueueEntry {
             entry,
             src1,
@@ -293,6 +363,7 @@ impl IssueQueue {
             mask_phys,
             mask_ready,
             needs_mask,
+            store_issue,
         };
 
         self.slots[free] = Some(iq_entry);
@@ -356,84 +427,32 @@ impl IssueQueue {
         store_buffer: &StoreBuffer,
         rob: &Rob,
     ) -> Selection {
-        let mut ready_indices: Vec<usize> = Vec::new();
+        let mut ready: Vec<(usize, IssuePart)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
-            if let Some(iq) = slot {
-                // Faulted instructions don't need operands — always ready.
-                let all_ready = iq.entry.trap.is_some()
-                    || (iq.src1.readiness.is_ready()
-                        && iq.src2.readiness.is_ready()
-                        && iq.src3.readiness.is_ready()
-                        && iq.vec_src1.ready
-                        && iq.vec_src2.ready
-                        && iq.vec_src3.ready
-                        && iq.mask_ready);
-                if all_ready {
-                    let mem_ready = match &iq.mem_dep {
-                        MemDepState::None | MemDepState::Bypass | MemDepState::Resolved(_) => true,
-                        MemDepState::WaitAll => {
-                            !store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
-                        }
-                        MemDepState::WaitFor(barrier) => !store_buffer.is_unresolved(*barrier),
-                    };
-                    if !mem_ready {
-                        continue;
-                    }
-                    // FENCE / CBO* have their own granular checks below. Every
-                    // other system instruction reads or writes architectural
-                    // state, so it executes only once it is the oldest
-                    // instruction: nothing older can still change that state
-                    // or squash it.
-                    if iq.entry.inst.ctrl.system_op != SystemOp::None
-                        && iq.entry.inst.ctrl.system_op != SystemOp::Fence
-                        && !iq.entry.inst.ctrl.system_op.is_cbo()
-                        && !rob.is_head(iq.entry.rob_tag)
-                    {
-                        continue;
-                    }
-                    // An AMO or store-conditional is non-speculative (gem5's
-                    // IsNonSpeculative): it executes only as the oldest.
-                    if iq.entry.inst.ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
-                        continue;
-                    }
-                    {
-                        use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
-                        let vop = iq.entry.inst.ctrl.vec_op;
-                        if (is_vec_load(vop) || is_vec_store(vop))
-                            && (store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
-                                || store_buffer.has_committed_stores())
-                        {
-                            continue;
-                        }
-                    }
-                    if iq.entry.inst.ctrl.system_op == SystemOp::Fence {
-                        let pred_bits = ((iq.entry.inst.bits >> 24) & 0xF) as u8;
-                        let pred_r = pred_bits & 0b0010 != 0;
-                        let pred_w = pred_bits & 0b0001 != 0;
-                        if !rob.fence_pred_satisfied(iq.entry.rob_tag, pred_r, pred_w) {
-                            continue;
-                        }
-                    }
-                    let reads = iq.entry.inst.ctrl.reads_memory();
-                    let writes = iq.entry.inst.ctrl.writes_memory();
-                    if (reads || writes) && rob.has_fence_blocking(iq.entry.rob_tag, reads, writes)
-                    {
-                        continue;
-                    }
-                    ready_indices.push(i);
-                }
+            let Some(iq) = slot else { continue };
+            let Some(part) = iq.ready_part() else { continue };
+            if part != IssuePart::StoreData && !Self::may_issue_now(iq, store_buffer, rob) {
+                continue;
             }
+            ready.push((i, part));
         }
 
-        ready_indices.sort_by_key(|&i| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
+        ready.sort_by_key(|&(i, _)| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
 
         let mut selection = Selection::default();
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
-        for &idx in &ready_indices {
-            if selection.entries.len() >= budget.width {
+        for &(idx, part) in &ready {
+            if selection.entries.len() + selection.store_data.len() >= budget.width {
                 break;
+            }
+            if part == IssuePart::StoreData {
+                let Some(iq) = self.slots[idx].take() else { continue };
+                self.count -= 1;
+                let value = Self::resolve_value(&iq.src2);
+                selection.store_data.push(StoreDataIssue { rob_tag: iq.entry.rob_tag, value });
+                continue;
             }
             let Some(slot) = self.slots[idx].as_ref() else { continue };
             let ctrl = &slot.entry.inst.ctrl;
@@ -455,9 +474,6 @@ impl IssueQueue {
                 continue;
             };
             *taken += 1;
-
-            let Some(iq) = self.slots[idx].take() else { continue };
-            self.count -= 1;
             if is_load {
                 loads_issued += 1;
             }
@@ -465,28 +481,95 @@ impl IssueQueue {
                 stores_issued += 1;
             }
 
-            let mut entry = iq.entry;
-            if entry.trap.is_none() {
-                debug_assert!(
-                    !matches!(iq.src1.readiness, OperandReady::NotReady),
-                    "IQ select: src1 not ready for rob_tag={} pc={:#x}",
-                    entry.rob_tag.0,
-                    entry.inst.pc,
-                );
-                debug_assert!(
-                    !matches!(iq.src2.readiness, OperandReady::NotReady),
-                    "IQ select: src2 not ready for rob_tag={} pc={:#x}",
-                    entry.rob_tag.0,
-                    entry.inst.pc,
-                );
+            let data_follows = part == IssuePart::StoreAddress;
+            let entry = if data_follows {
+                let Some(iq) = self.slots[idx].as_mut() else { continue };
+                iq.store_issue = StoreIssue::AddressIssued;
+                let mut entry = iq.entry.clone();
                 entry.inst.rv1 = Self::resolve_value(&iq.src1);
-                entry.inst.rv2 = Self::resolve_value(&iq.src2);
-                entry.inst.rv3 = Self::resolve_value(&iq.src3);
-            }
-            selection.entries.push(SelectedEntry { entry, fu_type, unit });
+                entry
+            } else {
+                let Some(iq) = self.slots[idx].take() else { continue };
+                self.count -= 1;
+                Self::with_operands(iq)
+            };
+            selection.entries.push(SelectedEntry { entry, fu_type, unit, data_follows });
         }
 
         selection
+    }
+
+    /// The entry's instruction with its operand values filled in.
+    fn with_operands(iq: IssueQueueEntry) -> RenameIssueEntry {
+        let mut entry = iq.entry;
+        if entry.trap.is_none() {
+            debug_assert!(
+                !matches!(iq.src1.readiness, OperandReady::NotReady),
+                "IQ select: src1 not ready for rob_tag={} pc={:#x}",
+                entry.rob_tag.0,
+                entry.inst.pc,
+            );
+            debug_assert!(
+                !matches!(iq.src2.readiness, OperandReady::NotReady),
+                "IQ select: src2 not ready for rob_tag={} pc={:#x}",
+                entry.rob_tag.0,
+                entry.inst.pc,
+            );
+            entry.inst.rv1 = Self::resolve_value(&iq.src1);
+            entry.inst.rv2 = Self::resolve_value(&iq.src2);
+            entry.inst.rv3 = Self::resolve_value(&iq.src3);
+        }
+        entry
+    }
+
+    /// Whether an entry whose operands are ready may issue this cycle under
+    /// the memory-ordering and serialisation rules.
+    fn may_issue_now(iq: &IssueQueueEntry, store_buffer: &StoreBuffer, rob: &Rob) -> bool {
+        let mem_ready = match &iq.mem_dep {
+            MemDepState::None | MemDepState::Bypass | MemDepState::Resolved(_) => true,
+            MemDepState::WaitAll => !store_buffer.has_unresolved_store_before(iq.entry.rob_tag),
+            MemDepState::WaitFor(barrier) => !store_buffer.is_unresolved(*barrier),
+        };
+        if !mem_ready {
+            return false;
+        }
+        // FENCE / CBO* have their own granular checks below. Every other
+        // system instruction reads or writes architectural state, so it
+        // executes only once it is the oldest instruction: nothing older can
+        // still change that state or squash it.
+        let ctrl = &iq.entry.inst.ctrl;
+        if ctrl.system_op != SystemOp::None
+            && ctrl.system_op != SystemOp::Fence
+            && !ctrl.system_op.is_cbo()
+            && !rob.is_head(iq.entry.rob_tag)
+        {
+            return false;
+        }
+        // An AMO or store-conditional is non-speculative (gem5's
+        // IsNonSpeculative): it executes only as the oldest.
+        if ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
+            return false;
+        }
+        {
+            use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
+            if (is_vec_load(ctrl.vec_op) || is_vec_store(ctrl.vec_op))
+                && (store_buffer.has_unresolved_store_before(iq.entry.rob_tag)
+                    || store_buffer.has_committed_stores())
+            {
+                return false;
+            }
+        }
+        if ctrl.system_op == SystemOp::Fence {
+            let pred_bits = ((iq.entry.inst.bits >> 24) & 0xF) as u8;
+            let pred_r = pred_bits & 0b0010 != 0;
+            let pred_w = pred_bits & 0b0001 != 0;
+            if !rob.fence_pred_satisfied(iq.entry.rob_tag, pred_r, pred_w) {
+                return false;
+            }
+        }
+        let reads = ctrl.reads_memory();
+        let writes = ctrl.writes_memory();
+        !((reads || writes) && rob.has_fence_blocking(iq.entry.rob_tag, reads, writes))
     }
 
     /// The operand value at select time; `NotReady` only for faulted

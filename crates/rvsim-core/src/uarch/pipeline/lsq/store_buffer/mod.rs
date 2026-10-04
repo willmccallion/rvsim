@@ -3,7 +3,9 @@
 //! Stores are not written to memory until they commit from the ROB. The store
 //! buffer holds pending stores and provides:
 //! 1. **Allocation:** Reserve a slot when a store enters the backend.
-//! 2. **Resolution:** Fill in the physical address and data after Memory1/Memory2.
+//! 2. **Resolution:** Fill in the physical address after Memory1 and the
+//!    data when it is ready; a plain store's data may arrive before or after
+//!    its address.
 //! 3. **Forwarding:** Provide store-to-load forwarding for loads that hit a pending store.
 //! 4. **Commit:** Mark entries as committed when the ROB retires the store.
 //! 5. **Drain:** Send committed stores' writes to memory one per cycle, in
@@ -33,18 +35,25 @@ pub enum ForwardResult {
 /// Resolution state of a store buffer entry, encoding lifecycle and data.
 ///
 /// Combines the lifecycle state with the associated physical address and data,
-/// making it impossible to read address/data from an unresolved store.
+/// making it impossible to read an address from an unresolved store, or to
+/// commit a store whose data has not arrived.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StoreResolution {
-    /// Allocated but address/data not yet resolved.
+    /// Allocated; neither address nor data resolved.
     #[default]
     Pending,
-    /// Address and data resolved, waiting for ROB commit.
+    /// The data arrived before the address.
+    PendingWithData {
+        /// Data to write.
+        data: StoreData,
+    },
+    /// Address resolved, waiting for ROB commit; the data may still be on
+    /// its way.
     Ready {
         /// Physical address of the store.
         paddr: PhysAddr,
-        /// Data to write.
-        data: StoreData,
+        /// Data to write, once it has arrived.
+        data: Option<StoreData>,
     },
     /// ROB has committed this store; it can be drained to memory.
     Committed {
@@ -66,13 +75,13 @@ pub enum StoreData {
 }
 
 impl StoreData {
-    /// The bytes `[start, end)` the entry covers when it is at `paddr`
-    /// with `width`.
-    const fn span(self, paddr: PhysAddr, width: MemWidth) -> (u64, u64) {
+    /// The bytes `[start, end)` an entry covers when it is at `paddr`
+    /// with `width`; a store whose data has not arrived is a byte store.
+    const fn span(data: Option<Self>, paddr: PhysAddr, width: MemWidth) -> (u64, u64) {
         let start = paddr.val();
-        match self {
-            Self::Bytes(_) => (start, start + width_to_bytes(width) as u64),
-            Self::Block(_) => (start, start + CBOZ_BLOCK_SIZE),
+        match data {
+            Some(Self::Block(_)) => (start, start + CBOZ_BLOCK_SIZE),
+            Some(Self::Bytes(_)) | None => (start, start + width_to_bytes(width) as u64),
         }
     }
 }
@@ -85,14 +94,23 @@ impl StoreResolution {
 
     /// Whether this entry is still pending (no address resolved).
     pub const fn is_pending(&self) -> bool {
-        matches!(self, Self::Pending)
+        matches!(self, Self::Pending | Self::PendingWithData { .. })
     }
 
     /// Returns the physical address if resolved (Ready or Committed).
     pub const fn paddr(&self) -> Option<PhysAddr> {
         match self {
             Self::Ready { paddr, .. } | Self::Committed { paddr, .. } => Some(*paddr),
-            Self::Pending => None,
+            Self::Pending | Self::PendingWithData { .. } => None,
+        }
+    }
+
+    /// The resolved address and the data, if it has arrived.
+    const fn address(&self) -> Option<(PhysAddr, Option<StoreData>)> {
+        match *self {
+            Self::Ready { paddr, data } => Some((paddr, data)),
+            Self::Committed { paddr, data } => Some((paddr, Some(data))),
+            Self::Pending | Self::PendingWithData { .. } => None,
         }
     }
 }
@@ -239,6 +257,49 @@ impl StoreBuffer {
         self.resolve_as(rob_tag, vaddr, paddr, StoreData::Bytes(data));
     }
 
+    /// Resolves a store's address after memory translation, keeping the
+    /// data if it has already arrived.
+    pub fn resolve_address(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr) {
+        if let Some(entry) = self.find_by_tag_mut(rob_tag) {
+            let data = match entry.resolution {
+                StoreResolution::PendingWithData { data } => Some(data),
+                _ => None,
+            };
+            entry.vaddr = vaddr;
+            entry.resolution = StoreResolution::Ready { paddr, data };
+        }
+    }
+
+    /// Records a store's data, which its data half delivers independently
+    /// of its address.
+    pub fn resolve_data(&mut self, rob_tag: RobTag, value: u64) {
+        let Some(entry) = self.find_by_tag_mut(rob_tag) else { return };
+        let data = StoreData::Bytes(value);
+        entry.resolution = match entry.resolution {
+            StoreResolution::Pending | StoreResolution::PendingWithData { .. } => {
+                StoreResolution::PendingWithData { data }
+            }
+            StoreResolution::Ready { paddr, .. } => {
+                StoreResolution::Ready { paddr, data: Some(data) }
+            }
+            committed @ StoreResolution::Committed { .. } => committed,
+        };
+    }
+
+    /// False only for a store in the buffer whose data has not arrived; a
+    /// store that is not in the buffer has nothing outstanding.
+    #[must_use]
+    pub fn has_data(&self, rob_tag: RobTag) -> bool {
+        self.entries.iter().find(|entry| entry.valid && entry.rob_tag == rob_tag).is_none_or(
+            |entry| {
+                !matches!(
+                    entry.resolution,
+                    StoreResolution::Pending | StoreResolution::Ready { data: None, .. }
+                )
+            },
+        )
+    }
+
     /// Resolves a cache-block operation on the block at `block` after
     /// memory translation.
     pub fn resolve_block(
@@ -254,7 +315,7 @@ impl StoreBuffer {
     fn resolve_as(&mut self, rob_tag: RobTag, vaddr: VirtAddr, paddr: PhysAddr, data: StoreData) {
         if let Some(entry) = self.find_by_tag_mut(rob_tag) {
             entry.vaddr = vaddr;
-            entry.resolution = StoreResolution::Ready { paddr, data };
+            entry.resolution = StoreResolution::Ready { paddr, data: Some(data) };
         }
     }
 
@@ -266,12 +327,12 @@ impl StoreBuffer {
             let entry = &mut self.entries[idx];
             if entry.valid && entry.rob_tag == rob_tag {
                 debug_assert!(
-                    matches!(entry.resolution, StoreResolution::Ready { .. }),
+                    matches!(entry.resolution, StoreResolution::Ready { data: Some(_), .. }),
                     "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
                     rob_tag.0,
                     entry.resolution,
                 );
-                if let StoreResolution::Ready { paddr, data } = entry.resolution {
+                if let StoreResolution::Ready { paddr, data: Some(data) } = entry.resolution {
                     entry.resolution = StoreResolution::Committed { paddr, data };
                 }
             }
@@ -313,14 +374,14 @@ impl StoreBuffer {
                     continue;
                 }
 
-                if let StoreResolution::Ready { paddr: store_paddr, data }
-                | StoreResolution::Committed { paddr: store_paddr, data } = entry.resolution
-                {
-                    let (store_start, store_end) = data.span(store_paddr, entry.width);
+                if let Some((store_paddr, data)) = entry.resolution.address() {
+                    let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
                     if load_start < store_end && load_end > store_start {
                         let covers = store_start <= load_start && store_end >= load_end;
+                        // A store whose data has not arrived holds the load
+                        // until it does.
                         return match data {
-                            StoreData::Bytes(value) if covers => {
+                            Some(StoreData::Bytes(value)) if covers => {
                                 let offset = (load_start - store_start) as u32;
                                 let shifted = value >> (offset * 8);
                                 let mask = if load_size >= 8 {
@@ -330,8 +391,12 @@ impl StoreBuffer {
                                 };
                                 ForwardResult::Hit(shifted & mask)
                             }
-                            StoreData::Block(CboEffect::Zero) if covers => ForwardResult::Hit(0),
-                            StoreData::Bytes(_) | StoreData::Block(_) => ForwardResult::Stall,
+                            Some(StoreData::Block(CboEffect::Zero)) if covers => {
+                                ForwardResult::Hit(0)
+                            }
+                            Some(StoreData::Bytes(_) | StoreData::Block(_)) | None => {
+                                ForwardResult::Stall
+                            }
                         };
                     }
                 }
@@ -362,14 +427,10 @@ impl StoreBuffer {
             if !entry.valid || !entry.rob_tag.is_older_than(load_rob_tag) {
                 return false;
             }
-            match entry.resolution {
-                StoreResolution::Pending => false,
-                StoreResolution::Ready { paddr: store_paddr, data }
-                | StoreResolution::Committed { paddr: store_paddr, data } => {
-                    let (store_start, store_end) = data.span(store_paddr, entry.width);
-                    load_start < store_end && load_end > store_start
-                }
-            }
+            entry.resolution.address().is_some_and(|(store_paddr, data)| {
+                let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
+                load_start < store_end && load_end > store_start
+            })
         })
     }
 
@@ -429,16 +490,11 @@ impl StoreBuffer {
         for _ in 0..self.count {
             let entry = &self.entries[idx];
             if entry.valid && entry.rob_tag.is_older_than(rob_tag) {
-                match entry.resolution {
-                    // Unresolved store to unknown address — assume overlap.
-                    StoreResolution::Pending => return true,
-                    StoreResolution::Ready { paddr: store_paddr, data }
-                    | StoreResolution::Committed { paddr: store_paddr, data } => {
-                        let (store_start, store_end) = data.span(store_paddr, entry.width);
-                        if load_start < store_end && load_end > store_start {
-                            return true;
-                        }
-                    }
+                // An unresolved store to an unknown address may overlap.
+                let Some((store_paddr, data)) = entry.resolution.address() else { return true };
+                let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
+                if load_start < store_end && load_end > store_start {
+                    return true;
                 }
             }
             idx = (idx + 1) % cap;

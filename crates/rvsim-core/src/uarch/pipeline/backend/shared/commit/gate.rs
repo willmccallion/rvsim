@@ -108,6 +108,15 @@ pub(super) fn gate_head(
         return CommitFlow::Stop(None);
     }
 
+    // A store whose address half has completed retires once its data half
+    // has delivered the data.
+    if head.state == RobState::Completed
+        && head.ctrl.splits_store()
+        && !store_buffer.has_data(head.tag)
+    {
+        return CommitFlow::Stop(None);
+    }
+
     if head.state == RobState::Faulted {
         return CommitFlow::Stop(take_fault(state, common, rob, registers));
     }
