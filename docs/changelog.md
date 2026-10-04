@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The out-of-order backend's rename allocates into the ROB, issue-queue,
+  load-queue and store-buffer entries that were free at the end of the
+  previous cycle, as pipelined allocation bookkeeping does, instead of
+  entries commit freed in the same cycle.
 - The out-of-order backend recovers from a squash as gem5's O3 does:
   fetch spends the redirect cycle squashing and fetches the target the
   cycle after; commit drains the flushed ROB entries at

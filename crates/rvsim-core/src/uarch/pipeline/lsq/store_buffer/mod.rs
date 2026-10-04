@@ -208,6 +208,12 @@ impl StoreBuffer {
         self.count == self.entries.len()
     }
 
+    /// Slots not holding a store.
+    #[inline]
+    pub const fn free_slots(&self) -> usize {
+        self.entries.len() - self.count
+    }
+
     /// Allocates a slot for a new store. Returns false if the buffer is full.
     pub fn allocate(&mut self, rob_tag: RobTag, width: MemWidth) -> bool {
         if self.is_full() {
