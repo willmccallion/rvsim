@@ -1,6 +1,40 @@
 # Linux Benchmarks
 
-The rootfs built by `make linux` carries Dhrystone and CoreMark.
+The root filesystem built by `make linux` carries a benchmark suite:
+CoreMark, Dhrystone, Whetstone, STREAM, mbw, lmbench's `lat_mem_rd` and
+stress-ng. Two tools run it inside Linux on a simulated machine. Both boot
+to the login shell once, cache that boot, and measure each benchmark as
+its own statistics region on the configuration under study (see
+[Measuring a region](../architecture/stats.md#measuring-a-region)).
+
+## `rvsim bench`
+
+```bash
+rvsim bench                                  # every benchmark, fast preset, 8 harts
+rvsim bench coremark dhrystone --harts 1     # two of them on one hart
+rvsim bench --config my_core.py --warm       # your core, each benchmark warmed first
+rvsim bench --memory dram --interconnect ring --json out.json
+rvsim bench --list                           # the benchmarks and their commands
+```
+
+| Option | Meaning |
+|--------|---------|
+| `NAME ...` | Benchmarks to run: `coremark`, `dhrystone`, `whetstone`, `stream`, `mbw`, `lat_mem_rd`, `stress-ng` (default: all) |
+| `--preset basic\|fast` | Core configuration placed in the Linux system (default `fast`) |
+| `--config FILE` | A Python file whose `config` variable, `get_config()` or function named after the file gives the core to use instead |
+| `--harts N` | Harts (default 8) |
+| `--memory ddr5\|dram` | JEDEC DDR5 or the row-buffer DRAM model |
+| `--interconnect NAME` | `crossbar`, `ring`, `mesh` (default), `torus` or `hypercube` |
+| `--warm` | Run each benchmark once unmeasured before measuring it |
+| `--json FILE` | Write every region's statistics and console output |
+| `--no-cache` | Boot even if a cached boot exists |
+| `--echo` | Show the guest console |
+
+It prints, per benchmark, the cycles, instructions and IPC with branch,
+L1D, L2 and LLC misses per thousand instructions.
+
+## Scores per MHz
+
 `tools/diag/linux_bench.py` boots a core preset to the login shell from
 the cached checkpoint, runs them through the guest shell, and reports
 each one's score from the cycles it took, in the per-MHz figures hardware

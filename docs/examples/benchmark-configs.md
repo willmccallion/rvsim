@@ -4,6 +4,57 @@
 
 ## Available Configurations
 
+| Preset | What it is |
+|--------|------------|
+| `basic()` | `Config()`: a modest 4-wide out-of-order core with 32 KiB L1s and a 256 KiB L2 |
+| `fast()` | An Apple M4 P-core class core, the default core of the Linux system |
+| `p550()` | SiFive's Performance P550, calibrated to measured hardware |
+| `cortex_a72()` | Arm's Cortex-A72 at the Raspberry Pi 4's clock, calibrated to measured hardware |
+| `m1()` | A 4-wide core with Apple M1-sized caches |
+| `linux(harts, core=...)` | A core placed in the system that boots the bundled Linux image |
+
+### Fast (Apple M4 P-core class)
+
+```python
+from rvsim import presets
+
+config = presets.fast()
+```
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Width | 8 | 4.4 GHz |
+| Backend | OutOfOrder | 630-entry ROB, 160-entry IQ, 140-entry LQ, 108-entry SQ, 3 load and 2 store ports, 64 branch checkpoints |
+| Functional units | 6 ALU, 2 MUL, 4 each of FP add, multiply and FMA, 4 address units | Vector: VLEN 256, 4 lanes, chaining |
+| Branch Predictor | 64KB TAGE-SC-L with ITTAGE | 16K-entry 8-way BTB, 48-entry RAS |
+| L1I | 192KB, 6-way, PLRU | NextLine prefetch (degree 3), 10 MSHRs |
+| L1D | 128KB, 8-way, PLRU | 4-cycle load-to-use, 20 MSHRs, stride prefetch (degree 4) |
+| L2 | 4MB, 16-way | 12 cycles, 32 MSHRs, stream prefetch |
+| L3 | 36MB, 16-way | 35 cycles, 64 MSHRs, tagged prefetch |
+| TLBs | 160-entry L1, 4096-entry 8-way L2 TLB | |
+| Memory | Row-buffer DRAM | 16-entry write-combining buffer |
+
+The parameters follow public descriptions of the M4 Everest core; Apple
+publishes none, so this preset is a large modern core rather than a
+calibrated M4.
+
+### Linux system
+
+```python
+from rvsim import presets
+
+config = presets.linux(harts=8)                       # fast() cores
+config = presets.linux(harts=1, core=presets.p550())  # any core
+```
+
+`linux()` keeps the core's pipeline, predictors and caches and replaces
+the system around it: the memory map the bundled image expects, `harts`
+harts kept coherent by a snoop-filter home agent over `interconnect`
+(`mesh` by default), and four channels of DDR5-5600 (`memory="dram"`
+keeps the core's controller). With `real_time=True`, the default, the CLINT
+ticks at the device tree's 10 MHz timebase so the guest's clock keeps time.
+See [Linux Boot](linux-boot.md).
+
 ### SiFive Performance P550
 
 Based on published microarchitecture analysis (Chips and Cheese, SiFive specs).
@@ -117,7 +168,7 @@ big_cache = base.replace(l1d=Cache("64KB", ways=8, latency=3, mshr_count=8))
 Follow the pattern in the existing configs. A config file should:
 
 1. Define a function that returns a `Config` object
-2. Assign it to a module-level `config` variable (for `Simulator.config("path/to/config.py")` support)
+2. Assign it to a module-level `config` variable, which `rvsim --config FILE`, `rvsim bench --config FILE` and `rvsim.config.load_config()` look for (a `get_config()` function or a function named after the file also works)
 
 ```python
 """My custom machine config."""
