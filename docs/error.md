@@ -1,8 +1,15 @@
 # Error against gem5
 
 How far rvsim's cycle counts are from gem5's O3 CPU on the same programs.
-Measured 2026-10-04 on the branch that splits stores into address and data halves with `make compare-gem5`, with
-gem5 rerun from the checkout under `tests/builds/gem5-work`.
+gem5 is the reference rvsim can be compared with cycle by cycle, not the
+target: where gem5 times something the way a simulator does rather than
+the way a core does, rvsim follows the core and the difference stays in
+these numbers ([decision 12](architecture/decisions/0012-the-model-follows-real-cores.md)).
+Hardware is the other reference; see [Linux Benchmarks](examples/linux-benchmarks.md).
+
+Measured 2026-10-04, after stores were split into address and data
+halves, with `make compare-gem5` and gem5 rerun from the checkout under
+`tests/builds/gem5-work`.
 
 ## Method
 
@@ -124,14 +131,17 @@ as above.
 ## Known causes
 
 - **Compute-bound and branch-bound kernels match.** The ALU and FP
-  chains, `load_use`, `store_load_forward`, `indirect_calls`,
-  `br_pattern` and `quicksort` are within 0.2%; `br_random`,
-  `call_return` and `br_nested_loops` within 4%.
-- **Streaming and pointer-chasing kernels run 11-35% fast; strided,
-  write-stream and dependent-miss kernels 2-3% slow.** rvsim has no
+  chains, `load_use`, `br_pattern`, `call_return` and `quicksort` are
+  within 0.2%; `bitmanip`, `br_nested_loops` and `br_random` within 4%.
+- **Split stores make three kernels faster than gem5.**
+  `store_load_forward` (-19.9%), `indirect_calls` (-7.9%) and most of
+  `mem_random_swap` (-61.9%), as described above; these are gem5's
+  differences from hardware.
+- **Streaming and pointer-chasing kernels run 10-27% fast; strided,
+  write-stream and dependent-miss kernels 3% slow.** rvsim has no
   `L2XBar` between the L1s and the L2, so a miss that goes to memory is
-  cheaper, while its L1D miss handling under conflicts is dearer
-  (`mem_conflict` 8% fast). `matmul`, which mixes both, is 13% slow and
+  cheaper, while its L1D miss handling under conflicts differs
+  (`mem_conflict` 8% fast). `matmul`, which mixes both, is 14% slow and
   not yet root-caused.
 - **Vector kernels differ both ways.** rvsim models lanes and moves a
   datapath width per cycle where gem5 splits an instruction into one
