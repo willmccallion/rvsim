@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `pipeline.stalls.control` counts cycles, as its unit always said: each
+  cycle from a backend redirect (a misprediction, trap or re-execution)
+  until rename hands on the first instruction from the new path. It used
+  to count squashes, duplicating `pipeline.flushes.total`.
 - `MemoryController.Simple` takes a `latency` in core cycles (default 120),
   and its arguments are keyword-only. `MemoryController.DRAM` no longer
   takes `row_miss_latency`, which it never used: its row-miss cost is

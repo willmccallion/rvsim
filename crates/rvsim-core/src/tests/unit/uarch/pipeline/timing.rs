@@ -412,3 +412,51 @@ fn o3_dependent_load_waits_the_l1d_latency_plus_one_cycle() {
         );
     }
 }
+
+/// Runs `program` until `done` holds; returns its control stall cycles.
+fn control_stalls(config: &Config, program: &[u32], done: impl Fn(&TestContext) -> bool) -> f64 {
+    let mut tc = TestContext::new_with_config(config)
+        .with_memory(MEM_SIZE, BASE_ADDR)
+        .load_program(BASE_ADDR, program);
+    tc.run_until(5_000, done).expect("program never finished");
+    let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
+    tc.sim.state.stats.get(paths.stalls_control).unwrap_or(0.0)
+}
+
+fn mispredict_control_stalls(config: &Config) -> f64 {
+    control_stalls(config, &mispredicted_branch(), |tc| tc.get_reg(TARGET_REG) == TARGET_VALUE)
+}
+
+#[test]
+fn a_program_without_redirects_has_no_control_stalls() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stalls = control_stalls(&config(backend, 3), &dependent_multiply_chain(), |tc| {
+            tc.get_reg(DONE_REG) == DONE_VALUE
+        });
+
+        assert_eq!(stalls, 0.0, "{backend:?}");
+    }
+}
+
+/// A squash's control stalls run from the redirect until rename hands on
+/// the target: the front-end refill, not the cycles the redirect pends.
+#[test]
+fn control_stalls_count_the_refill_after_the_redirect_is_taken() {
+    for (backend, refill) in [(BackendKind::InOrder, 3.0), (BackendKind::OutOfOrder, 4.0)] {
+        let quick = mispredict_control_stalls(&redirect_config(backend, 4, 1));
+        let slow = mispredict_control_stalls(&redirect_config(backend, 4, 5));
+
+        assert_eq!((quick, slow), (refill, refill), "{backend:?}");
+    }
+}
+
+#[test]
+fn o3_control_stalls_include_rename_waiting_out_the_rob_squash() {
+    let (_, held, _) = squash_recovery(1);
+    let mut config = redirect_config(BackendKind::OutOfOrder, 4, 2);
+    config.pipeline.squash_width = 1;
+
+    let stalls = mispredict_control_stalls(&config);
+
+    assert_eq!(stalls, held);
+}
