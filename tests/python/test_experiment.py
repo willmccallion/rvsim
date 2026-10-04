@@ -6,7 +6,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 import os
 import unittest
 
-from rvsim import Backend, Config, Environment, Simulator
+from rvsim import Backend, Config, Environment, MemoryController, Simulator
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
@@ -41,6 +41,23 @@ class EnvironmentRun(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertGreater(sim.stats.cycles, 0)
+
+
+@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+class SimpleControllerLatency(unittest.TestCase):
+    def cycles_with_memory_latency(self, latency):
+        config = Config(
+            uart_quiet=True,
+            memory_controller=MemoryController.Simple(latency=latency),
+        )
+        return Environment(binary=FIB, config=config).run().stats["cycles"]
+
+    def test_a_longer_latency_slows_the_run(self):
+        fast = self.cycles_with_memory_latency(120)
+
+        slow = self.cycles_with_memory_latency(400)
+
+        self.assertGreater(slow, fast)
 
 
 if __name__ == "__main__":

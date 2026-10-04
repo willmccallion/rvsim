@@ -144,7 +144,10 @@ def config_for(variant: dict) -> Config:
         l2=cache(variant["l2"]),
         bus_width=bus["width_bytes"],
         bus_latency=bus["latency"],
-        memory_controller=MemoryController.Simple(variant["memory"]["bandwidth_gib_s"]),
+        memory_controller=MemoryController.Simple(
+            latency=variant["memory"]["latency"],
+            bandwidth_gib_s=variant["memory"]["bandwidth_gib_s"],
+        ),
         vlen=VLEN,
         num_vec_lanes=VLEN // 8,
     )

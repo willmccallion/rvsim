@@ -191,8 +191,8 @@ works independently.
 Three memory controllers are available; all sit behind the L3 (or the last
 enabled cache level) and the system bus.
 
-**Simple controller** (the default) — every access takes 120 cycles once
-the controller is free: each request busies it for the time its bytes take
+**Simple controller** (the default) — every access takes `latency` cycles
+(120 by default) once the controller is free: each request busies it for the time its bytes take
 at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 
 **DRAM controller** — models row-buffer aware timing over 8 banks of
@@ -203,9 +203,6 @@ at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 - **Row conflict**: `t_pre + t_ras + t_cas` (precharge the open row, activate, access)
 - **Bank interleaving**: consecutive rows map to different banks, and accesses to different banks overlap; two activates are at least 4 cycles apart (tRRD)
 - **Refresh**: every 7,800 cycles all banks close their rows and are busy for 350 cycles
-
-`MemoryController.DRAM`'s `row_miss_latency` argument has no effect
-(issue #100); the row-miss cost comes from the three timings.
 
 ### DDR5 Controller
 

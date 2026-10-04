@@ -80,11 +80,8 @@ pub const T_RAS: u64 = 14;
 /// Time required to close an active row before opening a new one.
 pub const T_PRE: u64 = 14;
 
-/// Row buffer miss penalty in DRAM cycles.
-///
-/// Additional latency when accessing a different row than the one
-/// currently open in the row buffer.
-pub const ROW_MISS_LATENCY: u64 = 120;
+/// Latency of the Simple memory controller in core cycles.
+pub const SIMPLE_LATENCY: u64 = 120;
 
 /// Bandwidth of the Simple memory controller in GiB/s (gem5's
 /// `SimpleMemory` default).

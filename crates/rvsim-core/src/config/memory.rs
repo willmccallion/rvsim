@@ -63,9 +63,9 @@ pub struct MemoryConfig {
     #[serde(default = "MemoryConfig::default_t_pre")]
     pub t_pre: u64,
 
-    /// Row buffer miss penalty
-    #[serde(default = "MemoryConfig::default_row_miss")]
-    pub row_miss_latency: u64,
+    /// Latency of the Simple controller in core cycles.
+    #[serde(default = "MemoryConfig::default_simple_latency")]
+    pub simple_latency: u64,
 
     /// Bandwidth of the Simple controller in GiB/s; requests are
     /// serialised on it, each busying the controller for its bytes' time.
@@ -187,9 +187,8 @@ impl MemoryConfig {
         defaults::T_PRE
     }
 
-    /// Returns the default row buffer miss penalty in DRAM cycles.
-    const fn default_row_miss() -> u64 {
-        defaults::ROW_MISS_LATENCY
+    const fn default_simple_latency() -> u64 {
+        defaults::SIMPLE_LATENCY
     }
 
     const fn default_simple_bandwidth_gib_s() -> f64 {
@@ -270,7 +269,7 @@ impl Default for MemoryConfig {
             t_cas: defaults::T_CAS,
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,
-            row_miss_latency: defaults::ROW_MISS_LATENCY,
+            simple_latency: defaults::SIMPLE_LATENCY,
             simple_bandwidth_gib_s: defaults::SIMPLE_BANDWIDTH_GIB_S,
             num_banks: defaults::NUM_BANKS,
             t_rrd: defaults::T_RRD,

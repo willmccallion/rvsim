@@ -195,7 +195,6 @@ def fast() -> Config:
             t_cas=12,
             t_ras=12,
             t_pre=12,
-            row_miss_latency=90,
         ),
         bus_width=8,
         bus_latency=1,

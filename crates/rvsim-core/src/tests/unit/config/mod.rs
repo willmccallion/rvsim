@@ -48,7 +48,7 @@ fn test_memory_config_defaults() {
     assert_eq!(memory.t_cas, 14);
     assert_eq!(memory.t_ras, 14);
     assert_eq!(memory.t_pre, 14);
-    assert_eq!(memory.row_miss_latency, 120);
+    assert_eq!(memory.simple_latency, 120);
     assert_eq!((memory.tlb_size, memory.tlb_ways, memory.l2_tlb_size), (64, 0, 0));
 }
 
@@ -169,7 +169,7 @@ fn test_json_deserialization_minimal() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -273,7 +273,7 @@ fn test_json_deserialization_with_tracing() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -384,7 +384,6 @@ fn test_json_dram_controller() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -468,7 +467,7 @@ fn test_json_all_replacement_policies() {
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
+            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -491,7 +490,7 @@ fn test_json_all_prefetchers() {
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
+            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -514,7 +513,7 @@ fn test_json_all_branch_predictors() {
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "row_miss_latency": 120, "tlb_size": 32}},
+            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
                 "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -557,7 +556,7 @@ fn test_initial_sp_option() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -660,7 +659,7 @@ fn test_misa_override_option() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -776,7 +775,7 @@ fn a_captured_console_is_read_from_json() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -879,7 +878,7 @@ fn test_custom_cache_sizes() {
             "t_cas": 14,
             "t_ras": 14,
             "t_pre": 14,
-            "row_miss_latency": 120,
+            "simple_latency": 120,
             "tlb_size": 32
         },
         "cache": {
@@ -992,7 +991,6 @@ fn test_custom_dram_timings() {
             "t_cas": 20,
             "t_ras": 45,
             "t_pre": 20,
-            "row_miss_latency": 200,
             "tlb_size": 64
         },
         "cache": {
@@ -1069,7 +1067,6 @@ fn test_custom_dram_timings() {
     assert_eq!(config.memory.t_cas, 20);
     assert_eq!(config.memory.t_ras, 45);
     assert_eq!(config.memory.t_pre, 20);
-    assert_eq!(config.memory.row_miss_latency, 200);
     assert_eq!(config.memory.tlb_size, 64);
 }
 
