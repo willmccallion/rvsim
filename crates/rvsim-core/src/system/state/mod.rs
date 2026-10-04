@@ -213,7 +213,7 @@ impl SystemState {
                     .simple_bandwidth_bytes_per_second()
                     .unwrap_or(std::num::NonZeroU64::MAX);
                 Box::new(SimpleController::new(
-                    config.memory.row_miss_latency,
+                    config.memory.simple_latency,
                     Bandwidth::new(bytes_per_second, config.system.cpu_clock_mhz * 1_000_000),
                 ))
             }

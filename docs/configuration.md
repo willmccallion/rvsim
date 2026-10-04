@@ -286,6 +286,7 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 
 ```python
 MemoryController.Simple(      # Fixed latency (default), serialised on a bandwidth:
+    latency=120,              # Core cycles from the controller starting a request to its data
     bandwidth_gib_s=12.8,     # each request busies the controller for its bytes' time
 )
 MemoryController.DRAM(        # Row-buffer DRAM: per-bank open rows and refresh
@@ -319,11 +320,9 @@ MemoryController.DDR5(        # Command-level JEDEC DDR5 (see Memory Hierarchy)
 )
 ```
 
-The Simple controller's latency is 120 cycles. On the DRAM controller a
-row hit costs `t_cas` and a row miss `t_pre + t_ras + t_cas`; its
-`row_miss_latency` argument has no effect (#100). The DDR5 controller runs
-at the DRAM command clock (half the data rate) and converts to and from the
-core clock through `cpu_clock_mhz`; its statistics appear under
+On the DRAM controller a row hit costs `t_cas` and a row miss
+`t_pre + t_ras + t_cas`. The DDR5 controller runs at the DRAM command clock
+(half the data rate) and converts to and from the core clock through `cpu_clock_mhz`; its statistics appear under
 `memctrl0.ch<C>.sc<S>.*`. Every controller sits behind the system bus, so a
 miss to memory also pays `bus_latency` each way.
 

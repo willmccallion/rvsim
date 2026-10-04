@@ -52,7 +52,6 @@ BASE = {
     # The bus between the L2 and memory, each way, and memory itself: a
     # fixed latency and a bandwidth (gem5's SimpleMemory, rvsim's Simple).
     "bus": {"width_bytes": 8, "latency": 4},
-    # rvsim's Simple controller has a fixed 120-cycle latency.
     "memory": {"latency": 120, "bandwidth_gib_s": 12.8},
     # Next-N-line prefetching on a miss or a hit to a prefetched line:
     # gem5's TaggedPrefetcher and rvsim's Tagged prefetcher.

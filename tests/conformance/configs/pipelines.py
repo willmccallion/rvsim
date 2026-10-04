@@ -318,11 +318,10 @@ PIPELINES = [
     # ── Memory controller ──────────────────────────────────────────────────────
     ("o3 w4 dram",          Config(width=4, backend=Backend.OutOfOrder(),
                                    memory_controller=MemoryController.DRAM())),
-    # Slow DRAM: row-miss latency 200 cycles, stresses long-latency miss paths.
+    # Slow DRAM: a 78-cycle row conflict stresses long-latency miss paths.
     ("o3 w4 dram-slow",     Config(width=4, backend=Backend.OutOfOrder(),
                                    memory_controller=MemoryController.DRAM(
                                        t_cas=30, t_ras=36, t_pre=12,
-                                       row_miss_latency=200,
                                    ))),
     # DDR5-4800 command-level controller at a 1:1 clock ratio.
     ("o3 w4 ddr5",          Config(width=4, backend=Backend.OutOfOrder(),

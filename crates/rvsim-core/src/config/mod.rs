@@ -74,7 +74,6 @@ use serde::Deserialize;
 ///         "t_cas": 14,
 ///         "t_ras": 14,
 ///         "t_pre": 14,
-///         "row_miss_latency": 120,
 ///         "tlb_size": 32
 ///     },
 ///     "cache": {

@@ -523,18 +523,17 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "misaligned_access_trap": cfg.misaligned_access_trap,
     }
     if isinstance(mc, MemoryController.Simple):
+        memory["simple_latency"] = mc.latency
         memory["simple_bandwidth_gib_s"] = mc.bandwidth_gib_s
     # Always emit DRAM timing keys (Rust expects them)
     if isinstance(mc, MemoryController.DRAM):
         memory["t_cas"] = mc.t_cas
         memory["t_ras"] = mc.t_ras
         memory["t_pre"] = mc.t_pre
-        memory["row_miss_latency"] = mc.row_miss_latency
     else:
         memory["t_cas"] = 14
         memory["t_ras"] = 14
         memory["t_pre"] = 14
-        memory["row_miss_latency"] = 120
     if isinstance(mc, MemoryController.DDR5):
         memory["ddr5"] = mc.to_dict()
 

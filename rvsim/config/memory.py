@@ -74,13 +74,18 @@ class MemoryController:
     """Namespace for memory controller configurations."""
 
     class Simple:
-        """Fixed-latency controller serialised on ``bandwidth_gib_s``."""
+        """Fixed-latency controller: answers ``latency`` core cycles after it
+        starts a request, and starts requests serialised on ``bandwidth_gib_s``."""
 
-        def __init__(self, bandwidth_gib_s: float = 12.8):
+        def __init__(self, *, latency: int = 120, bandwidth_gib_s: float = 12.8):
+            self.latency = latency
             self.bandwidth_gib_s = bandwidth_gib_s
 
         def __repr__(self) -> str:
-            return f"MemoryController.Simple(bandwidth_gib_s={self.bandwidth_gib_s})"
+            return (
+                f"MemoryController.Simple(latency={self.latency}, "
+                f"bandwidth_gib_s={self.bandwidth_gib_s})"
+            )
 
     class DRAM:
         def __init__(
@@ -88,17 +93,15 @@ class MemoryController:
             t_cas: int = 14,
             t_ras: int = 14,
             t_pre: int = 14,
-            row_miss_latency: int = 120,
         ):
             self.t_cas = t_cas
             self.t_ras = t_ras
             self.t_pre = t_pre
-            self.row_miss_latency = row_miss_latency
 
         def __repr__(self) -> str:
             return (
                 f"MemoryController.DRAM(t_cas={self.t_cas}, t_ras={self.t_ras}, "
-                f"t_pre={self.t_pre}, row_miss_latency={self.row_miss_latency})"
+                f"t_pre={self.t_pre})"
             )
 
     class DDR5:

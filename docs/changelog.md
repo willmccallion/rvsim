@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `MemoryController.Simple` takes a `latency` in core cycles (default 120),
+  and its arguments are keyword-only. `MemoryController.DRAM` no longer
+  takes `row_miss_latency`, which it never used: its row-miss cost is
+  `t_pre + t_ras + t_cas`. In the Rust configuration `memory.row_miss_latency`
+  is renamed `memory.simple_latency`.
 - `rvsim --preset` and `rvsim bench --preset` accept every preset in
   `rvsim.presets.PRESETS` (`cortex_a72`, `m1` and `p550` as well as
   `basic` and `fast`) instead of a hard-coded `basic` or `fast`.

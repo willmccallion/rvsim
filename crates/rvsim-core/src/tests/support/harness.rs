@@ -36,7 +36,7 @@ impl TestContext {
         // bus so short programs finish inside their cycle budgets.
         let mut config = config.clone();
         config.memory.controller = MemoryControllerKind::Simple;
-        config.memory.row_miss_latency = 1;
+        config.memory.simple_latency = 1;
         config.system.bus_latency = 0;
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
