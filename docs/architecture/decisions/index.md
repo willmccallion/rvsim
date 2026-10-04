@@ -14,3 +14,8 @@ after the fact; a later decision that changes one says which it replaces.
 | [6](0006-serialization-follows-the-cpu-model.md) | Serialization follows the gem5 CPU model each backend stands for |
 | [7](0007-a-core-owns-its-pipeline.md) | A core owns its pipeline |
 | [8](0008-the-model-is-crate-private.md) | The model is crate-private |
+| [9](0009-state-is-split-into-harts-cores-and-an-uncore.md) | System state is split into harts, cores and an uncore |
+| [10](0010-semantics-are-separate-from-timing.md) | Instruction semantics are separate from timing |
+| [11](0011-accesses-take-effect-where-they-are-served.md) | Accesses take effect where they are served |
+| [12](0012-the-model-follows-real-cores.md) | The model follows real cores; gem5 is the reference |
+| [13](0013-stores-issue-address-and-data-separately.md) | Stores issue their address and data separately |
