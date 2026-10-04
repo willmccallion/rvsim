@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+from rvsim.presets import PRESETS
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 
@@ -34,6 +36,21 @@ class JsonExport(unittest.TestCase):
         self.assertIn("core0.cache.l1d.hits", stats)
 
 
+class Preset(unittest.TestCase):
+    def test_an_unknown_preset_lists_every_registered_preset(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "rvsim", "x.elf", "--preset", "not-a-preset"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        for name in PRESETS:
+            self.assertIn(name, result.stderr)
+
+
 class Bench(unittest.TestCase):
     def bench(self, *args):
         return subprocess.run(
@@ -56,6 +73,13 @@ class Bench(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("unknown benchmarks", result.stderr)
+
+    def test_an_unknown_preset_lists_every_registered_preset(self):
+        result = self.bench("--preset", "not-a-preset")
+
+        self.assertEqual(result.returncode, 2)
+        for name in PRESETS:
+            self.assertIn(name, result.stderr)
 
 
 if __name__ == "__main__":

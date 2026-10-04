@@ -257,7 +257,6 @@ def linux(
     )
 
 
-# Registry for CLI --preset lookup.
 def cortex_a72():
     """Cortex-A72: 3-wide O3, 48KB I$, 32KB D$ (8 MSHRs), 1MB L2.
 
