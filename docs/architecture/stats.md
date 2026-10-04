@@ -1,9 +1,10 @@
 # Stats & Observability
 
 rvsim exposes every microarchitectural counter through a single hierarchical
-tree with path-addressed access, per-counter metadata, wildcard queries, and
-first-class derived metrics. This document captures the reasoning behind that
-design so future changes stay coherent with the original intent.
+tree with path-addressed access, per-counter metadata, wildcard queries,
+first-class derived metrics and snapshots that measure a region. This page
+lists what is counted, shows how to read it from Python, and records the
+reasoning behind the design so future changes stay coherent with it.
 
 ## Motivation
 
@@ -44,10 +45,11 @@ stalls."
 
 ```
 core<N>       — physical execution core (pipeline + private caches + BP)
-hart<N>       — architectural hart (regs, CSRs, retired-inst counter)
-llc           — the shared last-level cache
-memctrl<N>    — DDR5 memory controller channels and sub-channels
+hart<N>       — architectural hart (retired instructions, traps, mode cycles)
+llc           — the shared last-level cache (registered, and zero, without an L3)
+memctrl<N>    — DDR5 memory controller channels and sub-channels (DDR5 only)
 coherence     — coherence fabric: coherence.ha.* (home agent), coherence.interconnect.*
+               (only with more than one core)
 system        — sums over every hart (system.retired_insts, system.traps)
 ```
 
@@ -93,6 +95,166 @@ Every `core<N>` exposes the same subsystem set (`commit`, `pipeline`, `bp`,
 the same counter names across cores. Every cache — regardless of level — has
 `.hits` and `.misses`. One analysis script works for every level and every
 core. gem5's per-cache-class naming is what breaks this today.
+
+## Catalogue
+
+Every path below exists on every run that has the component, and reads
+zero until something counts. `<N>` is a core or hart index and `<level>`
+one of `l1i`, `l1d` and `l2`.
+
+### Per hart
+
+| Path | Meaning |
+|------|---------|
+| `hart<N>.retired_insts` | Instructions the hart retired |
+| `hart<N>.traps` | Traps taken, exceptions and interrupts |
+| `hart<N>.cycles.user`, `.kernel`, `.machine` | Cycles spent in U, S and M mode |
+
+### Per core: pipeline
+
+| Path | Meaning |
+|------|---------|
+| `core<N>.ipc`, `core<N>.cpi` | Derived: the core's hart's retired instructions over the core's cycles, and the inverse |
+| `core<N>.pipeline.cycles.total` | Cycles the core was ticked or counted |
+| `core<N>.pipeline.cycles.wfi` | Cycles waiting in `WFI` |
+| `core<N>.pipeline.cycles.rob_empty` | Cycles with an empty ROB |
+| `core<N>.pipeline.stalls.control` | Cycles fetch spent on a redirect or squash |
+| `core<N>.pipeline.stalls.fetch_wait` | Cycles fetch waited for an in-flight I-cache access |
+| `core<N>.pipeline.stalls.data` | Cycles issue found nothing whose operands were ready |
+| `core<N>.pipeline.stalls.fu_structural` | Cycles a ready instruction waited for a free unit |
+| `core<N>.pipeline.stalls.backpressure` | Cycles a stage held because the next was full |
+| `core<N>.pipeline.stalls.dispatch` | Cycles rename had no ROB, issue-queue, load-queue or store-buffer room |
+| `core<N>.pipeline.stalls.checkpoint` | Cycles rename waited for a free branch checkpoint |
+| `core<N>.pipeline.stalls.serialize` | Cycles rename waited behind a serializing instruction |
+| `core<N>.pipeline.stalls.squash` | Cycles rename waited while commit squashed the ROB |
+| `core<N>.pipeline.flushes.total` | Squashes taken, split into `.branch`, `.system` and `.mem_violations` |
+| `core<N>.pipeline.flushes.squashed_insns` | Instructions those squashes removed |
+| `core<N>.commit.op.{alu,branch,load,store,system}` | Retired scalar integer instructions by kind |
+| `core<N>.commit.fp.{arith,fma,div_sqrt,load,store}` | Retired floating-point instructions by kind |
+| `core<N>.commit.vec.{int,fp,load,store,misc}` | Retired vector instructions by kind |
+| `core<N>.commit.retire_histogram.{zero,one,two,three_plus}` | Cycles by the number of instructions retired in them |
+| `core<N>.fu.util.<unit>` | Use of each functional-unit type (`int_alu`, `int_mul`, `fp_fma`, `vec_permute`, ...) |
+
+### Per core: prediction and memory ordering
+
+| Path | Meaning |
+|------|---------|
+| `core<N>.bp.committed.hits`, `.mispredicts`, `.accuracy` | Control instructions predicted right and wrong, counted at commit; accuracy is derived |
+| `core<N>.bp.spec.hits`, `.mispredicts`, `.accuracy` | The same counted at execute, wrong-path branches included |
+| `core<N>.bp.decode_redirects` | Fetch redirects decode made (a BTB miss on a taken control instruction, a stale target, a non-branch BTB hit) |
+| `core<N>.mdp.predictions.{bypass,wait_all,wait_for}` | Memory-dependence predictions made at dispatch |
+| `core<N>.mdp.violations` | Memory-order violations the predictor trained on |
+| `core<N>.lsq.rescheduled_mem_ops` | Accesses replayed behind an older store (a partial overlap, or a store whose data is not yet there) |
+| `core<N>.lsq.split_stores` | Stores whose data half issued after their address half |
+| `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |
+| `core<N>.lsq.coherence_violations` | Loads squashed for reading a line before a remote write an older load saw |
+| `core<N>.wcb.coalesces`, `.drains` | Stores merged into the write-combining buffer, and lines it wrote out |
+
+### Caches
+
+Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
+
+| Path | Meaning |
+|------|---------|
+| `hits`, `misses`, `miss_rate` | Demand accesses that hit and missed; the rate is derived |
+| `mshr_hits` | Misses that joined a fetch already in flight |
+| `blocked_requests` | Requests that waited because the MSHRs or writeback buffer were full |
+| `fills`, `evictions`, `writebacks` | Lines installed, lines evicted, and dirty lines written to the next level |
+| `back_invalidations` | Lines invalidated because an inclusive level below evicted them |
+| `prefetches.issued`, `prefetches.useful` | Prefetches sent, and those a demand request later used |
+| `probes` | Lookups made for another agent (snoops, inclusive back-invalidations) |
+| `maintenance` | Cache-block operations applied to this level |
+| `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core) |
+
+The L1D also counts `exclusive_swaps`: lines handed to the L2 under the
+exclusive inclusion policy.
+
+### Shared components
+
+| Path | Meaning |
+|------|---------|
+| `coherence.ha.requests.{read_shared,read_unique,clean_unique,writebacks,evicts,stale_writebacks,maintenance,non_coherent}` | Requests the home agent received, by kind |
+| `coherence.ha.snoops_sent`, `.c2c_transfers`, `.recalls` | Snoops sent, lines supplied by another cache, snoop-filter recalls |
+| `coherence.ha.filter.hits`, `.misses` | Snoop-filter lookups |
+| `coherence.ha.serialised`, `.txn_full_stalls` | Requests that waited behind another on the same line, or for a free transaction |
+| `coherence.interconnect.{messages,bytes,busy_cycles,blocked_cycles}` | Interconnect traffic and occupancy |
+| `memctrl0.ch<C>.sc<S>.*` | DDR5 sub-channel counters and histograms (see [Memory Hierarchy](memory.md#ddr5-controller)); per-bank counters under `rank<R>.bank<B>` |
+| `system.retired_insts`, `system.traps` | Sums over every hart |
+
+The run-level `cycles`, `instructions_retired` and `ipc` are not paths in
+the tree: they are properties of the stats object (and keys of
+`result.stats`, below).
+
+## Reading statistics from Python
+
+There are two views of the same tree.
+
+**The live tree.** `Simulator.stats` returns a snapshot of the native tree.
+It takes wildcard queries and prints the summary:
+
+```python
+from rvsim import Simulator, Config
+
+cpu = Simulator(Config(), binary="software/bin/programs/qsort.elf")
+cpu.run()
+
+stats = cpu.stats
+stats["core0.ipc"]                              # one stat; KeyError if unknown
+stats.get("core0.cache.l1d.misses", 0.0)        # or a default
+stats.query("core*.cache.l1d.misses").sum()     # sum across cores
+stats.query("**.misses").by_subject()           # {"core0": ..., "llc": ...}
+for path, value in stats.query("core0.pipeline.stalls.*"):
+    print(path, value)
+print(stats.summary(["core0", "hart0"]))        # the formatted summary
+stats.subjects()                                # ["core0", "hart0", "llc", "system"]
+```
+
+`*` matches within one segment and `**` any number of segments.
+
+**The flat dictionary.** `Environment.run()`, `Sweep` and `Session`
+return `Stats`, a `dict` keyed by path with the run-level `cycles`,
+`instructions_retired` and `ipc` added. Its `query()` takes a regular
+expression (or a substring), which suits interactive filtering, and
+`Stats.tabulate()` lays several runs side by side:
+
+```python
+result.stats["core0.cache.l1d.misses"]
+result.stats.query(r"l1d\.(hits|misses)$")
+```
+
+## Measuring a region
+
+A whole run includes start-up and shutdown. Three ways measure only the
+part of interest, leaving the whole run's statistics intact:
+
+- **Subtract snapshots.** `stats - earlier` subtracts every counter and
+  recomputes derived stats from the differences:
+
+    ```python
+    start = cpu.stats
+    cpu.run_until(pc=0x80001234)
+    region = cpu.stats - start
+    print(region.ipc, region["core0.bp.committed.accuracy"])
+    ```
+
+- **Let the guest mark it.** Software writes to the
+  [sim-control device](soc.md#sim-control) to dump labelled snapshots;
+  `cpu.stats_dumps()` returns them and `cpu.stats_between(start, end)`
+  subtracts a pair. `Session.measure()` and `rvsim bench` measure a Linux
+  command this way, bracketing its whole process lifetime.
+- **Reset.** `cpu.reset_stats()`, or the guest's reset command, zeroes the
+  tree, as gem5's `m5 resetstats` does. Subtracting snapshots is usually
+  better, since it keeps the whole-run numbers.
+
+Histograms subtract exactly in count, sum and mean, but a region's
+histogram has no minimum or maximum.
+
+## Saving statistics
+
+`rvsim program.elf --json out.json` writes the flat dictionary;
+`rvsim bench --json` writes every measured region with its output. In Rust,
+`Stats::dump` writes `path value` lines, with each histogram's count, sum,
+mean, minimum and maximum.
 
 ## Path structs per component
 
@@ -181,10 +343,10 @@ IPC, CPI, prediction accuracy, and miss-rate are registered like any other
 counter, with a formula:
 
 ```rust
-stats.derive(
-    paths::core::IPC,
-    Formula::Div(paths::hart::RETIRED_INSTS, paths::pipeline::CYCLES),
-    Meta { desc: "instructions per cycle", unit: Unit::Ratio, kind: Kind::Rate },
+s.derive(
+    c.ipc,
+    Formula::Div(first_hart.retired_insts, pipe.cycles_total),
+    Meta::ratio("instructions per cycle"),
 );
 ```
 
@@ -197,30 +359,23 @@ The formula language is deliberately small (`Div`, `Ratio`, `Sum`) — enough fo
 IPC/CPI/accuracy/miss-rate and nothing more. Anything more elaborate is a
 Python problem.
 
-Divide-by-zero returns `0.0`, not `NaN`. This matches the legacy stats
-behavior; users comparing runs across configurations don't want `NaN`
-poisoning their spreadsheets when a counter is legitimately zero (e.g.,
+Divide-by-zero returns `0.0`, not `NaN`: users comparing runs across
+configurations don't want `NaN` poisoning their spreadsheets when a counter is legitimately zero (e.g.,
 `bp.accuracy` for a workload with zero branches).
 
 ## Auto-generated summary
 
-`stats.summary()` replaces the hand-written `print_sections` function.
-Sections come from grouping metadata by subject; alignment, unit formatting,
-and derived-metric placement fall out of the metadata. Adding a counter is a
-one-line change; the summary picks it up automatically.
+`stats.summary()` prints the run-level totals and then one section per
+subject. Sections come from grouping metadata by subject; alignment, unit
+formatting and derived-metric placement fall out of the metadata. Adding a
+counter is a one-line change and the summary picks it up automatically;
+there is no hand-written formatter to keep in step.
 
-The output shape matches the old `SimStats::print_sections` verbatim
-(subject headers, sub-groups, aligned values) so downstream users don't have
-to relearn the format. What changes is that adding a new counter no longer
-requires editing a 350-line function.
+Components outside the core (caches, the coherence fabric, the memory
+controller) implement `StatSource` and register their own paths when the
+system is built, so the kernel's statistics module never lists them.
 
-## Python access
-
-Python sees the same paths. `sim.stats["core0.ipc"]` reads one stat and
-`sim.stats.query("core*.cache.l1d.misses").sum()` aggregates across cores.
-`Stats.from_core(sim.stats)` flattens the tree into a dict keyed by path, plus
-the run-level `cycles`, `instructions_retired` and `ipc`; that is what
-`Environment.run()` returns as `result.stats`.
+## No flat aliases
 
 There are no flat aliases such as `dcache_misses` or `branch_accuracy_pct`: a
 second vocabulary would drift from the tree the same way the old counters
@@ -235,12 +390,11 @@ a metric's direction and aggregation from its last segment: `ipc`,
 Explicitly out of scope for this design, so future contributors don't try to
 squeeze them in:
 
-- **Diff view** (`stats.diff(baseline)`) — natural next step, deferred.
-- **Windowed view** (`stats.since(cycle)`) — needs a snapshot mechanism the
-  hot path doesn't currently pay for.
+- **Time series.** A region is the difference of two snapshots; there is no
+  per-interval sampling of the tree.
 - **Full arithmetic query language** — Python is a better place for this.
-- **JSON/CSV dump** — one afternoon of work once the tree is stable, but not
-  needed for the migration.
+- **Native JSON or CSV export** from the tree; the CLI writes JSON from the
+  flat dictionary.
 - **Per-thread histograms under SMT** — waits for the SMT hart layout.
 
 ## Summary
