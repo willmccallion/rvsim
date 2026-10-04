@@ -1,128 +1,154 @@
 # ISA
 
-rvsim implements **RV64IMAFDC** with the full privileged architecture specification.
+rvsim implements **RV64GC with the vector extension** and the
+supervisor-level privileged architecture: enough to boot Linux through
+OpenSBI and to run the vector, bit-manipulation and cryptography code
+modern compilers emit. Every instruction's behaviour is defined once, in
+the shared execute layer, and both pipelines run that definition
+([decision 10](decisions/0010-semantics-are-separate-from-timing.md)).
 
-## Extensions
+`misa` reads `RV64IMAFDCSUV`. Every extension below is always on except
+Svadu, which `Config(svadu=True)` enables; the vector unit's VLEN is set by
+`Config(vlen=...)`.
 
-### RV64I — Base Integer
+## Unprivileged extensions
 
-Full 64-bit integer instruction set including all W-variants (32-bit operations with sign extension to 64 bits):
+| Extension | What it adds |
+|-----------|--------------|
+| **I** | The 64-bit base integer set, with the `W` forms that operate on 32 bits and sign-extend |
+| **M** | Multiply, divide and remainder, with the specification's results for division by zero and overflow |
+| **A** | `LR`/`SC` and the nine AMOs, word and doubleword, with `aq` and `rl` ordering |
+| **F**, **D** | Single- and double-precision IEEE 754 arithmetic, fused multiply-add, conversions, comparisons, sign injection and classification; all five rounding modes and the accrued exception flags |
+| **C** | 16-bit compressed encodings, expanded to their 32-bit forms in Fetch2; mixed 16/32-bit streams and instructions that straddle a line or a page |
+| **Zicsr**, **Zifencei** | CSR access instructions and `FENCE.I` |
+| **Zicntr** | `cycle`, `time` and `instret`, gated for S and U by `mcounteren` and `scounteren` |
+| **Zba**, **Zbb**, **Zbc**, **Zbs** | Address generation (`sh*add`, `add.uw`, `slli.uw`), basic bit manipulation (`clz`, `ctz`, `cpop`, `min`/`max`, rotates, `rev8`, `orc.b`, sign and zero extension), carry-less multiply, and single-bit operations |
+| **Zbkb**, **Zbkx** | Bit manipulation for cryptography (`brev8`, `pack`, `packh`, `packw`) and crossbar permutations (`xperm4`, `xperm8`) |
+| **Zfh** | Half-precision floating point, NaN-boxed in the `f` registers |
+| **Zicbom**, **Zicboz** | `cbo.clean`, `cbo.flush` and `cbo.inval` on a 64-byte block, and `cbo.zero`; see [cache-block operations](memory.md#cache-block-operations) |
+| **V** | RVV 1.0, below |
 
-- Arithmetic: `ADD`, `SUB`, `ADDI`, `ADDW`, `SUBW`, etc.
-- Logic: `AND`, `OR`, `XOR`, `ANDI`, `ORI`, `XORI`
-- Shifts: `SLL`, `SRL`, `SRA`, `SLLI`, `SRLI`, `SRAI` (+ W variants)
-- Comparison: `SLT`, `SLTU`, `SLTI`, `SLTIU`
-- Loads/stores: `LB`, `LH`, `LW`, `LD`, `LBU`, `LHU`, `LWU`, `SB`, `SH`, `SW`, `SD`
-- Branches: `BEQ`, `BNE`, `BLT`, `BGE`, `BLTU`, `BGEU`
-- Jumps: `JAL`, `JALR`
-- Upper immediate: `LUI`, `AUIPC`
-- System: `ECALL`, `EBREAK`, `FENCE`, `FENCE.I`
-- CSR access: `CSRRW`, `CSRRS`, `CSRRC`, `CSRRWI`, `CSRRSI`, `CSRRCI`
+### Floating point
 
-### M — Multiply/Divide
+Single-precision (and half-precision) values in the 64-bit `f` registers
+are NaN-boxed: a value whose upper bits are not all ones reads as the
+canonical NaN. `mstatus.FS` tracks the floating-point state: an FP
+instruction with FS Off raises an illegal-instruction exception, and one
+that writes an `f` register or `fflags` sets FS to Dirty. The same holds
+for `mstatus.VS` and the vector state.
 
-- Multiply: `MUL`, `MULH`, `MULHSU`, `MULHU`, `MULW`
-- Divide: `DIV`, `DIVU`, `REM`, `REMU`, `DIVW`, `DIVUW`, `REMW`, `REMUW`
+### Memory accesses
 
-Division by zero and overflow follow the RISC-V specification (no exceptions, defined results).
+Misaligned loads and stores are performed in hardware by default, split
+across lines and pages where needed; with
+`Config(misaligned_access_trap=True)` they raise address-misaligned
+exceptions instead. Misaligned atomics always raise one, as the
+specification requires.
 
-### A — Atomics
+`LR` reserves the 64-byte line holding its address and `SC` succeeds only
+while the reservation holds; a store by another hart, or a device's DMA,
+anywhere in the line breaks it, and every `SC` clears it. AMOs and `SC`
+execute as the oldest instruction once every older store has been
+written, and take effect in the L1D.
 
-**Load-reserved / Store-conditional:**
+## Vector extension
 
-- `LR.W`, `LR.D` — load and set reservation
-- `SC.W`, `SC.D` — conditional store (succeeds only if reservation is still valid)
+RVV 1.0 with ELEN 64 and VLEN a power of two from 128 to 2048 bits
+(default 128): loads and stores (unit-stride, strided, indexed ordered and
+unordered, segment, fault-only-first, mask and whole-register), integer,
+fixed-point (with `vxrm` rounding and `vxsat`), floating point including
+half precision (**Zvfh**), widening and narrowing forms, reductions, mask
+operations and permutations (slides, gathers, compress, `vmv`), all at
+every LMUL including the fractional ones, with tail- and mask-agnostic
+policies.
 
-LR/SC includes a forward progress guarantee: the implementation ensures SC will eventually succeed if the reservation is not broken by another store to the same address.
+| Sub-extension | What it adds |
+|---------------|--------------|
+| **Zvbb** | Vector bit manipulation: `vandn`, `vbrev`, `vbrev8`, `vrev8`, `vclz`, `vctz`, `vcpop`, `vrol`, `vror`, `vwsll` |
+| **Zvbc** | Vector carry-less multiply: `vclmul`, `vclmulh` |
+| **Zvkn** | NIST suite: AES (Zvkned), SHA-256 and SHA-512 (Zvknha, Zvknhb), and Zvkb |
+| **Zvks** | ShangMi suite: SM4 (Zvksed), SM3 (Zvksh), and Zvkb |
+| **Zvkg** | GHASH for AES-GCM |
 
-**Atomic memory operations (AMO):**
+The crypto instructions operate on element groups as the vector crypto
+specification defines, and several re-use the `vs1` field as a sub-opcode
+or an immediate rather than a register.
 
-`AMOSWAP`, `AMOADD`, `AMOAND`, `AMOOR`, `AMOXOR`, `AMOMIN`, `AMOMAX`, `AMOMINU`, `AMOMAXU` — for both word (.W) and doubleword (.D).
+The vector CSRs are `vstart`, `vxsat`, `vxrm`, `vcsr`, `vl`, `vtype` and
+`vlenb`. `vsetvl` with an unsupported `vtype` sets `vill`.
 
-### F — Single-Precision Float
+How long vector instructions take is described in
+[Pipeline](pipeline.md): vector arithmetic occupies its unit for a time set
+by `vl` and the lane count, and vector memory accesses move up to
+`vector_mem_width` bytes per L1D access.
 
-IEEE 754 single-precision floating point:
+## Privileged architecture
 
-- Arithmetic: `FADD.S`, `FSUB.S`, `FMUL.S`, `FDIV.S`, `FSQRT.S`
-- Fused multiply-add: `FMADD.S`, `FMSUB.S`, `FNMADD.S`, `FNMSUB.S`
-- Comparison: `FEQ.S`, `FLT.S`, `FLE.S`, `FMIN.S`, `FMAX.S`
-- Conversion: `FCVT.W.S`, `FCVT.WU.S`, `FCVT.L.S`, `FCVT.LU.S`, `FCVT.S.W`, `FCVT.S.WU`, `FCVT.S.L`, `FCVT.S.LU`
-- Sign injection: `FSGNJ.S`, `FSGNJN.S`, `FSGNJX.S`
-- Classification: `FCLASS.S`
-- Move: `FMV.X.W`, `FMV.W.X`
+### Privilege modes and traps
 
-**NaN-boxing** is enforced per spec section 12.2: single-precision values stored in 64-bit FP registers must have all upper bits set to 1. On load, values that fail the NaN-boxing check are replaced with the canonical NaN.
+Machine, Supervisor and User modes. A program starts in M-mode; traps,
+`MRET` and `SRET` move between modes. `medeleg` and `mideleg` delegate
+exceptions and interrupts to S-mode. Interrupts are taken in the
+specification's priority order (MEI, MSI, MTI, SEI, SSI, STI), at commit,
+after everything already fetched has retired. `WFI` waits for an enabled
+interrupt; when every hart waits and nothing is due, the simulator skips
+the idle cycles.
 
-### D — Double-Precision Float
+`mstatus` implements MIE/SIE and their previous-state bits, MPP and SPP,
+MPRV, SUM, MXR, TVM, TW, TSR, FS and VS. TVM makes `satp` accesses and
+`SFENCE.VMA` illegal in S-mode, TSR makes `SRET` illegal in S-mode, and TW
+makes `WFI` illegal in S-mode; `WFI` in U-mode is always illegal.
 
-Full parity with the F extension for 64-bit double-precision values. Includes all arithmetic, FMA, comparison, conversion, and classification instructions with `.D` suffix. Also includes `FCVT.S.D` and `FCVT.D.S` for float-double conversion.
-
-### C — Compressed Instructions
-
-16-bit compressed instruction encoding. All compressed instructions are expanded to their 32-bit equivalents at decode time (Fetch2 stage). The fetch unit handles mixed 16/32-bit instruction streams, including instructions that span cache line boundaries.
-
-## Privileged Architecture
-
-### Privilege Modes
-
-Three privilege levels: Machine (M), Supervisor (S), and User (U). The simulator starts in M-mode and transitions between modes via traps and return instructions.
-
-### CSR Set
-
-Full implementation of the standard CSRs:
+### CSRs
 
 | Category | CSRs |
 |----------|------|
-| **Machine** | `mstatus`, `misa`, `medeleg`, `mideleg`, `mie`, `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval`, `mip`, `mcounteren`, `mcountinhibit` |
-| **Supervisor** | `sstatus`, `sie`, `stvec`, `sscratch`, `sepc`, `scause`, `stval`, `sip`, `satp`, `scounteren`, `stimecmp` |
-| **Counters** | `cycle`, `time`, `instret`, `mcycle`, `minstret` |
-| **FP** | `fflags`, `frm`, `fcsr` |
-| **PMP** | `pmpcfg0`–`pmpcfg3`, `pmpaddr0`–`pmpaddr15` |
+| **Machine** | `mstatus`, `misa`, `medeleg`, `mideleg`, `mie`, `mip`, `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval`, `mcounteren`, `mcountinhibit`, `menvcfg`, `mvendorid`, `marchid`, `mimpid`, `mhartid` |
+| **Supervisor** | `sstatus`, `sie`, `sip`, `stvec`, `sscratch`, `sepc`, `scause`, `stval`, `satp`, `scounteren`, `senvcfg`, `stimecmp` |
+| **Counters** | `cycle`, `time`, `instret`, `mcycle`, `minstret`; `mhpmcounter3`–`31` and `mhpmevent3`–`31` read zero (no event counts) |
+| **Floating point** | `fflags`, `frm`, `fcsr` |
+| **Vector** | `vstart`, `vxsat`, `vxrm`, `vcsr`, `vl`, `vtype`, `vlenb` |
+| **PMP** | `pmpcfg0`, `pmpcfg2`, `pmpaddr0`–`pmpaddr15` |
+| **Debug triggers** | `tselect`, `tdata1`, `tdata2`, `tdata3`, `tinfo`, `tcontrol` |
 
-### Trap Handling
+`mcountinhibit` stops `mcycle` and `minstret`. `menvcfg` holds STCE
+(Sstc), ADUE (Svadu), and CBIE, CBCFE and CBZE, which gate the
+cache-block operations in lower modes; `senvcfg` gates them for U-mode.
 
-- **Trap delegation**: `medeleg` and `mideleg` configure which exceptions and interrupts are delegated from M-mode to S-mode
-- **MRET / SRET**: return from trap, restoring privilege level and interrupt state
-- **WFI**: wait for interrupt (halts pipeline, increments WFI cycle counter)
+### Supervisor extensions
 
-### Virtual Memory
+- **Sstc.** With `menvcfg.STCE` set, S-mode has its own timer compare,
+  `stimecmp`, which raises the supervisor timer interrupt directly, so a
+  kernel's timer needs no M-mode call.
+- **Svade and Svadu.** By default a page whose A bit, or D bit on a
+  store, is clear raises a page fault (Svade). With `svadu=True` and
+  `menvcfg.ADUE` set, the page-table walker sets the bit itself (Svadu).
+- **Sdtrig.** Two `mcontrol6` triggers match an exact execute, load or
+  store address and raise a breakpoint exception, per mode, with
+  `tcontrol.MTE` gating M-mode.
 
-SV39 translation controlled by `satp` CSR. Writing to `satp` triggers a pipeline drain and TLB flush (deferred to commit after store buffer drains).
+### Virtual memory
 
-`SFENCE.VMA` supports:
+Sv39, Sv48 and Sv57, selected through `satp` and capped by
+`Config(paging_mode_max=...)`; a mode beyond the cap leaves `satp` reading
+Bare. A `satp` write takes effect at commit. `SFENCE.VMA` flushes the TLBs
+at commit: all of them, those of one address, one ASID, or both, and never
+a global mapping by ASID. Translation, the TLBs and the page-table walker
+are described in [Memory Hierarchy](memory.md#virtual-memory).
 
-- Global flush (no arguments)
-- Address-specific flush (`rs1` specifies virtual address)
-- ASID-specific flush (`rs2` specifies ASID)
+### Physical memory protection
 
-### Physical Memory Protection (PMP)
+Sixteen PMP regions with TOR, NA4 and NAPOT matching and the lock bit.
+PMP checks every S- and U-mode access, the page-table walker's PTE reads
+included, and M-mode accesses to locked regions or with `mstatus.MPRV`
+set.
 
-16 PMP regions with three address matching modes:
+## Conformance
 
-- **TOR** (Top of Range)
-- **NAPOT** (Naturally Aligned Power of Two)
-- **NA4** (Naturally Aligned 4-byte)
-
-PMP is checked on every memory access in S-mode and U-mode. M-mode accesses bypass PMP unless `mstatus.MPRV` is set.
-
-### Privileged Control Bits
-
-Key `mstatus` fields:
-
-- **TSR** (Trap SRET): traps SRET in S-mode
-- **TW** (Timeout Wait): traps WFI in S-mode after timeout
-- **TVM** (Trap Virtual Memory): traps `satp` access and `SFENCE.VMA` in S-mode
-- **FS** (FP State): tracks whether FP state is clean/dirty; traps FP instructions when FS=Off
-
-## Test Compliance
-
-Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests):
-
-- `rv64ui` — base integer instructions
-- `rv64um` — multiply/divide
-- `rv64ua` — atomics (LR/SC, AMO)
-- `rv64uf` — single-precision float
-- `rv64ud` — double-precision float
-- `rv64uc` — compressed instructions
-- `rv64mi` — machine-mode traps and CSRs
-- `rv64si` — supervisor-mode traps and virtual memory
+| Suite | Result |
+|-------|--------|
+| [riscv-tests](https://github.com/riscv-software-src/riscv-tests) (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `mi`, `si`) | 134 of 134 pass |
+| [riscv-vector-tests](https://github.com/chipsalliance/riscv-vector-tests), cross-checked element by element against spike | 3023 of 3023 programs pass at VLEN 128 |
+| riscv-arch-test through RISCOF | run by `make arch-test` |
+| Multi-core litmus and coherence programs | see [Multi-core](multicore.md) |
+| Linux 6.6 through OpenSBI to a BusyBox shell | boots on one and eight harts |
