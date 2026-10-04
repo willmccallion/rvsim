@@ -15,7 +15,7 @@ Cycle-level RISC-V 64-bit system simulator with a composable Python API for arch
 
 rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
-> **Accuracy.** rvsim simulates every cycle, but it is not yet cycle-accurate: its timing model follows gem5's O3 CPU, and on our microbenchmarks its cycle counts are still tens of percent away from gem5's (see [Error against gem5](https://willmccallion.github.io/rvsim/error/)). We are working to close that gap.
+> **Accuracy.** rvsim simulates every cycle, but it is not cycle-accurate to any one machine yet. It models how real cores behave and measures itself two ways: against gem5's O3 CPU, where compute- and branch-bound kernels are within a few percent and memory- and vector-bound ones are still 10 to 60% apart ([Error against gem5](https://willmccallion.github.io/rvsim/error/)), and against hardware, where the `p550()` and `cortex_a72()` presets reproduce their measured cache and memory latencies and the A72 preset runs CoreMark within 6% of a Raspberry Pi 4 ([Linux Benchmarks](https://willmccallion.github.io/rvsim/examples/linux-benchmarks/)). We are working to close the remaining gaps.
 
 ## Install
 
@@ -56,17 +56,17 @@ see [Stats & Observability](https://willmccallion.github.io/rvsim/architecture/s
 
 ### Two Pipeline Backends
 
-**Out-of-order superscalar** — Physical register file with dual rename maps (speculative + committed), CAM-style issue queue with wakeup/select and oldest-first priority, reorder buffer for in-order commit with precise exceptions, load queue for memory ordering violation detection, store buffer with forwarding, and a configurable functional unit pool (per-type counts and latencies).
+**Out-of-order superscalar** — Physical register files with speculative and committed rename maps and branch checkpoints, CAM-style issue queue with wakeup/select and oldest-first priority, stores that issue their address and data separately, reorder buffer for in-order commit with precise exceptions, load queue with store-set memory-dependence prediction, store buffer with forwarding, and a configurable functional unit pool (per-type counts and latencies).
 
-**In-order** — Configurable width, scoreboard-based operand tracking, FIFO issue queue with head-of-queue blocking, backpressure gating. Shares the same frontend and commit/memory/writeback stages as the O3 backend, making both modes directly comparable on identical workloads.
+**In-order** — Configurable width, scoreboard-based operand tracking, program-order issue onto the same functional unit pool, backpressure gating. Shares the same frontend and commit/memory/writeback stages as the O3 backend, making both modes directly comparable on identical workloads.
 
 Both backends enforce identical serialization semantics: system/CSR instructions wait for all older completions, FENCE respects predecessor/successor ordering bits, loads wait for older store address resolution.
 
 ### Memory Hierarchy
 
-- **SV39 / SV48 / SV57 virtual memory** — separate iTLB/dTLB, shared L2 TLB, full hardware page table walker with A/D bit management
+- **SV39 / SV48 / SV57 virtual memory** — separate iTLB/dTLB, an optional shared L2 TLB, a hardware page table walker whose PTE reads go through the L1D, and Svade or Svadu A/D handling
 - **L1i / L1d / L2 / L3 caches** — independently configurable size, associativity, latency, and replacement policy (LRU, PLRU, FIFO, Random, MRU)
-- **Non-blocking L1D** via MSHRs with request coalescing
+- **Non-blocking caches at every level** via MSHRs with request coalescing and writeback buffers; caches hold tags only and every access takes effect where it is served
 - **Hardware prefetchers** per cache level: next-line, stride, stream, tagged
 - **Inclusion policies**: non-inclusive, inclusive (back-invalidation), exclusive (L1-L2 swap)
 - **Memory controllers** — fixed latency, a row-buffer DRAM model, or a JEDEC DDR5 controller with command timing, refresh and power-down
@@ -88,11 +88,11 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 ### ISA & Privileged Architecture
 
-**RV64IMAFDC + V** — base integer, multiply/divide, atomics (LR/SC + AMO), single/double float with IEEE 754 NaN-boxing, compressed instructions, and the V vector extension (RVV 1.0). M/S/U privilege modes, full CSR set, trap delegation, MRET/SRET, WFI, SFENCE.VMA, FENCE/FENCE.I, PMP (16 regions). Cache management ops via Zicbom and Zicboz.
+**RV64IMAFDC + V** — base integer, multiply/divide, atomics (LR/SC + AMO), single/double float with IEEE 754 NaN-boxing, compressed instructions, and the V vector extension (RVV 1.0), with Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx and Zfh. M/S/U privilege modes, trap delegation, MRET/SRET, WFI, SFENCE.VMA, FENCE/FENCE.I, PMP (16 regions), Sstc, Svadu and Sdtrig triggers. Cache management ops via Zicbom and Zicboz.
 
 Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
 
-The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES + SHA-256), Zvks (SM4), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
+The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES, SHA-256 and SHA-512), Zvks (SM4 and SM3), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
 Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite. [`riscv-arch-test`](https://github.com/riscv-non-isa/riscv-arch-test) runs through the [RISCOF](https://github.com/riscv-software-src/riscof) framework under `tests/conformance/riscof/`.
 
