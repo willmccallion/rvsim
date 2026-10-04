@@ -1,16 +1,17 @@
 # Memory Hierarchy
 
-rvsim models a complete memory hierarchy from TLBs through L3 cache to DRAM, with configurable parameters at every level.
+rvsim models a complete memory hierarchy from TLBs through L3 cache to DRAM, with configurable parameters at every level. Every cache, the bus and the memory controller is an event-driven component exchanging request and response packets, so each access pays the latency and waits for the occupancy of every component it passes. Caches hold tags and coherence state only; data lives in one memory image and an access takes effect where it is served ([decision 11](decisions/0011-accesses-take-effect-where-they-are-served.md)).
 
 ## Overview
 
 ```mermaid
 flowchart TD
-    CPU["CPU Pipeline"] --> ITLB["I-TLB\n32 entries"] & DTLB["D-TLB\n32 entries"]
+    CPU["CPU Pipeline"] --> ITLB["I-TLB\n64 entries · fully assoc."] & DTLB["D-TLB\n64 entries · fully assoc."]
     ITLB --> L1I["L1-I Cache"]
     DTLB --> L1D["L1-D Cache"]
-    ITLB & DTLB -->|miss| L2TLB["L2 TLB\n512 entries · 4-way"]
-    L2TLB -->|miss| PTW["Hardware PTW\nSV39 page walk"]
+    ITLB & DTLB -->|miss| L2TLB["L2 TLB\noptional · off by default"]
+    L2TLB -->|miss| PTW["Hardware PTW\nSv39 / Sv48 / Sv57"]
+    PTW -->|PTE reads| L1D
     L1I & L1D -->|miss| MSHR["MSHRs\ncoalescing"]
     MSHR --> L2["L2 Cache"]
     L2 -->|miss| L3["L3 Cache"]
@@ -19,17 +20,36 @@ flowchart TD
     L1D <--> STB["Store Buffer\nforwarding · WCB"]
 ```
 
-## Virtual Memory (SV39)
+## Virtual Memory
 
-The simulator implements the RISC-V SV39 page translation scheme:
+The MMU implements the RISC-V Sv39, Sv48 and Sv57 paging modes, with
+three, four and five levels of page table. `paging_mode_max` caps the
+modes `satp` accepts: writing a stronger mode leaves `satp` reading back
+as Bare, which is how a kernel probes for the deepest mode and falls back.
 
-- **39-bit virtual addresses** with three levels of page tables (VPN[2], VPN[1], VPN[0])
-- **4KB base pages**, 2MB megapages, 1GB gigapages
-- **Separate iTLB and dTLB** — fully associative, configurable size (default: 32 entries each)
-- **Shared L2 TLB** — set-associative (default: 512 entries, 4-way), accessed on iTLB/dTLB miss
-- **Hardware page table walker** — walks the page table on L2 TLB miss, manages accessed (A) and dirty (D) bits
+- **Pages.** 4 KiB base pages and every superpage size the mode allows
+  (2 MiB, 1 GiB, 512 GiB, 256 TiB). A TLB entry maps a whole page of the
+  size its leaf was found at, so a 2 MiB kernel mapping is one entry.
+- **L1 TLBs.** Separate instruction and data TLBs of `tlb_size` entries
+  (default 64), fully associative when `tlb_ways` is 0 (the default, as
+  gem5's RISC-V TLB) and LRU within a set otherwise.
+- **L2 TLB.** An optional TLB shared by the core's instruction and data
+  sides (`l2_tlb_size`, `l2_tlb_ways`), hitting after `l2_tlb_latency`
+  cycles. It is off by default, as gem5 has none.
+- **Page-table walker.** A miss in every TLB starts a hardware walk. Each
+  level's PTE is an 8-byte read sent to the L1D, so page-table entries are
+  cached like data and a walk's cost depends on where they are found.
+  Superpage alignment, reserved bits, the U, SUM and MXR rules and the
+  PMP check on each PTE are all applied.
+- **Accessed and dirty bits.** By default a page whose A bit, or D bit on
+  a store, is clear raises a page fault and the kernel sets the bit
+  (Svade). With `svadu=True` and `menvcfg.ADUE` set, the walker sets the
+  bit itself and writes the updated PTE back (Svadu).
+- **Flushes.** `SFENCE.VMA` flushes the TLBs at commit, by address and
+  ASID when it names them.
 
-The TLB hierarchy is bypassed when `satp.MODE = Bare` (no translation) or in M-mode without `mstatus.MPRV` set.
+Translation is skipped when `satp.MODE` is Bare or the hart runs in M-mode
+(with `mstatus.MPRV` clear for loads and stores).
 
 ## Cache Hierarchy
 
@@ -58,7 +78,8 @@ classic cache:
   next level after the tag-lookup latency. A second miss to a line already
   in flight **joins that MSHR** instead of fetching again; when the fill
   arrives every joined request is answered at once. `mshr_count` bounds the
-  fetches in flight (default 8; zero behaves as one, a blocking cache).
+  fetches in flight (default 8; `mshr_count=1` gives a blocking cache,
+and `0` from Python leaves the default).
   An MSHR holds at most `targets_per_mshr` requests (gem5's
   `tgts_per_mshr`, default 20): the request that fills it blocks the
   cache until that line's fill returns.
@@ -95,9 +116,10 @@ Per-level counters live under `core<N>.cache.{l1i,l1d,l2}` and `llc`:
 `writebacks`, `back_invalidations`, `prefetches.issued`,
 `prefetches.useful` and the derived `miss_rate`.
 
-The out-of-order backend's speculative load wakeup (issue dependents
-assuming an L1D hit) is enabled whenever the L1D has MSHRs
-(`mshr_count > 0`).
+A load's dependents wake when its data returns: one cycle of address
+generation plus the L1D's `latency` on a hit, or whenever the fill
+arrives on a miss. Neither backend issues dependents speculatively on a
+predicted hit.
 
 ### L2 / L3 Caches
 
@@ -155,29 +177,35 @@ Each cache level can have an independent hardware prefetcher:
 | Prefetcher | How it works |
 |------------|-------------|
 | **NextLine** | On any access, prefetch the next `degree` cache lines |
-| **Stride** | PC-indexed table detects constant-stride access patterns |
-| **Stream** | Detects sequential access streams and prefetches ahead |
-| **Tagged** | Prefetch-on-prefetch: a prefetched line triggers further prefetches |
+| **Stride** | A `table_size`-entry table, indexed by the accessed line address (no PC reaches the cache), records the last address and stride; after the same stride repeats three times it prefetches `degree` strides ahead. Strides of a line or more train only when they alias back to one entry (#102) |
+| **Stream** | Detects ascending or descending runs of consecutive lines and prefetches `degree` lines ahead in that direction |
+| **Tagged** | Prefetches the next line on a demand miss, and again when a demand access first uses a prefetched line, so a useful stream keeps extending |
 
-A shared **prefetch deduplication filter** prevents redundant requests across levels.
+The prefetcher sees every demand access to its cache. A candidate is
+dropped when its line is already present, already being fetched or being
+written back, so no level fetches a line twice; each level's prefetcher
+works independently.
 
 ## DRAM Controller
 
 Three memory controllers are available; all sit behind the L3 (or the last
 enabled cache level) and the system bus.
 
-**Simple controller** — every access takes `row_miss_latency` cycles once
+**Simple controller** (the default) — every access takes 120 cycles once
 the controller is free: each request busies it for the time its bytes take
 at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 
-**DRAM controller** — models row-buffer aware timing:
+**DRAM controller** — models row-buffer aware timing over 8 banks of
+2 KiB rows:
 
-- **Row hit**: access costs `t_cas` cycles (column access to an already-open row)
-- **Row miss**: access costs `row_miss_latency` cycles (precharge + row activate + column access)
-- **Bank interleaving**: addresses are distributed across banks; accesses to different banks can overlap
-- **Refresh**: periodic refresh cycles (`t_refi` / `t_rfc`) temporarily block accesses
+- **Row hit**: `t_cas` cycles (a column access to the open row)
+- **Closed bank**: `t_ras + t_cas` (activate, then the column access)
+- **Row conflict**: `t_pre + t_ras + t_cas` (precharge the open row, activate, access)
+- **Bank interleaving**: consecutive rows map to different banks, and accesses to different banks overlap; two activates are at least 4 cycles apart (tRRD)
+- **Refresh**: every 7,800 cycles all banks close their rows and are busy for 350 cycles
 
-The DRAM controller maintains per-bank row buffer state, so the actual latency of an access depends on whether the target row is already open.
+`MemoryController.DRAM`'s `row_miss_latency` argument has no effect
+(issue #100); the row-miss cost comes from the three timings.
 
 ### DDR5 Controller
 
