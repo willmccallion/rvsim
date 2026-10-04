@@ -50,6 +50,10 @@ What no rvsim setting can express:
   one; and its rename learns of freed load-queue entries two cycles after
   commit frees them (commit tells IEW, IEW tells rename) where rvsim's
   rename sees every queue's free entries one cycle after they free.
+- gem5's O3 issues a store only when its address and data registers are
+  both ready, where rvsim, like real out-of-order cores, issues the address
+  ahead of the data. Store-heavy kernels such as `store_load_forward` and
+  `mem_random_swap` run faster in rvsim for that reason.
 
 ## Reading the stats
 
