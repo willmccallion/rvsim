@@ -130,7 +130,6 @@ impl InOrderEngine {
         redirect: &mut Option<u64>,
     ) {
         let paths = &state.core.stat_paths.pipeline;
-        state.uncore.stats.counter(paths.stalls_control).inc();
         state.uncore.stats.counter(paths.flushes_total).inc();
         match squash.redirect.cause {
             SquashCause::Branch => state.uncore.stats.counter(paths.flushes_branch).inc(),

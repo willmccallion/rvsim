@@ -486,6 +486,9 @@ pub struct Pipeline<E: ExecutionEngine> {
     /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
     /// discarded and restarted there after the engine's tick.
     pub redirect: Option<u64>,
+    /// Set by a backend redirect until rename hands on the first bundle
+    /// from the new path; each cycle in between is a control stall.
+    recovering_from_redirect: bool,
 }
 
 impl<E: ExecutionEngine> Pipeline<E> {
@@ -549,6 +552,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             Some(pc) => {
                 self.discard_frontend_speculation();
                 self.frontend.fetch_pc = pc;
+                self.recovering_from_redirect = true;
                 self.engine.fetch_squashes_for_a_cycle()
             }
             None => false,
@@ -556,6 +560,20 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
         if !fetch_squashing && state.check_exit().is_none() && !state.hart.wfi_waiting {
             self.frontend.tick(&mut state.stage(), &mut self.engine, &mut self.rename_output);
+        }
+        self.count_control_stall(state);
+    }
+
+    /// Counts a cycle in which rename has yet to hand on anything from the
+    /// path a backend redirect started.
+    fn count_control_stall(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+        if !self.recovering_from_redirect || state.hart.wfi_waiting {
+            return;
+        }
+        if self.rename_output.is_empty() {
+            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_control).inc();
+        } else {
+            self.recovering_from_redirect = false;
         }
     }
 
@@ -584,6 +602,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     pub fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
         self.frontend.fetch_pc = state.hart.pc;
         self.redirect = None;
+        self.recovering_from_redirect = false;
         self.discard_frontend_speculation();
         let common = self.engine.common_mut();
         common.mailbox.clear();
@@ -623,12 +642,14 @@ impl PipelineDispatch {
                 engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
                 rename_output: Latch::new(STAGE_DELAY),
                 redirect: None,
+                recovering_from_redirect: false,
             })),
             BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
                 frontend: Frontend::new(pc),
                 engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
                 rename_output: Latch::new(STAGE_DELAY),
                 redirect: None,
+                recovering_from_redirect: false,
             })),
         }
     }
@@ -810,6 +831,7 @@ mod tests {
             engine,
             rename_output: Latch::new(crate::uarch::pipeline::frontend::STAGE_DELAY),
             redirect: None,
+            recovering_from_redirect: false,
         };
         let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
 

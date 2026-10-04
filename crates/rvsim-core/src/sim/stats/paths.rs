@@ -106,7 +106,8 @@ stat_paths! {
         cycles_wfi: "pipeline.cycles.wfi",
         /// Cycles the ROB was empty.
         cycles_rob_empty: "pipeline.cycles.rob_empty",
-        /// Fetch stalled on control (front-end redirect pending).
+        /// Cycles from a backend redirect (squash, trap, re-execution) until
+        /// rename hands on the first instruction from the new path.
         stalls_control: "pipeline.stalls.control",
         /// Fetch1 idle because an earlier fetch group is still waiting on
         /// the I-cache response or an instruction-fetch page walk.
