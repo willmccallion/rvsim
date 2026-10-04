@@ -16,13 +16,15 @@ config = presets.p550()
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| Width | 3 | Triple-issue |
-| Backend | OutOfOrder | 72-entry ROB, 32-entry IQ |
-| Branch Predictor | Tournament | 9.1 KiB budget |
-| L1D | 32KB, 8-way, 3cy | 8 MSHRs, stride prefetch |
-| L2 | 256KB, 8-way, 10cy | 16 MSHRs |
-| L3 | 4MB, 16-way, 30cy | 32 MSHRs |
-| Memory | DRAM | t_cas=14, row_miss=120 |
+| Width | 3 | Triple-issue, 1.4 GHz (EIC7700X) |
+| Backend | OutOfOrder | 72-entry ROB, 32-entry IQ, one load and one store AGU |
+| Branch Predictor | Tournament | 9.1 KiB budget, 32-entry BTB, 16-entry RAS |
+| L1D | 32KB, 4-way | 3-cycle load-to-use, 8 MSHRs, stride prefetch |
+| L2 | 256KB, 8-way | 13-cycle load-to-use, 16 MSHRs |
+| L3 | 4MB, 16-way | 38-cycle load-to-use, 32 MSHRs |
+| Memory | LPDDR5 DRAM | 194 ns (272 cycles) random-access load-to-use |
+
+The latencies are the ones Chips and Cheese measured on the HiFive Premier P550; `tools/diag/latency_probe.py --preset p550` reproduces them.
 
 ### ARM Cortex-A72
 
@@ -36,12 +38,15 @@ config = presets.cortex_a72()
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| Width | 3 | Triple-issue |
-| Backend | OutOfOrder | 128-entry ROB, 60-entry IQ |
-| Branch Predictor | TAGE | 4 banks, 2048-entry tables |
+| Width | 3 | Triple-issue, 1.5 GHz (Raspberry Pi 4) |
+| Backend | OutOfOrder | 128-entry ROB, 66-entry IQ, 32-entry LQ, 16-entry SQ, one load and one store AGU |
+| Branch Predictor | TAGE | 4 banks, 2048-entry tables, 4096-entry BTB, 31-entry RAS |
 | L1I | 48KB, 3-way | NextLine prefetch |
-| L1D | 32KB, 2-way | 8 MSHRs, stride prefetch |
-| L2 | 1MB, 16-way, 12cy | 16 MSHRs |
+| L1D | 32KB, 2-way | 4-cycle load-to-use, 8 MSHRs, stride prefetch |
+| L2 | 1MB, 16-way | 21-cycle load-to-use, 16 MSHRs |
+| Memory | LPDDR4 DRAM | 162 ns (243 cycles) random-access load-to-use |
+
+The latencies are the ones Chips and Cheese measured on the Cortex-A72 (Graviton), at the Pi 4's clock; `tools/diag/latency_probe.py --preset cortex_a72` reproduces them.
 
 ### Apple M1
 

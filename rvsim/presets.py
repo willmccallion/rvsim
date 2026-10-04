@@ -267,21 +267,22 @@ def cortex_a72():
     Microarchitecture (publicly documented):
     - 3-wide fetch/decode/rename/dispatch/issue
     - Out-of-order execution, 128-entry ROB
-    - 60-entry unified issue queue
-    - 12-entry store buffer, 16-entry load queue
-    - 2 load ports, 1 store port
+    - Eight issue queues of 8 entries (10 for branches), 66 in all; modelled
+      as one 66-entry queue until per-pipe queues exist
+    - 16-entry store queue, 32-entry load queue
+    - One load AGU, one store AGU
     - PRF: 128 integer + 128 FP physical registers
-    - Execution units:
-        - 3x integer ALU (latency 1, includes shift/compare)
-        - 1x integer multiplier (latency 3, pipelined)
-        - 1x integer divider (latency ~20-39, non-pipelined)
+    - Execution units (Chips and Cheese, Graviton at 2.3 GHz):
+        - 2x integer ALU (latency 1), 1x multi-cycle pipe (multiply 3,
+          divide non-pipelined)
         - 2x FP/NEON pipeline (modeled as FpAdd + FpMul/FpFma per pipe)
         - 1x FP div/sqrt (latency ~17-38, non-pipelined)
         - 1x branch unit (latency 1)
-        - 2x load/store AGU (modeled as Mem units)
-    - 48KB L1-I (3-way), 32KB L1-D (2-way), 8 MSHRs on L1-D
-    - 1MB L2 (16-way unified), shared
-    - TAGE-like branch predictor, 4096-entry BTB, 16-entry RAS
+    - 48KB L1-I (3-way), 32KB L1-D (2-way, 4-cycle load-to-use), 8 MSHRs
+    - 1MB L2 (16-way) on the Raspberry Pi 4's BCM2711, 21 cycles
+    - 48-entry L1 ITLB, 32-entry L1 DTLB, 1024-entry 4-way L2 TLB
+    - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles
+    - Clocked at 1.5 GHz as on the Raspberry Pi 4
     """
     return Config(
         width=3,
@@ -294,16 +295,16 @@ def cortex_a72():
         ),
         backend=Backend.OutOfOrder(
             rob_size=128,
-            issue_queue_size=60,
-            store_buffer_size=12,
-            load_queue_size=16,
-            load_ports=2,
+            issue_queue_size=66,
+            store_buffer_size=16,
+            load_queue_size=32,
+            load_ports=1,
             store_ports=1,
             prf_gpr_size=128,
             prf_fpr_size=128,
             fu_config=Fu(
                 [
-                    Fu.IntAlu(count=3, latency=1),
+                    Fu.IntAlu(count=2, latency=1),
                     Fu.IntMul(count=1, latency=3),
                     Fu.IntDiv(count=1, latency=28),
                     Fu.FpAdd(count=2, latency=5),
@@ -316,9 +317,12 @@ def cortex_a72():
             ),
         ),
         btb_size=4096,
-        ras_size=16,
+        ras_size=31,
+        cpu_clock_mhz=1500,  # Raspberry Pi 4
         ram_size="256MB",
-        tlb_size=48,
+        tlb_size=32,  # 32-entry L1 DTLB
+        l2_tlb_size=1024,
+        l2_tlb_ways=4,
         l1i=Cache(
             size="48KB",
             line="64B",
@@ -326,21 +330,33 @@ def cortex_a72():
             latency=1,
             prefetcher=Prefetcher.NextLine(degree=2),
         ),
+        # A hit is one cycle of address generation plus `latency`.
         l1d=Cache(
             size="32KB",
             line="64B",
             ways=2,
-            latency=1,
+            latency=3,  # 4-cycle load-to-use (Chips and Cheese)
             mshr_count=8,
             prefetcher=Prefetcher.Stride(degree=1, table_size=32),
         ),
+        # 1MB 16-way L2 on the BCM2711; 21 cycles measured on the A72.
         l2=Cache(
             size="1MB",
             line="64B",
             ways=16,
-            latency=12,
+            latency=20,
             mshr_count=16,
         ),
+        # LPDDR4-3200 on the Raspberry Pi 4: tRCD, tRP and CL of about
+        # 18 ns are 27 cycles each at 1.5 GHz; the rest of the measured
+        # 162 ns (243 cycles) random-access latency is the fabric and
+        # controller, carried by the bus crossing each way.
+        memory_controller=MemoryController.DRAM(
+            t_cas=27,
+            t_ras=27,
+            t_pre=27,
+        ),
+        bus_latency=67,
     )
 
 
@@ -408,8 +424,11 @@ def p550(
     - PRF sized with "plenty of capacity compared to ROB size"
     - 9.1 KiB branch history table with good pattern recognition
     - 32-entry BTB handles taken branches with zero bubbles
-    - 32KB 8-way L1i, 32KB 8-way L1d, private L2 per core
-    - 4 MB shared L3 on EIC7700X implementation
+    - 32KB 4-way L1i (3-cycle), 32KB 4-way L1d (3-cycle load-to-use), 64B lines
+    - 256KB 8-way private L2 at 13 cycles; 4 MB L3 at ~38 cycles on the EIC7700X
+    - DRAM at 194 ns on the HiFive Premier P550 (272 cycles at 1.4 GHz)
+    - FP add, multiply and FMA at 4 cycles; one load AGU and one store AGU
+    - 32-entry fully associative L1 TLBs, 512-entry L2 TLB
     - 13-stage pipeline → ~11-13 cycle mispredict penalty
     - No hardware misaligned access support (trap-based emulation)
 
@@ -456,61 +475,71 @@ def p550(
                     Fu.IntDiv(count=1, latency=12),
                     # FP — single pipeline handles add/mul/fma; model as one
                     # of each since rvsim uses separate type classes.
-                    # All share the same 5-cycle latency (P550 FP pipeline).
-                    Fu.FpAdd(count=1, latency=5),
-                    Fu.FpMul(count=1, latency=5),
-                    Fu.FpFma(count=1, latency=5),
+                    # Chips and Cheese measured 4 cycles for all three.
+                    Fu.FpAdd(count=1, latency=4),
+                    Fu.FpMul(count=1, latency=4),
+                    Fu.FpFma(count=1, latency=4),
                     Fu.FpDivSqrt(count=1, latency=15),
                     Fu.Branch(count=1, latency=1),
-                    Fu.Mem(count=1, latency=1),
+                    # One load AGU and one store AGU.
+                    Fu.Mem(count=2, latency=1),
                 ]
             ),
         ),
         branch_predictor=branch_predictor,  # type: ignore[arg-type]
         btb_size=32,  # 32-entry BTB, zero-bubble taken branches
-        ras_size=16,  # Modest RAS for low-power core
-        initial_sp=0x8010_0000,
+        ras_size=16,  # 16-entry return stack
+        cpu_clock_mhz=1400,  # EIC7700X
+        misaligned_access_trap=True,  # no hardware misaligned access
+        tlb_size=32,  # 32-entry fully associative L1 TLBs
+        l2_tlb_size=512,
         ram_size=ram_size_bytes,
-        # L1i: 32KB, 8-way, 64B lines — confirmed by SiFive specs
+        # L1i: 32KB, 4-way, 64B lines (SiFive data sheet)
         l1i=Cache(
             size="32KB",
             line="64B",
-            ways=8,
+            ways=4,
             latency=1,
             prefetcher=Prefetcher.NextLine(degree=1),
         ),
-        # L1d: 32KB, 8-way, 64B lines — confirmed by SiFive specs
+        # L1d: 32KB, 4-way, 64B lines (SiFive data sheet); a hit is
+        # one cycle of address generation plus `latency`.
         l1d=Cache(
             size="32KB",
             line="64B",
-            ways=8,
-            latency=3,  # 3-cycle load-to-use (typical for this class)
+            ways=4,
+            latency=2,  # 3-cycle load-to-use (Chips and Cheese)
             mshr_count=8,  # Non-blocking, modest MSHR count
             prefetcher=Prefetcher.Stride(degree=1, table_size=64),
         ),
         # Private L2 per core — size not publicly confirmed,
         # 256KB is consistent with area-optimized OoO cores
+        # 256KB 8-way private L2 (data sheet); 13 cycles measured.
         l2=Cache(
             size="256KB",
             line="64B",
             ways=8,
-            latency=10,
+            latency=12,
             mshr_count=16,
         ),
-        # 4 MB shared L3 on EIC7700X — modeling single-core view
+        # 4 MB L3 on the EIC7700X, ~38 cycles measured; single-core view.
         l3=Cache(
             size="4MB",
             line="64B",
             ways=16,
-            latency=30,
+            latency=25,
             mshr_count=32,
         ),
-        # LPDDR5-6400 on the Premier P550 dev board
+        # LPDDR5-6400 on the HiFive Premier P550: tRCD, tRP and CL of about
+        # 18 ns are 25 cycles each at 1.4 GHz; the rest of the measured
+        # 194 ns (272 cycles) random-access latency is the SoC fabric and
+        # controller, carried by the bus crossing each way.
         memory_controller=MemoryController.DRAM(
-            t_cas=14,
-            t_ras=14,
-            row_miss_latency=120,
+            t_cas=25,
+            t_ras=25,
+            t_pre=25,
         ),
+        bus_latency=106,
     )
 
 
