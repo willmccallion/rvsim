@@ -44,7 +44,12 @@ What no rvsim setting can express:
   vector unit.
 - gem5 splits a vector instruction into one micro-op per register of its
   group; rvsim models lanes, set here to one register per cycle.
-- Stage-to-stage delays differ: gem5's O3 has two cycles from rename to IEW.
+- Stage-to-stage delays differ: gem5's O3 has two cycles from rename to IEW;
+  it retires an instruction two cycles after writeback (`iewToCommitDelay`,
+  then commit marks completions after its retire pass) where rvsim takes
+  one; and its rename learns of freed load-queue entries two cycles after
+  commit frees them (commit tells IEW, IEW tells rename) where rvsim's
+  rename sees every queue's free entries one cycle after they free.
 
 ## Reading the stats
 

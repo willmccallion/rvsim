@@ -51,6 +51,22 @@ pub struct PendingResult {
     pub fu_type: FuType,
 }
 
+/// The free slots rename sees this cycle: the counts as they stood at the
+/// end of the previous cycle, less what rename has taken since. Rename and
+/// commit work in parallel, each from the state the other left a cycle
+/// ago, as pipelined allocation bookkeeping does.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RenameView {
+    /// ROB entries rename may take this cycle.
+    pub rob: usize,
+    /// Issue-queue entries rename may take this cycle.
+    pub iq: usize,
+    /// Load-queue entries rename may take this cycle.
+    pub lq: usize,
+    /// Store-buffer entries rename may take this cycle.
+    pub sq: usize,
+}
+
 /// Out-of-order execution engine.
 #[derive(Debug)]
 pub struct O3Engine {
@@ -103,6 +119,15 @@ pub struct O3Engine {
     pub checkpoints: CheckpointTable,
     /// ROB entries commit squashes per cycle (gem5's `squashWidth`).
     squash_width: usize,
+    /// The free slots rename works from this cycle.
+    rename_view: RenameView,
+    /// Store-buffer slots free when last cycle's engine tick began, before
+    /// this cycle's write acknowledgements freed more.
+    sq_free_last_cycle: usize,
+    /// Stores renamed last cycle, after that count was taken.
+    stores_renamed_last_cycle: usize,
+    /// Stores renamed so far this cycle.
+    stores_renamed_this_cycle: usize,
     /// Cycles commit still spends squashing the ROB; rename is blocked
     /// while it does.
     pub squash_stall_remaining: u64,
@@ -130,6 +155,24 @@ pub struct O3Engine {
 }
 
 impl O3Engine {
+    /// Takes the free-slot view rename works from this cycle: ROB, issue-
+    /// and load-queue slots as they stand before this cycle's commit and
+    /// issue free more, less the `pending_dispatch` instructions renamed
+    /// last cycle that have yet to enter the issue queue; store-buffer
+    /// slots as they stood a cycle ago, since this cycle's write
+    /// acknowledgements have already landed, less the stores renamed since.
+    const fn take_rename_view(&mut self, pending_dispatch: usize) {
+        self.rename_view = RenameView {
+            rob: self.rob.free_slots(),
+            iq: self.issue_queue.available_slots().saturating_sub(pending_dispatch),
+            lq: self.load_queue.free_slots(),
+            sq: self.sq_free_last_cycle.saturating_sub(self.stores_renamed_last_cycle),
+        };
+        self.sq_free_last_cycle = self.store_buffer.free_slots();
+        self.stores_renamed_last_cycle = self.stores_renamed_this_cycle;
+        self.stores_renamed_this_cycle = 0;
+    }
+
     /// Creates a new O3 engine from config and routing IDs.
     pub fn new(
         config: &Config,
@@ -174,6 +217,10 @@ impl O3Engine {
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_width: config.pipeline.squash_width,
+            rename_view: RenameView::default(),
+            sq_free_last_cycle: config.pipeline.store_buffer_size,
+            stores_renamed_last_cycle: 0,
+            stores_renamed_this_cycle: 0,
             squash_stall_remaining: 0,
             serialization: serialize::Serialization::Off,
             redirect_latency: config.pipeline.redirect_latency(),
@@ -238,6 +285,7 @@ impl ExecutionEngine for O3Engine {
         self.cycle += 1;
         let now = self.cycle;
 
+        self.take_rename_view(rename_output.len());
         self.count_squash_stall(state);
         if let Some(squash) = self.common.take_due_squash(now) {
             self.apply_squash(state, squash, redirect);
@@ -267,14 +315,12 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn can_accept(&self) -> usize {
-        // Squash recovery monopolises ROB read ports; rename can't dispatch during it.
+        // Rename waits while commit squashes the ROB.
         if self.squash_stall_remaining > 0 {
             return 0;
         }
         // Slots only some instructions need are checked per instruction.
-        let rob_free = self.rob.free_slots();
-        let iq_free = self.issue_queue.available_slots();
-        rob_free.min(iq_free).min(self.rename_width)
+        self.rename_view.rob.min(self.rename_view.iq).min(self.rename_width)
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {

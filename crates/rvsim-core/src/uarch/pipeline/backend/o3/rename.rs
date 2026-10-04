@@ -6,7 +6,7 @@
 //! renamed, so an instruction reading its own destination (`addi x5, x5,
 //! 16`) sees the previous producer.
 
-use super::O3Engine;
+use super::{O3Engine, RenameView};
 use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
@@ -53,6 +53,7 @@ impl O3Engine {
             vec_store_buffer: &self.vec_store_buffer,
             load_queue: &self.load_queue,
             free_list: &self.free_list,
+            view: self.rename_view,
         };
         if !slots.has_room_for(&id) {
             return Renamed::Stalled(Box::new(id));
@@ -199,8 +200,15 @@ impl O3Engine {
             || self.load_queue.allocate(rob_tag, id.inst.ctrl.width.bytes() as usize, None);
         debug_assert!(
             store_slot_allocated && load_slot_allocated,
-            "has_slots_for checked the memory slots"
+            "has_room_for checked the memory slots"
         );
+        if id.inst.ctrl.uses_store_buffer() {
+            self.rename_view.sq -= 1;
+            self.stores_renamed_this_cycle += 1;
+        }
+        if id.inst.ctrl.mem_read {
+            self.rename_view.lq -= 1;
+        }
 
         // Snapshot rename map *after* rd has been renamed.
         if let Some(checkpoint) = checkpoint {
@@ -286,6 +294,8 @@ struct BackendSlots<'a> {
     vec_store_buffer: &'a VecStoreBuffer,
     load_queue: &'a LoadQueue,
     free_list: &'a FreeList<PhysReg>,
+    /// The load-queue and store-buffer slots rename sees this cycle.
+    view: RenameView,
 }
 
 impl BackendSlots<'_> {
@@ -296,13 +306,13 @@ impl BackendSlots<'_> {
         let needs_dst =
             (id.inst.ctrl.reg_write && !id.inst.rd.is_zero()) || id.inst.ctrl.fp_reg_write;
         let store_slot = if id.inst.ctrl.uses_store_buffer() {
-            !self.store_buffer.is_full()
+            self.view.sq > 0 && !self.store_buffer.is_full()
         } else if is_vec_store(id.inst.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0
         } else {
             true
         };
-        let load_slot = !id.inst.ctrl.mem_read || !self.load_queue.is_full();
+        let load_slot = !id.inst.ctrl.mem_read || (self.view.lq > 0 && !self.load_queue.is_full());
         let register = !needs_dst || self.free_list.available() > 0;
         store_slot && load_slot && register
     }

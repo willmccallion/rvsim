@@ -93,7 +93,6 @@ impl LoadQueue {
         self.valid_count == self.entries.len()
     }
 
-    #[cfg(test)]
     /// Returns the number of free slots.
     #[inline]
     pub const fn free_slots(&self) -> usize {
