@@ -180,6 +180,8 @@ stat_paths! {
         /// overlapping an older store still in the store buffer, and LR/AMO
         /// ops behind an older store to the same address.
         rescheduled_mem_ops: "lsq.rescheduled_mem_ops",
+        /// Stores whose data issued after their address.
+        split_stores: "lsq.split_stores",
         /// LR / AMO instructions re-executed at commit because another
         /// hart wrote their line after they read it.
         coherence_replays: "lsq.coherence_replays",

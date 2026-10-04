@@ -297,6 +297,7 @@ const fn memory_entry(
         fp_flags: 0,
         sfence_vma: None,
         vec_mem: Some(access),
+        store_data_follows: false,
     }
 }
 

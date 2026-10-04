@@ -638,6 +638,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
 
     let lsq = &c.lsq;
     s.register(lsq.rescheduled_mem_ops, Meta::events("Memory ops replayed behind an older store"));
+    s.register(lsq.split_stores, Meta::events("Stores whose data issued after their address"));
     s.register(
         lsq.coherence_replays,
         Meta::events("LR/AMO re-executed after a remote write to their line"),

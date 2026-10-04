@@ -69,9 +69,13 @@ impl O3Engine {
             state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_fu_structural).inc();
         }
 
-        let issued_any = !selection.entries.is_empty();
+        let issued_any = !selection.entries.is_empty() || !selection.store_data.is_empty();
         for selected in selection.entries {
             self.issue_one(state, selected, now);
+        }
+        for data in selection.store_data {
+            self.store_buffer.resolve_data(data.rob_tag, data.value);
+            state.uncore.stats.counter(state.core.stat_paths.lsq.split_stores).inc();
         }
 
         if !issued_any && !stalled_fu && !self.issue_queue.is_empty() {
@@ -82,7 +86,7 @@ impl O3Engine {
     /// Issues one selected instruction: reserves its unit, executes it, and
     /// tracks its result until the unit is done with it.
     fn issue_one(&mut self, state: &mut CoreCtx<'_>, selected: SelectedEntry, now: u64) {
-        let SelectedEntry { entry, fu_type, unit } = selected;
+        let SelectedEntry { entry, fu_type, unit, data_follows } = selected;
         if entry.inst.ctrl.mem_read || entry.inst.ctrl.uses_store_buffer() {
             self.mdp.issued(entry.rob_tag);
         }
@@ -107,7 +111,9 @@ impl O3Engine {
             self.fu_pool.acquire(unit, now)
         };
 
-        let (result, redirect) = execute::execute_one(&mut state.stage(), &entry, &mut self.rob);
+        let (mut result, redirect) =
+            execute::execute_one(&mut state.stage(), &entry, &mut self.rob);
+        result.store_data_follows = data_follows;
         if let Some(redirect) = redirect {
             self.common.request_squash(PendingSquash {
                 keep_tag: Some(result.rob_tag),

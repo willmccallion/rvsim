@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The out-of-order backend issues a plain scalar store in two halves, as
+  real out-of-order cores do: the address as soon as the base register is
+  ready, the data when its value is. A younger load that waits for older
+  stores' addresses no longer waits for a store's data; a load of the same
+  address waits for the data and then forwards it, and commit retires a
+  store only once its data has arrived. A store whose operands are both
+  ready issues whole, as before. `lsq.split_stores` counts the stores that
+  split. gem5's O3 does not split stores, so store-heavy kernels now run
+  faster than in gem5.
 - `presets.p550()` and `presets.cortex_a72()` follow the measured
   hardware: the P550's 4-way L1s, 3-cycle L1D load-to-use, 13-cycle L2,
   38-cycle L3, 194 ns memory, 4-cycle FP units, one load and one store

@@ -92,6 +92,7 @@ fn ready_entry(rob_tag: u32, ctrl: ControlSignals) -> IssueQueueEntry {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     }
 }
 
@@ -175,6 +176,7 @@ fn test_dispatch_and_select_ready() {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
 
@@ -205,6 +207,7 @@ fn test_wakeup_phys_chain() {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
 
@@ -239,6 +242,7 @@ fn test_oldest_first_select() {
             mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
             needs_mask: false,
+            store_issue: StoreIssue::Whole,
         });
     }
     iq.count = 3;
@@ -271,6 +275,7 @@ fn test_flush() {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     });
     iq.slots[5] = Some(IssueQueueEntry {
         entry: make_entry(2),
@@ -284,6 +289,7 @@ fn test_flush() {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     });
     iq.count = 2;
 
@@ -308,6 +314,7 @@ fn test_flush_after() {
             mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
             needs_mask: false,
+            store_issue: StoreIssue::Whole,
         });
     }
     iq.count = 4;
@@ -339,6 +346,7 @@ fn test_queue_snapshot_sorted() {
             mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
             needs_mask: false,
+            store_issue: StoreIssue::Whole,
         });
     }
     iq.count = 3;
@@ -392,6 +400,7 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
         needs_mask: false,
+        store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
 
@@ -427,6 +436,7 @@ fn test_port_limits() {
             mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
             needs_mask: false,
+            store_issue: StoreIssue::Whole,
         });
     }
     iq.count = 5;

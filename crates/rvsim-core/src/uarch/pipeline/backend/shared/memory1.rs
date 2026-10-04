@@ -643,9 +643,10 @@ fn push_trap<E: ExecutionEngine>(
     });
 }
 
-/// Writes a translated scalar store's address and data into its
-/// store-buffer slot, so younger loads can forward from it, and records
-/// the oldest younger load that already read the location.
+/// Writes a translated scalar store's address, and its data unless its
+/// data half delivers that separately, into its store-buffer slot, so
+/// younger loads can forward from it, and records the oldest younger load
+/// that already read the location.
 fn resolve_store<E: ExecutionEngine>(
     state: &StageCtx<'_>,
     engine: &mut E,
@@ -654,7 +655,11 @@ fn resolve_store<E: ExecutionEngine>(
     vaddr: VirtAddr,
     outcome: &mut Memory1Outcome,
 ) {
-    engine.store_buffer_mut().resolve(ex.rob_tag, vaddr, paddr, ex.store_data);
+    if ex.store_data_follows {
+        engine.store_buffer_mut().resolve_address(ex.rob_tag, vaddr, paddr);
+    } else {
+        engine.store_buffer_mut().resolve(ex.rob_tag, vaddr, paddr, ex.store_data);
+    }
     outcome.resolved_stores.push(ex.rob_tag);
     let violator = engine
         .load_queue_mut()
