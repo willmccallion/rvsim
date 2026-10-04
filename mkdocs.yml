@@ -85,6 +85,7 @@ nav:
   - Configuration: configuration.md
   - API Reference: api.md
   - Architecture:
+    - Design: architecture/design.md
     - Pipeline: architecture/pipeline.md
     - Memory Hierarchy: architecture/memory.md
     - Branch Prediction: architecture/branch-prediction.md
@@ -102,6 +103,11 @@ nav:
       - 6. Serialization: architecture/decisions/0006-serialization-follows-the-cpu-model.md
       - 7. Core owns its pipeline: architecture/decisions/0007-a-core-owns-its-pipeline.md
       - 8. Crate-private model: architecture/decisions/0008-the-model-is-crate-private.md
+      - 9. Harts, cores and uncore: architecture/decisions/0009-state-is-split-into-harts-cores-and-an-uncore.md
+      - 10. Semantics apart from timing: architecture/decisions/0010-semantics-are-separate-from-timing.md
+      - 11. Perform point: architecture/decisions/0011-accesses-take-effect-where-they-are-served.md
+      - 12. Real cores, gem5 reference: architecture/decisions/0012-the-model-follows-real-cores.md
+      - 13. Split stores: architecture/decisions/0013-stores-issue-address-and-data-separately.md
   - Error against gem5: error.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md
