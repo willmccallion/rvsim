@@ -119,7 +119,7 @@ Configurable parameters: `num_banks`, `table_size`, `reset_interval`, `history_l
 
 The most accurate predictor available. Combines four sub-predictors into a single high-accuracy predictor, following Seznec's Championship Branch Prediction (CBP) winning designs:
 
-1. **TAGE** — same tagged geometric history as the standalone TAGE predictor (default: 8 banks)
+1. **TAGE** — the same tagged geometric-history predictor as the standalone TAGE, configured as the 64KB TAGE-SC-L's: 36 banks of 1024 entries over 18 history lengths from 6 to 3000 (see above)
 2. **Loop Predictor** — Seznec's loop predictor: a set-associative table that learns a loop's trip count, tracks each loop's iteration speculatively (restored on a squash), and overrides TAGE only when an entry is confident and a use counter shows loop overrides have been helping
 3. **Statistical Corrector (SC)** — Seznec's corrector: three bias tables (indexed by the PC, the prediction before the corrector and TAGE's confidence) and GEHL components over backward-branch, path, three local, and two IMLI (inner-most loop iteration) histories. Each component's sum of centred counters is doubled or not by a learnt per-PC weight. When the total disagrees with the prediction before it, the corrector wins unless TAGE is confident and the total is small, where two chooser counters decide. Its histories advance speculatively and are restored on a squash; each prediction carries what it read to commit, so it trains the counters it voted with.
 4. **ITTAGE (Indirect Target TAGE)** — predicts indirect jump targets (computed jumps, virtual dispatch) using the same geometric history structure as TAGE but storing target addresses instead of direction counters; it trains on each committed indirect jump's real target
@@ -130,15 +130,28 @@ Configurable parameters: all TAGE parameters plus the `loop_*` loop predictor pa
 
 ## Predictor Comparison
 
-Here's a representative comparison on the included benchmarks (width=1, default caches):
+`examples/analysis/branch_predict.py` runs every predictor over four of
+the bundled programs. With the default configuration at width 4 (the
+out-of-order backend, 32 KiB L1s, a 256 KiB L2), measured in October 2026:
 
-| Predictor | Accuracy (aggregate) | IPC (aggregate) | Speedup vs Static |
-|-----------|---------------------|-----------------|-------------------|
-| Static | 34.4% | 0.49 | 1.00× |
-| GShare | 60.6% | 0.55 | 1.08× |
-| Perceptron | 67.9% | 0.58 | 1.11× |
-| Tournament | 70.9% | 0.59 | 1.20× |
-| TAGE | 73.2% | 0.58 | 1.21× |
-| SC-L-TAGE | 84.1% | 0.66 | 1.29× |
+| Predictor | Committed accuracy | IPC | Mispredictions | Speedup over Static |
+|-----------|-------------------:|----:|---------------:|--------------------:|
+| Static | 41.0% | 0.52 | 2,199,871 | 1.00× |
+| GShare | 87.6% | 1.21 | 463,877 | 2.25× |
+| Tournament | 88.4% | 1.24 | 431,322 | 2.29× |
+| TAGE | 89.3% | 1.27 | 397,772 | 2.31× |
+| Perceptron | 89.5% | 1.28 | 392,954 | 2.32× |
+| SC-L-TAGE | 90.1% | 1.29 | 370,322 | 2.34× |
 
-SC-L-TAGE provides the highest accuracy by combining TAGE with statistical correction and loop prediction. On `qsort`, SC-L-TAGE achieves 82.5% accuracy and 0.67 IPC versus standalone TAGE's 71.2% and 0.58 IPC — a 15.8% IPC improvement. Run `examples/analysis/branch_predict.py` to regenerate numbers for your workloads.
+Accuracy, IPC and mispredictions are aggregated over the four programs;
+the speedup is the geometric mean of each program's cycle ratio. On
+`qsort`, whose data-dependent comparisons dominate, SC-L-TAGE makes 7% fewer
+mispredictions than TAGE and 19% fewer than GShare. The programs are small,
+so the larger predictors have little time to warm up; longer workloads
+separate them further. Regenerate the numbers for your own programs and
+widths:
+
+```bash
+.venv/bin/python examples/analysis/branch_predict.py --width 4
+.venv/bin/python examples/analysis/branch_predict.py --programs maze qsort --width 2
+```
