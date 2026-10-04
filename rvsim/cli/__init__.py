@@ -14,6 +14,8 @@ import pathlib
 import runpy
 import sys
 
+from ..presets import PRESETS
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _PROGRAM_DESCRIPTIONS = {
@@ -149,8 +151,8 @@ def _print_help() -> None:
         "Python config file  [dim](must export config or get_config)[/dim]",
     )
     opt_table.add_row(
-        "--preset [cyan]basic[/cyan]|[cyan]fast[/cyan]",
-        "built-in config  [dim](basic: 4-wide OoO, fast: 10-wide superscalar)[/dim]",
+        "--preset [cyan]NAME[/cyan]",
+        f"built-in config  [dim]({', '.join(PRESETS)})[/dim]",
     )
     opt_table.add_row("--json [cyan]FILE[/cyan]", "write stats as JSON to FILE")
     console.print(Padding(opt_table, (0, 2)))
@@ -166,9 +168,7 @@ def _print_help() -> None:
     ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
     ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
     ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
-    ex_table.add_row(
-        "rvsim qsort.elf --preset fast", "run with the aggressive 10-wide config"
-    )
+    ex_table.add_row("rvsim qsort.elf --preset fast", "run on the M4-class preset")
     ex_table.add_row(
         "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
     )
@@ -242,7 +242,7 @@ def main() -> None:
             "  rvsim mandelbrot.elf               run with default config, print stats\n"
             "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
             "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
-            "  rvsim mandelbrot.elf --preset fast   run with the aggressive 10-wide config\n"
+            "  rvsim mandelbrot.elf --preset fast   run on the M4-class preset\n"
             "  rvsim spinlock.elf --harts 4         run a multi-hart program on four harts\n"
             "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
             "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"
@@ -288,9 +288,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--preset",
-        choices=["basic", "fast"],
+        choices=list(PRESETS),
         default=None,
-        help="use a built-in config preset (basic: 4-wide OoO; fast: 10-wide superscalar)",
+        help="use a built-in config preset",
     )
     parser.add_argument(
         "--json",
@@ -334,8 +334,6 @@ def main() -> None:
         parser.error("--config and --preset are mutually exclusive")
 
     if args.preset:
-        from ..presets import PRESETS
-
         cfg = PRESETS[args.preset]()
     elif args.config:
         cfg = load_config(args.config)

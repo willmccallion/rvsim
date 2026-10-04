@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `rvsim --preset` and `rvsim bench --preset` accept every preset in
+  `rvsim.presets.PRESETS` (`cortex_a72`, `m1` and `p550` as well as
+  `basic` and `fast`) instead of a hard-coded `basic` or `fast`.
 - The documentation describes the simulator as it is: a design page and
   ADRs 9 to 13 on the state split, semantics versus timing, perform-point
   memory, following real cores and split stores; every configuration

@@ -20,7 +20,7 @@ rvsim bench --list                           # the benchmarks and their commands
 | Option | Meaning |
 |--------|---------|
 | `NAME ...` | Benchmarks to run: `coremark`, `dhrystone`, `whetstone`, `stream`, `mbw`, `lat_mem_rd`, `stress-ng` (default: all) |
-| `--preset basic\|fast` | Core configuration placed in the Linux system (default `fast`) |
+| `--preset NAME` | Core configuration placed in the Linux system: `basic`, `fast` (default), `cortex_a72`, `m1` or `p550` |
 | `--config FILE` | A Python file whose `config` variable, `get_config()` or function named after the file gives the core to use instead |
 | `--harts N` | Harts (default 8) |
 | `--memory ddr5\|dram` | JEDEC DDR5 or the row-buffer DRAM model |

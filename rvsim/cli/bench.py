@@ -82,7 +82,7 @@ def _parser() -> argparse.ArgumentParser:
     core = parser.add_mutually_exclusive_group()
     core.add_argument(
         "--preset",
-        choices=["basic", "fast"],
+        choices=list(presets.PRESETS),
         default="fast",
         help="core configuration (default fast)",
     )
