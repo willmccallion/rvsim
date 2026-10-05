@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A dirty writeback and a snoop answered with a modified line carried
+  only a header across the coherence interconnect, so they took one cycle
+  and their line was missing from `coherence.interconnect.bytes`. Both now
+  carry the line, and the snoop answer travels on the data channel, as
+  CHI's `SnpRespData` does. Multicore timing changes by a few percent.
 - **Breaking (stats).** `cache.l1d.exclusive_swaps` is removed: it was
   never counted, and what it described is `cache.l1d.writebacks` under
   the exclusive policy. A cache's `back_invalidations` and

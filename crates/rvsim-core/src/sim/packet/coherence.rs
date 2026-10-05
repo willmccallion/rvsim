@@ -30,7 +30,8 @@ pub enum MsgClass {
     Snoop,
     /// Holder → home, and home → requester completions without data.
     Response,
-    /// Completions carrying a line.
+    /// Messages carrying a line: completions with data, and a holder's
+    /// modified copy answering a snoop (CHI's `SnpRespData`).
     Data,
 }
 
@@ -202,8 +203,12 @@ impl CoherenceMsg {
         match self {
             Self::Req { .. } | Self::NoSnp { .. } => MsgClass::Request,
             Self::Snoop { .. } => MsgClass::Snoop,
-            Self::SnoopResp { .. } | Self::Comp { .. } | Self::CompAck { .. } => MsgClass::Response,
-            Self::CompData { .. } | Self::NoSnpData { .. } => MsgClass::Data,
+            Self::SnoopResp { dirty: false, .. } | Self::Comp { .. } | Self::CompAck { .. } => {
+                MsgClass::Response
+            }
+            Self::SnoopResp { dirty: true, .. }
+            | Self::CompData { .. }
+            | Self::NoSnpData { .. } => MsgClass::Data,
         }
     }
 
@@ -222,12 +227,16 @@ impl CoherenceMsg {
         }
     }
 
-    /// Bytes on the wire: a header, plus the line for data messages.
+    /// Bytes on the wire: a header, plus the line for every message that
+    /// carries one: a fill, and a modified copy written back, flushed or
+    /// handed over in answer to a snoop.
     #[must_use]
     pub const fn bytes(self, line_bytes: usize) -> usize {
         const HEADER: usize = 8;
         match self {
             Self::CompData { .. }
+            | Self::SnoopResp { dirty: true, .. }
+            | Self::Req { kind: ReqKind::WriteBack { dirty: true }, .. }
             | Self::Req { kind: ReqKind::Maintain { dirty: true, .. }, .. } => HEADER + line_bytes,
             Self::NoSnp { bytes, .. } | Self::NoSnpData { bytes, .. } => HEADER + bytes,
             _ => HEADER,
@@ -300,5 +309,27 @@ mod tests {
         };
         assert_eq!(snoop.class(), MsgClass::Snoop);
         assert_eq!(snoop.destination(), Node::Core(CoreId::new(0)));
+    }
+
+    #[test]
+    fn a_modified_copy_travels_with_its_line() {
+        let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
+        let (txn, core) = (ReqId::new(1), CoreId::new(0));
+        let writeback = |dirty| CoherenceMsg::Req {
+            txn,
+            line,
+            kind: ReqKind::WriteBack { dirty },
+            requester: core,
+        };
+        let answer =
+            |dirty| CoherenceMsg::SnoopResp { txn, line, from: core, had_copy: true, dirty };
+
+        assert_eq!((writeback(true).bytes(64), writeback(false).bytes(64)), (72, 8));
+        assert_eq!((answer(true).bytes(64), answer(false).bytes(64)), (72, 8));
+        assert_eq!(
+            (answer(true).class(), answer(false).class()),
+            (MsgClass::Data, MsgClass::Response)
+        );
+        assert_eq!(writeback(true).class(), MsgClass::Request);
     }
 }
