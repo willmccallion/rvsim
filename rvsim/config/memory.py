@@ -70,6 +70,73 @@ class Prefetcher:
             return f"Prefetcher.Tagged(degree={self.degree})"
 
 
+class PageBoundary:
+    """Where a load prefetch stream stops at the end of a page."""
+
+    class Stop:
+        """Stay inside the page of the load that trained the stream, at that
+        page's size: the Cortex-A72 with VA prefetch disabled."""
+
+        def __repr__(self) -> str:
+            return "PageBoundary.Stop()"
+
+    class CrossWithTlb:
+        """Continue into a page whose translation the data TLB holds, and
+        drop the prefetch when it does not: the Cortex-A72's default."""
+
+        def __repr__(self) -> str:
+            return "PageBoundary.CrossWithTlb()"
+
+
+class LoadPrefetcher:
+    """Namespace for the load/store unit's load prefetchers
+    (``Config(load_prefetcher=...)``)."""
+
+    class Stride:
+        """A table indexed by the load's PC, trained on virtual addresses,
+        that keeps each confident stream ``l1_lines`` lines ahead in the L1D
+        and ``l2_lines`` lines ahead in the L2 (the Cortex-A72 keeps 22)."""
+
+        def __init__(
+            self,
+            *,
+            table_size: int = 64,
+            l1_lines: int = 4,
+            l2_lines: int = 0,
+            page_boundary: PageBoundary.Stop | PageBoundary.CrossWithTlb | None = None,
+        ):
+            self.table_size = table_size
+            self.l1_lines = l1_lines
+            self.l2_lines = l2_lines
+            self.page_boundary = (
+                page_boundary if page_boundary is not None else PageBoundary.Stop()
+            )
+
+        def __repr__(self) -> str:
+            return (
+                f"LoadPrefetcher.Stride(table_size={self.table_size}, "
+                f"l1_lines={self.l1_lines}, l2_lines={self.l2_lines}, "
+                f"page_boundary={self.page_boundary!r})"
+            )
+
+
+class StorePrefetcher:
+    """Namespace for the L1D's store-miss prefetchers
+    (``Config(store_prefetcher=...)``)."""
+
+    class Stream:
+        """Runs of store misses to adjacent lines in a 4 KiB page, kept
+        ``l2_lines`` lines ahead in the L2 with write permission: the
+        Cortex-A72's store prefetcher, which fills only the L2."""
+
+        def __init__(self, *, streams: int = 4, l2_lines: int = 8):
+            self.streams = streams
+            self.l2_lines = l2_lines
+
+        def __repr__(self) -> str:
+            return f"StorePrefetcher.Stream(streams={self.streams}, l2_lines={self.l2_lines})"
+
+
 class MemoryController:
     """Namespace for memory controller configurations."""
 

@@ -12,7 +12,7 @@ from ._units import _parse_size
 from .backend import Backend
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence
-from .memory import Cache, MemoryController, Prefetcher
+from .memory import Cache, LoadPrefetcher, MemoryController, Prefetcher, StorePrefetcher
 
 _PAGING_MODES = ("bare", "sv39", "sv48", "sv57")
 
@@ -89,6 +89,8 @@ class Config:
         l3: Cache | None = None,
         inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY,
         wcb_entries: int = 0,
+        load_prefetcher: LoadPrefetcher.Stride | None = None,
+        store_prefetcher: StorePrefetcher.Stream | None = None,
         # Memory
         ram_size="256MB",
         memory_controller=None,
@@ -156,6 +158,8 @@ class Config:
         self.l3 = copy.deepcopy(l3)
         self.inclusion_policy = copy.deepcopy(inclusion_policy)
         self.wcb_entries = wcb_entries
+        self.load_prefetcher = copy.deepcopy(load_prefetcher)
+        self.store_prefetcher = copy.deepcopy(store_prefetcher)
 
         # Memory
         self.ram_size = _parse_size(ram_size)
@@ -247,6 +251,10 @@ class Config:
             parts.append(f"l2={self.l2!r}")
         if self.l3 is not None:
             parts.append(f"l3={self.l3!r}")
+        if self.load_prefetcher is not None:
+            parts.append(f"load_prefetcher={self.load_prefetcher!r}")
+        if self.store_prefetcher is not None:
+            parts.append(f"store_prefetcher={self.store_prefetcher!r}")
         return f"Config({', '.join(parts)})"
 
 
