@@ -70,7 +70,8 @@ config = presets.p550()
 | Width | 3 | Triple-issue, 1.4 GHz (EIC7700X) |
 | Backend | OutOfOrder | 72-entry ROB, 32-entry IQ, one load and one store AGU |
 | Branch Predictor | Tournament | 9.1 KiB budget, 32-entry BTB, 16-entry RAS |
-| L1D | 32KB, 4-way | 3-cycle load-to-use, 8 MSHRs, stride prefetch |
+| L1D | 32KB, 4-way | 3-cycle load-to-use, 8 MSHRs |
+| Prefetch | Load/store unit | Load stride prefetcher, 1 line ahead, keeps to the page; SiFive has not published the P550's prefetchers |
 | L2 | 256KB, 8-way | 13-cycle load-to-use, 16 MSHRs |
 | L3 | 4MB, 16-way | 38-cycle load-to-use, 32 MSHRs |
 | Memory | LPDDR5 DRAM | 194 ns (272 cycles) random-access load-to-use |
@@ -93,7 +94,8 @@ config = presets.cortex_a72()
 | Backend | OutOfOrder | 128-entry ROB, 66-entry IQ, 32-entry LQ, 16-entry SQ, one load and one store AGU |
 | Branch Predictor | TAGE | 4 banks, 2048-entry tables, 4096-entry BTB, 31-entry RAS |
 | L1I | 48KB, 3-way | NextLine prefetch |
-| L1D | 32KB, 2-way | 4-cycle load-to-use, 8 MSHRs, stride prefetch |
+| L1D | 32KB, 2-way | 4-cycle load-to-use, 8 MSHRs |
+| Prefetch | Load/store unit | Loads into the L1D and 22 lines ahead into the L2, crossing pages through the TLB; store misses into the L2 (TRM §6.4.9) |
 | L2 | 1MB, 16-way | 21-cycle load-to-use, 16 MSHRs |
 | Memory | LPDDR4 DRAM | 162 ns (243 cycles) random-access load-to-use |
 

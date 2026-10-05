@@ -172,19 +172,145 @@ for it like a store.
 
 ## Hardware Prefetching
 
-Each cache level can have an independent hardware prefetcher:
+Prefetchers sit where the hardware puts them and know only what it knows
+there ([decision 14](decisions/0014-prefetchers-follow-published-hardware.md)).
+The design follows the Cortex-A72's load/store hardware prefetcher, the
+one core in the presets whose prefetchers are documented: Arm, *Cortex-A72
+MPCore Processor Technical Reference Manual* r0p3, §6.4.9 (load/store
+hardware prefetcher), §4.3.66 (`CPUACTLR_EL1`) and §4.3.67
+(`CPUECTLR_EL1`); and on Intel's description of its prefetchers in the
+*64 and IA-32 Architectures Optimization Reference Manual* Vol. 1
+(248966-049), §9.5.2 and §4.1.7. What follows says, for each part, which
+behaviour comes from those manuals and which is rvsim's own choice.
+
+```mermaid
+flowchart LR
+    LSU["Load/store unit<br/>load prefetcher<br/>(PC, VA, DTLB)"] -- "Prefetch into L1D" --> L1D
+    LSU -- "Prefetch into L2" --> L1D
+    L1D -- "passes it down" --> L2
+    L1D -- "store misses<br/>(ReadOwn)" --> SP["L1D store prefetcher<br/>(PA, 4 KiB page)"]
+    SP -- "Prefetch into L2, exclusive" --> L2
+```
+
+Each cache may also run a cache-side prefetcher of its own on the physical
+addresses it sees.
+
+### Prefetch requests
+
+A prefetch travels as a `MemReq` with `MemOp::Prefetch { into, exclusive }`
+from the load/store unit or the L1D. Caches above `into` pass it down
+unchanged; the cache at `into` starts a prefetch fetch of the line unless
+it already holds it (with write permission, for an exclusive prefetch),
+is already fetching it or is writing it back. Nothing answers a prefetch.
+A cache drops one rather than give up its last free MSHR
+(`prefetches.dropped`), so prefetches never block demand misses, and a
+disabled level passes on prefetches meant for the level below it and
+drops its own.
+
+### Load prefetcher (load/store unit)
+
+Configured with `Config(load_prefetcher=LoadPrefetcher.Stride(...))`.
+
+- **Where it trains.** In memory1, on every load that goes to the memory
+  system, whether the L1D or store-buffer forwarding answers it: scalar
+  loads, vector spans and vector elements. It sees the load's PC, its
+  virtual address and its physical address. A load that waits to retry
+  does not train until it goes. *(Source: the A72's prefetcher is part of
+  the load/store unit, §6.4.9.)*
+- **How it detects streams.** A reference prediction table of
+  `table_size` entries, direct-mapped and tagged on the load's PC, holds
+  each load's last virtual address, stride and a 2-bit saturating
+  confidence. A repeated stride raises the confidence; a different one
+  lowers it, and replaces the stride once it reaches zero. A stream is
+  confident once the same nonzero stride has followed a saturated
+  confidence, that is from a load's sixth access at one stride. A load
+  whose PC maps to another load's entry takes it over. *(rvsim's choice:
+  neither manual describes the detection algorithm; this is Chen and
+  Baer's reference prediction table, as gem5's `StridePrefetcher` uses.
+  The cache-side stride prefetcher shares the same rule.)*
+- **How far ahead.** A confident stream keeps `l1_lines` lines ahead of
+  the demand access in the L1D and, beyond them, `l2_lines` lines ahead in
+  the L2 alone. Each line is requested once: a stream remembers the
+  furthest line it has requested at each level, and starts again when the
+  load leaves that window (a second pass over the same array). *(Source
+  for the L2 distance: `CPUECTLR_EL1[33:32]`, "the number of requests by
+  which the prefetch request to the L2, on a load stream, is ahead of the
+  demand request stream", 16 to 22, reset 22. The L1D distance is not
+  published.)*
+- **Line granularity.** Prefetches go out a line at a time, so a stride
+  shorter than a line advances one line per prefetch rather than naming
+  the line the load is already in, and a longer stride names the line it
+  lands in.
+- **Page boundaries.** `page_boundary=PageBoundary.Stop()` keeps every
+  prefetch in the page of the load that trained it. The page's size comes
+  from the data TLB's entry for it (4 KiB, 2 MiB, 1 GiB...), and is 4 KiB
+  when translation is off or the entry has gone. `PageBoundary.CrossWithTlb()`
+  continues into the next page when the data TLB already holds its
+  translation, looked up without disturbing the TLB's replacement state
+  and without starting a walk; on a miss the prefetch is dropped. With
+  translation off the address is physical and crossing needs no lookup.
+  *(Source: `CPUACTLR_EL1[43]` — reset 0, "Enables the Load/Store hardware
+  prefetcher to use VA in generating prefetches that can cross page
+  boundaries"; set, "prefetch is restricted to within the page boundary
+  of the demand request". Intel's Gracemont prefetcher crosses pages in
+  the linear address space and "start[s] translations for TLB misses";
+  rvsim drops instead, as the A72 manual does not say it walks.)*
+- **What it may touch.** A prefetch whose page the load could not read
+  (permissions, `mstatus.SUM`/`MXR`, PMP at the load's effective
+  privilege) or whose line is not RAM is dropped, so a prefetch never
+  reaches a device.
+- **Where a level stops.** A level stops at its first line it cannot
+  place and picks up from that line on the load's next access.
+
+Stats under `core<N>.prefetch.loads`: `l1` and `l2` (prefetches sent to
+fill each level) and `dropped.page_boundary`, `dropped.tlb_miss`,
+`dropped.denied`, `dropped.not_ram`.
+
+### Store prefetcher (L1D)
+
+Configured with `Config(store_prefetcher=StorePrefetcher.Stream(...))`.
+It watches the L1D's store misses that start a fetch for write permission
+(`ReadOwn`, the `ReadUnique` of the coherence protocol), finds runs of
+misses to adjacent lines inside one 4 KiB physical page, tracking
+`streams` runs at once, and once a run has gone two lines in one direction
+keeps it `l2_lines` lines ahead with exclusive prefetches into the L2,
+each line once. `prefetches.store_stream` on the L1D counts them.
+*(Source: §6.4.9, "Prefetching on store accesses is managed by a PA based
+prefetcher and only prefetches to the L2 cache", and `CPUACTLR_EL1[42]`,
+prefetch requests "generated by ReadUnique transactions". The run
+detection and its length are rvsim's choice. Stores drain after commit as
+merged lines with no translation attached, so the prefetcher keeps to the
+smallest page.)*
+
+### Cache-side prefetchers
+
+Each cache level can also have a prefetcher of its own
+(`Cache(prefetcher=...)`). A cache sees physical addresses only, and the
+physical page after the one an access touches may belong to anything, so
+like a hardware PA prefetcher it drops every candidate outside the 4 KiB
+page of the access that produced it (`prefetches.page_crossing`). *(Source:
+Intel, "it will not prefetch across a 4-KByte page boundary"; the A72's
+PA mode keeps to the page.)*
 
 | Prefetcher | How it works |
 |------------|-------------|
 | **NextLine** | On any access, prefetch the next `degree` cache lines |
-| **Stride** | A `table_size`-entry reference prediction table, direct-mapped and tagged on the PC of the load that made the access (demand loads and fetches carry their PC to the cache; stores, page walks and writebacks do not, and do not train it). Each entry keeps its load's last address, stride and a saturating confidence; from the fifth consecutive access at the same stride it prefetches the lines `degree` strides ahead. A load whose PC maps to another load's entry takes it over |
+| **Stride** | The reference prediction table above, kept in the cache: demand loads and fetches carry their PC to the cache, and stores, page walks and writebacks do not, so they do not train it. A confident stream prefetches the next `degree` lines along its stride, a line at a time. gem5's `StridePrefetcher` is this design, and the gem5 comparison uses it |
 | **Stream** | Detects ascending or descending runs of consecutive lines and prefetches `degree` lines ahead in that direction |
 | **Tagged** | Prefetches the next line on a demand miss, and again when a demand access first uses a prefetched line, so a useful stream keeps extending |
 
 The prefetcher sees every demand access to its cache. A candidate is
 dropped when its line is already present, already being fetched or being
-written back, so no level fetches a line twice; each level's prefetcher
-works independently.
+written back, so no level fetches a line twice, and when it would take the
+last free MSHR; each level's prefetcher works independently.
+
+### In the presets
+
+| Preset | L1D prefetching |
+|--------|-----------------|
+| `cortex_a72()` | Load prefetcher, `l2_lines=22` and `CrossWithTlb` (the reset values of `CPUECTLR_EL1[33:32]` and `CPUACTLR_EL1[43]`); store prefetcher into the L2. The L1D distance (1 line), table size (32) and store run length (8 lines, 4 runs) are not published |
+| `p550()` | SiFive has not published the P550's prefetchers: a load prefetcher that keeps to the page (`Stop`, 1 line ahead, no L2 stream) and no store prefetcher, as the cautious reading |
+| `fast()`, `m1()`, `basic()` | The cache-side stride prefetcher on the L1D, as before; Apple's prefetchers are not published either |
 
 ## DRAM Controller
 

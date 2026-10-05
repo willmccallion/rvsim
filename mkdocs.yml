@@ -108,6 +108,7 @@ nav:
       - 11. Perform point: architecture/decisions/0011-accesses-take-effect-where-they-are-served.md
       - 12. Real cores, gem5 reference: architecture/decisions/0012-the-model-follows-real-cores.md
       - 13. Split stores: architecture/decisions/0013-stores-issue-address-and-data-separately.md
+      - 14. Prefetchers: architecture/decisions/0014-prefetchers-follow-published-hardware.md
   - Error against gem5: error.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md

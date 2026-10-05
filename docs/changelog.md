@@ -4,13 +4,24 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
-- The stride prefetcher learns per load: demand loads and instruction
-  fetches carry their PC to the cache, and the stride table is indexed and
-  tagged by it. It used to be indexed by the accessed line, so a stride of
-  a line or more never trained and the L1D stride prefetchers in `fast()`,
-  `cortex_a72()`, `m1()` and `p550()` acted as next-line prefetchers.
-  Accesses without a PC (stores after commit, page walks, writebacks) do
-  not train it.
+- Prefetchers follow the published hardware (decision 14, after the
+  Cortex-A72 TRM §6.4.9 and Intel's optimization manual).
+  `Config(load_prefetcher=LoadPrefetcher.Stride(...))` is a load
+  prefetcher in the load/store unit: a PC-indexed stride table trained on
+  virtual addresses that keeps each stream `l1_lines` ahead in the L1D and
+  `l2_lines` ahead in the L2, and at a page boundary stops
+  (`PageBoundary.Stop()`, at the page's real size) or continues through
+  the data TLB (`PageBoundary.CrossWithTlb()`).
+  `Config(store_prefetcher=StorePrefetcher.Stream(...))` prefetches runs of
+  L1D store misses into the L2. `presets.cortex_a72()` uses both with the
+  A72's reset values; `presets.p550()` uses a load prefetcher that keeps to
+  the page, its prefetchers being unpublished. Cache-side prefetchers now
+  keep to the 4 KiB page of the access that triggered them, the
+  cache-side stride prefetcher is indexed by the load's PC (it used to be
+  indexed by the accessed line, so a stride of a line or more never
+  trained) and issues whole lines. New stats: `core<N>.prefetch.loads.*`
+  and the caches' `prefetches.page_crossing`, `.dropped` and
+  `.store_stream`.
 - `pipeline.stalls.control` counts cycles, as its unit always said: each
   cycle from a backend redirect (a misprediction, trap or re-execution)
   until rename hands on the first instruction from the new path. It used

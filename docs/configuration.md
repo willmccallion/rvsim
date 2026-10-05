@@ -221,6 +221,8 @@ Cache(
 | `l3` | `Cache` or `None` | `None` | Shared last-level cache |
 | `inclusion_policy` | `Cache.*` | `Cache.NINE()` | Relationship between L1 and L2 |
 | `wcb_entries` | `int` | `0` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
+| `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | `None` | The load/store unit's load prefetcher (see below) |
+| `store_prefetcher` | `StorePrefetcher.Stream` or `None` | `None` | The L1D's store-miss prefetcher, which fills the L2 (see below) |
 
 A load that hits takes one cycle of address generation plus the L1D's
 `latency` to reach its dependents, so `latency=3` models a 4-cycle
@@ -255,7 +257,43 @@ Prefetcher.Tagged(degree=1)                   # Next lines on a miss or a first 
 ```
 
 A prefetch is a real fetch: it takes an MSHR (never the last free one)
-and travels down the hierarchy like a demand miss.
+and travels down the hierarchy like a demand miss. A cache sees physical
+addresses only, so its prefetcher never crosses the 4 KiB page of the
+access that triggered it.
+
+### Load and store prefetchers
+
+The L1D's prefetching on a real core lives in the load/store unit, where
+each load's PC, virtual address and translation are known. These follow
+the Cortex-A72's documented prefetcher; the
+[memory hierarchy page](architecture/memory.md#hardware-prefetching) gives
+the design and its sources.
+
+```python
+LoadPrefetcher.Stride(
+    table_size=64,        # PC-indexed entries, a power of two
+    l1_lines=4,           # Lines kept ahead in the L1D
+    l2_lines=0,           # Lines kept ahead in the L2 alone (the A72 keeps 22)
+    page_boundary=None,   # PageBoundary.Stop() (when None) or PageBoundary.CrossWithTlb()
+)
+StorePrefetcher.Stream(
+    streams=4,            # Runs of store misses tracked at once
+    l2_lines=8,           # Lines kept ahead in the L2, with write permission
+)
+```
+
+`PageBoundary.Stop()` keeps a stream inside the page of the load that
+trained it, at that page's size; `PageBoundary.CrossWithTlb()` continues
+into the next page when the data TLB holds its translation and drops the
+prefetch when it does not. Both are passed to `Config`:
+
+```python
+Config(
+    load_prefetcher=LoadPrefetcher.Stride(l1_lines=1, l2_lines=22,
+                                          page_boundary=PageBoundary.CrossWithTlb()),
+    store_prefetcher=StorePrefetcher.Stream(),
+)
+```
 
 ### Inclusion Policies
 
