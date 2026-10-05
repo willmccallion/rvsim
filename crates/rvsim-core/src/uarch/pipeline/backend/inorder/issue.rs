@@ -16,6 +16,7 @@ use crate::isa::reg::RegIdx;
 use crate::trace_issue;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
+use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -81,7 +82,8 @@ impl InOrderIssueUnit {
     /// core drops the instructions behind a resolved misprediction at once.
     ///
     /// Each issued instruction's unit and the cycle its result is ready are
-    /// returned alongside it; a trapped instruction takes no unit.
+    /// returned alongside it; a trapped instruction takes no unit. So is
+    /// what held the head of the queue, when something did.
     #[allow(clippy::too_many_arguments)]
     pub fn select(
         &mut self,
@@ -89,17 +91,19 @@ impl InOrderIssueUnit {
         rob: &Rob,
         store_buffer: &StoreBuffer,
         vec_store_buffer: &VecStoreBuffer,
-        state: &mut StageCtx<'_>,
+        state: &StageCtx<'_>,
         fu_pool: &mut FuPool,
         now: u64,
         pending_squash: Option<PendingSquash>,
-    ) -> (Vec<RenameIssueEntry>, Vec<IssuedUnit>) {
+    ) -> (Vec<RenameIssueEntry>, Vec<IssuedUnit>, Option<IssueHold>) {
         let mut selected = Vec::with_capacity(width);
         let mut units = Vec::with_capacity(width);
+        let mut held = None;
 
         for _ in 0..width {
             let Some(entry) = self.queue.front() else { break };
             if pending_squash.is_some_and(|squash| squash.squashes(entry.rob_tag)) {
+                held = Some(IssueHold::Ordering);
                 break;
             }
 
@@ -122,6 +126,7 @@ impl InOrderIssueUnit {
                     && !entry.inst.ctrl.system_op.is_cbo())
                 || entry.inst.ctrl.performs_at_rob_head();
             if waits_for_head && !rob.is_head(entry.rob_tag) {
+                held = Some(IssueHold::Ordering);
                 break;
             }
 
@@ -130,12 +135,14 @@ impl InOrderIssueUnit {
                 let pred_r = pred_bits & 0b0010 != 0;
                 let pred_w = pred_bits & 0b0001 != 0;
                 if !rob.fence_pred_satisfied(entry.rob_tag, pred_r, pred_w) {
+                    held = Some(IssueHold::Ordering);
                     break;
                 }
             }
 
             let (reads, writes) = (entry.inst.ctrl.reads_memory(), entry.inst.ctrl.writes_memory());
             if (reads || writes) && rob.has_fence_blocking(entry.rob_tag, reads, writes) {
+                held = Some(IssueHold::Ordering);
                 break;
             }
 
@@ -144,6 +151,7 @@ impl InOrderIssueUnit {
                 && (store_buffer.has_unresolved_store_before(entry.rob_tag)
                     || vec_store_buffer.has_unresolved_store_before(entry.rob_tag))
             {
+                held = Some(IssueHold::Ordering);
                 break;
             }
 
@@ -170,7 +178,7 @@ impl InOrderIssueUnit {
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
                 let fu_type = FuType::classify(&entry.inst.ctrl);
                 let Some(unit) = fu_pool.free_unit(fu_type, now) else {
-                    state.counter(state.core().stat_paths.pipeline.stalls_fu_structural).inc();
+                    held = Some(IssueHold::Unit);
                     break;
                 };
                 let complete_cycle = if is_vector_arithmetic(entry.inst.ctrl.vec_op) {
@@ -203,11 +211,12 @@ impl InOrderIssueUnit {
                     rs2_rdy  = rv2.is_some(),
                     "IS: stall — operand not ready"
                 );
+                held = Some(IssueHold::Operands);
                 break;
             }
         }
 
-        (selected, units)
+        (selected, units, held)
     }
 
     /// Return a snapshot of the current issue queue contents (front = oldest).
@@ -218,11 +227,6 @@ impl InOrderIssueUnit {
     /// How many slots are available for dispatch?
     pub fn available_slots(&self) -> usize {
         self.capacity - self.queue.len()
-    }
-
-    /// Whether the issue queue is empty.
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
     }
 
     /// Flush all entries.

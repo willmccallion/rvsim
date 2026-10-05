@@ -13,6 +13,7 @@ use crate::isa::reg::RegIdx;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
+use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
@@ -235,6 +236,9 @@ pub struct Selection {
     pub store_data: Vec<StoreDataIssue>,
     /// Ready instructions left waiting for a functional unit.
     pub unit_stalls: usize,
+    /// What held the oldest instruction still queued: its operands, or the
+    /// ordering rules; `None` when it was passed over for a unit or port.
+    pub oldest: Option<IssueHold>,
 }
 
 /// CAM-style issue queue with wakeup and oldest-first select.
@@ -439,7 +443,8 @@ impl IssueQueue {
 
         ready.sort_by_key(|&(i, _)| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
 
-        let mut selection = Selection::default();
+        let mut selection =
+            Selection { oldest: self.oldest_hold(store_buffer, rob), ..Selection::default() };
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
@@ -497,6 +502,16 @@ impl IssueQueue {
         }
 
         selection
+    }
+
+    /// What holds the oldest queued instruction this cycle, before any is
+    /// chosen: its operands, the ordering rules, or nothing.
+    fn oldest_hold(&self, store_buffer: &StoreBuffer, rob: &Rob) -> Option<IssueHold> {
+        let oldest = self.slots.iter().flatten().min_by_key(|iq| iq.entry.rob_tag.0)?;
+        let Some(part) = oldest.ready_part() else { return Some(IssueHold::Operands) };
+        let ordered =
+            part == IssuePart::StoreData || Self::may_issue_now(oldest, store_buffer, rob);
+        (!ordered).then_some(IssueHold::Ordering)
     }
 
     /// The entry's instruction with its operand values filled in.
@@ -628,6 +643,7 @@ impl IssueQueue {
     }
 
     /// Whether the queue is empty.
+    #[cfg(test)]
     pub const fn is_empty(&self) -> bool {
         self.count == 0
     }

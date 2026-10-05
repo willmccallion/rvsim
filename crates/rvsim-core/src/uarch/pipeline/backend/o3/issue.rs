@@ -6,6 +6,7 @@ use crate::exec::compute::vector::mem::{
 };
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, moves_in_spans, plan_accesses, route_to_phys,
 };
@@ -64,22 +65,14 @@ impl O3Engine {
             memory_blocked,
         };
         let selection = self.issue_queue.select(&budget, &self.store_buffer, &self.rob);
-        let stalled_fu = selection.unit_stalls > 0;
-        if stalled_fu {
-            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_fu_structural).inc();
-        }
-
         let issued_any = !selection.entries.is_empty() || !selection.store_data.is_empty();
+        count_issue_stalls(state, selection.unit_stalls > 0, issued_any, selection.oldest);
         for selected in selection.entries {
             self.issue_one(state, selected, now);
         }
         for data in selection.store_data {
             self.store_buffer.resolve_data(data.rob_tag, data.value);
             state.uncore.stats.counter(state.core.stat_paths.lsq.split_stores).inc();
-        }
-
-        if !issued_any && !stalled_fu && !self.issue_queue.is_empty() {
-            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
         }
     }
 

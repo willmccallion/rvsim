@@ -25,6 +25,7 @@ use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
 use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
+use crate::uarch::pipeline::backend::shared::issue_stats::{IssueHold, count_issue_stalls};
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, micro_ops_for, moves_in_spans, plan_accesses, retire_access,
 };
@@ -413,19 +414,18 @@ impl ExecutionEngine for InOrderEngine {
         let (results, units) = if backpressured {
             (Vec::new(), Vec::new())
         } else {
-            let (issued, units) = self.issuer.select(
+            let (issued, units, held) = self.issuer.select(
                 self.issue_width,
                 &self.rob,
                 &self.store_buffer,
                 &self.vec_store_buffer,
-                &mut state.stage(),
+                &state.stage(),
                 &mut self.fu_pool,
                 now,
                 self.common.pending_squash,
             );
-            if issued.is_empty() && !self.issuer.is_empty() {
-                state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_data).inc();
-            }
+            let unit_stalled = held == Some(IssueHold::Unit);
+            count_issue_stalls(state, unit_stalled, !issued.is_empty(), held);
             let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
                 is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
             });
