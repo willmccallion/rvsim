@@ -134,7 +134,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.commit.fp.{arith,fma,div_sqrt,load,store}` | Retired floating-point instructions by kind |
 | `core<N>.commit.vec.{int,fp,load,store,misc,crypto}` | Retired vector instructions by kind; `int` includes the Zvbb/Zvbc bit-manipulation ops, `misc` is permute, mask and configuration, `crypto` the Zvk* ops |
 | `core<N>.commit.retire_histogram.{zero,one,two,three_plus}` | Cycles by the number of instructions retired in them |
-| `core<N>.fu.util.<unit>` | Use of each functional-unit type (`int_alu`, `int_mul`, `fp_fma`, `vec_permute`, ...) |
+| `core<N>.fu.util.<unit>` | Cycles the units of each type (`int_alu`, `int_mul`, `fp_fma`, `vec_permute`, ...) could take no other instruction, counted at issue: one per instruction on a pipelined unit, its latency on one that is not (the dividers, FP divide/square root), including instructions later squashed. Over `pipeline.cycles.total` it is the type's utilisation, summed over its units |
 
 ### Per core: prediction and memory ordering
 

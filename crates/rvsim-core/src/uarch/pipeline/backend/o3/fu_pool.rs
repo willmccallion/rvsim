@@ -340,6 +340,13 @@ impl FuPool {
         self.units[unit.0].acquire_with_latency(now, latency)
     }
 
+    /// Cycles from `now` until `unit` can take another instruction: one for
+    /// a pipelined unit just acquired, its whole latency for one that is not.
+    #[must_use]
+    pub fn busy_cycles(&self, unit: FreeUnit, now: u64) -> u64 {
+        self.units[unit.0].busy_until.saturating_sub(now)
+    }
+
     /// Returns whether the first unit of `fu_type` is pipelined.
     pub fn is_pipelined(&self, fu_type: FuType) -> bool {
         self.units.iter().find(|u| u.fu_type == fu_type).is_none_or(|u| u.is_pipelined)

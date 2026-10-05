@@ -672,7 +672,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(pf.not_ram, Meta::events("load prefetches to a line outside RAM"));
     s.register(c.cache.l1d_exclusive_swaps, Meta::events("L1D exclusive-line swaps to L2"));
     for path in c.fu.all {
-        s.register(path, Meta::cycles("cycles this FU was busy"));
+        s.register(path, Meta::cycles("cycles units of this type could take no other op"));
     }
 
     s.derive(

@@ -103,6 +103,8 @@ impl O3Engine {
             // its elements pay their latency in memory1 and memory2.
             self.fu_pool.acquire(unit, now)
         };
+        let busy = self.fu_pool.busy_cycles(unit, now);
+        state.uncore.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).add(busy);
 
         let (mut result, redirect) =
             execute::execute_one(&mut state.stage(), &entry, &mut self.rob);
@@ -128,7 +130,7 @@ impl O3Engine {
             return;
         }
 
-        let pending = PendingResult { entry: result, complete_cycle, fu_type };
+        let pending = PendingResult { entry: result, complete_cycle };
         if pending.entry.ctrl.uses_memory_pipeline() {
             self.pending_addresses.push(pending);
         } else {
@@ -208,7 +210,7 @@ impl O3Engine {
             // Scalar-result ops (vmv.x.s, vcpop.m, vfirst.m) take the scalar path.
             let mut scalar = result;
             scalar.alu = vec_result.scalar_result.unwrap_or(0);
-            self.pending_results.push(PendingResult { entry: scalar, complete_cycle, fu_type });
+            self.pending_results.push(PendingResult { entry: scalar, complete_cycle });
         }
     }
 
