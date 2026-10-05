@@ -105,6 +105,9 @@ impl Cache {
             matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. });
         let set_index = self.set_index(addr);
         let present = self.find_way(addr);
+        if let Some(way) = present {
+            self.note_request_for(set_index * self.ways + way, ctx.stats);
+        }
         let needs_permission = is_write
             && present.is_some_and(|way| {
                 self.lines[set_index * self.ways + way].state == MesiState::Shared
@@ -134,7 +137,7 @@ impl Cache {
                 && matches!(req.source, ComponentId::Cache(_))
             {
                 // The upper level now owns the line.
-                self.lines[set_index * self.ways + way].state = MesiState::Invalid;
+                self.drop_line(set_index * self.ways + way, ctx.stats);
             }
             self.observe_prefetcher(addr, req.pc, true, ctx);
             return;
@@ -154,7 +157,7 @@ impl Cache {
         if let Some(mshr) = self.mshrs.find_line_mut(line) {
             ctx.stats.counter(self.stat_paths.mshr_hits).inc();
             if mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty() {
-                ctx.stats.counter(self.stat_paths.prefetches_useful).inc();
+                ctx.stats.counter(self.stat_paths.prefetches_late).inc();
             }
             if (is_write && !mshr.write) || !mshr.deferred.is_empty() {
                 mshr.deferred.push(target);
@@ -476,8 +479,12 @@ impl Cache {
         } else {
             state
         };
-        let upper = if self.lines[index].valid() { self.lines[index].upper } else { 0 };
-        self.lines[index] = CacheLine { tag, state, upper };
+        let kept = self.lines[index].valid().then_some(self.lines[index]);
+        let upper = kept.map_or(0, |line| line.upper);
+        let unrequested_prefetch =
+            mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty();
+        let prefetched = unrequested_prefetch || kept.is_some_and(|line| line.prefetched);
+        self.lines[index] = CacheLine { tag, state, upper, prefetched };
         self.policy.update(set_index, way);
         state
     }
@@ -494,7 +501,7 @@ impl Cache {
         ctx.stats.counter(self.stat_paths.evictions).inc();
         let line = self.line_of(self.reconstruct_addr(set_index, victim.tag));
         let holders = self.upper_holders(line);
-        self.lines[index].state = MesiState::Invalid;
+        self.drop_line(index, ctx.stats);
         if victim.dirty() || self.clean_victims_to_downstream {
             self.write_back(line, victim.dirty(), ctx);
         } else {

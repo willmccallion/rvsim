@@ -108,13 +108,15 @@ and `0` from Python leaves the default).
   port does to its requester.
 - **Prefetches are real fetches**: a candidate line the prefetcher wants
   takes an MSHR (never the last free one) and travels down the hierarchy
-  like a demand miss; a demand miss that joins it counts as a useful
-  prefetch.
+  like a demand miss. A request that joins it in flight makes it late;
+  the first request to find its line once installed makes it useful;
+  its line dropped before any request found it makes it unused.
 
 Per-level counters live under `core<N>.cache.{l1i,l1d,l2}` and `llc`:
 `hits`, `misses`, `mshr_hits`, `blocked_requests`, `fills`, `evictions`,
 `writebacks`, `back_invalidations`, `prefetches.issued`,
-`prefetches.useful` and the derived `miss_rate`.
+`prefetches.late`, `prefetches.useful`, `prefetches.unused`, and the
+derived `prefetches.used`, `prefetches.accuracy` and `miss_rate`.
 
 A load's dependents wake when its data returns: one cycle of address
 generation plus the L1D's `latency` on a hit, or whenever the fill

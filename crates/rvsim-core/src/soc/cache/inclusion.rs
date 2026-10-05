@@ -35,7 +35,7 @@ impl Cache {
             return;
         }
         let holders = self.upper_holders(line);
-        if self.invalidate_line(line.val()) {
+        if self.invalidate_line(line.val(), ctx.stats) {
             self.write_back(line, true, ctx);
         }
         ctx.stats.counter(self.stat_paths.back_invalidations).inc();

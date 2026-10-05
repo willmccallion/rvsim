@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (stats).** A cache's `prefetches.useful` counted demand
+  requests that joined a prefetch still in flight; that count is now
+  `prefetches.late`. `prefetches.useful` counts prefetched lines a request
+  found once installed, `prefetches.unused` prefetched lines dropped before
+  any request found them (as gem5's `pfUseful` and `pfUnused` do), and the
+  derived `prefetches.used` (late + useful) and `prefetches.accuracy`
+  (used / issued) follow Feedback Directed Prefetching (Srinath et al.,
+  HPCA 2007); gem5's `pfLate` and `accuracy` are defined differently.
 - A program's exit no longer drops the stores it committed just before
   exiting: they finish writing, so the console shows everything printed
   (`fib.elf` on `presets.p550()` used to end at `fib(20)=`). The cycles

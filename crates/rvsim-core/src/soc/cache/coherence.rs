@@ -176,12 +176,12 @@ impl Cache {
         if dirty && write_back_dirty {
             self.write_back(line, true, ctx);
         }
-        self.lines[index].state = match kind {
-            ProbeKind::Invalidate => MesiState::Invalid,
-            ProbeKind::Downgrade => MesiState::Shared,
-            ProbeKind::Clean if dirty => MesiState::Exclusive,
-            ProbeKind::Clean => self.lines[index].state,
-        };
+        match kind {
+            ProbeKind::Invalidate => self.drop_line(index, ctx.stats),
+            ProbeKind::Downgrade => self.lines[index].state = MesiState::Shared,
+            ProbeKind::Clean if dirty => self.lines[index].state = MesiState::Exclusive,
+            ProbeKind::Clean => {}
+        }
         dirty
     }
 

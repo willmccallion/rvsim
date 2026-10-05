@@ -163,7 +163,18 @@ Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
 | `blocked_requests` | Requests that waited because the MSHRs or writeback buffer were full |
 | `fills`, `evictions`, `writebacks` | Lines installed, lines evicted, and dirty lines written to the next level |
 | `back_invalidations` | Lines invalidated because an inclusive level below evicted them |
-| `prefetches.issued`, `prefetches.useful` | Prefetch fetches started, and those a demand request joined while the fetch was still in flight (a later hit on a prefetched line is not counted) |
+| `prefetches.issued` | Prefetch fetches this cache started |
+| `prefetches.late` | Prefetch fetches a request from above joined while still in flight |
+| `prefetches.useful` | Prefetched lines a request from above found once installed (counted on the first such request) |
+| `prefetches.unused` | Prefetched lines evicted, snooped away or invalidated before any request found them |
+| `prefetches.used`, `prefetches.accuracy` | Derived: `late + useful`, and `used / issued` |
+
+`useful` and `unused` count what gem5's `pfUseful` and `pfUnused` count. `late` and
+`accuracy` follow Srinath et al., "Feedback Directed Prefetching" (HPCA 2007): a
+prefetch is late when a demand arrives before it completes, and accuracy counts
+late prefetches as used. gem5's `pfLate` is different (prefetch candidates dropped
+because the line was already held, in flight or being written back), and its
+`accuracy` is `pfUseful / pfIssued`.
 | `prefetches.page_crossing` | Candidates of this cache's own prefetcher dropped for lying outside the 4 KiB page of the access that produced them |
 | `prefetches.dropped` | Prefetch requests from above dropped rather than take the last free MSHR |
 | `prefetches.store_stream` | Prefetches the L1D's store-miss prefetcher sent to the L2 |

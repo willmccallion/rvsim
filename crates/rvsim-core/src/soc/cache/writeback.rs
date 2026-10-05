@@ -189,7 +189,7 @@ impl Cache {
                 let holders: Vec<ComponentId> =
                     self.upper_holders(line).into_iter().filter(|&h| h != requester).collect();
                 self.back_invalidate(line, &holders, ctx);
-                self.invalidate_line(line.val())
+                self.invalidate_line(line.val(), ctx.stats)
             }
         }
     }
