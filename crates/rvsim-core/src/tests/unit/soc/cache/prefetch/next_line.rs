@@ -12,7 +12,7 @@ use crate::soc::cache::prefetch::Prefetcher;
 #[test]
 fn degree_1_emits_one_next_line() {
     let mut pf = NextLinePrefetcher::new(64, 1);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x1040, "Next 64-byte line after 0x1000");
 }
@@ -21,7 +21,7 @@ fn degree_1_emits_one_next_line() {
 #[test]
 fn degree_2_emits_two_lines() {
     let mut pf = NextLinePrefetcher::new(64, 2);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 2);
     assert_eq!(addrs[0], 0x1040);
     assert_eq!(addrs[1], 0x1080);
@@ -31,7 +31,7 @@ fn degree_2_emits_two_lines() {
 #[test]
 fn degree_4_emits_four_lines() {
     let mut pf = NextLinePrefetcher::new(64, 4);
-    let addrs = pf.observe(0x2000, true);
+    let addrs = pf.observe(0x2000, None, true);
     assert_eq!(addrs.len(), 4);
     for (k, addr) in addrs.iter().enumerate() {
         assert_eq!(*addr, 0x2000 + 64 * (k as u64 + 1));
@@ -43,7 +43,7 @@ fn degree_4_emits_four_lines() {
 fn mid_line_access_aligns_down() {
     let mut pf = NextLinePrefetcher::new(64, 1);
     // 0x1020 is at offset 32 within the 64-byte line starting at 0x1000.
-    let addrs = pf.observe(0x1020, false);
+    let addrs = pf.observe(0x1020, None, false);
     assert_eq!(addrs[0], 0x1040, "Prefetch target should be aligned next line");
 }
 
@@ -51,7 +51,7 @@ fn mid_line_access_aligns_down() {
 #[test]
 fn odd_offset_aligns() {
     let mut pf = NextLinePrefetcher::new(64, 1);
-    let addrs = pf.observe(0x1037, false);
+    let addrs = pf.observe(0x1037, None, false);
     assert_eq!(addrs[0], 0x1040);
 }
 
@@ -62,8 +62,8 @@ fn hit_and_miss_produce_same_result() {
     let mut pf_miss = NextLinePrefetcher::new(64, 1);
     let addr = 0x3000;
 
-    let on_hit = pf_hit.observe(addr, true);
-    let on_miss = pf_miss.observe(addr, false);
+    let on_hit = pf_hit.observe(addr, None, true);
+    let on_miss = pf_miss.observe(addr, None, false);
     assert_eq!(on_hit, on_miss);
 }
 
@@ -71,7 +71,7 @@ fn hit_and_miss_produce_same_result() {
 #[test]
 fn line_size_32() {
     let mut pf = NextLinePrefetcher::new(32, 1);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs[0], 0x1020);
 }
 
@@ -79,7 +79,7 @@ fn line_size_32() {
 #[test]
 fn line_size_128() {
     let mut pf = NextLinePrefetcher::new(128, 2);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs[0], 0x1080);
     assert_eq!(addrs[1], 0x1100);
 }
@@ -88,6 +88,6 @@ fn line_size_128() {
 #[test]
 fn degree_zero_defaults_to_one() {
     let mut pf = NextLinePrefetcher::new(64, 0);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 1);
 }

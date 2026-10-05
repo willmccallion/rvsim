@@ -177,7 +177,7 @@ Each cache level can have an independent hardware prefetcher:
 | Prefetcher | How it works |
 |------------|-------------|
 | **NextLine** | On any access, prefetch the next `degree` cache lines |
-| **Stride** | A `table_size`-entry table, indexed by the accessed line address (no PC reaches the cache), records the last address and stride; after the same stride repeats three times it prefetches `degree` strides ahead. Strides of a line or more train only when they alias back to one entry (#102) |
+| **Stride** | A `table_size`-entry reference prediction table, direct-mapped and tagged on the PC of the load that made the access (demand loads and fetches carry their PC to the cache; stores, page walks and writebacks do not, and do not train it). Each entry keeps its load's last address, stride and a saturating confidence; from the fifth consecutive access at the same stride it prefetches the lines `degree` strides ahead. A load whose PC maps to another load's entry takes it over |
 | **Stream** | Detects ascending or descending runs of consecutive lines and prefetches `degree` lines ahead in that direction |
 | **Tagged** | Prefetches the next line on a demand miss, and again when a demand access first uses a prefetched line, so a useful stream keeps extending |
 

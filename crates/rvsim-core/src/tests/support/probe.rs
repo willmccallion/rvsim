@@ -52,6 +52,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
             req_id,
             paddr,
             vaddr: None,
+            pc: None,
             size: access_size_for(width),
             op: MemOp::Read,
         },
@@ -91,6 +92,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
             req_id,
             paddr,
             vaddr: None,
+            pc: None,
             size: access_size_for(width),
             op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
         },
@@ -120,6 +122,7 @@ pub fn write_and_run_dma<H: Handle>(
         req_id: ReqId::new(u64::MAX),
         paddr,
         vaddr: None,
+        pc: None,
         size: access_size_for(width),
         op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
     }];

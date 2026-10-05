@@ -9,6 +9,7 @@
 //! direction is established, it prefetches multiple lines ahead.
 
 use super::Prefetcher;
+use crate::common::VirtAddr;
 
 /// Direction of the memory stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,7 +70,7 @@ impl Prefetcher for StreamPrefetcher {
     /// # Returns
     ///
     /// A vector of addresses to prefetch.
-    fn observe(&mut self, addr: u64, _hit: bool) -> Vec<u64> {
+    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
         let diff = (addr as i64) - (self.last_addr as i64);
         let line_sz = self.line_bytes as i64;

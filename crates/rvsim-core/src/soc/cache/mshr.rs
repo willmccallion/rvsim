@@ -21,6 +21,8 @@ pub struct MshrTarget {
     pub paddr: PhysAddr,
     /// Pre-translation address for fault reporting.
     pub vaddr: Option<VirtAddr>,
+    /// PC of the instruction the request serves, if any.
+    pub pc: Option<VirtAddr>,
     /// Access width.
     pub size: AccessSize,
     /// Read / write / atomic / fetch.
@@ -180,6 +182,7 @@ mod tests {
             req_id: ReqId::new(9),
             paddr: PhysAddr::new(0x1008),
             vaddr: None,
+            pc: None,
             size: AccessSize::B8,
             op: MemOp::Write {
                 data: crate::sim::packet::WriteData::Small(1),

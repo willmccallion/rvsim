@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The stride prefetcher learns per load: demand loads and instruction
+  fetches carry their PC to the cache, and the stride table is indexed and
+  tagged by it. It used to be indexed by the accessed line, so a stride of
+  a line or more never trained and the L1D stride prefetchers in `fast()`,
+  `cortex_a72()`, `m1()` and `p550()` acted as next-line prefetchers.
+  Accesses without a PC (stores after commit, page walks, writebacks) do
+  not train it.
 - `pipeline.stalls.control` counts cycles, as its unit always said: each
   cycle from a backend redirect (a misprediction, trap or re-execution)
   until rename hands on the first instruction from the new path. It used

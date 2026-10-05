@@ -294,6 +294,9 @@ pub enum Packet {
         /// Pre-translation address, retained on the fetch path for fault
         /// reporting (the trap handler reads `stval` from the original VA).
         vaddr: Option<VirtAddr>,
+        /// PC of the instruction the request serves: a demand load's or a
+        /// fetch's. Prefetchers that learn per instruction train on it.
+        pc: Option<VirtAddr>,
         /// Width of the access.
         size: AccessSize,
         /// Read / write / atomic / fetch.

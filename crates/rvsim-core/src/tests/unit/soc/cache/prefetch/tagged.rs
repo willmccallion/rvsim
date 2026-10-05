@@ -14,7 +14,7 @@ use crate::soc::cache::prefetch::TaggedPrefetcher;
 #[test]
 fn miss_triggers_prefetch() {
     let mut pf = TaggedPrefetcher::new(64, 1);
-    let addrs = pf.observe(0x1000, false); // miss
+    let addrs = pf.observe(0x1000, None, false); // miss
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x1040, "Next 64-byte line after 0x1000");
 }
@@ -23,7 +23,7 @@ fn miss_triggers_prefetch() {
 #[test]
 fn miss_degree_2() {
     let mut pf = TaggedPrefetcher::new(64, 2);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 2);
     assert_eq!(addrs[0], 0x1040);
     assert_eq!(addrs[1], 0x1080);
@@ -34,7 +34,7 @@ fn miss_degree_2() {
 fn standard_hit_no_prefetch() {
     let mut pf = TaggedPrefetcher::new(64, 1);
     // Hit on a line we never prefetched — filter should not match.
-    let addrs = pf.observe(0x2000, true);
+    let addrs = pf.observe(0x2000, None, true);
     assert!(addrs.is_empty(), "Standard hit should not trigger prefetch");
 }
 
@@ -45,11 +45,11 @@ fn hit_to_prefetched_line_extends_stream() {
     let mut pf = TaggedPrefetcher::new(64, 1);
 
     // Miss at 0x1000 → prefetches 0x1040, marks it in filter.
-    let pf1 = pf.observe(0x1000, false);
+    let pf1 = pf.observe(0x1000, None, false);
     assert_eq!(pf1[0], 0x1040);
 
     // Hit on the prefetched address: filter should recognize and extend the stream.
-    let pf2 = pf.observe(0x1040, true);
+    let pf2 = pf.observe(0x1040, None, true);
     assert_eq!(pf2.len(), 1, "Hit on prefetched line should extend stream");
     assert_eq!(pf2[0], 0x1080, "Should prefetch the line after 0x1040");
 }
@@ -60,9 +60,9 @@ fn chained_prefetch_stream() {
     let mut pf = TaggedPrefetcher::new(64, 1);
 
     // Miss → prefetch chain starts.
-    pf.observe(0x3000, false); // prefetches 0x3040
-    pf.observe(0x3040, true); // hit on prefetched → prefetches 0x3080
-    let addrs = pf.observe(0x3080, true); // hit on prefetched → prefetches 0x30C0
+    pf.observe(0x3000, None, false); // prefetches 0x3040
+    pf.observe(0x3040, None, true); // hit on prefetched → prefetches 0x3080
+    let addrs = pf.observe(0x3080, None, true); // hit on prefetched → prefetches 0x30C0
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x30C0);
 }
@@ -71,7 +71,7 @@ fn chained_prefetch_stream() {
 #[test]
 fn mid_line_miss_aligns() {
     let mut pf = TaggedPrefetcher::new(64, 1);
-    let addrs = pf.observe(0x1020, false); // miss at offset 32 within line
+    let addrs = pf.observe(0x1020, None, false); // miss at offset 32 within line
     // Aligned addr = 0x1000. Next line = 0x1040.
     assert_eq!(addrs[0], 0x1040);
 }
@@ -80,6 +80,6 @@ fn mid_line_miss_aligns() {
 #[test]
 fn degree_zero_defaults_to_one() {
     let mut pf = TaggedPrefetcher::new(64, 0);
-    let addrs = pf.observe(0x1000, false);
+    let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 1);
 }

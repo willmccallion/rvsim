@@ -66,6 +66,7 @@ struct BlockedRequest {
     req_id: ReqId,
     paddr: PhysAddr,
     vaddr: Option<VirtAddr>,
+    pc: Option<VirtAddr>,
     size: AccessSize,
     op: MemOp,
 }
@@ -418,8 +419,8 @@ impl Cache {
 impl Handle for Cache {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         match packet {
-            Packet::MemReq { req_id, paddr, vaddr, size, op } => {
-                self.on_request(BlockedRequest { source, req_id, paddr, vaddr, size, op }, ctx);
+            Packet::MemReq { req_id, paddr, vaddr, pc, size, op } => {
+                self.on_request(BlockedRequest { source, req_id, paddr, vaddr, pc, size, op }, ctx);
             }
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
                 self.on_response(req_id, line_addr, data, hit_level, state, ctx);

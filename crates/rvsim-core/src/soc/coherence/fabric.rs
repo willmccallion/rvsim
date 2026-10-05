@@ -449,7 +449,14 @@ impl CoherenceFabric {
             ctx.cycle,
             self.llc,
             ctx.self_id,
-            Packet::MemReq { req_id, paddr: line.phys(), vaddr: None, size: AccessSize::Line, op },
+            Packet::MemReq {
+                req_id,
+                paddr: line.phys(),
+                vaddr: None,
+                pc: None,
+                size: AccessSize::Line,
+                op,
+            },
         );
     }
 

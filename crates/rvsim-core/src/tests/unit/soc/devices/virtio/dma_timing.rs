@@ -133,6 +133,7 @@ pub(super) fn notify(device: &mut VirtioBlock, memory: &mut GlobalMemory, queue:
         req_id: ReqId::new(1),
         paddr: PhysAddr::new(MMIO + 0x50),
         vaddr: None,
+        pc: None,
         size: AccessSize::B4,
         op: MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Placed },
     };

@@ -107,7 +107,7 @@ pub(super) fn send_block_op(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
-        Packet::MemReq { req_id, paddr: block, vaddr: None, size: AccessSize::Line, op },
+        Packet::MemReq { req_id, paddr: block, vaddr: None, pc: None, size: AccessSize::Line, op },
     );
     req_id
 }
@@ -217,6 +217,7 @@ pub(super) fn emit_line_write(
             req_id,
             paddr: line,
             vaddr: None,
+            pc: None,
             size: AccessSize::Line,
             op: MemOp::Write { data: WriteData::Line { bytes: bytes.into(), mask }, origin },
         },
@@ -348,6 +349,7 @@ pub(super) fn emit_store_write_packet_to(
             req_id,
             paddr,
             vaddr: None,
+            pc: None,
             size: AccessSize::of_bytes(bytes),
             op: MemOp::Write { data: WriteData::Small(data), origin: write.origin },
         },
