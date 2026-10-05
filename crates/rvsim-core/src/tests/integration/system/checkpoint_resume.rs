@@ -205,3 +205,19 @@ fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
         checkpoint.len()
     );
 }
+
+#[test]
+fn a_restored_checkpoint_saves_back_to_the_same_bytes() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut source = TestContext::new_with_config(&config(backend))
+            .load_program(PROGRAM_BASE, &running_squares());
+        source.run(600);
+        let checkpoint = saved(&mut source);
+
+        let mut restored = TestContext::new_with_config(&config(backend));
+        restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
+        let resaved = saved(&mut restored);
+
+        assert!(resaved == checkpoint, "{backend:?}: the save moved the clock or changed state");
+    }
+}
