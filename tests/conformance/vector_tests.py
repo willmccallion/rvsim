@@ -7,7 +7,7 @@ For each test ELF under tests/builds/vector/vlen{N}/:
   2. For every pipeline config in tests/conformance/configs/pipelines.py, run the same
      ELF on rvsim via tests/conformance/_worker.py and diff against the cached spike sig.
 
-Subprocess-isolated workers + streaming JSON, same model as the riscof
+Subprocess-isolated workers + streaming JSON, same model as the riscv-tests
 multi-config runner.
 
 Usage:
@@ -31,7 +31,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES
+from tests.conformance.configs.pipelines import PIPELINES, VECTOR_SMOKE_PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -217,7 +217,9 @@ def main():
         help="Comma-separated PIPELINES labels (default: all)",
     )
     ap.add_argument(
-        "--smoke", action="store_true", help="single pipeline x first 20 tests"
+        "--smoke",
+        action="store_true",
+        help="every built ELF on VECTOR_SMOKE_PIPELINES only",
     )
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "vector-multi.json"))
@@ -241,11 +243,12 @@ def main():
         if missing:
             sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
     if args.smoke:
-        elfs = elfs[:20]
-        selected_pipelines = selected_pipelines[:1]
+        selected_pipelines = [
+            (lbl, c) for lbl, c in PIPELINES if lbl in VECTOR_SMOKE_PIPELINES
+        ]
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    sig_cache_dir = os.path.join(BUILDS, "vector", f"spike-sigs-vlen{args.vlen}")
+    sig_cache_dir = os.path.join(args.build_dir, f"spike-sigs-vlen{args.vlen}")
     spike_sigs = cache_spike_sigs(elfs, args.vlen, args.march, sig_cache_dir, args.jobs)
     elfs = [e for e in elfs if os.path.isfile(spike_sigs[e])]
 

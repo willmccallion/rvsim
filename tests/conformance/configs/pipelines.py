@@ -388,3 +388,27 @@ PIPELINES = [
     ("ref linux",           presets.linux()),
 ]
 # fmt: on
+
+# The configs `--smoke` runs every riscv-test on: both backends at the
+# narrowest and widest widths, no caches, an L3, every prefetcher, DDR5,
+# capped paging modes, a coherent multi-core fabric, and the calibrated
+# presets.
+SMOKE_PIPELINES = [
+    "inorder w1",
+    "inorder w4",
+    "o3 w1",
+    "o3 w4",
+    "o3 w8",
+    "o3 w4 no-caches",
+    "o3 w4 l3",
+    "o3 w4 aggressive-pf",
+    "o3 w4 ddr5",
+    "o3 w4 sv39-only",
+    "inorder w4 sv39-only",
+    "smp mesh",
+    "ref cortex-a72",
+    "ref p550",
+]
+
+# The configs `--smoke` runs the vector sample on: one of each backend.
+VECTOR_SMOKE_PIPELINES = ["inorder w4", "o3 w4"]

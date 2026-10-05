@@ -52,3 +52,30 @@ jobs:
       - run: ruff check rvsim tests examples tools docs
       - run: make python
       - run: make test-python
+
+  # riscv-tests, the RVV sample against spike and the multi-hart programs
+  # (`make conformance-smoke`), built with the flake's pinned cross toolchain.
+  conformance:
+    name: Conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      # spike, riscv-tests and the vector generator are pinned in the
+      # Makefile; the key changes whenever a pin or the build does.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            tests/builds/spike-install
+            tests/builds/riscv-tests
+            tests/builds/riscv-vector-tests
+            tests/builds/vector-smoke
+          key: conformance-${{ hashFiles('Makefile', 'flake.lock', 'tests/conformance/vector/build_tests.sh') }}
+      - name: Build the bindings, guest programs and test binaries
+        run: nix develop --command make python software riscv-tests-build vector-smoke-build
+      - name: Conformance smoke
+        run: nix develop --command make conformance-smoke

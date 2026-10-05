@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Unified entry point: every test suite × every PIPELINES config.
+"""Unified entry point: every conformance suite × every PIPELINES config.
 
 Runs in order:
-  1. tests/conformance/riscv_tests.py    — riscv-tests across all PIPELINES
-  2. tests/conformance/riscof_tests.py   — riscof arch-test across all PIPELINES
-  3. tests/conformance/vector_tests.py — RVV cosim across all PIPELINES
+  1. tests/conformance/riscv_tests.py     — riscv-tests across all PIPELINES
+  2. tests/conformance/vector_tests.py    — RVV cosim across all PIPELINES
+  3. tests/conformance/multicore_tests.py — multi-hart programs at 2 and 4 harts
+
+With --smoke, riscv-tests run on SMOKE_PIPELINES, the vector suite runs the
+sample `make vector-smoke-build` builds on VECTOR_SMOKE_PIPELINES, and the
+multicore suite runs 4 harts on fewer configs: a few minutes on four cores,
+and what CI runs.
 
 Each child runner streams its own JSON to tests/builds/results/. This
 script tails their stdout, captures pass/fail counts from those JSONs at
@@ -32,6 +37,7 @@ PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
 RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
+VECTOR_SMOKE_BUILD = os.path.join(ROOT, "tests", "builds", "vector-smoke")
 
 
 def fmt_seconds(s):
@@ -79,19 +85,19 @@ def main():
         "--pipelines",
         default=None,
         help="Comma-separated PIPELINES labels to test (default: all). "
-        "Forwarded to riscof and vector multi-config runners.",
+        "Forwarded to the riscv-tests and vector runners.",
     )
     ap.add_argument(
         "--skip",
         action="append",
         default=[],
-        choices=["riscv-tests", "riscof", "vector"],
+        choices=["riscv-tests", "vector", "multicore"],
         help="Skip a suite (repeat for multiple)",
     )
     ap.add_argument(
         "--smoke",
         action="store_true",
-        help="Pass --smoke to each child runner",
+        help="Run each suite's smoke subset",
     )
     args = ap.parse_args()
 
@@ -111,20 +117,6 @@ def main():
             cmd += ["--smoke"]
         suites.append(("riscv-tests multi-config", cmd, out))
 
-    if "riscof" not in args.skip:
-        out = os.path.join(RESULTS_DIR, "riscof-multi.json")
-        cmd = [
-            PYTHON,
-            os.path.join(ROOT, "tests/conformance/riscof_tests.py"),
-            "--out",
-            out,
-        ]
-        if args.pipelines:
-            cmd += ["--pipelines", args.pipelines]
-        if args.smoke:
-            cmd += ["--smoke"]
-        suites.append(("riscof multi-config", cmd, out))
-
     if "vector" not in args.skip:
         out = os.path.join(RESULTS_DIR, "vector-multi.json")
         cmd = [
@@ -138,8 +130,20 @@ def main():
         if args.pipelines:
             cmd += ["--pipelines", args.pipelines]
         if args.smoke:
-            cmd += ["--smoke"]
+            cmd += ["--smoke", "--build-dir", VECTOR_SMOKE_BUILD]
         suites.append((f"vector multi-config (vlen={args.vlen})", cmd, out))
+
+    if "multicore" not in args.skip:
+        out = os.path.join(RESULTS_DIR, "multicore.json")
+        cmd = [
+            PYTHON,
+            os.path.join(ROOT, "tests/conformance/multicore_tests.py"),
+            "--out",
+            out,
+        ]
+        if args.smoke:
+            cmd += ["--smoke"]
+        suites.append(("multicore", cmd, out))
 
     if not suites:
         sys.exit("nothing to run (everything was skipped)")
