@@ -105,12 +105,8 @@ impl Cache {
     ) {
         ctx.stats.counter(self.stat_paths.snoops).inc();
         let probe_kind = match kind {
-            SnoopKind::Shared => {
-                ctx.stats.counter(self.stat_paths.snoop_downgrades).inc();
-                ProbeKind::Downgrade
-            }
+            SnoopKind::Shared => ProbeKind::Downgrade,
             SnoopKind::Unique | SnoopKind::Invalid | SnoopKind::MakeInvalid => {
-                ctx.stats.counter(self.stat_paths.snoop_invalidations).inc();
                 ProbeKind::Invalidate
             }
             SnoopKind::Clean => ProbeKind::Clean,
@@ -133,7 +129,7 @@ impl Cache {
         let dirty =
             self.apply_probe(line, kind, write_back_dirty, ctx) || self.writebacks.holds(line);
         if holders.is_empty() {
-            self.answer(origin, line, had_copy, dirty, ctx);
+            self.answer(origin, line, kind, had_copy, dirty, ctx);
             return;
         }
         let ours = self.alloc_req_id();
@@ -185,10 +181,14 @@ impl Cache {
         dirty
     }
 
+    /// Answers a probe or snoop for `line` once every copy here and above
+    /// has given up what `kind` asked; a snoop that found a copy counts as
+    /// an invalidation or a downgrade.
     pub(super) fn answer(
         &self,
         origin: ProbeOrigin,
         line: LineAddr,
+        kind: ProbeKind,
         had_copy: bool,
         dirty: bool,
         ctx: &mut HandleCtx<'_>,
@@ -204,6 +204,14 @@ impl Cache {
                 Packet::ProbeResp { txn, had_copy, dirty },
             ),
             ProbeOrigin::Snoop { txn } => {
+                let lost = match kind {
+                    ProbeKind::Invalidate => Some(self.stat_paths.snoop_invalidations),
+                    ProbeKind::Downgrade => Some(self.stat_paths.snoop_downgrades),
+                    ProbeKind::Clean => None,
+                };
+                if let Some(stat) = lost.filter(|_| had_copy) {
+                    ctx.stats.counter(stat).inc();
+                }
                 let (Some(from), Some(downstream)) = (self.coherent, self.downstream) else {
                     return;
                 };
@@ -239,7 +247,8 @@ impl Cache {
             return;
         }
         let pending = self.pending_probes.remove(index);
-        self.answer(pending.origin, pending.line, pending.had_copy, pending.dirty, ctx);
+        let PendingProbe { origin, line, kind, had_copy, dirty, .. } = pending;
+        self.answer(origin, line, kind, had_copy, dirty, ctx);
     }
 
     /// A coherence message from the home agent.
