@@ -6,6 +6,7 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     self, CommitEvent, CommitRegisters, CommitResources,
 };
+use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
@@ -70,6 +71,9 @@ impl O3Engine {
             },
         );
 
+        if let Some(event) = &commit_event {
+            count_flush(state, event.into(), self.rob.len());
+        }
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
                 let squashed = self.rob.len();
@@ -153,17 +157,6 @@ impl O3Engine {
         squash: PendingSquash,
         redirect: &mut Option<u64>,
     ) {
-        let paths = &state.core.stat_paths.pipeline;
-        state.uncore.stats.counter(paths.flushes_total).inc();
-        match squash.redirect.cause {
-            SquashCause::Branch => state.uncore.stats.counter(paths.flushes_branch).inc(),
-            SquashCause::System => state.uncore.stats.counter(paths.flushes_system).inc(),
-            SquashCause::MemoryOrder => {
-                state.uncore.stats.counter(paths.flushes_mem_violations).inc();
-            }
-            SquashCause::Coherence => {}
-        }
-
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
@@ -184,7 +177,7 @@ impl O3Engine {
             }
             self.rob.len()
         };
-        state.uncore.stats.counter(paths.flushes_squashed_insns).add(squashed as u64);
+        count_flush(state, squash.redirect.cause.into(), squashed);
 
         if let Some(keep_tag) = keep_tag {
             // flush_after, not flush: older un-issued IQ entries must survive or deadlock the pipeline.
