@@ -40,14 +40,23 @@ use retire::{RetireTargets, retire_entry};
 pub enum CommitEvent {
     /// Take `Trap` with the given EPC.
     Trap(Trap, u64),
-    /// The LR or AMO at `pc` read a value another hart has since
-    /// overwritten; squash it and everything younger and refetch from `pc`.
-    ReExecute(u64),
+    /// The instruction at `pc` must run again: squash it and everything
+    /// younger and refetch from `pc`.
+    ReExecute(u64, ReExecuteCause),
     /// The instruction just retired changed state that every younger
     /// instruction was fetched or translated without (privilege, satp, the
     /// instruction memory, a reservation): squash everything younger and
     /// refetch from `pc`, whether or not the fetch PC already points there.
     SquashAfter(u64),
+}
+
+/// Why the instruction at the head of the ROB runs again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReExecuteCause {
+    /// An LR read a line another hart has since written.
+    StaleLine,
+    /// A store's PTE changed between its walk and setting its D bit.
+    ChangedPte,
 }
 
 /// Whether retirement goes on this cycle.

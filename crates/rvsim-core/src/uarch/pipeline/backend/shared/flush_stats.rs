@@ -1,7 +1,7 @@
 //! The `pipeline.flushes.*` counts, shared by both backends.
 
 use crate::uarch::ctx::CoreCtx;
-use crate::uarch::pipeline::backend::shared::commit::CommitEvent;
+use crate::uarch::pipeline::backend::shared::commit::{CommitEvent, ReExecuteCause};
 use crate::uarch::pipeline::squash::SquashCause;
 
 /// Why the pipeline dropped in-flight instructions: a squash an executed
@@ -11,7 +11,8 @@ pub enum FlushCause {
     /// A branch or jump resolved against its prediction.
     Branch,
     /// A system instruction, CSR access or vector op refetched what
-    /// followed it, at execute or at commit.
+    /// followed it, at execute or at commit, or a store re-executed for a
+    /// PTE that changed under it.
     System,
     /// A load read stale data past an older store.
     MemoryOrder,
@@ -36,8 +37,10 @@ impl From<&CommitEvent> for FlushCause {
     fn from(event: &CommitEvent) -> Self {
         match event {
             CommitEvent::Trap(..) => Self::Trap,
-            CommitEvent::ReExecute(_) => Self::Coherence,
-            CommitEvent::SquashAfter(_) => Self::System,
+            CommitEvent::ReExecute(_, ReExecuteCause::StaleLine) => Self::Coherence,
+            CommitEvent::ReExecute(_, ReExecuteCause::ChangedPte) | CommitEvent::SquashAfter(_) => {
+                Self::System
+            }
         }
     }
 }

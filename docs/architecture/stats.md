@@ -128,7 +128,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.pipeline.stalls.checkpoint` | Cycles rename waited for a free branch checkpoint |
 | `core<N>.pipeline.stalls.serialize` | Cycles rename waited behind a serializing instruction |
 | `core<N>.pipeline.stalls.squash` | Cycles rename waited while commit squashed the ROB |
-| `core<N>.pipeline.flushes.total` | Flushes taken at execute or at commit, each under exactly one of `.branch` (misprediction), `.system` (a system instruction, CSR access or vector op refetching what follows, or commit refetching after xRET, FENCE.I, SFENCE.VMA or a WFI wake), `.mem_violations` (a load that read past an aliasing store), `.coherence` (a value another hart overwrote) and `.trap` (an exception or interrupt taken at commit) |
+| `core<N>.pipeline.flushes.total` | Flushes taken at execute or at commit, each under exactly one of `.branch` (misprediction), `.system` (a system instruction, CSR access or vector op refetching what follows, or commit refetching after xRET, FENCE.I, SFENCE.VMA, a WFI wake or a store whose PTE changed after its walk), `.mem_violations` (a load that read past an aliasing store), `.coherence` (a value another hart overwrote) and `.trap` (an exception or interrupt taken at commit) |
 | `core<N>.pipeline.flushes.squashed_insns` | ROB entries those flushes dropped |
 | `core<N>.commit.op.{alu,branch,load,store,atomic,system}` | Retired scalar integer instructions by kind; `atomic` is LR, SC and the AMOs, which `load` and `store` leave out |
 | `core<N>.commit.fp.{arith,fma,div_sqrt,load,store}` | Retired floating-point instructions by kind |

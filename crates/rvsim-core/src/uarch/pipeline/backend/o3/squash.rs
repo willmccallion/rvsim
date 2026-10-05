@@ -83,7 +83,7 @@ impl O3Engine {
                 *redirect = Some(state.hart.pc);
                 true
             }
-            Some(CommitEvent::ReExecute(pc) | CommitEvent::SquashAfter(pc)) => {
+            Some(CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc)) => {
                 let squashed = self.rob.len();
                 self.flush(state);
                 self.squash_stall_remaining = self.squash_cycles(squashed);

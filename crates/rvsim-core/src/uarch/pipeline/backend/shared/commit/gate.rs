@@ -17,7 +17,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
 use crate::uarch::pipeline::rob::{Rob, RobEntry, RobState};
 
-use super::{CommitEvent, CommitFlow, CommitRegisters};
+use super::{CommitEvent, CommitFlow, CommitRegisters, ReExecuteCause};
 
 /// Takes a parked trap once its latency has elapsed, or an interrupt once
 /// the pipeline has drained for it, and holds commit while a WFI waits.
@@ -129,7 +129,7 @@ pub(super) fn gate_head(
             rob_tag = head.tag.0,
             "CM: LR read a line another hart has since written — re-executing"
         );
-        return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc)));
+        return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc, ReExecuteCause::StaleLine)));
     }
 
     // Setting D must recheck the PTE the store was translated with.
@@ -142,7 +142,7 @@ pub(super) fn gate_head(
             rob_tag = head.tag.0,
             "CM: store's PTE changed since its walk — re-executing"
         );
-        return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc)));
+        return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc, ReExecuteCause::ChangedPte)));
     }
 
     // A barrier retires once every older store's write has completed.
