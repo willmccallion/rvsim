@@ -2,6 +2,7 @@
 //! program whose counts can be worked out by hand and asserts the stats
 //! through a [`Recorder`], which notes every path it checked.
 
+pub mod caches;
 pub mod commit;
 pub mod fu;
 pub mod pipeline;
