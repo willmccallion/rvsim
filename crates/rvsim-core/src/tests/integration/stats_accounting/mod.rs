@@ -3,6 +3,8 @@
 //! through a [`Recorder`], which notes every path it checked.
 
 pub mod commit;
+pub mod pipeline;
+pub mod program;
 
 use std::collections::BTreeSet;
 
