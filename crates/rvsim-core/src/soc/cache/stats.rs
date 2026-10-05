@@ -45,6 +45,8 @@ pub struct CacheStatPaths {
     /// Prefetch candidates dropped for lying outside the 4 KiB page of the
     /// access that produced them.
     pub prefetches_page_crossing: StatId,
+    /// Prefetch requests from above dropped for want of a free MSHR.
+    pub prefetches_dropped: StatId,
     /// Derived: misses / (hits + misses).
     pub miss_rate: StatId,
 }
@@ -73,6 +75,7 @@ impl CacheStatPaths {
             prefetches_issued: path("prefetches.issued"),
             prefetches_useful: path("prefetches.useful"),
             prefetches_page_crossing: path("prefetches.page_crossing"),
+            prefetches_dropped: path("prefetches.dropped"),
             miss_rate: path("miss_rate"),
         }
     }
@@ -112,6 +115,10 @@ impl StatSource for CacheStatPaths {
         s.register(
             self.prefetches_page_crossing,
             Meta::events("prefetch candidates dropped at a 4 KiB page boundary"),
+        );
+        s.register(
+            self.prefetches_dropped,
+            Meta::events("prefetch requests dropped for want of an MSHR"),
         );
         s.derive(
             self.miss_rate,

@@ -704,6 +704,92 @@ fn a_prefetch_into_the_next_4k_page_is_dropped() {
     assert_eq!(bench.stat("test.prefetches.issued"), 0);
 }
 
+const PREFETCH_L1D: MemOp = MemOp::Prefetch { into: CacheLevel::L1D, exclusive: false };
+
+#[test]
+fn a_prefetch_request_fetches_its_line_and_answers_no_one() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+
+    bench.request(1, 0x1000, PREFETCH_L1D);
+    let requests = bench.downstream_requests();
+    let (down_id, addr, op, _) = requests[0].clone();
+    bench.fill(down_id, 0x1000);
+    let events = bench.drain();
+
+    assert_eq!((requests.len(), addr), (1, 0x1000));
+    assert!(matches!(op, MemOp::Read));
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Exclusive));
+    assert!(responses_to(&events, PIPELINE).is_empty());
+    assert_eq!(bench.stat("test.prefetches.issued"), 1);
+}
+
+#[test]
+fn an_exclusive_prefetch_fetches_with_write_permission() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+
+    bench.request(1, 0x1000, MemOp::Prefetch { into: CacheLevel::L1D, exclusive: true });
+
+    let requests = bench.downstream_requests();
+    assert_eq!(requests.len(), 1);
+    assert!(matches!(requests[0].2, MemOp::ReadOwn));
+}
+
+#[test]
+fn a_prefetch_of_a_held_or_inflight_line_is_dropped() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Read);
+    bench.read(2, 0x2000);
+    let _ = bench.drain();
+
+    bench.request(3, 0x1000, PREFETCH_L1D);
+    bench.request(4, 0x2000, PREFETCH_L1D);
+
+    assert!(bench.downstream_requests().is_empty());
+    assert_eq!(bench.stat("test.prefetches.issued"), 0);
+}
+
+#[test]
+fn a_prefetch_for_a_lower_level_is_passed_down_untouched() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    let into_l2 = MemOp::Prefetch { into: CacheLevel::L2, exclusive: true };
+
+    bench.request(1, 0x1000, into_l2);
+
+    let requests = bench.downstream_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].1, 0x1000);
+    assert!(matches!(requests[0].2, MemOp::Prefetch { into: CacheLevel::L2, exclusive: true }));
+    assert_eq!(bench.state_of(0x1000), None);
+    assert_eq!(bench.stat("test.prefetches.issued"), 0);
+}
+
+#[test]
+fn a_disabled_level_passes_a_prefetch_for_a_lower_level_down() {
+    let mut config = test_config();
+    config.enabled = false;
+    let mut bench = Bench::new(cache_with(&config));
+
+    bench.request(1, 0x1000, MemOp::Prefetch { into: CacheLevel::L2, exclusive: false });
+    bench.request(2, 0x2000, PREFETCH_L1D);
+
+    let addrs: Vec<u64> = bench.downstream_requests().iter().map(|r| r.1).collect();
+    assert_eq!(addrs, vec![0x1000], "only the L2's prefetch goes on");
+}
+
+#[test]
+fn a_prefetch_request_is_dropped_rather_than_take_the_last_mshr() {
+    let mut config = test_config();
+    config.mshr_count = 2;
+    let mut bench = Bench::new(cache_with(&config));
+    bench.read(1, 0x1000);
+    let _ = bench.drain();
+
+    bench.request(2, 0x2000, PREFETCH_L1D);
+
+    assert!(bench.downstream_requests().is_empty());
+    assert_eq!(bench.stat("test.prefetches.dropped"), 1);
+}
+
 #[test]
 fn prefetches_leave_one_mshr_for_demand_misses() {
     let mut config = test_config();

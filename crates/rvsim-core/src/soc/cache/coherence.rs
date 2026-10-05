@@ -43,8 +43,13 @@ impl Cache {
                 }
                 return;
             }
-            MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. } => ReqKind::ReadUnique,
-            MemOp::Read | MemOp::Fetch => ReqKind::ReadShared,
+            MemOp::Write { .. }
+            | MemOp::ReadOwn
+            | MemOp::Atomic { .. }
+            | MemOp::Prefetch { exclusive: true, .. } => ReqKind::ReadUnique,
+            MemOp::Read | MemOp::Fetch | MemOp::Prefetch { exclusive: false, .. } => {
+                ReqKind::ReadShared
+            }
             MemOp::Maintain { op, dirty } => ReqKind::Maintain { op: *op, dirty: *dirty },
         };
         let ours = self.alloc_req_id();

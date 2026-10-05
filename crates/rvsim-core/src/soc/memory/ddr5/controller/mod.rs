@@ -422,9 +422,10 @@ impl Ddr5Controller {
             MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
                 read_response(memory, request.paddr, request.size)
             }
-            MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => {
-                MemRespData::Small(0)
-            }
+            MemOp::Write { .. }
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { .. }
+            | MemOp::Prefetch { .. } => MemRespData::Small(0),
         })
     }
 
