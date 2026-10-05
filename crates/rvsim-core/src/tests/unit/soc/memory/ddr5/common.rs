@@ -170,7 +170,7 @@ impl Harness {
         let mut ctx =
             Self::make_ctx(&mut self.queue, &mut self.stats, &mut self.memory, &self.config, cycle);
         self.controller.handle(
-            Packet::MemReq { req_id, paddr: PhysAddr::new(paddr), vaddr: None, size, op },
+            Packet::MemReq { req_id, paddr: PhysAddr::new(paddr), vaddr: None, pc: None, size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
         );

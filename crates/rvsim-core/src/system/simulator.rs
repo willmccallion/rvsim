@@ -821,7 +821,7 @@ impl Simulator {
             self_id: ComponentId::Bus,
         };
         let _ = uncore.bus.probe_device(
-            Packet::MemReq { req_id, paddr, vaddr: None, size: access_size, op },
+            Packet::MemReq { req_id, paddr, vaddr: None, pc: None, size: access_size, op },
             ComponentId::Pipeline(PipelineId::new(0)),
             &mut ctx,
         );

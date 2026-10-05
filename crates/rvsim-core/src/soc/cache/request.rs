@@ -132,7 +132,7 @@ impl Cache {
                 // The upper level now owns the line.
                 self.lines[set_index * self.ways + way].state = MesiState::Invalid;
             }
-            self.observe_prefetcher(addr, true, ctx);
+            self.observe_prefetcher(addr, req.pc, true, ctx);
             return;
         }
 
@@ -143,6 +143,7 @@ impl Cache {
             req_id: req.req_id,
             paddr: req.paddr,
             vaddr: req.vaddr,
+            pc: req.pc,
             size: req.size,
             op: req.op,
         };
@@ -165,15 +166,13 @@ impl Cache {
                 _ if is_write => MemOp::ReadOwn,
                 _ => MemOp::Read,
             };
-            let vaddr = target.vaddr;
-            self.start_fetch(line, vec![target], is_write, false, fetch_op, vaddr, ctx);
+            self.start_fetch(line, vec![target], is_write, false, fetch_op, ctx);
         }
-        self.observe_prefetcher(addr, false, ctx);
+        self.observe_prefetcher(addr, req.pc, false, ctx);
     }
 
     /// Allocates an MSHR for `line` and sends the line request downstream
-    /// after the tag lookup.
-    #[allow(clippy::too_many_arguments)]
+    /// after the tag lookup, on behalf of its first target.
     pub(super) fn start_fetch(
         &mut self,
         line: LineAddr,
@@ -181,9 +180,10 @@ impl Cache {
         write: bool,
         prefetch: bool,
         op: MemOp,
-        vaddr: Option<VirtAddr>,
         ctx: &mut HandleCtx<'_>,
     ) {
+        let vaddr = targets.first().and_then(|target| target.vaddr);
+        let pc = targets.first().and_then(|target| target.pc);
         let req_id = self.alloc_req_id();
         let upgrade = self.find_way(line.val()).is_some();
         self.mshrs.allocate(Mshr {
@@ -210,7 +210,7 @@ impl Cache {
                 Packet::Coh(CoherenceMsg::Req { txn: req_id, line, kind, requester })
             }
             None => {
-                Packet::MemReq { req_id, paddr: line.phys(), vaddr, size: AccessSize::Line, op }
+                Packet::MemReq { req_id, paddr: line.phys(), vaddr, pc, size: AccessSize::Line, op }
             }
         };
         ctx.scheduler.schedule(ctx.cycle + self.latency, downstream, ctx.self_id, packet);
@@ -219,9 +219,15 @@ impl Cache {
     /// Runs the prefetcher on a demand access and starts fetches for the
     /// lines it wants that are neither present nor already in flight,
     /// keeping one MSHR free for demand misses.
-    pub(super) fn observe_prefetcher(&mut self, addr: u64, hit: bool, ctx: &mut HandleCtx<'_>) {
+    pub(super) fn observe_prefetcher(
+        &mut self,
+        addr: u64,
+        pc: Option<VirtAddr>,
+        hit: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let Some(prefetcher) = self.prefetcher.as_mut() else { return };
-        let candidates = prefetcher.observe(addr, hit);
+        let candidates = prefetcher.observe(addr, pc, hit);
         for candidate in candidates {
             if self.mshrs.free() <= 1 || self.downstream.is_none() {
                 return;
@@ -231,7 +237,7 @@ impl Cache {
                 continue;
             }
             ctx.stats.counter(self.stat_paths.prefetches_issued).inc();
-            self.start_fetch(line, Vec::new(), false, true, MemOp::Read, None, ctx);
+            self.start_fetch(line, Vec::new(), false, true, MemOp::Read, ctx);
         }
     }
 
@@ -324,8 +330,7 @@ impl Cache {
         }
         let writable = matches!(installed, MesiState::Exclusive | MesiState::Modified);
         let Some(way) = self.find_way(line.val()).filter(|_| writable) else {
-            let vaddr = deferred.first().and_then(|t| t.vaddr);
-            self.start_fetch(line, deferred, true, false, MemOp::ReadOwn, vaddr, ctx);
+            self.start_fetch(line, deferred, true, false, MemOp::ReadOwn, ctx);
             return;
         };
         let index = self.set_index(line.val()) * self.ways + way;

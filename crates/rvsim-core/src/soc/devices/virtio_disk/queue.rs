@@ -128,6 +128,7 @@ impl VirtioBlock {
                         req_id,
                         paddr: access.paddr,
                         vaddr: None,
+                        pc: None,
                         size: access.size,
                         op,
                     },

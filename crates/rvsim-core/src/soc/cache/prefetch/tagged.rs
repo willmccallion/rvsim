@@ -10,6 +10,7 @@
 //!   If no (a standard hit), it stays idle to save bandwidth.
 
 use super::Prefetcher;
+use crate::common::VirtAddr;
 
 /// Tagged Prefetcher state.
 #[derive(Debug)]
@@ -69,7 +70,7 @@ impl Prefetcher for TaggedPrefetcher {
     /// # Returns
     ///
     /// A vector of addresses to prefetch.
-    fn observe(&mut self, addr: u64, hit: bool) -> Vec<u64> {
+    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
         let aligned_addr = addr & !(self.line_bytes - 1);
 

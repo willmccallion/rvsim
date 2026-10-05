@@ -5,6 +5,7 @@
 //! in instruction streams and sequential data arrays.
 
 use super::Prefetcher;
+use crate::common::VirtAddr;
 
 /// Next-Line Prefetcher state.
 #[derive(Debug)]
@@ -41,7 +42,7 @@ impl Prefetcher for NextLinePrefetcher {
     /// # Returns
     ///
     /// A vector of addresses to prefetch.
-    fn observe(&mut self, addr: u64, _hit: bool) -> Vec<u64> {
+    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
 
         for k in 1..=self.degree {

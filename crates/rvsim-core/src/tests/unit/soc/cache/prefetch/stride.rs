@@ -1,81 +1,138 @@
 //! Stride Prefetcher Tests.
 //!
-//! Verifies that the stride prefetcher correctly detects constant-stride
-//! access patterns, builds confidence before prefetching, and emits
-//! properly aligned addresses at the correct stride.
-//!
-//! Reference: Phase 3 — Memory Subsystem Verification.
+//! Verifies that the stride prefetcher learns a stride per load PC, builds
+//! confidence before prefetching, and emits line-aligned addresses
+//! `degree` strides ahead.
 
+use crate::common::VirtAddr;
 use crate::soc::cache::prefetch::Prefetcher;
 use crate::soc::cache::prefetch::StridePrefetcher;
 
-/// First access never triggers a prefetch (no history).
-#[test]
-fn no_prefetch_on_first_access() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
-    let addrs = pf.observe(0x1000, false);
-    assert!(addrs.is_empty(), "No history yet → no prefetch");
+const LOAD: Option<VirtAddr> = Some(VirtAddr(0x8000_1000));
+const OTHER_LOAD: Option<VirtAddr> = Some(VirtAddr(0x8000_1004));
+
+/// Accesses a load makes before its stride has saturated confidence: one
+/// to allocate the entry, one to set the stride, three to confirm it.
+const WARMUP: u64 = 5;
+
+/// Feeds `count` accesses `stride` bytes apart from `base` by the load at
+/// `pc`, and returns what the last one prefetched.
+fn stream(
+    pf: &mut StridePrefetcher,
+    pc: Option<VirtAddr>,
+    base: u64,
+    stride: i64,
+    count: u64,
+) -> Vec<u64> {
+    let mut last = Vec::new();
+    for i in 0..count {
+        last = pf.observe(base.wrapping_add_signed(stride * i as i64), pc, false);
+    }
+    last
 }
 
-/// Two accesses with same stride are not enough — confidence must build.
 #[test]
-fn no_prefetch_at_low_confidence() {
+fn a_loads_first_access_prefetches_nothing() {
     let mut pf = StridePrefetcher::new(64, 64, 1);
-    pf.observe(0x1000, false);
-    let addrs = pf.observe(0x1100, false);
-    assert!(addrs.is_empty());
+
+    let prefetches = pf.observe(0x1000, LOAD, false);
+
+    assert!(prefetches.is_empty());
 }
 
-/// After enough repeated accesses with the same stride, prefetch triggers.
-/// The stride prefetcher indexes by (addr >> 6) & mask, so we need accesses
-/// that all hash to the same table entry for the confidence counter to build.
 #[test]
-fn constant_stride_triggers_prefetch() {
+fn a_stride_prefetches_only_once_confidence_saturates() {
     let mut pf = StridePrefetcher::new(64, 64, 1);
 
-    // Stride 4096 keeps every access on table index 0 (idx = (addr>>6) & 63).
-    // 7 accesses brings confidence to 3, after which the next access prefetches.
-    let stride = 4096u64;
-    let base = 0u64;
+    let warming = stream(&mut pf, LOAD, 0x1_0000, 256, WARMUP);
+    let trained = pf.observe(0x1_0000 + 256 * WARMUP, LOAD, false);
 
-    for i in 0..7 {
-        pf.observe(base + stride * i, false);
+    assert!(warming.is_empty());
+    assert_eq!(trained, vec![0x1_0000 + 256 * (WARMUP + 1)]);
+}
+
+#[test]
+fn a_256_byte_stride_prefetches_degree_strides_ahead() {
+    let mut pf = StridePrefetcher::new(64, 64, 4);
+    let base = 0x2_0000;
+
+    let prefetches = stream(&mut pf, LOAD, base, 256, WARMUP + 1);
+
+    let last = base + 256 * WARMUP;
+    assert_eq!(prefetches, vec![last + 256, last + 512, last + 768, last + 1024]);
+}
+
+#[test]
+fn a_negative_stride_prefetches_downward() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let base = 0x3_0000;
+
+    let prefetches = stream(&mut pf, LOAD, base, -192, WARMUP + 1);
+
+    assert_eq!(prefetches, vec![base - 192 * (WARMUP + 1)]);
+}
+
+#[test]
+fn prefetch_targets_are_line_aligned() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+
+    let prefetches = stream(&mut pf, LOAD, 0x4_0008, 200, WARMUP + 1);
+
+    assert_eq!(prefetches, vec![(0x4_0008 + 200 * (WARMUP + 1)) & !63]);
+}
+
+#[test]
+fn interleaved_loads_each_learn_their_own_stride() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let (a, b) = (0x5_0000u64, 0x9_0000u64);
+    let (mut last_a, mut last_b) = (Vec::new(), Vec::new());
+
+    for i in 0..=WARMUP {
+        last_a = pf.observe(a + 256 * i, LOAD, false);
+        last_b = pf.observe(b + 4096 * i, OTHER_LOAD, false);
     }
 
-    // The 8th access should trigger a prefetch (confidence is already 3).
-    let addrs = pf.observe(base + stride * 7, false);
-    assert!(!addrs.is_empty(), "Should prefetch after confidence reaches 3");
-
-    // The prefetch target should be base + stride*8, aligned to 64 bytes.
-    let expected = (base + stride * 8) & !63;
-    assert_eq!(addrs[0], expected);
+    assert_eq!(last_a, vec![a + 256 * (WARMUP + 1)]);
+    assert_eq!(last_b, vec![b + 4096 * (WARMUP + 1)]);
 }
 
-/// Changing the stride decrements confidence and eventually resets.
 #[test]
-fn stride_change_reduces_confidence() {
+fn accesses_without_a_pc_do_not_train() {
     let mut pf = StridePrefetcher::new(64, 64, 1);
-    let stride = 4096u64;
 
-    for i in 0..7 {
-        pf.observe(i * stride, false);
-    }
+    let prefetches = stream(&mut pf, None, 0x6_0000, 256, 3 * WARMUP);
 
-    let off = stride * 7 + 128; // different stride from entry
-    let addrs = pf.observe(off, false);
-    assert!(addrs.is_empty(), "Stride changed → no prefetch");
+    assert!(prefetches.is_empty());
 }
 
-/// Degree-2 prefetcher emits two stride-ahead addresses once warmed up.
 #[test]
-fn degree_2_emits_two_addresses() {
-    let mut pf = StridePrefetcher::new(64, 64, 2);
-    let stride = 4096u64;
+fn a_changed_stride_does_not_prefetch() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let base = 0x7_0000;
+    let _ = stream(&mut pf, LOAD, base, 256, WARMUP + 1);
 
-    for i in 0..7 {
-        pf.observe(i * stride, false);
-    }
+    let prefetches = pf.observe(base + 256 * WARMUP + 1000, LOAD, false);
 
-    let addrs = pf.observe(7 * stride, false);
-    assert_eq!(addrs.len(), 2, "Degree 2 should emit 2 prefetches");
+    assert!(prefetches.is_empty());
+}
+
+#[test]
+fn a_repeated_address_prefetches_nothing() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+
+    let prefetches = stream(&mut pf, LOAD, 0x8_0000, 0, 3 * WARMUP);
+
+    assert!(prefetches.is_empty());
+}
+
+#[test]
+fn a_load_that_takes_over_an_entry_starts_untrained() {
+    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let alias = LOAD.map(|pc| VirtAddr(pc.val() + 64 * 2));
+    let _ = stream(&mut pf, LOAD, 0x9_0000, 256, WARMUP + 1);
+    let _ = pf.observe(0xA_0000, alias, false);
+
+    let prefetches = pf.observe(0x9_0000 + 256 * (WARMUP + 1), LOAD, false);
+
+    assert!(prefetches.is_empty());
 }

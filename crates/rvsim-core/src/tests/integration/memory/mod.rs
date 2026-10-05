@@ -12,6 +12,7 @@ pub mod mmio_loads;
 pub mod store_completion;
 pub mod store_conditional;
 pub mod store_halves;
+pub mod stride_prefetch;
 pub mod unmapped_access;
 pub mod write_combining;
 pub mod zicboz;

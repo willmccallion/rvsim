@@ -16,6 +16,8 @@ pub use self::stream::StreamPrefetcher;
 pub use self::stride::StridePrefetcher;
 pub use self::tagged::TaggedPrefetcher;
 
+use crate::common::VirtAddr;
+
 /// Trait for cache prefetcher implementations.
 ///
 /// Prefetchers observe memory access patterns and generate prefetch
@@ -29,10 +31,11 @@ pub trait Prefetcher: Send + Sync {
     /// # Arguments
     ///
     /// * `addr` - The address that was accessed
+    /// * `pc` - The PC of the instruction that made the access, if it has one
     /// * `hit` - Whether the access was a cache hit
     ///
     /// # Returns
     ///
     /// A vector of addresses to prefetch. Empty if no prefetches are needed.
-    fn observe(&mut self, addr: u64, hit: bool) -> Vec<u64>;
+    fn observe(&mut self, addr: u64, pc: Option<VirtAddr>, hit: bool) -> Vec<u64>;
 }

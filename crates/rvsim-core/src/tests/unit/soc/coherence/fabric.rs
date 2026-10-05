@@ -467,6 +467,7 @@ fn an_uncached_access_crosses_the_fabric_to_the_llc_and_back() {
             req_id,
             paddr: PhysAddr::new(0x80000400),
             vaddr: None,
+            pc: None,
             size: AccessSize::B8,
             op: MemOp::Read,
         },

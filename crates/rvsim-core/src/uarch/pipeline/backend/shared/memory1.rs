@@ -778,12 +778,13 @@ fn emit_span_read<E: ExecutionEngine>(
     let target = ComponentId::Cache(common.l1_d_id);
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
     let size = AccessSize::Span(bytes as u8);
+    let pc = VirtAddr::new(ex.pc);
     let cycle = state.cycle;
     state.events().schedule(
         cycle,
         target,
         pipeline,
-        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size, op: MemOp::Read },
+        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), pc: Some(pc), size, op: MemOp::Read },
     );
     let _ = engine.common_mut().outstanding_loads.insert(
         req_id,
@@ -831,11 +832,12 @@ fn emit_load_req<E: ExecutionEngine>(
 
     let cycle = state.cycle;
     let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
+    let pc = VirtAddr::new(ex.pc);
     state.events().schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), size: first_size, op },
+        Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), pc: Some(pc), size: first_size, op },
     );
     // The bytes past the line boundary are a second cache access.
     if let (Some(second), Some(low)) = (second_line, low_bytes) {
@@ -850,6 +852,7 @@ fn emit_load_req<E: ExecutionEngine>(
                 req_id: second_id,
                 paddr: second,
                 vaddr: Some(vaddr),
+                pc: Some(pc),
                 size: AccessSize::of_bytes((width_bytes - low) as usize),
                 op: MemOp::Read,
             },
@@ -901,6 +904,7 @@ fn park_walk<E: ExecutionEngine>(
             req_id,
             paddr: pte_addr,
             vaddr: None,
+            pc: None,
             size: AccessSize::B8,
             op: MemOp::Read,
         },

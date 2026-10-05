@@ -1,45 +1,47 @@
 //! Stride Prefetcher.
 //!
-//! A prefetcher that detects constant stride patterns in memory accesses.
-//! It maintains a Reference Prediction Table (RPT) to track the last address
-//! and stride for different instruction streams (hashed by address).
-//!
-//! Prefetching is triggered only when a stable stride pattern is established
-//! (confidence threshold is met).
-//!
-//! # Performance
-//!
-//! - **Time Complexity:**
-//!   - `update()`: O(1)
-//!   - `get_prefetch_candidates()`: O(D) where D is the prefetch degree
-//! - **Space Complexity:** O(T) where T is the table size (typically 64-256 entries)
-//! - **Hardware Cost:** Moderate - small table, simple arithmetic
-//! - **Best Case:** Regular strided patterns (array traversals, matrix operations)
-//! - **Worst Case:** Irregular or random access patterns (linked lists, hash tables)
+//! A reference prediction table (Chen and Baer; gem5's `StridePrefetcher`)
+//! indexed and tagged by the PC of the load that made the access, so each
+//! static load learns its own stride whatever its magnitude. An access
+//! without a PC (a store draining after commit, a page walk, a writeback)
+//! does not train it. Prefetching starts once the same stride has repeated
+//! enough to saturate the entry's confidence.
 
 use super::Prefetcher;
+use crate::common::VirtAddr;
 
-/// Entry in the Reference Prediction Table.
-#[derive(Clone, Copy, Debug, Default)]
-struct StreamEntry {
-    /// The last address accessed by this stream.
+/// Confidence at which an entry prefetches.
+const MAX_CONFIDENCE: u8 = 3;
+
+/// A load's entry in the reference prediction table.
+#[derive(Clone, Copy, Debug)]
+struct StrideEntry {
+    /// The load this entry tracks.
+    pc: VirtAddr,
+    /// The address the load last accessed.
     last_addr: u64,
-    /// The detected stride (difference between consecutive accesses).
+    /// The stride between its last two accesses that confidence is built on.
     stride: i64,
-    /// Confidence counter (2-bit saturating).
+    /// Saturating confidence in `stride`.
     confidence: u8,
+}
+
+impl StrideEntry {
+    const fn new(pc: VirtAddr, addr: u64) -> Self {
+        Self { pc, last_addr: addr, stride: 0, confidence: 0 }
+    }
 }
 
 /// Stride Prefetcher state.
 #[derive(Debug)]
 pub struct StridePrefetcher {
-    /// Reference Prediction Table.
-    table: Vec<StreamEntry>,
+    /// Reference prediction table, direct-mapped on the PC.
+    table: Vec<Option<StrideEntry>>,
     /// Size of a cache line in bytes.
     line_bytes: u64,
     /// Mask used to index the table.
     table_mask: usize,
-    /// Number of lines to prefetch ahead.
+    /// Number of strides to prefetch ahead.
     degree: usize,
 }
 
@@ -54,57 +56,60 @@ impl StridePrefetcher {
     pub fn new(line_bytes: usize, table_size: usize, degree: usize) -> Self {
         let safe_size =
             if table_size > 0 && table_size.is_power_of_two() { table_size } else { 64 };
-
         Self {
-            table: vec![StreamEntry::default(); safe_size],
+            table: vec![None; safe_size],
             line_bytes: line_bytes as u64,
             table_mask: safe_size - 1,
             degree: if degree == 0 { 1 } else { degree },
         }
     }
+
+    /// Instructions are at least 2-byte aligned, so bit 0 of a PC carries
+    /// no information.
+    const fn index(&self, pc: VirtAddr) -> usize {
+        (pc.val() >> 1) as usize & self.table_mask
+    }
+
+    /// The lines `degree` strides ahead of `addr`.
+    fn targets(&self, addr: u64, stride: i64) -> Vec<u64> {
+        if stride == 0 {
+            return Vec::new();
+        }
+        (1..=self.degree as i64)
+            .map(|k| (addr as i64).wrapping_add(stride.wrapping_mul(k)) as u64)
+            .map(|target| target & !(self.line_bytes - 1))
+            .collect()
+    }
 }
 
 impl Prefetcher for StridePrefetcher {
-    /// Observes a memory access and generates prefetch candidates.
-    ///
-    /// Updates the tracking table with the current address. If a consistent
-    /// stride is detected (confidence > 1), generates prefetch requests
-    /// for future addresses based on that stride.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The memory address being accessed.
-    /// * `_hit` - Whether the access was a cache hit (ignored).
-    ///
-    /// # Returns
-    ///
-    /// A vector of addresses to prefetch.
-    fn observe(&mut self, addr: u64, _hit: bool) -> Vec<u64> {
-        let idx = ((addr >> 6) as usize) & self.table_mask;
-        let entry = &mut self.table[idx];
+    /// Trains the entry of the load at `pc` on `addr` and, once its stride
+    /// has repeated with full confidence, returns the lines `degree`
+    /// strides ahead. A load whose entry another load holds takes it over.
+    fn observe(&mut self, addr: u64, pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
+        let Some(pc) = pc else { return Vec::new() };
+        let index = self.index(pc);
+        let slot = &mut self.table[index];
+        if slot.is_none_or(|entry| entry.pc != pc) {
+            *slot = Some(StrideEntry::new(pc, addr));
+            return Vec::new();
+        }
+        let Some(entry) = slot.as_mut() else { return Vec::new() };
 
-        let current_stride = (addr as i64) - (entry.last_addr as i64);
-        let mut prefetches = Vec::new();
-
-        if current_stride == entry.stride {
-            if entry.confidence < 3 {
+        let stride = (addr as i64).wrapping_sub(entry.last_addr as i64);
+        entry.last_addr = addr;
+        if stride == entry.stride {
+            if entry.confidence < MAX_CONFIDENCE {
                 entry.confidence += 1;
-            } else {
-                for k in 1..=self.degree {
-                    let lookahead = entry.stride * k as i64;
-                    let target = (addr as i64 + lookahead) as u64;
-
-                    let aligned = target & !(self.line_bytes - 1);
-                    prefetches.push(aligned);
-                }
+                return Vec::new();
             }
-        } else if entry.confidence > 0 {
+            return self.targets(addr, stride);
+        }
+        if entry.confidence > 0 {
             entry.confidence -= 1;
         } else {
-            entry.stride = current_stride;
+            entry.stride = stride;
         }
-
-        entry.last_addr = addr;
-        prefetches
+        Vec::new()
     }
 }

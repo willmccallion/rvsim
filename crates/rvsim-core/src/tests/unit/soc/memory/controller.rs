@@ -39,6 +39,7 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
             req_id,
             paddr: PhysAddr::new(paddr),
             vaddr: None,
+            pc: None,
             size: AccessSize::B8,
             op: MemOp::Read,
         },
@@ -74,6 +75,7 @@ fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
             req_id,
             paddr: PhysAddr::new(paddr),
             vaddr: None,
+            pc: None,
             size: AccessSize::B8,
             op: MemOp::Write {
                 data: WriteData::Small(0),
@@ -124,6 +126,7 @@ fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64
             req_id,
             paddr: PhysAddr::new(paddr),
             vaddr: None,
+            pc: None,
             size: AccessSize::Line,
             op: MemOp::Read,
         },
