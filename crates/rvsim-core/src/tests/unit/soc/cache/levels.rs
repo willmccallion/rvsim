@@ -883,6 +883,24 @@ fn a_writeback_for_a_held_line_marks_it_dirty_in_place() {
     );
 }
 
+/// A probe downgrades an upper cache's dirty copy and answers dirty; its
+/// writeback can reach us after the probe completed, while we hold the line
+/// Shared. The data was in the probe's answer, and a writeback carries no
+/// permission, so the line stays Shared.
+#[test]
+fn a_late_dirty_writeback_does_not_upgrade_a_shared_line() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.read(1, 0x0000);
+    let (down_id, _, _, _) = bench.downstream_requests().into_iter().next().expect("miss");
+    bench.fill_with(down_id, 0x0000, MesiState::Shared);
+    let _ = bench.drain();
+
+    bench.request_from(UPSTREAM, 2, 0x0000, MemOp::Writeback { dirty: true });
+    let _ = bench.drain();
+
+    assert_eq!(bench.state_of(0x0000), Some(MesiState::Shared));
+}
+
 #[test]
 fn exclusive_lower_level_gives_up_its_copy_when_it_fills_the_upper_one() {
     let mut cache = cache_with(&test_config());
