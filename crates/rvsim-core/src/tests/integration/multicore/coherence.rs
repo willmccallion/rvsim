@@ -4,7 +4,10 @@
 
 use crate::common::{LineAddr, PhysAddr};
 use crate::config::BackendKind;
-use crate::config::{Config, HomeAgentConfig, InterconnectConfig};
+use crate::config::{
+    Config, HomeAgentConfig, InterconnectConfig, LoadPrefetcherConfig, PageBoundary,
+    StorePrefetcherConfig,
+};
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use crate::sim::packet::MesiState;
@@ -25,7 +28,11 @@ const A0: u32 = 10;
 const A1: u32 = 11;
 const A2: u32 = 12;
 const A3: u32 = 13;
+const A4: u32 = 14;
+const A5: u32 = 15;
+const A6: u32 = 16;
 const A7: u32 = 17;
+const S2: u32 = 18;
 const MHARTID: u32 = 0xF14;
 const SYS_EXIT: i32 = 93;
 const AUDIT_EVERY: u64 = 32;
@@ -386,4 +393,136 @@ fn a_clean_leaves_the_writer_holding_its_line_clean() {
         );
         assert!(writer.1.is_some(), "{backend:?}: the writer keeps its copy");
     }
+}
+
+/// `cached` with every data prefetcher on: the cache-side stride table, the
+/// load/store unit's load prefetcher, and the L1D's store prefetcher, which
+/// takes lines into the L2 with write permission.
+fn prefetching(harts: usize, backend: BackendKind) -> Config {
+    let mut config = cached(harts, backend);
+    config.cache.load_prefetcher = LoadPrefetcherConfig::Stride {
+        table_size: 64,
+        l1_lines: 2,
+        l2_lines: 8,
+        page_boundary: PageBoundary::CrossWithTlb,
+    };
+    config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 4 };
+    config
+}
+
+const STREAM_LINES: i32 = 32;
+
+/// Hart 0 stores word 0 of 32 adjacent lines in order, a run its store
+/// prefetcher follows with exclusive prefetches; meanwhile every other
+/// hart walks the same lines `rounds` times incrementing its own word, a
+/// stride its load prefetcher learns. After a barrier hart 0 exits with
+/// the sum of every word.
+fn contended_streams(harts: i32, rounds: i32) -> Vec<u32> {
+    const READER: i32 = 16;
+    const BARRIER: i32 = 29;
+    const SUM_LOOP: i32 = 41;
+    let i = InstructionBuilder::new;
+    let mut code = vec![
+        i().addi(T0, 0, 31).build(),
+        i().addi(T2, 0, 1).build(),
+        i().sll(T2, T2, T0).build(),
+        i().addi(T2, T2, 0x400).build(),
+        i().lui(A4, 1).build(),
+        i().add(A4, T2, A4).build(),
+        i().csrrs(T5, MHARTID, 0).build(),
+        i().bne(T5, 0, (READER - 7) * 4).build(),
+        i().addi(T1, 0, STREAM_LINES).build(),
+        i().addi(A5, A4, 0).build(),
+        i().addi(T6, 0, 1).build(),
+        i().sd(A5, T6, 0).build(),
+        i().addi(A5, A5, 64).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, (11 - 14) * 4).build(),
+        i().jal(0, (BARRIER - 15) * 4).build(),
+    ];
+    assert_eq!(code.len() as i32, READER);
+    code.extend([
+        i().addi(T6, 0, 3).build(),
+        i().sll(A6, T5, T6).build(),
+        i().addi(S2, 0, rounds).build(),
+        i().add(A5, A4, A6).build(),
+        i().addi(T1, 0, STREAM_LINES).build(),
+        i().ld(T6, A5, 0).build(),
+        i().addi(T6, T6, 1).build(),
+        i().sd(A5, T6, 0).build(),
+        i().addi(A5, A5, 64).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, (21 - 26) * 4).build(),
+        i().addi(S2, S2, -1).build(),
+        i().bne(S2, 0, (19 - 28) * 4).build(),
+    ]);
+    assert_eq!(code.len() as i32, BARRIER);
+    let idle = SUM_LOOP + 2 * harts + 5;
+    code.extend([
+        FENCE_IORW,
+        i().addi(T3, T2, 0x88).build(),
+        i().addi(T6, 0, 1).build(),
+        i().amoadd_d(0, T3, T6).build(),
+        i().bne(T5, 0, (idle - 33) * 4).build(),
+        i().ld(A2, T3, 0).build(),
+        i().addi(A3, 0, harts).build(),
+        i().bne(A2, A3, -8).build(),
+        FENCE_IORW,
+        i().addi(A0, 0, 0).build(),
+        i().addi(A5, A4, 0).build(),
+        i().addi(T1, 0, STREAM_LINES).build(),
+    ]);
+    assert_eq!(code.len() as i32, SUM_LOOP);
+    for hart in 0..harts {
+        code.push(i().ld(A1, A5, hart * 8).build());
+        code.push(i().add(A0, A0, A1).build());
+    }
+    let back = SUM_LOOP - (code.len() as i32 + 2);
+    code.extend([
+        i().addi(A5, A5, 64).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, back * 4).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]);
+    assert_eq!(code.len() as i32, idle);
+    code.push(i().jal(0, 0).build());
+    code
+}
+
+fn core_stat(system: &MultiHart, path: &str) -> u64 {
+    system.sim.state.stats.get(path).unwrap_or(0.0) as u64
+}
+
+#[test]
+fn prefetches_contending_for_lines_other_cores_write_stay_coherent() {
+    let rounds = 3;
+    for harts in [2, 4] {
+        for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+            let label = format!("{harts} {backend:?}");
+            let config = prefetching(harts, backend);
+            let mut system =
+                MultiHart::with_config(&config, &contended_streams(harts as i32, rounds));
+
+            let exit = run_audited(&mut system, 6_000_000);
+
+            let expected = STREAM_LINES as u64 * (1 + (harts as u64 - 1) * rounds as u64);
+            assert_eq!(exit, Some(expected), "{label}: every word's final value");
+            assert!(
+                core_stat(&system, "core0.cache.l1d.prefetches.store_stream") > 0,
+                "{label}: hart 0's store run was prefetched"
+            );
+            assert!(
+                core_stat(&system, "core1.prefetch.loads.l1") > 0,
+                "{label}: hart 1's stride was prefetched"
+            );
+            assert!(fabric_stat(&system, "coherence.ha.snoops_sent") > 0, "{label}: lines moved");
+        }
+    }
+}
+
+#[test]
+fn every_program_stays_exact_with_every_prefetcher_on() {
+    check_all_programs(&prefetching(2, BackendKind::InOrder), "2 inorder prefetching");
+    check_all_programs(&prefetching(4, BackendKind::OutOfOrder), "4 o3 prefetching");
 }
