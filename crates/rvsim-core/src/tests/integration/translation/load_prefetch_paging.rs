@@ -32,6 +32,8 @@ const GIGAPAGE_FRAME: u64 = 0x8000_0000;
 const PTE_V: u64 = 1;
 const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 const PTE_LEAF_X_A: u64 = 0b0100_1001;
+const PMP_NAPOT: u8 = 0b0001_1000;
+const PMP_RWX: u8 = 0b0000_0111;
 const STRIDE: i32 = 256;
 /// Loads across the whole first page, each address depending on the last
 /// load's (zero) value so the misses do not fill every MSHR and leave the
@@ -91,6 +93,9 @@ enum Data {
     /// The second 4 KiB page is execute-only, and its translation is
     /// already in the data TLB.
     ExecuteOnlySecondPage,
+    /// The second 4 KiB page is mapped readable and its translation is in
+    /// the data TLB, but PMP denies its frame.
+    PmpDeniedSecondPage,
     /// One 2 MiB megapage at `FIRST_FRAME`.
     Megapage,
     /// One 1 GiB gigapage at `GIGAPAGE_FRAME`.
@@ -145,6 +150,12 @@ impl PageTables {
     }
 }
 
+/// `pmpaddr` for the naturally aligned power-of-two region of `bytes` at
+/// `base`.
+const fn napot(base: u64, bytes: u64) -> u64 {
+    (base >> 2) | ((bytes >> 3) - 1)
+}
+
 const fn index_at(va: u64, level: u32) -> u64 {
     (va >> (12 + 9 * level)) & 0x1ff
 }
@@ -178,7 +189,10 @@ fn map_data(ctx: &mut TestContext, tables: &mut PageTables, data_va: u64, data: 
     match data {
         Data::Megapage => tables.map(ctx, data_va, FIRST_FRAME, 1, PTE_LEAF_RWX_AD),
         Data::Gigapage => tables.map(ctx, data_va, GIGAPAGE_FRAME, 2, PTE_LEAF_RWX_AD),
-        Data::TouchedSecondPage | Data::UntouchedSecondPage | Data::ExecuteOnlySecondPage => {
+        Data::TouchedSecondPage
+        | Data::UntouchedSecondPage
+        | Data::ExecuteOnlySecondPage
+        | Data::PmpDeniedSecondPage => {
             tables.map(ctx, data_va, FIRST_FRAME, 0, PTE_LEAF_RWX_AD);
             tables.map(ctx, next_va, SECOND_FRAME, 0, PTE_LEAF_RWX_AD);
         }
@@ -231,15 +245,27 @@ fn run(backend: BackendKind, mode: Mode, page_boundary: PageBoundary, data: Data
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.satp = (mode.satp_mode() << 60) | tables.root;
         hart.privilege = PrivilegeMode::Supervisor;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        if matches!(data, Data::PmpDeniedSecondPage) {
+            hart.pmp.set_addr(0, napot(SECOND_FRAME, 0x1000));
+            hart.pmp.set_cfg(0, PMP_NAPOT);
+            hart.pmp.set_addr(1, u64::MAX >> 10);
+            hart.pmp.set_cfg(1, PMP_NAPOT | PMP_RWX);
+        } else {
+            hart.pmp.set_addr(0, u64::MAX >> 10);
+            hart.pmp.set_cfg(0, 0b0000_1111);
+        }
         hart.pc = CODE;
     }
-    if matches!(data, Data::ExecuteOnlySecondPage) {
+    let second_page_in_tlb = match data {
+        Data::ExecuteOnlySecondPage => Some(PTE_LEAF_X_A),
+        Data::PmpDeniedSecondPage => Some(PTE_LEAF_RWX_AD),
+        _ => None,
+    };
+    if let Some(flags) = second_page_in_tlb {
         let vpn = Vpn::new(((data_va + 0x1000) >> 12) & ((1 << 44) - 1));
         let ppn = Ppn::new(SECOND_FRAME >> 12);
         let dtlb = &mut ctx.sim.state.cores[0].units.mmu.dtlb;
-        dtlb.insert(vpn, ppn, PTE_LEAF_X_A | PTE_V, Asid::new(0), PageSize::Kib4);
+        dtlb.insert(vpn, ppn, flags | PTE_V, Asid::new(0), PageSize::Kib4);
     }
     ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
@@ -303,6 +329,16 @@ fn crossing_drops_a_prefetch_into_a_page_the_load_may_not_read() {
             assert!(!outcome.holds(AFTER_FIRST_FRAME), "{machine}");
         },
     );
+}
+
+#[test]
+fn crossing_drops_a_prefetch_into_a_frame_pmp_denies() {
+    for_every_machine(PageBoundary::CrossWithTlb, Data::PmpDeniedSecondPage, |outcome, machine| {
+        assert!(outcome.denied > 0.0, "{machine}");
+        assert!(!outcome.holds(SECOND_FRAME), "{machine}");
+        assert!(outcome.prefetched_into(SECOND_FRAME).is_empty(), "{machine}");
+        assert!(!outcome.holds(AFTER_FIRST_FRAME), "{machine}");
+    });
 }
 
 #[test]
