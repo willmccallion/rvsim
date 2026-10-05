@@ -11,9 +11,12 @@ from .memory import (
     _DISABLED_CACHE_DICT,
     _DISABLED_CACHE_DICT_ZERO,
     Cache,
+    LoadPrefetcher,
     MemoryController,
+    PageBoundary,
     Prefetcher,
     ReplacementPolicy,
+    StorePrefetcher,
 )
 
 if TYPE_CHECKING:
@@ -235,6 +238,36 @@ def _inclusion_policy_name(ip) -> str:
     if isinstance(ip, Cache.Exclusive):
         return "Exclusive"
     raise TypeError(f"Unknown inclusion policy type: {type(ip)}")
+
+
+def _load_prefetcher_to_dict(p: LoadPrefetcher.Stride | None) -> dict[str, Any]:
+    """Serialize the load/store unit's load prefetcher."""
+    if p is None:
+        return {"kind": "None"}
+    if not isinstance(p, LoadPrefetcher.Stride):
+        raise TypeError(f"Unknown load prefetcher type: {type(p)}")
+    if isinstance(p.page_boundary, PageBoundary.Stop):
+        page_boundary = "Stop"
+    elif isinstance(p.page_boundary, PageBoundary.CrossWithTlb):
+        page_boundary = "CrossWithTlb"
+    else:
+        raise TypeError(f"Unknown page boundary type: {type(p.page_boundary)}")
+    return {
+        "kind": "Stride",
+        "table_size": p.table_size,
+        "l1_lines": p.l1_lines,
+        "l2_lines": p.l2_lines,
+        "page_boundary": page_boundary,
+    }
+
+
+def _store_prefetcher_to_dict(p: StorePrefetcher.Stream | None) -> dict[str, Any]:
+    """Serialize the L1D's store-miss prefetcher."""
+    if p is None:
+        return {"kind": "None"}
+    if not isinstance(p, StorePrefetcher.Stream):
+        raise TypeError(f"Unknown store prefetcher type: {type(p)}")
+    return {"kind": "Stream", "streams": p.streams, "l2_lines": p.l2_lines}
 
 
 def _mc_name(mc) -> str:
@@ -553,6 +586,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         ),
         "inclusion_policy": _inclusion_policy_name(cfg.inclusion_policy),
         "wcb_entries": cfg.wcb_entries,
+        "load_prefetcher": _load_prefetcher_to_dict(cfg.load_prefetcher),
+        "store_prefetcher": _store_prefetcher_to_dict(cfg.store_prefetcher),
     }
 
     # Pipeline — always emit all BP sub-configs with defaults

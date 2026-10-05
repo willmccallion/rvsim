@@ -9,7 +9,15 @@ from ._config import Config, load_config
 from .backend import Backend, Fu
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence, HomeAgent, Interconnect
-from .memory import Cache, MemoryController, Prefetcher, ReplacementPolicy
+from .memory import (
+    Cache,
+    LoadPrefetcher,
+    MemoryController,
+    PageBoundary,
+    Prefetcher,
+    ReplacementPolicy,
+    StorePrefetcher,
+)
 
 __all__ = [
     "Backend",
@@ -20,9 +28,12 @@ __all__ = [
     "Fu",
     "HomeAgent",
     "Interconnect",
+    "LoadPrefetcher",
     "MemDepPredictor",
     "MemoryController",
+    "PageBoundary",
     "Prefetcher",
     "ReplacementPolicy",
+    "StorePrefetcher",
     "load_config",
 ]

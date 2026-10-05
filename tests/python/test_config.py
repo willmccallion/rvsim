@@ -7,7 +7,14 @@ import inspect
 import pickle
 import unittest
 
-from rvsim import Config, Simulator, presets
+from rvsim import (
+    Config,
+    LoadPrefetcher,
+    PageBoundary,
+    Simulator,
+    StorePrefetcher,
+    presets,
+)
 
 
 class Replace(unittest.TestCase):
@@ -56,6 +63,30 @@ class Pickle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Prefetchers(unittest.TestCase):
+    def test_the_load_and_store_prefetchers_reach_the_core(self):
+        config = Config(
+            load_prefetcher=LoadPrefetcher.Stride(
+                l1_lines=4, l2_lines=22, page_boundary=PageBoundary.CrossWithTlb()
+            ),
+            store_prefetcher=StorePrefetcher.Stream(streams=4, l2_lines=8),
+        )
+
+        cache = config.to_dict()["cache"]
+        Simulator(config)
+
+        self.assertEqual(cache["load_prefetcher"]["page_boundary"], "CrossWithTlb")
+        self.assertEqual(
+            cache["store_prefetcher"], {"kind": "Stream", "streams": 4, "l2_lines": 8}
+        )
+
+    def test_no_prefetcher_by_default(self):
+        cache = Config().to_dict()["cache"]
+
+        self.assertEqual(cache["load_prefetcher"], {"kind": "None"})
+        self.assertEqual(cache["store_prefetcher"], {"kind": "None"})
 
 
 class Validation(unittest.TestCase):
