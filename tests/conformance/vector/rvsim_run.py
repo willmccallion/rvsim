@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Run a single arch-test ELF on rvsim and dump the signature region.
+"""Run a single vector test ELF on rvsim and dump the signature region.
 
 Usage:
     python rvsim_run.py <elf> <signature_file>
 
 Loads the ELF, runs it on rvsim, extracts the memory region between
-begin_signature and end_signature symbols, and writes it in the hex
-format riscof expects (one 32-bit word per line, big-endian hex).
+begin_signature and end_signature symbols, and writes it as spike's
++signature does (one 32-bit word per line in hex).
 """
 
 import os
@@ -16,9 +16,7 @@ import sys
 
 # Ensure rvsim is importable from the repo root
 REPO_ROOT = os.path.dirname(
-    os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    )
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 sys.path.insert(0, REPO_ROOT)
 
@@ -107,7 +105,6 @@ def main():
     # Extract signature from memory
     sig_bytes = bytes(cpu.read_phys_bytes(begin_sig, sig_size))
 
-    # Write signature in riscof format: one 32-bit word per line, big-endian hex
     with open(sig_file, "w") as f:
         for offset in range(0, len(sig_bytes), 4):
             word = struct.unpack_from("<I", sig_bytes, offset)[0]

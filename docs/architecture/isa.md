@@ -149,6 +149,5 @@ set.
 |-------|--------|
 | [riscv-tests](https://github.com/riscv-software-src/riscv-tests) (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `mi`, `si`) | 134 of 134 pass |
 | [riscv-vector-tests](https://github.com/chipsalliance/riscv-vector-tests), cross-checked element by element against spike | 3023 of 3023 programs pass at VLEN 128 |
-| riscv-arch-test through RISCOF | run by `make arch-test` |
 | Multi-core litmus and coherence programs | see [Multi-core](multicore.md) |
 | Linux 6.6 through OpenSBI to a BusyBox shell | boots on one and eight harts |
