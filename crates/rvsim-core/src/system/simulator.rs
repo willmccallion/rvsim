@@ -372,9 +372,16 @@ impl Simulator {
             let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
             pipeline.flush(&mut ctx);
         }
-        while self.drain_writes_for_a_cycle() {}
+        if self.committed_writes_pending() {
+            while self.drain_writes_for_a_cycle() {}
+        }
         let uncore = &mut self.state.uncore;
         uncore.bus.drain_devices(&mut uncore.memory);
+    }
+
+    /// Whether any core has a committed store yet to finish writing.
+    fn committed_writes_pending(&self) -> bool {
+        self.state.cores.iter().any(|core| core.pipeline.has_committed_writes(&core.units))
     }
 
     /// Runs one cycle of the memory system in which each drained core sends

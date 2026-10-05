@@ -654,6 +654,18 @@ impl PipelineDispatch {
         }
     }
 
+    /// Whether a committed store has yet to finish writing: one in the
+    /// store buffer, the vector store buffer or the write-combining buffer.
+    pub fn has_committed_writes(&self, units: &crate::uarch::CoreUnits) -> bool {
+        let (store_buffer, vec_store_buffer) = match self {
+            Self::InOrder(p) => (p.engine.store_buffer(), p.engine.vec_store_buffer()),
+            Self::OutOfOrder(p) => (p.engine.store_buffer(), p.engine.vec_store_buffer()),
+        };
+        store_buffer.has_committed_stores()
+            || vec_store_buffer.has_committed_stores()
+            || units.wcb.has_pending()
+    }
+
     /// See [`Pipeline::is_idle`].
     pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::uarch::CoreUnits) -> bool {
         match self {
