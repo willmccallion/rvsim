@@ -65,16 +65,31 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
-      # What these are built from is pinned in tests/conformance/sources.mk;
-      # the toolchain comes from flake.lock.
+      # Each test build is cached on exactly what it is made from: its
+      # pinned commit in tests/conformance/sources.mk, the toolchain in
+      # flake.lock, and CACHE_EPOCH for a recipe change. spike takes
+      # minutes to build, so nothing else may invalidate it.
+      - name: Read the pins
+        id: pins
+        run: |
+          pin() { sed -n "s/^$1 *:= *//p" tests/conformance/sources.mk; }
+          echo "spike=$(pin SPIKE_REV)" >> "$GITHUB_OUTPUT"
+          echo "riscv_tests=$(pin RISCV_TESTS_REV)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(pin CACHE_EPOCH)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: tests/builds/spike-install
+          key: spike-${{ steps.pins.outputs.spike }}-${{ steps.pins.outputs.epoch }}-${{ hashFiles('flake.lock') }}
+      - uses: actions/cache@v4
+        with:
+          path: tests/builds/riscv-tests
+          key: riscv-tests-${{ steps.pins.outputs.riscv_tests }}-${{ steps.pins.outputs.epoch }}-${{ hashFiles('flake.lock') }}
       - uses: actions/cache@v4
         with:
           path: |
-            tests/builds/spike-install
-            tests/builds/riscv-tests
             tests/builds/riscv-vector-tests
             tests/builds/vector-smoke
-          key: conformance-${{ hashFiles('tests/conformance/sources.mk', 'flake.lock', 'tests/conformance/vector/build_tests.sh') }}
+          key: vector-${{ hashFiles('tests/conformance/sources.mk', 'tests/conformance/vector/build_tests.sh', 'flake.lock') }}
       - name: Fetch the dev shell
         run: nix develop --command true
       - name: Build the bindings, guest programs and test binaries

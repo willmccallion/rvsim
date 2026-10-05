@@ -1,8 +1,9 @@
 # What the cached conformance builds are made from: the upstream commits
 # spike, riscv-tests and the vector generator are cloned at, and the RVV
-# smoke sample. CI keys its cache of tests/builds on this file, so a change
-# here rebuilds them; change CACHE_EPOCH to force that after editing a build
-# recipe in the Makefile.
+# smoke sample. CI caches each build on its own pin (and the vector builds
+# on this whole file), so changing one rebuilds only that; change
+# CACHE_EPOCH to rebuild them all after editing a build recipe in the
+# Makefile.
 CACHE_EPOCH := 1
 
 SPIKE_REV        := 20feb9c2bf2a7deab964d8190b0cbd4b4131bec3
