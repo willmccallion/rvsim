@@ -5,6 +5,7 @@ pub mod interrupts;
 pub mod memory;
 pub mod multicore;
 pub mod pipeline;
+pub mod stats_accounting;
 pub mod system;
 pub mod translation;
 pub mod vector;
