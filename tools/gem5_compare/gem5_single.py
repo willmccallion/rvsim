@@ -40,6 +40,7 @@ from m5.objects import (
     ReadPort,
     RiscvO3CPU,
     SIMD_Unit,
+    StridePrefetcher,
     SystemXBar,
     TAGEBase,
     TaggedPrefetcher,
@@ -153,9 +154,28 @@ class VariantCacheHierarchy(PrivateL1PrivateL2CacheHierarchy):
             for _ in range(board.get_processor().get_num_cores())
         ]
         degree = variant["l1d_prefetch_degree"]
-        l1d_prefetcher = (
-            (lambda: TaggedPrefetcher(degree=degree)) if degree else no_prefetcher
-        )
+        stride = variant["l1d_stride_prefetch"]
+        if stride:
+
+            def l1d_prefetcher():
+                return StridePrefetcher(
+                    degree=stride["degree"],
+                    table_entries=str(stride["table_size"]),
+                    table_assoc=1,
+                    confidence_counter_bits=2,
+                    initial_confidence=0,
+                    confidence_threshold=100,
+                    prefetch_on_access=True,
+                    on_write=False,
+                )
+
+        elif degree:
+
+            def l1d_prefetcher():
+                return TaggedPrefetcher(degree=degree)
+
+        else:
+            l1d_prefetcher = no_prefetcher
         for i, cpu in enumerate(board.get_processor().get_cores()):
             l2 = variant["l2"]
             l2_node = self.add_root_child(
