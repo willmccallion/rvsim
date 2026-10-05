@@ -302,6 +302,10 @@ fn only_the_l2s_take_part_in_coherence(rec: &mut Recorder) {
             rec.expect(&system.sim, &format!("llc.coherence.{stat}"), 0, &context);
         }
         rec.expect(&system.sim, "llc.probes", 0, &context);
+        for core in 0..2 {
+            // The home snoops the L2s; only the levels above an L2 are probed.
+            rec.expect(&system.sim, &format!("core{core}.cache.l2.probes"), 0, &context);
+        }
         let fetched = sum_over_cores(rec, &system, "cache.l1i.probes");
         assert!(fetched <= rec.read(&system.sim, "coherence.ha.snoops_sent"), "{context}");
     }
