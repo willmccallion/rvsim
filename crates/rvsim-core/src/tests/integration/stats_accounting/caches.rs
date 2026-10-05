@@ -235,6 +235,20 @@ fn back_invalidation_of_a_dropped_line() -> (Vec<u32>, u64) {
     ])
 }
 
+fn an_inclusive_llc_eviction_drops_the_l2_copy(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = hierarchy(backend);
+        sized(&mut config.cache.l3, 4096, 1);
+        config.cache.inclusion_policy = InclusionPolicy::Inclusive;
+
+        let ctx = run_settled(&config, l2_conflict(), &context);
+
+        rec.expect(&ctx.sim, "llc.evictions", 1, &context);
+        rec.expect(&ctx.sim, "core0.cache.l2.back_invalidations", 1, &context);
+    }
+}
+
 fn a_back_invalidation_for_a_line_already_gone_drops_nothing(rec: &mut Recorder) {
     for backend in BACKENDS {
         let context = format!("{backend:?}");
@@ -348,14 +362,152 @@ fn store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr(rec: &mut Recor
     }
 }
 
+/// `hierarchy` with every prefetcher on, the load/store unit's included,
+/// and the L2 and LLC inclusive of the levels above them.
+fn everything_on(backend: BackendKind) -> Config {
+    let mut config = prefetching_hierarchy(backend);
+    config.cache.inclusion_policy = InclusionPolicy::Inclusive;
+    config.cache.load_prefetcher = crate::config::LoadPrefetcherConfig::Stride {
+        table_size: 64,
+        l1_lines: 2,
+        l2_lines: 4,
+        page_boundary: crate::config::PageBoundary::Stop,
+    };
+    config
+}
+
+fn stats_a_level_cannot_count_stay_zero(rec: &mut Recorder) {
+    let never = [
+        // An instruction cache never holds a dirty line.
+        ("core0.cache.l1i.writebacks", "nothing to write back"),
+        // Only the L1D has a store-miss prefetcher.
+        ("core0.cache.l1i.prefetches.store_stream", "no store prefetcher"),
+        ("core0.cache.l2.prefetches.store_stream", "no store prefetcher"),
+        ("llc.prefetches.store_stream", "no store prefetcher"),
+        // Prefetch requests come from above: none reach the L1I, and none
+        // ask for the LLC.
+        ("core0.cache.l1i.prefetches.dropped", "no prefetch request reaches it"),
+        ("llc.prefetches.dropped", "no prefetch request targets it"),
+        // Fetch keeps one line request in flight, and a prefetch never
+        // takes the last MSHR.
+        ("core0.cache.l1i.blocked_requests", "one fetch in flight"),
+        // Nothing below the LLC evicts its lines.
+        ("llc.back_invalidations", "no level below it"),
+    ];
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+
+        let ctx = run_settled(&everything_on(backend), read_modify_write_lines(512), &context);
+
+        for (path, why) in never {
+            rec.expect(&ctx.sim, path, 0, &format!("{context}: {why}"));
+        }
+    }
+}
+
+fn every_level_writes_back_and_drops_what_an_inclusive_level_below_evicts(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+
+        let ctx = run_settled(&everything_on(backend), read_modify_write_lines(512), &context);
+
+        for cache in ["core0.cache.l1d", "core0.cache.l2"] {
+            let written = rec.read(&ctx.sim, &format!("{cache}.writebacks"));
+            let evicted = rec.read(&ctx.sim, &format!("{cache}.evictions"));
+            assert!((1..=evicted).contains(&written), "{context}: {cache}: {written} of {evicted}");
+        }
+        // Each level's own evictions run ahead of the bigger level's below
+        // it, which finds nothing left to drop; the L1I's code lines are
+        // still held when the L2 evicts them.
+        let dropped = rec.read(&ctx.sim, "core0.cache.l1i.back_invalidations");
+        assert!(dropped > 0, "{context}: the code lines evicted from the L2");
+    }
+}
+
+fn misses_beyond_each_levels_mshrs_wait_there(rec: &mut Recorder) {
+    let i = InstructionBuilder::new;
+    let program =
+        ending_in_spin((0..8).map(|n| i().ld(T0 + n % 3, A1, 64 * n as i32).build()).collect());
+    let context = "OutOfOrder width 4";
+    let mut config = hierarchy(BackendKind::OutOfOrder);
+    config.pipeline.width = 4;
+    config.cache.l1_d.mshr_count = 8;
+    config.cache.l2.mshr_count = 2;
+    config.cache.l3.mshr_count = 1;
+
+    let ctx = run_settled(&config, program, context);
+
+    for cache in ["core0.cache.l2", "llc"] {
+        let blocked = rec.read(&ctx.sim, &format!("{cache}.blocked_requests"));
+        assert!(blocked > 0, "{context}: {cache}: more misses than MSHRs");
+    }
+}
+
+fn next_line_candidates_past_the_page_are_dropped_at_every_level(rec: &mut Recorder) {
+    let i = InstructionBuilder::new;
+    let page_end = super::program::PROGRAM_BASE + 4096 - 4;
+    // Loads the data page's last line, then jumps to a spin in the last
+    // word of the code page.
+    let program = vec![
+        i().lui(T1, 1).build(),
+        i().add(T1, A1, T1).build(),
+        i().ld(T2, T1, -64).build(),
+        i().add(T2, T2, T2).build(),
+        i().lui(T0, 1).build(),
+        i().auipc(T1, 0).build(),
+        i().add(T1, T1, T0).build(),
+        i().jalr(0, T1, -4 - 20).build(),
+    ];
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = hierarchy(backend);
+        for cache in [&mut config.cache.l1_i, &mut config.cache.l2, &mut config.cache.l3] {
+            cache.prefetcher = PrefetcherKind::NextLine;
+        }
+        let mut ctx = system_with(&config, &program, &[]);
+        super::program::store_words(&mut ctx, page_end, &[i().jal(0, 0).build()]);
+
+        run_to_pc(&mut ctx, page_end, &context);
+        ctx.run(SETTLE);
+
+        for cache in ["core0.cache.l1i", "core0.cache.l2", "llc"] {
+            let crossing = rec.read(&ctx.sim, &format!("{cache}.prefetches.page_crossing"));
+            assert!(crossing > 0, "{context}: {cache}");
+        }
+    }
+}
+
+fn load_prefetches_the_l1d_cannot_take_are_dropped(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut dropped = [0; 2];
+        for (n, mshrs) in [2, 16].into_iter().enumerate() {
+            let mut config = everything_on(backend);
+            config.cache.l1_d.prefetcher = PrefetcherKind::None;
+            config.cache.l1_d.mshr_count = mshrs;
+
+            let ctx = run_settled(&config, read_modify_write_lines(48), &context);
+
+            dropped[n] = rec.read(&ctx.sim, "core0.cache.l1d.prefetches.dropped");
+        }
+        assert!(dropped[0] > dropped[1], "{context}: two MSHRs against sixteen: {dropped:?}");
+    }
+}
+
 accounting_checks!(
     every_level_fills_each_fetch_once_and_holds_what_it_did_not_evict,
     a_cold_line_misses_once_and_then_hits,
     a_dirty_victim_is_evicted_and_written_back,
     an_inclusive_l2_eviction_drops_the_l1_copy,
     a_back_invalidation_for_a_line_already_gone_drops_nothing,
+    an_inclusive_llc_eviction_drops_the_l2_copy,
     a_cbo_passes_through_and_counts_at_every_level,
     misses_beyond_the_mshrs_wait_as_blocked_requests,
     a_next_line_candidate_past_the_page_is_dropped,
     store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr,
+    stats_a_level_cannot_count_stay_zero,
+    every_level_writes_back_and_drops_what_an_inclusive_level_below_evicts,
+    misses_beyond_each_levels_mshrs_wait_there,
+    next_line_candidates_past_the_page_are_dropped_at_every_level,
+    load_prefetches_the_l1d_cannot_take_are_dropped,
 );
