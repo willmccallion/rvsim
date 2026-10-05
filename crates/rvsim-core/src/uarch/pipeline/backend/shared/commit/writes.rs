@@ -69,9 +69,11 @@ pub(super) fn send_data_store(
     let span = state.core.wcb.entry_bytes();
     for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width_to_bytes(width), span)
     {
-        match state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
-            Some(evicted) => send_wcb_line(state, common, &evicted),
-            None => state.uncore.stats.counter(state.core.stat_paths.wcb.coalesces).inc(),
+        if state.core.wcb.holds_entry_for(part_paddr) {
+            state.uncore.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
+        }
+        if let Some(evicted) = state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
+            send_wcb_line(state, common, &evicted);
         }
     }
     Vec::new()

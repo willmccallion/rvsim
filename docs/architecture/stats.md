@@ -151,7 +151,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.lsq.split_stores` | Stores whose data half issued after their address half |
 | `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |
 | `core<N>.lsq.coherence_violations` | Loads squashed for reading a line before a remote write an older load saw |
-| `core<N>.wcb.coalesces`, `.drains` | Stores merged into the write-combining buffer, and lines it wrote out |
+| `core<N>.wcb.coalesces`, `.drains` | Stores merged into a line the write-combining buffer already held, and lines it wrote to the L1D |
 | `core<N>.prefetch.loads.l1`, `.l2` | Load prefetches the load/store unit sent to fill the L1D, and to fill the L2 alone |
 | `core<N>.prefetch.loads.dropped.page_boundary`, `.tlb_miss`, `.denied`, `.not_ram` | Load prefetches not sent: past the trained page under `PageBoundary.Stop()`, next page not in the data TLB, a page or region the load may not read, not RAM |
 
