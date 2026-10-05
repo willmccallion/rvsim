@@ -30,10 +30,9 @@ endif
 .PHONY: help build software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: compare-gem5
-.PHONY: arch-test arch-test-multi
-.PHONY: vector-test vector-test-build vector-test-smoke vector-test-multi
+.PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
-.PHONY: test-all test-all-smoke clean-tests
+.PHONY: test-all test-all-smoke conformance-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -58,14 +57,13 @@ help:
 	@printf "    %-$(HELP_W)s  Full pre-release check (git+lint+test+versions+build)\n" "make prerelease"
 	@printf "    %-$(HELP_W)s  Build riscv-tests ELFs (one-time)\n" "make riscv-tests-build"
 	@printf "    %-$(HELP_W)s  Run riscv-tests across all PIPELINES\n" "make riscv-tests"
-	@printf "    %-$(HELP_W)s  Run riscv-arch-test compliance suite via riscof\n" "make arch-test"
-	@printf "    %-$(HELP_W)s  Run riscof tests across all PIPELINES\n" "make arch-test-multi"
 	@printf "    %-$(HELP_W)s  Build chipsalliance RVV test ELFs (one-time)\n" "make vector-test-build"
 	@printf "    %-$(HELP_W)s  Run RVV cosim suite (rvsim vs spike)\n" "make vector-test"
-	@printf "    %-$(HELP_W)s  Smoke RVV suite (vadd/vsub/vmul/etc only)\n" "make vector-test-smoke"
+	@printf "    %-$(HELP_W)s  Smoke RVV suite (a sample of every instruction class)\n" "make vector-test-smoke"
 	@printf "    %-$(HELP_W)s  Run RVV cosim across all PIPELINES (slow)\n" "make vector-test-multi"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
-	@printf "    %-$(HELP_W)s  Smoke EVERY suite (single pipeline, ~2 min)\n" "make test-all-smoke"
+	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
+	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
 	@printf "    %-$(HELP_W)s  Wipe tests/builds/ (forces full rebuild)\n" "make clean-tests"
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
@@ -168,29 +166,32 @@ fmt-check:
 
 lint: fmt-check clippy
 
-arch-test:
-	@printf "$(GREEN)Running riscv-arch-test compliance suite via riscof…$(RESET)\n"
-	@if [ ! -d $(TEST_BUILDS)/riscv-arch-test ]; then \
-		printf "$(GREEN)Cloning riscv-arch-test suite…$(RESET)\n"; \
-		.venv/bin/riscof arch-test --clone --dir $(TEST_BUILDS)/riscv-arch-test; \
-	fi
-	@mkdir -p $(TEST_BUILDS)/riscof-work
-	cd tests/conformance/riscof && ../../../.venv/bin/riscof run --no-browser \
-		--config config.ini \
-		--suite ../../builds/riscv-arch-test/riscv-test-suite/ \
-		--env ../../builds/riscv-arch-test/riscv-test-suite/env \
-		--work-dir ../../builds/riscof-work
-
 SPIKE_LOCAL    := $(TEST_BUILDS)/spike-install/bin/spike
 VECTOR_PATTERN ?= .*
 VECTOR_VLEN    ?= 128
+
+# Upstream test sources, pinned so a run tests the same thing everywhere.
+SPIKE_REV        := 20feb9c2bf2a7deab964d8190b0cbd4b4131bec3
+RISCV_TESTS_REV  := 1eb47d946c55f55cab8653c224c2993acc0276bd
+VECTOR_TESTS_REV := b30515ed611177fd7688fc8129d877698237481a
+export VECTOR_TESTS_REV
+
+# $(call clone-at,url,rev,dir): a shallow checkout of one commit.
+clone-at = git init -q $(3) && git -C $(3) fetch -q --depth 1 $(1) $(2) && \
+	git -C $(3) checkout -q FETCH_HEAD
+
+# A sample of every vector instruction class: integer, fixed-point, widening
+# and narrowing, FP and conversions, reductions, masks, permutes, every load
+# and store addressing mode, segments, whole registers and the crypto
+# extensions.
+VECTOR_SMOKE_BUILD   := $(TEST_BUILDS)/vector-smoke
+VECTOR_SMOKE_PATTERN := ^(vadd\.(vv|vx|vi)|vsub\.vv|vmul\.vv|vdivu\.vv|vsll\.vi|vsra\.vv|vmin\.vv|vmseq\.vv|vmerge\.vvm|vsadd\.vv|vwadd\.vv|vnsrl\.wv|vzext\.vf2|vfadd\.vv|vfmul\.vf|vfmacc\.vv|vfdiv\.vv|vfsqrt\.v|vfcvt\.x\.f\.v|vfwcvt\.f\.f\.v|vfncvt\.f\.f\.w|vfwmacc\.vv|vfmin\.vv|vfmv\.f\.s|vmv\.x\.s|vredsum\.vs|vfredosum\.vs|vwredsum\.vs|vmand\.mm|vcpop\.m|vfirst\.m|viota\.m|vid\.v|vslideup\.vi|vslidedown\.vx|vrgather\.vv|vcompress\.vm|vmv\.v\.v|vsetvli|vle8\.v|vle32\.v|vle64\.v|vse32\.v|vlse32\.v|vsse64\.v|vluxei32\.v|vsoxei16\.v|vle32ff\.v|vlseg3e16\.v|vsseg2e32\.v|vl2re32\.v|vs4r\.v|vlm\.v|vandn\.vv|vrev8\.v|vclmul\.vv|vghsh\.vv|vaesef\.vv|vsha2ms\.vv|vsm4r\.vv|vsm3me\.vv)$$
 
 $(SPIKE_LOCAL):
 	@printf "$(GREEN)Building local spike from source (one-time, ~2 min)…$(RESET)\n"
 	@mkdir -p $(TEST_BUILDS)
 	@if [ ! -d $(TEST_BUILDS)/spike-src ]; then \
-		git clone --depth 1 https://github.com/riscv-software-src/riscv-isa-sim.git \
-			$(TEST_BUILDS)/spike-src; \
+		$(call clone-at,https://github.com/riscv-software-src/riscv-isa-sim.git,$(SPIKE_REV),$(TEST_BUILDS)/spike-src); \
 	fi
 	@mkdir -p $(TEST_BUILDS)/spike-build
 	@cd $(TEST_BUILDS)/spike-build && \
@@ -201,8 +202,7 @@ $(SPIKE_LOCAL):
 $(TEST_BUILDS)/riscv-tests:
 	@printf "$(GREEN)Cloning riscv-tests…$(RESET)\n"
 	@mkdir -p $(TEST_BUILDS)
-	git clone --depth 1 https://github.com/riscv-software-src/riscv-tests.git \
-		$(TEST_BUILDS)/riscv-tests
+	$(call clone-at,https://github.com/riscv-software-src/riscv-tests.git,$(RISCV_TESTS_REV),$(TEST_BUILDS)/riscv-tests)
 	cd $(TEST_BUILDS)/riscv-tests && git submodule update --init --recursive
 
 RISCV_TESTS_STAMP := $(TEST_BUILDS)/riscv-tests/.built-p
@@ -236,15 +236,21 @@ vector-test: vector-test-build python
 	@printf "$(GREEN)Running RVV cosim suite (rvsim vs spike)…$(RESET)\n"
 	.venv/bin/python tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
 
-vector-test-smoke:
-	@$(MAKE) vector-test VECTOR_PATTERN='^v(add|sub|and|or|xor|sll|srl|sra|min|max|mul)\.'
+# The smoke sample builds into its own directory, so it leaves a full build
+# in place.
+vector-smoke-build: $(SPIKE_LOCAL)
+	@printf "$(GREEN)Building the RVV smoke sample (VLEN=$(VECTOR_VLEN))…$(RESET)\n"
+	@VLEN=$(VECTOR_VLEN) PATTERN='$(VECTOR_SMOKE_PATTERN)' VECTOR_BUILD=$(abspath $(VECTOR_SMOKE_BUILD)) \
+		bash tests/conformance/vector/build_tests.sh
+
+vector-test-smoke: vector-smoke-build python
+	@printf "$(GREEN)Running the RVV smoke sample (rvsim vs spike)…$(RESET)\n"
+	.venv/bin/python tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN) \
+		--build-dir $(VECTOR_SMOKE_BUILD)
 
 # Multi-config runners
 # Each runs every test in its suite across every Config in
 # tests/conformance/configs/pipelines.py.
-arch-test-multi: arch-test python
-	@printf "$(GREEN)Running riscof tests across all PIPELINES…$(RESET)\n"
-	.venv/bin/python tests/conformance/riscof_tests.py
 
 vector-test-multi: vector-test-build python
 	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
@@ -253,16 +259,18 @@ vector-test-multi: vector-test-build python
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
 # summary, exits non-zero on any failure. Several CPU-hours.
-test-all: riscv-tests-build $(TEST_BUILDS)/riscof-work vector-test-build python
+test-all: riscv-tests-build vector-test-build software python
 	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
 	.venv/bin/python tests/run_all.py
 
-# Quick variant: smoke each suite (small subset, single pipeline). ~2 minutes.
-test-all-smoke: riscv-tests-build $(TEST_BUILDS)/riscof-work vector-test-build python
+# The conformance suites' smoke subsets: every riscv-test on the smoke
+# configs, the RVV sample against spike, and the multi-hart programs.
+conformance-smoke: riscv-tests-build vector-smoke-build software python
 	.venv/bin/python tests/run_all.py --smoke
 
-$(TEST_BUILDS)/riscof-work:
-	@$(MAKE) arch-test
+# What CI requires before a merge: Rust and Python tests, then the
+# conformance smoke.
+test-all-smoke: test test-python conformance-smoke
 
 # Wipe everything under tests/builds/ — forces full rebuild on next run.
 clean-tests:

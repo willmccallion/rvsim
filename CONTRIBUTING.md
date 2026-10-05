@@ -46,13 +46,15 @@ make test        # Rust unit and integration tests
 make test-python # Python API tests, and rvsim/_core.pyi against the extension
 ```
 
+Every pull request must pass `make test-all-smoke`, which CI runs: the Rust
+and Python tests and the conformance smoke subsets (see `tests/README.md`).
 Changes to the ISA, the pipelines or the memory system should also pass the
-conformance suites:
+full suites:
 
 ```sh
+make test-all-smoke
 make riscv-tests
 make vector-test
-make test-all-smoke
 ```
 
 The workspace denies `clippy::pedantic` and `clippy::nursery`. Fix a lint

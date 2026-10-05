@@ -11,6 +11,8 @@
 #   PATTERN      (default '.*') — regex filtering instruction names
 #   MARCH        (default chosen from spike capabilities)
 #   JOBS         (default $(nproc))
+#   VECTOR_BUILD (default tests/builds/vector) — where stage1 files and ELFs go
+#   VECTOR_TESTS_REV (default HEAD; the Makefile pins it) — generator commit
 
 set -euo pipefail
 
@@ -19,7 +21,7 @@ REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 BUILDS=$REPO_ROOT/tests/builds
 GEN_DIR=$BUILDS/riscv-vector-tests
 SPIKE_DIR=$BUILDS/spike-install
-BUILD=$BUILDS/vector
+BUILD=${VECTOR_BUILD:-$BUILDS/vector}
 
 VLEN=${VLEN:-128}
 XLEN=${XLEN:-64}
@@ -50,9 +52,12 @@ log() { printf "${GREEN}[vector]${RESET} %s\n" "$*"; }
 
 # ── 1. Clone generator if needed ─────────────────────────────────────────────
 if [ ! -d "$GEN_DIR" ]; then
-  log "Cloning chipsalliance/riscv-vector-tests"
+  log "Cloning chipsalliance/riscv-vector-tests at ${VECTOR_TESTS_REV:-HEAD}"
   mkdir -p "$BUILDS"
-  git clone --depth 1 https://github.com/chipsalliance/riscv-vector-tests.git "$GEN_DIR"
+  git init -q "$GEN_DIR"
+  git -C "$GEN_DIR" fetch -q --depth 1 https://github.com/chipsalliance/riscv-vector-tests.git \
+    "${VECTOR_TESTS_REV:-HEAD}"
+  git -C "$GEN_DIR" checkout -q FETCH_HEAD
 fi
 
 # Make sure the env submodule is checked out (riscv-test-env).

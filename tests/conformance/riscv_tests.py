@@ -26,7 +26,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.configs.pipelines import PIPELINES
+from tests.conformance.configs.pipelines import PIPELINES, SMOKE_PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -128,7 +128,7 @@ def main():
         "--filter", default=None, help="Substring filter on test name (e.g. rv64ui)"
     )
     ap.add_argument(
-        "--smoke", action="store_true", help="single pipeline x first 50 tests"
+        "--smoke", action="store_true", help="every test on SMOKE_PIPELINES only"
     )
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument(
@@ -155,8 +155,9 @@ def main():
         if missing:
             sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
     if args.smoke:
-        selected_pipelines = selected_pipelines[:1]
-        tests = tests[:50]
+        selected_pipelines = [
+            (lbl, c) for lbl, c in PIPELINES if lbl in SMOKE_PIPELINES
+        ]
 
     work = []
     skipped = []

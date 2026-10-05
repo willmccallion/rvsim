@@ -52,6 +52,10 @@ DEFAULT_PIPELINES = [
     "ref p550",
 ]
 
+# `--smoke` runs every program at 2 harts on DEFAULT_PIPELINES and at 4 harts
+# only on these: one of each backend, a coherent fabric and a preset.
+SMOKE_FOUR_HART_PIPELINES = ["inorder w4", "o3 w4", "smp mesh", "ref p550"]
+
 
 def run_one(args):
     name, elf_path, label, harts = args
@@ -91,6 +95,11 @@ def main():
     ap.add_argument("--filter", default=None, help="Substring filter on program name")
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "multicore.json"))
+    ap.add_argument(
+        "--smoke",
+        action="store_true",
+        help="2 harts on every default pipeline, 4 on SMOKE_FOUR_HART_PIPELINES",
+    )
     args = ap.parse_args()
 
     elfs = sorted(glob.glob(os.path.join(ELF_DIR, "*.elf")))
@@ -111,6 +120,7 @@ def main():
         for elf in elfs
         for label in labels
         for n in harts
+        if not args.smoke or n == 2 or label.strip() in SMOKE_FOUR_HART_PIPELINES
     ]
     results = []
     failed = 0
