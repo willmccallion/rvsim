@@ -521,6 +521,85 @@ fn prefetches_contending_for_lines_other_cores_write_stay_coherent() {
     }
 }
 
+const RESERVED_RUN_LINES: i32 = 128;
+
+/// Every hart increments one counter `iterations` times with LR/SC. Between
+/// increments every hart but 0 stores a run of 128 lines that ends at the
+/// counter's line, so its store prefetcher takes that line, which another
+/// hart may hold reserved, with write permission. After a barrier hart 0
+/// exits with the counter.
+fn reserved_line_under_store_prefetch(harts: i32, iterations: i32) -> Vec<u32> {
+    const OUTER: i32 = 13;
+    const STREAM: i32 = 20;
+    const NEXT: i32 = 24;
+    const WAIT: i32 = 30;
+    const IDLE: i32 = 37;
+    let i = InstructionBuilder::new;
+    let code = vec![
+        i().addi(T0, 0, 31).build(),
+        i().addi(T2, 0, 1).build(),
+        i().sll(T2, T2, T0).build(),
+        i().addi(T2, T2, 0x400).build(),
+        i().lui(A4, 2).build(),
+        i().add(A4, T2, A4).build(),
+        i().lui(A6, 2).build(),
+        i().add(A6, A4, A6).build(),
+        i().csrrs(T5, MHARTID, 0).build(),
+        i().addi(T6, 0, 3).build(),
+        i().sll(A3, T5, T6).build(),
+        i().addi(T1, 0, iterations).build(),
+        i().addi(T3, 0, 1).build(),
+        i().lr_d(T4, A6).build(),
+        i().addi(T4, T4, 1).build(),
+        i().sc_d(T6, A6, T4).build(),
+        i().bne(T6, 0, (OUTER - 16) * 4).build(),
+        i().beq(T5, 0, (NEXT - 17) * 4).build(),
+        i().add(A5, A4, A3).build(),
+        i().addi(S2, 0, RESERVED_RUN_LINES).build(),
+        i().sd(A5, T3, 0).build(),
+        i().addi(A5, A5, 64).build(),
+        i().addi(S2, S2, -1).build(),
+        i().bne(S2, 0, (STREAM - 23) * 4).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, (OUTER - 25) * 4).build(),
+        FENCE_IORW,
+        i().addi(A1, T2, 0x88).build(),
+        i().amoadd_d(0, A1, T3).build(),
+        i().bne(T5, 0, (IDLE - 29) * 4).build(),
+        i().ld(A2, A1, 0).build(),
+        i().addi(T6, 0, harts).build(),
+        i().bne(A2, T6, (WAIT - 32) * 4).build(),
+        FENCE_IORW,
+        i().ld(A0, A6, 0).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+        i().jal(0, 0).build(),
+    ];
+    assert_eq!(code.len() as i32, IDLE + 1);
+    code
+}
+
+#[test]
+fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic() {
+    let iterations = 20;
+    for harts in [2, 4] {
+        for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+            let label = format!("{harts} {backend:?}");
+            let config = prefetching(harts, backend);
+            let program = reserved_line_under_store_prefetch(harts as i32, iterations);
+            let mut system = MultiHart::with_config(&config, &program);
+
+            let exit = run_audited(&mut system, 6_000_000);
+
+            assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: every increment");
+            assert!(
+                core_stat(&system, "core1.cache.l1d.prefetches.store_stream") > 0,
+                "{label}: hart 1's store run was prefetched"
+            );
+        }
+    }
+}
+
 #[test]
 fn every_program_stays_exact_with_every_prefetcher_on() {
     check_all_programs(&prefetching(2, BackendKind::InOrder), "2 inorder prefetching");
