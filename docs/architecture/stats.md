@@ -185,9 +185,6 @@ because the line was already held, in flight or being written back), and its
 | `maintenance` | Cache-block operations applied to this level |
 | `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core) |
 
-The L1D also counts `exclusive_swaps`: lines handed to the L2 under the
-exclusive inclusion policy.
-
 ### Shared components
 
 | Path | Meaning |

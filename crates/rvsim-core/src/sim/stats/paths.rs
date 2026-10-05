@@ -230,14 +230,6 @@ stat_paths! {
     }
 }
 
-stat_paths! {
-    /// Private cache counters.
-    CachePaths {
-        /// L1D exclusive-line swaps into L2.
-        l1d_exclusive_swaps: "cache.l1d.exclusive_swaps",
-    }
-}
-
 /// Functional-unit names in `FuType` discriminant order; consumers index
 /// [`FuPaths::all`] with the raw `FuType as usize`, so this order must match
 /// the enum layout in `fu_pool.rs`.
@@ -276,8 +268,9 @@ impl FuPaths {
     }
 }
 
-/// Every path a physical core writes (pipeline + private caches + BP + MDP
-/// + WCB), rooted at `core<N>`.
+/// Every path a physical core's pipeline writes (BP, MDP, LSQ, WCB, load
+/// prefetcher and units included), rooted at `core<N>`; its caches keep
+/// their own paths.
 #[derive(Clone, Copy, Debug)]
 pub struct CorePaths {
     /// `core<N>.commit.*`
@@ -294,8 +287,6 @@ pub struct CorePaths {
     pub wcb: WcbPaths,
     /// `core<N>.prefetch.loads.*`
     pub load_prefetch: LoadPrefetchPaths,
-    /// `core<N>.cache.*`
-    pub cache: CachePaths,
     /// `core<N>.fu.util.*`
     pub fu: FuPaths,
     /// Derived: instructions per cycle.
@@ -317,7 +308,6 @@ impl CorePaths {
             lsq: LsqPaths::under(&subject),
             wcb: WcbPaths::under(&subject),
             load_prefetch: LoadPrefetchPaths::under(&subject),
-            cache: CachePaths::under(&subject),
             fu: FuPaths::under(&subject),
             ipc: StatId::of(&format!("{subject}.ipc")),
             cpi: StatId::of(&format!("{subject}.cpi")),
