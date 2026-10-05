@@ -607,6 +607,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(pipe.stalls_control, Meta::cycles("recovering from a backend redirect"));
     s.register(pipe.stalls_fetch_wait, Meta::cycles("Fetch waited on an in-flight fetch"));
     s.register(pipe.stalls_data, Meta::cycles("issue stalled on data hazard"));
+    s.register(pipe.stalls_ordering, Meta::cycles("issue held for program order"));
     s.register(pipe.stalls_fu_structural, Meta::cycles("issue stalled on FU structural"));
     s.register(pipe.stalls_backpressure, Meta::cycles("downstream backpressure stalls"));
     s.register(pipe.stalls_dispatch, Meta::cycles("dispatch stalls"));

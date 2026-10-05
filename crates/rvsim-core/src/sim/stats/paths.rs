@@ -120,6 +120,8 @@ stat_paths! {
         stalls_data: "pipeline.stalls.data",
         /// Issue stalled on FU structural hazard.
         stalls_fu_structural: "pipeline.stalls.fu_structural",
+        /// Issue held queued work for program order.
+        stalls_ordering: "pipeline.stalls.ordering",
         /// Downstream backpressure stalls.
         stalls_backpressure: "pipeline.stalls.backpressure",
         /// Dispatch stall (rename → issue queue).

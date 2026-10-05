@@ -10,7 +10,10 @@ All notable changes to this project are documented here. The format is based on 
   flush now counts once in `flushes.total` and once under one cause, with
   new `flushes.trap` and `flushes.coherence`; `flushes.squashed_insns`
   counts the ROB entries every flush drops on both backends (the in-order
-  backend counted none).
+  backend counted none). `pipeline.stalls.data` also counted cycles issue
+  held for program order, and on the in-order backend cycles already
+  counted as `stalls.fu_structural`; it now counts only operand waits,
+  and a new `pipeline.stalls.ordering` counts the rest.
 - **Breaking (stats).** `commit.op.load` counted LR, SC and every AMO;
   they now count in a new `commit.op.atomic`. `commit.vec.misc` counted
   the Zvbb/Zvbc bit-manipulation and Zvk* crypto ops: bit-manipulation now

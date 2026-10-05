@@ -120,7 +120,8 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.pipeline.cycles.rob_empty` | Cycles with an empty ROB |
 | `core<N>.pipeline.stalls.control` | Cycles from a backend redirect (misprediction, trap, re-execution) until rename hands on the first instruction from the new path |
 | `core<N>.pipeline.stalls.fetch_wait` | Cycles fetch waited for an in-flight I-cache access |
-| `core<N>.pipeline.stalls.data` | Cycles issue found nothing whose operands were ready |
+| `core<N>.pipeline.stalls.data` | Cycles nothing issued and the oldest queued instruction waited on its operands |
+| `core<N>.pipeline.stalls.ordering` | Cycles nothing issued and the oldest queued instruction was held for program order: it executes only as the oldest (system, vector, AMO/SC), waits on a fence or an older store's address, or a pending squash removes it |
 | `core<N>.pipeline.stalls.fu_structural` | Cycles a ready instruction waited for a free unit |
 | `core<N>.pipeline.stalls.backpressure` | Cycles a stage held because the next was full |
 | `core<N>.pipeline.stalls.dispatch` | Cycles rename had no ROB, issue-queue, load-queue or store-buffer room |
