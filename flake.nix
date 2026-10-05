@@ -87,10 +87,12 @@
             # the wrong toolchain. Force native for spike's configure.
             unset CC CXX AR RANLIB
 
-            # Dev-shell builds use every instruction this machine has. CI and
-            # the release wheels build outside the shell, without this, so
-            # they run on any x86-64.
-            export RUSTFLAGS="-C target-cpu=native"
+            # Dev-shell builds use every instruction this machine has. CI
+            # (which sets CI) and the release wheels build without it, so
+            # they test and ship what runs on any x86-64.
+            if [ -z "''${CI:-}" ]; then
+              export RUSTFLAGS="-C target-cpu=native"
+            fi
 
             export TOOLCHAIN_BIN="$PWD/.nix-toolchain-bin"
             mkdir -p "$TOOLCHAIN_BIN"
