@@ -4,27 +4,22 @@ Tests rvsim's Vector Processing Unit by running each chipsalliance/riscv-vector-
 ELF on both rvsim and a local spike build, then diffing the post-execution
 memory signature region. Identical signature → pass.
 
-## Why a parallel flow
-
-The riscof harness in `tests/conformance/riscof/` is built around `RVMODEL_*` arch-test
-macros and a curated test database. The chipsalliance vector generator emits
-tests in the older `riscv-test-env` `p`-mode format, which already places the
-signature symbols `begin_signature`/`end_signature` around the test data
-section — but otherwise doesn't fit riscof's discovery pipeline. This flow
-reuses the same idea (DUT vs reference signature diff) without the riscof
-plumbing.
+The chipsalliance generator emits tests in the `riscv-test-env` `p`-mode
+format, which places the symbols `begin_signature`/`end_signature` around the
+test data, so a run on each simulator and a diff of that region is the whole
+check.
 
 ## One-shot from the repo root
 
 ```sh
-make vector-test-smoke   # ~15 instructions, ~150 tests, < 1 min
+make vector-test-smoke   # a sample of every instruction class, < 1 min
 make vector-test         # full chipsalliance suite (hundreds of tests)
 ```
 
 The first run will:
-1. Clone and build spike from source into `third_party/spike-install/`
+1. Clone and build spike from source into `tests/builds/spike-install/`
    (one-time, ~2 min — Arch's `spike` 1.1.0 is too old for modern Z-extensions).
-2. Clone the chipsalliance generator into `third_party/riscv-vector-tests/`.
+2. Clone the chipsalliance generator into `tests/builds/riscv-vector-tests/`.
 3. Build the Go generator (one-time).
 4. Generate stage1 .S files filtered by `VECTOR_PATTERN` (default `.*`).
 5. Strip the chipsalliance "magic" custom-0 instructions
@@ -60,11 +55,12 @@ which instruction produced the bad result.
 | File                  | Role                                                     |
 |-----------------------|----------------------------------------------------------|
 | `build_tests.sh`      | Generate + compile chipsalliance tests under `build/`    |
-| `run_vector_tests.py` | Parallel rvsim+spike runner; emits `results/results-vlen{N}.json` |
+| `run_vector_tests.py` | Parallel rvsim+spike runner; emits `tests/builds/results/results-vlen{N}.json` |
+| `rvsim_run.py`        | Runs one ELF on rvsim and writes its signature region    |
 | `triage.py`           | Single-ELF rvsim↔spike diff helper                        |
-| `third_party/`        | Cloned generator + spike source/install (gitignored)     |
-| `build/`              | Generated stage1 `.S` and compiled `.elf` (gitignored)   |
-| `results/`            | Per-VLEN JSON summaries (gitignored)                     |
+
+The generator, spike, the generated `.S` files, the ELFs and the results all
+live under `tests/builds/`, which git ignores.
 
 ## Coverage caveat
 

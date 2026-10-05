@@ -2,7 +2,7 @@
 """Single-test rvsim worker, used by every multi-config test runner.
 
 Runs one ELF on rvsim with a named PIPELINES config and (optionally) dumps the
-ELF's begin_signature..end_signature region in the riscof hex format.
+ELF's begin_signature..end_signature region as spike's +signature does.
 
 Used as a subprocess by the multi-config runners so a single panic / segfault
 in the simulator only kills one test, never the whole sweep.
@@ -62,13 +62,6 @@ def main():
     if cfg is None:
         print(f"unknown pipeline label: {label}", file=sys.stderr)
         sys.exit(2)
-
-    # Allow the riscof runner (and other callers) to force misaligned-access
-    # trapping regardless of the config default.  The riscv-tests ld-misaligned
-    # suite needs hardware handling (trap=False), but riscof privilege tests
-    # require trapping (trap=True); this env var bridges the gap.
-    if os.environ.get("RVSIM_MISALIGNED_TRAP") == "1":
-        cfg.misaligned_access_trap = True
 
     # Multi-hart runs: secondary harts park in the riscv-tests environment
     # (`csrr a0, mhartid; bnez a0, .`), so every ISA test doubles as a check

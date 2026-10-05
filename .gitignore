@@ -18,7 +18,7 @@ software/bin
 software/build
 
 # All test build artifacts (cloned sources, built spike, generated/compiled
-# test ELFs, riscof work dir, JSON result files) live under tests/builds/.
+# test ELFs, JSON result files) live under tests/builds/.
 tests/builds/
 
 # Nix flake dev shell
