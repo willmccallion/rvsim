@@ -96,3 +96,7 @@ jobs:
         run: nix develop --command make python software riscv-tests-build vector-smoke-build
       - name: Conformance smoke
         run: nix develop --command make conformance-smoke
+      # The Python jobs skip every test that needs a guest program, which
+      # only this job builds.
+      - name: Python tests with the guest programs
+        run: nix develop --command make test-python
