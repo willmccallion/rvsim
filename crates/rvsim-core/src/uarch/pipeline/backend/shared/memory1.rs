@@ -333,14 +333,17 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Replay(ex);
     }
 
+    let pc = VirtAddr::new(ex.pc);
     match forward_from_pending_stores(state, engine, &ex, paddr, size as usize) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
+            send_load_prefetches(state, engine, pc, vaddr, paddr);
             EntryOutcome::Done
         }
         ForwardResult::Stall => EntryOutcome::Replay(ex),
         ForwardResult::Miss => {
             emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+            send_load_prefetches(state, engine, pc, vaddr, paddr);
             EntryOutcome::Done
         }
     }
@@ -428,14 +431,17 @@ fn process_span<E: ExecutionEngine>(
     if let Some(lq) = engine.load_queue_mut() {
         lq.fill_address(ex.rob_tag, Some(micro_op), vaddr, paddr);
     }
+    let pc = VirtAddr::new(ex.pc);
     match forward_span_from_pending_stores(state, engine, &ex, paddr, bytes) {
         SpanForward::Hit(data) => {
             push_forwarded_span(state, engine, ex, paddr, vaddr, data);
+            send_load_prefetches(state, engine, pc, vaddr, paddr);
             EntryOutcome::Done
         }
         SpanForward::Stall => EntryOutcome::Replay(ex),
         SpanForward::Miss => {
             emit_span_read(state, engine, ex, paddr, vaddr, bytes);
+            send_load_prefetches(state, engine, pc, vaddr, paddr);
             EntryOutcome::Done
         }
     }
@@ -869,6 +875,38 @@ fn emit_load_req<E: ExecutionEngine>(
         req_id,
         OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, side_effecting, parts },
     );
+}
+
+/// Trains the load prefetcher on a load by `pc` to `vaddr` (at `paddr`)
+/// that has gone to the memory system, and sends the prefetches it wants
+/// to the L1D, which fills them or passes them to the L2.
+fn send_load_prefetches<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    pc: VirtAddr,
+    vaddr: VirtAddr,
+    paddr: PhysAddr,
+) {
+    let prefetches = state.train_load_prefetcher(pc, vaddr, paddr);
+    let cycle = state.cycle;
+    for prefetch in prefetches {
+        let common = engine.common_mut();
+        let req_id = common.alloc_req_id();
+        let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
+        state.events().schedule(
+            cycle,
+            ComponentId::Cache(l1_d_id),
+            ComponentId::Pipeline(pipeline_id),
+            Packet::MemReq {
+                req_id,
+                paddr: prefetch.paddr,
+                vaddr: Some(prefetch.line),
+                pc: Some(pc),
+                size: AccessSize::Line,
+                op: MemOp::Prefetch { into: prefetch.into, exclusive: false },
+            },
+        );
+    }
 }
 
 /// Records the parked walk and issues the PTE `MemReq`.

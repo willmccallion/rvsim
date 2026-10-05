@@ -1,6 +1,7 @@
 //! The cache hierarchy: sizes, policies and prefetchers.
 
 use super::defaults;
+use super::prefetch::{LoadPrefetcherConfig, StorePrefetcherConfig};
 use serde::Deserialize;
 
 /// Cache replacement policy algorithms.
@@ -115,6 +116,12 @@ pub struct CacheHierarchyConfig {
     /// Number of Write Combining Buffer entries (0 = disabled)
     #[serde(default)]
     pub wcb_entries: usize,
+    /// The load/store unit's load prefetcher.
+    #[serde(default)]
+    pub load_prefetcher: LoadPrefetcherConfig,
+    /// The L1D's store-miss prefetcher.
+    #[serde(default)]
+    pub store_prefetcher: StorePrefetcherConfig,
 }
 
 /// Individual cache level configuration.

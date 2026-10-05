@@ -203,6 +203,24 @@ stat_paths! {
 }
 
 stat_paths! {
+    /// The load/store unit's load prefetcher.
+    LoadPrefetchPaths {
+        /// Prefetches sent to fill the L1D.
+        l1d: "prefetch.loads.l1d",
+        /// Prefetches sent to fill the L2 alone, further ahead.
+        l2: "prefetch.loads.l2",
+        /// Prefetches not sent: past the trained page under `PageBoundary::Stop`.
+        page_boundary: "prefetch.loads.dropped.page_boundary",
+        /// Prefetches not sent: the next page's translation missed the DTLB.
+        tlb_miss: "prefetch.loads.dropped.tlb_miss",
+        /// Prefetches not sent: a page or region the load may not read.
+        denied: "prefetch.loads.dropped.denied",
+        /// Prefetches not sent: the line is not RAM.
+        not_ram: "prefetch.loads.dropped.not_ram",
+    }
+}
+
+stat_paths! {
     /// Private cache counters.
     CachePaths {
         /// L1D exclusive-line swaps into L2.
@@ -264,6 +282,8 @@ pub struct CorePaths {
     pub lsq: LsqPaths,
     /// `core<N>.wcb.*`
     pub wcb: WcbPaths,
+    /// `core<N>.prefetch.loads.*`
+    pub load_prefetch: LoadPrefetchPaths,
     /// `core<N>.cache.*`
     pub cache: CachePaths,
     /// `core<N>.fu.util.*`
@@ -286,6 +306,7 @@ impl CorePaths {
             mdp: MdpPaths::under(&subject),
             lsq: LsqPaths::under(&subject),
             wcb: WcbPaths::under(&subject),
+            load_prefetch: LoadPrefetchPaths::under(&subject),
             cache: CachePaths::under(&subject),
             fu: FuPaths::under(&subject),
             ipc: StatId::of(&format!("{subject}.ipc")),

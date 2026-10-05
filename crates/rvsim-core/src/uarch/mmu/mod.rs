@@ -18,7 +18,26 @@ use crate::isa::privileged::PagingMode;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
-use self::tlb::{Tlb, TlbGeometry, TlbHit};
+use self::tlb::{PageSize, Tlb, TlbGeometry, TlbHit};
+
+/// Where a hardware prefetch to a virtual address may go, as the data TLB
+/// already knows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrefetchTranslation {
+    /// No translation applies (M-mode or Bare): the address is physical.
+    Untranslated,
+    /// The data TLB maps the page to `paddr` in a page of `page`'s size.
+    Mapped {
+        /// The physical address.
+        paddr: PhysAddr,
+        /// The size of the page holding it.
+        page: PageSize,
+    },
+    /// The data TLB does not hold the page.
+    Missing,
+    /// The page may not be read at this privilege.
+    Denied,
+}
 
 /// Outcome of [`Mmu::translate_async`].
 ///
@@ -283,6 +302,41 @@ impl Mmu {
         }
     }
 
+    /// Where a load prefetch to `vaddr` at `privilege` may go: the data TLB
+    /// is consulted without touching its replacement state, nothing walks,
+    /// and a page the load could not read is refused.
+    #[must_use]
+    pub fn prefetch_translation(
+        &self,
+        vaddr: VirtAddr,
+        privilege: PrivilegeMode,
+        csrs: &Csrs,
+    ) -> PrefetchTranslation {
+        use crate::isa::csr::{SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK, SATP_MODE_SHIFT};
+
+        let satp = csrs.satp;
+        let Some(paging) = PagingMode::from_satp_mode((satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK)
+        else {
+            return PrefetchTranslation::Denied;
+        };
+        if privilege == PrivilegeMode::Machine || paging == PagingMode::Bare {
+            return PrefetchTranslation::Untranslated;
+        }
+        if !is_canonical_va(vaddr.val(), paging) {
+            return PrefetchTranslation::Denied;
+        }
+        let vpn = Vpn::new((vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
+        let asid = Asid::new(((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16);
+        let Some(hit) = self.dtlb.peek(vpn, asid) else { return PrefetchTranslation::Missing };
+        if !readable(&hit, privilege, csrs.mstatus) {
+            return PrefetchTranslation::Denied;
+        }
+        PrefetchTranslation::Mapped {
+            paddr: PhysAddr::new(hit.ppn.to_addr() | vaddr.page_offset()),
+            page: hit.mapping.size(),
+        }
+    }
+
     /// Continues an in-flight walk after the caller has loaded the PTE
     /// at `state.pte_addr` from memory.
     pub fn continue_walk(
@@ -301,6 +355,22 @@ impl Mmu {
 }
 
 /// Returns true if `va` is a canonical virtual address for `mode`.
+/// Whether a load at `privilege` may read the page `hit` maps, under the
+/// MXR and SUM bits of `mstatus`.
+const fn readable(hit: &TlbHit, privilege: PrivilegeMode, mstatus: u64) -> bool {
+    use crate::isa::csr::{MSTATUS_MXR, MSTATUS_SUM};
+
+    let mxr = mstatus & MSTATUS_MXR != 0;
+    if !(hit.r || (hit.x && mxr)) {
+        return false;
+    }
+    match privilege {
+        PrivilegeMode::User => hit.u,
+        PrivilegeMode::Supervisor => !hit.u || mstatus & MSTATUS_SUM != 0,
+        PrivilegeMode::Machine => true,
+    }
+}
+
 const fn is_canonical_va(va: u64, mode: crate::isa::privileged::PagingMode) -> bool {
     let top = mode.va_top_bit();
     if top >= 63 {
