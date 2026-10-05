@@ -329,7 +329,9 @@ Metadata unlocks three things that would otherwise stay in prose:
 Registering at build time (not lazily on first write) means the tree shape is
 known before any run — you can enumerate available stats without executing a
 workload. That's what makes `stats.summary()` deterministic and what makes a
-future GUI/notebook completion tractable.
+future GUI/notebook completion tractable. A histogram registers its `Meta`
+with `Stats::register_histogram`; it holds nothing, and queries skip it, until
+its first sample.
 
 ## Query language
 

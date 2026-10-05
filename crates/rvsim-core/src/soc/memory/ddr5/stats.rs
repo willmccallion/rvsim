@@ -215,6 +215,18 @@ impl ControllerStatPaths {
                 sc.write_admission_stalls,
                 Meta::cycles("clocks a write waited for a queue slot"),
             );
+            stats.register_histogram(
+                sc.read_latency,
+                Meta::cycles("DRAM clocks from a demand read's arrival to its last data"),
+            );
+            stats.register_histogram(
+                sc.read_queue_depth,
+                Meta::events("reads already queued when a read was admitted"),
+            );
+            stats.register_histogram(
+                sc.write_queue_depth,
+                Meta::events("writes already queued when a write was admitted"),
+            );
             stats.derive(
                 sc.row_hit_rate,
                 Formula::Ratio { numerator: sc.row_hits, other: sc.row_misses },

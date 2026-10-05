@@ -410,6 +410,12 @@ impl Stats {
         let _ = self.meta.insert(stat, meta);
     }
 
+    /// Describes a histogram. It holds nothing, and queries do not list it,
+    /// until it records its first sample.
+    pub fn register_histogram(&mut self, stat: impl Into<StatId>, meta: Meta) {
+        let _ = self.meta.insert(stat.into(), meta);
+    }
+
     /// Registers a derived stat with a formula. The value is computed on read
     /// via [`Stats::get`] and included in [`Stats::summary`].
     pub fn derive(&mut self, stat: impl Into<StatId>, formula: Formula, meta: Meta) {
