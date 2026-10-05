@@ -35,10 +35,13 @@ impl Cache {
             return;
         }
         let holders = self.upper_holders(line);
+        let held = self.contains(line.val()) || !holders.is_empty();
         if self.invalidate_line(line.val(), ctx.stats) {
             self.write_back(line, true, ctx);
         }
-        ctx.stats.counter(self.stat_paths.back_invalidations).inc();
+        if held {
+            ctx.stats.counter(self.stat_paths.back_invalidations).inc();
+        }
         self.back_invalidate(line, &holders, ctx);
     }
 

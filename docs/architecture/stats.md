@@ -165,7 +165,7 @@ Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
 | `mshr_hits` | Misses that joined a fetch already in flight |
 | `blocked_requests` | Requests that waited because the MSHRs or writeback buffer were full |
 | `fills`, `evictions`, `writebacks` | Lines installed, lines evicted, and dirty lines written to the next level |
-| `back_invalidations` | Lines invalidated because an inclusive level below evicted them |
+| `back_invalidations` | Lines invalidated because an inclusive level below evicted them; a request for a line no longer held counts nothing |
 | `prefetches.issued` | Prefetch fetches this cache started |
 | `prefetches.late` | Prefetch fetches a request from above joined while still in flight |
 | `prefetches.useful` | Prefetched lines a request from above found once installed (counted on the first such request) |
@@ -183,7 +183,7 @@ because the line was already held, in flight or being written back), and its
 | `prefetches.store_stream` | Prefetches the L1D's store-miss prefetcher sent to the L2 |
 | `probes` | Lookups made for another agent (snoops, inclusive back-invalidations) |
 | `maintenance` | Cache-block operations applied to this level |
-| `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core) |
+| `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core): every snoop received; those that took away or downgraded a copy this cache or one above it held; permission requests for lines held Shared, and those re-sent for data after a snoop took the line |
 
 ### Shared components
 

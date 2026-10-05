@@ -6,7 +6,11 @@ All notable changes to this project are documented here. The format is based on 
 
 - **Breaking (stats).** `cache.l1d.exclusive_swaps` is removed: it was
   never counted, and what it described is `cache.l1d.writebacks` under
-  the exclusive policy.
+  the exclusive policy. A cache's `back_invalidations` and
+  `coherence.invalidations`/`.downgrades` counted every such request,
+  even for a line no copy of which was held; they now count only lines
+  this cache or one above it held, and `probes` and `coherence.snoops`
+  still count every request.
 - **Breaking (stats).** `fu.util.<unit>` counted one per instruction that
   completed on a unit type, under a description of busy cycles; it now
   counts busy cycles at issue (one per instruction on a pipelined unit,
