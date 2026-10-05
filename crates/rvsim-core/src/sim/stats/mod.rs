@@ -583,6 +583,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(commit.op_branch, Meta::events("branch/jump retired"));
     s.register(commit.op_alu, Meta::events("integer ALU retired"));
     s.register(commit.op_system, Meta::events("system / CSR / ECALL retired"));
+    s.register(commit.op_atomic, Meta::events("LR, SC or AMO retired"));
     s.register(commit.fp_load, Meta::events("FP load retired"));
     s.register(commit.fp_store, Meta::events("FP store retired"));
     s.register(commit.fp_arith, Meta::events("FP arithmetic retired"));
@@ -593,6 +594,7 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(commit.vec_load, Meta::events("vector load retired"));
     s.register(commit.vec_store, Meta::events("vector store retired"));
     s.register(commit.vec_misc, Meta::events("vector misc (permute/mask/config) retired"));
+    s.register(commit.vec_crypto, Meta::events("vector crypto (Zvk*) retired"));
     s.register(commit.retire_hist_zero, Meta::cycles("cycles where 0 insts retired"));
     s.register(commit.retire_hist_one, Meta::cycles("cycles where exactly 1 inst retired"));
     s.register(commit.retire_hist_two, Meta::cycles("cycles where exactly 2 insts retired"));
