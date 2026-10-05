@@ -32,7 +32,12 @@ implement (gem5 lacks the vector crypto extensions).
 is P550-like: 3-wide O3, ROB 72, IQ 32, LQ 24, SQ 16, 32 KiB L1s, 256 KiB L2,
 tournament predictor, VLEN 256, fixed-latency memory at 12.8 GiB/s. Each
 other variant changes one thing: the predictor (TAGE, a small tournament),
-the cache sizes, the L1D's MSHRs, or a tagged L1D prefetcher.
+the cache sizes, the L1D's MSHRs, a tagged L1D prefetcher, or a PC-indexed
+stride L1D prefetcher (gem5's `StridePrefetcher` with its confidence set to
+rvsim's two-bit counter that must saturate, a direct-mapped table, training
+on every load and not on stores, as rvsim's cache-side `Prefetcher.Stride`).
+Without an MMU, gem5's prefetchers drop a prefetch that crosses a page, as
+rvsim's cache-side prefetchers do.
 
 What no rvsim setting can express:
 

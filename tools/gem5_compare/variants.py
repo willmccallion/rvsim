@@ -56,6 +56,10 @@ BASE = {
     # Next-N-line prefetching on a miss or a hit to a prefetched line:
     # gem5's TaggedPrefetcher and rvsim's Tagged prefetcher.
     "l1d_prefetch_degree": None,
+    # A PC-indexed stride prefetcher on the L1D trained on every load:
+    # gem5's StridePrefetcher and rvsim's Stride, with gem5's confidence
+    # set to rvsim's (a 2-bit counter from zero that must saturate).
+    "l1d_stride_prefetch": None,
 }
 
 # gem5's TAGE with rvsim's table shape: eight tagged tables of 2048 entries
@@ -87,7 +91,7 @@ def tage_history_lengths(min_hist: int, max_hist: int, tables: int) -> list[int]
 def _with(**changes) -> dict:
     variant = copy.deepcopy(BASE)
     for key, value in changes.items():
-        if key != "bp" and isinstance(value, dict):
+        if key != "bp" and isinstance(variant[key], dict):
             variant[key].update(value)
         else:
             variant[key] = value
@@ -120,4 +124,5 @@ VARIANTS = {
     ),
     "l1d_one_mshr": _with(l1d={"mshrs": 1}),
     "l1d_prefetch": _with(l1d_prefetch_degree=2),
+    "l1d_stride_prefetch": _with(l1d_stride_prefetch={"degree": 4, "table_size": 64}),
 }

@@ -64,7 +64,17 @@ def branch_predictor(bp: dict):
     raise ValueError(f"unknown predictor {bp['kind']}")
 
 
-def cache(c: dict, prefetch_degree=None) -> Cache:
+def l1d_prefetcher(variant: dict):
+    stride = variant["l1d_stride_prefetch"]
+    if stride:
+        return Prefetcher.Stride(
+            degree=stride["degree"], table_size=stride["table_size"]
+        )
+    degree = variant["l1d_prefetch_degree"]
+    return Prefetcher.Tagged(degree=degree) if degree else None
+
+
+def cache(c: dict, prefetcher=None) -> Cache:
     return Cache(
         size=f"{c['size_kb']}KB",
         line="64B",
@@ -74,9 +84,7 @@ def cache(c: dict, prefetch_degree=None) -> Cache:
         mshr_count=c["mshrs"],
         targets_per_mshr=c["tgts"],
         write_buffers=8,
-        prefetcher=Prefetcher.Tagged(degree=prefetch_degree)
-        if prefetch_degree
-        else None,
+        prefetcher=prefetcher,
     )
 
 
@@ -140,7 +148,7 @@ def config_for(variant: dict) -> Config:
         btb_ways=1,
         ras_size=16,
         l1i=cache(variant["l1i"]),
-        l1d=cache(variant["l1d"], variant["l1d_prefetch_degree"]),
+        l1d=cache(variant["l1d"], l1d_prefetcher(variant)),
         l2=cache(variant["l2"]),
         bus_width=bus["width_bytes"],
         bus_latency=bus["latency"],
