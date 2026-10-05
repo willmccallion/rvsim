@@ -35,7 +35,7 @@ use crate::uarch::pipeline::rob::Rob;
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
-use self::fu_pool::{FuPool, FuType};
+use self::fu_pool::FuPool;
 use self::issue_queue::IssueQueue;
 use self::squash::older_violation;
 
@@ -47,8 +47,6 @@ pub struct PendingResult {
     pub entry: ExMem1Entry,
     /// Cycle at which the result is ready (wakeup fires at this cycle).
     pub complete_cycle: u64,
-    /// Functional unit type (for stats).
-    pub fu_type: FuType,
 }
 
 /// The free slots rename sees this cycle: the counts as they stood at the
@@ -304,7 +302,7 @@ impl ExecutionEngine for O3Engine {
 
         let memory_blocked = self.note_memory_backpressure(state);
         writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);
-        writeback_slots -= self.writeback_finished_results(state, now, writeback_slots);
+        writeback_slots -= self.writeback_finished_results(now, writeback_slots);
         self.issue_vec_mem_waves();
         self.send_vector_memory_micro_ops();
         self.complete_vector_results(now, writeback_slots);

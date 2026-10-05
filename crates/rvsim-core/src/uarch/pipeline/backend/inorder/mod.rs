@@ -42,14 +42,13 @@ use crate::uarch::pipeline::squash::PendingSquash;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
 use crate::exec::signals::ControlFlow;
-use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
+use crate::uarch::pipeline::backend::o3::fu_pool::FuPool;
 use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]
 struct PendingResult {
     complete_cycle: u64,
-    fu_type: FuType,
     entry: ExMem1Entry,
 }
 
@@ -109,7 +108,7 @@ pub struct InOrderEngine {
 impl InOrderEngine {
     /// Sends every result whose unit has finished to the memory stages and
     /// forwards its value so a dependent can issue this cycle.
-    fn deliver_ready_results(&mut self, state: &mut CoreCtx<'_>, now: u64) {
+    fn deliver_ready_results(&mut self, now: u64) {
         let mut i = 0;
         while i < self.pending.len() {
             if self.pending[i].complete_cycle > now {
@@ -117,7 +116,6 @@ impl InOrderEngine {
                 continue;
             }
             let done = self.pending.swap_remove(i);
-            state.uncore.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.rob.forward(done.entry.rob_tag, forwarded_value(&done.entry));
             self.execute_mem1.push(done.entry);
         }
@@ -175,7 +173,6 @@ impl InOrderEngine {
                 Some(unit) if !is_mem && !entry.ctrl.vec_op.is_config() => {
                     self.pending.push(PendingResult {
                         complete_cycle: unit.complete_cycle.max(now + 1),
-                        fu_type: unit.fu_type,
                         entry,
                     });
                 }
@@ -412,7 +409,7 @@ impl ExecutionEngine for InOrderEngine {
             state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
         }
 
-        self.deliver_ready_results(state, now);
+        self.deliver_ready_results(now);
 
         let (results, units) = if backpressured {
             (Vec::new(), Vec::new())
@@ -429,6 +426,10 @@ impl ExecutionEngine for InOrderEngine {
             );
             let unit_stalled = held == Some(IssueHold::Unit);
             count_issue_stalls(state, unit_stalled, !issued.is_empty(), held);
+            for unit in &units {
+                let stat = state.core.stat_paths.fu.all[unit.fu_type as usize];
+                state.uncore.stats.counter(stat).add(unit.busy_cycles);
+            }
             let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
                 is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
             });

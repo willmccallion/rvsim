@@ -138,7 +138,7 @@ impl O3Engine {
     /// backpressure comes from the L1D's pending table and surfaces as
     /// mailbox-drain backlogs. Returns the violation it found, if any.
     pub(super) fn memory1(&mut self, state: &mut CoreCtx<'_>, now: u64) -> Option<OrderViolation> {
-        self.send_generated_addresses_to_memory1(state, now);
+        self.send_generated_addresses_to_memory1(now);
         let mut input = std::mem::take(&mut self.execute_mem1);
         let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         self.execute_mem1.extend(input);
@@ -172,13 +172,12 @@ impl O3Engine {
     /// Sends the memory ops whose address generation finishes this cycle to
     /// memory1, which runs later in the same cycle, as an in-order memory
     /// op issued last cycle reaches it.
-    fn send_generated_addresses_to_memory1(&mut self, state: &mut CoreCtx<'_>, now: u64) {
+    fn send_generated_addresses_to_memory1(&mut self, now: u64) {
         let (ready, waiting) = std::mem::take(&mut self.pending_addresses)
             .into_iter()
             .partition(|p| p.complete_cycle <= now);
         self.pending_addresses = waiting;
         for done in ready {
-            state.uncore.stats.counter(state.core.stat_paths.fu.all[done.fu_type as usize]).inc();
             self.execute_mem1.push(done.entry);
         }
     }

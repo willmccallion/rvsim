@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (stats).** `fu.util.<unit>` counted one per instruction that
+  completed on a unit type, under a description of busy cycles; it now
+  counts busy cycles at issue (one per instruction on a pipelined unit,
+  the latency on an unpipelined one) including instructions later
+  squashed, and the in-order backend counts memory ops, which it missed.
 - **Breaking (stats).** `mdp.*` mirrored the predictor's lifetime totals,
   so after a stats reset they jumped back to them; they now count from the
   reset like every other stat. `wcb.coalesces` also counted a store that

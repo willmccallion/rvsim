@@ -34,6 +34,8 @@ pub struct IssuedUnit {
     pub fu_type: FuType,
     /// Cycle the unit delivers the result.
     pub complete_cycle: u64,
+    /// Cycles the unit could take nothing else.
+    pub busy_cycles: u64,
 }
 
 /// FIFO issue unit for in-order execution.
@@ -194,8 +196,10 @@ impl InOrderIssueUnit {
                 } else {
                     fu_pool.acquire(unit, now)
                 };
+                let busy_cycles = fu_pool.busy_cycles(unit, now);
                 let Some(mut issued) = self.queue.pop_front() else { break };
-                units.push(IssuedUnit { tag: issued.rob_tag, fu_type, complete_cycle });
+                let tag = issued.rob_tag;
+                units.push(IssuedUnit { tag, fu_type, complete_cycle, busy_cycles });
                 issued.inst.rv1 = v1;
                 issued.inst.rv2 = v2;
                 issued.inst.rv3 = v3;
