@@ -3,6 +3,7 @@
 //! through a [`Recorder`], which notes every path it checked.
 
 pub mod caches;
+pub mod coherence;
 pub mod commit;
 pub mod fu;
 pub mod pipeline;
@@ -12,6 +13,7 @@ pub mod program;
 use std::collections::BTreeSet;
 
 use crate::Simulator;
+use crate::sim::stats::Histogram;
 
 /// Asserts stats and remembers which paths were checked.
 #[derive(Default)]
@@ -38,6 +40,15 @@ impl Recorder {
     pub fn read(&mut self, sim: &Simulator, path: &str) -> u64 {
         self.note(path);
         read(sim, path) as u64
+    }
+
+    /// The histogram at `path`, noting it as checked.
+    pub fn histogram(&mut self, sim: &Simulator, path: &str) -> Histogram {
+        self.note(path);
+        sim.stats()
+            .histogram_at(path)
+            .cloned()
+            .unwrap_or_else(|| panic!("{path} has recorded nothing"))
     }
 
     fn note(&mut self, path: &str) {
