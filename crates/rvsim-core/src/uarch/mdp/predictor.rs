@@ -9,11 +9,12 @@ use crate::uarch::pipeline::rob::RobTag;
 /// Statistics collected by the memory dependence predictor.
 #[derive(Default, Debug, Clone)]
 pub struct MdpStats {
-    /// Number of predictions that returned `Bypass`.
+    /// Loads predicted independent of every older store.
     pub predictions_bypass: u64,
-    /// Number of predictions that returned `WaitAll`.
+    /// Loads made to wait for every older store's address: all of them
+    /// under the blind predictor, and LRs and AMOs under store sets.
     pub predictions_wait_all: u64,
-    /// Number of predictions that returned `WaitFor`.
+    /// Loads and stores made to wait for one older store in their set.
     pub predictions_wait_for: u64,
     /// Number of violations (calls to `violation`).
     pub violations: u64,
