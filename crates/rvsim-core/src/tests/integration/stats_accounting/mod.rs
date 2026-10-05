@@ -5,6 +5,7 @@
 pub mod caches;
 pub mod coherence;
 pub mod commit;
+pub mod ddr5;
 pub mod fu;
 pub mod pipeline;
 pub mod predictors;
