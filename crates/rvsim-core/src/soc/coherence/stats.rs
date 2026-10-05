@@ -145,6 +145,10 @@ impl StatSource for CoherenceStatPaths {
         s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
         s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
         s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
+        s.register_histogram(
+            h.txn_latency,
+            Meta::cycles("cycles from a request's arrival at the home to its completion"),
+        );
         let i = &self.interconnect;
         s.register(i.messages, Meta::events("messages transferred"));
         s.register(i.bytes, Meta::events("bytes transferred"));
