@@ -149,6 +149,8 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |
 | `core<N>.lsq.coherence_violations` | Loads squashed for reading a line before a remote write an older load saw |
 | `core<N>.wcb.coalesces`, `.drains` | Stores merged into the write-combining buffer, and lines it wrote out |
+| `core<N>.prefetch.loads.l1`, `.l2` | Load prefetches the load/store unit sent to fill the L1D, and to fill the L2 alone |
+| `core<N>.prefetch.loads.dropped.page_boundary`, `.tlb_miss`, `.denied`, `.not_ram` | Load prefetches not sent: past the trained page under `PageBoundary.Stop()`, next page not in the data TLB, a page or region the load may not read, not RAM |
 
 ### Caches
 
@@ -161,7 +163,10 @@ Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
 | `blocked_requests` | Requests that waited because the MSHRs or writeback buffer were full |
 | `fills`, `evictions`, `writebacks` | Lines installed, lines evicted, and dirty lines written to the next level |
 | `back_invalidations` | Lines invalidated because an inclusive level below evicted them |
-| `prefetches.issued`, `prefetches.useful` | Prefetches sent, and those a demand request later used |
+| `prefetches.issued`, `prefetches.useful` | Prefetch fetches started, and those a demand request joined while the fetch was still in flight (a later hit on a prefetched line is not counted) |
+| `prefetches.page_crossing` | Candidates of this cache's own prefetcher dropped for lying outside the 4 KiB page of the access that produced them |
+| `prefetches.dropped` | Prefetch requests from above dropped rather than take the last free MSHR |
+| `prefetches.store_stream` | Prefetches the L1D's store-miss prefetcher sent to the L2 |
 | `probes` | Lookups made for another agent (snoops, inclusive back-invalidations) |
 | `maintenance` | Cache-block operations applied to this level |
 | `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core) |

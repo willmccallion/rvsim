@@ -19,3 +19,4 @@ after the fact; a later decision that changes one says which it replaces.
 | [11](0011-accesses-take-effect-where-they-are-served.md) | Accesses take effect where they are served |
 | [12](0012-the-model-follows-real-cores.md) | The model follows real cores; gem5 is the reference |
 | [13](0013-stores-issue-address-and-data-separately.md) | Stores issue their address and data separately |
+| [14](0014-prefetchers-follow-published-hardware.md) | Prefetchers follow the published hardware |
