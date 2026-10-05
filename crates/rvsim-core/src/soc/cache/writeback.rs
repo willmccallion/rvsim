@@ -45,7 +45,10 @@ impl Cache {
         }
         if let Some(way) = self.find_way(addr) {
             let index = self.set_index(addr) * self.ways + way;
-            if dirty {
+            // A writeback carries data, never permission. Held Shared, the
+            // line was downgraded by a probe whose answer already carried
+            // this dirty data; the writeback merely arrived after it.
+            if dirty && self.lines[index].state != MesiState::Shared {
                 self.lines[index].state = MesiState::Modified;
             }
             return;
