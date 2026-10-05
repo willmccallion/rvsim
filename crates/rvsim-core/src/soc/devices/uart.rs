@@ -433,7 +433,10 @@ impl Handle for Uart {
                     self.write_register(offset, val as u8);
                     0
                 }
-                MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. } => 0,
+                MemOp::Write { .. }
+                | MemOp::Writeback { .. }
+                | MemOp::Maintain { .. }
+                | MemOp::Prefetch { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + ctx.config.system.device_access_cycles(self.name()),

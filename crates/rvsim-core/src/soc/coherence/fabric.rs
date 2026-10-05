@@ -635,7 +635,8 @@ impl CoherenceFabric {
             | MemOp::ReadOwn
             | MemOp::Fetch
             | MemOp::Writeback { .. }
-            | MemOp::Maintain { dirty: false, .. } => 0,
+            | MemOp::Maintain { dirty: false, .. }
+            | MemOp::Prefetch { .. } => 0,
         };
         ctx.stats.counter(self.stat_paths.home.non_coherent).inc();
         self.parked_requests.push(Parked { txn, requester, packet: Some(packet) });

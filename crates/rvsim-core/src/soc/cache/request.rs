@@ -72,6 +72,10 @@ impl Cache {
     }
 
     pub(super) fn on_request(&mut self, req: BlockedRequest, ctx: &mut HandleCtx<'_>) {
+        if let MemOp::Prefetch { into, exclusive } = req.op {
+            self.on_prefetch_request(req.paddr, into, exclusive, ctx);
+            return;
+        }
         if !self.enabled {
             if self.coherent.is_some() && req.size == AccessSize::Line {
                 self.forward_as_coherence_request(&req, ctx);
@@ -238,13 +242,73 @@ impl Cache {
             if self.mshrs.free() <= 1 || self.downstream.is_none() {
                 return;
             }
-            let line = self.line_of(candidate);
-            if self.contains(candidate) || self.mshrs.holds(line) || self.writebacks.holds(line) {
-                continue;
-            }
-            ctx.stats.counter(self.stat_paths.prefetches_issued).inc();
-            self.start_fetch(line, Vec::new(), false, true, MemOp::Read, ctx);
+            self.start_prefetch(candidate, false, ctx);
         }
+    }
+
+    /// A prefetch request from above: passed down toward the level it
+    /// fills, and started there. One for a disabled level, or that has no
+    /// cache below to go to, is dropped.
+    fn on_prefetch_request(
+        &mut self,
+        paddr: PhysAddr,
+        into: CacheLevel,
+        exclusive: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        if into != self.level {
+            self.pass_prefetch_down(paddr, into, exclusive, ctx);
+            return;
+        }
+        if !self.enabled {
+            return;
+        }
+        if self.is_blocked() || self.mshrs.free() <= 1 || self.downstream.is_none() {
+            ctx.stats.counter(self.stat_paths.prefetches_dropped).inc();
+            return;
+        }
+        self.start_prefetch(paddr.val(), exclusive, ctx);
+    }
+
+    /// Sends a prefetch for a lower level on to the cache below.
+    fn pass_prefetch_down(
+        &self,
+        paddr: PhysAddr,
+        into: CacheLevel,
+        exclusive: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let Some(downstream @ ComponentId::Cache(_)) = self.downstream else { return };
+        let packet = Packet::MemReq {
+            req_id: ReqId::new(0),
+            paddr,
+            vaddr: None,
+            pc: None,
+            size: AccessSize::Line,
+            op: MemOp::Prefetch { into, exclusive },
+        };
+        ctx.scheduler.schedule(ctx.cycle, downstream, ctx.self_id, packet);
+    }
+
+    /// Starts fetching the line holding `addr` as a prefetch, unless it is
+    /// already here with the permission wanted, in flight or being
+    /// written back.
+    fn start_prefetch(&mut self, addr: u64, exclusive: bool, ctx: &mut HandleCtx<'_>) {
+        let line = self.line_of(addr);
+        if self.holds_for(addr, exclusive) || self.mshrs.holds(line) || self.writebacks.holds(line)
+        {
+            return;
+        }
+        ctx.stats.counter(self.stat_paths.prefetches_issued).inc();
+        let op = if exclusive { MemOp::ReadOwn } else { MemOp::Read };
+        self.start_fetch(line, Vec::new(), exclusive, true, op, ctx);
+    }
+
+    /// True when the line holding `addr` is here, writable if `exclusive`.
+    fn holds_for(&self, addr: u64, exclusive: bool) -> bool {
+        let Some(way) = self.find_way(addr) else { return false };
+        let state = self.lines[self.set_index(addr) * self.ways + way].state;
+        !exclusive || state != MesiState::Shared
     }
 
     #[allow(clippy::too_many_arguments)]

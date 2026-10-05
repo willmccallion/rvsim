@@ -172,6 +172,16 @@ pub enum MemOp {
         /// it to memory, as gem5's `WriteClean`.
         dirty: bool,
     },
+    /// A hardware prefetch of the request's line into the cache at `into`.
+    /// Caches above `into` pass it down; the cache at `into` fetches the
+    /// line unless it holds it, is already fetching it or is short of
+    /// MSHRs. Nothing answers it.
+    Prefetch {
+        /// The level that fills the line.
+        into: CacheLevel,
+        /// Fetch the line with write permission, for a store stream.
+        exclusive: bool,
+    },
 }
 
 /// What a cache-maintenance operation does to every cached copy of a line.
@@ -200,7 +210,8 @@ impl MemOp {
             | Self::Write { .. }
             | Self::Fetch
             | Self::Writeback { .. }
-            | Self::Maintain { .. } => false,
+            | Self::Maintain { .. }
+            | Self::Prefetch { .. } => false,
         }
     }
 }
