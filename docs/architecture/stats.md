@@ -143,8 +143,10 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.bp.committed.hits`, `.mispredicts`, `.accuracy` | Control instructions predicted right and wrong, counted at commit; accuracy is derived |
 | `core<N>.bp.spec.hits`, `.mispredicts`, `.accuracy` | The same counted at execute, wrong-path branches included |
 | `core<N>.bp.decode_redirects` | Fetch redirects decode made (a BTB miss on a taken control instruction, a stale target, a non-branch BTB hit) |
-| `core<N>.mdp.predictions.{bypass,wait_all,wait_for}` | Memory-dependence predictions made at dispatch |
-| `core<N>.mdp.violations` | Memory-order violations the predictor trained on |
+| `core<N>.mdp.predictions.bypass` | Loads predicted independent of every older store |
+| `core<N>.mdp.predictions.wait_all` | Loads made to wait for every older store's address: all loads under the blind predictor, LRs and AMOs under store sets |
+| `core<N>.mdp.predictions.wait_for` | Loads and stores made to wait for one older store in their store set |
+| `core<N>.mdp.violations` | Loads found to have read past an aliasing older store, which the predictor trained on |
 | `core<N>.lsq.rescheduled_mem_ops` | Accesses replayed behind an older store (a partial overlap, or a store whose data is not yet there) |
 | `core<N>.lsq.split_stores` | Stores whose data half issued after their address half |
 | `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |

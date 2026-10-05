@@ -206,8 +206,14 @@ impl MemDepUnit {
     }
 
     /// Returns a snapshot of predictor statistics.
+    #[cfg(test)]
     pub fn stats(&self) -> MdpStats {
         self.stats.clone()
+    }
+
+    /// The counts since the last call, which start again from zero.
+    pub fn take_stats(&mut self) -> MdpStats {
+        std::mem::take(&mut self.stats)
     }
 }
 

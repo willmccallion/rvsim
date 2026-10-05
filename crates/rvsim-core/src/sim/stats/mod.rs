@@ -636,10 +636,13 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(bp.decode_redirects, Meta::events("fetch redirects from decode"));
 
     let mdp = &c.mdp;
-    s.register(mdp.predictions_bypass, Meta::events("MDP predicted bypass"));
-    s.register(mdp.predictions_wait_all, Meta::events("MDP predicted wait-for-all"));
-    s.register(mdp.predictions_wait_for, Meta::events("MDP predicted wait-for-specific"));
-    s.register(mdp.violations, Meta::events("MDP violations observed at commit"));
+    s.register(mdp.predictions_bypass, Meta::events("loads predicted independent of older stores"));
+    s.register(mdp.predictions_wait_all, Meta::events("loads made to wait for every older store"));
+    s.register(
+        mdp.predictions_wait_for,
+        Meta::events("loads and stores made to wait for one store"),
+    );
+    s.register(mdp.violations, Meta::events("loads that read past an aliasing older store"));
 
     let lsq = &c.lsq;
     s.register(lsq.rescheduled_mem_ops, Meta::events("Memory ops replayed behind an older store"));

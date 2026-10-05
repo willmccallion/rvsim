@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (stats).** `mdp.*` mirrored the predictor's lifetime totals,
+  so after a stats reset they jumped back to them; they now count from the
+  reset like every other stat.
 - **Breaking (stats).** `pipeline.flushes.*` missed every flush commit
   takes (traps, interrupts, xRET, FENCE.I, SFENCE.VMA and WFI refetches,
   LR/AMO re-execution) and put coherence squashes under no cause. Each

@@ -316,19 +316,17 @@ impl O3Engine {
         }
     }
 
-    /// Mirrors the memory dependence unit's running totals into the stats.
-    pub(super) fn publish_mdp_stats(&self, state: &mut CoreCtx<'_>) {
-        let totals = self.mdp.stats();
+    /// Adds what the memory dependence unit counted this cycle to the stats.
+    pub(super) fn publish_mdp_stats(&mut self, state: &mut CoreCtx<'_>) {
+        let counted = self.mdp.take_stats();
         let paths = &state.core.stat_paths.mdp;
         for (stat, value) in [
-            (paths.predictions_bypass, totals.predictions_bypass),
-            (paths.predictions_wait_all, totals.predictions_wait_all),
-            (paths.predictions_wait_for, totals.predictions_wait_for),
-            (paths.violations, totals.violations),
+            (paths.predictions_bypass, counted.predictions_bypass),
+            (paths.predictions_wait_all, counted.predictions_wait_all),
+            (paths.predictions_wait_for, counted.predictions_wait_for),
+            (paths.violations, counted.violations),
         ] {
-            let counter = state.uncore.stats.counter(stat);
-            counter.reset();
-            counter.add(value);
+            state.uncore.stats.counter(stat).add(value);
         }
     }
 }
