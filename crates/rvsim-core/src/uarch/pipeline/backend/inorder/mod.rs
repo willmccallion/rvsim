@@ -408,6 +408,9 @@ impl ExecutionEngine for InOrderEngine {
 
         // Skip issue+execute when M1 hasn't drained, so we don't overwrite held entries.
         let backpressured = !self.execute_mem1.is_empty();
+        if backpressured {
+            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
+        }
 
         self.deliver_ready_results(state, now);
 
