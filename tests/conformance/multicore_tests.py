@@ -32,6 +32,9 @@ if not os.path.isfile(PYTHON):
 ELF_DIR = os.path.join(ROOT, "software", "bin", "multicore")
 RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 TIMEOUT_SEC = 300
+# Barriers and shared counters grow with the hart count; 8-hart litmus needs
+# about 12M cycles.
+CYCLES_PER_HART = 5_000_000
 
 DEFAULT_PIPELINES = [
     "inorder w1",
@@ -60,6 +63,7 @@ SMOKE_FOUR_HART_PIPELINES = ["inorder w4", "o3 w4", "smp mesh", "ref p550"]
 def run_one(args):
     name, elf_path, label, harts = args
     env = dict(os.environ, RVSIM_HART_COUNT=str(harts))
+    env.setdefault("RVSIM_CYCLE_LIMIT", str(CYCLES_PER_HART * harts))
     t0 = time.time()
     try:
         res = subprocess.run(
