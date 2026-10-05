@@ -103,14 +103,17 @@ impl SystemState {
     #[must_use]
     pub fn stats_window(&self) -> (u64, u64) {
         let epoch = self.stats_epoch;
-        (self.cycle - epoch.cycle, self.instructions_retired() - epoch.instructions_retired)
+        let cycles = self.reported_cycle() - epoch.cycle;
+        (cycles, self.instructions_retired() - epoch.instructions_retired)
     }
 
     /// Zeroes every stat and starts a new window here.
     pub fn reset_stats(&mut self) {
         self.uncore.stats.reset();
-        self.uncore.stats_epoch =
-            StatsEpoch { cycle: self.cycle, instructions_retired: self.instructions_retired() };
+        self.uncore.stats_epoch = StatsEpoch {
+            cycle: self.reported_cycle(),
+            instructions_retired: self.instructions_retired(),
+        };
     }
 
     /// Carries out a request the guest made through the sim-control device.
@@ -351,6 +354,7 @@ impl SystemState {
                 },
                 topology,
                 cycle: 0,
+                exited_at: None,
                 bus,
                 mem_controller,
                 l3_cache,

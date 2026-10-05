@@ -225,10 +225,11 @@ impl Simulator {
         }
     }
 
-    /// Cycles since the system started, carried across checkpoints.
+    /// Cycles since the system started, carried across checkpoints. Once
+    /// the guest has exited, the cycle of its exit.
     #[must_use]
     pub const fn cycle(&self) -> u64 {
-        self.state.uncore.cycle
+        self.state.uncore.reported_cycle()
     }
 
     /// Instructions retired by every hart since the system started.
@@ -368,6 +369,14 @@ impl Simulator {
     /// checkpoint records. Like gem5's drain, it takes simulated time and
     /// perturbs the timing of a run that continues afterwards.
     pub fn drain(&mut self) {
+        self.complete_committed_writes();
+        let uncore = &mut self.state.uncore;
+        uncore.bus.drain_devices(&mut uncore.memory);
+    }
+
+    /// Discards every core's speculative work and runs the memory system
+    /// until every committed store has taken effect.
+    fn complete_committed_writes(&mut self) {
         for core in 0..self.core_count() {
             let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
             pipeline.flush(&mut ctx);
@@ -375,8 +384,6 @@ impl Simulator {
         if self.committed_writes_pending() {
             while self.drain_writes_for_a_cycle() {}
         }
-        let uncore = &mut self.state.uncore;
-        uncore.bus.drain_devices(&mut uncore.memory);
     }
 
     /// Whether any core has a committed store yet to finish writing.
@@ -579,6 +586,7 @@ impl Simulator {
     ///
     /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires.
     pub fn tick(&mut self) -> Result<(), SimError> {
+        self.state.uncore.exited_at = None;
         for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
             *slot = hart.privilege;
         }
@@ -756,9 +764,15 @@ impl Simulator {
         fabric.tick(&mut ctx);
     }
 
-    /// Retrieves the exit code if the simulation has finished.
-    pub fn take_exit(&self) -> Option<u64> {
-        self.state.take_exit()
+    /// Retrieves the exit code if the simulation has finished, completing
+    /// the stores the guest committed before it exited. Those take memory
+    /// cycles the run does not count: [`Self::cycle`] and the stats window
+    /// stay at the exit until the run is resumed.
+    pub fn take_exit(&mut self) -> Option<u64> {
+        let code = self.state.take_exit()?;
+        self.state.uncore.exited_at = Some(self.state.cycle);
+        self.complete_committed_writes();
+        Some(code)
     }
 
     /// Synchronously reads `width` bytes from physical memory.

@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A program's exit no longer drops the stores it committed just before
+  exiting: they finish writing, so the console shows everything printed
+  (`fib.elf` on `presets.p550()` used to end at `fib(20)=`). The cycles
+  spent finishing them are not counted; `cycles` and the stats window end
+  at the exit instruction, as before.
 - Prefetchers follow the published hardware (decision 14, after the
   Cortex-A72 TRM §6.4.9 and Intel's optimization manual).
   `Config(load_prefetcher=LoadPrefetcher.Stride(...))` is a load

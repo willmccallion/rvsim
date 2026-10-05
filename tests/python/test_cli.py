@@ -36,6 +36,30 @@ class JsonExport(unittest.TestCase):
         self.assertIn("core0.cache.l1d.hits", stats)
 
 
+@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+class ProgramOutput(unittest.TestCase):
+    def test_every_preset_prints_all_the_output_before_the_exit(self):
+        for preset in PRESETS:
+            with self.subTest(preset=preset):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "rvsim",
+                        FIB,
+                        "--preset",
+                        preset,
+                        "--no-stats",
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+
+                self.assertEqual(result.stdout, "fib(20)=6765\n")
+
+
 class Preset(unittest.TestCase):
     def test_an_unknown_preset_lists_every_registered_preset(self):
         result = subprocess.run(
