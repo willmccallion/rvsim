@@ -97,6 +97,13 @@ impl WriteCombiningBuffer {
         if self.entry_bytes >= 64 { u64::MAX } else { (1 << self.entry_bytes) - 1 }
     }
 
+    /// Whether an entry already holds stores to the span containing `paddr`.
+    #[must_use]
+    pub fn holds_entry_for(&self, paddr: PhysAddr) -> bool {
+        let base = self.entry_base(paddr.val());
+        self.slots.iter().flatten().any(|entry| entry.line.line_addr == base)
+    }
+
     /// Merges `bytes` bytes of `data` at `paddr`, which must lie in one
     /// entry's span of an enabled buffer. Returns the line whose slot the
     /// store took, which the caller must send.

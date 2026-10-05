@@ -656,8 +656,8 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
         Meta::events("Loads squashed for reading a line before a remote write an older load saw"),
     );
 
-    s.register(c.wcb.coalesces, Meta::events("WCB store coalesces"));
-    s.register(c.wcb.drains, Meta::events("WCB line drains"));
+    s.register(c.wcb.coalesces, Meta::events("stores merged into a line the WCB already held"));
+    s.register(c.wcb.drains, Meta::events("WCB lines written to the L1D"));
     let pf = &c.load_prefetch;
     s.register(pf.l1, Meta::events("load prefetches sent to fill the L1D"));
     s.register(pf.l2, Meta::events("load prefetches sent to fill the L2 alone"));
