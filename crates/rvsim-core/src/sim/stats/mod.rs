@@ -620,7 +620,9 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(pipe.flushes_branch, Meta::events("flushes: branch mispredict"));
     s.register(pipe.flushes_system, Meta::events("flushes: system serialization"));
     s.register(pipe.flushes_mem_violations, Meta::events("flushes: memory ordering violations"));
-    s.register(pipe.flushes_squashed_insns, Meta::events("insts squashed by flushes"));
+    s.register(pipe.flushes_coherence, Meta::events("flushes: a value another hart overwrote"));
+    s.register(pipe.flushes_trap, Meta::events("flushes: exceptions and interrupts at commit"));
+    s.register(pipe.flushes_squashed_insns, Meta::events("ROB entries dropped by flushes"));
 
     let bp = &c.bp;
     s.register(bp.committed_hits, Meta::events("branch and jump predictions correct (committed)"));

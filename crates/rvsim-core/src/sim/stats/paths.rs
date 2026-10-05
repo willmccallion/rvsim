@@ -138,6 +138,10 @@ stat_paths! {
         flushes_system: "pipeline.flushes.system",
         /// Flushes caused by memory-ordering violations.
         flushes_mem_violations: "pipeline.flushes.mem_violations",
+        /// Flushes for a value another hart overwrote.
+        flushes_coherence: "pipeline.flushes.coherence",
+        /// Flushes for an exception or interrupt taken at commit.
+        flushes_trap: "pipeline.flushes.trap",
         /// Instructions squashed by flush events (misprediction penalty).
         flushes_squashed_insns: "pipeline.flushes.squashed_insns",
     }

@@ -24,6 +24,7 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
+use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, micro_ops_for, moves_in_spans, plan_accesses, retire_access,
 };
@@ -36,7 +37,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::Rob;
-use crate::uarch::pipeline::squash::{PendingSquash, SquashCause};
+use crate::uarch::pipeline::squash::PendingSquash;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
 use crate::exec::signals::ControlFlow;
@@ -129,17 +130,11 @@ impl InOrderEngine {
         squash: PendingSquash,
         redirect: &mut Option<u64>,
     ) {
-        let paths = &state.core.stat_paths.pipeline;
-        state.uncore.stats.counter(paths.flushes_total).inc();
-        match squash.redirect.cause {
-            SquashCause::Branch => state.uncore.stats.counter(paths.flushes_branch).inc(),
-            SquashCause::System => state.uncore.stats.counter(paths.flushes_system).inc(),
-            SquashCause::MemoryOrder | SquashCause::Coherence => {}
-        }
-
         // Everything in the issue queue is younger than any executed instruction.
         self.issuer.flush();
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        let squashed = keep_tag.map_or(self.rob.len(), |tag| self.rob.iter_after(tag).count());
+        count_flush(state, squash.redirect.cause.into(), squashed);
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
         if let Some(keep_tag) = keep_tag {
             self.rob.flush_after(keep_tag);
@@ -365,6 +360,9 @@ impl ExecutionEngine for InOrderEngine {
             },
         );
 
+        if let Some(event) = &commit_event {
+            count_flush(state, event.into(), self.rob.len());
+        }
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
                 self.flush(state);

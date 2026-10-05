@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (stats).** `pipeline.flushes.*` missed every flush commit
+  takes (traps, interrupts, xRET, FENCE.I, SFENCE.VMA and WFI refetches,
+  LR/AMO re-execution) and put coherence squashes under no cause. Each
+  flush now counts once in `flushes.total` and once under one cause, with
+  new `flushes.trap` and `flushes.coherence`; `flushes.squashed_insns`
+  counts the ROB entries every flush drops on both backends (the in-order
+  backend counted none).
 - **Breaking (stats).** `commit.op.load` counted LR, SC and every AMO;
   they now count in a new `commit.op.atomic`. `commit.vec.misc` counted
   the Zvbb/Zvbc bit-manipulation and Zvk* crypto ops: bit-manipulation now
