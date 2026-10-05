@@ -371,7 +371,7 @@ impl ExecutionEngine for InOrderEngine {
                 *redirect = Some(state.hart.pc);
                 return;
             }
-            Some(CommitEvent::ReExecute(pc) | CommitEvent::SquashAfter(pc)) => {
+            Some(CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc)) => {
                 self.flush(state);
                 state.hart.pc = pc;
                 *redirect = Some(pc);
