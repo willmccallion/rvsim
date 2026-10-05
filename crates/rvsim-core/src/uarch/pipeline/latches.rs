@@ -343,6 +343,9 @@ pub struct ExMem1Entry {
     /// A store's address half: `store_data` is not its data, which its
     /// data half delivers to the store buffer separately.
     pub store_data_follows: bool,
+    /// Memory1 sent it back to wait last cycle, so waiting on is the same
+    /// wait.
+    pub replaying: bool,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -420,6 +423,7 @@ impl ExMem1Entry {
             sfence_vma: None,
             vec_mem: None,
             store_data_follows: false,
+            replaying: false,
         }
     }
 }

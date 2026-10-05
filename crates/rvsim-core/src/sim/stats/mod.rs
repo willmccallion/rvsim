@@ -645,7 +645,12 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     s.register(mdp.violations, Meta::events("loads that read past an aliasing older store"));
 
     let lsq = &c.lsq;
-    s.register(lsq.rescheduled_mem_ops, Meta::events("Memory ops replayed behind an older store"));
+    s.register(
+        lsq.rescheduled_mem_ops,
+        Meta::events(
+            "memory ops that waited in memory1 for an older store, a device or the ROB head",
+        ),
+    );
     s.register(lsq.split_stores, Meta::events("Stores whose data issued after their address"));
     s.register(
         lsq.coherence_replays,

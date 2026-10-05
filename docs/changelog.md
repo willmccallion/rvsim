@@ -8,7 +8,8 @@ All notable changes to this project are documented here. The format is based on 
   so after a stats reset they jumped back to them; they now count from the
   reset like every other stat. `wcb.coalesces` also counted a store that
   took an empty entry; it now counts only stores merged into a line the
-  buffer held.
+  buffer held. `lsq.rescheduled_mem_ops` counted every cycle an op waited
+  in memory1; it now counts each wait once.
 - **Breaking (stats).** `pipeline.flushes.*` missed every flush commit
   takes (traps, interrupts, xRET, FENCE.I, SFENCE.VMA and WFI refetches,
   LR/AMO re-execution) and put coherence squashes under no cause. Each

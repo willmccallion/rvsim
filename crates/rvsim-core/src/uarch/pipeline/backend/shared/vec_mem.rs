@@ -298,6 +298,7 @@ const fn memory_entry(
         sfence_vma: None,
         vec_mem: Some(access),
         store_data_follows: false,
+        replaying: false,
     }
 }
 
