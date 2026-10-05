@@ -6,6 +6,10 @@ Every (program, config) pair runs in its own subprocess through the installed
 count and exit code of each pair, which is what "cycle-identical" means for a
 single-core configuration.
 
+A config is a label from the conformance pipelines, or ``preset <name>`` for
+one of ``rvsim.presets`` (``linux`` included), so a timing change shows its
+effect on every preset at once.
+
 Usage:
     python tools/diag/cycle_baseline.py --out baseline.json
     python tools/diag/cycle_baseline.py --compare baseline.json [--out new.json]
@@ -55,17 +59,34 @@ CONFIGS = [
     "o3 w4 dram",
     "o3 w4 ddr5",
     "inorder w4 ddr5",
-    "ref p550",
+    "preset basic",
+    "preset fast",
+    "preset cortex_a72",
+    "preset m1",
+    "preset p550",
+    "preset linux",
 ]
+
+
+def config_for(label):
+    """The config `label` names: ``preset <name>`` or a pipeline label."""
+    from rvsim import presets
+    from tests.conformance.configs.pipelines import PIPELINES
+
+    if label.startswith("preset "):
+        name = label.removeprefix("preset ")
+        if name == "linux":
+            return presets.linux()
+        return presets.PRESETS[name]()
+    return next(c for lbl, c in PIPELINES if lbl == label)
 
 
 def run_one(args):
     name, elf_path, label, limit, hart_count = args
     from rvsim._core import Simulator
     from rvsim.config._config import _config_to_dict
-    from tests.conformance.configs.pipelines import PIPELINES
 
-    cfg = next(c for lbl, c in PIPELINES if lbl == label)
+    cfg = config_for(label)
     cfg.uart_quiet = True
     cfg.hart_count = hart_count
     with open(os.path.join(ROOT, elf_path), "rb") as f:
