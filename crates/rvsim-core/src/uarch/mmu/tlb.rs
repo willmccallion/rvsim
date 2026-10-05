@@ -9,7 +9,7 @@
 //! its page number above the page offset selects, and a lookup probes the
 //! set of each page size.
 
-use crate::common::{Asid, Ppn, Vpn};
+use crate::common::{Asid, PAGE_SHIFT, Ppn, Vpn};
 
 /// Bits of a VPN one page-table level translates.
 const VPN_BITS_PER_LEVEL: u32 = 9;
@@ -70,6 +70,12 @@ impl PageSize {
     const fn vpn_offset_mask(self) -> u64 {
         (1u64 << self.vpn_offset_bits()) - 1
     }
+
+    /// Bytes in a page of this size.
+    #[must_use]
+    pub const fn bytes(self) -> u64 {
+        1u64 << (PAGE_SHIFT as u32 + self.vpn_offset_bits())
+    }
 }
 
 /// One cached translation: a page of `size` starting at base page `vpn`,
@@ -100,6 +106,12 @@ impl Mapping {
             pte,
             asid,
         }
+    }
+
+    /// The size of the page.
+    #[must_use]
+    pub const fn size(&self) -> PageSize {
+        self.size
     }
 
     const fn is_global(&self) -> bool {

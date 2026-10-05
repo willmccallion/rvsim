@@ -650,6 +650,13 @@ fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
 
     s.register(c.wcb.coalesces, Meta::events("WCB store coalesces"));
     s.register(c.wcb.drains, Meta::events("WCB line drains"));
+    let pf = &c.load_prefetch;
+    s.register(pf.l1d, Meta::events("load prefetches sent to fill the L1D"));
+    s.register(pf.l2, Meta::events("load prefetches sent to fill the L2 alone"));
+    s.register(pf.page_boundary, Meta::events("load prefetches stopped at the page boundary"));
+    s.register(pf.tlb_miss, Meta::events("load prefetches whose next page missed the DTLB"));
+    s.register(pf.denied, Meta::events("load prefetches to a page the load may not read"));
+    s.register(pf.not_ram, Meta::events("load prefetches to a line outside RAM"));
     s.register(c.cache.l1d_exclusive_swaps, Meta::events("L1D exclusive-line swaps to L2"));
     for path in c.fu.all {
         s.register(path, Meta::cycles("cycles this FU was busy"));

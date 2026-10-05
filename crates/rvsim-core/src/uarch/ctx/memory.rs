@@ -10,7 +10,7 @@ use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
-use crate::isa::privileged::Trap;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
@@ -53,21 +53,25 @@ pub(super) fn translate(
         return TranslateOutcome::Ready(TranslationResult::success(paddr, 0));
     }
 
-    let effective_priv = if access != AccessType::Fetch
-        && (hart.csrs.mstatus & crate::isa::csr::MSTATUS_MPRV) != 0
-    {
-        use crate::isa::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT};
-        use crate::isa::privileged::PrivilegeMode;
-        let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
-        PrivilegeMode::from_u8(mpp)
-    } else {
-        hart.privilege
-    };
+    let effective_priv =
+        if access == AccessType::Fetch { hart.privilege } else { data_privilege(hart) };
 
     let outcome =
         core.mmu.translate_async(vaddr, access, effective_priv, &hart.csrs, Some(&hart.pmp));
 
     finalize_outcome(hart, uncore, outcome, vaddr, access, size, effective_priv)
+}
+
+/// The privilege a load or store translates and is checked at: the mode
+/// in `mstatus.MPP` while `mstatus.MPRV` is set, the hart's own otherwise.
+pub(super) const fn data_privilege(hart: &Hart) -> PrivilegeMode {
+    use crate::isa::csr::{MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT, MSTATUS_MPRV};
+
+    if hart.csrs.mstatus & MSTATUS_MPRV == 0 {
+        return hart.privilege;
+    }
+    let mpp = ((hart.csrs.mstatus >> MSTATUS_MPP_SHIFT) & MSTATUS_MPP_MASK) as u8;
+    PrivilegeMode::from_u8(mpp)
 }
 
 /// Resumes a walk that was parked waiting on a PTE response.

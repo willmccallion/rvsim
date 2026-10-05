@@ -11,6 +11,7 @@ mod defaults;
 mod general;
 mod memory;
 mod pipeline;
+mod prefetch;
 mod system;
 
 pub use bpred::{
@@ -31,6 +32,7 @@ pub use pipeline::{
     BackendKind, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
     StoreSetConfig, VecStoreForwarding,
 };
+pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::SystemConfig;
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;

@@ -14,10 +14,12 @@ pub mod mmu;
 
 pub mod pipeline;
 
+pub mod prefetch;
+
 pub mod vector;
 
 use crate::common::CoreId;
-use crate::config::{Config, InclusionPolicy};
+use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig};
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
@@ -27,6 +29,7 @@ use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
+use crate::uarch::prefetch::LoadPrefetcher;
 
 /// One processor core: the pipeline and the functional units it drives.
 ///
@@ -60,6 +63,8 @@ pub struct CoreUnits {
     pub mmu: Mmu,
     /// Write Combining Buffer for store coalescing.
     pub wcb: WriteCombiningBuffer,
+    /// The load/store unit's load prefetcher, if configured.
+    pub load_prefetcher: Option<LoadPrefetcher>,
     /// Branch Predictor Unit.
     pub branch_predictor: BranchPredictor,
     /// Stat paths rooted at `core<N>`.
@@ -108,8 +113,25 @@ impl CoreUnits {
                 config.memory.paging_mode_max,
             ),
             wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
+            load_prefetcher: load_prefetcher(config),
             branch_predictor: BranchPredictor::new(config),
             stat_paths: CorePaths::new(core_id),
+        }
+    }
+}
+
+/// The load prefetcher `config` asks for.
+fn load_prefetcher(config: &Config) -> Option<LoadPrefetcher> {
+    match config.cache.load_prefetcher {
+        LoadPrefetcherConfig::None => None,
+        LoadPrefetcherConfig::Stride { table_size, l1_lines, l2_lines, page_boundary } => {
+            Some(LoadPrefetcher::new(
+                config.cache.l1_d.line_bytes,
+                table_size,
+                l1_lines,
+                l2_lines,
+                page_boundary,
+            ))
         }
     }
 }
