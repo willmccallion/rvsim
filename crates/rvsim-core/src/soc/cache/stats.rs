@@ -40,8 +40,18 @@ pub struct CacheStatPaths {
     pub upgrade_retries: StatId,
     /// Prefetch fetches started.
     pub prefetches_issued: StatId,
-    /// Prefetch fetches a demand request joined before the fill arrived.
+    /// Prefetch fetches a request from above joined before the fill
+    /// arrived: the prefetch was late.
+    pub prefetches_late: StatId,
+    /// Prefetched lines a request from above found after they were
+    /// installed.
     pub prefetches_useful: StatId,
+    /// Prefetched lines dropped before any request from above found them.
+    pub prefetches_unused: StatId,
+    /// Derived: useful + late.
+    pub prefetches_used: StatId,
+    /// Derived: used / issued.
+    pub prefetches_accuracy: StatId,
     /// Prefetch candidates dropped for lying outside the 4 KiB page of the
     /// access that produced them.
     pub prefetches_page_crossing: StatId,
@@ -75,7 +85,11 @@ impl CacheStatPaths {
             upgrades: path("coherence.upgrades"),
             upgrade_retries: path("coherence.upgrade_retries"),
             prefetches_issued: path("prefetches.issued"),
+            prefetches_late: path("prefetches.late"),
             prefetches_useful: path("prefetches.useful"),
+            prefetches_unused: path("prefetches.unused"),
+            prefetches_used: path("prefetches.used"),
+            prefetches_accuracy: path("prefetches.accuracy"),
             prefetches_page_crossing: path("prefetches.page_crossing"),
             prefetches_dropped: path("prefetches.dropped"),
             store_prefetches: path("prefetches.store_stream"),
@@ -112,8 +126,16 @@ impl StatSource for CacheStatPaths {
         );
         s.register(self.prefetches_issued, Meta::events("prefetch fetches started"));
         s.register(
+            self.prefetches_late,
+            Meta::events("prefetch fetches a request joined before the fill"),
+        );
+        s.register(
             self.prefetches_useful,
-            Meta::events("prefetch fetches a demand request joined"),
+            Meta::events("prefetched lines a request found once installed"),
+        );
+        s.register(
+            self.prefetches_unused,
+            Meta::events("prefetched lines dropped before any request found them"),
         );
         s.register(
             self.prefetches_page_crossing,
@@ -126,6 +148,16 @@ impl StatSource for CacheStatPaths {
         s.register(
             self.store_prefetches,
             Meta::events("store-miss prefetches sent to the next level"),
+        );
+        s.derive(
+            self.prefetches_used,
+            Formula::Sum(vec![self.prefetches_useful, self.prefetches_late]),
+            Meta::events("prefetches a request used, late or not"),
+        );
+        s.derive(
+            self.prefetches_accuracy,
+            Formula::Div(self.prefetches_used, self.prefetches_issued),
+            Meta::ratio("share of issued prefetches a request used"),
         );
         s.derive(
             self.miss_rate,

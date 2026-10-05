@@ -35,6 +35,7 @@ use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPol
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, CacheLevel, MemOp, MesiState, Packet, ProbeKind};
+use crate::sim::stats::Stats;
 use crate::soc::cache::prefetch::{
     NextLinePrefetcher, Prefetcher, StoreStreamPrefetcher, StreamPrefetcher, StridePrefetcher,
     TaggedPrefetcher,
@@ -48,6 +49,8 @@ struct CacheLine {
     /// Bit `i` set: `upstream[i]` was given this line and has not told us
     /// it dropped it. Probes and back-invalidations go only to those.
     upper: u8,
+    /// Installed by one of our prefetches and not yet requested from above.
+    prefetched: bool,
 }
 
 impl CacheLine {
@@ -410,18 +413,39 @@ impl Cache {
 
     /// Drops our copy of the line containing `addr`. Returns whether it was
     /// dirty.
-    fn invalidate_line(&mut self, addr: u64) -> bool {
+    fn invalidate_line(&mut self, addr: u64, stats: &mut Stats) -> bool {
         let Some(way) = self.find_way(addr) else { return false };
         let index = self.set_index(addr) * self.ways + way;
         let was_dirty = self.lines[index].dirty();
-        self.lines[index].state = MesiState::Invalid;
+        self.drop_line(index, stats);
         was_dirty
     }
 
     /// Drops every line, as an instruction cache does for FENCE.I.
-    pub fn invalidate_all(&mut self) {
-        for line in &mut self.lines {
-            line.state = MesiState::Invalid;
+    pub fn invalidate_all(&mut self, stats: &mut Stats) {
+        for index in 0..self.lines.len() {
+            self.drop_line(index, stats);
+        }
+    }
+
+    /// Invalidates the line at `index`, counting a prefetched line that
+    /// was never requested as an unused prefetch.
+    fn drop_line(&mut self, index: usize, stats: &mut Stats) {
+        let line = &mut self.lines[index];
+        if line.valid() && line.prefetched {
+            stats.counter(self.stat_paths.prefetches_unused).inc();
+        }
+        line.state = MesiState::Invalid;
+        line.prefetched = false;
+    }
+
+    /// Notes a request from above finding the line at `index`: the first
+    /// one to find a prefetched line makes that prefetch useful.
+    fn note_request_for(&mut self, index: usize, stats: &mut Stats) {
+        let line = &mut self.lines[index];
+        if line.prefetched {
+            stats.counter(self.stat_paths.prefetches_useful).inc();
+            line.prefetched = false;
         }
     }
 }

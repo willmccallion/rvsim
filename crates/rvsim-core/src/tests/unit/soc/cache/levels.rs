@@ -15,7 +15,7 @@ use crate::sim::packet::{
     AccessSize, CacheLevel, HitLevel, Maintenance, MemOp, MemRespData, MesiState, Packet,
     ProbeKind, WriteData,
 };
-use crate::sim::stats::Stats;
+use crate::sim::stats::{StatSource, Stats};
 use crate::soc::cache::Cache;
 
 const LATENCY: u64 = 2;
@@ -63,10 +63,12 @@ struct Bench {
 
 impl Bench {
     fn new(cache: Cache) -> Self {
+        let mut stats = Stats::new();
+        cache.stat_paths.register(&mut stats);
         Self {
             cache,
             queue: EventQueue::new(),
-            stats: Stats::new(),
+            stats,
             memory: GlobalMemory::new(Some(Ram::new(0, RAM_BYTES)), 1, 64),
             config: Config::default(),
             cycle: 100,
@@ -685,7 +687,7 @@ fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
         vec![0x1080],
         "the demand miss joins the prefetch MSHR; only its own next line is fetched"
     );
-    assert_eq!(bench.stat("test.prefetches.useful"), 1);
+    assert_eq!(bench.stat("test.prefetches.late"), 1);
     assert_eq!(bench.stat("test.mshr_hits"), 1);
     assert_eq!(bench.stat("test.prefetches.issued"), 2);
 }
@@ -721,6 +723,82 @@ fn a_prefetch_request_fetches_its_line_and_answers_no_one() {
     assert_eq!(bench.state_of(0x1000), Some(MesiState::Exclusive));
     assert!(responses_to(&events, PIPELINE).is_empty());
     assert_eq!(bench.stat("test.prefetches.issued"), 1);
+}
+
+/// Prefetches `addr` into the cache and fills it, with no request
+/// joining the fetch.
+fn prefetch_and_fill(bench: &mut Bench, req_id: u64, addr: u64) {
+    bench.request(req_id, addr, PREFETCH_L1D);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+    bench.fill(down_id, addr);
+    let _ = bench.drain();
+}
+
+#[test]
+fn the_first_request_to_find_a_prefetched_line_makes_the_prefetch_useful() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    prefetch_and_fill(&mut bench, 1, 0x1000);
+
+    bench.read(2, 0x1000);
+    bench.read(3, 0x1008);
+
+    assert_eq!(bench.stat("test.prefetches.useful"), 1);
+    assert_eq!(bench.stat("test.prefetches.late"), 0);
+    assert_eq!(bench.stats.get("test.prefetches.accuracy"), Some(1.0));
+}
+
+#[test]
+fn a_late_prefetch_is_not_counted_useful_when_its_line_is_found_again() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.request(1, 0x1000, PREFETCH_L1D);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+    bench.read(2, 0x1000);
+    bench.fill(down_id, 0x1000);
+    let _ = bench.drain();
+
+    bench.read(3, 0x1000);
+
+    assert_eq!(bench.stat("test.prefetches.late"), 1);
+    assert_eq!(bench.stat("test.prefetches.useful"), 0);
+    assert_eq!(bench.stats.get("test.prefetches.used"), Some(1.0));
+}
+
+#[test]
+fn a_prefetched_line_evicted_before_any_request_is_unused() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    prefetch_and_fill(&mut bench, 1, 0x1000);
+
+    bench.install(2, 0x1080, MemOp::Read);
+    bench.install(3, 0x1100, MemOp::Read);
+
+    assert_eq!(bench.state_of(0x1000), None, "the set's two ways were refilled");
+    assert_eq!(bench.stat("test.prefetches.unused"), 1);
+    assert_eq!(bench.stat("test.prefetches.useful"), 0);
+    assert_eq!(bench.stats.get("test.prefetches.accuracy"), Some(0.0));
+}
+
+#[test]
+fn a_prefetched_line_a_probe_takes_before_any_request_is_unused() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    prefetch_and_fill(&mut bench, 1, 0x1000);
+
+    bench.probe_from_below(0x1000, 9);
+    let _ = bench.drain();
+
+    assert_eq!(bench.state_of(0x1000), None);
+    assert_eq!(bench.stat("test.prefetches.unused"), 1);
+}
+
+#[test]
+fn an_evicted_demand_line_is_not_an_unused_prefetch() {
+    let mut bench = Bench::new(cache_with(&test_config()));
+    bench.install(1, 0x1000, MemOp::Read);
+
+    bench.install(2, 0x1080, MemOp::Read);
+    bench.install(3, 0x1100, MemOp::Read);
+
+    assert_eq!(bench.state_of(0x1000), None);
+    assert_eq!(bench.stat("test.prefetches.unused"), 0);
 }
 
 #[test]

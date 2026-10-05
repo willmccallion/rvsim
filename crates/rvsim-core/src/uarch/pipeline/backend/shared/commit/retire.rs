@@ -331,7 +331,7 @@ fn release_memory_resources(
 fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent> {
     let squash_younger = CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64()));
     if entry.ctrl.system_op == SystemOp::FenceI {
-        state.core.l1_i_cache.invalidate_all();
+        state.core.l1_i_cache.invalidate_all(&mut state.uncore.stats);
         return Some(squash_younger);
     }
     if let Some(info) = entry.sfence_vma {
