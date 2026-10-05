@@ -1,7 +1,7 @@
 //! Demand requests: lookup, responses, misses, fills and evictions.
 
 use super::mshr::{Mshr, MshrTarget};
-use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::common::{LineAddr, PAGE_SHIFT, PhysAddr, VirtAddr};
 use crate::config::InclusionPolicy;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::HandleCtx;
@@ -218,7 +218,9 @@ impl Cache {
 
     /// Runs the prefetcher on a demand access and starts fetches for the
     /// lines it wants that are neither present nor already in flight,
-    /// keeping one MSHR free for demand misses.
+    /// keeping one MSHR free for demand misses. A cache sees only physical
+    /// addresses, and the page after this one may map anywhere, so like a
+    /// hardware PA prefetcher it stays inside the smallest page.
     pub(super) fn observe_prefetcher(
         &mut self,
         addr: u64,
@@ -229,6 +231,10 @@ impl Cache {
         let Some(prefetcher) = self.prefetcher.as_mut() else { return };
         let candidates = prefetcher.observe(addr, pc, hit);
         for candidate in candidates {
+            if !same_base_page(candidate, addr) {
+                ctx.stats.counter(self.stat_paths.prefetches_page_crossing).inc();
+                continue;
+            }
             if self.mshrs.free() <= 1 || self.downstream.is_none() {
                 return;
             }
@@ -426,4 +432,10 @@ impl Cache {
             self.on_request(req, ctx);
         }
     }
+}
+
+/// True when `a` and `b` lie in the same 4 KiB page, the smallest a
+/// translation can map.
+const fn same_base_page(a: u64, b: u64) -> bool {
+    a >> PAGE_SHIFT == b >> PAGE_SHIFT
 }

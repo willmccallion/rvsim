@@ -5,7 +5,7 @@
 //! static load learns its own stride whatever its magnitude. An access
 //! without a PC (a store draining after commit, a page walk, a writeback)
 //! does not train it. Prefetching starts once the same stride has repeated
-//! enough to saturate the entry's confidence.
+//! enough to saturate the entry's confidence, and goes out a line at a time.
 
 use super::Prefetcher;
 use crate::common::VirtAddr;
@@ -70,13 +70,17 @@ impl StridePrefetcher {
         (pc.val() >> 1) as usize & self.table_mask
     }
 
-    /// The lines `degree` strides ahead of `addr`.
+    /// The next `degree` lines along `stride` from `addr`. Prefetches go
+    /// out a line at a time, so a stride shorter than a line advances one
+    /// line per prefetch.
     fn targets(&self, addr: u64, stride: i64) -> Vec<u64> {
         if stride == 0 {
             return Vec::new();
         }
+        let line = self.line_bytes as i64;
+        let step = if stride.abs() < line { line * stride.signum() } else { stride };
         (1..=self.degree as i64)
-            .map(|k| (addr as i64).wrapping_add(stride.wrapping_mul(k)) as u64)
+            .map(|k| (addr as i64).wrapping_add(step.wrapping_mul(k)) as u64)
             .map(|target| target & !(self.line_bytes - 1))
             .collect()
     }

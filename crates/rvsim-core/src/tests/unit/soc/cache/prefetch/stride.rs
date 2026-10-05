@@ -63,6 +63,17 @@ fn a_256_byte_stride_prefetches_degree_strides_ahead() {
 }
 
 #[test]
+fn a_stride_shorter_than_a_line_prefetches_the_following_lines() {
+    let mut pf = StridePrefetcher::new(64, 64, 2);
+    let base = 0x2_1000;
+
+    let prefetches = stream(&mut pf, LOAD, base, 8, WARMUP + 1);
+
+    let line = (base + 8 * WARMUP) & !63;
+    assert_eq!(prefetches, vec![line + 64, line + 128]);
+}
+
+#[test]
 fn a_negative_stride_prefetches_downward() {
     let mut pf = StridePrefetcher::new(64, 64, 1);
     let base = 0x3_0000;

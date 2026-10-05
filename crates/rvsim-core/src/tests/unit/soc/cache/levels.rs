@@ -691,6 +691,20 @@ fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
 }
 
 #[test]
+fn a_prefetch_into_the_next_4k_page_is_dropped() {
+    let mut config = test_config();
+    config.prefetcher = PrefetcherKind::NextLine;
+    let mut bench = Bench::new(cache_with(&config));
+
+    bench.read(1, 0x1FC0);
+
+    let addrs: Vec<u64> = bench.downstream_requests().iter().map(|r| r.1).collect();
+    assert_eq!(addrs, vec![0x1FC0], "the next line is in the next page");
+    assert_eq!(bench.stat("test.prefetches.page_crossing"), 1);
+    assert_eq!(bench.stat("test.prefetches.issued"), 0);
+}
+
+#[test]
 fn prefetches_leave_one_mshr_for_demand_misses() {
     let mut config = test_config();
     config.prefetcher = PrefetcherKind::NextLine;

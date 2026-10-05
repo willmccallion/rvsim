@@ -42,6 +42,9 @@ pub struct CacheStatPaths {
     pub prefetches_issued: StatId,
     /// Prefetch fetches a demand request joined before the fill arrived.
     pub prefetches_useful: StatId,
+    /// Prefetch candidates dropped for lying outside the 4 KiB page of the
+    /// access that produced them.
+    pub prefetches_page_crossing: StatId,
     /// Derived: misses / (hits + misses).
     pub miss_rate: StatId,
 }
@@ -69,6 +72,7 @@ impl CacheStatPaths {
             upgrade_retries: path("coherence.upgrade_retries"),
             prefetches_issued: path("prefetches.issued"),
             prefetches_useful: path("prefetches.useful"),
+            prefetches_page_crossing: path("prefetches.page_crossing"),
             miss_rate: path("miss_rate"),
         }
     }
@@ -104,6 +108,10 @@ impl StatSource for CacheStatPaths {
         s.register(
             self.prefetches_useful,
             Meta::events("prefetch fetches a demand request joined"),
+        );
+        s.register(
+            self.prefetches_page_crossing,
+            Meta::events("prefetch candidates dropped at a 4 KiB page boundary"),
         );
         s.derive(
             self.miss_rate,
