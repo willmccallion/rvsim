@@ -75,6 +75,9 @@ pub struct Uncore {
     pub topology: Topology,
     /// Master clock; every subsystem reads from this.
     pub cycle: u64,
+    /// The cycle the guest's exit took effect at, while the run stays
+    /// ended; the clock runs past it finishing the committed stores.
+    pub exited_at: Option<u64>,
     /// IO interconnect; routes accesses to RAM and MMIO devices.
     pub bus: Bus,
     /// Main memory controller.
@@ -163,6 +166,16 @@ impl Uncore {
     pub fn trace_trap_enabled(&self, trap: &Trap) -> bool {
         self.config.general.trace_instructions
             && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
+    }
+
+    /// The cycle the run has reached: the clock, or the cycle of the exit
+    /// that ended it.
+    #[must_use]
+    pub const fn reported_cycle(&self) -> u64 {
+        match self.exited_at {
+            Some(cycle) => cycle,
+            None => self.cycle,
+        }
     }
 
     /// Atomically takes the exit code if a bus device has signalled termination.
