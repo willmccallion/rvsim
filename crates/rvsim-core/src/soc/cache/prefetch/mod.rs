@@ -5,6 +5,8 @@
 
 pub mod next_line;
 
+pub mod store_stream;
+
 pub mod stream;
 
 pub mod stride;
@@ -12,6 +14,7 @@ pub mod stride;
 pub mod tagged;
 
 pub use self::next_line::NextLinePrefetcher;
+pub use self::store_stream::StoreStreamPrefetcher;
 pub use self::stream::StreamPrefetcher;
 pub use self::stride::StridePrefetcher;
 pub use self::tagged::TaggedPrefetcher;

@@ -19,11 +19,12 @@ pub mod prefetch;
 pub mod vector;
 
 use crate::common::CoreId;
-use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig};
+use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig, StorePrefetcherConfig};
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
 use crate::soc::cache::Cache;
+use crate::soc::cache::prefetch::StoreStreamPrefetcher;
 use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::TlbGeometry;
@@ -93,6 +94,11 @@ impl CoreUnits {
             Cache::new(l1d_id, CacheLevel::L1D, &config.cache.l1_d, &format!("{subject}.l1d"));
         l1_d_cache.set_downstream(ComponentId::Cache(l2_id));
         l1_d_cache.set_clean_victims_to_downstream(inclusion == InclusionPolicy::Exclusive);
+        if let StorePrefetcherConfig::Stream { streams, l2_lines } = config.cache.store_prefetcher {
+            let line_bytes = config.cache.l1_d.line_bytes;
+            l1_d_cache
+                .set_store_prefetcher(StoreStreamPrefetcher::new(line_bytes, streams, l2_lines));
+        }
 
         let mut l2_cache =
             Cache::new(l2_id, CacheLevel::L2, &config.cache.l2, &format!("{subject}.l2"));

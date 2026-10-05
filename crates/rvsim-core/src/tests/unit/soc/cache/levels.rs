@@ -777,6 +777,28 @@ fn a_disabled_level_passes_a_prefetch_for_a_lower_level_down() {
 }
 
 #[test]
+fn a_run_of_store_misses_sends_exclusive_prefetches_to_the_l2() {
+    let mut config = test_config();
+    config.mshr_count = 8;
+    let mut cache = cache_with(&config);
+    cache.set_store_prefetcher(crate::soc::cache::prefetch::StoreStreamPrefetcher::new(64, 4, 2));
+    let mut bench = Bench::new(cache);
+
+    for (id, addr) in [(1, 0x1000), (2, 0x1040), (3, 0x1080)] {
+        bench.write(id, addr);
+    }
+
+    let prefetches: Vec<u64> = bench
+        .downstream_requests()
+        .into_iter()
+        .filter(|r| matches!(r.2, MemOp::Prefetch { into: CacheLevel::L2, exclusive: true }))
+        .map(|r| r.1)
+        .collect();
+    assert_eq!(prefetches, vec![0x10C0, 0x1100]);
+    assert_eq!(bench.stat("test.prefetches.store_stream"), 2);
+}
+
+#[test]
 fn a_prefetch_request_is_dropped_rather_than_take_the_last_mshr() {
     let mut config = test_config();
     config.mshr_count = 2;

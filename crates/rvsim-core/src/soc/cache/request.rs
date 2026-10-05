@@ -171,6 +171,9 @@ impl Cache {
                 _ => MemOp::Read,
             };
             self.start_fetch(line, vec![target], is_write, false, fetch_op, ctx);
+            if is_write {
+                self.observe_store_miss(addr, ctx);
+            }
         }
         self.observe_prefetcher(addr, req.pc, false, ctx);
     }
@@ -243,6 +246,17 @@ impl Cache {
                 return;
             }
             self.start_prefetch(candidate, false, ctx);
+        }
+    }
+
+    /// Trains the store prefetcher on a store miss that started a fetch for
+    /// write permission, and sends the lines it wants to the next level.
+    fn observe_store_miss(&mut self, addr: u64, ctx: &mut HandleCtx<'_>) {
+        let Some(prefetcher) = self.store_prefetcher.as_mut() else { return };
+        let Some(into) = next_level(self.level) else { return };
+        for line in prefetcher.observe(addr) {
+            ctx.stats.counter(self.stat_paths.store_prefetches).inc();
+            self.pass_prefetch_down(PhysAddr::new(line), into, true, ctx);
         }
     }
 
@@ -502,4 +516,13 @@ impl Cache {
 /// translation can map.
 const fn same_base_page(a: u64, b: u64) -> bool {
     a >> PAGE_SHIFT == b >> PAGE_SHIFT
+}
+
+/// The cache level below `level`, if there is one.
+const fn next_level(level: CacheLevel) -> Option<CacheLevel> {
+    match level {
+        CacheLevel::L1I | CacheLevel::L1D => Some(CacheLevel::L2),
+        CacheLevel::L2 => Some(CacheLevel::L3),
+        CacheLevel::L3 => None,
+    }
 }

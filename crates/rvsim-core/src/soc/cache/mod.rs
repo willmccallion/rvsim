@@ -36,7 +36,8 @@ use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, CacheLevel, MemOp, MesiState, Packet, ProbeKind};
 use crate::soc::cache::prefetch::{
-    NextLinePrefetcher, Prefetcher, StreamPrefetcher, StridePrefetcher, TaggedPrefetcher,
+    NextLinePrefetcher, Prefetcher, StoreStreamPrefetcher, StreamPrefetcher, StridePrefetcher,
+    TaggedPrefetcher,
 };
 
 /// One tag-array entry.
@@ -136,6 +137,8 @@ pub struct Cache {
     pub enabled: bool,
     /// Optional hardware prefetcher.
     pub prefetcher: Option<Box<dyn Prefetcher + Send + Sync>>,
+    /// Prefetcher for the next level, fed by this cache's store misses.
+    store_prefetcher: Option<StoreStreamPrefetcher>,
     /// Stat paths rooted at this cache's subject.
     pub stat_paths: CacheStatPaths,
     /// Relationship with the caches above this one.
@@ -231,6 +234,7 @@ impl Cache {
             response_latency: config.response_latency,
             enabled: config.enabled,
             prefetcher,
+            store_prefetcher: None,
             stat_paths: CacheStatPaths::new(stat_subject),
             upstream_inclusion: InclusionPolicy::Nine,
             clean_victims_to_downstream: false,
@@ -273,6 +277,12 @@ impl Cache {
     /// half of an exclusive pair).
     pub const fn set_clean_victims_to_downstream(&mut self, enabled: bool) {
         self.clean_victims_to_downstream = enabled;
+    }
+
+    /// Gives this cache a prefetcher that its store misses train and that
+    /// fills the next level.
+    pub fn set_store_prefetcher(&mut self, prefetcher: StoreStreamPrefetcher) {
+        self.store_prefetcher = Some(prefetcher);
     }
 
     /// Makes this cache `core`'s requesting agent on the coherence fabric.
