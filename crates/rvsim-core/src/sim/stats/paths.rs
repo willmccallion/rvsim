@@ -66,6 +66,8 @@ stat_paths! {
         op_alu: "commit.op.alu",
         /// System / CSR / ECALL retired.
         op_system: "commit.op.system",
+        /// LR, SC or AMO retired.
+        op_atomic: "commit.op.atomic",
         /// FP load retired.
         fp_load: "commit.fp.load",
         /// FP store retired.
@@ -86,6 +88,8 @@ stat_paths! {
         vec_store: "commit.vec.store",
         /// Vector misc (permute/mask/config) retired.
         vec_misc: "commit.vec.misc",
+        /// Vector crypto (Zvk*) retired.
+        vec_crypto: "commit.vec.crypto",
         /// Retire histogram: cycles where 0 insts retired.
         retire_hist_zero: "commit.retire_histogram.zero",
         /// Retire histogram: cycles where exactly 1 inst retired.

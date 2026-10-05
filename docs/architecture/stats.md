@@ -129,9 +129,9 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.pipeline.stalls.squash` | Cycles rename waited while commit squashed the ROB |
 | `core<N>.pipeline.flushes.total` | Squashes taken, split into `.branch`, `.system` and `.mem_violations` |
 | `core<N>.pipeline.flushes.squashed_insns` | Instructions those squashes removed |
-| `core<N>.commit.op.{alu,branch,load,store,system}` | Retired scalar integer instructions by kind |
+| `core<N>.commit.op.{alu,branch,load,store,atomic,system}` | Retired scalar integer instructions by kind; `atomic` is LR, SC and the AMOs, which `load` and `store` leave out |
 | `core<N>.commit.fp.{arith,fma,div_sqrt,load,store}` | Retired floating-point instructions by kind |
-| `core<N>.commit.vec.{int,fp,load,store,misc}` | Retired vector instructions by kind |
+| `core<N>.commit.vec.{int,fp,load,store,misc,crypto}` | Retired vector instructions by kind; `int` includes the Zvbb/Zvbc bit-manipulation ops, `misc` is permute, mask and configuration, `crypto` the Zvk* ops |
 | `core<N>.commit.retire_histogram.{zero,one,two,three_plus}` | Cycles by the number of instructions retired in them |
 | `core<N>.fu.util.<unit>` | Use of each functional-unit type (`int_alu`, `int_mul`, `fp_fma`, `vec_permute`, ...) |
 

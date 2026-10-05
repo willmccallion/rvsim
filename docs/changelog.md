@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- **Breaking (stats).** `commit.op.load` counted LR, SC and every AMO;
+  they now count in a new `commit.op.atomic`. `commit.vec.misc` counted
+  the Zvbb/Zvbc bit-manipulation and Zvk* crypto ops: bit-manipulation now
+  counts in `commit.vec.int` and crypto in a new `commit.vec.crypto`, so
+  `misc` is permute, mask and configuration as described.
 - **Breaking (stats).** A cache's `prefetches.useful` counted demand
   requests that joined a prefetch still in flight; that count is now
   `prefetches.late`. `prefetches.useful` counts prefetched lines a request

@@ -15,7 +15,9 @@ pub(super) fn update_instruction_stats(
         return;
     }
 
-    if entry.ctrl.mem_read {
+    if entry.ctrl.atomic_op.is_some() {
+        state.uncore.stats.counter(state.core.stat_paths.commit.op_atomic).inc();
+    } else if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
             state.uncore.stats.counter(state.core.stat_paths.commit.fp_load).inc();
         } else {
@@ -178,7 +180,19 @@ pub(super) fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp
         | VectorOp::VRedMaxU
         | VectorOp::VRedMax
         | VectorOp::VWRedSumU
-        | VectorOp::VWRedSum => {
+        | VectorOp::VWRedSum
+        | VectorOp::VAndN
+        | VectorOp::VBrev
+        | VectorOp::VBrev8
+        | VectorOp::VRev8
+        | VectorOp::VClz
+        | VectorOp::VCtz
+        | VectorOp::VCpopV
+        | VectorOp::VRol
+        | VectorOp::VRor
+        | VectorOp::VWsll
+        | VectorOp::VClMul
+        | VectorOp::VClMulH => {
             state.uncore.stats.counter(state.core.stat_paths.commit.vec_int).inc();
         }
         VectorOp::VFAdd
@@ -283,20 +297,10 @@ pub(super) fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp
         | VectorOp::VMv1r
         | VectorOp::VMv2r
         | VectorOp::VMv4r
-        | VectorOp::VMv8r
-        | VectorOp::VAndN
-        | VectorOp::VBrev
-        | VectorOp::VBrev8
-        | VectorOp::VRev8
-        | VectorOp::VClz
-        | VectorOp::VCtz
-        | VectorOp::VCpopV
-        | VectorOp::VRol
-        | VectorOp::VRor
-        | VectorOp::VWsll
-        | VectorOp::VClMul
-        | VectorOp::VClMulH
-        | VectorOp::VAesEm
+        | VectorOp::VMv8r => {
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_misc).inc();
+        }
+        VectorOp::VAesEm
         | VectorOp::VAesEf
         | VectorOp::VAesDm
         | VectorOp::VAesDf
@@ -312,7 +316,7 @@ pub(super) fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp
         | VectorOp::VSm4K
         | VectorOp::VGhsh
         | VectorOp::VGmul => {
-            state.uncore.stats.counter(state.core.stat_paths.commit.vec_misc).inc();
+            state.uncore.stats.counter(state.core.stat_paths.commit.vec_crypto).inc();
         }
     }
 }

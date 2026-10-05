@@ -82,8 +82,8 @@ fn unknown_path_returns_none() {
 fn star_within_segment_matches_all_core_op_counters() {
     let s = seeded();
     let q = s.query("core0.commit.op.*");
-    // 5 op.* counters registered.
-    assert_eq!(q.len(), 5);
+    // 6 op.* counters registered; op.atomic is zero.
+    assert_eq!(q.len(), 6);
     assert_eq!(q.sum(), 100.0 + 50.0 + 150.0 + 600.0 + 10.0);
 }
 
