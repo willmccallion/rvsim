@@ -173,7 +173,7 @@ impl<'a> StageCtx<'a> {
             placed
         });
         for prefetch in &prefetches {
-            let stat = if prefetch.into == CacheLevel::L1D { paths.l1d } else { paths.l2 };
+            let stat = if prefetch.into == CacheLevel::L1D { paths.l1 } else { paths.l2 };
             uncore.stats.counter(stat).inc();
         }
         prefetches

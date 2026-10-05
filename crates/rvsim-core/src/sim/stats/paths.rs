@@ -206,7 +206,7 @@ stat_paths! {
     /// The load/store unit's load prefetcher.
     LoadPrefetchPaths {
         /// Prefetches sent to fill the L1D.
-        l1d: "prefetch.loads.l1d",
+        l1: "prefetch.loads.l1",
         /// Prefetches sent to fill the L2 alone, further ahead.
         l2: "prefetch.loads.l2",
         /// Prefetches not sent: past the trained page under `PageBoundary::Stop`.
