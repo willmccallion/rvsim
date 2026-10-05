@@ -4,6 +4,7 @@
 
 pub mod commit;
 pub mod pipeline;
+pub mod predictors;
 pub mod program;
 
 use std::collections::BTreeSet;

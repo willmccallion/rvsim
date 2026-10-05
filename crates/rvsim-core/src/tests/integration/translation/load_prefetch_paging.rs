@@ -46,7 +46,7 @@ const DONE_REG: usize = 2;
 const DONE: u64 = 7;
 
 #[derive(Clone, Copy, Debug)]
-enum Mode {
+pub enum Mode {
     Sv39,
     Sv48,
     Sv57,
@@ -84,7 +84,7 @@ impl Mode {
 
 /// How the data is mapped.
 #[derive(Clone, Copy, Debug)]
-enum Data {
+pub enum Data {
     /// Two 4 KiB pages; the program loads from the second once before the
     /// loop, so the data TLB holds it.
     TouchedSecondPage,
@@ -219,7 +219,13 @@ impl Outcome {
     }
 }
 
-fn run(backend: BackendKind, mode: Mode, page_boundary: PageBoundary, data: Data) -> Outcome {
+/// Runs the stride loop under `mode` with the data mapped as `data`.
+pub fn run_system(
+    backend: BackendKind,
+    mode: Mode,
+    page_boundary: PageBoundary,
+    data: Data,
+) -> TestContext {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     // Large enough that the two pages' lines do not evict each other.
@@ -272,7 +278,11 @@ fn run(backend: BackendKind, mode: Mode, page_boundary: PageBoundary, data: Data
 
     ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("the loop finished");
     ctx.run(500);
+    ctx
+}
 
+fn run(backend: BackendKind, mode: Mode, page_boundary: PageBoundary, data: Data) -> Outcome {
+    let ctx = run_system(backend, mode, page_boundary, data);
     let held = ctx.sim.state.cores[0].units.l1_d_cache.held_lines();
     let stats = &ctx.sim.state.stats;
     let stat =
