@@ -49,6 +49,20 @@ SUITES = [
 ]
 
 
+def not_applicable(test_name, config):
+    """Why `test_name` cannot pass on `config` by the ISA's rules, or None.
+
+    `ma_data` checks that misaligned loads and stores complete with the
+    right value, which holds only where the hardware performs them or a
+    trap handler emulates them; the bare -p environment has no emulator.
+    A config that raises address-misaligned exceptions is checked by
+    `ma_addr` instead.
+    """
+    if "-ma_data" in test_name and config.misaligned_access_trap:
+        return "needs misaligned accesses; this config traps them (see ma_addr)"
+    return None
+
+
 def find_tests(filter_substr=None):
     tests = []
     for suite in SUITES:
@@ -144,27 +158,40 @@ def main():
         selected_pipelines = selected_pipelines[:1]
         tests = tests[:50]
 
-    work = [
-        (name, path, label)
-        for label, _cfg in selected_pipelines
-        for name, path in tests
-    ]
+    work = []
+    skipped = []
+    for label, cfg in selected_pipelines:
+        for name, path in tests:
+            reason = not_applicable(name, cfg)
+            if reason is None:
+                work.append((name, path, label))
+            else:
+                skipped.append(
+                    {
+                        "test": name,
+                        "pipeline": label,
+                        "status": "skip",
+                        "reason": reason,
+                    }
+                )
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     print(
         f"riscv-tests: {len(tests)} tests x {len(selected_pipelines)} pipelines "
-        f"= {len(work)} runs (jobs={args.jobs})"
+        f"= {len(work)} runs (jobs={args.jobs}), {len(skipped)} not applicable"
     )
+    for r in skipped:
+        print(f"  SKIP    {r['pipeline']:24} {r['test']} ({r['reason']})")
     print(f"streaming results to: {args.out}")
 
-    results = []
-    counts = {}
+    results = list(skipped)
+    counts = {"skip": len(skipped)} if skipped else {}
 
     def write_partial():
         with open(args.out, "w") as f:
             json.dump(
                 {
-                    "total_planned": len(work),
+                    "total_planned": len(work) + len(skipped),
                     "completed": len(results),
                     "counts": counts,
                     "pipelines": [label for label, _ in selected_pipelines],
@@ -211,8 +238,8 @@ def main():
         write_partial()
 
     print()
-    print(f"=== riscv-tests: {len(results)} / {len(work)} completed ===")
-    for k in ("pass", "fail", "timeout", "error"):
+    print(f"=== riscv-tests: {len(results) - len(skipped)} / {len(work)} completed ===")
+    for k in ("pass", "fail", "timeout", "error", "skip"):
         if k in counts:
             print(f"  {k:8} {counts[k]}")
     print(f"results: {args.out}")
