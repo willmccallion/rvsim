@@ -147,7 +147,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.mdp.predictions.wait_all` | Loads made to wait for every older store's address: all loads under the blind predictor, LRs and AMOs under store sets |
 | `core<N>.mdp.predictions.wait_for` | Loads and stores made to wait for one older store in their store set |
 | `core<N>.mdp.violations` | Loads found to have read past an aliasing older store, which the predictor trained on |
-| `core<N>.lsq.rescheduled_mem_ops` | Accesses replayed behind an older store (a partial overlap, or a store whose data is not yet there) |
+| `core<N>.lsq.rescheduled_mem_ops` | Memory ops that waited in memory1, each counted once per wait: for an older store (a partial overlap, or data not yet there), a device read or AMO/SC waiting to be the oldest, or a PTE's D bit |
 | `core<N>.lsq.split_stores` | Stores whose data half issued after their address half |
 | `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |
 | `core<N>.lsq.coherence_violations` | Loads squashed for reading a line before a remote write an older load saw |

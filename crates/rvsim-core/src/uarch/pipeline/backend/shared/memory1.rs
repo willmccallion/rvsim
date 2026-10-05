@@ -131,7 +131,8 @@ pub fn memory1_stage<E: ExecutionEngine>(
     entries.sort_by_key(|e| e.rob_tag.0);
     let mut iter = entries.into_iter();
 
-    while let Some(ex) = iter.next() {
+    while let Some(mut ex) = iter.next() {
+        let was_waiting = std::mem::take(&mut ex.replaying);
         let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
         let translated = translations
             .iter()
@@ -140,8 +141,11 @@ pub fn memory1_stage<E: ExecutionEngine>(
             .unwrap_or_default();
         match process_entry(state, engine, ex, translated, &mut outcome) {
             EntryOutcome::Done => {}
-            EntryOutcome::Replay(ex) => {
-                state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
+            EntryOutcome::Replay(mut ex) => {
+                if !was_waiting {
+                    state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
+                }
+                ex.replaying = true;
                 engine.common_mut().mem1_replay.push(ex);
             }
             EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
