@@ -333,6 +333,17 @@ future GUI/notebook completion tractable. A histogram registers its `Meta`
 with `Stats::register_histogram`; it holds nothing, and queries skip it, until
 its first sample.
 
+## Every stat has an accounting check
+
+`crates/rvsim-core/src/tests/integration/stats_accounting` runs small programs
+whose counts follow from their code and checks each stat against them: an
+exact count, a relation with other stats (each cache fetch fills once, each
+snoop the home sends reaches a cache), or a contrast between a program that
+must count and one that cannot. A `Recorder` notes every path a check asserts,
+and the gate test fails, naming the stats, when a stat registered by a system
+with every component has no check. Adding a stat therefore means adding the
+check that says what it counts.
+
 ## Query language
 
 ```rust

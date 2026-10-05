@@ -7,6 +7,7 @@ pub mod coherence;
 pub mod commit;
 pub mod ddr5;
 pub mod fu;
+pub mod gate;
 pub mod pipeline;
 pub mod predictors;
 pub mod program;
@@ -76,7 +77,6 @@ macro_rules! accounting_checks {
         }
 
         /// Every check in this module.
-        #[allow(dead_code)]
         pub const CHECKS: &[fn(&mut crate::tests::integration::stats_accounting::Recorder)] =
             &[$($check),*];
     };
