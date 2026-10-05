@@ -3,6 +3,7 @@
 //! through a [`Recorder`], which notes every path it checked.
 
 pub mod commit;
+pub mod fu;
 pub mod pipeline;
 pub mod predictors;
 pub mod program;
