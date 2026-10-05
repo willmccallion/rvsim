@@ -65,8 +65,8 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
-      # spike, riscv-tests and the vector generator are pinned in the
-      # Makefile; the key changes whenever a pin or the build does.
+      # What these are built from is pinned in tests/conformance/sources.mk;
+      # the toolchain comes from flake.lock.
       - uses: actions/cache@v4
         with:
           path: |
@@ -74,7 +74,9 @@ jobs:
             tests/builds/riscv-tests
             tests/builds/riscv-vector-tests
             tests/builds/vector-smoke
-          key: conformance-${{ hashFiles('Makefile', 'flake.lock', 'tests/conformance/vector/build_tests.sh') }}
+          key: conformance-${{ hashFiles('tests/conformance/sources.mk', 'flake.lock', 'tests/conformance/vector/build_tests.sh') }}
+      - name: Fetch the dev shell
+        run: nix develop --command true
       - name: Build the bindings, guest programs and test binaries
         run: nix develop --command make python software riscv-tests-build vector-smoke-build
       - name: Conformance smoke
