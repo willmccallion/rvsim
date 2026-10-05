@@ -32,10 +32,13 @@ from .config import (
     Fu,
     HomeAgent,
     Interconnect,
+    LoadPrefetcher,
     MemDepPredictor,
     MemoryController,
+    PageBoundary,
     Prefetcher,
     ReplacementPolicy,
+    StorePrefetcher,
 )
 
 __all__ = ["PRESETS", "basic", "cortex_a72", "fast", "linux", "m1", "p550"]
@@ -280,6 +283,11 @@ def cortex_a72():
     - 1MB L2 (16-way) on the Raspberry Pi 4's BCM2711, 21 cycles
     - 48-entry L1 ITLB, 32-entry L1 DTLB, 1024-entry 4-way L2 TLB
     - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles
+    - Load/store prefetcher (TRM 6.4.9): loads prefetch into the L1D and
+      22 requests ahead into the L2 (CPUECTLR_EL1 reset), crossing pages
+      through the TLB (CPUACTLR_EL1[43] reset); store misses prefetch into
+      the L2 only. The L1D distance, table sizes and store run length are
+      not published.
     - Clocked at 1.5 GHz as on the Raspberry Pi 4
     """
     return Config(
@@ -335,8 +343,14 @@ def cortex_a72():
             ways=2,
             latency=3,  # 4-cycle load-to-use (Chips and Cheese)
             mshr_count=8,
-            prefetcher=Prefetcher.Stride(degree=1, table_size=32),
         ),
+        load_prefetcher=LoadPrefetcher.Stride(
+            table_size=32,
+            l1_lines=1,
+            l2_lines=22,
+            page_boundary=PageBoundary.CrossWithTlb(),
+        ),
+        store_prefetcher=StorePrefetcher.Stream(streams=4, l2_lines=8),
         # 1MB 16-way L2 on the BCM2711; 21 cycles measured on the A72.
         l2=Cache(
             size="1MB",
@@ -429,6 +443,8 @@ def p550(
     - 32-entry fully associative L1 TLBs, 512-entry L2 TLB
     - 13-stage pipeline → ~11-13 cycle mispredict penalty
     - No hardware misaligned access support (trap-based emulation)
+    - Prefetchers unpublished: a load stride prefetcher that keeps to the
+      page, and no store prefetcher, as the cautious reading
 
         SiFive Performance P550 machine config.
 
@@ -508,7 +524,12 @@ def p550(
             ways=4,
             latency=2,  # 3-cycle load-to-use (Chips and Cheese)
             mshr_count=8,  # Non-blocking, modest MSHR count
-            prefetcher=Prefetcher.Stride(degree=1, table_size=64),
+        ),
+        load_prefetcher=LoadPrefetcher.Stride(
+            table_size=64,
+            l1_lines=1,
+            l2_lines=0,
+            page_boundary=PageBoundary.Stop(),
         ),
         # Private L2 per core — size not publicly confirmed,
         # 256KB is consistent with area-optimized OoO cores
