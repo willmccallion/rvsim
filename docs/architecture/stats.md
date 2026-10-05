@@ -149,7 +149,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.mdp.violations` | Loads found to have read past an aliasing older store, which the predictor trained on |
 | `core<N>.lsq.rescheduled_mem_ops` | Memory ops that waited in memory1, each counted once per wait: for an older store (a partial overlap, or data not yet there), a device read or AMO/SC waiting to be the oldest, or a PTE's D bit |
 | `core<N>.lsq.split_stores` | Stores whose data half issued after their address half |
-| `core<N>.lsq.coherence_replays` | LRs and AMOs re-executed after another hart wrote their line |
+| `core<N>.lsq.coherence_replays` | LRs re-executed because another hart wrote their line after they read it |
 | `core<N>.lsq.coherence_violations` | Loads squashed for reading a line before a remote write an older load saw |
 | `core<N>.wcb.coalesces`, `.drains` | Stores merged into a line the write-combining buffer already held, and lines it wrote to the L1D |
 | `core<N>.prefetch.loads.l1`, `.l2` | Load prefetches the load/store unit sent to fill the L1D, and to fill the L2 alone |

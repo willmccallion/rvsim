@@ -16,7 +16,7 @@ pub enum FlushCause {
     System,
     /// A load read stale data past an older store.
     MemoryOrder,
-    /// A load or an LR/AMO read a value another hart has since overwritten.
+    /// A load or an LR read a value another hart has since overwritten.
     Coherence,
     /// An exception or interrupt taken at commit.
     Trap,
