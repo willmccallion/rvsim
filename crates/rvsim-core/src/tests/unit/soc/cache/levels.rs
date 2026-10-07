@@ -1022,6 +1022,105 @@ fn exclusive_upper_level_hands_clean_victims_down() {
     );
 }
 
+/// An exclusive cache with one cache above it.
+fn exclusive_bench() -> Bench {
+    let mut cache = cache_with(&test_config());
+    cache.add_upstream(UPSTREAM);
+    cache.set_upstream_inclusion(InclusionPolicy::Exclusive);
+    Bench::new(cache)
+}
+
+fn line_read(bench: &mut Bench, req_id: u64, addr: u64) {
+    bench.deliver(
+        Packet::MemReq {
+            req_id: ReqId::new(req_id),
+            paddr: PhysAddr::new(addr),
+            vaddr: None,
+            pc: None,
+            size: AccessSize::Line,
+            op: MemOp::Read,
+        },
+        UPSTREAM,
+    );
+}
+
+fn victim(bench: &mut Bench, req_id: u64, addr: u64, dirty: bool) {
+    bench.deliver(
+        Packet::MemReq {
+            req_id: ReqId::new(req_id),
+            paddr: PhysAddr::new(addr),
+            vaddr: None,
+            pc: None,
+            size: AccessSize::Line,
+            op: MemOp::Writeback { dirty },
+        },
+        UPSTREAM,
+    );
+}
+
+#[test]
+fn an_exclusive_level_passes_a_line_fetched_for_the_level_above_without_keeping_it() {
+    let mut bench = exclusive_bench();
+    line_read(&mut bench, 1, 0x1000);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+
+    bench.fill(down_id, 0x1000);
+    let events = bench.drain();
+
+    assert_eq!(responses_to(&events, UPSTREAM).len(), 1);
+    assert_eq!(bench.state_of(0x1000), None);
+    assert_eq!(bench.stat("test.fills"), 0);
+}
+
+#[test]
+fn an_exclusive_level_keeps_the_victim_the_level_above_hands_back() {
+    let mut bench = exclusive_bench();
+    line_read(&mut bench, 1, 0x1000);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+    bench.fill(down_id, 0x1000);
+    let _ = bench.drain();
+
+    victim(&mut bench, 2, 0x1000, true);
+    let events = bench.drain();
+
+    assert_eq!(bench.state_of(0x1000), Some(MesiState::Modified));
+    assert!(!events.iter().any(|e| e.target == DOWNSTREAM), "the victim stays here, not passed on");
+}
+
+#[test]
+fn an_exclusive_level_does_not_prefetch_a_line_held_above() {
+    let mut bench = exclusive_bench();
+    line_read(&mut bench, 1, 0x1000);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+    bench.fill(down_id, 0x1000);
+    let _ = bench.drain();
+
+    bench.request(2, 0x1000, PREFETCH_L1D);
+
+    assert!(bench.downstream_requests().is_empty());
+    assert_eq!(bench.stat("test.prefetches.issued"), 0);
+}
+
+#[test]
+fn a_flush_from_above_lets_an_exclusive_level_prefetch_the_line_again() {
+    let mut bench = exclusive_bench();
+    line_read(&mut bench, 1, 0x1000);
+    let (down_id, _, _, _) = bench.downstream_requests()[0].clone();
+    bench.fill(down_id, 0x1000);
+    let _ = bench.drain();
+    bench.request_from(
+        UPSTREAM,
+        2,
+        0x1000,
+        MemOp::Maintain { op: Maintenance::Flush, dirty: false },
+    );
+    let _ = bench.drain();
+
+    bench.request(3, 0x1000, PREFETCH_L1D);
+
+    assert_eq!(bench.stat("test.prefetches.issued"), 1);
+}
+
 #[test]
 fn fills_arriving_out_of_order_never_duplicate_a_tag() {
     let mut bench = Bench::new(cache_with(&test_config()));

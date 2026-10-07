@@ -138,6 +138,7 @@ impl Cache {
             {
                 // The upper level now owns the line.
                 self.drop_line(set_index * self.ways + way, ctx.stats);
+                let _ = self.handed_up.insert(self.line_of(addr));
             }
             self.observe_prefetcher(addr, req.pc, true, ctx);
             return;
@@ -312,7 +313,10 @@ impl Cache {
     /// written back.
     fn start_prefetch(&mut self, addr: u64, exclusive: bool, ctx: &mut HandleCtx<'_>) {
         let line = self.line_of(addr);
-        if self.holds_for(addr, exclusive) || self.mshrs.holds(line) || self.writebacks.holds(line)
+        if self.holds_for(addr, exclusive)
+            || self.mshrs.holds(line)
+            || self.writebacks.holds(line)
+            || self.handed_up.contains(&line)
         {
             return;
         }
@@ -362,7 +366,12 @@ impl Cache {
         if self.full_mshr == Some(req_id) {
             self.full_mshr = None;
         }
-        let installed = self.fill(&mshr, granted, ctx);
+        let installed = if self.hands_line_up(&mshr) {
+            let _ = self.handed_up.insert(mshr.line);
+            fetched_state(&mshr, granted)
+        } else {
+            self.fill(&mshr, granted, ctx)
+        };
         if let Some(way) = self.find_way(mshr.line.val()) {
             let index = self.set_index(mshr.line.val()) * self.ways + way;
             for target in &mshr.targets {
@@ -388,6 +397,48 @@ impl Cache {
         self.serve_deferred(mshr.line, mshr.deferred, installed, hit_level, ctx);
         self.serve_after_fill(mshr.line, ctx);
         self.retry_blocked(ctx);
+    }
+
+    /// The way `addr`'s line goes in: its own when held, else a free one,
+    /// else the replacement policy's victim, evicted to make room.
+    fn way_for(&mut self, addr: u64, ctx: &mut HandleCtx<'_>) -> usize {
+        let set_index = self.set_index(addr);
+        if let Some(way) = self.find_way(addr) {
+            return way;
+        }
+        if let Some(free) = (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid())
+        {
+            return free;
+        }
+        let victim = self.policy.get_victim(set_index);
+        self.evict(set_index, victim, ctx);
+        victim
+    }
+
+    /// Installs a line a cache above evicted, as an exclusive level holds
+    /// what the level above gives up; it is modified when `dirty`.
+    pub(super) fn install_victim(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
+        let addr = line.val();
+        let set_index = self.set_index(addr);
+        let way = self.way_for(addr, ctx);
+        let state = if dirty { MesiState::Modified } else { MesiState::Exclusive };
+        let tag = self.tag_of(addr);
+        self.lines[set_index * self.ways + way] =
+            CacheLine { tag, state, upper: 0, prefetched: false };
+        self.policy.update(set_index, way);
+    }
+
+    /// True when this cache, exclusive of the caches above it, fetched the
+    /// line only for them: it passes the line up without keeping a copy,
+    /// as an exclusive level holds only what the level above evicts.
+    fn hands_line_up(&self, mshr: &Mshr) -> bool {
+        self.upstream_inclusion == InclusionPolicy::Exclusive
+            && !mshr.targets.is_empty()
+            && mshr
+                .targets
+                .iter()
+                .chain(&mshr.deferred)
+                .all(|t| matches!(t.source, ComponentId::Cache(_)))
     }
 
     /// Serves the maintenance operations that waited for `line` to fill.
@@ -454,25 +505,8 @@ impl Cache {
         let tag = self.tag_of(addr);
         ctx.stats.counter(self.stat_paths.fills).inc();
 
-        let way = if let Some(way) = self.find_way(addr) {
-            way
-        } else if let Some(free) =
-            (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid())
-        {
-            free
-        } else {
-            let victim = self.policy.get_victim(set_index);
-            self.evict(set_index, victim, ctx);
-            victim
-        };
-        let state = if mshr.write {
-            MesiState::Modified
-        } else {
-            match granted {
-                MesiState::Shared => MesiState::Shared,
-                _ => MesiState::Exclusive,
-            }
-        };
+        let way = self.way_for(addr, ctx);
+        let state = fetched_state(mshr, granted);
         let index = set_index * self.ways + way;
         let state = if self.lines[index].valid() && self.lines[index].dirty() {
             MesiState::Modified
@@ -516,6 +550,18 @@ impl Cache {
             let Some(req) = self.blocked.pop_front() else { return };
             self.on_request(req, ctx);
         }
+    }
+}
+
+/// The state a fetched line arrives in: modified for a write, otherwise as
+/// the next level granted it, never dirtier than clean-exclusive.
+const fn fetched_state(mshr: &Mshr, granted: MesiState) -> MesiState {
+    if mshr.write {
+        return MesiState::Modified;
+    }
+    match granted {
+        MesiState::Shared => MesiState::Shared,
+        _ => MesiState::Exclusive,
     }
 }
 

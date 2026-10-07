@@ -89,6 +89,7 @@ impl CoreUnits {
         let mut l1_i_cache =
             Cache::new(l1i_id, CacheLevel::L1I, &config.cache.l1_i, &format!("{subject}.l1i"));
         l1_i_cache.set_downstream(ComponentId::Cache(l2_id));
+        l1_i_cache.set_clean_victims_to_downstream(inclusion == InclusionPolicy::Exclusive);
 
         let mut l1_d_cache =
             Cache::new(l1d_id, CacheLevel::L1D, &config.cache.l1_d, &format!("{subject}.l1d"));

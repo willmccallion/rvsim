@@ -22,7 +22,7 @@ mod inclusion;
 mod request;
 mod writeback;
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use self::mshr::MshrTable;
 use self::policies::{
@@ -169,6 +169,9 @@ pub struct Cache {
     /// Maintenance operations waiting for a fetch of their line to fill.
     after_fill: Vec<BlockedRequest>,
     pending_probes: Vec<PendingProbe>,
+    /// Shadow tags of an exclusive cache: the lines it handed to the caches
+    /// above and has not had back. It neither holds nor prefetches them.
+    handed_up: BTreeSet<LineAddr>,
     next_req: u64,
 }
 
@@ -255,6 +258,7 @@ impl Cache {
             forwarded: Vec::new(),
             after_fill: Vec::new(),
             pending_probes: Vec::new(),
+            handed_up: BTreeSet::new(),
             next_req: 0,
         }
     }
