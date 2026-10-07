@@ -50,6 +50,12 @@ impl WritebackBuffer {
         Self { entries: Vec::with_capacity(capacity), capacity, evictions: 0 }
     }
 
+    /// Evictions it can hold before the cache blocks.
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     #[cfg(test)]
     /// Writebacks in flight.
     #[must_use]
@@ -69,6 +75,12 @@ impl WritebackBuffer {
     #[must_use]
     pub const fn is_full(&self) -> bool {
         self.evictions >= self.capacity
+    }
+
+    /// Evictions in flight.
+    #[must_use]
+    pub const fn evictions(&self) -> usize {
+        self.evictions
     }
 
     /// Records a writeback that has been sent downstream.

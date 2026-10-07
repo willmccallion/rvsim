@@ -271,6 +271,20 @@ impl PySimulator {
         self.inner.set_skip_idle_cores(skip);
     }
 
+    /// Whether every cache invariant (each cache's bookkeeping, inclusion,
+    /// the copies each level records above it, coherence) is checked after
+    /// every event. Off by default; with it on a run is many times slower,
+    /// and the first broken invariant ends it with an error naming it.
+    #[getter]
+    const fn audit_caches(&self) -> bool {
+        self.inner.audit_caches()
+    }
+
+    #[setter]
+    const fn set_audit_caches(&mut self, audit: bool) {
+        self.inner.set_audit_caches(audit);
+    }
+
     /// Zero every stat; `stats` then counts from here, as gem5's
     /// ``m5 resetstats`` does. Prefer subtracting snapshots, which keeps the
     /// whole run's stats.

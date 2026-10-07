@@ -17,6 +17,7 @@ pub mod prefetch;
 pub mod stats;
 pub mod writeback_buffer;
 
+mod audit;
 mod coherence;
 mod inclusion;
 mod request;

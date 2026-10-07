@@ -606,6 +606,7 @@ fn a_fill_whose_dirty_victim_finds_no_writeback_slot_waits_for_one() {
     let released = bench.drain();
 
     assert!(responses_to(&held, PIPELINE).is_empty(), "the second fill waits for a slot");
+    assert_eq!(bench.cache.bookkeeping_faults(), Vec::new());
     assert_eq!(responses_to(&released, PIPELINE).len(), 1, "it fills once the slot frees");
     assert!(bench.state_of(0x0180).is_some());
 }

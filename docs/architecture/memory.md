@@ -99,8 +99,12 @@ and `0` from Python leaves the default).
   access.
 - A fill that evicts a **dirty victim** puts it in the **writeback buffer**
   and sends it to the next level; the entry is freed when that level
-  acknowledges. Dirty lines leaving the last cache reach the memory
-  controller as writes, so DRAM sees the real write traffic.
+  acknowledges. A fill whose dirty victim finds the buffer full waits,
+  holding its MSHR, until a writeback is acknowledged, as a real core's
+  linefill does. A dirty line a probe or back-invalidation demands goes
+  back on the snoop-response path and takes no buffer slot. Dirty lines
+  leaving the last cache reach the memory controller as writes, so DRAM
+  sees the real write traffic.
 - While every MSHR or every writeback buffer entry (`write_buffers`,
   default 8) is busy, or one MSHR holds its target limit, the cache is
   **blocked**: new requests queue in
@@ -136,6 +140,24 @@ The relationship between adjacent levels is configurable:
 | **NINE** (default) | No inclusion enforcement | Simple, no back-invalidation traffic |
 | **Inclusive** | An eviction back-invalidates the same line in the caches above; a dirty copy above is written back first | Guarantees each level is a superset of the levels above it, which a snooping lower level needs |
 | **Exclusive** | L1 victims (clean or dirty) are handed to the L2; the L2 gives up its copy when it fills an L1 | Maximizes effective L1+L2 capacity; the LLC stays non-inclusive |
+
+An exclusive L2 keeps a shadow tag for each line it handed up without
+keeping, so it neither prefetches a line held above nor loses track of
+it: the line comes back as a victim, or the tag is dropped when the line
+is flushed or invalidated from above.
+
+### Invariant audit
+
+`Simulator::set_audit_caches(true)` (Python: `sim.audit_caches = True`)
+checks every cache invariant after every event: no duplicate tags, MSHRs
+or writebacks, no MSHR over its target limit, no more MSHRs or eviction
+writebacks than the cache has entries, inclusion as each level's policy
+sets it, every copy above a level recorded by it, and, with several cores,
+the coherence invariants. Lines with a request, fill, probe or writeback
+in flight are left out of the cross-level checks. The first broken
+invariant ends `tick()` with `SimError::CacheInvariant`;
+`Simulator::cache_violations` lists them all. The audit walks every cache
+after each event, so it is off by default and costs nothing then.
 
 ## Store Buffer
 

@@ -30,7 +30,7 @@ use crate::soc::devices::Uart;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
-use crate::system::{StatsDump, StatsEpoch, TraceControl, coherence_audit, loader};
+use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use std::sync::Arc;
@@ -97,6 +97,11 @@ pub struct Simulator {
     /// the cycles in which the whole system only waits. The result is the
     /// same; tests turn it off to check that.
     skip_idle_cores: bool,
+    /// Check every cache invariant after each event; see
+    /// [`Self::set_audit_caches`].
+    audit_caches: bool,
+    /// The first invariant an event broke, returned by the tick it fell in.
+    broken_invariant: Option<SimError>,
 }
 
 impl Simulator {
@@ -110,7 +115,13 @@ impl Simulator {
             pipeline.restart_fetch_at(ctx.hart.pc);
         }
         let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
-        Self { state, prev_privileges, skip_idle_cores: true }
+        Self {
+            state,
+            prev_privileges,
+            skip_idle_cores: true,
+            audit_caches: false,
+            broken_invariant: None,
+        }
     }
 
     /// Convenience constructor: builds the exit-signal `Arc`, the `SystemState`,
@@ -313,6 +324,28 @@ impl Simulator {
     /// Sets whether idle time is skipped; see [`Self::skip_idle_cores`].
     pub const fn set_skip_idle_cores(&mut self, skip: bool) {
         self.skip_idle_cores = skip;
+    }
+
+    /// Whether every cache invariant is checked after each event; off by
+    /// default.
+    #[must_use]
+    pub const fn audit_caches(&self) -> bool {
+        self.audit_caches
+    }
+
+    /// Sets whether every cache invariant is checked after each event. With
+    /// it on, the tick in which an event first breaks one returns
+    /// [`SimError::CacheInvariant`] naming it. The checks walk every cache,
+    /// so a run with it on is many times slower.
+    pub const fn set_audit_caches(&mut self, audit: bool) {
+        self.audit_caches = audit;
+    }
+
+    /// Every cache invariant broken right now: each cache's bookkeeping,
+    /// inclusion, the copies each level records above it, and coherence.
+    #[must_use]
+    pub fn cache_violations(&self) -> Vec<coherence_audit::Violation> {
+        cache_audit::audit(&self.state)
     }
 
     /// Opens `path` as the commit log every retired instruction is written
@@ -637,7 +670,7 @@ impl Simulator {
         for op in self.state.bus.take_sim_ops() {
             self.state.apply_sim_op(op);
         }
-        Ok(())
+        self.broken_invariant.take().map_or(Ok(()), Err)
     }
 
     fn core_is_idle(&self, core: usize) -> bool {
@@ -680,7 +713,20 @@ impl Simulator {
         let cycle = self.state.cycle;
         while let Some(event) = self.state.event_queue.pop_ready(cycle) {
             self.dispatch(event);
+            if self.audit_caches && self.broken_invariant.is_none() {
+                self.broken_invariant = self.first_cache_violation();
+            }
         }
+    }
+
+    /// The first cache invariant broken now, as the error a tick returns.
+    fn first_cache_violation(&self) -> Option<SimError> {
+        let violation = cache_audit::audit(&self.state).into_iter().next()?;
+        Some(SimError::CacheInvariant {
+            cycle: self.state.cycle,
+            line: violation.line.val(),
+            what: violation.what,
+        })
     }
 
     /// Routes a single event to its target component.

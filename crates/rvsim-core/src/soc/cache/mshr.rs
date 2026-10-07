@@ -79,7 +79,6 @@ impl MshrTable {
         Self { entries: Vec::with_capacity(capacity), capacity }
     }
 
-    #[cfg(test)]
     /// Room for `capacity` outstanding lines.
     #[must_use]
     pub const fn capacity(&self) -> usize {

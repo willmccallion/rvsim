@@ -345,8 +345,9 @@ middle of a transaction, at most one L2 holds it Modified or Exclusive and
 then no other L2 holds it; an L1 never holds a line its L2 does not, nor
 in a stronger state; the snoop filter's sharers and owner match what the
 L2s hold and it tracks no line nobody holds; no cache has duplicate tags.
-The multi-hart integration tests run the audit every few cycles on every
-home agent and interconnect.
+The multi-hart integration tests run it, with the per-cache checks of
+`Simulator::set_audit_caches` (see the memory page), after every event on
+every home agent and interconnect.
 
 ### Default configuration
 
