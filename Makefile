@@ -54,7 +54,7 @@ help:
 	@printf "    %-$(HELP_W)s  Format all code (Rust, Python, C)\n" "make fmt"
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
 	@printf "    %-$(HELP_W)s  fmt-check + clippy\n" "make lint"
-	@printf "    %-$(HELP_W)s  Full pre-release check (git+lint+test+versions+build)\n" "make prerelease"
+	@printf "    %-$(HELP_W)s  Full pre-release check (PRERELEASE_ARGS=--skip-linux skips the boot)\n" "make prerelease"
 	@printf "    %-$(HELP_W)s  Build riscv-tests ELFs (one-time)\n" "make riscv-tests-build"
 	@printf "    %-$(HELP_W)s  Run riscv-tests across all PIPELINES\n" "make riscv-tests"
 	@printf "    %-$(HELP_W)s  Build chipsalliance RVV test ELFs (one-time)\n" "make vector-test-build"
@@ -268,7 +268,7 @@ clean-tests:
 	rm -rf $(TEST_BUILDS)
 
 prerelease:
-	@tools/prerelease
+	@tools/prerelease $(PRERELEASE_ARGS)
 
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
