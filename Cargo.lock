@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "rvsim-bindings"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "pyo3",
  "rvsim-core",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "rvsim-core"
-version = "1.2.2"
+version = "2.0.0"
 dependencies = [
  "libc",
  "object",
