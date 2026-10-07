@@ -122,7 +122,7 @@ impl BranchPredictor {
     }
 
     /// See [`unit::BranchPredUnit::discover`].
-    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> (Option<u64>, bool) {
+    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
         dispatch!(self, unit => unit.discover(seq, pc, inst))
     }
 

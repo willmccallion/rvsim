@@ -1,6 +1,6 @@
 # Branch Prediction
 
-rvsim implements six pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 to steer the instruction stream speculatively.
+rvsim implements six pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 for the control instructions the BTB holds, and at decode for the rest, to steer the instruction stream speculatively.
 
 ## Prediction Unit
 
@@ -31,13 +31,17 @@ All predictors share these components:
 
 ### Branch Target Buffer (BTB)
 
-Set-associative cache (default: 4096 entries, 4-way) that maps branch PCs to their target addresses. Used for indirect jumps where the target isn't encoded in the instruction.
+Set-associative cache (default: 4096 entries, 4-way) that maps a control
+instruction's PC to its kind and last target. Fetch knows a control
+instruction only through it, as a real front end does before decode.
 
-As in gem5, the BTB learns a target only when a taken branch's misprediction
-is corrected: for direct control flow, and for an indirect jump that is not
-a return when the predictor has no indirect target predictor of its own
-(SC-L-TAGE's ITTAGE keeps those). A jump that executes on a path an older
-branch squashes before its own correction arrives teaches it nothing.
+The BTB learns a target when a taken control instruction's misprediction
+is corrected, as in gem5, and when decode predicts taken a control
+instruction the BTB missed: for direct control flow, and for an indirect
+jump that is not a return when the predictor has no indirect target
+predictor of its own (SC-L-TAGE's ITTAGE keeps those). A jump that
+executes on a path an older branch squashes before its own correction
+arrives teaches it nothing.
 
 ### Return Address Stack (RAS)
 
@@ -59,9 +63,26 @@ Per RISC-V spec Table 2.1, both **x1 (ra)** and **x5 (t0)** are recognized as li
 | `jalr rd, rs1, offset` | Yes | Yes, rd = rs1 | **Push** (call through link register) |
 | `jalr rd, rs1, offset` | Yes | No | **Push** (indirect call) |
 
-Direct control flow does not need the BTB: fetch takes a `jal` target,
-and a conditional branch's target on a BTB miss, from the instruction's
-immediate, as a predecoded fetch line lets a real front end. Compressed
+### Fetch and decode
+
+Fetch predicts from the BTB alone: a hit is predicted as the kind of
+control instruction the BTB records, and an instruction the BTB misses is
+fetched past as if it did not branch. Decode, which has the encoding,
+checks each prediction and redirects fetch (`bp.decode_redirects`) only
+where the path changes:
+
+- **A control instruction the BTB missed** is predicted at decode. When
+  it is predicted taken, fetch restarts at its target; when it is
+  predicted not taken, the path fetch took stands.
+- **A stale BTB target** for a direct branch or jump is corrected.
+- **A BTB hit on an instruction that is not a control instruction** drops
+  the entry, and fetch restarts after it.
+
+Fetch has predicted the control instructions after one decode predicts
+without it in the histories, so decode undoes those predictions and
+makes them again, in program order, as it reaches them; only a
+prediction that changes as a result redirects fetch, as a later
+predictor overrides an earlier one in a real front end. Compressed
 control flow (`c.j`, `c.jr`, `c.jalr`, `c.beqz`, `c.bnez`) is predicted
 exactly like its 32-bit expansion.
 
@@ -69,7 +90,7 @@ exactly like its 32-bit expansion.
 
 Arbitrary-length bit vector recording the direction (taken/not-taken) of recent branches. The GHR is speculatively updated during Fetch1 and restored on a squash from the records of the squashed predictions.
 
-Every control instruction shifts the GHR at fetch with its predicted direction, as gem5's predictors do: a jump, call or return counts as taken unless fetch had no target for it. A branch reached through a jump sees a different path from one reached without. The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
+Every control instruction shifts the GHR with its predicted direction, in program order, at fetch or, for one the BTB missed, at decode, as gem5's predictors do: a jump, call or return counts as taken unless fetch had no target for it. A branch reached through a jump sees a different path from one reached without. The GHR length is unlimited — it grows to match the longest history needed by the selected predictor (e.g., TAGE's geometric history lengths can exceed 700 bits).
 
 ## Predictors
 

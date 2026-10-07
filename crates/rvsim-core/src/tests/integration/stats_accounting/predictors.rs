@@ -67,6 +67,37 @@ fn decode_redirects_fetch_to_each_jump_it_finds(rec: &mut Recorder) {
     }
 }
 
+/// A loop whose body holds a branch that is never taken ahead of the
+/// back-edge, which is taken every iteration but the last.
+fn loop_with_a_never_taken_branch(iterations: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().addi(T1, 0, iterations).build(),
+        i().bne(0, 0, 8).build(),
+        i().addi(T0, T0, 1).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, -12).build(),
+    ];
+    program.extend(exit_sequence());
+    program
+}
+
+/// Four wide, so fetch has predicted the back-edge by the time decode
+/// finds the branch ahead of it, which is predicted not taken: the path
+/// fetch took stands and decode does not refetch it.
+fn a_branch_never_taken_costs_no_decode_redirect(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut wide = config(backend);
+        wide.pipeline.width = 4;
+        let mut ctx = system_with(&wide, &loop_with_a_never_taken_branch(20), &[]);
+
+        run_to_exit(&mut ctx, &context);
+
+        rec.expect(&ctx.sim, "core0.bp.decode_redirects", 0, &context);
+    }
+}
+
 /// A store whose address waits on a divide, then a load from the same
 /// address that does not.
 fn load_past_unresolved_store() -> Vec<u32> {
@@ -299,6 +330,7 @@ fn a_stream_stops_at_the_page_or_drops_what_the_tlb_cannot_place(rec: &mut Recor
 accounting_checks!(
     branch_outcomes_are_counted_at_resolution_and_at_commit,
     decode_redirects_fetch_to_each_jump_it_finds,
+    a_branch_never_taken_costs_no_decode_redirect,
     a_violation_trains_store_sets_to_make_the_load_wait,
     the_blind_predictor_makes_every_load_wait_for_all_stores,
     predictor_counts_start_again_after_a_stats_reset,
