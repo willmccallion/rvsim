@@ -1,19 +1,35 @@
 #!/usr/bin/env bash
-# tools/prerelease — run before tagging a release.
+# tools/prerelease — run before tagging a release (`make prerelease`).
 #
-# Checks:
-#   1. Clean working tree (nothing uncommitted or unpushed)
-#   2. Lint (fmt + clippy)
-#   3. Tests
-#   4. All version strings match across every manifest
-#   5. Local version is strictly ahead of PyPI
-#   6. Local version is strictly ahead of crates.io (rvsim only)
-#   7. Wheel builds cleanly (maturin)
+# Usage: tools/prerelease [--skip-linux]
+#
+# Checks, cheapest first so a forgotten step fails in seconds:
+#   1. Clean working tree, everything pushed, release tag not yet taken
+#   2. Every version string matches (manifests, Cargo.lock, issue form)
+#   3. Changelog: Unreleased is empty and this version has its own page
+#   4. Version is strictly ahead of PyPI and crates.io
+#   5. Rebuild: the extension (reporting this version) and guest programs
+#   6. Lint (fmt + clippy)
+#   7. Rust and Python tests, the stub check and a strict docs build
+#   8. Packaging: wheel and sdist build, the wheel installs and runs in a
+#      fresh venv, `cargo publish --dry-run`
+#   9. Full conformance (`make test-all`, about 40 minutes)
+#  10. Linux boots to a login, logs in and powers off (about 40 minutes;
+#      --skip-linux leaves it out)
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+SKIP_LINUX=0
+for arg in "$@"; do
+    case "$arg" in
+        --skip-linux) SKIP_LINUX=1 ;;
+        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown argument: $arg (see --help)" >&2; exit 2 ;;
+    esac
+done
 
 # ── Colours ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -24,8 +40,31 @@ info()    { printf "  ${CYAN}-->${RESET}  %s\n" "$1"; }
 section() { printf "\n${BOLD}%s${RESET}\n" "$1"; }
 
 FAILED=()
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rvsim-prerelease.XXXXXX")"
+PY="$ROOT/.venv/bin/python"
 
-# ── 1. Git cleanliness ─────────────────────────────────────────────────────
+# Runs "$@" with its output in $LOG_DIR/$1.log; on failure shows the tail.
+logged() {
+    local name="$1"; shift
+    local log="$LOG_DIR/$name.log"
+    if "$@" >"$log" 2>&1; then
+        return 0
+    fi
+    printf "    last lines of %s:\n" "$log"
+    tail -n 25 "$log" | sed 's/^/    /'
+    return 1
+}
+
+extract_toml_version() {
+    grep '^version' "$1" | head -1 | sed 's/.*= *"\(.*\)"/\1/'
+}
+
+PY_VER=$(extract_toml_version "$ROOT/pyproject.toml")
+# Crates use workspace inheritance — read the single source of truth.
+CARGO_VER=$(extract_toml_version "$ROOT/Cargo.toml")
+TAG="v$CARGO_VER"
+
+# ── 1. Git ─────────────────────────────────────────────────────────────────
 section "Git"
 
 info "checking for uncommitted changes"
@@ -37,7 +76,7 @@ else
 fi
 
 info "checking for unpushed commits"
-UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "")"
+UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "")"
 if [[ -z "$UPSTREAM" ]]; then
     fail "no upstream branch set — run: git push -u origin $(git rev-parse --abbrev-ref HEAD)"
 else
@@ -50,65 +89,22 @@ else
     fi
 fi
 
-# ── 2. Lint ────────────────────────────────────────────────────────────────
-section "Lint"
-
-info "cargo fmt --check"
-if cargo fmt --all -- --check 2>&1; then
-    pass "fmt"
+info "checking that $TAG is not already tagged"
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+    || [[ -n "$(git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null)" ]]; then
+    fail "tag $TAG already exists — bump the version"
 else
-    fail "fmt (run 'make fmt' to fix)"
+    pass "$TAG is free"
 fi
 
-info "cargo clippy"
-if cargo clippy --workspace --all-targets -- -D warnings 2>&1; then
-    pass "clippy"
-else
-    fail "clippy"
-fi
-
-# ── 3. Tests ───────────────────────────────────────────────────────────────
-section "Tests"
-
-info "cargo test"
-if cargo test --workspace 2>&1; then
-    pass "tests"
-else
-    fail "tests"
-fi
-
-# ── 3b. riscv-tests ISA suite ──────────────────────────────────────────────
-section "riscv-tests ISA suite"
-
-ISA_DIR="$ROOT/tests/builds/riscv-tests/isa"
-if [[ ! -d "$ISA_DIR" ]]; then
-    info "skipping — tests/builds/riscv-tests/ not found (run: make riscv-tests-build)"
-else
-    info "running tests/conformance/riscv_tests.py"
-    PYTHON_BIN="$([ -f "$ROOT/.venv/bin/python3" ] && echo "$ROOT/.venv/bin/python3" || echo python3)"
-    if "$PYTHON_BIN" "$ROOT/tests/conformance/riscv_tests.py" 2>&1; then
-        pass "riscv-tests"
-    else
-        fail "riscv-tests — ISA compliance failures"
-    fi
-fi
-
-# ── 4. Version alignment ───────────────────────────────────────────────────
+# ── 2. Version alignment ───────────────────────────────────────────────────
 section "Version alignment"
-
-extract_toml_version() {
-    grep '^version' "$1" | head -1 | sed 's/.*= *"\(.*\)"/\1/'
-}
-
-PY_VER=$(extract_toml_version "$ROOT/pyproject.toml")
-# Crates use workspace inheritance — read the single source of truth.
-CARGO_VER=$(extract_toml_version "$ROOT/Cargo.toml")
 
 printf "    %-30s %s\n" "pyproject.toml"  "$PY_VER"
 printf "    %-30s %s\n" "Cargo.toml (workspace)" "$CARGO_VER"
 
 if [[ "$PY_VER" == "$CARGO_VER" ]]; then
-    pass "all versions match ($PY_VER)"
+    pass "pyproject.toml and Cargo.toml match ($PY_VER)"
 else
     fail "version mismatch — pyproject.toml=$PY_VER, Cargo.toml workspace=$CARGO_VER"
 fi
@@ -117,31 +113,87 @@ fi
 # crates.io requires explicit versions on path deps.
 info "checking path dependency versions"
 PATH_DEP_FAIL=0
-for toml in "$ROOT/crates/rvsim-bindings/Cargo.toml"; do
-    while IFS= read -r line; do
-        # Match lines like: some-crate = { path = "...", version = "x.y.z" }
-        if [[ "$line" =~ path\ *=.*version\ *=\ *\"([^\"]+)\" ]]; then
-            dep_ver="${BASH_REMATCH[1]}"
-            dep_name=$(echo "$line" | sed 's/\s*=.*//')
-            if [[ "$dep_ver" != "$CARGO_VER" ]]; then
-                fail "path dep '$dep_name' in $(basename $toml) pinned to $dep_ver, expected $CARGO_VER"
-                PATH_DEP_FAIL=1
-            fi
-        elif [[ "$line" =~ ^rvsim.*path\ *= ]]; then
-            # path dep exists but has no version — only flag if it's a published crate
-            dep_name=$(echo "$line" | sed 's/\s*=.*//' | tr -d ' ')
-            if [[ "$dep_name" != "rvsim-bindings" ]]; then
-                fail "path dep '$dep_name' in $(basename $toml) is missing a version — crates.io requires one"
-                PATH_DEP_FAIL=1
-            fi
+toml="$ROOT/crates/rvsim-bindings/Cargo.toml"
+while IFS= read -r line; do
+    # Match lines like: some-crate = { path = "...", version = "x.y.z" }
+    if [[ "$line" =~ path\ *=.*version\ *=\ *\"([^\"]+)\" ]]; then
+        dep_ver="${BASH_REMATCH[1]}"
+        dep_name=$(echo "$line" | sed 's/\s*=.*//')
+        if [[ "$dep_ver" != "$CARGO_VER" ]]; then
+            fail "path dep '$dep_name' in $(basename "$toml") pinned to $dep_ver, expected $CARGO_VER"
+            PATH_DEP_FAIL=1
         fi
-    done < "$toml"
-done
+    elif [[ "$line" =~ ^rvsim.*path\ *= ]]; then
+        # path dep exists but has no version — only flag if it's a published crate
+        dep_name=$(echo "$line" | sed 's/\s*=.*//' | tr -d ' ')
+        if [[ "$dep_name" != "rvsim-bindings" ]]; then
+            fail "path dep '$dep_name' in $(basename "$toml") is missing a version — crates.io requires one"
+            PATH_DEP_FAIL=1
+        fi
+    fi
+done < "$toml"
 if [[ $PATH_DEP_FAIL -eq 0 ]]; then
     pass "path dependency versions match workspace ($CARGO_VER)"
 fi
 
-# ── 5 & 6. Registry checks ─────────────────────────────────────────────────
+info "checking Cargo.lock"
+for crate in rvsim-core rvsim-bindings; do
+    lock_ver=$(awk -v name="name = \"$crate\"" '$0 == name { getline; print; exit }' Cargo.lock \
+        | sed 's/.*= *"\(.*\)"/\1/')
+    if [[ "$lock_ver" == "$CARGO_VER" ]]; then
+        pass "Cargo.lock $crate at $CARGO_VER"
+    else
+        fail "Cargo.lock has $crate at ${lock_ver:-nothing}, expected $CARGO_VER — run: cargo update -w"
+    fi
+done
+
+info "checking the bug report form's version placeholder"
+if grep -q "placeholder: $CARGO_VER or" .github/ISSUE_TEMPLATE/bug_report.yml; then
+    pass "bug report placeholder is $CARGO_VER"
+else
+    fail "bug report placeholder in .github/ISSUE_TEMPLATE/bug_report.yml is not $CARGO_VER"
+fi
+
+# ── 3. Changelog ───────────────────────────────────────────────────────────
+section "Changelog"
+
+CHANGELOG_PROBLEMS="$(python3 - "$CARGO_VER" <<'EOF'
+import re
+import sys
+
+version = sys.argv[1]
+problems = []
+try:
+    changelog = open("docs/changelog.md").read()
+    unreleased = changelog.split("## Unreleased", 1)[1].split("## Releases", 1)[0]
+    if unreleased.strip():
+        problems.append("docs/changelog.md: move the Unreleased entries into this release's page")
+    link = re.search(rf"\[v{re.escape(version)}\]\((versions/[^)]+)\)", changelog)
+    if link is None:
+        problems.append(f"docs/changelog.md: no [v{version}] entry under Releases")
+    else:
+        page = f"docs/{link.group(1)}"
+        try:
+            heading = open(page).readline()
+        except OSError:
+            problems.append(f"{page} does not exist")
+        else:
+            if f"v{version}" not in heading:
+                problems.append(f"{page}: heading does not name v{version}")
+            if f"- v{version}: {link.group(1)}" not in open("mkdocs.yml").read():
+                problems.append(f"mkdocs.yml: no nav entry for v{version}")
+except (OSError, IndexError) as error:
+    problems.append(f"could not check the changelog: {error}")
+print("\n".join(problems))
+EOF
+)"
+if [[ -z "$CHANGELOG_PROBLEMS" ]]; then
+    pass "v$CARGO_VER has its changelog page, linked and in the docs nav"
+else
+    while IFS= read -r problem; do fail "$problem"; done <<< "$CHANGELOG_PROBLEMS"
+fi
+
+# ── 4. Registry checks ─────────────────────────────────────────────────────
 section "Registry checks"
 
 version_gt() {
@@ -153,7 +205,7 @@ sys.exit(0 if parse('$1') > parse('$2') else 1)
 "
 }
 
-info "Checking PyPI (rvsim-sim)"
+info "Checking PyPI (rvsim)"
 PYPI_VER=$(curl -sf "https://pypi.org/pypi/rvsim/json" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])" \
     2>/dev/null || echo "0.0.0")
@@ -182,30 +234,99 @@ check_crate() {
 
 check_crate "rvsim-core" "$CARGO_VER"
 
-# ── 7. Build checks ────────────────────────────────────────────────────────
-section "Build checks"
+# ── 5. Rebuild ─────────────────────────────────────────────────────────────
+section "Rebuild"
+
+info "make python (the extension, release build)"
+if logged build-python make python; then
+    pass "extension built"
+else
+    fail "make python"
+fi
+
+info "checking the built extension's version"
+BUILT_VER="$("$PY" -c "import rvsim; print(rvsim.version())" 2>/dev/null || echo "none")"
+if [[ "$BUILT_VER" == "$CARGO_VER" ]]; then
+    pass "rvsim.version() is $BUILT_VER"
+else
+    fail "rvsim.version() is $BUILT_VER, expected $CARGO_VER"
+fi
+
+info "make software (guest programs)"
+if logged build-software make software; then
+    pass "guest programs built"
+else
+    fail "make software"
+fi
+
+# ── 6. Lint ────────────────────────────────────────────────────────────────
+section "Lint"
+
+info "cargo fmt --check"
+if cargo fmt --all -- --check 2>&1; then
+    pass "fmt"
+else
+    fail "fmt (run 'make fmt' to fix)"
+fi
+
+info "cargo clippy"
+if cargo clippy --workspace --all-targets -- -D warnings 2>&1; then
+    pass "clippy"
+else
+    fail "clippy"
+fi
+
+# ── 7. Tests ───────────────────────────────────────────────────────────────
+section "Tests"
+
+info "cargo test"
+if logged cargo-test cargo test --workspace; then
+    pass "Rust tests"
+else
+    fail "Rust tests"
+fi
+
+info "make test-python (Python tests and the stub check)"
+if logged test-python make test-python; then
+    pass "Python tests and stub"
+else
+    fail "Python tests or stub check"
+fi
+
+info "mkdocs build --strict"
+if logged docs "$PY" -m mkdocs build --strict --site-dir "$LOG_DIR/site"; then
+    pass "docs build"
+else
+    fail "docs build (mkdocs --strict)"
+fi
+
+# ── 8. Packaging ───────────────────────────────────────────────────────────
+section "Packaging"
 
 MATURIN="$([ -f "$ROOT/.venv/bin/maturin" ] && echo "$ROOT/.venv/bin/maturin" || command -v maturin 2>/dev/null || echo "")"
-
-# ── Wheels (maturin) ──────────────────────────────────────────────────────
-WHEEL_OUT="/tmp/rvsim-check-dist"
-rm -rf "$WHEEL_OUT"
+WHEEL_OUT="$LOG_DIR/dist"
 mkdir -p "$WHEEL_OUT"
 
 if [[ -n "$MATURIN" ]]; then
-    info "maturin build (native)"
-    if "$MATURIN" build --release --out "$WHEEL_OUT" 2>&1; then
+    info "maturin build (native wheel)"
+    if logged wheel env CI=1 "$MATURIN" build --release --out "$WHEEL_OUT"; then
         pass "maturin wheel (native)"
     else
         fail "maturin wheel build (native)"
     fi
 
+    info "maturin sdist"
+    if logged sdist "$MATURIN" sdist --out "$WHEEL_OUT"; then
+        pass "maturin sdist"
+    else
+        fail "maturin sdist"
+    fi
+
     # Cross-compile aarch64 wheel — requires zig or cross for the linker
     if command -v zig >/dev/null 2>&1 || command -v cross >/dev/null 2>&1; then
         info "maturin build (aarch64-unknown-linux-gnu)"
-        if CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-           "$MATURIN" build --release --target aarch64-unknown-linux-gnu \
-                --out "$WHEEL_OUT" 2>&1; then
+        if logged wheel-aarch64 env CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+           "$MATURIN" build --release --target aarch64-unknown-linux-gnu --out "$WHEEL_OUT"; then
             pass "maturin wheel (aarch64-unknown-linux-gnu)"
         else
             fail "maturin wheel build (aarch64-unknown-linux-gnu)"
@@ -217,11 +338,63 @@ else
     fail "maturin not found — run 'make python' first"
 fi
 
+WHEEL="$(ls "$WHEEL_OUT"/rvsim-"$CARGO_VER"-*x86_64*.whl 2>/dev/null | head -1 || true)"
+if [[ -n "$WHEEL" ]]; then
+    info "installing the wheel in a fresh venv and running a program"
+    SMOKE_VENV="$LOG_DIR/smoke-venv"
+    if logged smoke-install sh -c "python3 -m venv '$SMOKE_VENV' && '$SMOKE_VENV/bin/pip' install -q '$WHEEL'" \
+        && logged smoke-run sh -c "cd '$LOG_DIR' && '$SMOKE_VENV/bin/python' -c '
+import rvsim
+from rvsim import Simulator, presets
+assert rvsim.version() == \"$CARGO_VER\", rvsim.version()
+sim = Simulator(presets.basic().replace(uart_quiet=True), binary=\"$ROOT/software/bin/programs/fib.elf\")
+assert sim.run(stats_sections=None) == 0
+'"; then
+        pass "the wheel installs, reports $CARGO_VER and runs fib.elf"
+    else
+        fail "wheel smoke test"
+    fi
+else
+    fail "no native wheel for $CARGO_VER to smoke-test"
+fi
+
+info "cargo publish --dry-run (rvsim-core)"
+if logged publish cargo publish -p rvsim-core --dry-run; then
+    pass "rvsim-core packages and builds as published"
+else
+    fail "cargo publish --dry-run"
+fi
+
+# ── 9. Conformance ─────────────────────────────────────────────────────────
+section "Conformance"
+
+info "make test-all (every suite on every pipeline config; about 40 minutes)"
+if logged test-all make test-all; then
+    pass "riscv-tests, vector tests and multicore programs"
+    sed -n '/UNIFIED SUMMARY/,$p' "$LOG_DIR/test-all.log" | sed 's/^/    /'
+else
+    fail "make test-all"
+fi
+
+# ── 10. Linux ──────────────────────────────────────────────────────────────
+section "Linux"
+
+if [[ $SKIP_LINUX -eq 1 ]]; then
+    info "skipping the Linux boot (--skip-linux)"
+else
+    info "booting 8 harts to a login and powering off (about 40 minutes)"
+    if logged linux "$PY" tools/diag/linux_poweroff.py; then
+        pass "$(tail -n 1 "$LOG_DIR/linux.log" | sed 's/^linux_poweroff: //')"
+    else
+        fail "Linux boot"
+    fi
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────────
-printf "\n"
+printf "\n  logs: %s\n\n" "$LOG_DIR"
 if [[ ${#FAILED[@]} -eq 0 ]]; then
-    printf "${GREEN}${BOLD}All checks passed.${RESET} Ready to tag v%s\n\n" "$PY_VER"
-    printf "  git tag v%s && git push origin v%s\n\n" "$PY_VER" "$PY_VER"
+    printf "${GREEN}${BOLD}All checks passed.${RESET} Ready to tag %s\n\n" "$TAG"
+    printf "  git tag -a %s -m %s origin/main && git push origin %s\n\n" "$TAG" "$TAG" "$TAG"
     exit 0
 else
     printf "${RED}${BOLD}%d check(s) failed:${RESET}\n" "${#FAILED[@]}"
