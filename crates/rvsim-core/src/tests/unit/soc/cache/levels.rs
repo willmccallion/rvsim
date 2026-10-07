@@ -571,6 +571,46 @@ fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
 }
 
 #[test]
+fn a_fill_whose_dirty_victim_finds_no_writeback_slot_waits_for_one() {
+    let mut config = test_config();
+    config.write_buffers = 1;
+    let mut bench = Bench::new(cache_with(&config));
+    let write = || MemOp::Write { data: WriteData::Small(1), origin: HART };
+    bench.install(1, 0x0000, write());
+    bench.install(2, 0x0080, write());
+    bench.read(3, 0x0100);
+    bench.read(4, 0x0180);
+    let fetches = bench.downstream_requests();
+    bench.fill(fetches[0].0, 0x0100);
+    let events = bench.drain();
+    let writeback_id = events
+        .iter()
+        .find_map(|e| match e.packet {
+            Packet::MemReq { req_id, op: MemOp::Writeback { .. }, .. } => Some(req_id),
+            _ => None,
+        })
+        .expect("the first fill's dirty victim is written back");
+
+    bench.fill(fetches[1].0, 0x0180);
+    let held = bench.drain();
+    bench.deliver(
+        Packet::MemResp {
+            req_id: writeback_id,
+            line_addr: LineAddr::from_phys(PhysAddr::new(0), 64),
+            data: MemRespData::Small(0),
+            hit_level: HitLevel::Dram,
+            state: MesiState::Exclusive,
+        },
+        DOWNSTREAM,
+    );
+    let released = bench.drain();
+
+    assert!(responses_to(&held, PIPELINE).is_empty(), "the second fill waits for a slot");
+    assert_eq!(responses_to(&released, PIPELINE).len(), 1, "it fills once the slot frees");
+    assert!(bench.state_of(0x0180).is_some());
+}
+
+#[test]
 fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
     let mut config = test_config();
     config.write_buffers = 1;

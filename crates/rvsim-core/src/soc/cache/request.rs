@@ -9,7 +9,8 @@ use crate::sim::packet::coherence::{CoherenceMsg, ReqKind};
 use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet};
 
 use super::Cache;
-use super::{BlockedRequest, CacheLine};
+use super::writeback_buffer::WritebackCause;
+use super::{BlockedRequest, CacheLine, WaitingFill};
 
 impl Cache {
     pub(super) const fn alloc_req_id(&mut self) -> ReqId {
@@ -343,6 +344,7 @@ impl Cache {
         ctx: &mut HandleCtx<'_>,
     ) {
         if self.writebacks.complete(req_id) {
+            self.retry_waiting_fills(ctx);
             self.retry_blocked(ctx);
             return;
         }
@@ -362,15 +364,30 @@ impl Cache {
             );
             return;
         }
+        let Some(hands_up) =
+            self.mshrs.iter().find(|m| m.req_id == req_id).map(|m| self.hands_line_up(m))
+        else {
+            return;
+        };
+        let placement = (!hands_up).then(|| self.placement(line_addr.val()));
+        if let Some(Placement::Victim(way)) = placement
+            && self.victim_needs_a_slot(line_addr.val(), way)
+            && self.writebacks.is_full()
+        {
+            let fill = WaitingFill { req_id, line_addr, data, hit_level, granted };
+            self.waiting_fills.push_back(fill);
+            return;
+        }
         let Some(mshr) = self.mshrs.take(req_id) else { return };
         if self.full_mshr == Some(req_id) {
             self.full_mshr = None;
         }
-        let installed = if self.hands_line_up(&mshr) {
-            let _ = self.handed_up.insert(mshr.line);
-            fetched_state(&mshr, granted)
-        } else {
-            self.fill(&mshr, granted, ctx)
+        let installed = match placement {
+            None => {
+                let _ = self.handed_up.insert(mshr.line);
+                fetched_state(&mshr, granted)
+            }
+            Some(placement) => self.fill(&mshr, granted, placement, ctx),
         };
         if let Some(way) = self.find_way(mshr.line.val()) {
             let index = self.set_index(mshr.line.val()) * self.ways + way;
@@ -399,20 +416,46 @@ impl Cache {
         self.retry_blocked(ctx);
     }
 
-    /// The way `addr`'s line goes in: its own when held, else a free one,
-    /// else the replacement policy's victim, evicted to make room.
-    fn way_for(&mut self, addr: u64, ctx: &mut HandleCtx<'_>) -> usize {
+    /// Where `addr`'s line goes: its own way when held, else a free way,
+    /// else the way of the replacement policy's victim.
+    fn placement(&mut self, addr: u64) -> Placement {
         let set_index = self.set_index(addr);
         if let Some(way) = self.find_way(addr) {
-            return way;
+            return Placement::Held(way);
         }
         if let Some(free) = (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid())
         {
-            return free;
+            return Placement::Free(free);
         }
-        let victim = self.policy.get_victim(set_index);
-        self.evict(set_index, victim, ctx);
-        victim
+        Placement::Victim(self.policy.get_victim(set_index))
+    }
+
+    /// The way `placement` names, its victim evicted first.
+    fn place(&mut self, addr: u64, placement: Placement, ctx: &mut HandleCtx<'_>) -> usize {
+        match placement {
+            Placement::Held(way) | Placement::Free(way) => way,
+            Placement::Victim(way) => {
+                self.evict(self.set_index(addr), way, ctx);
+                way
+            }
+        }
+    }
+
+    /// Whether evicting the line in `way` of `addr`'s set sends it to the
+    /// next level, which needs a writeback-buffer slot.
+    fn victim_needs_a_slot(&self, addr: u64, way: usize) -> bool {
+        let victim = self.lines[self.set_index(addr) * self.ways + way];
+        victim.valid() && (victim.dirty() || self.clean_victims_to_downstream)
+    }
+
+    /// Takes the fills that waited for a writeback slot, oldest first,
+    /// while slots are free.
+    fn retry_waiting_fills(&mut self, ctx: &mut HandleCtx<'_>) {
+        while !self.writebacks.is_full() {
+            let Some(fill) = self.waiting_fills.pop_front() else { return };
+            let WaitingFill { req_id, line_addr, data, hit_level, granted } = fill;
+            self.on_response(req_id, line_addr, data, hit_level, granted, ctx);
+        }
     }
 
     /// Installs a line a cache above evicted, as an exclusive level holds
@@ -420,7 +463,8 @@ impl Cache {
     pub(super) fn install_victim(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
         let addr = line.val();
         let set_index = self.set_index(addr);
-        let way = self.way_for(addr, ctx);
+        let placement = self.placement(addr);
+        let way = self.place(addr, placement, ctx);
         let state = if dirty { MesiState::Modified } else { MesiState::Exclusive };
         let tag = self.tag_of(addr);
         self.lines[set_index * self.ways + way] =
@@ -498,6 +542,7 @@ impl Cache {
         &mut self,
         mshr: &Mshr,
         granted: MesiState,
+        placement: Placement,
         ctx: &mut HandleCtx<'_>,
     ) -> MesiState {
         let addr = mshr.line.val();
@@ -505,7 +550,7 @@ impl Cache {
         let tag = self.tag_of(addr);
         ctx.stats.counter(self.stat_paths.fills).inc();
 
-        let way = self.way_for(addr, ctx);
+        let way = self.place(addr, placement, ctx);
         let state = fetched_state(mshr, granted);
         let index = set_index * self.ways + way;
         let state = if self.lines[index].valid() && self.lines[index].dirty() {
@@ -537,7 +582,7 @@ impl Cache {
         let holders = self.upper_holders(line);
         self.drop_line(index, ctx.stats);
         if victim.dirty() || self.clean_victims_to_downstream {
-            self.write_back(line, victim.dirty(), ctx);
+            self.write_back(line, victim.dirty(), WritebackCause::Eviction, ctx);
         } else {
             self.notify_evict(line, ctx);
         }
@@ -551,6 +596,17 @@ impl Cache {
             self.on_request(req, ctx);
         }
     }
+}
+
+/// Where a fill or an installed victim goes in its set.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Placement {
+    /// The way already holding the line.
+    Held(usize),
+    /// An empty way.
+    Free(usize),
+    /// The way of the line evicted to make room.
+    Victim(usize),
 }
 
 /// The state a fetched line arrives in: modified for a write, otherwise as

@@ -1,6 +1,6 @@
 //! Writebacks to the next level and cache-maintenance operations.
 
-use super::writeback_buffer::Writeback;
+use super::writeback_buffer::{Writeback, WritebackCause};
 use crate::common::LineAddr;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::HandleCtx;
@@ -59,15 +59,21 @@ impl Cache {
         }
         if dirty || self.clean_victims_to_downstream {
             // Not ours: forward downstream through the writeback buffer.
-            self.write_back(self.line_of(addr), dirty, ctx);
+            self.write_back(self.line_of(addr), dirty, WritebackCause::Eviction, ctx);
         }
     }
 
     /// Sends a line to the next level and tracks it until acknowledged.
-    pub(super) fn write_back(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
+    pub(super) fn write_back(
+        &mut self,
+        line: LineAddr,
+        dirty: bool,
+        cause: WritebackCause,
+        ctx: &mut HandleCtx<'_>,
+    ) {
         let Some(downstream) = self.downstream else { return };
         let req_id = self.alloc_req_id();
-        self.writebacks.allocate(Writeback { line, req_id });
+        self.writebacks.allocate(Writeback { line, req_id, cause });
         ctx.stats.counter(self.stat_paths.writebacks).inc();
         let packet = self.coherent.map_or_else(
             || Packet::MemReq {
