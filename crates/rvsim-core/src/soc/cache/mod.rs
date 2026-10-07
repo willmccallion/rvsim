@@ -34,7 +34,9 @@ use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
 use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, CacheLevel, MemOp, MesiState, Packet, ProbeKind};
+use crate::sim::packet::{
+    AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind,
+};
 use crate::sim::stats::Stats;
 use crate::soc::cache::prefetch::{
     NextLinePrefetcher, Prefetcher, StoreStreamPrefetcher, StreamPrefetcher, StridePrefetcher,
@@ -61,6 +63,16 @@ impl CacheLine {
     const fn dirty(self) -> bool {
         matches!(self.state, MesiState::Modified)
     }
+}
+
+/// A fill held until the writeback buffer has room for its victim.
+#[derive(Clone, Debug)]
+struct WaitingFill {
+    req_id: ReqId,
+    line_addr: LineAddr,
+    data: MemRespData,
+    hit_level: HitLevel,
+    granted: MesiState,
 }
 
 /// A request that arrived while the cache was blocked.
@@ -169,6 +181,9 @@ pub struct Cache {
     /// Maintenance operations waiting for a fetch of their line to fill.
     after_fill: Vec<BlockedRequest>,
     pending_probes: Vec<PendingProbe>,
+    /// Fills waiting for a writeback-buffer slot for the dirty victim they
+    /// must evict, oldest first.
+    waiting_fills: VecDeque<WaitingFill>,
     /// Shadow tags of an exclusive cache: the lines it handed to the caches
     /// above and has not had back. It neither holds nor prefetches them.
     handed_up: BTreeSet<LineAddr>,
@@ -259,6 +274,7 @@ impl Cache {
             after_fill: Vec::new(),
             pending_probes: Vec::new(),
             handed_up: BTreeSet::new(),
+            waiting_fills: VecDeque::new(),
             next_req: 0,
         }
     }

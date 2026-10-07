@@ -8,6 +8,7 @@ use crate::sim::packet::coherence::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind};
 
 use super::Cache;
+use super::writeback_buffer::WritebackCause;
 use super::{BlockedRequest, Forwarded, PendingProbe, ProbeOrigin};
 
 impl Cache {
@@ -37,7 +38,7 @@ impl Cache {
                 if self.pending_probes.iter().any(|p| p.line == line) {
                     self.note_probe_writeback(line, dirty, ctx);
                 } else if dirty {
-                    self.write_back(line, true, ctx);
+                    self.write_back(line, true, WritebackCause::Eviction, ctx);
                 } else {
                     self.notify_evict(line, ctx);
                 }
@@ -75,7 +76,7 @@ impl Cache {
         pending.dirty |= dirty;
         pending.had_copy = true;
         if dirty && matches!(pending.origin, ProbeOrigin::Probe { .. }) {
-            self.write_back(line, true, ctx);
+            self.write_back(line, true, WritebackCause::Demanded, ctx);
         }
     }
 
@@ -170,7 +171,7 @@ impl Cache {
         let index = self.set_index(line.val()) * self.ways + way;
         let dirty = self.lines[index].dirty();
         if dirty && write_back_dirty {
-            self.write_back(line, true, ctx);
+            self.write_back(line, true, WritebackCause::Demanded, ctx);
         }
         match kind {
             ProbeKind::Invalidate => self.drop_line(index, ctx.stats),

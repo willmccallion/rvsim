@@ -7,6 +7,7 @@ use crate::sim::handle::HandleCtx;
 use crate::sim::packet::Packet;
 
 use super::Cache;
+use super::writeback_buffer::WritebackCause;
 
 impl Cache {
     pub(super) fn back_invalidate(
@@ -37,7 +38,7 @@ impl Cache {
         let holders = self.upper_holders(line);
         let held = self.contains(line.val()) || !holders.is_empty();
         if self.invalidate_line(line.val(), ctx.stats) {
-            self.write_back(line, true, ctx);
+            self.write_back(line, true, WritebackCause::Demanded, ctx);
         }
         if held {
             ctx.stats.counter(self.stat_paths.back_invalidations).inc();
