@@ -53,4 +53,15 @@ pub enum SimError {
         /// Simulator cycle at which the panic was detected.
         cycle: u64,
     },
+
+    /// With the cache audit on, an event left a cache invariant broken.
+    #[error("cache invariant broken at cycle {cycle}, line {line:#x}: {what}")]
+    CacheInvariant {
+        /// Simulator cycle of the event.
+        cycle: u64,
+        /// Physical address of the line concerned.
+        line: u64,
+        /// What was wrong.
+        what: String,
+    },
 }

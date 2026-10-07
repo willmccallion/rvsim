@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Simulator.audit_caches = True` (Rust: `Simulator::set_audit_caches`)
+  checks every cache invariant after every event and ends the run with
+  `SimError::CacheInvariant` at the first one broken; off by default, at
+  no cost. It found the three bugs below.
+- An exclusive L2 kept a copy of every line it fetched for the L1s and
+  could prefetch a line an L1 held, so lines sat in both levels. It now
+  hands such a line up without keeping it, keeps a shadow tag so it does
+  not prefetch it, and installs it when the L1 evicts it; the L1I hands
+  its clean victims down under the exclusive policy too.
+- A cache's writeback buffer could hold more evictions than
+  `write_buffers`: a fill installed its dirty victim whether or not a slot
+  was free, and probe writebacks took eviction slots. A fill whose dirty
+  victim finds the buffer full now waits for a slot, and a line a probe or
+  back-invalidation demands goes back on the snoop-response path without
+  taking one. A few cache-thrashing workloads take up to 3% more cycles.
 - A dirty writeback and a snoop answered with a modified line carried
   only a header across the coherence interconnect, so they took one cycle
   and their line was missing from `coherence.interconnect.bytes`. Both now

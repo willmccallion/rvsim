@@ -4,6 +4,7 @@
 //! state; this layer also loads programs, generates the device tree, and
 //! saves and restores checkpoints.
 
+pub mod cache_audit;
 pub mod checkpoint;
 pub mod coherence_audit;
 pub mod dtb;

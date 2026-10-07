@@ -3,6 +3,7 @@
 pub mod amo_cache_access;
 pub mod amo_non_speculative;
 pub mod bus_occupancy;
+pub mod cache_invariants;
 pub mod cbo_translation;
 pub mod device_latency;
 pub mod fill_latency;

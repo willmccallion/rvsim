@@ -101,6 +101,11 @@ impl EventQueue {
     pub fn is_empty(&self) -> bool {
         self.heap.is_empty()
     }
+
+    /// Every event still to be delivered, in no particular order.
+    pub fn pending(&self) -> impl Iterator<Item = &Event> {
+        self.heap.iter().map(|Reverse(event)| event)
+    }
 }
 
 #[cfg(test)]

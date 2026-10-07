@@ -12,7 +12,6 @@ use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use crate::sim::packet::MesiState;
 use crate::soc::cache::Cache;
-use crate::system::coherence_audit::audit;
 use crate::tests::integration::multicore::{amo_counter, spinlock};
 use crate::tests::support::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
@@ -35,7 +34,6 @@ const A7: u32 = 17;
 const S2: u32 = 18;
 const MHARTID: u32 = 0xF14;
 const SYS_EXIT: i32 = 93;
-const AUDIT_EVERY: u64 = 32;
 
 fn cached(harts: usize, backend: BackendKind) -> Config {
     let mut config = Config::default();
@@ -147,16 +145,15 @@ fn producer_consumer(harts: i32) -> Vec<u32> {
 }
 
 /// Runs to exit, auditing the coherence invariants along the way.
+/// Runs to the guest's exit with every cache invariant checked after every
+/// event; a broken one fails the test with the event's cycle.
 fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {
-    for cycle in 0..max_cycles {
-        system.sim.tick().expect("tick");
-        if cycle % AUDIT_EVERY == 0 {
-            let violations = audit(&system.sim.state);
-            assert!(violations.is_empty(), "cycle {cycle}: {violations:?}");
+    system.sim.set_audit_caches(true);
+    for _ in 0..max_cycles {
+        if let Err(broken) = system.sim.tick() {
+            panic!("{broken}");
         }
         if let Some(code) = system.sim.state.check_exit() {
-            let violations = audit(&system.sim.state);
-            assert!(violations.is_empty(), "at exit: {violations:?}");
             return Some(code);
         }
     }
