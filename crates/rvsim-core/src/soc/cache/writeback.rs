@@ -53,6 +53,10 @@ impl Cache {
             }
             return;
         }
+        if self.handed_up.remove(&line) {
+            self.install_victim(line, dirty, ctx);
+            return;
+        }
         if dirty || self.clean_victims_to_downstream {
             // Not ours: forward downstream through the writeback buffer.
             self.write_back(self.line_of(addr), dirty, ctx);
@@ -186,6 +190,7 @@ impl Cache {
         match op {
             Maintenance::Clean => self.clean_line(line.val()),
             Maintenance::Flush | Maintenance::Invalidate => {
+                let _ = self.handed_up.remove(&line);
                 let holders: Vec<ComponentId> =
                     self.upper_holders(line).into_iter().filter(|&h| h != requester).collect();
                 self.back_invalidate(line, &holders, ctx);
