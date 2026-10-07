@@ -149,7 +149,10 @@ pub struct DecodeOutcome {
 /// where fetch must restart when the path it fetched is wrong: a control
 /// instruction the BTB missed is predicted here, a stale BTB target is
 /// corrected, and a BTB entry for an instruction that is not a control
-/// instruction is dropped.
+/// instruction is dropped. Decode overrides fetch only where the path
+/// differs; predictions fetch made past an instruction decode predicts are
+/// redone as decode reaches them, so the histories stay in program order
+/// without refetching a path fetch already took.
 fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<u64> {
     let size = entry.inst.size.as_u64();
     let fallthrough = entry.inst.pc.wrapping_add(size);
@@ -159,8 +162,8 @@ fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Op
     let predicted_by_fetch = predictor.is_predicted(entry.seq);
 
     let redirect = match (control, predicted_by_fetch) {
-        (None, false) => None,
-        (None, true) => {
+        (None, false) if !entry.pred_taken => None,
+        (None, _) => {
             predictor.forget(entry.seq, entry.inst.pc);
             entry.pred_taken = false;
             entry.pred_target = 0;
@@ -183,11 +186,11 @@ fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Op
             })
         }
         (Some(control), false) => {
-            let (target, squashed_younger) = predictor.discover(entry.seq, entry.inst.pc, control);
+            let target = predictor.discover(entry.seq, entry.inst.pc, control);
             entry.pred_taken = target.is_some();
             entry.pred_target = target.unwrap_or(0);
             let next = target.unwrap_or(fallthrough);
-            (squashed_younger || next != fetched_next).then_some(next)
+            (next != fetched_next).then_some(next)
         }
     };
     if redirect.is_some() {

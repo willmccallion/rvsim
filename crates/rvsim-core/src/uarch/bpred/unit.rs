@@ -207,19 +207,18 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
 
     /// Decode found control instruction `seq` that fetch, missing it in the
     /// BTB, did not predict: undoes the predictions younger than it (made
-    /// without it in the histories), predicts it, and records a taken one in
-    /// the BTB. Returns its predicted target and whether younger
-    /// predictions were undone.
-    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> (Option<u64>, bool) {
-        let squashed = self.squash_younger_than(Some(seq));
-        if squashed {
+    /// without it in the histories, and redone as decode reaches them),
+    /// predicts it, and records a taken one in the BTB. Returns its
+    /// predicted target.
+    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+        if self.squash_younger_than(Some(seq)) {
             self.direction.squash_done();
         }
         let target = self.predict(seq, pc, inst);
         if let Some(target) = target {
             self.btb.update(pc, target, inst.kind());
         }
-        (target, squashed)
+        target
     }
 
     /// Decode found that fetch followed the stale BTB target of taken
