@@ -36,8 +36,8 @@ pub enum MemDepState {
 #[derive(Debug)]
 pub struct MemDepUnit {
     predictor: PredictorKind,
-    /// In-flight dependency records: `waiter_rob_tag.0` → barrier it waits on.
-    deps: HashMap<u32, DepRecord>,
+    /// In-flight dependency records: waiting instruction → barrier it waits on.
+    deps: HashMap<RobTag, DepRecord>,
     /// Aggregated statistics (`bypass`/`wait_all`/`wait_for`/violations).
     stats: MdpStats,
 }
@@ -132,7 +132,7 @@ impl MemDepUnit {
                     MemPrediction::DepOn(barrier) => {
                         if barrier.is_older_than(rob_tag) {
                             let _ =
-                                self.deps.insert(rob_tag.0, DepRecord { barrier, resolved: false });
+                                self.deps.insert(rob_tag, DepRecord { barrier, resolved: false });
                             self.stats.predictions_wait_for += 1;
                             MemDepState::WaitFor(barrier)
                         } else {
@@ -170,7 +170,7 @@ impl MemDepUnit {
     ///
     /// Removes its dependency record (cleanup).
     pub fn issued(&mut self, rob_tag: RobTag) {
-        let _ = self.deps.remove(&rob_tag.0);
+        let _ = self.deps.remove(&rob_tag);
     }
 
     /// Train on violation detection.
@@ -194,7 +194,7 @@ impl MemDepUnit {
     /// Must be called AFTER `rob.flush_after(keep_tag)` so the ROB only
     /// contains surviving entries when we walk it for LFST rebuild.
     pub fn flush_after(&mut self, keep_tag: RobTag, rob: &Rob) {
-        self.deps.retain(|&tag, _| RobTag(tag).is_older_or_eq(keep_tag));
+        self.deps.retain(|&tag, _| tag.is_older_or_eq(keep_tag));
         if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
             predictor.flush_after(keep_tag);
             for entry in rob.iter_in_order() {
@@ -239,7 +239,7 @@ mod tests {
     fn test_blind_dispatch_loads_wait_all() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x1000, RobTag(1), true, false, false), MemDepState::WaitAll);
+        assert_eq!(mdu.dispatch(0x1000, RobTag::new(1), true, false, false), MemDepState::WaitAll);
         assert_eq!(mdu.stats().predictions_wait_all, 1);
     }
 
@@ -247,21 +247,21 @@ mod tests {
     fn test_blind_dispatch_stores_none() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x2000, RobTag(2), false, true, false), MemDepState::None);
+        assert_eq!(mdu.dispatch(0x2000, RobTag::new(2), false, true, false), MemDepState::None);
     }
 
     #[test]
     fn test_blind_dispatch_non_memory_none() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x3000, RobTag(3), false, false, false), MemDepState::None);
+        assert_eq!(mdu.dispatch(0x3000, RobTag::new(3), false, false, false), MemDepState::None);
     }
 
     #[test]
     fn test_store_set_unknown_pc_bypass() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x1000, RobTag(1), true, false, false), MemDepState::Bypass);
+        assert_eq!(mdu.dispatch(0x1000, RobTag::new(1), true, false, false), MemDepState::Bypass);
         assert_eq!(mdu.stats().predictions_bypass, 1);
     }
 
@@ -276,11 +276,11 @@ mod tests {
         mdu.violation(load_pc, store_pc);
 
         // Dispatch store — registers in LFST.
-        let s1 = RobTag(5);
+        let s1 = RobTag::new(5);
         assert_eq!(mdu.dispatch(store_pc, s1, false, true, false), MemDepState::None);
 
         // Dispatch load — depends on store.
-        let l1 = RobTag(10);
+        let l1 = RobTag::new(10);
         assert_eq!(mdu.dispatch(load_pc, l1, true, false, false), MemDepState::WaitFor(s1));
         assert_eq!(mdu.stats().predictions_wait_for, 1);
     }
@@ -294,10 +294,10 @@ mod tests {
 
         mdu.violation(load_pc, store_pc);
 
-        let s1 = RobTag(5);
+        let s1 = RobTag::new(5);
         let _ = mdu.dispatch(store_pc, s1, false, true, false);
 
-        let l1 = RobTag(10);
+        let l1 = RobTag::new(10);
         let _ = mdu.dispatch(load_pc, l1, true, false, false);
 
         // Resolve store — should wake the load.
@@ -313,9 +313,9 @@ mod tests {
         let store_pc = 0x2000;
 
         mdu.violation(load_pc, store_pc);
-        let s1 = RobTag(5);
+        let s1 = RobTag::new(5);
         let _ = mdu.dispatch(store_pc, s1, false, true, false);
-        let l1 = RobTag(10);
+        let l1 = RobTag::new(10);
         let _ = mdu.dispatch(load_pc, l1, true, false, false);
 
         // Issue the load — dep record removed.
@@ -331,9 +331,9 @@ mod tests {
         let store_pc = 0x2000;
 
         mdu.violation(load_pc, store_pc);
-        let s1 = RobTag(5);
+        let s1 = RobTag::new(5);
         let _ = mdu.dispatch(store_pc, s1, false, true, false);
-        let l1 = RobTag(10);
+        let l1 = RobTag::new(10);
         let _ = mdu.dispatch(load_pc, l1, true, false, false);
 
         mdu.flush();
@@ -350,15 +350,15 @@ mod tests {
         mdu.violation(load_pc, store_pc);
 
         // Dispatch load FIRST (older), then store (younger).
-        let l1 = RobTag(1);
+        let l1 = RobTag::new(1);
         assert_eq!(mdu.dispatch(load_pc, l1, true, false, false), MemDepState::Bypass);
 
-        let s1 = RobTag(5);
+        let s1 = RobTag::new(5);
         let _ = mdu.dispatch(store_pc, s1, false, true, false);
 
         // Dispatch another load — LFST points to s1 which is younger, so NoDep for
         // loads older than s1... but l2 is newer than s1, so DepOn(s1).
-        let l2 = RobTag(10);
+        let l2 = RobTag::new(10);
         assert_eq!(mdu.dispatch(load_pc, l2, true, false, false), MemDepState::WaitFor(s1));
     }
 }

@@ -126,7 +126,7 @@ pub(super) fn gate_head(
         trace_trap!(state.config.general.trace_instructions;
             event   = "coherence-reexecute",
             pc      = %crate::common::trace::Hex(head.pc),
-            rob_tag = head.tag.0,
+            rob_tag = %head.tag,
             "CM: LR read a line another hart has since written — re-executing"
         );
         return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc, ReExecuteCause::StaleLine)));
@@ -139,7 +139,7 @@ pub(super) fn gate_head(
         trace_trap!(state.config.general.trace_instructions;
             event   = "pte-changed-reexecute",
             pc      = %crate::common::trace::Hex(head.pc),
-            rob_tag = head.tag.0,
+            rob_tag = %head.tag,
             "CM: store's PTE changed since its walk — re-executing"
         );
         return CommitFlow::Stop(Some(CommitEvent::ReExecute(head.pc, ReExecuteCause::ChangedPte)));
@@ -182,7 +182,7 @@ fn take_fault(
     trace_trap!(state.trace_trap_enabled(the_trap);
         event     = "sync-exception",
         pc        = %crate::common::trace::Hex(entry.pc),
-        rob_tag   = entry.tag.0,
+        rob_tag   = %entry.tag,
         cause     = ?the_trap,
         priv_mode = ?state.hart.privilege,
         mstatus   = %crate::common::trace::Hex(state.hart.csrs.mstatus),

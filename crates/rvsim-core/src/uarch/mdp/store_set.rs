@@ -172,8 +172,8 @@ mod tests {
     #[test]
     fn test_unknown_pc_returns_no_dep() {
         let mut p = test_predictor();
-        assert_eq!(p.predict(0x1000, RobTag(1), false), MemPrediction::NoDep);
-        assert_eq!(p.predict(0x2000, RobTag(2), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(0x1000, RobTag::new(1), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(0x2000, RobTag::new(2), false), MemPrediction::NoDep);
     }
 
     #[test]
@@ -186,12 +186,12 @@ mod tests {
         p.train(load_pc, store_pc);
 
         // SSIT has entries but LFST empty → NoDep.
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(load_pc, RobTag::new(10), false), MemPrediction::NoDep);
 
         // Dispatch a store — LFST populated.
-        let store_tag = RobTag(5);
+        let store_tag = RobTag::new(5);
         p.register_store(store_pc, store_tag);
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(store_tag));
+        assert_eq!(p.predict(load_pc, RobTag::new(10), false), MemPrediction::DepOn(store_tag));
     }
 
     #[test]
@@ -205,18 +205,18 @@ mod tests {
 
         // Dispatch store S1 — predict() returns NoDep (no prior store in set),
         // then register_store populates LFST.
-        let s1 = RobTag(1);
+        let s1 = RobTag::new(1);
         assert_eq!(p.predict(store_pc, s1, true), MemPrediction::NoDep);
         p.register_store(store_pc, s1);
 
         // Dispatch store S2 — predict() returns DepOn(S1) (chain predecessor),
         // then register_store overwrites LFST with S2.
-        let s2 = RobTag(2);
+        let s2 = RobTag::new(2);
         assert_eq!(p.predict(store_pc, s2, true), MemPrediction::DepOn(s1));
         p.register_store(store_pc, s2);
 
         // Dispatch load — returns DepOn(S2) (most recent store in set).
-        let l1 = RobTag(3);
+        let l1 = RobTag::new(3);
         assert_eq!(p.predict(load_pc, l1, false), MemPrediction::DepOn(s2));
     }
 
@@ -225,20 +225,20 @@ mod tests {
         let mut p = test_predictor();
         let load_pc = 0x1000;
         let store_pc = 0x2000;
-        let store_tag = RobTag(5);
+        let store_tag = RobTag::new(5);
 
         p.train(load_pc, store_pc);
         p.register_store(store_pc, store_tag);
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(store_tag));
+        assert_eq!(p.predict(load_pc, RobTag::new(10), false), MemPrediction::DepOn(store_tag));
 
         // Full flush — LFST cleared, SSIT persists.
         p.flush();
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(load_pc, RobTag::new(10), false), MemPrediction::NoDep);
 
         // Dispatch a new store — SSIT still maps, so LFST gets repopulated.
-        let new_tag = RobTag(10);
+        let new_tag = RobTag::new(10);
         p.register_store(store_pc, new_tag);
-        assert_eq!(p.predict(load_pc, RobTag(15), false), MemPrediction::DepOn(new_tag));
+        assert_eq!(p.predict(load_pc, RobTag::new(15), false), MemPrediction::DepOn(new_tag));
     }
 
     #[test]
@@ -253,16 +253,16 @@ mod tests {
         p.train(load_pc_a, store_pc_a);
         p.train(load_pc_b, store_pc_b);
 
-        let old_tag = RobTag(2);
-        let new_tag = RobTag(8);
+        let old_tag = RobTag::new(2);
+        let new_tag = RobTag::new(8);
         p.register_store(store_pc_a, old_tag);
         p.register_store(store_pc_b, new_tag);
 
         // Flush after tag 5 — old_tag(2) survives, new_tag(8) is cleared.
-        p.flush_after(RobTag(5));
+        p.flush_after(RobTag::new(5));
 
-        assert_eq!(p.predict(load_pc_a, RobTag(10), false), MemPrediction::DepOn(old_tag));
-        assert_eq!(p.predict(load_pc_b, RobTag(10), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(load_pc_a, RobTag::new(10), false), MemPrediction::DepOn(old_tag));
+        assert_eq!(p.predict(load_pc_b, RobTag::new(10), false), MemPrediction::NoDep);
     }
 
     #[test]
@@ -280,9 +280,9 @@ mod tests {
         // This should merge load_pc into store_b's set.
         p.train(load_pc, store_b);
 
-        let tag_b = RobTag(10);
+        let tag_b = RobTag::new(10);
         p.register_store(store_b, tag_b);
-        assert_eq!(p.predict(load_pc, RobTag(15), false), MemPrediction::DepOn(tag_b));
+        assert_eq!(p.predict(load_pc, RobTag::new(15), false), MemPrediction::DepOn(tag_b));
     }
 
     #[test]
@@ -294,16 +294,25 @@ mod tests {
         p.train(load_pc, store_pc);
 
         // Rebuild with tag 5.
-        p.rebuild_lfst_entry(store_pc, RobTag(5));
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(5)));
+        p.rebuild_lfst_entry(store_pc, RobTag::new(5));
+        assert_eq!(
+            p.predict(load_pc, RobTag::new(10), false),
+            MemPrediction::DepOn(RobTag::new(5))
+        );
 
         // Rebuild with older tag 3 — should NOT overwrite (tag 5 is newer).
-        p.rebuild_lfst_entry(store_pc, RobTag(3));
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(5)));
+        p.rebuild_lfst_entry(store_pc, RobTag::new(3));
+        assert_eq!(
+            p.predict(load_pc, RobTag::new(10), false),
+            MemPrediction::DepOn(RobTag::new(5))
+        );
 
         // Rebuild with newer tag 8 — should overwrite.
-        p.rebuild_lfst_entry(store_pc, RobTag(8));
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(8)));
+        p.rebuild_lfst_entry(store_pc, RobTag::new(8));
+        assert_eq!(
+            p.predict(load_pc, RobTag::new(10), false),
+            MemPrediction::DepOn(RobTag::new(8))
+        );
     }
 
     #[test]
@@ -316,17 +325,20 @@ mod tests {
         let load_pc = 0x1000;
         let store_pc = 0x2000;
         p.train(load_pc, store_pc);
-        p.register_store(store_pc, RobTag(5));
+        p.register_store(store_pc, RobTag::new(5));
 
         for _ in 0..100 {
             p.note_mem_op();
         }
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::DepOn(RobTag(5)));
+        assert_eq!(
+            p.predict(load_pc, RobTag::new(10), false),
+            MemPrediction::DepOn(RobTag::new(5))
+        );
         p.note_mem_op();
 
-        assert_eq!(p.predict(load_pc, RobTag(10), false), MemPrediction::NoDep);
-        p.register_store(store_pc, RobTag(11));
-        assert_eq!(p.predict(load_pc, RobTag(12), false), MemPrediction::NoDep);
+        assert_eq!(p.predict(load_pc, RobTag::new(10), false), MemPrediction::NoDep);
+        p.register_store(store_pc, RobTag::new(11));
+        assert_eq!(p.predict(load_pc, RobTag::new(12), false), MemPrediction::NoDep);
     }
 
     #[test]

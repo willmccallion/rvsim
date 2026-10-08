@@ -142,7 +142,7 @@ mod tests {
         assert!(!table.is_full());
 
         let rm = make_rename_map(100);
-        let tag = RobTag(10);
+        let tag = RobTag::new(10);
         let id = table.allocate(tag, &rm).unwrap();
         assert_eq!(table.available(), 3);
 
@@ -159,40 +159,40 @@ mod tests {
     fn test_full_table() {
         let mut table = CheckpointTable::new(2);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm).unwrap();
-        table.allocate(RobTag(2), &rm).unwrap();
+        table.allocate(RobTag::new(1), &rm).unwrap();
+        table.allocate(RobTag::new(2), &rm).unwrap();
         assert!(table.is_full());
-        assert!(table.allocate(RobTag(3), &rm).is_none());
+        assert!(table.allocate(RobTag::new(3), &rm).is_none());
     }
 
     #[test]
     fn test_flush_after() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm).unwrap();
-        table.allocate(RobTag(2), &rm).unwrap();
-        table.allocate(RobTag(3), &rm).unwrap();
-        table.allocate(RobTag(4), &rm).unwrap();
+        table.allocate(RobTag::new(1), &rm).unwrap();
+        table.allocate(RobTag::new(2), &rm).unwrap();
+        table.allocate(RobTag::new(3), &rm).unwrap();
+        table.allocate(RobTag::new(4), &rm).unwrap();
         assert!(table.is_full());
 
         // Keep tag 2, flush tags 3 and 4
-        table.flush_after(RobTag(2));
+        table.flush_after(RobTag::new(2));
         assert_eq!(table.available(), 2);
-        assert!(table.find_by_tag(RobTag(1)).is_some());
-        assert!(table.find_by_tag(RobTag(2)).is_some());
-        assert!(table.find_by_tag(RobTag(3)).is_none());
-        assert!(table.find_by_tag(RobTag(4)).is_none());
+        assert!(table.find_by_tag(RobTag::new(1)).is_some());
+        assert!(table.find_by_tag(RobTag::new(2)).is_some());
+        assert!(table.find_by_tag(RobTag::new(3)).is_none());
+        assert!(table.find_by_tag(RobTag::new(4)).is_none());
     }
 
     #[test]
     fn test_flush_all() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
-        table.allocate(RobTag(1), &rm).unwrap();
-        table.allocate(RobTag(2), &rm).unwrap();
+        table.allocate(RobTag::new(1), &rm).unwrap();
+        table.allocate(RobTag::new(2), &rm).unwrap();
         table.flush_all();
         assert_eq!(table.available(), 4);
-        assert!(table.find_by_tag(RobTag(1)).is_none());
+        assert!(table.find_by_tag(RobTag::new(1)).is_none());
     }
 
     #[test]
@@ -201,9 +201,9 @@ mod tests {
         assert!(table.is_full());
         assert_eq!(table.available(), 0);
         let rm = make_rename_map(1);
-        assert!(table.allocate(RobTag(1), &rm).is_none());
+        assert!(table.allocate(RobTag::new(1), &rm).is_none());
         // flush_after and flush_all should be no-ops
-        table.flush_after(RobTag(1));
+        table.flush_after(RobTag::new(1));
         table.flush_all();
     }
 }

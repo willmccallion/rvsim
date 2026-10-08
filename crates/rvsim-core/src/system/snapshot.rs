@@ -208,7 +208,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                     rd: e.rd,
                     alu: e.alu,
                     store_data: e.store_data,
-                    rob_tag: e.rob_tag.0,
+                    rob_tag: e.rob_tag.raw(),
                 })
                 .collect(),
             mem1_mem2: latches
@@ -222,7 +222,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                     vaddr: e.vaddr,
                     paddr: e.paddr,
                     store_data: e.store_data,
-                    rob_tag: e.rob_tag.0,
+                    rob_tag: e.rob_tag.raw(),
                 })
                 .collect(),
             mem2_wb: latches
@@ -234,7 +234,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                     rd: e.rd,
                     alu: e.alu,
                     load_data: e.load_data,
-                    rob_tag: e.rob_tag.0,
+                    rob_tag: e.rob_tag.raw(),
                 })
                 .collect(),
         }
@@ -250,7 +250,7 @@ const fn renamed_slot(e: &crate::uarch::pipeline::latches::RenameIssueEntry) -> 
         rd: e.inst.rd,
         rv1: e.inst.rv1,
         rv2: e.inst.rv2,
-        rob_tag: e.rob_tag.0,
+        rob_tag: e.rob_tag.raw(),
         rs1_ready: e.rs1_tag.is_none(),
         rs2_ready: e.rs2_tag.is_none(),
     }

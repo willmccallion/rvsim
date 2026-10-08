@@ -75,7 +75,7 @@ fn execute_one(
     }
 
     trace_execute!(state.config.general.trace_instructions;
-        rob_tag  = id.rob_tag.0,
+        rob_tag  = %id.rob_tag,
         pc       = %crate::common::trace::Hex(id.inst.pc),
         inst     = %crate::common::trace::Hex32(id.inst.bits),
         rd       = id.inst.rd.as_usize(),

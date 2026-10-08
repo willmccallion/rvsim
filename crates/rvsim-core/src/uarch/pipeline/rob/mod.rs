@@ -42,13 +42,33 @@ pub struct BpOutcome {
 /// Unique tag identifying an in-flight instruction in the ROB.
 ///
 /// Tags are monotonically increasing (wrapping at `u32::MAX` back to 1,
-/// skipping 0). Comparisons between in-flight tags must use
-/// [`RobTag::is_older_than`] / [`RobTag::is_newer_than`] which handle
-/// wraparound via signed-distance arithmetic.
+/// skipping 0), so their numbers do not order them: only the ROB allocates
+/// one, and in-flight tags are ordered by [`RobTag::age_cmp`] /
+/// [`RobTag::is_older_than`], which handle the wrap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub struct RobTag(pub u32);
+pub struct RobTag(u32);
+
+impl std::fmt::Display for RobTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl RobTag {
+    /// A tag with the given number, for tests that build pipeline state.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// The tag's number, for reports outside the pipeline. It says nothing
+    /// about age across the wrap.
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
     /// Returns true if `self` is older (was allocated before) `other`.
     ///
     /// Uses wrapping subtraction so that the comparison remains correct
@@ -218,6 +238,14 @@ impl Rob {
             tag_index: HashMap::with_capacity(capacity),
             vec_config_updates: 0,
         }
+    }
+
+    /// Makes this empty ROB allocate tags from `next` on, for tests that
+    /// cross the wrap.
+    #[cfg(test)]
+    pub fn start_tags_at(&mut self, next: RobTag) {
+        assert!(self.is_empty(), "tags restart only in an empty ROB");
+        self.next_tag = next.0;
     }
 
     /// Returns the number of occupied entries.
@@ -591,7 +619,7 @@ impl Rob {
     /// order, or `None` if `tag` is at the head (no preceding in-flight entry).
     ///
     /// This walks the ROB from head to tail and returns the last entry seen
-    /// before hitting `tag`. Unlike synthesizing `RobTag(tag.0 - 1)`, this
+    /// before hitting `tag`. Unlike synthesizing a tag one below `tag`, this
     /// always returns a tag that is actually present in the ROB.
     pub fn prev_tag_of(&self, tag: RobTag) -> Option<RobTag> {
         if self.count == 0 {

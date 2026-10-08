@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn holds_rename_until_the_cycle_after_the_rob_drains() {
-        let mut serialization = Serialization::after(RobTag(3));
+        let mut serialization = Serialization::after(RobTag::new(3));
 
         serialization.observe(false, 10);
         assert!(!serialization.admits(10));
@@ -77,18 +77,18 @@ mod tests {
 
     #[test]
     fn squashing_the_serializing_instruction_releases_rename() {
-        let mut serialization = Serialization::after(RobTag(3));
+        let mut serialization = Serialization::after(RobTag::new(3));
 
-        serialization.squash(|tag| tag == RobTag(3));
+        serialization.squash(|tag| tag == RobTag::new(3));
 
         assert!(serialization.admits(0));
     }
 
     #[test]
     fn squashing_only_younger_instructions_keeps_the_wait() {
-        let mut serialization = Serialization::after(RobTag(3));
+        let mut serialization = Serialization::after(RobTag::new(3));
 
-        serialization.squash(|tag| tag.0 > 3);
+        serialization.squash(|tag| tag.is_newer_than(RobTag::new(3)));
 
         assert!(!serialization.admits(0));
     }

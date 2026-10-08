@@ -81,20 +81,20 @@ mod tests {
     #[test]
     fn test_mem_dep_predictor_defaults() {
         let mut predictor = DummyPredictor;
-        assert_eq!(predictor.predict(0x1000, RobTag(1), false), MemPrediction::NoDep);
+        assert_eq!(predictor.predict(0x1000, RobTag::new(1), false), MemPrediction::NoDep);
         predictor.train(0x1000, 0x2000);
-        predictor.register_store(0x2000, RobTag(1));
-        predictor.rebuild_lfst_entry(0x2000, RobTag(1));
+        predictor.register_store(0x2000, RobTag::new(1));
+        predictor.rebuild_lfst_entry(0x2000, RobTag::new(1));
         predictor.flush();
-        predictor.flush_after(RobTag(5));
+        predictor.flush_after(RobTag::new(5));
         predictor.note_mem_op();
     }
 
     #[test]
     fn test_prediction_eq() {
         assert_eq!(MemPrediction::NoDep, MemPrediction::NoDep);
-        assert_eq!(MemPrediction::DepOn(RobTag(3)), MemPrediction::DepOn(RobTag(3)));
-        assert_ne!(MemPrediction::NoDep, MemPrediction::DepOn(RobTag(1)));
-        assert_ne!(MemPrediction::DepOn(RobTag(1)), MemPrediction::DepOn(RobTag(2)));
+        assert_eq!(MemPrediction::DepOn(RobTag::new(3)), MemPrediction::DepOn(RobTag::new(3)));
+        assert_ne!(MemPrediction::NoDep, MemPrediction::DepOn(RobTag::new(1)));
+        assert_ne!(MemPrediction::DepOn(RobTag::new(1)), MemPrediction::DepOn(RobTag::new(2)));
     }
 }

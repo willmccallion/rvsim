@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn test_set_and_get_producer() {
         let mut sb = Scoreboard::new();
-        let tag = RobTag(42);
+        let tag = RobTag::new(42);
         sb.set_producer(RegIdx::new(5), false, tag);
         assert_eq!(sb.get_producer(RegIdx::new(5), false), Some(tag));
         assert_eq!(sb.get_producer(RegIdx::new(6), false), None);
@@ -140,14 +140,14 @@ mod tests {
     #[test]
     fn test_x0_always_clear() {
         let mut sb = Scoreboard::new();
-        sb.set_producer(RegIdx::new(0), false, RobTag(1));
+        sb.set_producer(RegIdx::new(0), false, RobTag::new(1));
         assert_eq!(sb.get_producer(RegIdx::new(0), false), None);
     }
 
     #[test]
     fn test_clear_if_match() {
         let mut sb = Scoreboard::new();
-        let tag = RobTag(10);
+        let tag = RobTag::new(10);
         sb.set_producer(RegIdx::new(3), false, tag);
         assert_eq!(sb.get_producer(RegIdx::new(3), false), Some(tag));
 
@@ -158,8 +158,8 @@ mod tests {
     #[test]
     fn test_clear_mismatch_preserves() {
         let mut sb = Scoreboard::new();
-        let old_tag = RobTag(10);
-        let new_tag = RobTag(20);
+        let old_tag = RobTag::new(10);
+        let new_tag = RobTag::new(20);
 
         sb.set_producer(RegIdx::new(3), false, old_tag);
         // Newer instruction overwrites the same register
@@ -174,9 +174,9 @@ mod tests {
     #[test]
     fn test_flush() {
         let mut sb = Scoreboard::new();
-        sb.set_producer(RegIdx::new(1), false, RobTag(1));
-        sb.set_producer(RegIdx::new(2), false, RobTag(2));
-        sb.set_producer(RegIdx::new(3), true, RobTag(3));
+        sb.set_producer(RegIdx::new(1), false, RobTag::new(1));
+        sb.set_producer(RegIdx::new(2), false, RobTag::new(2));
+        sb.set_producer(RegIdx::new(3), true, RobTag::new(3));
 
         sb.flush();
         for i in 0u8..32 {
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn test_vec_set_and_get_producer() {
         let mut sb = Scoreboard::new();
-        let tag = RobTag(42);
+        let tag = RobTag::new(42);
         let v5 = VRegIdx::new(5);
         sb.set_vec_producer(v5, tag);
         assert_eq!(sb.get_vec_producer(v5), Some(tag));
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_vec_clear_if_match() {
         let mut sb = Scoreboard::new();
-        let tag = RobTag(10);
+        let tag = RobTag::new(10);
         let v3 = VRegIdx::new(3);
         sb.set_vec_producer(v3, tag);
         sb.clear_vec_if_match(v3, tag);
@@ -209,17 +209,17 @@ mod tests {
     fn test_vec_clear_mismatch_preserves() {
         let mut sb = Scoreboard::new();
         let v3 = VRegIdx::new(3);
-        sb.set_vec_producer(v3, RobTag(10));
-        sb.set_vec_producer(v3, RobTag(20));
-        sb.clear_vec_if_match(v3, RobTag(10));
-        assert_eq!(sb.get_vec_producer(v3), Some(RobTag(20)));
+        sb.set_vec_producer(v3, RobTag::new(10));
+        sb.set_vec_producer(v3, RobTag::new(20));
+        sb.clear_vec_if_match(v3, RobTag::new(10));
+        assert_eq!(sb.get_vec_producer(v3), Some(RobTag::new(20)));
     }
 
     #[test]
     fn test_fpr_independent() {
         let mut sb = Scoreboard::new();
-        let gpr_tag = RobTag(10);
-        let fpr_tag = RobTag(20);
+        let gpr_tag = RobTag::new(10);
+        let fpr_tag = RobTag::new(20);
 
         sb.set_producer(RegIdx::new(5), false, gpr_tag);
         sb.set_producer(RegIdx::new(5), true, fpr_tag);
