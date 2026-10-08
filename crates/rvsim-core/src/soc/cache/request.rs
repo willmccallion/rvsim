@@ -20,7 +20,10 @@ impl Cache {
     }
 
     pub(super) const fn is_blocked(&self) -> bool {
-        self.mshrs.is_full() || self.full_mshr.is_some() || self.writebacks.is_full()
+        self.mshrs.is_full()
+            || self.full_mshr.is_some()
+            || self.writebacks.is_full()
+            || self.flush.is_some()
     }
 
     pub(super) const fn hit_level(&self) -> HitLevel {
@@ -98,6 +101,7 @@ impl Cache {
             self.on_maintain(req, op, dirty, ctx);
             return;
         }
+        let Some(req) = self.probe_before_fetch(req, ctx) else { return };
 
         let addr = req.paddr.val();
         // An atomic is performed in the cache: it needs the line writable
@@ -123,12 +127,15 @@ impl Cache {
             let hit_level = self.hit_level();
             let granted = self.lines[index].state;
             let data = Self::serve(req.paddr, req.size, &req.op, ctx);
+            // A fetch held for its probes found the line in the tag lookup
+            // before them, and is answered as the probed data arrives.
+            let latency = if req.probed_above { self.response_latency } else { self.latency };
             self.respond(
                 ctx,
                 req.source,
                 req.req_id,
                 req.paddr,
-                ctx.cycle + self.latency,
+                ctx.cycle + latency,
                 hit_level,
                 granted,
                 data,
@@ -198,6 +205,7 @@ impl Cache {
         let pc = targets.first().and_then(|target| target.pc);
         let req_id = self.alloc_req_id();
         let upgrade = self.find_way(line.val()).is_some();
+        self.filled_since_flush = true;
         self.mshrs.allocate(Mshr {
             line,
             req_id,
@@ -322,7 +330,11 @@ impl Cache {
             return;
         }
         ctx.stats.counter(self.stat_paths.prefetches_issued).inc();
-        let op = if exclusive { MemOp::ReadOwn } else { MemOp::Read };
+        let op = match (exclusive, self.level) {
+            (true, _) => MemOp::ReadOwn,
+            (false, CacheLevel::L1I) => MemOp::Fetch,
+            (false, _) => MemOp::Read,
+        };
         self.start_fetch(line, Vec::new(), exclusive, true, op, ctx);
     }
 
@@ -345,6 +357,7 @@ impl Cache {
     ) {
         if self.writebacks.complete(req_id) {
             self.retry_waiting_fills(ctx);
+            self.finish_flush(ctx);
             self.retry_blocked(ctx);
             return;
         }

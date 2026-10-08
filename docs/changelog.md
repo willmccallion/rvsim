@@ -31,6 +31,17 @@ All notable changes to this project are documented here. The format is based on 
   issues at the earliest the cycle after: one cycle more per such
   instruction on both backends. A device read, which memory1 holds until
   it is the oldest instruction, waits for the same latched head.
+- FENCE.I cost the same however many lines the L1D held dirty, as nothing
+  made the instruction side see them (#149). How hardware pays depends on
+  the hierarchy, and rvsim now follows it. With an L2, an instruction
+  fetch for a line the L1D may hold writable probes the L1D through the
+  L2 first, which writes it back if it is dirty, as SiFive's and Rocket's
+  coherent L2s do (`l2.fetch_probes`, `l2.fetch_probes_dirty`). Without
+  one, FENCE.I flushes the L1D, as Rocket does with no coherence manager:
+  the L1D walks every line, one a cycle, writes back the dirty ones
+  through its writeback buffer and invalidates them all before FENCE.I
+  retires, skipping the walk when it has fetched nothing since its last
+  flush (`l1d.flushes`, `l1d.flushed_lines`).
 
 ## Releases
 

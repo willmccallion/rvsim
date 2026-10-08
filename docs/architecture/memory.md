@@ -62,6 +62,32 @@ Invalidated by:
 - `FENCE.I` instruction (deferred to commit, drains store buffer first)
 - Inclusive L2 eviction back-invalidation (if inclusion policy is Inclusive)
 
+**Coherence with the L1D.** The L1I refills from below, so a line the L1D
+holds dirty must reach the refill. How depends on the hierarchy, as it
+does in hardware:
+
+- **With an L2**, where the L1I's and L1D's paths join, the L2 keeps
+  instruction fetches coherent. An instruction fetch for a line the L2
+  gave the L1D writable (or, exclusive, handed up) first probes the L1D,
+  which writes the line back if it is dirty and keeps it clean; the fetch
+  is served once the L1D answers (`l2.fetch_probes`,
+  `l2.fetch_probes_dirty`). This is what the coherent, inclusive L2s of
+  SiFive's U74 and of Rocket do; FENCE.I then only invalidates the L1I. A
+  non-inclusive L2 that has evicted the line has no record of an L1D copy
+  (it has no snoop filter), so such a fetch is not probed.
+- **Without an L2**, nothing keeps them coherent, so FENCE.I flushes the
+  L1D first, as Rocket does when no coherence manager tracks its cached
+  executable memory (`M_FLUSH_ALL`). At the ROB head it asks the L1D to
+  walk every line, one a cycle: a dirty line is written back through the
+  writeback buffer (whose capacity bounds the writebacks in flight), and
+  every valid line is invalidated, a clean one silently since nothing
+  below records it. FENCE.I retires once the last writeback is
+  acknowledged (`l1d.flushes`, `l1d.flushed_lines`). The L1D takes no
+  other request during the walk, and the data it held misses afterwards.
+  Like Rocket's `flushed` bit, the L1D skips the walk when it has fetched
+  nothing since its last flush, and a FENCE.I arriving during a flush
+  waits for that flush rather than starting another.
+
 ### L1 Data Cache
 
 Accessed by the Memory1 stage. The critical path for load-to-use latency.

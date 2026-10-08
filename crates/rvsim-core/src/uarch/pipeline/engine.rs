@@ -174,6 +174,19 @@ pub struct CommitNotice {
     sent_at: u64,
 }
 
+/// The L1D flush a FENCE.I at the ROB head needs before it retires, when
+/// no cache below keeps instruction fetches coherent with the L1D.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DataCacheFlush {
+    /// No flush asked for.
+    #[default]
+    Idle,
+    /// Asked for under this correlator; not yet acknowledged.
+    Requested(ReqId),
+    /// Acknowledged: the FENCE.I may retire.
+    Done,
+}
+
 /// State shared by every backend engine: in-flight memory bookkeeping and
 /// the routing IDs needed to emit `MemReq` packets and match `MemResp`
 /// packets to parked operations.
@@ -222,6 +235,8 @@ pub struct BackendCommon {
     pub vector_config_unresolved: bool,
     /// A trap on its way to being taken.
     pub trap: TrapProgress,
+    /// Where the L1D flush the FENCE.I at the ROB head waits for stands.
+    pub data_cache_flush: DataCacheFlush,
     /// The ROB head as this cycle began, before its commit.
     pub head_at_cycle_start: HeadAtCycleStart,
     /// The squash execute asked for that has not been taken yet. Commit

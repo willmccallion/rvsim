@@ -20,7 +20,7 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
-use crate::uarch::pipeline::engine::ExecutionEngine;
+use crate::uarch::pipeline::engine::{DataCacheFlush, ExecutionEngine};
 use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
@@ -324,6 +324,7 @@ impl ExecutionEngine for O3Engine {
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.serialization = serialize::Serialization::Off;
+        self.common.data_cache_flush = DataCacheFlush::Idle;
 
         for entry in self.rob.iter_all() {
             self.free_list.reclaim(entry.phys_dst);

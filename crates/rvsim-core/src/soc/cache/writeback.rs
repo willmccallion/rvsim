@@ -39,10 +39,11 @@ impl Cache {
         if !dirty {
             self.forget_upper_copy(addr, req.source);
         }
-        if self.pending_probes.iter().any(|p| p.line == line) {
+        if self.answering_a_probe_for(line) {
             self.note_probe_writeback(line, dirty, ctx);
             return;
         }
+        self.note_fetch_probe_writeback(line, dirty);
         if let Some(way) = self.find_way(addr) {
             let index = self.set_index(addr) * self.ways + way;
             // A writeback carries data, never permission. Held Shared, the

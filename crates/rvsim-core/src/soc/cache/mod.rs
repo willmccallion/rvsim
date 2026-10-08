@@ -20,6 +20,7 @@ pub mod writeback_buffer;
 mod audit;
 mod coherence;
 mod inclusion;
+mod instruction_side;
 mod request;
 mod writeback;
 
@@ -86,6 +87,9 @@ struct BlockedRequest {
     pc: Option<VirtAddr>,
     size: AccessSize,
     op: MemOp,
+    /// An instruction fetch whose line the caches above were already
+    /// probed for, so it is served now.
+    probed_above: bool,
 }
 
 /// A request forwarded downstream without a line of our own (the level is
@@ -116,13 +120,22 @@ enum ProbeOrigin {
     },
 }
 
-/// A probe or snoop this cache forwarded to the caches above it and has
-/// not yet answered.
+/// What a cache does once the caches above have answered its probes.
+#[derive(Clone, Copy, Debug)]
+enum AfterProbe {
+    /// Answers the probe or snoop it forwarded.
+    Answer(ProbeOrigin),
+    /// Serves the instruction fetch held under the probes' correlator.
+    ServeFetch,
+}
+
+/// A probe this cache sent to the caches above it whose answers it is
+/// still collecting.
 #[derive(Clone, Copy, Debug)]
 struct PendingProbe {
     /// Correlator we gave the forwarded probes.
     ours: ReqId,
-    origin: ProbeOrigin,
+    then: AfterProbe,
     line: LineAddr,
     kind: ProbeKind,
     /// Upstream answers still outstanding.
@@ -131,6 +144,17 @@ struct PendingProbe {
     dirty: bool,
     /// Whether we held the line at all.
     had_copy: bool,
+}
+
+/// A whole-cache flush: a walk over every line, one a cycle, writing back
+/// the dirty ones and invalidating them all.
+#[derive(Clone, Debug)]
+struct FlushWalk {
+    /// Who asked, with their correlators, answered when the flush is done.
+    requesters: Vec<(ComponentId, ReqId)>,
+    /// The next line index the walk looks at; past the last when the walk
+    /// is over and only its writebacks are outstanding.
+    next_line: usize,
 }
 
 /// A set-associative cache at one level of the memory hierarchy.
@@ -182,6 +206,14 @@ pub struct Cache {
     /// Maintenance operations waiting for a fetch of their line to fill.
     after_fill: Vec<BlockedRequest>,
     pending_probes: Vec<PendingProbe>,
+    /// Instruction fetches waiting for the caches above to answer the
+    /// probes for their line, keyed by the probes' correlator.
+    fetches_awaiting_probes: Vec<(ReqId, BlockedRequest)>,
+    /// The whole-cache flush in progress, if any.
+    flush: Option<FlushWalk>,
+    /// A line has been fetched since the last whole-cache flush, so the
+    /// next one has lines to walk (Rocket's `flushed`, inverted).
+    filled_since_flush: bool,
     /// Fills waiting for a writeback-buffer slot for the dirty victim they
     /// must evict, oldest first.
     waiting_fills: VecDeque<WaitingFill>,
@@ -274,6 +306,9 @@ impl Cache {
             forwarded: Vec::new(),
             after_fill: Vec::new(),
             pending_probes: Vec::new(),
+            fetches_awaiting_probes: Vec::new(),
+            flush: None,
+            filled_since_flush: false,
             handed_up: BTreeSet::new(),
             waiting_fills: VecDeque::new(),
             next_req: 0,
@@ -475,7 +510,10 @@ impl Handle for Cache {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         match packet {
             Packet::MemReq { req_id, paddr, vaddr, pc, size, op } => {
-                self.on_request(BlockedRequest { source, req_id, paddr, vaddr, pc, size, op }, ctx);
+                let probed_above = false;
+                let req =
+                    BlockedRequest { source, req_id, paddr, vaddr, pc, size, op, probed_above };
+                self.on_request(req, ctx);
             }
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
                 self.on_response(req_id, line_addr, data, hit_level, state, ctx);
@@ -488,6 +526,8 @@ impl Handle for Cache {
             }
             Packet::Coh(msg) => self.on_coherence(msg, ctx),
             Packet::CacheInval { line_addr } => self.on_back_invalidate(line_addr, ctx),
+            Packet::FlushAll { req_id } => self.on_flush_all(source, req_id, ctx),
+            Packet::FlushStep => self.on_flush_step(ctx),
             Packet::DramCmd { .. } => {}
         }
     }
