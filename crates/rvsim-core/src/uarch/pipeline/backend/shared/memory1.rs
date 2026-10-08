@@ -640,11 +640,12 @@ fn reads_a_device(state: &StageCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
 }
 
 /// True when an access that has an effect nothing can undo may take it:
-/// `tag` is the oldest instruction and nothing on its way will remove it,
-/// neither a squash nor a trap, whose flush takes everything in flight.
+/// `tag` was the oldest instruction as the cycle began, and nothing on its
+/// way will remove it, neither a squash nor a trap, whose flush takes
+/// everything in flight.
 fn takes_effect_now<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
     let common = engine.common();
-    engine.rob().peek_head().is_some_and(|head| head.tag == tag)
+    common.head_at_cycle_start.is(tag)
         && !common.will_squash(tag)
         && !matches!(common.trap, TrapProgress::Pending(_))
 }

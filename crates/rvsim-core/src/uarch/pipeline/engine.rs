@@ -703,6 +703,16 @@ impl PipelineDispatch {
     }
 
     #[cfg(test)]
+    /// Whether a device read has been sent and not yet answered.
+    pub fn device_read_in_flight(&self) -> bool {
+        let common = match self {
+            Self::InOrder(p) => p.engine.common(),
+            Self::OutOfOrder(p) => p.engine.common(),
+        };
+        common.outstanding_loads.values().any(|load| load.side_effecting)
+    }
+
+    #[cfg(test)]
     /// Makes the empty ROB allocate tags from `next` on.
     pub fn start_rob_tags_at(&mut self, next: RobTag) {
         match self {

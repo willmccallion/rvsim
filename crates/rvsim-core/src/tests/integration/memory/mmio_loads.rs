@@ -113,3 +113,39 @@ fn a_device_load_reads_the_device_not_a_buffered_store_to_it() {
 
     assert!(nonzero.is_empty(), "the receive register read a stored byte: {nonzero:#?}");
 }
+
+/// The cycle the instruction before [`program`]'s `mtime` load retired and
+/// the cycle the load's device read was sent.
+fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.width = 1;
+    config.system.console = crate::config::Console::Quiet;
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let older_than_load = CHAIN as u64 + 2;
+    let mut older_retired = None;
+
+    for _ in 0..400 {
+        ctx.run(1);
+        let cycle = ctx.sim.state.cycle;
+        if older_retired.is_none() && ctx.sim.state.harts[0].instructions_retired == older_than_load
+        {
+            older_retired = Some(cycle);
+        }
+        if ctx.sim.state.cores[0].pipeline.device_read_in_flight() {
+            let retired =
+                older_retired.expect("the device read was sent before older ones retired");
+            return (retired, cycle);
+        }
+    }
+    panic!("{backend:?}: the device read was never sent");
+}
+
+#[test]
+fn a_device_read_is_sent_the_cycle_after_the_last_older_instruction_retires() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (retired, sent) = retire_and_device_read_cycles(backend);
+
+        assert_eq!(sent, retired + 1, "{backend:?}");
+    }
+}
