@@ -1,6 +1,7 @@
 //! Pipeline behaviour: CSRs, traps, serialization, widths and stalls.
 
 pub mod committed_prediction_stats;
+pub mod compressed_without_c;
 pub mod csr_head_execution;
 pub mod csr_ordering;
 pub mod drain;

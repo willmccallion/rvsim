@@ -319,6 +319,7 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 | `l2_tlb_latency` | `int` | `4` | L2 TLB hit latency in cycles |
 | `paging_mode_max` | `str` | `"sv57"` | Strongest paging mode `satp` accepts (`"bare"`, `"sv39"`, `"sv48"`, `"sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
 | `misaligned_access_trap` | `bool` | `False` | Raise address-misaligned exceptions instead of performing misaligned accesses in hardware |
+| `isa` | `str` or `None` | `None` | The hart's ISA as an `RV64` string of `I`, `M`, `A`, `F`, `D`, `C`, `V` (or `G`), such as `"RV64IM"`; `None` is RV64IMAFDC, plus V when the vector unit is the full V extension. It sets `misa`, and without `C` every instruction is 32 bits: fetch steps a word at a time and a word whose low bits are not `11` is illegal |
 | `svadu` | `bool` | `False` | Implement Svadu: with `menvcfg.ADUE` set the page-table walker sets A and D bits itself; otherwise a missing A or D bit faults (Svade) |
 
 ### Memory Controllers

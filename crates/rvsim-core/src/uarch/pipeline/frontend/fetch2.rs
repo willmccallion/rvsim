@@ -16,7 +16,7 @@
 #![allow(clippy::cast_ptr_alignment)]
 
 use crate::common::PhysAddr;
-use crate::isa::instruction::{InstSize, is_compressed};
+use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
 use crate::uarch::ctx::StageCtx;
@@ -61,7 +61,8 @@ pub fn fetch2_stage(
 
         let phys_addr = f1.paddr.val();
         let half_word = read_inst_half(state, phys_addr);
-        let is_compressed = is_compressed(half_word);
+        let is_compressed =
+            instruction_size(half_word, state.hart().csrs.misa) == InstSize::Compressed;
 
         let (inst, step, inst_trap) = if is_compressed {
             let expanded = expand(half_word);

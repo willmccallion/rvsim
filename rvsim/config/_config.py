@@ -102,6 +102,7 @@ class Config:
         misaligned_access_trap: bool = False,
         paging_mode_max: str = "sv57",
         # ISA extensions
+        isa: str | None = None,
         svadu: bool = False,
         # Vector ISA
         vlen: int = 128,
@@ -177,6 +178,7 @@ class Config:
         self.paging_mode_max = _validate_paging_mode(paging_mode_max)
 
         # ISA extensions
+        self.isa = isa
         self.svadu = svadu
 
         # Vector ISA
