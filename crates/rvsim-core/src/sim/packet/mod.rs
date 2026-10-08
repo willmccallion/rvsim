@@ -356,6 +356,15 @@ pub enum Packet {
     },
     /// A coherence message between a private L2 and the home agent.
     Coh(CoherenceMsg),
+    /// Write back every dirty line of a data cache and invalidate every
+    /// line, then answer with a `MemResp`: what FENCE.I needs when no cache
+    /// below keeps instruction fetches coherent with the data cache.
+    FlushAll {
+        /// Requester's correlator.
+        req_id: ReqId,
+    },
+    /// A cache's own reminder to look at the next line of its flush.
+    FlushStep,
     /// DRAM-internal command (visible for command-level stats).
     DramCmd {
         /// Channel index.

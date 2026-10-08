@@ -6,6 +6,7 @@ pub mod bus_occupancy;
 pub mod cache_invariants;
 pub mod cbo_translation;
 pub mod device_latency;
+pub mod fence_i_cost;
 pub mod fill_latency;
 pub mod forward_latency;
 pub mod lsq_partial_overlap;

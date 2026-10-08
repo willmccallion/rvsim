@@ -125,6 +125,16 @@ pub struct CacheHierarchyConfig {
     pub store_prefetcher: StorePrefetcherConfig,
 }
 
+impl CacheHierarchyConfig {
+    /// True when FENCE.I must flush the L1D, writing back its dirty lines:
+    /// no cache joins the L1I's and L1D's paths below them, so nothing
+    /// keeps instruction fetches coherent with the L1D.
+    #[must_use]
+    pub const fn fence_i_flushes_l1_d(&self) -> bool {
+        self.l1_d.enabled && !self.l2.enabled
+    }
+}
+
 /// Individual cache level configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

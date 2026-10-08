@@ -26,7 +26,7 @@ use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, Writ
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
-use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, Pipeline};
+use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine, Pipeline};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::uarch::pipeline::latches::Mem1Mem2Entry;
@@ -98,6 +98,12 @@ fn acknowledge_write<E: ExecutionEngine>(
         }
         StoreOwner::VecStoreBuffer => pipeline.engine.vec_store_buffer_mut().write_acked(req),
         StoreOwner::WriteCombining => state.core_mut().wcb.acked(req),
+        StoreOwner::DataCacheFlush => {
+            let common = pipeline.engine.common_mut();
+            if common.data_cache_flush == DataCacheFlush::Requested(req) {
+                common.data_cache_flush = DataCacheFlush::Done;
+            }
+        }
         StoreOwner::Untracked => {}
     }
 }

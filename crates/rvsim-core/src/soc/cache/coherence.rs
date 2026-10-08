@@ -9,7 +9,7 @@ use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeK
 
 use super::Cache;
 use super::writeback_buffer::WritebackCause;
-use super::{BlockedRequest, Forwarded, PendingProbe, ProbeOrigin};
+use super::{AfterProbe, BlockedRequest, Forwarded, PendingProbe, ProbeOrigin};
 
 impl Cache {
     /// A disabled cache that is still its core's requesting agent: the
@@ -63,6 +63,14 @@ impl Cache {
         );
     }
 
+    /// True while a probe or snoop for `line` is collecting the answers of
+    /// the caches above, so their writebacks of it belong to its answer.
+    pub(super) fn answering_a_probe_for(&self, line: LineAddr) -> bool {
+        self.pending_probes
+            .iter()
+            .any(|p| p.line == line && matches!(p.then, AfterProbe::Answer(_)))
+    }
+
     /// An upper copy's writeback while a probe for the line is being
     /// collected: its data belongs to the probe's answer, not to a line we
     /// are giving up.
@@ -72,10 +80,16 @@ impl Cache {
         dirty: bool,
         ctx: &mut HandleCtx<'_>,
     ) {
-        let Some(pending) = self.pending_probes.iter_mut().find(|p| p.line == line) else { return };
+        let Some(pending) = self
+            .pending_probes
+            .iter_mut()
+            .find(|p| p.line == line && matches!(p.then, AfterProbe::Answer(_)))
+        else {
+            return;
+        };
         pending.dirty |= dirty;
         pending.had_copy = true;
-        if dirty && matches!(pending.origin, ProbeOrigin::Probe { .. }) {
+        if dirty && matches!(pending.then, AfterProbe::Answer(ProbeOrigin::Probe { .. })) {
             self.write_back(line, true, WritebackCause::Demanded, ctx);
         }
     }
@@ -136,7 +150,7 @@ impl Cache {
         let ours = self.alloc_req_id();
         self.pending_probes.push(PendingProbe {
             ours,
-            origin,
+            then: AfterProbe::Answer(origin),
             line,
             kind,
             remaining: holders.len(),
@@ -248,8 +262,11 @@ impl Cache {
             return;
         }
         let pending = self.pending_probes.remove(index);
-        let PendingProbe { origin, line, kind, had_copy, dirty, .. } = pending;
-        self.answer(origin, line, kind, had_copy, dirty, ctx);
+        let PendingProbe { then, line, kind, had_copy, dirty, .. } = pending;
+        match then {
+            AfterProbe::Answer(origin) => self.answer(origin, line, kind, had_copy, dirty, ctx),
+            AfterProbe::ServeFetch => self.serve_probed_fetch(txn, dirty, ctx),
+        }
     }
 
     /// A coherence message from the home agent.

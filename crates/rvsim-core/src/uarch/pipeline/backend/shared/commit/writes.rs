@@ -114,6 +114,22 @@ pub(super) fn send_block_op(
     req_id
 }
 
+/// Asks the L1D to flush, writing back every dirty line, which a FENCE.I waits for
+/// when no cache below keeps instruction fetches coherent with the L1D.
+pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon) -> ReqId {
+    let req_id = common.alloc_req_id();
+    let owner = StoreOwner::DataCacheFlush;
+    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner });
+    let cycle = state.cycle;
+    state.event_queue.schedule(
+        cycle,
+        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Pipeline(common.pipeline_id),
+        Packet::FlushAll { req_id },
+    );
+    req_id
+}
+
 /// Sends this cycle's write to the L1D: a line the WCB must send now, else
 /// the oldest committed scalar store, else a vector store's line, else, the
 /// port being idle, the WCB's oldest line.

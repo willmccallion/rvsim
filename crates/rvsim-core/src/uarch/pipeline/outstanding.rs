@@ -177,6 +177,8 @@ pub enum StoreOwner {
     VecStoreBuffer,
     /// A line the write-combining buffer sent, which barriers wait for.
     WriteCombining,
+    /// The L1D's whole-cache flush, which FENCE.I waits for.
+    DataCacheFlush,
     /// A write nothing waits for: a line writeback, a PTE update, a CBO's
     /// writes, or a store written at once for a checkpoint.
     Untracked,

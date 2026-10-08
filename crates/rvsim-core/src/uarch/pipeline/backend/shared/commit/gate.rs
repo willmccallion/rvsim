@@ -11,12 +11,13 @@ use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
 use crate::trace_trap;
 use crate::uarch::ctx::CoreCtx;
-use crate::uarch::pipeline::engine::{BackendCommon, PendingTrap, TrapProgress};
+use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, PendingTrap, TrapProgress};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
 use crate::uarch::pipeline::rob::{Rob, RobEntry, RobState};
 
+use super::writes::send_data_cache_flush;
 use super::{CommitEvent, CommitFlow, CommitRegisters, ReExecuteCause};
 
 /// Takes a parked trap once its latency has elapsed, or an interrupt once
@@ -152,6 +153,13 @@ pub(super) fn gate_head(
         return CommitFlow::Stop(None);
     }
 
+    if head.ctrl.system_op == SystemOp::FenceI
+        && state.config.cache.fence_i_flushes_l1_d()
+        && !advance_data_cache_flush(state, common)
+    {
+        return CommitFlow::Stop(None);
+    }
+
     CommitFlow::Continue
 }
 
@@ -260,6 +268,23 @@ fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
     rob.peek_head().is_some_and(|head| {
         common.outstanding_loads.values().any(|l| l.side_effecting && l.entry.rob_tag == head.tag)
     })
+}
+
+/// Moves the L1D flush a FENCE.I at the head needs along: asks for it the
+/// first time, and once it is done consumes it. Returns whether it is done.
+fn advance_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon) -> bool {
+    match common.data_cache_flush {
+        DataCacheFlush::Done => {
+            common.data_cache_flush = DataCacheFlush::Idle;
+            true
+        }
+        DataCacheFlush::Requested(_) => false,
+        DataCacheFlush::Idle => {
+            let req_id = send_data_cache_flush(state, common);
+            common.data_cache_flush = DataCacheFlush::Requested(req_id);
+            false
+        }
+    }
 }
 
 /// True when `head` must not retire before every older store's write has

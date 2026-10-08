@@ -25,8 +25,19 @@ pub struct CacheStatPaths {
     /// Cache-maintenance operations (`cbo.clean` / `flush` / `inval`) passed
     /// through this cache.
     pub maintenance: StatId,
-    /// Probes received on behalf of a snoop.
+    /// Probes received from the level below, for a snoop or an
+    /// instruction fetch.
     pub probes: StatId,
+    /// Instruction fetches that probed a data cache above for a writable
+    /// copy of their line before being served.
+    pub fetch_probes: StatId,
+    /// Fetch probes that found the line dirty.
+    pub fetch_probes_dirty: StatId,
+    /// Whole-cache flushes (FENCE.I with no cache below keeping instruction
+    /// fetches coherent).
+    pub flushes: StatId,
+    /// Valid lines those flushes invalidated.
+    pub flushed_lines: StatId,
     /// Snoops received from the home agent (coherent L2 only).
     pub snoops: StatId,
     /// Snoops that took the line away.
@@ -79,6 +90,10 @@ impl CacheStatPaths {
             back_invalidations: path("back_invalidations"),
             maintenance: path("maintenance"),
             probes: path("probes"),
+            fetch_probes: path("fetch_probes"),
+            fetch_probes_dirty: path("fetch_probes_dirty"),
+            flushes: path("flushes"),
+            flushed_lines: path("flushed_lines"),
             snoops: path("coherence.snoops"),
             snoop_invalidations: path("coherence.invalidations"),
             snoop_downgrades: path("coherence.downgrades"),
@@ -115,7 +130,14 @@ impl StatSource for CacheStatPaths {
             Meta::events("lines dropped at the next level's request"),
         );
         s.register(self.maintenance, Meta::events("cache-maintenance operations passed through"));
-        s.register(self.probes, Meta::events("probes received on behalf of snoops"));
+        s.register(self.probes, Meta::events("probes received from the level below"));
+        s.register(
+            self.fetch_probes,
+            Meta::events("instruction fetches that probed a data cache above"),
+        );
+        s.register(self.fetch_probes_dirty, Meta::events("fetch probes that found the line dirty"));
+        s.register(self.flushes, Meta::events("whole-cache flushes for FENCE.I"));
+        s.register(self.flushed_lines, Meta::events("valid lines whole-cache flushes invalidated"));
         s.register(self.snoops, Meta::events("snoops received from the home agent"));
         s.register(self.snoop_invalidations, Meta::events("snoops that took the line away"));
         s.register(self.snoop_downgrades, Meta::events("snoops that left a shared copy"));

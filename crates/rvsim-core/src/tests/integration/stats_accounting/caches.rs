@@ -3,14 +3,16 @@
 //! Coherence traffic, which needs several cores, is checked with the rest
 //! of the coherence stats.
 
-use super::program::{A1, BACKENDS, T0, T1, T2, config, ending_in_spin, run_to_pc, system_with};
+use super::program::{
+    A1, BACKENDS, PROGRAM_BASE, T0, T1, T2, config, ending_in_spin, run_to_pc, system_with,
+};
 use super::{Recorder, accounting_checks};
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
 };
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
-use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
+use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
 use crate::tests::support::harness::TestContext;
 
@@ -495,6 +497,85 @@ fn load_prefetches_the_l1d_cannot_take_are_dropped(rec: &mut Recorder) {
     }
 }
 
+/// Where the rewritten code lies: a line of its own, past the program.
+const CODE_OFFSET: i32 = 0x200;
+
+/// Copies the instruction at `CODE_OFFSET` over itself through the L1D,
+/// which then holds that code line dirty, runs FENCE.I and jumps there;
+/// that instruction jumps back to the spin.
+fn rewrite_code_then_run_it() -> (Vec<u32>, u64) {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().auipc(T0, 0).build(),
+        i().lw(T1, T0, CODE_OFFSET).build(),
+        i().sw(T0, T1, CODE_OFFSET).build(),
+        FENCE_I,
+        i().jalr(0, T0, CODE_OFFSET).build(),
+    ];
+    let spin = 4 * program.len() as i32;
+    program.push(i().jal(0, 0).build());
+    program.resize(CODE_OFFSET as usize / 4, i().nop().build());
+    program.push(i().jal(0, spin - CODE_OFFSET).build());
+    (program, PROGRAM_BASE + spin as u64)
+}
+
+fn an_instruction_fetch_probes_the_l1d_through_the_l2(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+
+        let ctx = run_settled(&hierarchy(backend), rewrite_code_then_run_it(), &context);
+
+        rec.expect(&ctx.sim, "core0.cache.l2.fetch_probes", 1, &context);
+        rec.expect(&ctx.sim, "core0.cache.l2.fetch_probes_dirty", 1, &context);
+        rec.expect(&ctx.sim, "core0.cache.l1d.probes", 1, &context);
+        rec.expect(&ctx.sim, "core0.cache.l1d.writebacks", 1, &context);
+        for cache in CACHES {
+            rec.expect(&ctx.sim, &format!("{cache}.flushes"), 0, &context);
+            rec.expect(&ctx.sim, &format!("{cache}.flushed_lines"), 0, &context);
+        }
+        for cache in ["core0.cache.l1i", "core0.cache.l1d", "llc"] {
+            for stat in ["fetch_probes", "fetch_probes_dirty"] {
+                let why = format!("{context}: only where the L1I and L1D meet");
+                rec.expect(&ctx.sim, &format!("{cache}.{stat}"), 0, &why);
+            }
+        }
+    }
+}
+
+/// Writes three lines, then runs FENCE.I twice.
+fn three_dirty_lines_then_two_fence_is() -> (Vec<u32>, u64) {
+    let i = InstructionBuilder::new;
+    ending_in_spin(vec![
+        i().addi(T0, 0, 1).build(),
+        i().sd(A1, T0, 0).build(),
+        i().sd(A1, T0, 64).build(),
+        i().sd(A1, T0, 128).build(),
+        FENCE_I,
+        FENCE_I,
+    ])
+}
+
+fn fence_i_flushes_the_l1d_when_no_l2_joins_the_l1s(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = hierarchy(backend);
+        config.cache.l2.enabled = false;
+
+        let ctx = run_settled(&config, three_dirty_lines_then_two_fence_is(), &context);
+
+        let why = format!("{context}: the second FENCE.I finds nothing fetched since the first");
+        rec.expect(&ctx.sim, "core0.cache.l1d.flushes", 1, &why);
+        rec.expect(&ctx.sim, "core0.cache.l1d.flushed_lines", 3, &context);
+        rec.expect(&ctx.sim, "core0.cache.l1d.writebacks", 3, &context);
+        rec.expect(&ctx.sim, "core0.cache.l1d.evictions", 0, &context);
+        assert_eq!(held_lines(&ctx, "core0.cache.l1d"), 0, "{context}: the flush invalidates");
+        for cache in ["core0.cache.l1i", "core0.cache.l2", "llc"] {
+            rec.expect(&ctx.sim, &format!("{cache}.flushes"), 0, &context);
+            rec.expect(&ctx.sim, &format!("{cache}.flushed_lines"), 0, &context);
+        }
+    }
+}
+
 accounting_checks!(
     every_level_fills_each_fetch_once_and_holds_what_it_did_not_evict,
     a_cold_line_misses_once_and_then_hits,
@@ -511,4 +592,6 @@ accounting_checks!(
     misses_beyond_each_levels_mshrs_wait_there,
     next_line_candidates_past_the_page_are_dropped_at_every_level,
     load_prefetches_the_l1d_cannot_take_are_dropped,
+    an_instruction_fetch_probes_the_l1d_through_the_l2,
+    fence_i_flushes_the_l1d_when_no_l2_joins_the_l1s,
 );

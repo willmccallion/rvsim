@@ -5,6 +5,8 @@ use crate::isa::encoding::rv64i::opcodes::*;
 
 /// `fence iorw, iorw`.
 pub const FENCE_IORW: u32 = 0x0ff0_000f;
+/// `fence.i`.
+pub const FENCE_I: u32 = 0x0000_100f;
 /// `ecall`.
 pub const ECALL: u32 = crate::isa::encoding::privileged::ECALL;
 /// `mret`.

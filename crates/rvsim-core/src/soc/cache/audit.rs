@@ -43,12 +43,12 @@ impl Cache {
             }
             written.push(line);
         }
-        let evictions = self.writebacks.evictions();
+        let taken = self.writebacks.slots_taken();
         if let Some(&line) = written.first()
-            && evictions > self.writebacks.capacity()
+            && taken > self.writebacks.capacity()
         {
             let room = self.writebacks.capacity();
-            faults.push((line, format!("{evictions} evictions outstanding of {room}")));
+            faults.push((line, format!("{taken} writeback slots taken of {room}")));
         }
         faults
     }
