@@ -308,11 +308,43 @@ fn rvc_c_slli() {
 }
 
 #[test]
-fn rvc_c_slli_rd0_illegal() {
-    // C.SLLI with rd=0 is reserved
+fn rvc_c_slli_rd0_is_a_hint_that_writes_x0() {
     let cinst: u16 = 0b0000_0000_0001_0010;
-    let expanded = expand(cinst);
-    assert_eq!(expanded, 0);
+
+    let d = expand_and_decode(cinst);
+
+    assert_eq!((d.opcode, d.funct3), (i_op::OP_IMM, i_f3::SLL));
+    assert_eq!((d.rd, d.rs1), (RegIdx::new(0), RegIdx::new(0)));
+}
+
+/// Every compressed HINT the C extension lists (`zca.adoc`, "HINT
+/// instructions"), with the register its expansion writes, if any.
+const COMPRESSED_HINTS: [(&str, u16, u8); 12] = [
+    ("c.nop imm!=0", 0x0005, 0),
+    ("c.addi rd!=0 imm=0", 0x0081, 1),
+    ("c.li rd=0", 0x4005, 0),
+    ("c.lui rd=0", 0x6005, 0),
+    ("c.mv rd=0", 0x8006, 0),
+    ("c.add rd=0", 0x9006, 0),
+    ("c.add rd=0 rs2=x2 (c.ntl.p1)", 0x900A, 0),
+    ("c.slli rd=0", 0x0006, 0),
+    ("c.slli rd!=0 shamt=0", 0x0082, 1),
+    ("c.srli shamt=0", 0x8001, 8),
+    ("c.srai shamt=0", 0x8401, 8),
+    ("c.slli rd=0 shamt=0", 0x0002, 0),
+];
+
+#[test]
+fn every_compressed_hint_expands_to_an_instruction_that_leaves_state_alone() {
+    for (name, cinst, rd) in COMPRESSED_HINTS {
+        let d = expand_and_decode(cinst);
+
+        assert_eq!(d.rd, RegIdx::new(rd), "{name} {cinst:#06x}");
+        // An add of 0 or a shift by 0: the low six bits are the amount.
+        let amount = d.imm & 0x3F;
+        let unchanged = rd == 0 || (d.rs1 == d.rd && amount == 0);
+        assert!(unchanged, "{name} {cinst:#06x}: {d:?} changes x{rd}");
+    }
 }
 
 #[test]

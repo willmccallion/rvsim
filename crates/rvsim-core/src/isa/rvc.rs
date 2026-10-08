@@ -301,11 +301,10 @@ pub const fn expand(inst: u16) -> u32 {
 
         QUADRANT_2 => match funct3 {
             q2::C_SLLI => {
+                // With rd = x0 or shamt = 0 it is a HINT, which runs as a
+                // no-op: slli x0, x0, shamt writes nothing.
                 let imm = ((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5;
                 let rd = ((inst >> 7) & 0x1F) as u32;
-                if rd == 0 {
-                    return 0; // C.SLLI with rd=0 is reserved
-                }
                 (imm as u32) << 20 | (rd << 15) | (funct3::SLL << 12) | (rd << 7) | opcodes::OP_IMM
             }
             q2::C_FLDSP => {

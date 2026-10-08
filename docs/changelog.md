@@ -61,6 +61,10 @@ All notable changes to this project are documented here. The format is based on 
   Iterative dividers are killed with their instruction (the `kill` of
   Rocket's and BOOM's `MulDiv`); the unit is now freed when the
   instruction holding it is squashed or flushed, on both backends.
+- C.SLLI with `rd` = x0 raised an illegal-instruction trap, but the C
+  extension lists it as a HINT, which a hart that gives it no meaning
+  runs as a no-op (#155). It now expands to `slli x0, x0, shamt`, as the
+  other compressed HINTs already ran.
 
 ## Releases
 
