@@ -73,7 +73,7 @@ fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
 /// counters and per-instruction statistics, and branch outcomes.
 fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     trace_commit!(state.config.general.trace_instructions;
-        rob_tag    = entry.tag.0,
+        rob_tag    = %entry.tag,
         pc         = %crate::common::trace::Hex(entry.pc),
         rd         = entry.rd.as_usize(),
         rd_phys    = entry.phys_dst.0,
@@ -104,7 +104,7 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
         trace_branch!(state.config.general.trace_instructions;
             event         = "retire",
             pc            = %crate::common::trace::Hex(entry.pc),
-            rob_tag       = entry.tag.0,
+            rob_tag       = %entry.tag,
             actual_taken  = entry.bp_outcome.taken,
             actual_target = %crate::common::trace::Hex(entry.bp_target.unwrap_or(0)),
             mispredicted  = entry.bp_outcome.mispredicted,
@@ -136,7 +136,7 @@ fn write_destinations(
     debug_assert!(
         entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
         "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
-        entry.tag.0,
+        entry.tag,
         entry.pc,
     );
     if entry.ctrl.fp_reg_write {
@@ -144,7 +144,7 @@ fn write_destinations(
         registers.retire_scalar(entry, true);
         trace_commit!(state.config.general.trace_instructions;
             pc       = %crate::common::trace::Hex(entry.pc),
-            rob_tag  = entry.tag.0,
+            rob_tag  = %entry.tag,
             reg      = entry.rd.as_usize(),
             rd_phys  = entry.phys_dst.0,
             old_phys = entry.old_phys_dst.0,
@@ -157,7 +157,7 @@ fn write_destinations(
         registers.retire_scalar(entry, false);
         trace_commit!(state.config.general.trace_instructions;
             pc       = %crate::common::trace::Hex(entry.pc),
-            rob_tag  = entry.tag.0,
+            rob_tag  = %entry.tag,
             reg      = entry.rd.as_usize(),
             rd_phys  = entry.phys_dst.0,
             old_phys = entry.old_phys_dst.0,
@@ -237,7 +237,7 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         trace_csr!(state.config.general.trace_instructions;
             op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
             pc       = %crate::common::trace::Hex(entry.pc),
-            rob_tag  = entry.tag.0,
+            rob_tag  = %entry.tag,
             csr_addr = %crate::common::trace::Hex32(csr_update.addr.as_u32()),
             old_val  = %crate::common::trace::Hex(csr_update.old_val),
             new_val  = %crate::common::trace::Hex(csr_update.new_val),
@@ -257,7 +257,7 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
                 event      = "return",
                 insn       = "MRET",
                 pc         = %crate::common::trace::Hex(entry.pc),
-                rob_tag    = entry.tag.0,
+                rob_tag    = %entry.tag,
                 return_pc  = %crate::common::trace::Hex(state.hart.pc),
                 mstatus    = %crate::common::trace::Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
@@ -271,7 +271,7 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
                 event      = "return",
                 insn       = "SRET",
                 pc         = %crate::common::trace::Hex(entry.pc),
-                rob_tag    = entry.tag.0,
+                rob_tag    = %entry.tag,
                 return_pc  = %crate::common::trace::Hex(state.hart.pc),
                 mstatus    = %crate::common::trace::Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,

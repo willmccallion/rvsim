@@ -121,12 +121,12 @@ impl PendingSquash {
     /// instruction while `other` only replays the one after it, which was
     /// fetched down a path the kept instruction may be about to correct.
     #[must_use]
-    pub const fn takes_precedence_over(&self, other: &Self) -> bool {
+    pub fn takes_precedence_over(&self, other: &Self) -> bool {
         if self.is_older_than(other) {
             return true;
         }
         let same_window = match (self.keep_tag, other.keep_tag) {
-            (Some(mine), Some(theirs)) => mine.0 == theirs.0,
+            (Some(mine), Some(theirs)) => mine == theirs,
             (None, None) => true,
             _ => false,
         };
@@ -146,7 +146,7 @@ mod tests {
 
     fn pending(keep_tag: Option<u32>) -> PendingSquash {
         PendingSquash {
-            keep_tag: keep_tag.map(RobTag),
+            keep_tag: keep_tag.map(RobTag::new),
             redirect: Redirect::to(0, SquashCause::System),
             apply_at: 0,
         }
@@ -155,19 +155,19 @@ mod tests {
     #[test]
     fn squashes_everything_younger_than_the_kept_tag() {
         let squash = pending(Some(5));
-        assert!(!squash.squashes(RobTag(4)));
-        assert!(!squash.squashes(RobTag(5)));
-        assert!(squash.squashes(RobTag(6)));
+        assert!(!squash.squashes(RobTag::new(4)));
+        assert!(!squash.squashes(RobTag::new(5)));
+        assert!(squash.squashes(RobTag::new(6)));
     }
 
     #[test]
     fn a_squash_without_a_kept_tag_squashes_the_whole_window() {
-        assert!(pending(None).squashes(RobTag(0)));
+        assert!(pending(None).squashes(RobTag::new(0)));
     }
 
     fn keeping(keep_tag: u32, cause: SquashCause) -> PendingSquash {
         PendingSquash {
-            keep_tag: Some(RobTag(keep_tag)),
+            keep_tag: Some(RobTag::new(keep_tag)),
             redirect: Redirect::to(0, cause),
             apply_at: 0,
         }

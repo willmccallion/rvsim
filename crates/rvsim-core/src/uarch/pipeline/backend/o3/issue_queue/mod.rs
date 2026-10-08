@@ -408,8 +408,8 @@ impl IssueQueue {
         }
     }
 
-    /// Selects up to `budget.width` ready entries, oldest first (lowest
-    /// `rob_tag.0`), as gem5's instruction scheduler does.
+    /// Selects up to `budget.width` ready entries, oldest first, as gem5's
+    /// instruction scheduler does.
     ///
     /// Selected entries have their `rv1/rv2/rv3` fields populated from the
     /// resolved operand values and carry the free functional unit reserved
@@ -431,24 +431,24 @@ impl IssueQueue {
         store_buffer: &StoreBuffer,
         rob: &Rob,
     ) -> Selection {
-        let mut ready: Vec<(usize, IssuePart)> = Vec::new();
+        let mut ready: Vec<(usize, IssuePart, RobTag)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             let Some(iq) = slot else { continue };
             let Some(part) = iq.ready_part() else { continue };
             if part != IssuePart::StoreData && !Self::may_issue_now(iq, store_buffer, rob) {
                 continue;
             }
-            ready.push((i, part));
+            ready.push((i, part, iq.entry.rob_tag));
         }
 
-        ready.sort_by_key(|&(i, _)| self.slots[i].as_ref().map_or(0, |s| s.entry.rob_tag.0));
+        ready.sort_by(|a, b| a.2.age_cmp(b.2));
 
         let mut selection =
             Selection { oldest: self.oldest_hold(store_buffer, rob), ..Selection::default() };
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
-        for &(idx, part) in &ready {
+        for &(idx, part, _) in &ready {
             if selection.entries.len() + selection.store_data.len() >= budget.width {
                 break;
             }
@@ -507,7 +507,8 @@ impl IssueQueue {
     /// What holds the oldest queued instruction this cycle, before any is
     /// chosen: its operands, the ordering rules, or nothing.
     fn oldest_hold(&self, store_buffer: &StoreBuffer, rob: &Rob) -> Option<IssueHold> {
-        let oldest = self.slots.iter().flatten().min_by_key(|iq| iq.entry.rob_tag.0)?;
+        let oldest =
+            self.slots.iter().flatten().min_by(|a, b| a.entry.rob_tag.age_cmp(b.entry.rob_tag))?;
         let Some(part) = oldest.ready_part() else { return Some(IssueHold::Operands) };
         let ordered =
             part == IssuePart::StoreData || Self::may_issue_now(oldest, store_buffer, rob);
@@ -521,13 +522,13 @@ impl IssueQueue {
             debug_assert!(
                 !matches!(iq.src1.readiness, OperandReady::NotReady),
                 "IQ select: src1 not ready for rob_tag={} pc={:#x}",
-                entry.rob_tag.0,
+                entry.rob_tag,
                 entry.inst.pc,
             );
             debug_assert!(
                 !matches!(iq.src2.readiness, OperandReady::NotReady),
                 "IQ select: src2 not ready for rob_tag={} pc={:#x}",
-                entry.rob_tag.0,
+                entry.rob_tag,
                 entry.inst.pc,
             );
             entry.inst.rv1 = Self::resolve_value(&iq.src1);
@@ -638,7 +639,7 @@ impl IssueQueue {
     pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry> {
         let mut entries: Vec<&IssueQueueEntry> =
             self.slots.iter().filter_map(|s| s.as_ref()).collect();
-        entries.sort_by_key(|iq| iq.entry.rob_tag.0);
+        entries.sort_by(|a, b| a.entry.rob_tag.age_cmp(b.entry.rob_tag));
         entries.into_iter().map(|iq| iq.entry.clone()).collect()
     }
 

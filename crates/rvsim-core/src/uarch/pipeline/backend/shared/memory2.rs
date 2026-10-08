@@ -57,7 +57,7 @@ pub fn memory2_stage(
     // Stores and younger loads need to be visible to each other in program
     // order so the SB resolve in this cycle still flags an ordering violation
     // against a load that already executed.
-    entries.sort_by_key(|e| e.rob_tag.0);
+    entries.sort_by(|a, b| a.rob_tag.age_cmp(b.rob_tag));
 
     output.clear();
 
@@ -67,7 +67,7 @@ pub fn memory2_stage(
                 event   = "propagate",
                 stage   = "M2",
                 pc      = %crate::common::trace::Hex(mem.pc),
-                rob_tag = mem.rob_tag.0,
+                rob_tag = %mem.rob_tag,
                 trap    = ?trap,
                 "M2: trap propagated through memory2"
             );
@@ -113,10 +113,10 @@ pub fn memory2_stage(
                     trace_fwd!(state.config.general.trace_instructions;
                         event           = "violation",
                         store_pc        = %crate::common::trace::Hex(mem.pc),
-                        store_tag       = mem.rob_tag.0,
+                        store_tag       = %mem.rob_tag,
                         paddr           = %crate::common::trace::Hex(paddr.val()),
                         width           = ?width,
-                        violation_flush = violating_tag.0,
+                        violation_flush = %violating_tag,
                         "M2: memory ordering VIOLATION — younger load executed with stale data"
                     );
                     merge_violation(&mut violation, (violating_tag, mem.pc));
@@ -125,7 +125,7 @@ pub fn memory2_stage(
         } else {
             trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",
-                rob_tag = mem.rob_tag.0,
+                rob_tag = %mem.rob_tag,
                 pc      = %crate::common::trace::Hex(mem.pc),
                 op      = "passthrough",
                 "M2: non-memory instruction pass-through"
@@ -155,7 +155,7 @@ pub fn finalize_load(
             event         = "forward",
             stage         = stage,
             load_pc       = %crate::common::trace::Hex(mem.pc),
-            load_tag      = mem.rob_tag.0,
+            load_tag      = %mem.rob_tag,
             paddr         = %crate::common::trace::Hex(mem.paddr.val()),
             width         = ?mem.ctrl.width,
             signed        = mem.ctrl.signed_load,
@@ -165,7 +165,7 @@ pub fn finalize_load(
     } else {
         trace_mem!(state.config.general.trace_instructions;
             stage         = stage,
-            rob_tag   = mem.rob_tag.0,
+            rob_tag   = %mem.rob_tag,
             pc        = %crate::common::trace::Hex(mem.pc),
             op        = "load",
             paddr     = %crate::common::trace::Hex(mem.paddr.val()),

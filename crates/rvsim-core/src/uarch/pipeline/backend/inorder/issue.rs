@@ -66,7 +66,7 @@ impl InOrderIssueUnit {
                 "issue queue overflow: len={} capacity={} — entry rob_tag={} pc={:#x} would be silently dropped",
                 self.queue.len(),
                 self.capacity,
-                entry.rob_tag.0,
+                entry.rob_tag,
                 entry.inst.pc,
             );
             if self.queue.len() < self.capacity {

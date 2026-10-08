@@ -329,7 +329,7 @@ impl StoreBuffer {
                 debug_assert!(
                     matches!(entry.resolution, StoreResolution::Ready { data: Some(_), .. }),
                     "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
-                    rob_tag.0,
+                    rob_tag,
                     entry.resolution,
                 );
                 if let StoreResolution::Ready { paddr, data: Some(data) } = entry.resolution {

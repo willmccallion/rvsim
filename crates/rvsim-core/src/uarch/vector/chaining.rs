@@ -46,7 +46,7 @@ mod tests {
 
     fn make_pending(first: u64, full: u64) -> VecPendingResult {
         VecPendingResult {
-            rob_tag: RobTag(1),
+            rob_tag: RobTag::new(1),
             vd_phys: [VecPhysReg::ZERO; 8],
             vd_count: 1,
             first_group_ready: first,

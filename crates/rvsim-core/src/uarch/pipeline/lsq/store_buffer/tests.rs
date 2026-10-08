@@ -14,9 +14,9 @@ fn drain_now(sb: &mut StoreBuffer) -> Option<StoreResolution> {
 }
 
 fn committed_store(sb: &mut StoreBuffer, tag: u32, paddr: u64, data: u64) {
-    assert!(sb.allocate(RobTag(tag), MemWidth::Double));
-    sb.resolve(RobTag(tag), VirtAddr::new(paddr), PhysAddr::new(paddr), data);
-    sb.mark_committed(RobTag(tag));
+    assert!(sb.allocate(RobTag::new(tag), MemWidth::Double));
+    sb.resolve(RobTag::new(tag), VirtAddr::new(paddr), PhysAddr::new(paddr), data);
+    sb.mark_committed(RobTag::new(tag));
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn a_sent_store_keeps_its_slot_and_forwards_until_acknowledged() {
     sb.issue_write(write, &[ReqId::new(7)]);
 
     let before_ack = (sb.len(), sb.has_committed_stores());
-    let forwarded = sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag(2));
+    let forwarded = sb.forward_load(PhysAddr::new(0x1000), MemWidth::Double, RobTag::new(2));
     let known = sb.write_acked(ReqId::new(7));
 
     assert_eq!((before_ack, forwarded), ((1, true), ForwardResult::Hit(0x55)));
@@ -44,7 +44,7 @@ fn a_younger_store_is_sent_while_an_older_one_is_in_flight() {
 
     let second = sb.begin_write().expect("second store");
 
-    assert_eq!(second.rob_tag, RobTag(2));
+    assert_eq!(second.rob_tag, RobTag::new(2));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn test_allocate_and_drain() {
     let mut sb = StoreBuffer::new(4);
     assert!(sb.is_empty());
 
-    let tag = RobTag(1);
+    let tag = RobTag::new(1);
     assert!(sb.allocate(tag, MemWidth::Word));
     assert_eq!(sb.len(), 1);
 
@@ -109,46 +109,46 @@ fn test_allocate_and_drain() {
 #[test]
 fn test_full_buffer() {
     let mut sb = StoreBuffer::new(2);
-    assert!(sb.allocate(RobTag(1), MemWidth::Word));
-    assert!(sb.allocate(RobTag(2), MemWidth::Word));
+    assert!(sb.allocate(RobTag::new(1), MemWidth::Word));
+    assert!(sb.allocate(RobTag::new(2), MemWidth::Word));
     assert!(sb.is_full());
-    assert!(!sb.allocate(RobTag(3), MemWidth::Word));
+    assert!(!sb.allocate(RobTag::new(3), MemWidth::Word));
 }
 
 #[test]
 fn test_forward_load() {
     let mut sb = StoreBuffer::new(4);
-    let tag = RobTag(1);
+    let tag = RobTag::new(1);
     sb.allocate(tag, MemWidth::Word);
     sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
     // Forward should find the store (load is younger: tag 2 > store tag 1)
-    let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag(2));
+    let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Word, RobTag::new(2));
     assert_eq!(result, ForwardResult::Hit(0x12345678));
 
     // Different address should miss
-    let result = sb.forward_load(PhysAddr::new(0x8000_0004), MemWidth::Word, RobTag(2));
+    let result = sb.forward_load(PhysAddr::new(0x8000_0004), MemWidth::Word, RobTag::new(2));
     assert_eq!(result, ForwardResult::Miss);
 }
 
 #[test]
 fn test_forward_load_byte() {
     let mut sb = StoreBuffer::new(4);
-    let tag = RobTag(1);
+    let tag = RobTag::new(1);
     sb.allocate(tag, MemWidth::Word);
     sb.resolve(tag, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000), 0x12345678);
 
     // Forward a byte from the same address
-    let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag(2));
+    let result = sb.forward_load(PhysAddr::new(0x8000_0000), MemWidth::Byte, RobTag::new(2));
     assert_eq!(result, ForwardResult::Hit(0x78));
 }
 
 #[test]
 fn test_flush_speculative() {
     let mut sb = StoreBuffer::new(4);
-    let t1 = RobTag(1);
-    let t2 = RobTag(2);
-    let t3 = RobTag(3);
+    let t1 = RobTag::new(1);
+    let t2 = RobTag::new(2);
+    let t3 = RobTag::new(3);
 
     sb.allocate(t1, MemWidth::Word);
     sb.allocate(t2, MemWidth::Word);
@@ -177,8 +177,8 @@ fn test_flush_speculative() {
 #[test]
 fn test_flush_all() {
     let mut sb = StoreBuffer::new(4);
-    sb.allocate(RobTag(1), MemWidth::Word);
-    sb.allocate(RobTag(2), MemWidth::Word);
+    sb.allocate(RobTag::new(1), MemWidth::Word);
+    sb.allocate(RobTag::new(2), MemWidth::Word);
 
     sb.flush_all();
     assert!(sb.is_empty());
@@ -188,7 +188,7 @@ fn test_flush_all() {
 fn test_circular_wraparound() {
     let mut sb = StoreBuffer::new(2);
     for i in 1..=10 {
-        let tag = RobTag(i);
+        let tag = RobTag::new(i);
         sb.allocate(tag, MemWidth::Word);
         sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
         sb.mark_committed(tag);

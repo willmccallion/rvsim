@@ -28,7 +28,7 @@ pub fn fault(
         event   = "fault",
         stage   = ?stage,
         pc      = %crate::common::trace::Hex(id.inst.pc),
-        rob_tag = id.rob_tag.0,
+        rob_tag = %id.rob_tag,
         trap    = ?trap,
         "EX: instruction faulted"
     );
@@ -95,7 +95,7 @@ fn resolve_branch(
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
         pc             = %crate::common::trace::Hex(id.inst.pc),
-        rob_tag        = id.rob_tag.0,
+        rob_tag        = %id.rob_tag,
         pred_taken     = id.pred_taken,
         pred_target    = %crate::common::trace::Hex(predicted_next_pc),
         actual_taken   = taken,
@@ -132,7 +132,7 @@ fn resolve_jump(
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
         pc             = %crate::common::trace::Hex(id.inst.pc),
-        rob_tag        = id.rob_tag.0,
+        rob_tag        = %id.rob_tag,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
         pred_taken     = id.pred_taken,
         pred_target    = %crate::common::trace::Hex(predicted_target),

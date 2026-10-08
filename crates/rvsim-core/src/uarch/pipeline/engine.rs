@@ -700,6 +700,15 @@ impl PipelineDispatch {
         }
     }
 
+    #[cfg(test)]
+    /// Makes the empty ROB allocate tags from `next` on.
+    pub fn start_rob_tags_at(&mut self, next: RobTag) {
+        match self {
+            Self::InOrder(p) => p.engine.rob.start_tags_at(next),
+            Self::OutOfOrder(p) => p.engine.rob.start_tags_at(next),
+        }
+    }
+
     /// Points fetch at `pc` without disturbing anything in flight; for
     /// initialisation, after the hart's architectural PC has been set.
     pub const fn restart_fetch_at(&mut self, pc: u64) {
@@ -766,7 +775,7 @@ mod tests {
         target: u64,
     ) -> PendingSquash {
         PendingSquash {
-            keep_tag: Some(RobTag(keep)),
+            keep_tag: Some(RobTag::new(keep)),
             redirect: crate::uarch::pipeline::squash::Redirect::to(target, cause),
             apply_at: 10,
         }

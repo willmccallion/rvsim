@@ -128,7 +128,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
     // order rather than program order. memory1's SB-forward / atomic-vs-SB
     // checks only inspect *older* store entries, so process oldest first to
     // give each op the most-drained store buffer view available this cycle.
-    entries.sort_by_key(|e| e.rob_tag.0);
+    entries.sort_by(|a, b| a.rob_tag.age_cmp(b.rob_tag));
     let mut iter = entries.into_iter();
 
     while let Some(mut ex) = iter.next() {
@@ -680,16 +680,16 @@ fn resolve_store<E: ExecutionEngine>(
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
             store_pc        = %crate::common::trace::Hex(ex.pc),
-            store_tag       = ex.rob_tag.0,
+            store_tag       = %ex.rob_tag,
             paddr           = %crate::common::trace::Hex(paddr.val()),
-            violation_flush = load.0,
+            violation_flush = %load,
             "M1: memory ordering violation, a younger load already read this location"
         );
         outcome.violation = Some((load, ex.pc));
     }
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
-        rob_tag    = ex.rob_tag.0,
+        rob_tag    = %ex.rob_tag,
         pc         = %crate::common::trace::Hex(ex.pc),
         op         = "store-resolve",
         paddr      = %crate::common::trace::Hex(paddr.val()),
