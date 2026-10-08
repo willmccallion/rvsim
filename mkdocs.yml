@@ -117,6 +117,7 @@ nav:
     - Benchmark Configs: examples/benchmark-configs.md
   - Changelog:
     - changelog.md
+    - v2.1.0: versions/V2_1_0_CHANGELOG.md
     - v2.0.1: versions/V2_0_1_CHANGELOG.md
     - v2.0.0: versions/V2_0_CHANGELOG.md
     - v1.2.0: versions/V1_2_CHANGELOG.md
