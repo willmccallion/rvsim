@@ -267,7 +267,7 @@ impl Cache {
             line_bytes: safe_line,
             policy,
             mshrs: MshrTable::new(config.mshr_count),
-            targets_per_mshr: config.targets_per_mshr.max(1),
+            targets_per_mshr: config.targets_per_mshr.get(),
             full_mshr: None,
             writebacks: WritebackBuffer::new(config.write_buffers),
             blocked: VecDeque::new(),

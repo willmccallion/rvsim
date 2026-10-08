@@ -7,3 +7,8 @@ pub mod infrastructure_tests;
 pub mod mocks;
 pub mod multihart;
 pub mod probe;
+
+/// `n` as the non-zero count a cache's resources take.
+pub fn count(n: usize) -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(n).expect("a test count is non-zero")
+}

@@ -9,6 +9,7 @@
 use crate::common::{LineAddr, PhysAddr, VirtAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp};
+use std::num::NonZeroUsize;
 
 /// A request waiting for an MSHR's fill.
 #[derive(Clone, Debug)]
@@ -71,11 +72,10 @@ pub struct MshrTable {
 }
 
 impl MshrTable {
-    /// A table with room for `capacity` outstanding lines; zero is treated
-    /// as one (a blocking cache still needs one miss in flight).
+    /// A table with room for `capacity` outstanding lines.
     #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
+    pub fn new(capacity: NonZeroUsize) -> Self {
+        let capacity = capacity.get();
         Self { entries: Vec::with_capacity(capacity), capacity }
     }
 
@@ -133,6 +133,7 @@ impl MshrTable {
 mod tests {
     use super::*;
     use crate::sim::components::CacheId;
+    use crate::tests::support::count;
 
     fn mshr(line: u64, req: u64) -> Mshr {
         Mshr {
@@ -149,7 +150,7 @@ mod tests {
 
     #[test]
     fn allocation_is_bounded_and_take_frees_a_slot() {
-        let mut table = MshrTable::new(2);
+        let mut table = MshrTable::new(count(2));
         table.allocate(mshr(0x1000, 1));
         table.allocate(mshr(0x2000, 2));
         assert!(table.is_full());
@@ -163,15 +164,8 @@ mod tests {
     }
 
     #[test]
-    fn zero_capacity_still_allows_one_miss() {
-        let table = MshrTable::new(0);
-        assert_eq!(table.capacity(), 1);
-        assert!(!table.is_full());
-    }
-
-    #[test]
     fn targets_join_the_mshr_for_their_line() {
-        let mut table = MshrTable::new(2);
+        let mut table = MshrTable::new(count(2));
         table.allocate(mshr(0x1000, 1));
         let entry = table
             .find_line_mut(LineAddr::from_phys(PhysAddr::new(0x1008), 64))

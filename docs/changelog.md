@@ -10,6 +10,13 @@ All notable changes to this project are documented here. The format is based on 
   after the wrap, younger instructions issued and reached memory before
   older ones (#151). They are now ordered by age, and a tag's number is
   private to the ROB, so it can no longer be used to order tags.
+- A cache's `mshr_count`, `write_buffers` and `targets_per_mshr` of 0
+  meant the default (8, 8, 20) from Python's `Cache` but 1, a blocking
+  cache, in a config dict or a Rust `CacheConfig` (#147). No cache can
+  have zero of any of them, so 0 is now refused everywhere: `Cache`
+  raises `ValueError`, and a config dict holding 0 fails to load. `Cache`
+  takes `None` for the default. **Breaking:** code passing 0 for the
+  default must pass `None` or leave the argument out.
 
 ## Releases
 

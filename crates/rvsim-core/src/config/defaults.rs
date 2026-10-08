@@ -3,6 +3,8 @@
 //! These values define the baseline hardware configuration when not
 //! explicitly overridden in TOML configuration files.
 
+use std::num::NonZeroUsize;
+
 /// Base address of main system RAM (2 GiB).
 ///
 /// This is the physical address where the main memory region begins.
@@ -150,12 +152,20 @@ pub const PREFETCH_DEGREE: usize = 1;
 
 /// Default outstanding line fetches per cache level (gem5's classic
 /// caches use 4 for an L1 and 20 for an L2; 8 sits between).
-pub const MSHR_COUNT: usize = 8;
+pub const MSHR_COUNT: NonZeroUsize = non_zero(8);
 /// Default writeback buffer entries per cache level.
-pub const WRITE_BUFFERS: usize = 8;
+pub const WRITE_BUFFERS: NonZeroUsize = non_zero(8);
 /// Default requests one MSHR can hold (gem5's `tgts_per_mshr` for an
 /// L1; its L2 uses 12).
-pub const TARGETS_PER_MSHR: usize = 20;
+pub const TARGETS_PER_MSHR: NonZeroUsize = non_zero(20);
+
+/// `count` as a non-zero default, checked when the constant is evaluated.
+const fn non_zero(count: usize) -> NonZeroUsize {
+    match NonZeroUsize::new(count) {
+        Some(count) => count,
+        None => panic!("a default count must be non-zero"),
+    }
+}
 
 /// Default pipeline width (1 instruction per cycle).
 pub const PIPELINE_WIDTH: usize = 1;

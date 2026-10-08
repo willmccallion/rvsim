@@ -17,6 +17,7 @@ use crate::sim::packet::{
 };
 use crate::sim::stats::{StatSource, Stats};
 use crate::soc::cache::Cache;
+use crate::tests::support::count;
 
 const LATENCY: u64 = 2;
 const RESPONSE_LATENCY: u64 = 1;
@@ -39,9 +40,9 @@ fn test_config() -> CacheConfig {
         prefetcher: PrefetcherKind::None,
         prefetch_table_size: 64,
         prefetch_degree: 1,
-        mshr_count: 4,
-        write_buffers: 4,
-        targets_per_mshr: 8,
+        mshr_count: count(4),
+        write_buffers: count(4),
+        targets_per_mshr: count(8),
     }
 }
 
@@ -461,7 +462,7 @@ fn a_maintenance_operation_waits_for_its_lines_fetch_to_fill() {
 #[test]
 fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
     let mut config = test_config();
-    config.mshr_count = 1;
+    config.mshr_count = count(1);
     let mut bench = Bench::new(cache_with(&config));
 
     bench.read(1, 0x1000);
@@ -494,7 +495,7 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
 #[test]
 fn an_mshr_holding_its_target_limit_blocks_the_cache_until_its_fill() {
     let mut config = test_config();
-    config.targets_per_mshr = 2;
+    config.targets_per_mshr = count(2);
     let mut bench = Bench::new(cache_with(&config));
     bench.read(1, 0x1000);
     let first = bench.downstream_requests();
@@ -573,7 +574,7 @@ fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
 #[test]
 fn a_fill_whose_dirty_victim_finds_no_writeback_slot_waits_for_one() {
     let mut config = test_config();
-    config.write_buffers = 1;
+    config.write_buffers = count(1);
     let mut bench = Bench::new(cache_with(&config));
     let write = || MemOp::Write { data: WriteData::Small(1), origin: HART };
     bench.install(1, 0x0000, write());
@@ -614,7 +615,7 @@ fn a_fill_whose_dirty_victim_finds_no_writeback_slot_waits_for_one() {
 #[test]
 fn a_full_writeback_buffer_blocks_requests_until_the_next_level_acks() {
     let mut config = test_config();
-    config.write_buffers = 1;
+    config.write_buffers = count(1);
     let mut bench = Bench::new(cache_with(&config));
     bench.install(
         1,
@@ -898,7 +899,7 @@ fn a_disabled_level_passes_a_prefetch_for_a_lower_level_down() {
 #[test]
 fn a_run_of_store_misses_sends_exclusive_prefetches_to_the_l2() {
     let mut config = test_config();
-    config.mshr_count = 8;
+    config.mshr_count = count(8);
     let mut cache = cache_with(&config);
     cache.set_store_prefetcher(crate::soc::cache::prefetch::StoreStreamPrefetcher::new(64, 4, 2));
     let mut bench = Bench::new(cache);
@@ -920,7 +921,7 @@ fn a_run_of_store_misses_sends_exclusive_prefetches_to_the_l2() {
 #[test]
 fn a_prefetch_request_is_dropped_rather_than_take_the_last_mshr() {
     let mut config = test_config();
-    config.mshr_count = 2;
+    config.mshr_count = count(2);
     let mut bench = Bench::new(cache_with(&config));
     bench.read(1, 0x1000);
     let _ = bench.drain();
@@ -932,10 +933,34 @@ fn a_prefetch_request_is_dropped_rather_than_take_the_last_mshr() {
 }
 
 #[test]
+fn one_mshr_blocks_hits_and_same_line_misses_until_the_fill() {
+    let mut config = test_config();
+    config.mshr_count = count(1);
+    let mut bench = Bench::new(cache_with(&config));
+    bench.read(1, 0x2000);
+    let warm = bench.downstream_requests();
+    bench.fill(warm[0].0, 0x2000);
+    let _ = bench.drain();
+    bench.read(2, 0x1000);
+    let miss = bench.downstream_requests();
+
+    bench.read(3, 0x2000);
+    bench.read(4, 0x1008);
+
+    assert!(bench.downstream_requests().is_empty(), "nothing else is fetched");
+    assert_eq!(bench.cache.blocked_requests(), 2, "a hit and a same-line miss both wait");
+    assert_eq!(bench.stat("test.mshr_hits"), 0, "the second miss did not join the MSHR");
+    bench.fill(miss[0].0, 0x1000);
+    let answered: Vec<ReqId> =
+        responses_to(&bench.drain(), PIPELINE).into_iter().map(|(id, _)| id).collect();
+    assert_eq!(answered, vec![ReqId::new(2), ReqId::new(3), ReqId::new(4)]);
+}
+
+#[test]
 fn prefetches_leave_one_mshr_for_demand_misses() {
     let mut config = test_config();
     config.prefetcher = PrefetcherKind::NextLine;
-    config.mshr_count = 1;
+    config.mshr_count = count(1);
     let mut bench = Bench::new(cache_with(&config));
     bench.read(1, 0x1000);
     let requests = bench.downstream_requests();
