@@ -11,6 +11,7 @@
 
 use crate::common::LineAddr;
 use crate::sim::components::ReqId;
+use std::num::NonZeroUsize;
 
 /// Why a line is being written back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,10 +44,10 @@ pub struct WritebackBuffer {
 
 impl WritebackBuffer {
     /// A buffer that blocks the cache once `capacity` writebacks are in
-    /// flight; zero is treated as one.
+    /// flight.
     #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
+    pub fn new(capacity: NonZeroUsize) -> Self {
+        let capacity = capacity.get();
         Self { entries: Vec::with_capacity(capacity), capacity, evictions: 0 }
     }
 
@@ -120,10 +121,11 @@ impl WritebackBuffer {
 mod tests {
     use super::*;
     use crate::common::PhysAddr;
+    use crate::tests::support::count;
 
     #[test]
     fn completion_frees_the_matching_entry_only() {
-        let mut buffer = WritebackBuffer::new(1);
+        let mut buffer = WritebackBuffer::new(count(1));
         let line = LineAddr::from_phys(PhysAddr::new(0x1000), 64);
         buffer.allocate(Writeback { line, req_id: ReqId::new(5), cause: WritebackCause::Eviction });
         assert!(buffer.is_full());

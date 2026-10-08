@@ -205,9 +205,9 @@ Cache(
     ways=1,               # Associativity
     latency=1,            # Tag and data access latency in cycles
     response_latency=1,   # Cycles from a fill arriving to answering its requests
-    mshr_count=0,         # Lines fetched at once (0 = the default, 8)
-    write_buffers=0,      # Evicted lines in flight to the next level (0 = the default, 8)
-    targets_per_mshr=0,   # Requests one MSHR can hold (0 = the default, 20)
+    mshr_count=None,      # Lines fetched at once (None = the default, 8)
+    write_buffers=None,   # Evicted lines in flight to the next level (None = the default, 8)
+    targets_per_mshr=None,  # Requests one MSHR can hold (None = the default, 20)
     policy=None,          # Eviction policy; ReplacementPolicy.LRU() when None
     prefetcher=None,      # Hardware prefetcher; Prefetcher.Off() when None
 )
@@ -232,9 +232,10 @@ load-to-use. `None` disables a level.
     Every level fetches at most `mshr_count` lines at a time and keeps at
     most `write_buffers` evicted lines in flight to the next level; while
     either is exhausted, or one MSHR holds `targets_per_mshr` requests, the
-    cache blocks and later requests queue. Passing `0` leaves the simulator
+    cache blocks and later requests queue. `None` leaves the simulator
     default in place (8, 8 and 20); `mshr_count=1` gives a blocking cache
-    that serialises its misses.
+    that serialises its misses. Each must be at least 1: `Cache` raises
+    `ValueError` for 0, and a config dict holding 0 is refused.
 
 ### Replacement Policies
 

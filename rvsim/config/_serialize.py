@@ -467,11 +467,11 @@ def _cache_to_dict(c: Cache) -> dict[str, Any]:
         "prefetch_table_size": _prefetcher_table_size(c.prefetcher),
         "prefetch_degree": _prefetcher_degree(c.prefetcher),
     }
-    if c.mshr_count > 0:
+    if c.mshr_count is not None:
         d["mshr_count"] = c.mshr_count
-    if c.write_buffers > 0:
+    if c.write_buffers is not None:
         d["write_buffers"] = c.write_buffers
-    if c.targets_per_mshr > 0:
+    if c.targets_per_mshr is not None:
         d["targets_per_mshr"] = c.targets_per_mshr
     return d
 

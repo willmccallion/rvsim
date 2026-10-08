@@ -8,6 +8,7 @@ import pickle
 import unittest
 
 from rvsim import (
+    Cache,
     Config,
     LoadPrefetcher,
     PageBoundary,
@@ -97,6 +98,25 @@ class Validation(unittest.TestCase):
 
     def test_a_power_of_two_vlen_in_range_is_accepted(self):
         Simulator(Config(vlen=256))
+
+    def test_a_cache_with_zero_of_a_resource_is_refused(self):
+        for field in ("mshr_count", "write_buffers", "targets_per_mshr"):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):
+                Cache("32KB", ways=4, **{field: 0})
+
+    def test_a_config_dict_with_zero_mshrs_is_refused(self):
+        config = Config().to_dict()
+        config["cache"]["l1_d"]["mshr_count"] = 0
+
+        with self.assertRaisesRegex(ValueError, "nonzero"):
+            Simulator(config)
+
+    def test_an_unset_resource_count_is_left_to_the_simulator(self):
+        l1d = Config(l1d=Cache("32KB", ways=4)).to_dict()["cache"]["l1_d"]
+
+        self.assertNotIn("mshr_count", l1d)
+        self.assertNotIn("write_buffers", l1d)
+        self.assertNotIn("targets_per_mshr", l1d)
 
     def test_a_field_the_core_does_not_know_is_refused(self):
         config = Config().to_dict()

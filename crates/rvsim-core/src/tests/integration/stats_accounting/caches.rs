@@ -11,6 +11,7 @@ use crate::config::{
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
+use crate::tests::support::count;
 use crate::tests::support::harness::TestContext;
 
 const CACHES: [&str; 4] = ["core0.cache.l1i", "core0.cache.l1d", "core0.cache.l2", "llc"];
@@ -297,7 +298,7 @@ fn misses_beyond_the_mshrs_wait_as_blocked_requests(rec: &mut Recorder) {
     for (n, mshrs) in [2, 8].into_iter().enumerate() {
         let mut config = hierarchy(BackendKind::OutOfOrder);
         config.pipeline.width = 4;
-        config.cache.l1_d.mshr_count = mshrs;
+        config.cache.l1_d.mshr_count = count(mshrs);
 
         let ctx = run_settled(&config, independent_misses(), context);
 
@@ -344,9 +345,9 @@ fn store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr(rec: &mut Recor
         let context = format!("{backend:?}");
         let mut config = hierarchy(backend);
         config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 2 };
-        config.cache.l2.mshr_count = 16;
+        config.cache.l2.mshr_count = count(16);
         let mut starved = config.clone();
-        starved.cache.l2.mshr_count = 1;
+        starved.cache.l2.mshr_count = count(1);
 
         let ctx = run_settled(&config, store_run(8), &context);
         let starved = run_settled(&starved, store_run(8), &context);
@@ -431,9 +432,9 @@ fn misses_beyond_each_levels_mshrs_wait_there(rec: &mut Recorder) {
     let context = "OutOfOrder width 4";
     let mut config = hierarchy(BackendKind::OutOfOrder);
     config.pipeline.width = 4;
-    config.cache.l1_d.mshr_count = 8;
-    config.cache.l2.mshr_count = 2;
-    config.cache.l3.mshr_count = 1;
+    config.cache.l1_d.mshr_count = count(8);
+    config.cache.l2.mshr_count = count(2);
+    config.cache.l3.mshr_count = count(1);
 
     let ctx = run_settled(&config, program, context);
 
@@ -484,7 +485,7 @@ fn load_prefetches_the_l1d_cannot_take_are_dropped(rec: &mut Recorder) {
         for (n, mshrs) in [2, 16].into_iter().enumerate() {
             let mut config = everything_on(backend);
             config.cache.l1_d.prefetcher = PrefetcherKind::None;
-            config.cache.l1_d.mshr_count = mshrs;
+            config.cache.l1_d.mshr_count = count(mshrs);
 
             let ctx = run_settled(&config, read_modify_write_lines(48), &context);
 

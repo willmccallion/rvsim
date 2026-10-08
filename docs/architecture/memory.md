@@ -79,7 +79,7 @@ classic cache:
   in flight **joins that MSHR** instead of fetching again; when the fill
   arrives every joined request is answered at once. `mshr_count` bounds the
   fetches in flight (default 8; `mshr_count=1` gives a blocking cache,
-and `0` from Python leaves the default).
+  and 0 is refused).
   An MSHR holds at most `targets_per_mshr` requests (gem5's
   `tgts_per_mshr`, default 20): the request that fills it blocks the
   cache until that line's fill returns.

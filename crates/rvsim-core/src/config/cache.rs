@@ -3,6 +3,7 @@
 use super::defaults;
 use super::prefetch::{LoadPrefetcherConfig, StorePrefetcherConfig};
 use serde::Deserialize;
+use std::num::NonZeroUsize;
 
 /// Cache replacement policy algorithms.
 ///
@@ -171,20 +172,20 @@ pub struct CacheConfig {
     pub prefetch_degree: usize,
 
     /// Number of MSHRs (Miss Status Holding Registers): outstanding line
-    /// fetches this level can have in flight. Zero behaves as one.
+    /// fetches this level can have in flight. One gives a blocking cache.
     #[serde(default = "CacheConfig::default_mshr_count")]
-    pub mshr_count: usize,
+    pub mshr_count: NonZeroUsize,
 
     /// Writeback buffer entries: victims in flight to the next level before
-    /// the cache stops accepting requests. Zero behaves as one.
+    /// the cache stops accepting requests.
     #[serde(default = "CacheConfig::default_write_buffers")]
-    pub write_buffers: usize,
+    pub write_buffers: NonZeroUsize,
 
     /// Requests one MSHR can hold (gem5's `tgts_per_mshr`): once a line in
     /// flight has this many waiting, the cache accepts nothing until that
-    /// line's fill returns. Zero behaves as one.
+    /// line's fill returns.
     #[serde(default = "CacheConfig::default_targets_per_mshr")]
-    pub targets_per_mshr: usize,
+    pub targets_per_mshr: NonZeroUsize,
 }
 
 impl CacheConfig {
@@ -224,17 +225,17 @@ impl CacheConfig {
     }
 
     /// Returns the default MSHR count.
-    const fn default_mshr_count() -> usize {
+    const fn default_mshr_count() -> NonZeroUsize {
         defaults::MSHR_COUNT
     }
 
     /// Returns the default writeback buffer size.
-    const fn default_write_buffers() -> usize {
+    const fn default_write_buffers() -> NonZeroUsize {
         defaults::WRITE_BUFFERS
     }
 
     /// Returns the default number of requests one MSHR can hold.
-    const fn default_targets_per_mshr() -> usize {
+    const fn default_targets_per_mshr() -> NonZeroUsize {
         defaults::TARGETS_PER_MSHR
     }
 }
