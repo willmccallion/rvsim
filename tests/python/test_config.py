@@ -118,6 +118,16 @@ class Validation(unittest.TestCase):
         self.assertNotIn("write_buffers", l1d)
         self.assertNotIn("targets_per_mshr", l1d)
 
+    def test_an_isa_string_reaches_the_core(self):
+        config = Config(isa="RV64IM")
+
+        self.assertEqual(config.to_dict()["pipeline"]["misa_override"], "RV64IM")
+        Simulator(config)
+
+    def test_an_isa_the_hart_cannot_implement_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "RV64"):
+            Simulator(Config(isa="RV32I"))
+
     def test_a_field_the_core_does_not_know_is_refused(self):
         config = Config().to_dict()
         config["pipeline"]["widht"] = 4

@@ -27,7 +27,7 @@
 #![allow(clippy::cast_ptr_alignment)]
 
 use crate::common::{AccessType, InstSeq, LineAddr, PhysAddr, VirtAddr};
-use crate::isa::instruction::{InstSize, is_compressed};
+use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
 use crate::sim::components::ComponentId;
@@ -379,8 +379,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let phys_addr = paddr.val();
         let mut line = LineAddr::from_phys(paddr, line_bytes);
         let half_word = read_inst_half(state, phys_addr);
-        let is_compressed = is_compressed(half_word);
-        let step = if is_compressed { InstSize::Compressed } else { InstSize::Standard };
+        let step = instruction_size(half_word, state.hart().csrs.misa);
+        let is_compressed = step == InstSize::Compressed;
 
         // A 32-bit instruction whose upper half lies in the next line
         // completes only when that line arrives: it heads a group that

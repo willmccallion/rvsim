@@ -1,7 +1,7 @@
 //! Instruction encodings: sizes, field extraction, and decoding a 32-bit
 //! encoding into its fields and sign-extended immediate.
 
-use crate::isa::csr::CsrAddr;
+use crate::isa::csr::{CsrAddr, MISA_EXT_C};
 use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::opcodes;
 use crate::isa::encoding::rvc;
@@ -33,6 +33,18 @@ impl InstSize {
 #[must_use]
 pub const fn is_compressed(low_half: u16) -> bool {
     low_half & rvc::QUADRANT_MASK != rvc::NOT_COMPRESSED
+}
+
+/// The size of the instruction whose low 16 bits are `low_half` on a hart
+/// whose `misa` is `misa`. Without C every instruction is a word
+/// (IALIGN=32), and one whose low bits are not `11` is illegal.
+#[must_use]
+pub const fn instruction_size(low_half: u16, misa: u64) -> InstSize {
+    if misa & MISA_EXT_C != 0 && is_compressed(low_half) {
+        InstSize::Compressed
+    } else {
+        InstSize::Standard
+    }
 }
 
 /// Bit mask for extracting the opcode field (bits 0-6).

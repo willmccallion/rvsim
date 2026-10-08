@@ -42,6 +42,13 @@ All notable changes to this project are documented here. The format is based on 
   through its writeback buffer and invalidates them all before FENCE.I
   retires, skipping the walk when it has fetched nothing since its last
   flush (`l1d.flushes`, `l1d.flushed_lines`).
+- Fetch and decode treated a halfword whose low bits are not `11` as a
+  16-bit instruction even when `misa` had no C, so a hart without C ran
+  compressed encodings instead of raising illegal-instruction, and its
+  wrong-path fetch stepped 2 bytes at a time through zero padding where
+  hardware without C steps 4 (#156). Fetch now sizes instructions from
+  the current `misa`, as branch targets already did.
+  `Config(isa="RV64IM")` sets the hart's ISA from Python.
 
 ## Releases
 
