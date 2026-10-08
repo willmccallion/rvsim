@@ -357,17 +357,36 @@ fn an_upgrade_a_snoop_overtook_is_retried_for_data(rec: &mut Recorder) {
     }
 }
 
-/// `rounds` times: an LR/SC increment of the shared word, the LR behind a
-/// divide that keeps it from retiring for a while after it reads.
-fn lr_sc_increments(rounds: i32) -> Vec<u32> {
+/// `rounds` times: an LR/SC increment of the shared word whose LR hits:
+/// a load brings the line in and the divide waits for it, so the LR reads
+/// as the divide starts and then waits for it to retire.
+fn lr_sc_increments_on_a_held_line(rounds: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().addi(T1, 0, rounds).build(),
-        i().div(T0, T1, T1).build(),
+        i().ld(T3, T2, 0).build(),
+        i().add(T0, T3, T1).build(),
+        i().div(T0, T0, T0).build(),
         i().lr_d(T3, T2).build(),
         i().addi(T3, T3, 1).build(),
         i().sc_d(T0, T2, T3).build(),
-        i().bne(T0, 0, -16).build(),
+        i().bne(T0, 0, -24).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, -32).build(),
+    ]
+}
+
+/// `rounds` times: store to the shared word, a multiply chain apart, so
+/// some store lands while the other hart's LR waits to retire.
+fn paced_stores_to_the_shared_word(rounds: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T1, 0, rounds).build(),
+        i().mul(T3, T1, T1).build(),
+        i().mul(T3, T3, T1).build(),
+        i().mul(T3, T3, T1).build(),
+        i().mul(T3, T3, T1).build(),
+        i().sd(T2, T3, 0).build(),
         i().addi(T1, T1, -1).build(),
         i().bne(T1, 0, -24).build(),
     ]
@@ -402,28 +421,40 @@ fn racing_stores(rounds: i32) -> Vec<u32> {
     ]
 }
 
+/// The coherence replays and violations `program` produced, after checking
+/// that each is a coherence flush and every coherence flush is one of them.
+fn coherence_squashes(
+    rec: &mut Recorder,
+    backend: BackendKind,
+    program: (Vec<u32>, u64),
+    context: &str,
+) -> (u64, u64) {
+    let system = run_settled(&two_cached_harts(backend), program, context);
+    let replays = sum_over_cores(rec, &system, "lsq.coherence_replays");
+    let violations = sum_over_cores(rec, &system, "lsq.coherence_violations");
+    let flushes = sum_over_cores(rec, &system, "pipeline.flushes.coherence");
+    assert_eq!(flushes, replays + violations, "{context}: coherence flushes");
+    (replays, violations)
+}
+
 fn remote_writes_replay_lrs_and_squash_loads_that_read_too_early(rec: &mut Recorder) {
     for backend in BACKENDS {
         let context = format!("{backend:?}");
-        let mut hart0 = lr_sc_increments(60);
-        hart0.extend(racing_loads(200));
-        let mut hart1 = lr_sc_increments(60);
-        hart1.extend(racing_stores(200));
-        let program = per_hart(&hart0, &hart1);
+        // Hart 1 writes the word throughout hart 0's LR/SC loop, so some
+        // write lands while an LR waits behind its divide to retire.
+        let lrs =
+            per_hart(&lr_sc_increments_on_a_held_line(60), &paced_stores_to_the_shared_word(600));
+        let races = per_hart(&racing_loads(200), &racing_stores(200));
 
-        let system = run_settled(&two_cached_harts(backend), program, &context);
+        let (replays, _) = coherence_squashes(rec, backend, lrs, &format!("{context} LR/SC"));
+        let (_, violations) = coherence_squashes(rec, backend, races, &format!("{context} loads"));
 
-        let replays = sum_over_cores(rec, &system, "lsq.coherence_replays");
-        let violations = sum_over_cores(rec, &system, "lsq.coherence_violations");
-        let flushes = sum_over_cores(rec, &system, "pipeline.flushes.coherence");
         assert!(replays > 0, "{context}: an LR read a line the other hart then wrote");
         if backend == BackendKind::OutOfOrder {
             assert!(violations > 0, "{context}: a load read past a remote write");
         } else {
             assert_eq!(violations, 0, "{context}: in-order loads read in order");
         }
-        assert!(flushes <= replays + violations, "{context}: {flushes} flushes");
-        assert!(flushes > 0, "{context}");
     }
 }
 
