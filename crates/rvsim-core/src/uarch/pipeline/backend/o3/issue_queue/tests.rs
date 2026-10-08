@@ -7,7 +7,7 @@ use crate::isa::instruction::InstSize;
 use crate::isa::reg::RegIdx;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::rename::prf::PhysReg;
-use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, RobTag};
 
 fn make_entry(rob_tag: u32) -> RenameIssueEntry {
     RenameIssueEntry {
@@ -73,6 +73,7 @@ fn select(
         units: &units,
         now: 0,
         memory_blocked: false,
+        head: HeadAtCycleStart::latch(rob),
     };
     iq.select(&budget, store_buffer, rob).entries
 }
@@ -114,6 +115,7 @@ fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
         units: &units,
         now: 1,
         memory_blocked: false,
+        head: HeadAtCycleStart::default(),
     };
 
     let selection = iq.select(&budget, &StoreBuffer::new(4), &Rob::new(8));
@@ -136,6 +138,7 @@ fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
         units: &units,
         now: 0,
         memory_blocked: true,
+        head: HeadAtCycleStart::default(),
     };
 
     let selection = iq.select(&budget, &StoreBuffer::new(4), &Rob::new(8));
@@ -520,6 +523,7 @@ fn the_issue_hold_reports_the_oldest_entry_across_the_tag_wrap() {
         units: &units,
         now: 0,
         memory_blocked: false,
+        head: HeadAtCycleStart::default(),
     };
 
     let selection = iq.select(&budget, &StoreBuffer::new(4), &Rob::new(8));

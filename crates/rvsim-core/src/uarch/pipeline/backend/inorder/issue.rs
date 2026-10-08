@@ -20,7 +20,7 @@ use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
-use crate::uarch::pipeline::rob::{Rob, RobTag};
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::squash::PendingSquash;
 
 use std::collections::VecDeque;
@@ -91,6 +91,7 @@ impl InOrderIssueUnit {
         &mut self,
         width: usize,
         rob: &Rob,
+        head: HeadAtCycleStart,
         store_buffer: &StoreBuffer,
         vec_store_buffer: &VecStoreBuffer,
         state: &StageCtx<'_>,
@@ -127,7 +128,7 @@ impl InOrderIssueUnit {
                     && entry.inst.ctrl.system_op != SystemOp::Fence
                     && !entry.inst.ctrl.system_op.is_cbo())
                 || entry.inst.ctrl.performs_at_rob_head();
-            if waits_for_head && !rob.is_head(entry.rob_tag) {
+            if waits_for_head && !head.is(entry.rob_tag) {
                 held = Some(IssueHold::Ordering);
                 break;
             }

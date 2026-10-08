@@ -23,6 +23,13 @@ All notable changes to this project are documented here. The format is based on 
   register, which share an address, returned the transmitted byte unless
   a FENCE separated them. A device load now waits for older stores to its
   bytes to be written and then reads the device.
+- An instruction that must be the oldest (a CSR access, ECALL, EBREAK,
+  xRET, WFI, FENCE.I, SFENCE.VMA, an AMO or store-conditional, and on the
+  in-order backend a vector instruction) issued in the same cycle the
+  instruction ahead of it retired, as commit ran before issue in the same
+  cycle (#150). It now checks the ROB head as the cycle began, so it
+  issues at the earliest the cycle after: one cycle more per such
+  instruction on both backends.
 
 ## Releases
 

@@ -99,6 +99,26 @@ impl RobTag {
     }
 }
 
+/// The oldest instruction as a cycle began, before that cycle's commit. An
+/// instruction that must be the oldest checks this rather than the live
+/// head: commit registers a retirement, so issue learns of it a cycle later.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeadAtCycleStart(Option<RobTag>);
+
+impl HeadAtCycleStart {
+    /// Latches `rob`'s head; called before the cycle's commit.
+    #[must_use]
+    pub fn latch(rob: &Rob) -> Self {
+        Self(rob.peek_head().map(|head| head.tag))
+    }
+
+    /// True when `tag` was the oldest instruction as the cycle began.
+    #[must_use]
+    pub fn is(self, tag: RobTag) -> bool {
+        self.0 == Some(tag)
+    }
+}
+
 /// Lifecycle state of an ROB entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RobState {
@@ -370,13 +390,6 @@ impl Rob {
             entry.trap = Some(trap);
             entry.exception_stage = Some(stage);
         }
-    }
-
-    /// True when `tag` is the oldest instruction in the ROB, so everything
-    /// before it has committed.
-    #[must_use]
-    pub fn is_head(&self, tag: RobTag) -> bool {
-        self.peek_head().is_some_and(|head| head.tag == tag)
     }
 
     /// Faults a vector memory instruction at `element`, where its trap

@@ -31,7 +31,7 @@ use crate::uarch::pipeline::rename::map::RenameMap;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
-use crate::uarch::pipeline::rob::Rob;
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
@@ -289,6 +289,7 @@ impl ExecutionEngine for O3Engine {
             self.apply_squash(state, squash, redirect);
             rename_output.clear();
         }
+        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
         if self.retire(state, redirect) {
             return;
         }
