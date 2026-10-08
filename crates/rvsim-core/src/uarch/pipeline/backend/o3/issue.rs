@@ -98,11 +98,11 @@ impl O3Engine {
                 entry.vec_vl as usize,
                 self.num_vec_lanes.as_usize(),
             );
-            self.fu_pool.acquire_with_latency(unit, now, latency)
+            self.fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
         } else {
             // A vector memory op's unit is the address generator;
             // its elements pay their latency in memory1 and memory2.
-            self.fu_pool.acquire(unit, now)
+            self.fu_pool.acquire(unit, now, entry.rob_tag)
         };
         let busy = self.fu_pool.busy_cycles(unit, now);
         state.uncore.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).add(busy);

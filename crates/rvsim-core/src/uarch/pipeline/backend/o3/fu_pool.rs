@@ -9,6 +9,7 @@
 use crate::config::FuConfig;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::{AluOp, VectorOp};
+use crate::uarch::pipeline::rob::RobTag;
 
 /// Identifies which type of functional unit an instruction uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +196,9 @@ pub struct FuUnit {
     pub is_pipelined: bool,
     /// Simulation cycle at which this unit is free again (0 = free now).
     pub busy_until: u64,
+    /// The instruction a non-pipelined unit is working on, which frees the
+    /// unit if it is squashed.
+    pub holder: Option<RobTag>,
 }
 
 impl FuUnit {
@@ -206,17 +210,20 @@ impl FuUnit {
 
     /// Acquire the unit for one instruction issued at cycle `now`.
     /// Returns the cycle at which the result will be ready.
-    pub const fn acquire(&mut self, now: u64) -> u64 {
-        let complete = now + self.latency;
-        self.busy_until = if self.is_pipelined { now + 1 } else { complete };
-        complete
+    pub const fn acquire(&mut self, now: u64, holder: RobTag) -> u64 {
+        self.acquire_with_latency(now, self.latency, holder)
     }
 
     /// Acquire the unit with a dynamic latency (for vector ops where latency
     /// depends on VL/lanes). Returns the cycle at which the result will be ready.
-    pub const fn acquire_with_latency(&mut self, now: u64, latency: u64) -> u64 {
+    pub const fn acquire_with_latency(&mut self, now: u64, latency: u64, holder: RobTag) -> u64 {
         let complete = now + latency;
-        self.busy_until = if self.is_pipelined { now + 1 } else { complete };
+        if self.is_pipelined {
+            self.busy_until = now + 1;
+        } else {
+            self.busy_until = complete;
+            self.holder = Some(holder);
+        }
         complete
     }
 }
@@ -234,7 +241,13 @@ impl FuPool {
 
         let add = |units: &mut Vec<FuUnit>, fu_type, count, latency, pipelined| {
             for _ in 0..count {
-                units.push(FuUnit { fu_type, latency, is_pipelined: pipelined, busy_until: 0 });
+                units.push(FuUnit {
+                    fu_type,
+                    latency,
+                    is_pipelined: pipelined,
+                    busy_until: 0,
+                    holder: None,
+                });
             }
         };
 
@@ -307,7 +320,13 @@ impl FuPool {
         ];
         for &(ft, lat, pipe) in vec_defaults {
             if !units.iter().any(|u| u.fu_type == ft) {
-                units.push(FuUnit { fu_type: ft, latency: lat, is_pipelined: pipe, busy_until: 0 });
+                units.push(FuUnit {
+                    fu_type: ft,
+                    latency: lat,
+                    is_pipelined: pipe,
+                    busy_until: 0,
+                    holder: None,
+                });
             }
         }
 
@@ -330,14 +349,32 @@ impl FuPool {
 
     /// Occupies `unit` for one instruction issued at cycle `now` and returns
     /// the cycle its result is ready.
-    pub fn acquire(&mut self, unit: FreeUnit, now: u64) -> u64 {
-        self.units[unit.0].acquire(now)
+    pub fn acquire(&mut self, unit: FreeUnit, now: u64, holder: RobTag) -> u64 {
+        self.units[unit.0].acquire(now, holder)
     }
 
     /// Like [`acquire`](Self::acquire) with a latency the instruction sets
     /// (vector ops, whose latency depends on VL and the lane count).
-    pub fn acquire_with_latency(&mut self, unit: FreeUnit, now: u64, latency: u64) -> u64 {
-        self.units[unit.0].acquire_with_latency(now, latency)
+    pub fn acquire_with_latency(
+        &mut self,
+        unit: FreeUnit,
+        now: u64,
+        latency: u64,
+        holder: RobTag,
+    ) -> u64 {
+        self.units[unit.0].acquire_with_latency(now, latency, holder)
+    }
+
+    /// Frees each non-pipelined unit whose instruction `squashed` says is
+    /// gone, as an iterative divider is killed with its instruction (the
+    /// `kill` input of Rocket's and BOOM's `MulDiv`).
+    pub fn release_squashed(&mut self, now: u64, squashed: impl Fn(RobTag) -> bool) {
+        for unit in &mut self.units {
+            if unit.busy_until > now && unit.holder.is_some_and(&squashed) {
+                unit.busy_until = now;
+                unit.holder = None;
+            }
+        }
     }
 
     /// Cycles from `now` until `unit` can take another instruction: one for
@@ -412,7 +449,7 @@ mod tests {
     fn test_pipelined_unit_free_next_cycle() {
         let mut pool = default_pool();
         assert!(pool.free_unit(FuType::IntAlu, 0).is_some());
-        let complete = pool.acquire(pool.free_unit(FuType::IntAlu, 0).unwrap(), 0);
+        let complete = pool.acquire(pool.free_unit(FuType::IntAlu, 0).unwrap(), 0, RobTag::new(1));
         // Latency = 1, so complete = cycle 1
         assert_eq!(complete, 1);
         // Pipelined: unit is free at cycle 1 (busy_until = 0 + 1 = 1, so is_free at cycle 1)
@@ -425,7 +462,7 @@ mod tests {
     fn test_non_pipelined_holds_for_full_latency() {
         let mut pool = default_pool();
         assert!(pool.free_unit(FuType::IntDiv, 0).is_some());
-        let complete = pool.acquire(pool.free_unit(FuType::IntDiv, 0).unwrap(), 0);
+        let complete = pool.acquire(pool.free_unit(FuType::IntDiv, 0).unwrap(), 0, RobTag::new(1));
         // Latency = 35, so complete = cycle 35
         assert_eq!(complete, 35);
         // Non-pipelined: busy_until = 35, NOT free until cycle 35
@@ -438,7 +475,7 @@ mod tests {
     fn test_structural_hazard_all_units_busy() {
         let mut pool = default_pool();
         // FpDivSqrt has count=1
-        pool.acquire(pool.free_unit(FuType::FpDivSqrt, 0).unwrap(), 0);
+        pool.acquire(pool.free_unit(FuType::FpDivSqrt, 0).unwrap(), 0, RobTag::new(1));
         // No more FpDivSqrt units available
         assert!(pool.free_unit(FuType::FpDivSqrt, 0).is_none());
     }
@@ -527,8 +564,12 @@ mod tests {
     #[test]
     fn test_acquire_with_latency() {
         let mut pool = default_pool();
-        let complete =
-            pool.acquire_with_latency(pool.free_unit(FuType::VecIntAlu, 10).unwrap(), 10, 5);
+        let complete = pool.acquire_with_latency(
+            pool.free_unit(FuType::VecIntAlu, 10).unwrap(),
+            10,
+            5,
+            RobTag::new(1),
+        );
         assert_eq!(complete, 15);
         // Pipelined: unit free next cycle
         assert!(pool.free_unit(FuType::VecIntAlu, 11).is_some());

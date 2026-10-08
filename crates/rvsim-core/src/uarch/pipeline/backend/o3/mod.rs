@@ -324,6 +324,7 @@ impl ExecutionEngine for O3Engine {
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.serialization = serialize::Serialization::Off;
+        self.fu_pool.release_squashed(self.cycle, |_| true);
         self.common.data_cache_flush = DataCacheFlush::Idle;
 
         for entry in self.rob.iter_all() {

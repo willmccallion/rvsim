@@ -13,6 +13,7 @@ pub mod inorder_units;
 pub mod pipeline_stats;
 pub mod rob_tag_wrap;
 pub mod serialized_issue;
+pub mod squashed_divide;
 pub mod stage_widths;
 pub mod trap_latency;
 pub mod unit_status;

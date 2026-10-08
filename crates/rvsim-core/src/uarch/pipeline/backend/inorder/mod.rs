@@ -152,6 +152,7 @@ impl InOrderEngine {
         let survives = |tag: crate::uarch::pipeline::rob::RobTag| {
             keep_tag.is_some_and(|k| tag.is_older_or_eq(k))
         };
+        self.fu_pool.release_squashed(self.cycle, |tag| !survives(tag));
         self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
         self.pending.retain(|p| survives(p.entry.rob_tag));
         self.execute_mem1.retain(|e| survives(e.rob_tag));
@@ -478,6 +479,7 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
+        self.fu_pool.release_squashed(self.cycle, |_| true);
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.vec_store_buffer.flush_speculative();
