@@ -29,7 +29,8 @@ All notable changes to this project are documented here. The format is based on 
   instruction ahead of it retired, as commit ran before issue in the same
   cycle (#150). It now checks the ROB head as the cycle began, so it
   issues at the earliest the cycle after: one cycle more per such
-  instruction on both backends.
+  instruction on both backends. A device read, which memory1 holds until
+  it is the oldest instruction, waits for the same latched head.
 
 ## Releases
 
