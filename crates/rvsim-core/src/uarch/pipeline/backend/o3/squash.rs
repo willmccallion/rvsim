@@ -198,6 +198,7 @@ impl O3Engine {
             self.common.squash_all();
         }
         let survives = |tag: RobTag| keep_tag.is_some_and(|keep_tag| tag.is_older_or_eq(keep_tag));
+        self.fu_pool.release_squashed(self.cycle, |tag| !survives(tag));
         self.mem1_mem2.retain(|e| survives(e.rob_tag));
         self.mem2_wb.retain(|e| survives(e.rob_tag));
         self.pending_results.retain(|p| survives(p.entry.rob_tag));

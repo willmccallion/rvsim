@@ -193,9 +193,9 @@ impl InOrderIssueUnit {
                         state.hart().csrs.vl as usize,
                         state.config.pipeline.vector_lanes(),
                     );
-                    fu_pool.acquire_with_latency(unit, now, latency)
+                    fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
                 } else {
-                    fu_pool.acquire(unit, now)
+                    fu_pool.acquire(unit, now, entry.rob_tag)
                 };
                 let busy_cycles = fu_pool.busy_cycles(unit, now);
                 let Some(mut issued) = self.queue.pop_front() else { break };

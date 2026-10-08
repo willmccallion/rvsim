@@ -55,6 +55,12 @@ All notable changes to this project are documented here. The format is based on 
   hardware, where the redirect is registered first (#157). It now starts
   the cycle after; redirects from execute already waited
   `redirect_latency`.
+- A divide or other non-pipelined operation squashed on a wrong path, or
+  flushed by a trap, kept its unit busy until its full latency had passed,
+  so the right path's divide waited for up to 35 cycles more (#153).
+  Iterative dividers are killed with their instruction (the `kill` of
+  Rocket's and BOOM's `MulDiv`); the unit is now freed when the
+  instruction holding it is squashed or flushed, on both backends.
 
 ## Releases
 
