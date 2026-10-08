@@ -37,7 +37,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
-use crate::uarch::pipeline::rob::Rob;
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
 use crate::uarch::pipeline::squash::PendingSquash;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
@@ -346,6 +346,7 @@ impl ExecutionEngine for InOrderEngine {
             rename_output.clear();
         }
 
+        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
         let commit_event = commit::commit_stage(
             state,
             CommitResources {
@@ -417,6 +418,7 @@ impl ExecutionEngine for InOrderEngine {
             let (issued, units, held) = self.issuer.select(
                 self.issue_width,
                 &self.rob,
+                self.common.head_at_cycle_start,
                 &self.store_buffer,
                 &self.vec_store_buffer,
                 &state.stage(),

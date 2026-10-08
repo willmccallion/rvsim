@@ -19,7 +19,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
-use crate::uarch::pipeline::rob::{Rob, RobState, RobTag};
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobState, RobTag};
 
 /// Readiness state of a single source operand.
 #[derive(Clone, Copy, Debug, Default)]
@@ -224,6 +224,8 @@ pub struct IssueBudget<'a> {
     pub now: u64,
     /// The memory pipeline cannot take a memory op this cycle.
     pub memory_blocked: bool,
+    /// The oldest instruction as the cycle began.
+    pub head: HeadAtCycleStart,
 }
 
 /// The instructions [`IssueQueue::select`] chose, and how many ready ones
@@ -435,7 +437,9 @@ impl IssueQueue {
         for (i, slot) in self.slots.iter().enumerate() {
             let Some(iq) = slot else { continue };
             let Some(part) = iq.ready_part() else { continue };
-            if part != IssuePart::StoreData && !Self::may_issue_now(iq, store_buffer, rob) {
+            if part != IssuePart::StoreData
+                && !Self::may_issue_now(iq, store_buffer, rob, budget.head)
+            {
                 continue;
             }
             ready.push((i, part, iq.entry.rob_tag));
@@ -443,8 +447,10 @@ impl IssueQueue {
 
         ready.sort_by(|a, b| a.2.age_cmp(b.2));
 
-        let mut selection =
-            Selection { oldest: self.oldest_hold(store_buffer, rob), ..Selection::default() };
+        let mut selection = Selection {
+            oldest: self.oldest_hold(store_buffer, rob, budget.head),
+            ..Selection::default()
+        };
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
@@ -506,12 +512,17 @@ impl IssueQueue {
 
     /// What holds the oldest queued instruction this cycle, before any is
     /// chosen: its operands, the ordering rules, or nothing.
-    fn oldest_hold(&self, store_buffer: &StoreBuffer, rob: &Rob) -> Option<IssueHold> {
+    fn oldest_hold(
+        &self,
+        store_buffer: &StoreBuffer,
+        rob: &Rob,
+        head: HeadAtCycleStart,
+    ) -> Option<IssueHold> {
         let oldest =
             self.slots.iter().flatten().min_by(|a, b| a.entry.rob_tag.age_cmp(b.entry.rob_tag))?;
         let Some(part) = oldest.ready_part() else { return Some(IssueHold::Operands) };
         let ordered =
-            part == IssuePart::StoreData || Self::may_issue_now(oldest, store_buffer, rob);
+            part == IssuePart::StoreData || Self::may_issue_now(oldest, store_buffer, rob, head);
         (!ordered).then_some(IssueHold::Ordering)
     }
 
@@ -540,7 +551,12 @@ impl IssueQueue {
 
     /// Whether an entry whose operands are ready may issue this cycle under
     /// the memory-ordering and serialisation rules.
-    fn may_issue_now(iq: &IssueQueueEntry, store_buffer: &StoreBuffer, rob: &Rob) -> bool {
+    fn may_issue_now(
+        iq: &IssueQueueEntry,
+        store_buffer: &StoreBuffer,
+        rob: &Rob,
+        head: HeadAtCycleStart,
+    ) -> bool {
         let mem_ready = match &iq.mem_dep {
             MemDepState::None | MemDepState::Bypass | MemDepState::Resolved(_) => true,
             MemDepState::WaitAll => !store_buffer.has_unresolved_store_before(iq.entry.rob_tag),
@@ -557,13 +573,13 @@ impl IssueQueue {
         if ctrl.system_op != SystemOp::None
             && ctrl.system_op != SystemOp::Fence
             && !ctrl.system_op.is_cbo()
-            && !rob.is_head(iq.entry.rob_tag)
+            && !head.is(iq.entry.rob_tag)
         {
             return false;
         }
         // An AMO or store-conditional is non-speculative (gem5's
         // IsNonSpeculative): it executes only as the oldest.
-        if ctrl.performs_at_rob_head() && !rob.is_head(iq.entry.rob_tag) {
+        if ctrl.performs_at_rob_head() && !head.is(iq.entry.rob_tag) {
             return false;
         }
         {

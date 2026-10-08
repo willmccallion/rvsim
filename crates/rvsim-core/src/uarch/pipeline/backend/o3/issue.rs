@@ -63,6 +63,7 @@ impl O3Engine {
             units: &self.fu_pool,
             now,
             memory_blocked,
+            head: self.common.head_at_cycle_start,
         };
         let selection = self.issue_queue.select(&budget, &self.store_buffer, &self.rob);
         let issued_any = !selection.entries.is_empty() || !selection.store_data.is_empty();

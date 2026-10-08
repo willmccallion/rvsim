@@ -18,7 +18,7 @@ use crate::uarch::pipeline::frontend::{Frontend, STAGE_DELAY};
 use crate::uarch::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
-use crate::uarch::pipeline::rob::{Rob, RobTag};
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
 
@@ -222,6 +222,8 @@ pub struct BackendCommon {
     pub vector_config_unresolved: bool,
     /// A trap on its way to being taken.
     pub trap: TrapProgress,
+    /// The ROB head as this cycle began, before its commit.
+    pub head_at_cycle_start: HeadAtCycleStart,
     /// The squash execute asked for that has not been taken yet. Commit
     /// retires nothing it will remove.
     pub pending_squash: Option<PendingSquash>,
