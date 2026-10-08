@@ -1,19 +1,24 @@
 //! A load from a device register has a side effect, so it may only be
 //! issued once it is the oldest instruction in the machine: nothing older
-//! can still fault, redirect, or be interrupted around it.
+//! can still fault, redirect, or be interrupted around it. It reads the
+//! device itself, never a buffered store to the same register.
 
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::TestContext;
 
 const T0: u32 = 5;
 const T1: u32 = 6;
+const T2: u32 = 7;
 const A0: u32 = 10;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: usize = 40;
 /// The CLINT's `mtime`, which counts every cycle with `clint_divider = 1`.
 const MTIME: u64 = 0x0200_BFF8;
+/// The UART's transmit (write) and receive (read) register share an address.
+const UART_THR_RBR: i32 = 0x1000_0000;
+const DONE: u64 = 1;
 
 /// A dependent chain of `CHAIN` adds that keeps the ROB head busy, then an
 /// independent load of `mtime` that an out-of-order core could issue at
@@ -56,4 +61,55 @@ fn a_device_load_waits_until_it_is_the_oldest_instruction_inorder() {
     let seen = mtime_seen_by_the_load(BackendKind::InOrder);
 
     assert!(seen >= CHAIN as u64, "mtime {seen} was read before the {CHAIN}-add chain retired");
+}
+
+/// Sends 'A' through the UART's transmit register, optionally fences, then
+/// reads its receive register, which holds nothing: the read must see 0.
+fn uart_receive_after_transmit(fenced: bool) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().addi(T1, 0, i32::from(b'A')).build(),
+        i().lui(A0, UART_THR_RBR >> 12).build(),
+        i().sb(A0, T1, 0).build(),
+    ];
+    if fenced {
+        program.push(FENCE_IORW);
+    }
+    program.extend([
+        i().lbu(T2, A0, 0).build(),
+        i().addi(T0, 0, DONE as i32).build(),
+        i().jal(0, 0).build(),
+    ]);
+    program
+}
+
+fn receive_register_read(backend: BackendKind, width: usize, fenced: bool) -> u64 {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.pipeline.width = width;
+    config.system.console = crate::config::Console::Quiet;
+    let program = uart_receive_after_transmit(fenced);
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+
+    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(T0 as usize) == DONE);
+
+    assert!(finished.is_some(), "{backend:?} width {width}: the program did not finish");
+    ctx.get_reg(T2 as usize)
+}
+
+#[test]
+fn a_device_load_reads_the_device_not_a_buffered_store_to_it() {
+    let mut nonzero = Vec::new();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        for width in [1, 4] {
+            for fenced in [false, true] {
+                let read = receive_register_read(backend, width, fenced);
+                if read != 0 {
+                    nonzero.push(format!("{backend:?} width {width} fenced {fenced}: {read:#x}"));
+                }
+            }
+        }
+    }
+
+    assert!(nonzero.is_empty(), "the receive register read a stored byte: {nonzero:#?}");
 }

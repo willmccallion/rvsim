@@ -112,6 +112,15 @@ impl InstructionBuilder {
         self
     }
 
+    pub fn lbu(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+        self.opcode = OP_LOAD;
+        self.rd = rd;
+        self.rs1 = rs1;
+        self.funct3 = 0b100;
+        self.imm = imm;
+        self
+    }
+
     pub fn lw(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
         self.opcode = OP_LOAD;
         self.rd = rd;

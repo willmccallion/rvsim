@@ -25,6 +25,9 @@
 //!     - SB miss → emit `MemReq` to L1D and park [`OutstandingLoad`].
 //!   - For **LR**: replay while any older store to the same address has not
 //!     been written. Otherwise emit `MemReq` and park.
+//!   - For a **device load**: replay until it is the oldest instruction and
+//!     every older store to its bytes has been written, then emit `MemReq`
+//!     to the device. It never forwards from a buffered store.
 //!   - For **AMO / SC** (and an LR with `rl`), issued as the oldest
 //!     instruction: replay until every older store has been written, set
 //!     the PTE's D bit, then emit `MemReq` and park; the cache performs it.
@@ -317,10 +320,7 @@ fn process_entry<E: ExecutionEngine>(
             return EntryOutcome::Done;
         }
         // LR: wait for older stores to this address to drain.
-        if engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
-            || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.rob_tag)
-            || state.core_mut().wcb.request_send(paddr, size as usize)
-        {
+        if older_store_unwritten(state, engine, &ex, paddr, size) {
             return EntryOutcome::Replay(ex);
         }
         if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
@@ -330,14 +330,23 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Done;
     }
 
+    let pc = VirtAddr::new(ex.pc);
+
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
-    // instruction in the machine.
-    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
-        return EntryOutcome::Replay(ex);
+    // instruction in the machine. A register need not read back what was
+    // written to it, so the read goes to the device after the stores to it.
+    if reads_a_device(state, paddr, size) {
+        if !takes_effect_now(engine, ex.rob_tag)
+            || older_store_unwritten(state, engine, &ex, paddr, size)
+        {
+            return EntryOutcome::Replay(ex);
+        }
+        emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+        send_load_prefetches(state, engine, pc, vaddr, paddr);
+        return EntryOutcome::Done;
     }
 
-    let pc = VirtAddr::new(ex.pc);
     match forward_from_pending_stores(state, engine, &ex, paddr, size as usize) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
@@ -581,6 +590,20 @@ fn resolve_block_op<E: ExecutionEngine>(
     {
         outcome.violation = Some((load, ex.pc));
     }
+}
+
+/// True while a store older than `ex` that writes any of the `size` bytes
+/// at `paddr` has not been written; a WCB line holding them is sent.
+fn older_store_unwritten<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &E,
+    ex: &ExMem1Entry,
+    paddr: PhysAddr,
+    size: u64,
+) -> bool {
+    engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
+        || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.rob_tag)
+        || state.core_mut().wcb.request_send(paddr, size as usize)
 }
 
 /// True while a committed store has yet to finish writing.

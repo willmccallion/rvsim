@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format is based on 
   raises `ValueError`, and a config dict holding 0 fails to load. `Cache`
   takes `None` for the default. **Breaking:** code passing 0 for the
   default must pass `None` or leave the argument out.
+- A load from a device took its value from an older store to the same
+  bytes still in the store buffer instead of reading the device (#146):
+  reading the UART's receive register right after writing its transmit
+  register, which share an address, returned the transmitted byte unless
+  a FENCE separated them. A device load now waits for older stores to its
+  bytes to be written and then reads the device.
 
 ## Releases
 
