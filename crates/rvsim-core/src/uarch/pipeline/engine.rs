@@ -79,8 +79,11 @@ pub trait ExecutionEngine {
     /// intra-bundle RAW hazard check.
     fn has_register_renaming(&self) -> bool;
 
-    /// Whether fetch spends the cycle a redirect reaches it squashing and
-    /// fetches from the target the cycle after, as gem5's O3 fetch does.
+    /// Whether fetch spends the cycle this tick's redirect reaches it
+    /// squashing and fetches from the target the cycle after: every
+    /// redirect on the out-of-order engine, as gem5's O3 fetch does, and a
+    /// redirect taken at commit on the in-order one, whose execute-time
+    /// redirects already wait `redirect_latency`.
     fn fetch_squashes_for_a_cycle(&self) -> bool;
 
     /// Whether a taken squash still holds rename, so the cycle is not idle.
