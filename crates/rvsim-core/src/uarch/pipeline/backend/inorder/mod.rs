@@ -103,6 +103,9 @@ pub struct InOrderEngine {
     cycle: u64,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
+    /// This cycle's redirect came from commit, which fetch learns of the
+    /// cycle after.
+    redirected_at_commit: bool,
 }
 
 impl InOrderEngine {
@@ -327,6 +330,7 @@ impl InOrderEngine {
             common,
             cycle: 0,
             redirect_latency: config.pipeline.redirect_latency(),
+            redirected_at_commit: false,
         }
     }
 }
@@ -340,6 +344,7 @@ impl ExecutionEngine for InOrderEngine {
     ) {
         self.cycle += 1;
         let now = self.cycle;
+        self.redirected_at_commit = false;
 
         if let Some(squash) = self.common.take_due_squash(now) {
             self.apply_squash(state, squash, redirect);
@@ -367,12 +372,14 @@ impl ExecutionEngine for InOrderEngine {
                 self.flush(state);
                 state.trap(&trap, pc);
                 *redirect = Some(state.hart.pc);
+                self.redirected_at_commit = true;
                 return;
             }
             Some(CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc)) => {
                 self.flush(state);
                 state.hart.pc = pc;
                 *redirect = Some(pc);
+                self.redirected_at_commit = true;
                 return;
             }
             None => {}
@@ -511,7 +518,7 @@ impl ExecutionEngine for InOrderEngine {
 
     /// Minor's fetch follows a branch the cycle it arrives.
     fn fetch_squashes_for_a_cycle(&self) -> bool {
-        false
+        self.redirected_at_commit
     }
 
     fn is_recovering_from_squash(&self) -> bool {

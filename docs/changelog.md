@@ -49,6 +49,12 @@ All notable changes to this project are documented here. The format is based on 
   hardware without C steps 4 (#156). Fetch now sizes instructions from
   the current `misa`, as branch targets already did.
   `Config(isa="RV64IM")` sets the hart's ISA from Python.
+- On the in-order backend, fetch started at the target of a redirect
+  commit took (a trap, xRET, FENCE.I, SFENCE.VMA, a re-execute) in the
+  same cycle, one cycle earlier than on the out-of-order backend and in
+  hardware, where the redirect is registered first (#157). It now starts
+  the cycle after; redirects from execute already waited
+  `redirect_latency`.
 
 ## Releases
 
