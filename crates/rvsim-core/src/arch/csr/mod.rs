@@ -247,9 +247,9 @@ pub struct Csrs {
     /// Currently selected trigger index (tselect).
     pub tselect: u64,
     /// Trigger data1 per slot (mcontrol config).
-    pub tdata1: [u64; 2],
+    pub tdata1: [u64; crate::arch::trigger::TRIGGER_COUNT],
     /// Trigger data2 per slot (address match value).
-    pub tdata2: [u64; 2],
+    pub tdata2: [u64; crate::arch::trigger::TRIGGER_COUNT],
     /// Trigger control register (mte=bit3, mpte=bit7).
     pub tcontrol: u64,
 }

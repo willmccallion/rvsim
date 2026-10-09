@@ -2,6 +2,7 @@
 
 use super::CoreCtx;
 use crate::arch::Hart;
+use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::{PagingMode, Trap};
@@ -303,22 +304,11 @@ impl CoreCtx<'_> {
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
             // Sdtrig — trigger CSR writes
             x if x == csr::TSELECT.as_u32() => {
-                // WARL: clamp to valid trigger index
-                self.hart.csrs.tselect = val.min(1); // MAX_TRIGGERS-1 = 1
+                self.hart.csrs.tselect = val.min(trigger::TRIGGER_COUNT as u64 - 1);
             }
             x if x == csr::TDATA1.as_u32() => {
                 let i = self.hart.csrs.tselect as usize;
-                let ttype = (val >> 60) & 0xF;
-                if ttype == 2 {
-                    // mcontrol: accept supported fields, force action=0, dmode=0
-                    const MCONTROL_MASK: u64 = (0xFu64 << 60) // type
-                        | (1 << 13) | (1 << 11) | (1 << 10)   // m, s, u
-                        | (1 << 9) | (1 << 8) | (1 << 7); // execute, store, load
-                    self.hart.csrs.tdata1[i] = val & MCONTROL_MASK;
-                } else {
-                    // type=0 or unsupported: disable trigger
-                    self.hart.csrs.tdata1[i] = 0;
-                }
+                self.hart.csrs.tdata1[i] = trigger::tdata1_written(val);
             }
             x if x == csr::TDATA2.as_u32() => {
                 let i = self.hart.csrs.tselect as usize;
