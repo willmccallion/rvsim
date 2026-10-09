@@ -323,6 +323,35 @@ mod tests {
         Vpr::new(Vlen::new_unchecked(128))
     }
 
+    /// The flags `op` raises on one Zvfh element pair `vs2[0]`, `vs1[0]`
+    /// with `vd[0]` as an FMA's addend.
+    fn f16_flags(op: VectorOp, vs2: u16, vs1: u16, vd: u16) -> FpFlags {
+        let mut vpr = vpr128();
+        let ctx = VecExecCtx { zvfh: true, ..make_ctx(Sew::E16, 1) };
+        let (v1, v2, v3) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(3));
+        vpr.write_element(v2, ElemIdx::new(0), Sew::E16, u64::from(vs2));
+        vpr.write_element(v1, ElemIdx::new(0), Sew::E16, u64::from(vs1));
+        vpr.write_element(v3, ElemIdx::new(0), Sew::E16, u64::from(vd));
+
+        vec_fp_execute(op, &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx).fp_flags
+    }
+
+    #[test]
+    fn a_zvfh_sum_of_opposite_infinities_is_invalid() {
+        assert!(f16_flags(VectorOp::VFAdd, 0xfc00, 0x7c00, 0).contains(FpFlags::NV));
+        assert!(f16_flags(VectorOp::VFSub, 0x7c00, 0x7c00, 0).contains(FpFlags::NV));
+    }
+
+    #[test]
+    fn a_zvfh_zero_times_infinity_is_invalid() {
+        assert!(f16_flags(VectorOp::VFMul, 0x0000, 0x7c00, 0).contains(FpFlags::NV));
+    }
+
+    #[test]
+    fn a_zvfh_fused_zero_times_infinity_is_invalid_even_with_a_quiet_nan_addend() {
+        assert!(f16_flags(VectorOp::VFMacc, 0x0000, 0x7c00, 0x7e00).contains(FpFlags::NV));
+    }
+
     #[test]
     fn test_vfadd_f32() {
         let mut vpr = vpr128();

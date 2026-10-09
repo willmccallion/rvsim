@@ -233,6 +233,31 @@ const fn overflow_result(sign_u16: u16, rm: RoundingMode) -> u16 {
 /// of working precision). The f64 result is then software-rounded to
 /// f16 with the given RISC-V rounding mode by [`half::f64_to_f16`],
 /// which also accumulates the IEEE 754 exception flags.
+/// Whether `a + b` is an invalid operation: infinities of opposite sign.
+#[must_use]
+pub const fn sum_is_invalid(a: f64, b: f64) -> bool {
+    a.is_infinite() && b.is_infinite() && a.is_sign_negative() != b.is_sign_negative()
+}
+
+/// Whether `a × b` is an invalid operation: zero times infinity.
+#[must_use]
+pub const fn product_is_invalid(a: f64, b: f64) -> bool {
+    (a == 0.0 && b.is_infinite()) || (a.is_infinite() && b == 0.0)
+}
+
+/// Whether `a × b + c` is an invalid operation: the product is, even with a
+/// quiet-NaN addend, or an infinite product meets an infinity of the other
+/// sign.
+#[must_use]
+pub const fn fused_is_invalid(a: f64, b: f64, c: f64) -> bool {
+    product_is_invalid(a, b) || (!a.is_nan() && !b.is_nan() && sum_is_invalid(a * b, c))
+}
+
+/// `NV` when an operand is a signaling NaN or the operation is invalid.
+const fn invalid_flag(signaling_nan: bool, invalid: bool) -> FpFlags {
+    if signaling_nan || invalid { FpFlags::NV } else { FpFlags::NONE }
+}
+
 pub(super) fn execute_f16(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
     // Set the host FPU rounding mode for the intermediate f64 step. This
     // matters for edge cases like `a + (-a)` under RDN where the host
@@ -265,20 +290,20 @@ pub(super) fn execute_f16_inner(
         AluOp::FAdd => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            arith(fa + fb, nv)
+            let snan = is_snan_f16(ha) || is_snan_f16(hb);
+            arith(fa + fb, invalid_flag(snan, sum_is_invalid(fa, fb)))
         }
         AluOp::FSub => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            arith(fa - fb, nv)
+            let snan = is_snan_f16(ha) || is_snan_f16(hb);
+            arith(fa - fb, invalid_flag(snan, sum_is_invalid(fa, -fb)))
         }
         AluOp::FMul => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            arith(fa * fb, nv)
+            let snan = is_snan_f16(ha) || is_snan_f16(hb);
+            arith(fa * fb, invalid_flag(snan, product_is_invalid(fa, fb)))
         }
         AluOp::FDiv => {
             let fa = f16_to_f32(ha) as f64;
@@ -311,44 +336,32 @@ pub(super) fn execute_f16_inner(
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
             let fc = f16_to_f32(hc) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
-                FpFlags::NV
-            } else {
-                FpFlags::NONE
-            };
+            let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
+            let nv = invalid_flag(snan, fused_is_invalid(fa, fb, fc));
             arith(fa.mul_add(fb, fc), nv)
         }
         AluOp::FMSub => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
             let fc = f16_to_f32(hc) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
-                FpFlags::NV
-            } else {
-                FpFlags::NONE
-            };
+            let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
+            let nv = invalid_flag(snan, fused_is_invalid(fa, fb, -fc));
             arith(fa.mul_add(fb, -fc), nv)
         }
         AluOp::FNMAdd => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
             let fc = f16_to_f32(hc) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
-                FpFlags::NV
-            } else {
-                FpFlags::NONE
-            };
+            let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
+            let nv = invalid_flag(snan, fused_is_invalid(-fa, fb, -fc));
             arith((-fa).mul_add(fb, -fc), nv)
         }
         AluOp::FNMSub => {
             let fa = f16_to_f32(ha) as f64;
             let fb = f16_to_f32(hb) as f64;
             let fc = f16_to_f32(hc) as f64;
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
-                FpFlags::NV
-            } else {
-                FpFlags::NONE
-            };
+            let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
+            let nv = invalid_flag(snan, fused_is_invalid(-fa, fb, fc));
             arith((-fa).mul_add(fb, fc), nv)
         }
 

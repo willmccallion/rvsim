@@ -6,7 +6,8 @@ use super::convert::{
 use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32, vfrsqrt7_64};
 use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{
-    CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16,
+    CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid,
+    sum_is_invalid,
 };
 use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{
@@ -310,24 +311,16 @@ pub(super) fn compute_f16(
         let (bits, flags) = f64_to_f16(val, rm);
         (bits as u64, flags | extra)
     };
+    let signaling_nan = is_snan_f16(ha) || is_snan_f16(hb);
+    let invalid = |invalid_operation: bool| {
+        if signaling_nan || invalid_operation { FpFlags::NV } else { FpFlags::NONE }
+    };
 
     match op {
-        VectorOp::VFAdd => {
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            round(fa + fb, nv)
-        }
-        VectorOp::VFSub => {
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            round(fa - fb, nv)
-        }
-        VectorOp::VFRSub => {
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            round(fb - fa, nv)
-        }
-        VectorOp::VFMul => {
-            let nv = if is_snan_f16(ha) || is_snan_f16(hb) { FpFlags::NV } else { FpFlags::NONE };
-            round(fa * fb, nv)
-        }
+        VectorOp::VFAdd => round(fa + fb, invalid(sum_is_invalid(fa, fb))),
+        VectorOp::VFSub => round(fa - fb, invalid(sum_is_invalid(fa, -fb))),
+        VectorOp::VFRSub => round(fb - fa, invalid(sum_is_invalid(fb, -fa))),
+        VectorOp::VFMul => round(fa * fb, invalid(product_is_invalid(fa, fb))),
         VectorOp::VFDiv => {
             let mut extra = FpFlags::NONE;
             if is_snan_f16(ha) || is_snan_f16(hb) {

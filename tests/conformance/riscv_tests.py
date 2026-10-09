@@ -44,6 +44,11 @@ SUITES = [
     "rv64uf",
     "rv64ud",
     "rv64uc",
+    "rv64uzba",
+    "rv64uzbb",
+    "rv64uzbc",
+    "rv64uzbs",
+    "rv64uzfh",
     "rv64mi",
     "rv64si",
 ]
