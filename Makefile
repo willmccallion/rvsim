@@ -32,6 +32,7 @@ endif
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
+.PHONY: lockstep lockstep-build lockstep-smoke
 .PHONY: test-all test-all-smoke conformance-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
@@ -61,6 +62,9 @@ help:
 	@printf "    %-$(HELP_W)s  Run RVV cosim suite (rvsim vs spike)\n" "make vector-test"
 	@printf "    %-$(HELP_W)s  Smoke RVV suite (a sample of every instruction class)\n" "make vector-test-smoke"
 	@printf "    %-$(HELP_W)s  Run RVV cosim across all PIPELINES (slow)\n" "make vector-test-multi"
+	@printf "    %-$(HELP_W)s  Build the spike lockstep driver (one-time)\n" "make lockstep-build"
+	@printf "    %-$(HELP_W)s  Check every program against spike in lockstep, all PIPELINES\n" "make lockstep"
+	@printf "    %-$(HELP_W)s  Lockstep against spike on the smoke configs\n" "make lockstep-smoke"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
@@ -247,10 +251,29 @@ vector-test-multi: vector-test-build python
 	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
 	.venv/bin/python tests/conformance/vector_tests.py --vlen $(VECTOR_VLEN)
 
+# Spike lockstep: tools/lockstep/spike_lockstep replays rvsim's commit log on
+# spike's library, built against the local spike.
+SPIKE_INSTALL   := $(TEST_BUILDS)/spike-install
+LOCKSTEP_DRIVER := $(TEST_BUILDS)/lockstep/spike_lockstep
+
+$(LOCKSTEP_DRIVER): tools/lockstep/spike_lockstep.cc $(SPIKE_LOCAL)
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++2a -O2 -Wall -Wextra -Werror -I$(SPIKE_INSTALL)/include -o $@ $< \
+		-L$(SPIKE_INSTALL)/lib -lriscv -ldisasm -lfesvr \
+		-Wl,-rpath,$(abspath $(SPIKE_INSTALL)/lib) -lpthread -ldl
+
+lockstep-build: $(LOCKSTEP_DRIVER)
+
+lockstep: lockstep-build riscv-tests-build software python
+	.venv/bin/python tests/conformance/lockstep.py
+
+lockstep-smoke: lockstep-build riscv-tests-build software python
+	.venv/bin/python tests/conformance/lockstep.py --smoke
+
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
 # summary, exits non-zero on any failure. Several CPU-hours.
-test-all: riscv-tests-build vector-test-build software python
+test-all: riscv-tests-build vector-test-build lockstep-build software python
 	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
 	.venv/bin/python tests/run_all.py
 
