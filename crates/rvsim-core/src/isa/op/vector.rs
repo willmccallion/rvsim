@@ -529,6 +529,24 @@ impl VectorOp {
         matches!(self, Self::Vsetvli | Self::Vsetivli | Self::Vsetvl)
     }
 
+    /// True for the ops that execute even when `vstart` ≥ `vl`: those that
+    /// write an `x` or `f` register, and the whole-register moves, which
+    /// ignore `vl`. Every other op then updates no destination element.
+    #[must_use]
+    pub const fn executes_without_body(self) -> bool {
+        matches!(
+            self,
+            Self::VMvXS
+                | Self::VFMvFS
+                | Self::VCPopM
+                | Self::VFirstM
+                | Self::VMv1r
+                | Self::VMv2r
+                | Self::VMv4r
+                | Self::VMv8r
+        )
+    }
+
     /// Compute the vector register group size for each operand given the base
     /// LMUL (1, 2, 4, or 8) and the source encoding.
     ///

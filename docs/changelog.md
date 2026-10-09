@@ -69,6 +69,12 @@ All notable changes to this project are documented here. The format is based on 
   twice (to binary64, then to the result format) in every mode, and now
   round once. The Zvfh widening add, subtract and multiply lost the flags
   of their final rounding to binary32 (#180).
+- A vector instruction with `vstart` ≥ `vl` updated its destination (#183):
+  a reduction with vl=0 wrote `vs1[0]` into `vd[0]`, and element-wise ops
+  filled their tail with ones under a tail-agnostic policy. The vector spec
+  says no destination element, agnostic or not, is updated then. Now none
+  is, except by the instructions that still execute: those writing an `x`
+  or `f` register and the whole-register moves.
 
 ## Releases
 

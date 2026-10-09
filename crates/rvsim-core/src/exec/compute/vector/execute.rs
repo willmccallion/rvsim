@@ -175,6 +175,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
 
     let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm, frm, elen, zvfh);
     ctx.vm = inst.ctrl.vm;
+    if ctx.vstart >= ctx.vl && !inst.ctrl.vec_op.executes_without_body() {
+        return Ok(VecExecResult::default());
+    }
     let operand1 = build_operand1(inst);
     let vec_op = inst.ctrl.vec_op;
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
@@ -235,4 +238,85 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
         }
     };
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::regs::vpr::Vpr;
+    use crate::exec::signals::ControlSignals;
+    use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
+
+    const E32_M1_TAIL_AGNOSTIC: u64 = 0x50;
+    const ELEN: usize = 64;
+    const VD_BEFORE: u64 = 0x1234_5678;
+
+    fn vector_inst(vec_op: VectorOp) -> Inst {
+        let ctrl = ControlSignals {
+            vec_op,
+            vd: VRegIdx::new(1),
+            vs2: VRegIdx::new(2),
+            vs1: VRegIdx::new(3),
+            vm: true,
+            ..ControlSignals::default()
+        };
+        Inst { ctrl, ..Inst::default() }
+    }
+
+    /// Registers with `VD_BEFORE` in every element of `v1`, `7` in `v2[0]`
+    /// and `v3[0]`.
+    fn registers() -> Vpr {
+        let mut vpr = Vpr::new(Vlen::new_unchecked(128));
+        for i in 0..4 {
+            vpr.write_element(VRegIdx::new(1), ElemIdx::new(i), Sew::E32, VD_BEFORE);
+        }
+        vpr.write_element(VRegIdx::new(2), ElemIdx::new(0), Sew::E32, 7);
+        vpr.write_element(VRegIdx::new(3), ElemIdx::new(0), Sew::E32, 7);
+        vpr
+    }
+
+    fn run(vpr: &mut Vpr, vec_op: VectorOp, vl: u64, vstart: u64) -> VecExecResult {
+        let inst = vector_inst(vec_op);
+        execute_vec_op_on(vpr, E32_M1_TAIL_AGNOSTIC, vl, vstart, 0, 0, ELEN, false, &inst).unwrap()
+    }
+
+    fn vd_elements(vpr: &Vpr) -> Vec<u64> {
+        (0..4).map(|i| vpr.read_element(VRegIdx::new(1), ElemIdx::new(i), Sew::E32)).collect()
+    }
+
+    #[test]
+    fn a_reduction_with_vl_zero_leaves_its_destination_alone() {
+        let mut vpr = registers();
+
+        let _result = run(&mut vpr, VectorOp::VRedSum, 0, 0);
+
+        assert_eq!(vd_elements(&vpr), vec![VD_BEFORE; 4]);
+    }
+
+    #[test]
+    fn a_tail_agnostic_op_with_vstart_at_vl_fills_no_tail_element() {
+        let mut vpr = registers();
+
+        let _result = run(&mut vpr, VectorOp::VAdd, 2, 2);
+
+        assert_eq!(vd_elements(&vpr), vec![VD_BEFORE; 4]);
+    }
+
+    #[test]
+    fn vmv_x_s_reads_element_zero_when_vl_is_zero() {
+        let mut vpr = registers();
+
+        let result = run(&mut vpr, VectorOp::VMvXS, 0, 0);
+
+        assert_eq!(result.scalar_result, Some(7));
+    }
+
+    #[test]
+    fn a_whole_register_move_copies_when_vl_is_zero() {
+        let mut vpr = registers();
+
+        let _result = run(&mut vpr, VectorOp::VMv1r, 0, 0);
+
+        assert_eq!(vd_elements(&vpr), vec![7, 0, 0, 0]);
+    }
 }
