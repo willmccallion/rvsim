@@ -1,7 +1,7 @@
 //! Fused multiply-add.
 
 use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
+use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16};
 use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
 use crate::exec::compute::vector::context::{
@@ -27,25 +27,21 @@ pub(super) fn compute_fma_f16(
     let op1 = f16_to_f32(hb) as f64;
     let vd = f16_to_f32(hc) as f64;
 
-    let nv = if is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc) {
-        FpFlags::NV
-    } else {
-        FpFlags::NONE
+    let (a, b, c) = match op {
+        VectorOp::VFMacc => (op1, vs2, vd),
+        VectorOp::VFNMacc => (-op1, vs2, -vd),
+        VectorOp::VFMSac => (op1, vs2, -vd),
+        VectorOp::VFNMSac => (-op1, vs2, vd),
+        VectorOp::VFMAdd => (op1, vd, vs2),
+        VectorOp::VFNMAdd => (-op1, vd, -vs2),
+        VectorOp::VFMSub => (op1, vd, -vs2),
+        VectorOp::VFNMSub => (-op1, vd, vs2),
+        _ => (0.0, 0.0, 0.0),
     };
+    let signaling_nan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
+    let nv = if signaling_nan || fused_is_invalid(a, b, c) { FpFlags::NV } else { FpFlags::NONE };
 
-    let r = match op {
-        VectorOp::VFMacc => op1.mul_add(vs2, vd),
-        VectorOp::VFNMacc => (-op1).mul_add(vs2, -vd),
-        VectorOp::VFMSac => op1.mul_add(vs2, -vd),
-        VectorOp::VFNMSac => (-op1).mul_add(vs2, vd),
-        VectorOp::VFMAdd => op1.mul_add(vd, vs2),
-        VectorOp::VFNMAdd => (-op1).mul_add(vd, -vs2),
-        VectorOp::VFMSub => op1.mul_add(vd, -vs2),
-        VectorOp::VFNMSub => (-op1).mul_add(vd, vs2),
-        _ => 0.0,
-    };
-
-    let (bits, flags) = f64_to_f16(r, rm);
+    let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
     (bits as u64, flags | nv)
 }
 

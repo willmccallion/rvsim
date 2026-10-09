@@ -114,3 +114,44 @@ fn test_fpflags_bits() {
     assert_eq!(FpFlags::NX.bits(), 0b00001);
     assert_eq!(FpFlags::NONE.bits(), 0);
 }
+
+const F16_ZERO: u16 = 0x0000;
+const F16_INF: u16 = 0x7c00;
+const F16_NEG_INF: u16 = 0xfc00;
+const F16_ONE: u16 = 0x3c00;
+const F16_QNAN: u16 = 0x7e00;
+
+fn execute_f16(op: AluOp, a: u16, b: u16, c: u16) -> FpFlags {
+    use crate::exec::compute::fpu::half::box_f16;
+    use crate::isa::fp::RoundingMode;
+    let (_, flags) = fpu::execute_full_rm(
+        op,
+        box_f16(a),
+        box_f16(b),
+        box_f16(c),
+        true,
+        false,
+        RoundingMode::Rne,
+    );
+    flags
+}
+
+#[test]
+fn a_half_precision_sum_of_opposite_infinities_is_invalid() {
+    assert!(execute_f16(AluOp::FAdd, F16_NEG_INF, F16_INF, 0).contains(FpFlags::NV));
+    assert!(execute_f16(AluOp::FSub, F16_INF, F16_INF, 0).contains(FpFlags::NV));
+    assert!(!execute_f16(AluOp::FAdd, F16_INF, F16_INF, 0).contains(FpFlags::NV));
+}
+
+#[test]
+fn a_half_precision_zero_times_infinity_is_invalid() {
+    assert!(execute_f16(AluOp::FMul, F16_ZERO, F16_INF, 0).contains(FpFlags::NV));
+    assert!(!execute_f16(AluOp::FMul, F16_ONE, F16_INF, 0).contains(FpFlags::NV));
+}
+
+#[test]
+fn a_half_precision_fused_zero_times_infinity_is_invalid_even_with_a_quiet_nan_addend() {
+    assert!(execute_f16(AluOp::FMAdd, F16_ZERO, F16_INF, F16_QNAN).contains(FpFlags::NV));
+    assert!(execute_f16(AluOp::FMAdd, F16_ONE, F16_INF, F16_NEG_INF).contains(FpFlags::NV));
+    assert!(!execute_f16(AluOp::FMSub, F16_ONE, F16_INF, F16_NEG_INF).contains(FpFlags::NV));
+}

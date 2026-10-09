@@ -47,6 +47,13 @@ All notable changes to this project are documented here. The format is based on 
   (#176). The privileged spec gives the faulting virtual address, which for
   a data trigger is the address accessed; it does now, and a CBO's trigger
   reports the address its other faults report.
+- Half-precision arithmetic, scalar (Zfh) and vector (Zvfh), raised the
+  invalid flag only for a signaling-NaN operand (#178). It now also raises
+  it for ∞ − ∞ in an add or subtract, 0 × ∞ in a multiply, and both in a
+  fused multiply-add, where 0 × ∞ is invalid even with a quiet-NaN addend.
+  `rv64uzfh-p-fadd` failed on this; the riscv-tests runner now runs the
+  `rv64uzfh`, `rv64uzba`, `rv64uzbb`, `rv64uzbc` and `rv64uzbs` suites,
+  which were built but never run.
 
 ## Releases
 
