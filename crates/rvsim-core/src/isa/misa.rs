@@ -2,7 +2,7 @@
 //! strings that name them.
 
 use crate::isa::csr::{
-    MISA_DEFAULT_RV64IMAFDC, MISA_EXT_A, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
+    MISA_DEFAULT_RV64GCB, MISA_EXT_A, MISA_EXT_B, MISA_EXT_C, MISA_EXT_D, MISA_EXT_F, MISA_EXT_I,
     MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_EXT_V, MISA_XLEN_64,
 };
 
@@ -10,20 +10,17 @@ use crate::isa::csr::{
 /// `"rv64gcv"`.
 ///
 /// The string names XLEN 64 and single-letter extensions (`G` is `IMAFD`),
-/// case-insensitively; S and U are always set because the hart implements
-/// both modes.
+/// case-insensitively. S and U are always set because the hart implements
+/// both modes, and B because it implements Zba, Zbb and Zbs whatever the
+/// string names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Misa(u64);
 
 impl Misa {
-    /// RV64IMAFDC with S and U, plus V when `with_v`.
+    /// RV64IMAFDC with B, S and U, plus V when `with_v`.
     #[must_use]
-    pub const fn rv64imafdc(with_v: bool) -> Self {
-        if with_v {
-            Self(MISA_DEFAULT_RV64IMAFDC | MISA_EXT_V)
-        } else {
-            Self(MISA_DEFAULT_RV64IMAFDC)
-        }
+    pub const fn rv64gcb(with_v: bool) -> Self {
+        if with_v { Self(MISA_DEFAULT_RV64GCB | MISA_EXT_V) } else { Self(MISA_DEFAULT_RV64GCB) }
     }
 
     /// The register value.
@@ -65,7 +62,7 @@ impl std::str::FromStr for Misa {
         let Some(extensions) = upper.strip_prefix("RV64") else {
             return Err(IsaStringError::NotRv64(isa.to_string()));
         };
-        let mut bits = MISA_XLEN_64 | MISA_EXT_S | MISA_EXT_U;
+        let mut bits = MISA_XLEN_64 | MISA_EXT_B | MISA_EXT_S | MISA_EXT_U;
         for ext in extensions.chars() {
             bits |= match ext {
                 'G' => MISA_EXT_I | MISA_EXT_M | MISA_EXT_A | MISA_EXT_F | MISA_EXT_D,
@@ -75,6 +72,7 @@ impl std::str::FromStr for Misa {
                 'F' => MISA_EXT_F,
                 'D' => MISA_EXT_D,
                 'C' => MISA_EXT_C,
+                'B' => MISA_EXT_B,
                 'V' => MISA_EXT_V,
                 other => return Err(IsaStringError::Unsupported(isa.to_string(), other)),
             };
@@ -118,12 +116,13 @@ impl std::fmt::Display for IsaStringError {
 impl std::error::Error for IsaStringError {}
 
 /// The single-letter extensions an ISA string can name, in canonical order.
-const ISA_LETTERS: [(char, u64); 7] = [
+const ISA_LETTERS: [(char, u64); 8] = [
     ('i', MISA_EXT_I),
     ('m', MISA_EXT_M),
     ('a', MISA_EXT_A),
     ('f', MISA_EXT_F),
     ('d', MISA_EXT_D),
     ('c', MISA_EXT_C),
+    ('b', MISA_EXT_B),
     ('v', MISA_EXT_V),
 ];

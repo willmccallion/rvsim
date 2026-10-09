@@ -7,7 +7,8 @@ modern compilers emit. Every instruction's behaviour is defined once, in
 the shared execute layer, and both pipelines run that definition
 ([decision 10](decisions/0010-semantics-are-separate-from-timing.md)).
 
-`misa` reads `RV64IMAFDCSUV`. Every extension below is always on except
+`misa` reads `RV64IMAFDCBSUV`, B standing for Zba, Zbb and Zbs. Every
+extension below is always on except
 Svadu, which `Config(svadu=True)` enables; the vector unit's VLEN is set by
 `Config(vlen=...)`.
 

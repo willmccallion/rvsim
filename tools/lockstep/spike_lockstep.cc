@@ -32,8 +32,6 @@
 namespace {
 
 constexpr uint64_t interrupt_bit = 1ULL << 63;
-// misa.B may be clear on a hart with Zba, Zbb and Zbs; spike sets it.
-constexpr uint64_t misa_b = 1ULL << ('B' - 'A');
 constexpr size_t context_lines = 12;
 
 struct MemAccess {
@@ -383,13 +381,11 @@ reg_t implementation_defined_bits(unsigned csr) {
   return csr == CSR_MEDELEG ? 1ULL << CAUSE_MISALIGNED_FETCH : 0;
 }
 
-// CSRs whose value is the implementation's or the clock's, not the ISA's;
-// misa is checked at reset.
+// CSRs whose value is the implementation's or the clock's, not the ISA's.
 bool is_model_specific(unsigned csr) {
   return (csr >= CSR_CYCLE && csr <= CSR_HPMCOUNTER31) ||
          (csr >= CSR_MCYCLE && csr <= CSR_MHPMCOUNTER31) || csr == CSR_MIP || csr == CSR_SIP ||
-         csr == CSR_MVENDORID || csr == CSR_MARCHID || csr == CSR_MIMPID || csr == CSR_MCONFIGPTR ||
-         csr == CSR_MISA;
+         csr == CSR_MVENDORID || csr == CSR_MARCHID || csr == CSR_MIMPID || csr == CSR_MCONFIGPTR;
 }
 
 class Lockstep {
@@ -405,7 +401,7 @@ class Lockstep {
     for (auto [addr, value] : reset.csrs) {
       if (addr == CSR_MISA) {
         uint64_t spike_misa = read_csr(CSR_MISA);
-        if ((spike_misa & ~misa_b) != (value & ~misa_b))
+        if (spike_misa != value)
           throw std::runtime_error("misa differs: rvsim " + hex(value) + ", spike " + hex(spike_misa) +
                                    "; spike lacks an extension rvsim has");
         continue;

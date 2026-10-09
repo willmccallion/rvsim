@@ -736,7 +736,7 @@ fn test_misa_override_option() {
     let config: Config = serde_json::from_str(json).unwrap();
     assert_eq!(
         config.pipeline.misa_override.map(crate::isa::misa::Misa::bits),
-        Some(crate::isa::csr::MISA_DEFAULT_RV64IMAFDC)
+        Some(crate::isa::csr::MISA_DEFAULT_RV64GCB)
     );
 }
 
