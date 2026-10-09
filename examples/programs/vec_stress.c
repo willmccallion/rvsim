@@ -336,9 +336,8 @@ static void test_masked(void) {
             vint64m2_t vb = __riscv_vle64_v_i64m2(pb, vl);
             /* mask: va > threshold */
             vbool32_t mask = __riscv_vmsgt_vx_i64m2_b32(va, threshold, vl);
-            /* Masked add: only where va > threshold */
-            vint64m2_t vr = __riscv_vadd_vv_i64m2_m(mask, va, vb, vl);
-            /* Where mask is false, vr gets va (merge behavior) */
+            /* Masked add where va > threshold; elsewhere va, undisturbed */
+            vint64m2_t vr = __riscv_vadd_vv_i64m2_mu(mask, va, va, vb, vl);
             __riscv_vse64_v_i64m2(pc, vr, vl);
             pa += vl; pb += vl; pc += vl; n -= vl;
         }
