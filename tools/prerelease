@@ -322,17 +322,19 @@ if [[ -n "$MATURIN" ]]; then
         fail "maturin sdist"
     fi
 
-    # Cross-compile aarch64 wheel — requires zig or cross for the linker
-    if command -v zig >/dev/null 2>&1 || command -v cross >/dev/null 2>&1; then
+    # Cross-compile the aarch64 wheel, linking with zig; rust-toolchain.toml
+    # installs the target's std. The dev shell's RUSTFLAGS names the host CPU
+    # and its _PYTHON_HOST_PLATFORM would tag the wheel x86_64.
+    if command -v zig >/dev/null 2>&1; then
         info "maturin build (aarch64-unknown-linux-gnu)"
-        if logged wheel-aarch64 env CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-           "$MATURIN" build --release --target aarch64-unknown-linux-gnu --out "$WHEEL_OUT"; then
+        if logged wheel-aarch64 env -u RUSTFLAGS -u _PYTHON_HOST_PLATFORM "$MATURIN" build \
+           --release --target aarch64-unknown-linux-gnu --zig --out "$WHEEL_OUT"; then
             pass "maturin wheel (aarch64-unknown-linux-gnu)"
         else
             fail "maturin wheel build (aarch64-unknown-linux-gnu)"
         fi
     else
-        info "skipping aarch64 wheel (CI only — zig/cross not found locally)"
+        info "skipping aarch64 wheel (CI only — zig not found locally)"
     fi
 else
     fail "maturin not found — run 'make python' first"
