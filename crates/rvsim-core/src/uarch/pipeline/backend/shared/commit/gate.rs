@@ -174,17 +174,21 @@ fn take_fault(
     let entry = rob.commit_head()?;
     let the_trap = entry.trap.as_ref()?;
     #[cfg(feature = "commit-log")]
-    if let Some(ref mut log) = state.commit_log {
-        use std::io::Write;
-        // Spike skips fetch-stage page/access faults (no valid bits).
-        let skip = matches!(
+    if let Some(ref mut log) = state.uncore.commit_log {
+        // A fetch fault has no instruction to log, as in spike's log.
+        let fetch_fault = matches!(
             the_trap,
             Trap::InstructionPageFault(_)
                 | Trap::InstructionAccessFault(_)
                 | Trap::InstructionAddressMisaligned(_)
         );
-        if !skip {
-            let _ = writeln!(log, "core   0: 0x{:016x} (0x{:08x})", entry.pc, entry.inst);
+        if !fetch_fault {
+            let _ = crate::uarch::pipeline::commit_log::write_faulted(
+                log,
+                entry.pc,
+                entry.inst,
+                state.hart.privilege,
+            );
         }
     }
     trace_trap!(state.trace_trap_enabled(the_trap);

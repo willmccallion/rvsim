@@ -116,7 +116,7 @@ check:
 
 test:
 	@printf "$(GREEN)Running Rust tests…$(RESET)\n"
-	$(CARGO) test --workspace
+	$(CARGO) test --workspace --features rvsim-core/commit-log
 
 test-python: python
 	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
@@ -151,6 +151,7 @@ test-coverage:
 clippy:
 	@printf "$(GREEN)Running clippy…$(RESET)\n"
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
+	$(CARGO) clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings
 
 fmt:
 	@printf "$(GREEN)Formatting Rust code…$(RESET)\n"

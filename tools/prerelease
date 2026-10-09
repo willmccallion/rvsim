@@ -270,7 +270,8 @@ else
 fi
 
 info "cargo clippy"
-if cargo clippy --workspace --all-targets -- -D warnings 2>&1; then
+if cargo clippy --workspace --all-targets -- -D warnings 2>&1 \
+   && cargo clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings 2>&1; then
     pass "clippy"
 else
     fail "clippy"
@@ -280,7 +281,7 @@ fi
 section "Tests"
 
 info "cargo test"
-if logged cargo-test cargo test --workspace; then
+if logged cargo-test cargo test --workspace --features rvsim-core/commit-log; then
     pass "Rust tests"
 else
     fail "Rust tests"

@@ -690,6 +690,36 @@ impl StoreBuffer {
         None
     }
 
+    /// The write a committed plain store makes, for the commit log; `None`
+    /// for a cache-block operation or a tag the buffer does not hold.
+    #[cfg(feature = "commit-log")]
+    pub fn committed_write(
+        &self,
+        rob_tag: RobTag,
+    ) -> Option<crate::uarch::pipeline::commit_log::MemEffect> {
+        let cap = self.entries.len();
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid && entry.rob_tag == rob_tag {
+                let StoreResolution::Committed { paddr, data: StoreData::Bytes(data) } =
+                    entry.resolution
+                else {
+                    return None;
+                };
+                return Some(crate::uarch::pipeline::commit_log::MemEffect::new(
+                    entry.vaddr,
+                    paddr,
+                    entry.width,
+                    None,
+                    Some(data),
+                ));
+            }
+            idx = (idx + 1) % cap;
+        }
+        None
+    }
+
     fn find_by_tag_mut(&mut self, rob_tag: RobTag) -> Option<&mut StoreBufferEntry> {
         let cap = self.entries.len();
         let mut idx = self.head;

@@ -6,6 +6,9 @@
 
 pub mod backend;
 
+#[cfg(feature = "commit-log")]
+pub mod commit_log;
+
 pub mod engine;
 
 pub mod exception;

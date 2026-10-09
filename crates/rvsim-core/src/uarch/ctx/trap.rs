@@ -132,6 +132,12 @@ impl CoreCtx<'_> {
             self.hart.pc = target_pc;
         }
 
+        #[cfg(feature = "commit-log")]
+        if let Some(log) = self.uncore.commit_log.as_mut() {
+            let cause_bits = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
+            let _ = crate::uarch::pipeline::commit_log::write_trap(log, cause_bits, epc, tval);
+        }
+
         let hart_paths = self.hart_paths();
         self.stats.counter(hart_paths.traps).inc();
     }

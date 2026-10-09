@@ -349,14 +349,20 @@ impl Simulator {
     }
 
     /// Opens `path` as the commit log every retired instruction is written
-    /// to.
+    /// to, starting with hart 0's state now.
     ///
     /// # Errors
     ///
-    /// Returns [`SimError::FileRead`] when the file cannot be created.
+    /// Returns [`SimError::FileRead`] when the file cannot be created or
+    /// written.
     #[cfg(feature = "commit-log")]
     pub fn open_commit_log(&mut self, path: &str) -> Result<(), SimError> {
-        self.state.uncore.open_commit_log(path)
+        self.state.uncore.open_commit_log(path)?;
+        let ctx = self.state.core_ctx(0);
+        let Some(mut log) = ctx.uncore.commit_log.take() else { return Ok(()) };
+        let written = crate::uarch::pipeline::commit_log::write_reset(&mut log, &ctx);
+        ctx.uncore.commit_log = Some(log);
+        written.map_err(|source| SimError::FileRead { path: path.to_owned(), source })
     }
 
     /// The `len` bytes of RAM at `paddr`; `None` outside RAM.

@@ -495,12 +495,17 @@ pub struct Mem2WbEntry {
     pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
     pub observed: Option<WriteSeq>,
+    /// The access a load, LR, SC or AMO performed, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
 }
 
 impl Mem2WbEntry {
     /// Carries `mem`, its trap included, into writeback with its final
     /// register value and the reservation record it leaves for commit.
     pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {
+        #[cfg(feature = "commit-log")]
+        let mem_effect = crate::uarch::pipeline::commit_log::MemEffect::of_memory2(&mem);
         Self {
             rob_tag: mem.rob_tag,
             pc: mem.pc,
@@ -519,6 +524,8 @@ impl Mem2WbEntry {
             lr_sc,
             vec_mem: mem.vec_mem,
             observed: mem.observed,
+            #[cfg(feature = "commit-log")]
+            mem_effect,
         }
     }
 }

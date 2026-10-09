@@ -223,6 +223,9 @@ pub struct RobEntry {
     /// Vector register writes a backend without vector renaming holds
     /// back for commit; `Some` marks the entry as an executed vector op.
     pub vec_writes: Option<Box<VectorWrites>>,
+    /// The access a load, LR, SC or AMO performed, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -348,6 +351,8 @@ impl Rob {
             vec_dst_count: 0,
             vxsat: false,
             vec_writes: None,
+            #[cfg(feature = "commit-log")]
+            mem_effect: None,
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -504,6 +509,18 @@ impl Rob {
     pub fn set_lr_sc(&mut self, tag: RobTag, record: LrScRecord) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.lr_sc = Some(record);
+        }
+    }
+
+    /// Records the access a load, LR, SC or AMO performed, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub fn set_mem_effect(
+        &mut self,
+        tag: RobTag,
+        effect: crate::uarch::pipeline::commit_log::MemEffect,
+    ) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.mem_effect = Some(effect);
         }
     }
 

@@ -16,6 +16,8 @@ use crate::trace_commit;
 use crate::trace_csr;
 use crate::trace_trap;
 use crate::uarch::ctx::CoreCtx;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::Retired;
 use crate::uarch::pipeline::engine::BackendCommon;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -35,8 +37,36 @@ pub(super) struct RetireTargets<'a, 'r> {
     pub registers: &'a mut CommitRegisters<'r>,
 }
 
-/// Retires `entry`, which has left the ROB head.
+/// Retires `entry`, which has left the ROB head, and logs it when the
+/// commit log is open.
 pub(super) fn retire_entry(
+    state: &mut CoreCtx<'_>,
+    targets: &mut RetireTargets<'_, '_>,
+    entry: &RobEntry,
+) -> CommitFlow {
+    #[cfg(feature = "commit-log")]
+    let privilege = state.hart.privilege;
+    let flow = apply_retirement(state, targets, entry);
+    #[cfg(feature = "commit-log")]
+    if state.commit_log.is_some() {
+        let store = targets.store_buffer.committed_write(entry.tag);
+        log_retired(state, Retired::capture(entry, privilege, store));
+    }
+    flow
+}
+
+/// Writes `retired`'s commit-log line, reading back the CSR it wrote.
+#[cfg(feature = "commit-log")]
+fn log_retired(state: &mut CoreCtx<'_>, retired: Retired) {
+    let csr_value = retired.csr().map(|addr| state.csr_read(addr));
+    let fflags = retired.raised_fp_flags().then(|| state.csr_read(csr::FFLAGS));
+    if let Some(log) = state.commit_log.as_mut() {
+        let _ = retired.write(log, csr_value, fflags);
+    }
+}
+
+/// Applies `entry`'s architectural effects and releases what it held.
+fn apply_retirement(
     state: &mut CoreCtx<'_>,
     targets: &mut RetireTargets<'_, '_>,
     entry: &RobEntry,
@@ -126,13 +156,6 @@ fn write_destinations(
     entry: &RobEntry,
 ) {
     let val = entry.result.unwrap_or(0);
-    // Taken before the register write so the logged rd value is the result.
-    #[cfg(feature = "commit-log")]
-    let commit_log_entry = state.commit_log.is_some().then(|| {
-        let has_rd = (entry.ctrl.reg_write && !entry.rd.is_zero()) || entry.ctrl.fp_reg_write;
-        (entry.pc, entry.inst, has_rd, entry.rd.as_usize(), val)
-    });
-
     debug_assert!(
         entry.result.is_some() || (!entry.ctrl.reg_write && !entry.ctrl.fp_reg_write),
         "CM: committing instruction with reg_write but no result: rob_tag={} pc={:#x}",
@@ -177,18 +200,6 @@ fn write_destinations(
             registers.retire_vec(state.hart.regs.vpr_mut(), entry, i, vreg);
         }
         retire::mark_vector_retired(state.hart);
-    }
-
-    #[cfg(feature = "commit-log")]
-    if let Some((pc, inst, has_rd, rd, val)) = commit_log_entry
-        && let Some(ref mut log) = state.commit_log
-    {
-        use std::io::Write;
-        if has_rd {
-            let _ = writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x}) x{rd} 0x{val:016x}");
-        } else {
-            let _ = writeln!(log, "core   0: 0x{pc:016x} (0x{inst:08x})");
-        }
     }
 }
 

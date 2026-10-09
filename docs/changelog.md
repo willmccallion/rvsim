@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Simulator.open_commit_log` writes what a reference model needs to replay
+  the run: the architectural state the log starts from, each retired
+  instruction's privilege mode, destination register, the CSR it wrote (as
+  read back), the FP flags it raised and its load or store (virtual and
+  physical address, size and value), and each trap taken. An FP destination
+  was logged as an `x` register. Vector register and vector memory effects
+  are not logged yet.
+
 ## Releases
 
 - [v2.1.0](versions/V2_1_0_CHANGELOG.md) — 2026-10-08 (device loads, FENCE.I coherence, oldest-only issue timing, `Config(isa=...)`)
