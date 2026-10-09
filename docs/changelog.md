@@ -33,6 +33,11 @@ All notable changes to this project are documented here. The format is based on 
   `paging_mode_max`, set MODE to Bare and kept the written ASID and PPN
   (#172). The privileged spec says such a write has no effect, and now it
   has none.
+- The `vec_stress` example's masked-operations check failed on rvsim
+  (#173): it used the mask-agnostic `__riscv_vadd_vv_i64m2_m`, whose
+  inactive elements may be all ones, as rvsim makes them, and expected them
+  to hold `va`. It now uses the mask-undisturbed form with `va` as the merge
+  operand.
 
 ## Releases
 
