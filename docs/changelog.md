@@ -23,6 +23,12 @@ All notable changes to this project are documented here. The format is based on 
 - A `pmpaddr` register kept all 64 bits written to it, so bits 63:54 read
   back as written (#170). On RV64 they read as zero; only bits 53:0
   (physical address bits 55:2) are kept now.
+- Debug triggers read `tdata1`'s `mcontrol` fields from the wrong bits:
+  M, S and U at 13, 11 and 10 and execute, store and load at 9, 8 and 7,
+  where the debug spec puts them at 6, 4 and 3 and 2, 1 and 0 (#171). A
+  trigger written by software that follows the spec, such as a debugger's
+  breakpoint, came back disarmed. The fields are now where the spec puts
+  them.
 
 ## Releases
 

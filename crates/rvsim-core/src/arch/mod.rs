@@ -16,6 +16,6 @@ pub mod translation;
 pub mod trap;
 
 mod hart;
-mod trigger;
+pub(crate) mod trigger;
 
 pub use hart::{Hart, HartInit};
