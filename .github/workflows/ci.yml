@@ -29,7 +29,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings
+      - run: cargo test --workspace --features rvsim-core/commit-log
       - run: cargo doc --workspace --no-deps
 
   python:

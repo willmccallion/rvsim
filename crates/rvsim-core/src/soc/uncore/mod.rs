@@ -209,10 +209,10 @@ impl Uncore {
         self.memory.load(addr, image);
     }
 
-    /// Opens a commit log file for writing retired instruction traces.
-    ///
-    /// Each retired instruction is logged as `core   0: 0x<pc> (0x<inst>)\n`.
-    /// Only available when the `commit-log` Cargo feature is enabled.
+    /// Opens a commit log file for writing retired instruction traces, in
+    /// the format [`commit_log`](crate::uarch::pipeline::commit_log)
+    /// describes. Only available when the `commit-log` Cargo feature is
+    /// enabled.
     ///
     /// # Errors
     ///
