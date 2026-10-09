@@ -8,17 +8,18 @@ All notable changes to this project are documented here. The format is based on 
   the run: the architectural state the log starts from, each retired
   instruction's privilege mode, destination register, the CSR it wrote (as
   read back), the FP flags it raised and its load or store (virtual and
-  physical address, size and value), and each trap taken. An FP destination
-  was logged as an `x` register. Vector register and vector memory effects
-  are not logged yet.
+  physical address, size and value), and each trap taken. A vector
+  instruction's line also gives each vector register it wrote, with the bits
+  it filled under a tail- or mask-agnostic policy, and each element it loaded
+  or stored. An FP destination was logged as an `x` register.
 - `make lockstep` (`tests/conformance/lockstep.py`, `make lockstep-smoke`
   for the smoke configs) replays rvsim's commit log on spike one instruction
-  at a time for every riscv-test, program and benchmark on every single-hart
-  pipeline config, and stops at the first instruction whose PC, privilege
-  mode, destination, CSR write, FP flags or memory access differs. Values the
-  ISA leaves to the implementation (counters, timers, IDs, device reads,
-  interrupt arrival, WFI wake-up, lost reservations) are taken from rvsim's
-  log. The driver is `tools/lockstep/spike_lockstep.cc`, built against the
+  at a time for every riscv-test, program, benchmark and RVV test on every
+  single-hart pipeline config, and stops at the first instruction whose PC,
+  privilege mode, destination, vector registers, CSR write, FP flags or
+  memory access differs. Values the ISA leaves to the implementation
+  (counters, timers, IDs, device reads, interrupt arrival, WFI wake-up, lost
+  reservations, agnostic vector elements) are taken from rvsim's log. The driver is `tools/lockstep/spike_lockstep.cc`, built against the
   pinned spike. `make test-all` runs it; the smoke run does not.
 - A `pmpaddr` register kept all 64 bits written to it, so bits 63:54 read
   back as written (#170). On RV64 they read as zero; only bits 53:0

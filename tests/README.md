@@ -36,11 +36,12 @@ the run.
 ## Lockstep against spike
 
 `make lockstep` (and `make test-all`, but not the smoke run CI uses) runs
-every riscv-test, bundled program and benchmark on every single-hart pipeline
-config with the commit log open, and
+every riscv-test, bundled program, benchmark and RVV test (the sample with
+`make lockstep-smoke`) on every single-hart pipeline config with the commit log open, and
 `tools/lockstep/spike_lockstep` replays that log on spike one instruction at a
 time. It stops at the first instruction whose PC, privilege mode, destination
-register, CSR write, FP flags or memory access differs from spike's, and
+register, vector registers, CSR write, FP flags or memory access differs from
+spike's, and
 prints the rvsim log lines leading up to it. Because rvsim's pipeline computes
 every value itself, a forwarding, squash or ordering bug shows up here as a
 wrong value even though no test checks that value.
@@ -50,9 +51,12 @@ rather than compared: counter, timer and ID CSR reads, device reads,
 interrupt arrival, WFI wake-up, a reservation rvsim lost, accesses to
 `tcontrol` (which spike lacks), a `misa` write (rvsim's `misa` is
 read-only, spike's is not), and `medeleg`'s misaligned-fetch bit, which the
-two models choose differently. The driver reports how
-many of each it took. Vector register and vector memory effects are not
-compared yet.
+two models choose differently. Vector elements that a tail- or
+mask-agnostic policy leaves free are also taken from rvsim, which logs which
+bits it filled with ones; spike leaves them undisturbed. Every other bit of
+every vector register either model wrote is compared, and vector memory
+accesses are compared byte by byte. The driver reports how many of each it
+took.
 
 Test binaries, spike and results are built into `tests/builds/`, which is
 ignored by git. `make clean-tests` removes it.

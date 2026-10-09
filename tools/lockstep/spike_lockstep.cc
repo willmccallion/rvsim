@@ -14,6 +14,8 @@
 
 #include <elf.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +28,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -54,6 +57,14 @@ struct CsrWrite {
   uint64_t value;
 };
 
+// A vector register rvsim wrote: its bytes afterwards and the bits it
+// filled under a tail- or mask-agnostic policy, byte 0 first.
+struct VectorWrite {
+  unsigned reg;
+  std::vector<uint8_t> value;
+  std::vector<uint8_t> agnostic;
+};
+
 struct Retired {
   uint64_t pc;
   uint32_t inst;
@@ -62,6 +73,9 @@ struct Retired {
   std::vector<CsrWrite> csrs;
   std::optional<MemAccess> load;
   std::optional<MemAccess> store;
+  std::vector<VectorWrite> vector_writes;
+  std::vector<MemAccess> vector_loads;
+  std::vector<MemAccess> vector_stores;
   bool vector;
 };
 
@@ -88,6 +102,15 @@ struct Record {
 
 uint64_t parse_hex(const std::string& token) {
   return std::stoull(token, nullptr, 16);
+}
+
+// The bytes of a number printed most significant byte first, byte 0 first.
+std::vector<uint8_t> parse_bytes_last_first(const std::string& token) {
+  std::string digits = token.substr(2);
+  std::vector<uint8_t> bytes(digits.size() / 2);
+  for (size_t i = 0; i < bytes.size(); ++i)
+    bytes[bytes.size() - 1 - i] = static_cast<uint8_t>(std::stoul(digits.substr(2 * i, 2), nullptr, 16));
+  return bytes;
 }
 
 MemAccess parse_mem(std::istringstream& fields) {
@@ -191,6 +214,16 @@ class CommitLog {
         retired.store = parse_mem(fields);
       } else if (token == "vec") {
         retired.vector = true;
+      } else if (token == "vload") {
+        retired.vector_loads.push_back(parse_mem(fields));
+      } else if (token == "vstore") {
+        retired.vector_stores.push_back(parse_mem(fields));
+      } else if (token[0] == 'v' && token.size() > 1 && std::isdigit(static_cast<unsigned char>(token[1]))) {
+        std::string value, agnostic;
+        fields >> value >> agnostic;
+        retired.vector_writes.push_back(VectorWrite{static_cast<unsigned>(std::stoul(token.substr(1))),
+                                                    parse_bytes_last_first(value),
+                                                    parse_bytes_last_first(agnostic)});
       } else {
         std::string value;
         fields >> value;
@@ -451,6 +484,7 @@ class Lockstep {
   uint64_t emulated_csr_accesses() const { return emulated_csr_accesses_; }
   uint64_t failed_store_conditionals() const { return failed_store_conditionals_; }
   uint64_t adopted_misa_writes() const { return adopted_misa_writes_; }
+  uint64_t agnostic_vector_writes() const { return agnostic_vector_writes_; }
 
  private:
   // `ran_into_handler`: spike took a trap and, in the same step, retired
@@ -512,6 +546,7 @@ class Lockstep {
 
     hart_.clear_waiting_for_interrupt();
     follow_store_conditional_outcome(insn, expected);
+    if (expected.vector) snapshot_vector_registers();
     platform_.expect_load(expected.load && is_device(expected.load->paddr) ? expected.load : std::nullopt);
     Outcome outcome = step_instruction(insn);
     if (auto unexpected = platform_.take_unexpected_access()) throw Divergence(*unexpected);
@@ -534,7 +569,101 @@ class Lockstep {
     inject_model_specific_read(insn, expected);
     compare_registers(expected);
     compare_csrs(expected, is_csr_access(insn));
-    if (!expected.vector) compare_memory(expected);
+    if (expected.vector) {
+      compare_vector_registers(expected);
+      compare_vector_memory(expected);
+    } else {
+      compare_memory(expected);
+    }
+  }
+
+  void snapshot_vector_registers() {
+    const auto* file = static_cast<const uint8_t*>(hart_.VU.reg_file);
+    vector_registers_before_.assign(file, file + 32 * hart_.VU.vlenb);
+  }
+
+  // Compares every vector register either model wrote, bit for bit except
+  // where rvsim filled under an agnostic policy, and gives spike rvsim's
+  // values there: spike leaves those bits undisturbed, rvsim sets them.
+  // Either model may count a register of the destination group as written
+  // without changing it: one rvsim logs and spike did not touch is compared
+  // with spike's unchanged value, and one spike touched and rvsim did not
+  // log must still hold its value from before the instruction.
+  void compare_vector_registers(const Retired& expected) {
+    std::vector<unsigned> spike_wrote;
+    for (const auto& [key, value] : state_.log_reg_write)
+      if ((key & 0xf) == 2) spike_wrote.push_back(static_cast<unsigned>(key >> 4));
+    for (const VectorWrite& write : expected.vector_writes) {
+      auto found = std::find(spike_wrote.begin(), spike_wrote.end(), write.reg);
+      if (found != spike_wrote.end()) spike_wrote.erase(found);
+      compare_vector_register(write);
+    }
+    const auto* file = static_cast<const uint8_t*>(hart_.VU.reg_file);
+    for (unsigned reg : spike_wrote) {
+      size_t start = reg * hart_.VU.vlenb;
+      if (!std::equal(file + start, file + start + hart_.VU.vlenb, vector_registers_before_.begin() + start))
+        throw Divergence("spike changed v" + std::to_string(reg) + ", rvsim did not write it");
+    }
+  }
+
+  // Compares a vector memory instruction's accesses with spike's byte by
+  // byte, in address order: the elements may be accessed in any order, and
+  // a whole-register move's element width is the implementation's.
+  void compare_vector_memory(const Retired& expected) {
+    compare_bytes_accessed("load", expected.vector_loads, state_.log_mem_read, false);
+    compare_bytes_accessed("store", expected.vector_stores, state_.log_mem_write, true);
+    if (!platform_.take_device_writes().empty()) throw Divergence("a vector store wrote a device");
+  }
+
+  static void compare_bytes_accessed(const char* kind, const std::vector<MemAccess>& expected,
+                                     const commit_log_mem_t& spike, bool compare_values) {
+    using Byte = std::pair<uint64_t, uint8_t>;
+    auto split = [compare_values](std::vector<Byte>& bytes, uint64_t vaddr, uint64_t value, unsigned size) {
+      for (unsigned i = 0; i < size; ++i)
+        bytes.emplace_back(vaddr + i, compare_values ? static_cast<uint8_t>(value >> (8 * i)) : 0);
+    };
+    std::vector<Byte> rvsim_bytes, spike_bytes;
+    for (const MemAccess& access : expected) split(rvsim_bytes, access.vaddr, access.value, access.bytes);
+    for (auto [vaddr, value, size] : spike) split(spike_bytes, vaddr, value, size);
+    std::sort(rvsim_bytes.begin(), rvsim_bytes.end());
+    std::sort(spike_bytes.begin(), spike_bytes.end());
+    if (rvsim_bytes == spike_bytes) return;
+    auto [rvsim_at, spike_at] =
+        std::mismatch(rvsim_bytes.begin(), rvsim_bytes.end(), spike_bytes.begin(), spike_bytes.end());
+    auto describe = [](const std::vector<Byte>& bytes, std::vector<Byte>::const_iterator at) {
+      std::string text = std::to_string(bytes.size()) + " bytes";
+      if (at != bytes.end()) text += ", first differing " + hex(at->first) + " = " + hex(at->second);
+      return text;
+    };
+    throw Divergence(std::string("vector ") + kind + "s differ: rvsim " + describe(rvsim_bytes, rvsim_at) +
+                     ", spike " + describe(spike_bytes, spike_at));
+  }
+
+  void compare_vector_register(const VectorWrite& write) {
+    uint8_t* spike = static_cast<uint8_t*>(hart_.VU.reg_file) + write.reg * hart_.VU.vlenb;
+    if (write.value.size() != hart_.VU.vlenb || write.agnostic.size() != hart_.VU.vlenb)
+      throw Divergence("v" + std::to_string(write.reg) + " is " + std::to_string(write.value.size()) +
+                       " bytes in rvsim's log, VLEN is " + std::to_string(hart_.VU.vlenb * 8) + " bits in spike");
+    for (size_t byte = 0; byte < write.value.size(); ++byte) {
+      uint8_t agnostic = write.agnostic[byte];
+      if ((spike[byte] ^ write.value[byte]) & ~agnostic)
+        throw Divergence("v" + std::to_string(write.reg) + " differs at byte " + std::to_string(byte) + ": rvsim " +
+                         describe_vector(write.value) + ", spike " +
+                         describe_vector(std::vector<uint8_t>(spike, spike + write.value.size())));
+      spike[byte] = static_cast<uint8_t>((spike[byte] & ~agnostic) | (write.value[byte] & agnostic));
+    }
+    if (std::any_of(write.agnostic.begin(), write.agnostic.end(), [](uint8_t bits) { return bits != 0; }))
+      ++agnostic_vector_writes_;
+  }
+
+  static std::string describe_vector(const std::vector<uint8_t>& bytes) {
+    std::string text = "0x";
+    char digits[3];
+    for (auto byte = bytes.rbegin(); byte != bytes.rend(); ++byte) {
+      std::snprintf(digits, sizeof digits, "%02x", *byte);
+      text += digits;
+    }
+    return text;
   }
 
   void take_logged_trap(const Trap& expected) {
@@ -704,12 +833,14 @@ class Lockstep {
   CommitObserver& commits_;
   bool took_exception_ = false;
   std::optional<uint64_t> handler_instruction_retired_;
+  std::vector<uint8_t> vector_registers_before_;
   uint64_t instructions_ = 0;
   uint64_t traps_ = 0;
   uint64_t injected_csr_reads_ = 0;
   uint64_t emulated_csr_accesses_ = 0;
   uint64_t failed_store_conditionals_ = 0;
   uint64_t adopted_misa_writes_ = 0;
+  uint64_t agnostic_vector_writes_ = 0;
 };
 
 // Spike's ISA string for a hart with rvsim's misa: its single-letter
@@ -854,7 +985,8 @@ int main(int argc, char** argv) {
   std::cout << "MATCHED " << lockstep.instructions() << " instructions, " << lockstep.traps() << " traps; "
             << lockstep.injected_csr_reads() << " CSR reads, " << lockstep.emulated_csr_accesses()
             << " accesses to CSRs spike lacks, " << platform.device_reads() << " device reads and "
-            << lockstep.failed_store_conditionals() << " SC failures and " << lockstep.adopted_misa_writes()
-            << " misa writes taken from rvsim\n";
+            << lockstep.failed_store_conditionals() << " SC failures, " << lockstep.adopted_misa_writes()
+            << " misa writes and " << lockstep.agnostic_vector_writes()
+            << " agnostic vector fills taken from rvsim\n";
   return 0;
 }
