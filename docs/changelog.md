@@ -38,6 +38,10 @@ All notable changes to this project are documented here. The format is based on 
   inactive elements may be all ones, as rvsim makes them, and expected them
   to hold `va`. It now uses the mask-undisturbed form with `va` as the merge
   operand.
+- `misa.B` is set (#174): every hart implements Zba, Zbb and Zbs, so B now
+  says so, whatever `Config(isa=...)` names, and the device tree's
+  `riscv,isa` gains a `b` (`rv64imafdcbv_sstc` by default). `isa` accepts
+  `B`.
 
 ## Releases
 

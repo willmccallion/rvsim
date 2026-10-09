@@ -38,8 +38,8 @@ fn csr_write_and_read_mstatus() {
 #[test]
 fn csr_write_and_read_misa() {
     let mut csrs = Csrs::default();
-    csrs.write(csr::MISA, csr::MISA_DEFAULT_RV64IMAFDC);
-    assert_eq!(csrs.read(csr::MISA), csr::MISA_DEFAULT_RV64IMAFDC);
+    csrs.write(csr::MISA, csr::MISA_DEFAULT_RV64GCB);
+    assert_eq!(csrs.read(csr::MISA), csr::MISA_DEFAULT_RV64GCB);
 }
 
 /// Verifies that the `mie` (Machine Interrupt Enable) register can be written to and read back correctly.

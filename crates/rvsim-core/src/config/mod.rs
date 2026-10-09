@@ -244,12 +244,12 @@ pub enum ConfigError {
 
 impl Config {
     /// The hart's `misa`: the override when one is given, otherwise
-    /// RV64IMAFDC plus V when the vector unit is the full V extension.
+    /// RV64IMAFDC with B, plus V when the vector unit is the full V extension.
     #[must_use]
     pub fn misa(&self) -> crate::isa::misa::Misa {
         self.pipeline
             .misa_override
-            .unwrap_or_else(|| crate::isa::misa::Misa::rv64imafdc(self.implements_full_v()))
+            .unwrap_or_else(|| crate::isa::misa::Misa::rv64gcb(self.implements_full_v()))
     }
 
     /// True when the vector unit meets V's minimum: ELEN = 64 (Zve64d);

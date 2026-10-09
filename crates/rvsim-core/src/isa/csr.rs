@@ -511,6 +511,9 @@ pub const SATP_ASID_MASK: u64 = 0xFFFF;
 /// MISA extension bit for atomic operations (A extension).
 pub const MISA_EXT_A: u64 = 1 << 0;
 
+/// MISA extension bit for bit manipulation (B: Zba, Zbb and Zbs).
+pub const MISA_EXT_B: u64 = 1 << 1;
+
 /// MISA extension bit for compressed instructions (C extension).
 pub const MISA_EXT_C: u64 = 1 << 2;
 
@@ -547,8 +550,8 @@ pub const MISA_XLEN_128: u64 = 3 << 62;
 /// Default `mstatus` value for RV64 architecture.
 pub const MSTATUS_DEFAULT_RV64: u64 = 0xa000_00000;
 
-/// Default `misa` value for RV64IMAFDC architecture.
-pub const MISA_DEFAULT_RV64IMAFDC: u64 = 0x8000_0000_0014_112D;
+/// Default `misa` value: RV64IMAFDC with B, S and U.
+pub const MISA_DEFAULT_RV64GCB: u64 = 0x8000_0000_0014_112F;
 
 /// The CBIE field of menvcfg / senvcfg in place.
 pub const ENVCFG_CBIE: u64 = MENVCFG_CBIE_MASK << MENVCFG_CBIE_SHIFT;

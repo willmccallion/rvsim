@@ -9,7 +9,7 @@ fn parse(isa: &str) -> Result<u64, String> {
 
 #[test]
 fn the_default_isa_string_gives_the_default_misa() {
-    assert_eq!(parse("RV64IMAFDC"), Ok(csr::MISA_DEFAULT_RV64IMAFDC));
+    assert_eq!(parse("RV64IMAFDC"), Ok(csr::MISA_DEFAULT_RV64GCB));
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn a_string_without_c_leaves_the_c_bit_clear() {
     let misa = parse("RV64IMAFD").expect("valid ISA string");
 
     assert_eq!(misa & csr::MISA_EXT_C, 0);
-    assert_eq!(misa, csr::MISA_DEFAULT_RV64IMAFDC & !csr::MISA_EXT_C);
+    assert_eq!(misa, csr::MISA_DEFAULT_RV64GCB & !csr::MISA_EXT_C);
 }
 
 #[test]
@@ -43,5 +43,14 @@ fn strings_the_hart_cannot_implement_are_rejected() {
 fn misa_formats_back_to_a_canonical_lowercase_isa_string() {
     let misa: Misa = "RV64GCV".parse().expect("valid ISA string");
 
-    assert_eq!(misa.isa_string(), "rv64imafdcv");
+    assert_eq!(misa.isa_string(), "rv64imafdcbv");
+}
+
+#[test]
+fn every_misa_has_b_since_zba_zbb_and_zbs_are_always_implemented() {
+    for isa in ["RV64I", "RV64IMAFDC", "RV64GCB", "rv64gcv"] {
+        let misa = parse(isa).expect("valid ISA string");
+
+        assert_eq!(misa & csr::MISA_EXT_B, csr::MISA_EXT_B, "{isa}");
+    }
 }
