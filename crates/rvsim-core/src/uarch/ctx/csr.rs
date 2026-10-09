@@ -280,18 +280,14 @@ impl CoreCtx<'_> {
             }
             x if x == csr::SATP.as_u32() => {
                 let mode = (val >> csr::SATP_MODE_SHIFT) & csr::SATP_MODE_MASK;
-                let allowed = PagingMode::from_satp_mode(mode)
+                let supported = PagingMode::from_satp_mode(mode)
                     .is_some_and(|m| m.is_at_most(self.core.mmu.paging_mode_max));
-
-                let new_val = if allowed {
-                    val
-                } else {
-                    val & !(csr::SATP_MODE_MASK << csr::SATP_MODE_SHIFT)
-                };
-
+                // A write naming an unsupported MODE has no effect at all.
                 // TLB entries are ASID-tagged: software orders a satp change
                 // against cached translations with SFENCE.VMA.
-                self.hart.csrs.satp = new_val;
+                if supported {
+                    self.hart.csrs.satp = val;
+                }
             }
             // Writable vector CSRs
             x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart = val,

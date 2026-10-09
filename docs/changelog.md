@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format is based on 
   trigger written by software that follows the spec, such as a debugger's
   breakpoint, came back disarmed. The fields are now where the spec puts
   them.
+- Writing `satp` with a MODE the hart does not support, or one above
+  `paging_mode_max`, set MODE to Bare and kept the written ASID and PPN
+  (#172). The privileged spec says such a write has no effect, and now it
+  has none.
 
 ## Releases
 

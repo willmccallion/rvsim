@@ -451,16 +451,15 @@ fn test_csr_satp_bare_mode() {
 }
 
 #[test]
-fn test_csr_satp_invalid_mode_rejected() {
+fn a_satp_write_with_a_reserved_mode_has_no_effect() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
+    let before = (csr::SATP_MODE_SV39 << 60) | (7 << 44) | 0x777;
+    state.csr_write(csr::SATP, before);
 
-    // Invalid mode (mode=5, not SV39 or BARE)
-    let satp_value = (5u64 << 60) | 0x12345;
-    state.csr_write(csr::SATP, satp_value);
+    state.csr_write(csr::SATP, (5u64 << 60) | 0x12345);
 
-    // Mode bits should be cleared, PPN preserved
-    assert_eq!(state.csr_read(csr::SATP), 0x12345);
+    assert_eq!(state.csr_read(csr::SATP), before);
 }
 
 #[test]
@@ -482,20 +481,16 @@ fn test_csr_satp_sv57_accepted_by_default() {
 }
 
 #[test]
-fn test_csr_satp_paging_mode_cap_coerces_above_cap() {
+fn a_satp_write_with_a_mode_above_the_paging_cap_has_no_effect() {
     let mut config = Config::default();
     config.memory.paging_mode_max = PagingMode::Sv39;
     let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);
-
-    // Sv48 is above the cap → coerce to Bare; PPN preserved.
-    let above_cap = (csr::SATP_MODE_SV48 << 60) | 0x12345;
-    state.csr_write(csr::SATP, above_cap);
-    assert_eq!(state.csr_read(csr::SATP), 0x12345);
-
-    // Sv39 is at the cap → accepted as written.
     let at_cap = (csr::SATP_MODE_SV39 << 60) | 0x12345;
     state.csr_write(csr::SATP, at_cap);
+
+    state.csr_write(csr::SATP, (csr::SATP_MODE_SV48 << 60) | (3 << 44) | 0x54321);
+
     assert_eq!(state.csr_read(csr::SATP), at_cap);
 }
 
