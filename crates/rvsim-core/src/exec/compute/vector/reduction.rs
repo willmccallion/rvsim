@@ -494,6 +494,9 @@ fn fp_widen_reduce_f32_to_f64(
         let wide = f32::from_bits(elem_bits) as f64;
         match op {
             FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
+                if is_snan_f32(f32::from_bits(elem_bits)) {
+                    flags = flags | FpFlags::NV;
+                }
                 clear_host_fp_flags();
                 acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(wide));
                 flags = flags | read_host_fp_flags();
@@ -648,5 +651,18 @@ mod tests {
         let _result = vec_reduce(reduce_op(VectorOp::VFRedOSum), &mut vpr, vd, vs2, vs1, &ctx);
         let val = f32::from_bits(vpr.read_element(vd, ElemIdx::new(0), Sew::E32) as u32);
         assert_eq!(val, 20.0); // 10 + 1 + 2 + 3 + 4
+    }
+
+    #[test]
+    fn a_widening_sum_of_a_single_precision_signaling_nan_is_invalid() {
+        let mut vpr = vpr128();
+        let ctx = make_ctx(Sew::E32, 1);
+        let (vd, vs2, vs1) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(4));
+        vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 0x7fa0_0000);
+        vpr.write_element(vs1, ElemIdx::new(0), Sew::E64, 1f64.to_bits());
+
+        let result = vec_reduce(reduce_op(VectorOp::VFWRedUSum), &mut vpr, vd, vs2, vs1, &ctx);
+
+        assert!(result.fp_flags.contains(FpFlags::NV));
     }
 }

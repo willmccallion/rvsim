@@ -336,6 +336,56 @@ mod tests {
         vec_fp_execute(op, &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx).fp_flags
     }
 
+    /// The flags a widening `op` raises with a signaling NaN in `vs2[0]` and
+    /// ones in `vs1[0]` and the (double-width) `vd[0]`.
+    fn widening_flags_with_signaling_nan(op: VectorOp, sew: Sew, snan: u64, one: u64) -> FpFlags {
+        let mut vpr = vpr128();
+        let ctx = VecExecCtx { zvfh: true, ..make_ctx(sew, 1) };
+        let (v1, v2, v4) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(4));
+        vpr.write_element(v2, ElemIdx::new(0), sew, snan);
+        vpr.write_element(v1, ElemIdx::new(0), sew, one);
+        vpr.write_element(v4, ElemIdx::new(0), Sew::E64, 1f64.to_bits());
+        vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx).fp_flags
+    }
+
+    #[test]
+    fn a_widening_add_of_a_single_precision_signaling_nan_is_invalid() {
+        let flags = widening_flags_with_signaling_nan(
+            VectorOp::VFWAdd,
+            Sew::E32,
+            0x7fa0_0000,
+            u64::from(1f32.to_bits()),
+        );
+
+        assert!(flags.contains(FpFlags::NV));
+    }
+
+    #[test]
+    fn a_widening_fma_of_a_single_precision_signaling_nan_is_invalid() {
+        let flags = widening_flags_with_signaling_nan(
+            VectorOp::VFWMacc,
+            Sew::E32,
+            0x7fa0_0000,
+            u64::from(1f32.to_bits()),
+        );
+
+        assert!(flags.contains(FpFlags::NV));
+    }
+
+    #[test]
+    fn a_zvfh_widening_add_of_a_signaling_nan_is_invalid() {
+        let flags = widening_flags_with_signaling_nan(VectorOp::VFWAdd, Sew::E16, 0x7d00, 0x3c00);
+
+        assert!(flags.contains(FpFlags::NV));
+    }
+
+    #[test]
+    fn a_zvfh_widening_fma_of_a_signaling_nan_is_invalid() {
+        let flags = widening_flags_with_signaling_nan(VectorOp::VFWMacc, Sew::E16, 0x7d00, 0x3c00);
+
+        assert!(flags.contains(FpFlags::NV));
+    }
+
     #[test]
     fn a_zvfh_sum_of_opposite_infinities_is_invalid() {
         assert!(f16_flags(VectorOp::VFAdd, 0xfc00, 0x7c00, 0).contains(FpFlags::NV));

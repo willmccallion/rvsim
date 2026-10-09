@@ -54,6 +54,12 @@ All notable changes to this project are documented here. The format is based on 
   `rv64uzfh-p-fadd` failed on this; the riscv-tests runner now runs the
   `rv64uzfh`, `rv64uzba`, `rv64uzbb`, `rv64uzbc` and `rv64uzbs` suites,
   which were built but never run.
+- The vector widening FP operations dropped the invalid flag for a
+  signaling-NaN operand (#182): `vfwadd`, `vfwsub` and `vfwmul` (and their
+  `.w` forms) at SEW=32 and 16, and `vfwredusum`/`vfwredosum` at SEW=32. The
+  host conversion of the operand to the wider format raised it before the
+  flags were cleared. The widening FMAs worked only because of where the
+  compiler placed that conversion. All of them now check their operands.
 
 ## Releases
 
