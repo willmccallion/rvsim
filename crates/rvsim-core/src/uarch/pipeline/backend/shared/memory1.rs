@@ -215,14 +215,14 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Done;
     }
 
-    // 3. Sdtrig load/store triggers.
+    // 3. Sdtrig load/store triggers: the breakpoint's tval is the address.
     if ex.ctrl.mem_read && !is_atomic && state.check_load_trigger(ex.alu) {
-        let trap = Trap::Breakpoint(ex.pc);
+        let trap = Trap::Breakpoint(ex.alu);
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
     if ex.ctrl.mem_write && !is_atomic && state.check_store_trigger(ex.alu) {
-        let trap = Trap::Breakpoint(ex.pc);
+        let trap = Trap::Breakpoint(ex.alu);
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
     }
@@ -523,7 +523,7 @@ fn translate_cbo<E: ExecutionEngine>(
     let block = cbo::block_address(rs1);
     let tval = cbo::fault_address(ex.ctrl.system_op, rs1);
     if state.check_store_trigger(block) {
-        let trap = Trap::Breakpoint(ex.pc);
+        let trap = Trap::Breakpoint(tval);
         push_trap(engine, ex, trap, ExceptionStage::Memory);
         return EntryOutcome::Done;
     }

@@ -42,6 +42,10 @@ All notable changes to this project are documented here. The format is based on 
   says so, whatever `Config(isa=...)` names, and the device tree's
   `riscv,isa` gains a `b` (`rv64imafdcbv_sstc` by default). `isa` accepts
   `B`.
+- A load or store trigger's breakpoint set `mtval` to the instruction's PC
+  (#176). The privileged spec gives the faulting virtual address, which for
+  a data trigger is the address accessed; it does now, and a CBO's trigger
+  reports the address its other faults report.
 
 ## Releases
 
