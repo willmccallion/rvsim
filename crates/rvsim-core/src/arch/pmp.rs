@@ -17,6 +17,10 @@ pub const PMP_COUNT: usize = 16;
 const A_SHIFT: u8 = 3;
 const A_MASK: u8 = 0x3;
 
+/// The `pmpaddr` bits RV64 implements: physical address bits 55:2. Bits
+/// 63:54 read as zero.
+const PMPADDR_MASK: u64 = (1 << 54) - 1;
+
 /// PMP configuration permission bits.
 const PMP_R: u8 = 1 << 0;
 const PMP_W: u8 = 1 << 1;
@@ -143,13 +147,14 @@ impl Pmp {
 
     /// Sets the address register for entry `idx`.
     ///
-    /// `addr` is in the pmpaddr format: physical address >> 2.
+    /// `addr` is in the pmpaddr format: physical address >> 2. Only bits
+    /// 53:0 are kept.
     pub fn set_addr(&mut self, idx: usize, addr: u64) {
         if idx < self.entries.len() {
             if self.entries[idx].cfg & PMP_L != 0 {
                 return;
             }
-            self.entries[idx].addr = addr;
+            self.entries[idx].addr = addr & PMPADDR_MASK;
         }
     }
 

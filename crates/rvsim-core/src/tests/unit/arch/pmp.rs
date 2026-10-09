@@ -298,3 +298,23 @@ fn pmp_entry_match_mode_accessor() {
     let entry_napot = PmpEntry { cfg: A_NAPOT, addr: 0 };
     assert_eq!(entry_napot.match_mode(), PmpAddrMatch::Napot);
 }
+
+#[test]
+fn pmpaddr_reads_bits_63_to_54_as_zero() {
+    let mut pmp = Pmp::new();
+
+    pmp.set_addr(0, u64::MAX);
+
+    assert_eq!(pmp.get_addr(0), 0x003f_ffff_ffff_ffff);
+}
+
+#[test]
+fn an_all_ones_napot_entry_still_covers_all_of_physical_memory() {
+    let mut pmp = Pmp::new();
+    pmp.set_addr(0, u64::MAX);
+    pmp.set_cfg(0, R | W | X | A_NAPOT);
+
+    let top_of_physical_memory = pmp.check(0x00ff_ffff_ffff_fff8, 8, true, false, false, false);
+
+    assert_eq!(top_of_physical_memory, PmpResult::Allow);
+}

@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format is based on 
   interrupt arrival, WFI wake-up, lost reservations) are taken from rvsim's
   log. The driver is `tools/lockstep/spike_lockstep.cc`, built against the
   pinned spike. `make test-all` runs it; the smoke run does not.
+- A `pmpaddr` register kept all 64 bits written to it, so bits 63:54 read
+  back as written (#170). On RV64 they read as zero; only bits 53:0
+  (physical address bits 55:2) are kept now.
 
 ## Releases
 
