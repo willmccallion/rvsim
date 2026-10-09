@@ -388,9 +388,34 @@ bool is_model_specific(unsigned csr) {
          csr == CSR_MVENDORID || csr == CSR_MARCHID || csr == CSR_MIMPID || csr == CSR_MCONFIGPTR;
 }
 
+// What spike's own commit log reports: how many instructions it retired
+// and the PC of the last, from lines `core   0: <priv> 0x<pc> ...`.
+struct CommitObserver {
+  uint64_t commits = 0;
+  uint64_t last_pc = 0;
+  std::string line;
+};
+
+ssize_t observe_commit_log(void* cookie, const char* data, size_t size) {
+  auto* observer = static_cast<CommitObserver*>(cookie);
+  for (size_t i = 0; i < size; ++i) {
+    if (data[i] != '\n') {
+      observer->line += data[i];
+      continue;
+    }
+    std::istringstream fields(observer->line);
+    std::string core, hart, privilege, pc;
+    fields >> core >> hart >> privilege >> pc;
+    observer->last_pc = parse_hex(pc);
+    ++observer->commits;
+    observer->line.clear();
+  }
+  return static_cast<ssize_t>(size);
+}
+
 class Lockstep {
  public:
-  Lockstep(processor_t& hart, Platform& platform, CommitLog& log, uint64_t& commits)
+  Lockstep(processor_t& hart, Platform& platform, CommitLog& log, CommitObserver& commits)
       : hart_(hart), state_(*hart.get_state()), platform_(platform), log_(log), commits_(commits) {}
 
   void apply_reset(const ResetState& reset) {
@@ -425,9 +450,12 @@ class Lockstep {
   uint64_t injected_csr_reads() const { return injected_csr_reads_; }
   uint64_t emulated_csr_accesses() const { return emulated_csr_accesses_; }
   uint64_t failed_store_conditionals() const { return failed_store_conditionals_; }
+  uint64_t adopted_misa_writes() const { return adopted_misa_writes_; }
 
  private:
-  enum class Outcome { retired, trapped };
+  // `ran_into_handler`: spike took a trap and, in the same step, retired
+  // the handler's first instruction, as it does after a trigger fires.
+  enum class Outcome { retired, trapped, ran_into_handler };
 
   static freg_t boxed(uint64_t value) {
     freg_t reg;
@@ -450,16 +478,27 @@ class Lockstep {
   }
 
   Outcome step() {
+    reg_t pc = state_.pc;
     for (int attempt = 0; attempt < 4; ++attempt) {
-      uint64_t before = commits_;
+      uint64_t before = commits_.commits;
       hart_.step(1);
-      if (commits_ != before) return Outcome::retired;
+      if (commits_.commits != before) {
+        if (commits_.last_pc == pc) return Outcome::retired;
+        handler_instruction_retired_ = commits_.last_pc;
+        return Outcome::ran_into_handler;
+      }
       if (!state_.serialized) return Outcome::trapped;
     }
     throw Divergence("spike made no progress at " + hex(state_.pc));
   }
 
   void retire(const Retired& expected) {
+    if (auto handler_pc = std::exchange(handler_instruction_retired_, std::nullopt)) {
+      if (*handler_pc != expected.pc)
+        throw Divergence("spike's trap handler began at " + hex(*handler_pc) + ", rvsim's at " + hex(expected.pc));
+      compare_retired(fetch(expected.pc), expected);
+      return;
+    }
     if (state_.pc != expected.pc)
       throw Divergence("PC differs: rvsim retired " + hex(expected.pc) + ", spike is at " + hex(state_.pc));
     insn_t insn = fetch(expected.pc);
@@ -477,13 +516,17 @@ class Lockstep {
     Outcome outcome = step_instruction(insn);
     if (auto unexpected = platform_.take_unexpected_access()) throw Divergence(*unexpected);
 
-    if (outcome == Outcome::trapped) {
+    if (outcome != Outcome::retired) {
       auto next = log_.peek();
       if (next && next->kind != Record::Kind::trap)
         throw Divergence("spike trapped (cause " + hex(trap_cause()) + ") where rvsim retired the instruction");
       took_exception_ = true;
       return;
     }
+    compare_retired(insn, expected);
+  }
+
+  void compare_retired(insn_t insn, const Retired& expected) {
     ++instructions_;
     if (state_.last_inst_priv != expected.privilege)
       throw Divergence("privilege differs: rvsim " + std::to_string(expected.privilege) + ", spike " +
@@ -504,10 +547,10 @@ class Lockstep {
       state_.mip->backdoor_write_with_mask(bit, bit);
       Outcome outcome = step();
       if (!software_pending) state_.mip->backdoor_write_with_mask(bit, 0);
-      if (outcome != Outcome::trapped) throw Divergence("spike did not take interrupt " + hex(expected.cause));
+      if (outcome == Outcome::retired) throw Divergence("spike did not take interrupt " + hex(expected.cause));
     } else if (!std::exchange(took_exception_, false)) {
       // A fetch fault has no instruction line, so spike has yet to step into it.
-      if (step() != Outcome::trapped)
+      if (step() == Outcome::retired)
         throw Divergence("spike retired where rvsim took fetch fault " + hex(expected.cause));
     }
     uint64_t cause = trap_cause();
@@ -525,6 +568,17 @@ class Lockstep {
     if (!is_store_conditional(insn) || expected.store) return;
     hart_.get_mmu()->yield_load_reservation();
     ++failed_store_conditionals_;
+  }
+
+  // Which extensions a write to misa may turn off is the implementation's
+  // choice: rvsim's misa is read-only, spike's lets C and others be
+  // cleared. Spike's misa takes the value rvsim's read back.
+  void adopt_misa(uint64_t rvsim_misa) {
+    if (read_csr(CSR_MISA) == rvsim_misa) return;
+    hart_.put_csr(CSR_MISA, rvsim_misa);
+    if (read_csr(CSR_MISA) != rvsim_misa)
+      throw Divergence("spike's misa cannot take rvsim's value " + hex(rvsim_misa));
+    ++adopted_misa_writes_;
   }
 
   // Retires a CSR instruction for a CSR spike lacks as rvsim did: its
@@ -575,6 +629,10 @@ class Lockstep {
     for (auto [addr, value] : expected.csrs) {
       rvsim_logged_fflags |= addr == CSR_FFLAGS;
       if (is_model_specific(addr)) continue;
+      if (addr == CSR_MISA) {
+        adopt_misa(value);
+        continue;
+      }
       uint64_t spike_value = read_csr(addr);
       if ((spike_value ^ value) & ~implementation_defined_bits(addr))
         throw Divergence("CSR " + hex(addr) + " differs: rvsim " + hex(value) + ", spike " + hex(spike_value));
@@ -643,21 +701,16 @@ class Lockstep {
   state_t& state_;
   Platform& platform_;
   CommitLog& log_;
-  uint64_t& commits_;
+  CommitObserver& commits_;
   bool took_exception_ = false;
+  std::optional<uint64_t> handler_instruction_retired_;
   uint64_t instructions_ = 0;
   uint64_t traps_ = 0;
   uint64_t injected_csr_reads_ = 0;
   uint64_t emulated_csr_accesses_ = 0;
   uint64_t failed_store_conditionals_ = 0;
+  uint64_t adopted_misa_writes_ = 0;
 };
-
-ssize_t count_commit_lines(void* cookie, const char* data, size_t size) {
-  auto* commits = static_cast<uint64_t*>(cookie);
-  for (size_t i = 0; i < size; ++i)
-    if (data[i] == '\n') ++*commits;
-  return static_cast<ssize_t>(size);
-}
 
 // Spike's ISA string for a hart with rvsim's misa: its single-letter
 // extensions and those of `extensions` (underscore-separated) whose base
@@ -769,9 +822,9 @@ int main(int argc, char** argv) {
   cfg.hartids = {0};
 
   Platform platform(cfg, options.ram_base, options.ram_size);
-  uint64_t commits = 0;
-  cookie_io_functions_t counter{nullptr, count_commit_lines, nullptr, nullptr};
-  FILE* commit_sink = fopencookie(&commits, "w", counter);
+  CommitObserver commits;
+  cookie_io_functions_t observer{nullptr, observe_commit_log, nullptr, nullptr};
+  FILE* commit_sink = fopencookie(&commits, "w", observer);
   setvbuf(commit_sink, nullptr, _IONBF, 0);
 
   processor_t hart(cfg.isa, cfg.priv, &cfg, &platform, 0, false, commit_sink, std::cerr);
@@ -801,6 +854,7 @@ int main(int argc, char** argv) {
   std::cout << "MATCHED " << lockstep.instructions() << " instructions, " << lockstep.traps() << " traps; "
             << lockstep.injected_csr_reads() << " CSR reads, " << lockstep.emulated_csr_accesses()
             << " accesses to CSRs spike lacks, " << platform.device_reads() << " device reads and "
-            << lockstep.failed_store_conditionals() << " SC failures taken from rvsim\n";
+            << lockstep.failed_store_conditionals() << " SC failures and " << lockstep.adopted_misa_writes()
+            << " misa writes taken from rvsim\n";
   return 0;
 }
