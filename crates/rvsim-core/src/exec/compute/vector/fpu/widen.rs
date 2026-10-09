@@ -4,9 +4,11 @@ use super::convert::{
     f32_to_i64_frm, f32_to_u64_frm, f64_to_f32_round_to_odd, f64_to_i32_frm, f64_to_u32_frm,
 };
 use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16};
+use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
-use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
+use crate::exec::compute::fpu::nan_handling::{
+    box_f32_canon, canonicalize_f64_bits, is_snan_f32, is_snan_f64,
+};
 use crate::exec::compute::fpu::rmm::rmm_round_f64_to_f32;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
@@ -115,6 +117,12 @@ pub(super) fn exec_fp_widening(
             // FP arithmetic widening path
             let vs2_f = if vs2_wide { elem_to_f64(vs2_raw) } else { elem_to_f32(vs2_raw) as f64 };
             let op1_f = elem_to_f32(op1_raw) as f64;
+            let vs2_signaling = if vs2_wide {
+                is_snan_f64(elem_to_f64(vs2_raw))
+            } else {
+                is_snan_f32(elem_to_f32(vs2_raw))
+            };
+            flags = flags | invalid_if(vs2_signaling || is_snan_f32(elem_to_f32(op1_raw)));
 
             clear_host_fp_flags();
             let r = std::hint::black_box(match op {
@@ -186,6 +194,12 @@ pub(super) fn exec_fp_widening(
                 f16_to_f32(vs2_raw as u16) as f64
             };
             let op1_f = f16_to_f32(op1_raw as u16) as f64;
+            let vs2_signaling = if vs2_wide {
+                is_snan_f32(elem_to_f32(vs2_raw))
+            } else {
+                is_snan_f16(vs2_raw as u16)
+            };
+            flags = flags | invalid_if(vs2_signaling || is_snan_f16(op1_raw as u16));
 
             clear_host_fp_flags();
             let r_f64 = std::hint::black_box(match op {
@@ -216,6 +230,12 @@ pub(super) fn exec_fp_widening(
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+}
+
+/// NV when a widening operation has a signaling NaN operand, whose host
+/// conversion to the wider format raises NV before the flags are cleared.
+const fn invalid_if(signaling_nan_operand: bool) -> FpFlags {
+    if signaling_nan_operand { FpFlags::NV } else { FpFlags::NONE }
 }
 
 /// Widening FMA operations.
@@ -258,6 +278,12 @@ pub(super) fn exec_fp_widening_fma(
             let vs2_f = elem_to_f32(vs2_raw) as f64;
             let op1_f = elem_to_f32(op1_raw) as f64;
             let vd_f = elem_to_f64(vd_raw);
+            flags = flags
+                | invalid_if(
+                    is_snan_f32(elem_to_f32(vs2_raw))
+                        || is_snan_f32(elem_to_f32(op1_raw))
+                        || is_snan_f64(vd_f),
+                );
 
             clear_host_fp_flags();
             let r = std::hint::black_box(match op {
@@ -279,6 +305,12 @@ pub(super) fn exec_fp_widening_fma(
             let vs2_f = f16_to_f32(vs2_raw as u16) as f64;
             let op1_f = f16_to_f32(op1_raw as u16) as f64;
             let vd_f = elem_to_f32(vd_raw) as f64;
+            flags = flags
+                | invalid_if(
+                    is_snan_f16(vs2_raw as u16)
+                        || is_snan_f16(op1_raw as u16)
+                        || is_snan_f32(elem_to_f32(vd_raw)),
+                );
 
             clear_host_fp_flags();
             let r = std::hint::black_box(match op {
