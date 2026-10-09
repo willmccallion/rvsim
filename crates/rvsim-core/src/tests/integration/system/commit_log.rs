@@ -60,19 +60,30 @@ fn every_effect() -> Vec<u32> {
 /// Runs `every_effect` on `backend` with the commit log open and returns
 /// the log's lines.
 fn logged_lines(backend: BackendKind, width: usize) -> Vec<String> {
+    logged_lines_until(&every_effect(), HANDLER, backend, width)
+}
+
+/// Runs `program` on `backend` with the commit log open until the PC
+/// reaches `stop_pc`, and returns the log's lines.
+fn logged_lines_until(
+    program: &[u32],
+    stop_pc: u64,
+    backend: BackendKind,
+    width: usize,
+) -> Vec<String> {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     let log = tempfile::NamedTempFile::new().expect("temp file");
     let path = log.path().to_str().expect("utf-8 path").to_owned();
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &every_effect());
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.sim.open_commit_log(&path).expect("open commit log");
 
-    let reached = ctx.run_until(5_000, |ctx| ctx.cpu().harts[0].pc == HANDLER);
+    let reached = ctx.run_until(5_000, |ctx| ctx.cpu().harts[0].pc == stop_pc);
     ctx.run(20);
     drop(ctx);
 
-    assert!(reached.is_some(), "{backend:?} width {width}: the ECALL never reached its handler");
+    assert!(reached.is_some(), "{backend:?} width {width}: the program never reached {stop_pc:#x}");
     std::fs::read_to_string(&path).expect("read commit log").lines().map(str::to_owned).collect()
 }
 
@@ -205,5 +216,43 @@ fn every_backend_logs_the_same_retirements() {
         let lines = up_to_handler(&logged_lines(backend, width));
 
         assert_eq!(lines, reference, "{backend:?} width {width}");
+    }
+}
+
+const MSTATUS_VS_INITIAL: i32 = 0x600;
+/// `vsetivli a5, 1, e64, m1, ta, ma`: one of VLEN 128's two elements.
+const VSETIVLI_ONE_E64_TA: u32 =
+    (0b11 << 30) | (0xd8 << 20) | (1 << 15) | (0b111 << 12) | (15 << 7) | 0x57;
+/// `vmv.v.i v1, 5`.
+const VMV_V_I_V1_5: u32 =
+    (0b01_0111 << 26) | (1 << 25) | (5 << 15) | (0b011 << 12) | (1 << 7) | 0x57;
+
+/// Enables V, sets vl = 1 with a tail-agnostic e64 vtype, writes 5 to v1's
+/// body, then spins.
+fn vector_tail() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(13, 0, MSTATUS_VS_INITIAL).build(),
+        i().csrrs(0, MSTATUS, 13).build(),
+        VSETIVLI_ONE_E64_TA,
+        VMV_V_I_V1_5,
+        i().jal(0, 0).build(),
+    ]
+}
+
+#[test]
+fn a_vector_write_logs_the_register_and_the_bits_it_filled_agnostically() {
+    let spin = PROGRAM_BASE + 4 * 4;
+    let tail_ones_body_five = format!("0x{:016x}{:016x}", u64::MAX, 5);
+    let tail_agnostic = format!("0x{:016x}{:016x}", u64::MAX, 0);
+
+    for (backend, width) in [(BackendKind::InOrder, 1), (BackendKind::OutOfOrder, 4)] {
+        let effects = effects_by_pc(&logged_lines_until(&vector_tail(), spin, backend, width));
+
+        assert_eq!(
+            effects[&(PROGRAM_BASE + 4 * 3)],
+            format!("v1 {tail_ones_body_five} {tail_agnostic} vec"),
+            "{backend:?}"
+        );
     }
 }

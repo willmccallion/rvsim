@@ -133,7 +133,7 @@ fn exec_int_reduction(
     if ctx.vta.is_agnostic() {
         let vlmax = Vlmax::compute(vpr.vlen(), sew, Vlmul::M1).as_usize();
         for i in 1..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), sew, sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), sew);
         }
     }
 
@@ -217,7 +217,7 @@ fn exec_widen_int_reduction(
     if ctx.vta.is_agnostic() {
         let vlmax = Vlmax::compute(vpr.vlen(), dst_sew, Vlmul::M1).as_usize();
         for i in 1..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), dst_sew, dst_sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), dst_sew);
         }
     }
 
@@ -257,7 +257,7 @@ fn exec_fp_reduction(
     if ctx.vta.is_agnostic() {
         let vlmax = Vlmax::compute(vpr.vlen(), sew, Vlmul::M1).as_usize();
         for i in 1..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), sew, sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), sew);
         }
     }
 
@@ -467,7 +467,7 @@ fn exec_fp_widen_reduction(
     if ctx.vta.is_agnostic() {
         let vlmax = Vlmax::compute(vpr.vlen(), dst_sew, Vlmul::M1).as_usize();
         for i in 1..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), dst_sew, dst_sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), dst_sew);
         }
     }
 

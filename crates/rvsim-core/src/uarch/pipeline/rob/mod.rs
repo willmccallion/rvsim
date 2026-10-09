@@ -226,6 +226,14 @@ pub struct RobEntry {
     /// The access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
     pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
+    /// The destination bits a vector instruction filled under an agnostic
+    /// policy, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub vec_agnostic: Option<Box<crate::exec::compute::vector::agnostic::AgnosticFills>>,
+    /// The element accesses a vector memory instruction's micro-ops made,
+    /// for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub vec_mem_effects: Vec<crate::uarch::pipeline::commit_log::VectorElementAccess>,
 }
 
 /// Reorder Buffer — circular buffer for in-order commit.
@@ -353,6 +361,10 @@ impl Rob {
             vec_writes: None,
             #[cfg(feature = "commit-log")]
             mem_effect: None,
+            #[cfg(feature = "commit-log")]
+            vec_agnostic: None,
+            #[cfg(feature = "commit-log")]
+            vec_mem_effects: Vec::new(),
         };
 
         let _ = self.tag_index.insert(tag, self.tail);
@@ -521,6 +533,32 @@ impl Rob {
     ) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.mem_effect = Some(effect);
+        }
+    }
+
+    /// Records the destination bits a vector instruction filled under an
+    /// agnostic policy, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub fn set_vec_agnostic(
+        &mut self,
+        tag: RobTag,
+        fills: crate::exec::compute::vector::agnostic::AgnosticFills,
+    ) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vec_agnostic = Some(Box::new(fills));
+        }
+    }
+
+    /// Adds the element accesses a vector memory micro-op made, for the
+    /// commit log.
+    #[cfg(feature = "commit-log")]
+    pub fn add_vec_mem_effects(
+        &mut self,
+        tag: RobTag,
+        accesses: &[crate::uarch::pipeline::commit_log::VectorElementAccess],
+    ) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.vec_mem_effects.extend_from_slice(accesses);
         }
     }
 

@@ -361,6 +361,8 @@ pub fn retire_access(
     let Some(parent) = inflight.iter_mut().find(|m| m.rob_tag == wb.rob_tag) else {
         return AccessRetired { writes: Vec::new(), completed: false };
     };
+    #[cfg(feature = "commit-log")]
+    rob.add_vec_mem_effects(wb.rob_tag, &wb.vec_mem_effects);
     let values = element_values(wb, access);
     if let (Some(trap), Some(first)) = (&wb.trap, values.first()) {
         let trims = wb.ctrl.vec_op == VectorOp::VLoadFF && first.elem_idx.as_usize() > 0;

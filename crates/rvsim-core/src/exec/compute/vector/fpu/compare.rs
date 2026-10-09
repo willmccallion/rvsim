@@ -34,13 +34,13 @@ pub(super) fn exec_fp_comparison(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
             }
             continue;
         }

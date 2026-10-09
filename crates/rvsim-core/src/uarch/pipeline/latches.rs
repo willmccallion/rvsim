@@ -498,6 +498,9 @@ pub struct Mem2WbEntry {
     /// The access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
     pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
+    /// The element accesses a vector memory micro-op made, for the commit log.
+    #[cfg(feature = "commit-log")]
+    pub vec_mem_effects: Vec<crate::uarch::pipeline::commit_log::VectorElementAccess>,
 }
 
 impl Mem2WbEntry {
@@ -506,6 +509,9 @@ impl Mem2WbEntry {
     pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {
         #[cfg(feature = "commit-log")]
         let mem_effect = crate::uarch::pipeline::commit_log::MemEffect::of_memory2(&mem);
+        #[cfg(feature = "commit-log")]
+        let vec_mem_effects =
+            crate::uarch::pipeline::commit_log::VectorElementAccess::of_memory2(&mem);
         Self {
             rob_tag: mem.rob_tag,
             pc: mem.pc,
@@ -526,6 +532,8 @@ impl Mem2WbEntry {
             observed: mem.observed,
             #[cfg(feature = "commit-log")]
             mem_effect,
+            #[cfg(feature = "commit-log")]
+            vec_mem_effects,
         }
     }
 }

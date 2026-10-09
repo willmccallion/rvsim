@@ -148,6 +148,21 @@ pub struct StatsDump {
     pub instructions_retired: u64,
 }
 
+/// Whether `uncore` has a commit log open, so execute records what it logs.
+#[cfg(feature = "commit-log")]
+#[must_use]
+pub const fn commit_log_open(uncore: &Uncore) -> bool {
+    uncore.commit_log.is_some()
+}
+
+/// Whether `uncore` has a commit log open: never, without the `commit-log`
+/// feature.
+#[cfg(not(feature = "commit-log"))]
+#[must_use]
+pub const fn commit_log_open(_uncore: &Uncore) -> bool {
+    false
+}
+
 impl Uncore {
     /// Makes `data` visible at `paddr` as an immediate write by `writer`,
     /// for writes that do not travel through the memory system: an MMIO

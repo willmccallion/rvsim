@@ -46,13 +46,13 @@ pub(super) fn exec_comparison(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
             }
             continue;
         }
@@ -94,9 +94,9 @@ pub(super) fn exec_carry(
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
                 if writes_mask {
-                    vpr.write_mask_bit(vd_idx, ElemIdx::new(i), true);
+                    vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
                 } else {
-                    vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                    vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
                 }
             }
             continue;

@@ -50,14 +50,15 @@ pub(super) fn retire_entry(
     #[cfg(feature = "commit-log")]
     if state.commit_log.is_some() {
         let store = targets.store_buffer.committed_write(entry.tag);
-        log_retired(state, Retired::capture(entry, privilege, store));
+        let retired = Retired::capture(entry, privilege, store, state.hart.regs.vpr());
+        log_retired(state, &retired);
     }
     flow
 }
 
 /// Writes `retired`'s commit-log line, reading back the CSR it wrote.
 #[cfg(feature = "commit-log")]
-fn log_retired(state: &mut CoreCtx<'_>, retired: Retired) {
+fn log_retired(state: &mut CoreCtx<'_>, retired: &Retired) {
     let csr_value = retired.csr().map(|addr| state.csr_read(addr));
     let fflags = retired.raised_fp_flags().then(|| state.csr_read(csr::FFLAGS));
     if let Some(log) = state.commit_log.as_mut() {

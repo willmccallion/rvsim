@@ -101,7 +101,7 @@ fn exec_vmv_sx(
     if ctx.vta.is_agnostic() {
         let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
         for i in 1..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
         }
     }
 
@@ -130,13 +130,13 @@ fn exec_slideup(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -172,13 +172,13 @@ fn exec_slidedown(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -216,13 +216,13 @@ fn exec_slide1up(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -257,13 +257,13 @@ fn exec_slide1down(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -302,13 +302,13 @@ fn exec_rgather(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -347,13 +347,13 @@ fn exec_rgather_ei16(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -399,7 +399,7 @@ fn exec_compress(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     if ctx.vta.is_agnostic() {
         for i in dst..vlmax {
-            vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+            vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
         }
     }
 

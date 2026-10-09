@@ -85,7 +85,7 @@ fn exec_mask_logical(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
             }
             continue;
         }
@@ -160,13 +160,13 @@ fn exec_mask_set(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_mask_bit(vd, ElemIdx::new(i), true);
+                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
             }
             continue;
         }
@@ -215,7 +215,7 @@ fn exec_viota(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -231,7 +231,7 @@ fn exec_viota(
 
         if !active {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
@@ -255,13 +255,13 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }

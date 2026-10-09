@@ -433,13 +433,13 @@ pub(super) fn exec_fp_standard(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
