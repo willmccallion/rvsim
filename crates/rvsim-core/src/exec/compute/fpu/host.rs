@@ -85,11 +85,10 @@ pub fn clear_host_fp_flags() {
 
 /// Maps a RISC-V rounding mode to the host FPU `FE_*` constant.
 ///
-/// RMM (round to nearest, ties to max magnitude) is approximated as RNE
-/// because neither SSE nor NEON provide a native round-to-nearest-ties-to-
-/// max-magnitude mode. The two only differ on exact half-ULP ties, which
-/// are rare in generic arithmetic but may fail arch-tests that construct
-/// tied inputs under RMM.
+/// Neither SSE nor NEON has RMM (round to nearest, ties to max magnitude),
+/// so it maps to round-to-nearest-even, and an inexact result is rounded
+/// again in software by [`exact::rmm_correction`](super::exact::rmm_correction):
+/// the two differ only on an exact half-ULP tie.
 pub(super) const fn rm_to_host_round(rm: RoundingMode) -> i32 {
     match rm {
         RoundingMode::Rne | RoundingMode::Rmm => FE_TONEAREST,

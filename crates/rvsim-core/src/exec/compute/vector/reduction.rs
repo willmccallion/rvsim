@@ -17,6 +17,7 @@
 // IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
 #![allow(clippy::float_cmp)]
 
+use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::exec::compute::fpu::host::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
@@ -34,6 +35,7 @@ use crate::isa::op::{
     FpReduceOp, FpWidenReduceOp, IntReduceOp, ReduceOp, VectorOp, WidenIntReduceOp,
 };
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
+use std::hint::black_box;
 
 /// Returns `true` if `op` is a reduction handled by this module.
 pub const fn is_reduction(op: VectorOp) -> bool {
@@ -289,9 +291,13 @@ fn fp_reduce_f32(
 
         match op {
             FpReduceOp::OSum | FpReduceOp::USum => {
-                clear_host_fp_flags();
-                acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(elem));
-                flags = flags | read_host_fp_flags();
+                let (sum, f) = on_host_f32(
+                    ctx.frm,
+                    || black_box(acc) + black_box(elem),
+                    || exact::add(Exact::of_f32(acc), Exact::of_f32(elem)),
+                );
+                acc = sum;
+                flags = flags | f;
             }
             FpReduceOp::Min => {
                 if is_snan_f32(acc) || is_snan_f32(elem) {
@@ -336,9 +342,13 @@ fn fp_reduce_f64(
 
         match op {
             FpReduceOp::OSum | FpReduceOp::USum => {
-                clear_host_fp_flags();
-                acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(elem));
-                flags = flags | read_host_fp_flags();
+                let (sum, f) = on_host_f64(
+                    ctx.frm,
+                    || black_box(acc) + black_box(elem),
+                    || exact::add(Exact::of_f64(acc), Exact::of_f64(elem)),
+                );
+                acc = sum;
+                flags = flags | f;
             }
             FpReduceOp::Min => {
                 if is_snan_f64(acc) || is_snan_f64(elem) {
@@ -497,9 +507,13 @@ fn fp_widen_reduce_f32_to_f64(
                 if is_snan_f32(f32::from_bits(elem_bits)) {
                     flags = flags | FpFlags::NV;
                 }
-                clear_host_fp_flags();
-                acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(wide));
-                flags = flags | read_host_fp_flags();
+                let (sum, f) = on_host_f64(
+                    ctx.frm,
+                    || black_box(acc) + black_box(wide),
+                    || exact::add(Exact::of_f64(acc), Exact::of_f64(wide)),
+                );
+                acc = sum;
+                flags = flags | f;
             }
         }
     }
@@ -529,9 +543,13 @@ fn fp_widen_reduce_f16_to_f32(
                 if is_snan_f16(elem_bits) {
                     flags = flags | FpFlags::NV;
                 }
-                clear_host_fp_flags();
-                acc = std::hint::black_box(std::hint::black_box(acc) + std::hint::black_box(wide));
-                flags = flags | read_host_fp_flags();
+                let (sum, f) = on_host_f32(
+                    ctx.frm,
+                    || black_box(acc) + black_box(wide),
+                    || exact::add(Exact::of_f32(acc), Exact::of_f32(wide)),
+                );
+                acc = sum;
+                flags = flags | f;
             }
         }
     }

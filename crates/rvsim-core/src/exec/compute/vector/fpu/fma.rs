@@ -1,8 +1,8 @@
 //! Fused multiply-add.
 
 use super::{elem_to_f32, elem_to_f64};
+use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16};
-use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
@@ -11,8 +11,31 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
+use std::hint::black_box;
 
-/// Compute FMA for f16 element (Zvfh).
+/// The multiplicands and addend of an FMA, `a × b + c`, as the RVV ops take
+/// them from `vs1` (or the scalar), `vs2` and `vd`.
+fn fma_operands<T: std::ops::Neg<Output = T> + Default>(
+    op: VectorOp,
+    op1: T,
+    vs2: T,
+    vd: T,
+) -> (T, T, T) {
+    match op {
+        VectorOp::VFMacc => (op1, vs2, vd),
+        VectorOp::VFNMacc => (-op1, vs2, -vd),
+        VectorOp::VFMSac => (op1, vs2, -vd),
+        VectorOp::VFNMSac => (-op1, vs2, vd),
+        VectorOp::VFMAdd => (op1, vd, vs2),
+        VectorOp::VFNMAdd => (-op1, vd, -vs2),
+        VectorOp::VFMSub => (op1, vd, -vs2),
+        VectorOp::VFNMSub => (-op1, vd, vs2),
+        _ => (T::default(), T::default(), T::default()),
+    }
+}
+
+/// Compute FMA for f16 element (Zvfh). The f64 fused result can be inexact
+/// and then rounds twice, so an inexact one is rounded from the exact value.
 pub(super) fn compute_fma_f16(
     op: VectorOp,
     vs2_bits: u64,
@@ -23,26 +46,22 @@ pub(super) fn compute_fma_f16(
     let ha = vs2_bits as u16;
     let hb = op1_bits as u16;
     let hc = vd_bits as u16;
-    let vs2 = f16_to_f32(ha) as f64;
-    let op1 = f16_to_f32(hb) as f64;
-    let vd = f16_to_f32(hc) as f64;
-
-    let (a, b, c) = match op {
-        VectorOp::VFMacc => (op1, vs2, vd),
-        VectorOp::VFNMacc => (-op1, vs2, -vd),
-        VectorOp::VFMSac => (op1, vs2, -vd),
-        VectorOp::VFNMSac => (-op1, vs2, vd),
-        VectorOp::VFMAdd => (op1, vd, vs2),
-        VectorOp::VFNMAdd => (-op1, vd, -vs2),
-        VectorOp::VFMSub => (op1, vd, -vs2),
-        VectorOp::VFNMSub => (-op1, vd, vs2),
-        _ => (0.0, 0.0, 0.0),
-    };
+    let (a, b, c) = fma_operands(
+        op,
+        f64::from(f16_to_f32(hb)),
+        f64::from(f16_to_f32(ha)),
+        f64::from(f16_to_f32(hc)),
+    );
     let signaling_nan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
     let nv = if signaling_nan || fused_is_invalid(a, b, c) { FpFlags::NV } else { FpFlags::NONE };
 
     let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
-    (bits as u64, flags | nv)
+    if flags.contains(FpFlags::NX) && a.is_finite() && b.is_finite() && c.is_finite() {
+        let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
+        let (bits, flags) = exact::round(exact, Format::Half, rm);
+        return (bits, flags | nv);
+    }
+    (u64::from(bits), flags | nv)
 }
 
 /// FMA operations: vd is both source (accumulator) and destination.
@@ -79,8 +98,8 @@ pub(super) fn exec_fp_fma(
         let vd_val = vpr.read_element(vd_idx, ElemIdx::new(i), ctx.sew);
 
         let (result, f) = match ctx.sew {
-            Sew::E32 => compute_fma_f32(op, vs2_val, op1_val, vd_val),
-            Sew::E64 => compute_fma_f64(op, vs2_val, op1_val, vd_val),
+            Sew::E32 => compute_fma_f32(op, vs2_val, op1_val, vd_val, ctx.frm),
+            Sew::E64 => compute_fma_f64(op, vs2_val, op1_val, vd_val, ctx.frm),
             Sew::E16 if ctx.zvfh => compute_fma_f16(op, vs2_val, op1_val, vd_val, ctx.frm),
             _ => (0, FpFlags::NONE),
         };
@@ -107,33 +126,16 @@ pub(super) fn compute_fma_f32(
     vs2_bits: u64,
     op1_bits: u64,
     vd_bits: u64,
+    rm: RoundingMode,
 ) -> (u64, FpFlags) {
-    let vs2 = elem_to_f32(vs2_bits);
-    let op1 = elem_to_f32(op1_bits);
-    let vd = elem_to_f32(vd_bits);
-
-    clear_host_fp_flags();
-    let r =
-        std::hint::black_box(match op {
-            VectorOp::VFMacc => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vs2), std::hint::black_box(vd)),
-            VectorOp::VFNMacc => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vs2), -std::hint::black_box(vd)),
-            VectorOp::VFMSac => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vs2), -std::hint::black_box(vd)),
-            VectorOp::VFNMSac => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vs2), std::hint::black_box(vd)),
-            VectorOp::VFMAdd => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vd), std::hint::black_box(vs2)),
-            VectorOp::VFNMAdd => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vd), -std::hint::black_box(vs2)),
-            VectorOp::VFMSub => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vd), -std::hint::black_box(vs2)),
-            VectorOp::VFNMSub => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vd), std::hint::black_box(vs2)),
-            _ => 0.0,
-        });
-    (box_f32_canon(r), read_host_fp_flags())
+    let (a, b, c) =
+        fma_operands(op, elem_to_f32(op1_bits), elem_to_f32(vs2_bits), elem_to_f32(vd_bits));
+    let (r, flags) = on_host_f32(
+        rm,
+        || black_box(a).mul_add(black_box(b), black_box(c)),
+        || exact::mul_add(Exact::of_f32(a), Exact::of_f32(b), Exact::of_f32(c)),
+    );
+    (box_f32_canon(r), flags)
 }
 
 /// Compute FMA for f64 element.
@@ -142,31 +144,14 @@ pub(super) fn compute_fma_f64(
     vs2_bits: u64,
     op1_bits: u64,
     vd_bits: u64,
+    rm: RoundingMode,
 ) -> (u64, FpFlags) {
-    let vs2 = elem_to_f64(vs2_bits);
-    let op1 = elem_to_f64(op1_bits);
-    let vd = elem_to_f64(vd_bits);
-
-    clear_host_fp_flags();
-    let r =
-        std::hint::black_box(match op {
-            VectorOp::VFMacc => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vs2), std::hint::black_box(vd)),
-            VectorOp::VFNMacc => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vs2), -std::hint::black_box(vd)),
-            VectorOp::VFMSac => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vs2), -std::hint::black_box(vd)),
-            VectorOp::VFNMSac => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vs2), std::hint::black_box(vd)),
-            VectorOp::VFMAdd => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vd), std::hint::black_box(vs2)),
-            VectorOp::VFNMAdd => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vd), -std::hint::black_box(vs2)),
-            VectorOp::VFMSub => std::hint::black_box(op1)
-                .mul_add(std::hint::black_box(vd), -std::hint::black_box(vs2)),
-            VectorOp::VFNMSub => (-std::hint::black_box(op1))
-                .mul_add(std::hint::black_box(vd), std::hint::black_box(vs2)),
-            _ => 0.0,
-        });
-    (canonicalize_f64_bits(r), read_host_fp_flags())
+    let (a, b, c) =
+        fma_operands(op, elem_to_f64(op1_bits), elem_to_f64(vs2_bits), elem_to_f64(vd_bits));
+    let (r, flags) = on_host_f64(
+        rm,
+        || black_box(a).mul_add(black_box(b), black_box(c)),
+        || exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c)),
+    );
+    (canonicalize_f64_bits(r), flags)
 }

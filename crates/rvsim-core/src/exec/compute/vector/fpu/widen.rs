@@ -4,12 +4,12 @@ use super::convert::{
     f32_to_i64_frm, f32_to_u64_frm, f64_to_f32_round_to_odd, f64_to_i32_frm, f64_to_u32_frm,
 };
 use super::{elem_to_f32, elem_to_f64};
+use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, is_snan_f32, is_snan_f64,
 };
-use crate::exec::compute::fpu::rmm::rmm_round_f64_to_f32;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
 };
@@ -17,6 +17,7 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
+use std::hint::black_box;
 
 /// Widening FP operations: read at SEW, write at 2*SEW.
 #[allow(clippy::too_many_lines)]
@@ -124,18 +125,11 @@ pub(super) fn exec_fp_widening(
             };
             flags = flags | invalid_if(vs2_signaling || is_snan_f32(elem_to_f32(op1_raw)));
 
-            clear_host_fp_flags();
-            let r = std::hint::black_box(match op {
-                VectorOp::VFWAdd | VectorOp::VFWAddW => {
-                    std::hint::black_box(vs2_f) + std::hint::black_box(op1_f)
-                }
-                VectorOp::VFWSub | VectorOp::VFWSubW => {
-                    std::hint::black_box(vs2_f) - std::hint::black_box(op1_f)
-                }
-                VectorOp::VFWMul => std::hint::black_box(vs2_f) * std::hint::black_box(op1_f),
-                _ => vs2_f,
-            });
-            let f = read_host_fp_flags();
+            let (r, f) = on_host_f64(
+                ctx.frm,
+                || widening_arith_on_host(op, vs2_f, op1_f),
+                || widening_arith_exact(op, vs2_f, op1_f),
+            );
             flags = flags | f;
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
         } else if ctx.sew == Sew::E16 && ctx.zvfh {
@@ -201,30 +195,14 @@ pub(super) fn exec_fp_widening(
             };
             flags = flags | invalid_if(vs2_signaling || is_snan_f16(op1_raw as u16));
 
-            clear_host_fp_flags();
-            let r_f64 = std::hint::black_box(match op {
-                VectorOp::VFWAdd | VectorOp::VFWAddW => {
-                    std::hint::black_box(vs2_f) + std::hint::black_box(op1_f)
-                }
-                VectorOp::VFWSub | VectorOp::VFWSubW => {
-                    std::hint::black_box(vs2_f) - std::hint::black_box(op1_f)
-                }
-                VectorOp::VFWMul => std::hint::black_box(vs2_f) * std::hint::black_box(op1_f),
-                // VFWCvtFF (f16→f32) and other widening identity paths return
-                // the input unchanged (the widen happens via the cast above).
-                _ => vs2_f,
-            });
-            let f = read_host_fp_flags();
+            // The f64 result of f32-representable operands rounds to f32 the
+            // same as the exact one would, so the flags are read after it.
+            let (r_f32, f) = on_host_f32(
+                ctx.frm,
+                || black_box(widening_arith_on_host(op, vs2_f, op1_f)) as f32,
+                || widening_arith_exact(op, vs2_f, op1_f),
+            );
             flags = flags | f;
-            // RMM has no native host equivalent (set_host_round_mode mapped it
-            // to FE_TONEAREST). f16+f16 in f64 is exact, so the only rounding
-            // happens in the f64→f32 cast at the end. Use rmm_round_f64_to_f32
-            // to fix the half-ULP ties to max-magnitude under RMM.
-            let r_f32 = if ctx.frm == RoundingMode::Rmm {
-                rmm_round_f64_to_f32(r_f64)
-            } else {
-                r_f64 as f32
-            };
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, box_f32_canon(r_f32));
         }
     }
@@ -236,6 +214,38 @@ pub(super) fn exec_fp_widening(
 /// conversion to the wider format raises NV before the flags are cleared.
 const fn invalid_if(signaling_nan_operand: bool) -> FpFlags {
     if signaling_nan_operand { FpFlags::NV } else { FpFlags::NONE }
+}
+
+/// A widening add, subtract or multiply of `vs2` and `op1` on the host.
+fn widening_arith_on_host(op: VectorOp, vs2: f64, op1: f64) -> f64 {
+    match op {
+        VectorOp::VFWAdd | VectorOp::VFWAddW => black_box(vs2) + black_box(op1),
+        VectorOp::VFWSub | VectorOp::VFWSubW => black_box(vs2) - black_box(op1),
+        VectorOp::VFWMul => black_box(vs2) * black_box(op1),
+        _ => vs2,
+    }
+}
+
+/// The exact result of [`widening_arith_on_host`]'s operation.
+const fn widening_arith_exact(op: VectorOp, vs2: f64, op1: f64) -> Exact {
+    let (vs2, op1) = (Exact::of_f64(vs2), Exact::of_f64(op1));
+    match op {
+        VectorOp::VFWAdd | VectorOp::VFWAddW => exact::add(vs2, op1),
+        VectorOp::VFWSub | VectorOp::VFWSubW => exact::sub(vs2, op1),
+        VectorOp::VFWMul => exact::mul(vs2, op1),
+        _ => vs2,
+    }
+}
+
+/// The multiplicands and addend of a widening FMA, `a × b + c`.
+fn widening_fma_operands(op: VectorOp, op1: f64, vs2: f64, vd: f64) -> (f64, f64, f64) {
+    match op {
+        VectorOp::VFWMacc => (op1, vs2, vd),
+        VectorOp::VFWNMacc => (-op1, vs2, -vd),
+        VectorOp::VFWMSac => (op1, vs2, -vd),
+        VectorOp::VFWNMSac => (-op1, vs2, vd),
+        _ => (0.0, 0.0, vd),
+    }
 }
 
 /// Widening FMA operations.
@@ -285,19 +295,12 @@ pub(super) fn exec_fp_widening_fma(
                         || is_snan_f64(vd_f),
                 );
 
-            clear_host_fp_flags();
-            let r = std::hint::black_box(match op {
-                VectorOp::VFWMacc => std::hint::black_box(op1_f)
-                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
-                VectorOp::VFWNMacc => (-std::hint::black_box(op1_f))
-                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
-                VectorOp::VFWMSac => std::hint::black_box(op1_f)
-                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
-                VectorOp::VFWNMSac => (-std::hint::black_box(op1_f))
-                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
-                _ => vd_f,
-            });
-            let f = read_host_fp_flags();
+            let (a, b, c) = widening_fma_operands(op, op1_f, vs2_f, vd_f);
+            let (r, f) = on_host_f64(
+                ctx.frm,
+                || black_box(a).mul_add(black_box(b), black_box(c)),
+                || exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c)),
+            );
             flags = flags | f;
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
         } else if ctx.sew == Sew::E16 && ctx.zvfh {
@@ -312,21 +315,22 @@ pub(super) fn exec_fp_widening_fma(
                         || is_snan_f32(elem_to_f32(vd_raw)),
                 );
 
+            // The f64 fused result can be inexact and then rounds twice, so an
+            // inexact one is rounded to f32 from the exact value.
+            let (a, b, c) = widening_fma_operands(op, op1_f, vs2_f, vd_f);
             clear_host_fp_flags();
-            let r = std::hint::black_box(match op {
-                VectorOp::VFWMacc => std::hint::black_box(op1_f)
-                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
-                VectorOp::VFWNMacc => (-std::hint::black_box(op1_f))
-                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
-                VectorOp::VFWMSac => std::hint::black_box(op1_f)
-                    .mul_add(std::hint::black_box(vs2_f), -std::hint::black_box(vd_f)),
-                VectorOp::VFWNMSac => (-std::hint::black_box(op1_f))
-                    .mul_add(std::hint::black_box(vs2_f), std::hint::black_box(vd_f)),
-                _ => vd_f,
-            });
-            let f = read_host_fp_flags();
+            let host = black_box(black_box(a).mul_add(black_box(b), black_box(c)) as f32);
+            let host_flags = read_host_fp_flags();
+            let (bits, f) = if host_flags.contains(FpFlags::NX) && !host_flags.contains(FpFlags::NV)
+            {
+                let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
+                let (bits, f) = exact::round(exact, Format::Single, ctx.frm);
+                (box_f32_canon(f32::from_bits(bits as u32)), f)
+            } else {
+                (box_f32_canon(host), host_flags)
+            };
             flags = flags | f;
-            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, box_f32_canon(r as f32));
+            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
         }
     }
 
@@ -373,9 +377,9 @@ pub(super) fn exec_fp_narrowing(
             let a64 = elem_to_f64(vs2_raw);
             match op {
                 VectorOp::VFNCvtFF => {
-                    clear_host_fp_flags();
-                    let r = std::hint::black_box(std::hint::black_box(a64) as f32);
-                    (box_f32_canon(r) & 0xFFFF_FFFF, read_host_fp_flags())
+                    let (r, f) =
+                        on_host_f32(ctx.frm, || black_box(a64) as f32, || Exact::of_f64(a64));
+                    (box_f32_canon(r) & 0xFFFF_FFFF, f)
                 }
                 VectorOp::VFNCvtRodFF => {
                     // Round-to-odd: truncate to f32 precision and jam LSB to 1
@@ -403,16 +407,23 @@ pub(super) fn exec_fp_narrowing(
                 VectorOp::VFNCvtFXu => {
                     // Convert full 2*SEW unsigned integer to SEW float.
                     // Must not truncate to u32 first — the source is a 64-bit integer.
-                    clear_host_fp_flags();
-                    let r = std::hint::black_box(vs2_raw as f32);
-                    (r.to_bits() as u64, read_host_fp_flags())
+                    let (r, f) = on_host_f32(
+                        ctx.frm,
+                        || black_box(vs2_raw) as f32,
+                        || Exact::of_unsigned(u128::from(vs2_raw)),
+                    );
+                    (u64::from(r.to_bits()), f)
                 }
                 VectorOp::VFNCvtFX => {
                     // Convert full 2*SEW signed integer to SEW float.
                     // Must not truncate to i32 first — the source is a 64-bit integer.
-                    clear_host_fp_flags();
-                    let r = std::hint::black_box(sign_extend(vs2_raw, src_sew) as f32);
-                    (r.to_bits() as u64, read_host_fp_flags())
+                    let signed = sign_extend(vs2_raw, src_sew);
+                    let (r, f) = on_host_f32(
+                        ctx.frm,
+                        || black_box(signed) as f32,
+                        || Exact::of_integer(i128::from(signed)),
+                    );
+                    (u64::from(r.to_bits()), f)
                 }
                 _ => (0, FpFlags::NONE),
             }

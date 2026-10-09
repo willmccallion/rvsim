@@ -7,6 +7,7 @@
 //! back to f16 with the RISC-V rounding mode.
 
 use super::convert::fp_to_int_convert;
+use super::exact::{self, Exact, Format};
 use super::host::{restore_host_round_mode, set_host_round_mode};
 use super::nan_handling::{fmax_f32, fmin_f32, is_snan_f32, is_snan_f64, unbox_f32};
 use crate::isa::fp::{FpFlags, RoundingMode};
@@ -285,6 +286,17 @@ pub(super) fn execute_f16_inner(
         let (bits, flags) = f64_to_f16(val, rm);
         (box_f16(bits), flags | extra)
     };
+    // An inexact f64 fused result rounds twice, so it is rounded from the
+    // exact value instead.
+    let fused = |a: f64, b: f64, c: f64, extra: FpFlags| {
+        let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
+        if flags.contains(FpFlags::NX) && a.is_finite() && b.is_finite() && c.is_finite() {
+            let value = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
+            let (bits, flags) = exact::round(value, Format::Half, rm);
+            return (box_f16(bits as u16), flags | extra);
+        }
+        (box_f16(bits), flags | extra)
+    };
 
     match op {
         AluOp::FAdd => {
@@ -338,7 +350,7 @@ pub(super) fn execute_f16_inner(
             let fc = f16_to_f32(hc) as f64;
             let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
             let nv = invalid_flag(snan, fused_is_invalid(fa, fb, fc));
-            arith(fa.mul_add(fb, fc), nv)
+            fused(fa, fb, fc, nv)
         }
         AluOp::FMSub => {
             let fa = f16_to_f32(ha) as f64;
@@ -346,7 +358,7 @@ pub(super) fn execute_f16_inner(
             let fc = f16_to_f32(hc) as f64;
             let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
             let nv = invalid_flag(snan, fused_is_invalid(fa, fb, -fc));
-            arith(fa.mul_add(fb, -fc), nv)
+            fused(fa, fb, -fc, nv)
         }
         AluOp::FNMAdd => {
             let fa = f16_to_f32(ha) as f64;
@@ -354,7 +366,7 @@ pub(super) fn execute_f16_inner(
             let fc = f16_to_f32(hc) as f64;
             let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
             let nv = invalid_flag(snan, fused_is_invalid(-fa, fb, -fc));
-            arith((-fa).mul_add(fb, -fc), nv)
+            fused(-fa, fb, -fc, nv)
         }
         AluOp::FNMSub => {
             let fa = f16_to_f32(ha) as f64;
@@ -362,7 +374,7 @@ pub(super) fn execute_f16_inner(
             let fc = f16_to_f32(hc) as f64;
             let snan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
             let nv = invalid_flag(snan, fused_is_invalid(-fa, fb, fc));
-            arith((-fa).mul_add(fb, fc), nv)
+            fused(-fa, fb, fc, nv)
         }
 
         AluOp::FSgnJ => (box_f16((ha & 0x7FFF) | (hb & 0x8000)), FpFlags::NONE),
