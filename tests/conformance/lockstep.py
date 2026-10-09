@@ -5,8 +5,10 @@ rvsim writes its commit log into a FIFO that tools/lockstep/spike_lockstep
 replays on spike one instruction at a time, stopping at the first
 instruction whose PC, privilege mode, destination register, CSR write or
 memory access differs. The workloads are the riscv-tests -p- suites, the
-bundled programs and the benchmarks; multi-hart programs are left out, as
-the driver models one hart.
+bundled programs, the benchmarks and the RVV tests (the sample
+`make vector-smoke-build` builds with --smoke, else the full set
+`make vector-test-build` builds); multi-hart programs are left out, as the
+driver models one hart.
 
 Usage:
     .venv/bin/python tests/conformance/lockstep.py
@@ -19,6 +21,7 @@ import concurrent.futures as cf
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,6 +39,8 @@ PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
 SOFTWARE_BIN = os.path.join(ROOT, "software", "bin")
+VECTOR_BUILD = os.path.join(ROOT, "tests", "builds", "vector")
+VECTOR_SMOKE_BUILD = os.path.join(ROOT, "tests", "builds", "vector-smoke")
 RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
 TIMEOUT_SEC = 600
 
@@ -66,10 +71,17 @@ RVSIM_EXTENSIONS = [
 ]
 
 
-def spike_extensions(cfg):
-    """Spike's multi-letter extensions for a hart configured as `cfg`."""
+def vlen_for(elf_path, cfg):
+    """The VLEN `elf_path` runs at: an RVV test's, built for one VLEN and
+    found under `vlen<N>/` (the worker pins it the same way), else `cfg`'s."""
+    pinned = re.search(r"/vlen(\d+)/", elf_path)
+    return int(pinned.group(1)) if pinned else cfg.vlen
+
+
+def spike_extensions(cfg, vlen):
+    """Spike's multi-letter extensions for a hart configured as `cfg` at `vlen`."""
     extensions = list(RVSIM_EXTENSIONS)
-    extensions.append(f"zvl{cfg.vlen}b")
+    extensions.append(f"zvl{vlen}b")
     if not cfg.misaligned_access_trap:
         extensions.append("zicclsm")
     if cfg.svadu:
@@ -77,12 +89,15 @@ def spike_extensions(cfg):
     return "_".join(extensions)
 
 
-def find_workloads(filter_substr=None):
+def find_workloads(filter_substr=None, smoke=False):
     """(name, path) of every single-hart workload."""
     workloads = list(find_riscv_tests())
     for kind in ("programs", "benchmarks"):
         for path in sorted(glob.glob(os.path.join(SOFTWARE_BIN, kind, "*.elf"))):
             workloads.append((f"{kind}/{os.path.basename(path)}", path))
+    vector_build = VECTOR_SMOKE_BUILD if smoke else VECTOR_BUILD
+    for path in sorted(glob.glob(os.path.join(vector_build, "vlen*", "*.elf"))):
+        workloads.append((f"vector/{os.path.basename(path)}", path))
     if filter_substr:
         workloads = [(name, path) for name, path in workloads if filter_substr in name]
     return workloads
@@ -102,7 +117,7 @@ def lockstep_one(args):
             "--log",
             fifo,
             "--extensions",
-            spike_extensions(cfg),
+            spike_extensions(cfg, vlen_for(elf_path, cfg)),
             "--elf",
             elf_path,
             "--ram",
@@ -167,7 +182,7 @@ def main():
 
     if not os.path.isfile(DRIVER):
         sys.exit(f"ERROR: {DRIVER} not found\nRun: make lockstep-build")
-    workloads = find_workloads(args.filter)
+    workloads = find_workloads(args.filter, args.smoke)
     if not workloads:
         sys.exit("ERROR: no workloads found\nRun: make riscv-tests-build software")
 
