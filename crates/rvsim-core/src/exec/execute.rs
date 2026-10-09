@@ -8,6 +8,7 @@ use crate::arch::translation::SfenceVmaInfo;
 use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
+use crate::exec::compute::fpu::exact::{self, Exact, Format};
 use crate::exec::compute::vector::fpu::is_vec_fp;
 use crate::exec::execute::fpu::host::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
@@ -19,7 +20,7 @@ use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
-use crate::isa::fp::RoundingMode;
+use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
@@ -350,6 +351,28 @@ fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, u8) {
     (value, flags.bits())
 }
 
+/// Runs a rounding conversion on the host FPU in `rm`, and under RMM, which
+/// the host rounds as nearest-even, rounds `exact` (the value converted) in
+/// software instead when the host's result was inexact. `single` picks the
+/// destination format.
+fn convert_rounded(
+    rm: RoundingMode,
+    single: bool,
+    convert: impl FnOnce() -> u64,
+    exact: impl FnOnce() -> Exact,
+) -> (u64, u8) {
+    use crate::exec::compute::fpu::nan_handling::box_f32_canon;
+    let (value, flags) = on_host_fpu(rm, convert);
+    let format = if single { Format::Single } else { Format::Double };
+    match exact::rmm_correction(rm, FpFlags::from_bits(flags), format, || Some(exact())) {
+        Some((bits, flags)) => {
+            let boxed = if single { box_f32_canon(f32::from_bits(bits as u32)) } else { bits };
+            (boxed, flags.bits())
+        }
+        None => (value, flags),
+    }
+}
+
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`.
 /// `fp_flags` is non-zero only for floating-point arithmetic operations.
 pub fn compute_alu(
@@ -369,25 +392,48 @@ pub fn compute_alu(
 
     let rm = fp_rm.unwrap_or(RoundingMode::Rne);
     match alu_op {
-        AluOp::FCvtSW if !is_f16 => on_host_fpu(rm, || {
-            let v = black_box(op_a as i32);
-            if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
-        }),
-        AluOp::FCvtSWU if !is_f16 => on_host_fpu(rm, || {
-            let v = black_box(op_a as u32);
-            if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
-        }),
-        AluOp::FCvtSL if !is_f16 => on_host_fpu(rm, || {
-            let v = black_box(op_a as i64);
-            if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
-        }),
-        AluOp::FCvtSLU if !is_f16 => on_host_fpu(rm, || {
-            let v = black_box(op_a);
-            if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
-        }),
-        AluOp::FCvtSD if !is_f16 => {
-            on_host_fpu(rm, || box_f32_canon(black_box(f64::from_bits(op_a)) as f32))
-        }
+        AluOp::FCvtSW if !is_f16 => convert_rounded(
+            rm,
+            is_rv32,
+            || {
+                let v = black_box(op_a as i32);
+                if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
+            },
+            || Exact::of_integer(i128::from(op_a as i32)),
+        ),
+        AluOp::FCvtSWU if !is_f16 => convert_rounded(
+            rm,
+            is_rv32,
+            || {
+                let v = black_box(op_a as u32);
+                if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
+            },
+            || Exact::of_unsigned(u128::from(op_a as u32)),
+        ),
+        AluOp::FCvtSL if !is_f16 => convert_rounded(
+            rm,
+            is_rv32,
+            || {
+                let v = black_box(op_a as i64);
+                if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
+            },
+            || Exact::of_integer(i128::from(op_a as i64)),
+        ),
+        AluOp::FCvtSLU if !is_f16 => convert_rounded(
+            rm,
+            is_rv32,
+            || {
+                let v = black_box(op_a);
+                if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
+            },
+            || Exact::of_unsigned(u128::from(op_a)),
+        ),
+        AluOp::FCvtSD if !is_f16 => convert_rounded(
+            rm,
+            true,
+            || box_f32_canon(black_box(f64::from_bits(op_a)) as f32),
+            || Exact::of_f64(f64::from_bits(op_a)),
+        ),
         AluOp::FCvtDS if !is_f16 => {
             on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(op_a)))))
         }

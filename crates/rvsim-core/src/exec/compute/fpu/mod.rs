@@ -14,10 +14,10 @@
 mod arith;
 mod convert;
 pub mod host;
-pub mod rmm;
 
 pub mod nan_handling;
 
+pub mod exact;
 pub mod half;
 
 use crate::isa::op::AluOp;
@@ -29,10 +29,11 @@ use convert::{
     I32_MAX_P1_F64, I32_MIN_F64, I64_MAX_P1_F64, I64_MIN_F64, U32_MAX_P1_F64, U64_MAX_P1_F64,
     round_to_integer,
 };
+use exact::{Exact, Format};
 use half::execute_f16;
 use host::{clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode};
+use nan_handling::box_f32_canon;
 use nan_handling::{is_snan_f32, is_snan_f64};
-use rmm::rmm_fixup;
 
 /// Executes a floating-point operation and returns accrued exception flags.
 ///
@@ -305,8 +306,8 @@ pub fn execute_full_rm(
     // Rounding-mode-sensitive arithmetic: set the host FPU rounding mode,
     // clear exception flags, run the op, read flags, and restore. The host
     // FPU is IEEE 754 compliant so this gives bit-exact results for all
-    // four hardware modes (RNE/RTZ/RDN/RUP). RMM is approximated as RNE
-    // — see `rm_to_host_round` for the caveat. `black_box` prevents the
+    // four hardware modes (RNE/RTZ/RDN/RUP); RMM runs as RNE and is rounded
+    // again in software below when inexact. `black_box` prevents the
     // optimizer from constant-folding FP ops at compile time or reordering
     // them across the feclearexcept/fetestexcept calls.
     let is_rm_sensitive_arith = matches!(
@@ -343,13 +344,18 @@ pub fn execute_full_rm(
         let flags = read_host_fp_flags();
         restore_host_round_mode(saved);
 
-        // RMM has no native host equivalent, so `set_host_round_mode`
-        // mapped it to FE_TONEAREST. For inexact add/sub/mul results
-        // we may have rounded a half-ULP tie to the wrong (even-LSB)
-        // neighbor. Detect and fix those ties to get proper RMM.
-        if rm == RoundingMode::Rmm && flags.contains(FpFlags::NX) {
-            let fixed = rmm_fixup(op, a, b, is32, result);
-            return (fixed, flags);
+        let format = if is32 { Format::Single } else { Format::Double };
+        let operand = |value: u64| {
+            if is32 {
+                Exact::of_f32(unbox_f32(value))
+            } else {
+                Exact::of_f64(f64::from_bits(value))
+            }
+        };
+        let exact = || exact::of_operation(op, operand(a), operand(b), operand(c));
+        if let Some((bits, flags)) = exact::rmm_correction(rm, flags, format, exact) {
+            let boxed = if is32 { box_f32_canon(f32::from_bits(bits as u32)) } else { bits };
+            return (boxed, flags);
         }
         return (result, flags);
     }

@@ -60,6 +60,15 @@ All notable changes to this project are documented here. The format is based on 
   host conversion of the operand to the wider format raised it before the
   flags were cleared. The widening FMAs worked only because of where the
   compiler placed that conversion. All of them now check their operands.
+- RMM (round to nearest, ties to max magnitude) rounded ties to even,
+  scalar and vector, because the host FPU has no such mode (#179). An
+  inexact RMM result is now rounded again in software from the operation's
+  exact value. The software rounding (`exec/compute/fpu/exact.rs`) is
+  property-tested against the host in the four modes the host has. The
+  half-precision FMAs, scalar and vector, and the Zvfh widening FMA rounded
+  twice (to binary64, then to the result format) in every mode, and now
+  round once. The Zvfh widening add, subtract and multiply lost the flags
+  of their final rounding to binary32 (#180).
 
 ## Releases
 

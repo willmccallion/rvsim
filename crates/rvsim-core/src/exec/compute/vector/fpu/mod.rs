@@ -387,6 +387,23 @@ mod tests {
     }
 
     #[test]
+    fn a_zvfh_widening_add_whose_sum_needs_more_than_single_precision_is_inexact() {
+        let mut vpr = vpr128();
+        let ctx = VecExecCtx { zvfh: true, ..make_ctx(Sew::E16, 1) };
+        let (v1, v2, v4) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(4));
+        let f16_two_to_15 = 0x7800;
+        let f16_two_to_minus_24 = 0x0001;
+        vpr.write_element(v2, ElemIdx::new(0), Sew::E16, f16_two_to_15);
+        vpr.write_element(v1, ElemIdx::new(0), Sew::E16, f16_two_to_minus_24);
+
+        let result =
+            vec_fp_execute(VectorOp::VFWAdd, &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx);
+
+        assert!(result.fp_flags.contains(FpFlags::NX));
+        assert_eq!(vpr.read_element(v4, ElemIdx::new(0), Sew::E32), u64::from(32768f32.to_bits()));
+    }
+
+    #[test]
     fn a_zvfh_sum_of_opposite_infinities_is_invalid() {
         assert!(f16_flags(VectorOp::VFAdd, 0xfc00, 0x7c00, 0).contains(FpFlags::NV));
         assert!(f16_flags(VectorOp::VFSub, 0x7c00, 0x7c00, 0).contains(FpFlags::NV));

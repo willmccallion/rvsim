@@ -5,11 +5,11 @@ use super::convert::{
 };
 use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32, vfrsqrt7_64};
 use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
+use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{
     CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid,
     sum_is_invalid,
 };
-use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
@@ -21,6 +21,7 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
+use std::hint::black_box;
 
 /// RISC-V FCLASS for f32: returns 10-bit classification bitmask.
 pub(super) const fn classify_f32(val: u32) -> u64 {
@@ -84,39 +85,57 @@ pub(super) fn compute_f32(
 
     match op {
         VectorOp::VFAdd => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) + std::hint::black_box(b));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(a) + black_box(b),
+                || exact::add(Exact::of_f32(a), Exact::of_f32(b)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFSub => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) - std::hint::black_box(b));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(a) - black_box(b),
+                || exact::sub(Exact::of_f32(a), Exact::of_f32(b)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFRSub => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(b) - std::hint::black_box(a));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(b) - black_box(a),
+                || exact::sub(Exact::of_f32(b), Exact::of_f32(a)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFMul => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) * std::hint::black_box(b));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(a) * black_box(b),
+                || exact::mul(Exact::of_f32(a), Exact::of_f32(b)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFDiv => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) / std::hint::black_box(b));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(a) / black_box(b),
+                || exact::div(Exact::of_f32(a), Exact::of_f32(b)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFRDiv => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(b) / std::hint::black_box(a));
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(b) / black_box(a),
+                || exact::div(Exact::of_f32(b), Exact::of_f32(a)),
+            );
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFSqrt => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a).sqrt());
-            (box_f32_canon(r), read_host_fp_flags())
+            let (r, flags) =
+                on_host_f32(frm, || black_box(a).sqrt(), || exact::sqrt(Exact::of_f32(a)));
+            (box_f32_canon(r), flags)
         }
         VectorOp::VFRsqrt7 => vfrsqrt7_32(vs2_bits as u32),
         VectorOp::VFRec7 => vfrec7_32(vs2_bits as u32, frm),
@@ -166,15 +185,23 @@ pub(super) fn compute_f32(
         }
         // Conversions: unsigned int -> float
         VectorOp::VFCvtFXu => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(vs2_bits as u32 as f32);
-            (box_f32_canon(r), read_host_fp_flags())
+            let unsigned = vs2_bits as u32;
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(unsigned) as f32,
+                || Exact::of_unsigned(u128::from(unsigned)),
+            );
+            (box_f32_canon(r), flags)
         }
         // Conversions: signed int -> float
         VectorOp::VFCvtFX => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(sign_extend(vs2_bits, Sew::E32) as i32 as f32);
-            (box_f32_canon(r), read_host_fp_flags())
+            let signed = sign_extend(vs2_bits, Sew::E32) as i32;
+            let (r, flags) = on_host_f32(
+                frm,
+                || black_box(signed) as f32,
+                || Exact::of_integer(i128::from(signed)),
+            );
+            (box_f32_canon(r), flags)
         }
         _ => (0, FpFlags::NONE),
     }
@@ -195,39 +222,57 @@ pub(super) fn compute_f64(
 
     match op {
         VectorOp::VFAdd => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) + std::hint::black_box(b));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(a) + black_box(b),
+                || exact::add(Exact::of_f64(a), Exact::of_f64(b)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFSub => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) - std::hint::black_box(b));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(a) - black_box(b),
+                || exact::sub(Exact::of_f64(a), Exact::of_f64(b)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFRSub => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(b) - std::hint::black_box(a));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(b) - black_box(a),
+                || exact::sub(Exact::of_f64(b), Exact::of_f64(a)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFMul => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) * std::hint::black_box(b));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(a) * black_box(b),
+                || exact::mul(Exact::of_f64(a), Exact::of_f64(b)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFDiv => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a) / std::hint::black_box(b));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(a) / black_box(b),
+                || exact::div(Exact::of_f64(a), Exact::of_f64(b)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFRDiv => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(b) / std::hint::black_box(a));
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(b) / black_box(a),
+                || exact::div(Exact::of_f64(b), Exact::of_f64(a)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFSqrt => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(std::hint::black_box(a).sqrt());
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) =
+                on_host_f64(frm, || black_box(a).sqrt(), || exact::sqrt(Exact::of_f64(a)));
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFRsqrt7 => vfrsqrt7_64(vs2_bits),
         VectorOp::VFRec7 => vfrec7_64(vs2_bits, frm),
@@ -271,18 +316,25 @@ pub(super) fn compute_f64(
             (r as u64, f)
         }
         VectorOp::VFCvtFXu => {
-            clear_host_fp_flags();
             // Workaround for an LLVM codegen quirk: `0u64 as f64` under host
             // FE_DOWNWARD/FE_UPWARD produces a signed zero with the wrong
             // sign (the software fallback used when CVTUSI2SD_q is unavailable
             // doesn't short-circuit the zero case). Treat val=0 explicitly.
-            let r = if vs2_bits == 0 { 0.0 } else { std::hint::black_box(vs2_bits as f64) };
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let (r, flags) = on_host_f64(
+                frm,
+                || if vs2_bits == 0 { 0.0 } else { black_box(vs2_bits) as f64 },
+                || Exact::of_unsigned(u128::from(vs2_bits)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         VectorOp::VFCvtFX => {
-            clear_host_fp_flags();
-            let r = std::hint::black_box(vs2_bits as i64 as f64);
-            (canonicalize_f64_bits(r), read_host_fp_flags())
+            let signed = vs2_bits as i64;
+            let (r, flags) = on_host_f64(
+                frm,
+                || black_box(signed) as f64,
+                || Exact::of_integer(i128::from(signed)),
+            );
+            (canonicalize_f64_bits(r), flags)
         }
         _ => (0, FpFlags::NONE),
     }
