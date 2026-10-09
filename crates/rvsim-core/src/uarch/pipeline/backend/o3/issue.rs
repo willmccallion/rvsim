@@ -301,6 +301,7 @@ impl O3Engine {
             pending_micro_ops: all_micro_ops,
             trimmed_at: None,
             fault: None,
+            outgrew_load_slots: false,
         });
     }
 

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::InstSeq;
+use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
 use crate::exec::execute::CsrWrite;
 use crate::exec::signals::ControlSignals;
@@ -792,6 +793,30 @@ impl Rob {
             idx = (idx + 1) % self.entries.len();
         }
         true
+    }
+
+    /// Whether an instruction older than `tag` that reads or writes memory,
+    /// a vector or cache-block one included, is still in flight.
+    pub fn has_older_memory_access(&self, tag: RobTag) -> bool {
+        let mut idx = self.head;
+        for _ in 0..self.count {
+            let entry = &self.entries[idx];
+            if entry.valid {
+                if entry.tag == tag {
+                    return false;
+                }
+                if entry.ctrl.mem_read
+                    || entry.ctrl.mem_write
+                    || is_vec_load(entry.ctrl.vec_op)
+                    || is_vec_store(entry.ctrl.vec_op)
+                    || entry.ctrl.system_op.is_cbo()
+                {
+                    return true;
+                }
+            }
+            idx = (idx + 1) % self.entries.len();
+        }
+        false
     }
 
     /// Checks if an older in-flight FENCE in the ROB blocks issuance of an

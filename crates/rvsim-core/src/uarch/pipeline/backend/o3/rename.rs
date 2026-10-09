@@ -13,9 +13,10 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::VectorOp;
-use crate::isa::rvv::{VRegIdx, parse_vtype};
+use crate::isa::rvv::{VRegIdx, VectorConfig, parse_vtype};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
+use crate::uarch::pipeline::backend::shared::vec_mem::expected_load_micro_ops;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
@@ -37,6 +38,7 @@ impl O3Engine {
             return Renamed::Stalled(Box::new(id));
         }
         let vector = self.vector_config(&state.hart().csrs);
+        let load_slots = self.load_slots_for(&id, &vector, state);
         let is_branch_or_jump =
             matches!(id.inst.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
         let checkpoint = if is_branch_or_jump && self.checkpoints.capacity() > 0 {
@@ -55,7 +57,7 @@ impl O3Engine {
             free_list: &self.free_list,
             view: self.rename_view,
         };
-        if !slots.has_room_for(&id) {
+        if !slots.has_room_for(&id, load_slots) {
             return Renamed::Stalled(Box::new(id));
         }
 
@@ -196,8 +198,13 @@ impl O3Engine {
         } else {
             true
         };
-        let load_slot_allocated = !id.inst.ctrl.mem_read
-            || self.load_queue.allocate(rob_tag, id.inst.ctrl.width.bytes() as usize, None);
+        let load_slot_allocated = match load_slots {
+            LoadSlots::None => true,
+            LoadSlots::Scalar => {
+                self.load_queue.allocate(rob_tag, id.inst.ctrl.width.bytes() as usize)
+            }
+            LoadSlots::Vector(count) => self.load_queue.reserve(rob_tag, count),
+        };
         debug_assert!(
             store_slot_allocated && load_slot_allocated,
             "has_room_for checked the memory slots"
@@ -206,9 +213,7 @@ impl O3Engine {
             self.rename_view.sq -= 1;
             self.stores_renamed_this_cycle += 1;
         }
-        if id.inst.ctrl.mem_read {
-            self.rename_view.lq -= 1;
-        }
+        self.rename_view.lq -= load_slots.count();
 
         // Snapshot rename map *after* rd has been renamed.
         if let Some(checkpoint) = checkpoint {
@@ -287,6 +292,50 @@ impl O3Engine {
     }
 }
 
+/// The load-queue slots an instruction takes at rename.
+#[derive(Clone, Copy)]
+enum LoadSlots {
+    /// None: it reads no memory.
+    None,
+    /// One, for a scalar load.
+    Scalar,
+    /// A vector load's reservation, which its micro-ops claim.
+    Vector(usize),
+}
+
+impl LoadSlots {
+    const fn count(self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Scalar => 1,
+            Self::Vector(count) => count,
+        }
+    }
+}
+
+impl O3Engine {
+    /// The load-queue slots `id` takes, renamed under `vector`: a vector
+    /// load reserves one per micro-op it expects, at most the whole queue.
+    fn load_slots_for(
+        &self,
+        id: &IdExEntry,
+        vector: &VectorConfig,
+        state: &StageCtx<'_>,
+    ) -> LoadSlots {
+        if !is_vec_load(id.inst.ctrl.vec_op) {
+            return if id.inst.ctrl.mem_read { LoadSlots::Scalar } else { LoadSlots::None };
+        }
+        let pipeline = &state.config.pipeline;
+        let expected = expected_load_micro_ops(
+            &id.inst.ctrl,
+            vector,
+            pipeline.vlen,
+            pipeline.vector_mem_width_bytes(),
+        );
+        LoadSlots::Vector(expected.min(self.load_queue.capacity()))
+    }
+}
+
 /// The backend structures an instruction needs a slot in besides the ROB
 /// and issue queue `can_accept` covers.
 struct BackendSlots<'a> {
@@ -302,7 +351,7 @@ impl BackendSlots<'_> {
     /// True when `id` can take a physical register for a destination, and
     /// a store-buffer, vector-store-buffer or load-queue slot for a memory
     /// op, as gem5's rename checks each instruction's own resources.
-    fn has_room_for(&self, id: &IdExEntry) -> bool {
+    fn has_room_for(&self, id: &IdExEntry, load_slots: LoadSlots) -> bool {
         let needs_dst =
             (id.inst.ctrl.reg_write && !id.inst.rd.is_zero()) || id.inst.ctrl.fp_reg_write;
         let store_slot = if id.inst.ctrl.uses_store_buffer() {
@@ -312,7 +361,8 @@ impl BackendSlots<'_> {
         } else {
             true
         };
-        let load_slot = !id.inst.ctrl.mem_read || (self.view.lq > 0 && !self.load_queue.is_full());
+        let needed = load_slots.count();
+        let load_slot = needed <= self.view.lq && needed <= self.load_queue.free_slots();
         let register = !needs_dst || self.free_list.available() > 0;
         store_slot && load_slot && register
     }
