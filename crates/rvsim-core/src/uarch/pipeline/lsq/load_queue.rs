@@ -7,13 +7,14 @@
 //! ## Structure
 //!
 //! Unlike the scalar [`StoreBuffer`](super::store_buffer::StoreBuffer), the
-//! load queue is a **set of slots**, not a circular FIFO. Vector load element
-//! micro-ops complete out of program order — under wave-based issue, an
-//! element near the tail can release its slot before an element at the head
-//! finishes — and a circular FIFO with lazy invalidation deadlocks under
-//! that pattern (middle invalidations don't free the slot until the head
-//! catches up). This implementation reuses any invalidated slot for the
-//! next allocation; ROB ordering is recovered from `rob_tag` on each entry.
+//! load queue is a **set of slots**, not a circular FIFO: a vector load
+//! reserves several at rename, its micro-ops claim them out of program
+//! order, and a load that outgrows its reservation hands slots back to it
+//! before commit. Any freed slot is reused; ROB ordering is recovered from
+//! `rob_tag` on each entry.
+//!
+//! A vector load's micro-ops keep their slots until it commits, so a store
+//! that resolves its address after one of them read memory finds it here.
 
 use crate::common::{HartId, PhysAddr, VirtAddr};
 use crate::isa::op::MemWidth;
@@ -33,6 +34,29 @@ pub enum LoadState {
     Executed,
 }
 
+/// What a load queue slot is held for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SlotHolder {
+    /// A scalar load.
+    #[default]
+    Scalar,
+    /// A vector load's reserved slot that none of its micro-ops holds.
+    VectorReserve,
+    /// One of a vector load's micro-ops.
+    VectorMicroOp(MicroOpIdx),
+}
+
+impl SlotHolder {
+    /// The holder of a load's slot: `None` for a scalar load, else its
+    /// micro-op.
+    const fn of(micro_op: Option<MicroOpIdx>) -> Self {
+        match micro_op {
+            Some(micro_op) => Self::VectorMicroOp(micro_op),
+            None => Self::Scalar,
+        }
+    }
+}
+
 /// A single entry in the load queue.
 #[derive(Clone, Debug, Default)]
 pub struct LoadQueueEntry {
@@ -50,8 +74,11 @@ pub struct LoadQueueEntry {
     pub state: LoadState,
     /// Whether this slot is occupied.
     pub valid: bool,
-    /// The vector load micro-op this entry tracks (`None` for a scalar load).
-    pub micro_op: Option<MicroOpIdx>,
+    /// What the slot is held for.
+    pub holder: SlotHolder,
+    /// The vector load micro-op holding it has written back, with its value
+    /// or its fault.
+    pub written_back: bool,
     /// Write-log position when the value was read from RAM (`None` when
     /// forwarded from the store buffer or in a single-hart system).
     pub observed: Option<WriteSeq>,
@@ -73,6 +100,12 @@ impl LoadQueue {
         Self { entries, valid_count: 0 }
     }
 
+    /// Returns the number of slots.
+    #[inline]
+    pub const fn capacity(&self) -> usize {
+        self.entries.len()
+    }
+
     #[cfg(test)]
     /// Returns the number of valid entries.
     #[inline]
@@ -87,6 +120,7 @@ impl LoadQueue {
         self.valid_count == 0
     }
 
+    #[cfg(test)]
     /// Returns true if the load queue is full.
     #[inline]
     pub const fn is_full(&self) -> bool {
@@ -99,21 +133,74 @@ impl LoadQueue {
         self.entries.len() - self.valid_count
     }
 
-    /// Allocates a slot for a new load of `bytes` bytes. Reuses any
-    /// invalidated slot. Returns false if every slot is currently valid.
-    ///
-    /// `micro_op` is `None` for scalar loads and names a vector load's
-    /// micro-op otherwise.
-    pub fn allocate(
-        &mut self,
-        rob_tag: RobTag,
-        bytes: usize,
-        micro_op: Option<MicroOpIdx>,
-    ) -> bool {
+    /// Allocates a slot for a scalar load of `bytes` bytes. Returns false
+    /// if every slot is currently valid.
+    pub fn allocate(&mut self, rob_tag: RobTag, bytes: usize) -> bool {
+        self.occupy_free_slot(rob_tag, bytes, SlotHolder::Scalar)
+    }
+
+    /// Reserves `count` slots for the vector load `rob_tag`, for its
+    /// micro-ops to claim. Reserves none and returns false if fewer are free.
+    pub fn reserve(&mut self, rob_tag: RobTag, count: usize) -> bool {
+        if self.free_slots() < count {
+            return false;
+        }
+        for _ in 0..count {
+            let reserved = self.occupy_free_slot(rob_tag, 0, SlotHolder::VectorReserve);
+            debug_assert!(reserved, "free_slots counted a free slot");
+        }
+        true
+    }
+
+    /// Gives `micro_op`, of `bytes` bytes, one of its load's reserved slots.
+    /// Returns false if the load has none left.
+    pub fn claim(&mut self, rob_tag: RobTag, micro_op: MicroOpIdx, bytes: usize) -> bool {
+        let Some(slot) = self.find_mut(rob_tag, SlotHolder::VectorReserve) else {
+            return false;
+        };
+        *slot = Self::pending(rob_tag, bytes, SlotHolder::VectorMicroOp(micro_op));
+        true
+    }
+
+    /// Returns `micro_op`'s slot to its load's reservation.
+    pub fn unclaim(&mut self, rob_tag: RobTag, micro_op: MicroOpIdx) {
+        if let Some(slot) = self.find_mut(rob_tag, SlotHolder::VectorMicroOp(micro_op)) {
+            *slot = Self::pending(rob_tag, 0, SlotHolder::VectorReserve);
+        }
+    }
+
+    /// Records that `micro_op` has written back.
+    pub fn mark_written_back(&mut self, rob_tag: RobTag, micro_op: MicroOpIdx) {
+        if let Some(slot) = self.find_mut(rob_tag, SlotHolder::VectorMicroOp(micro_op)) {
+            slot.written_back = true;
+        }
+    }
+
+    /// Returns the slots of the vector load `rob_tag`'s micro-ops that have
+    /// written back to its reservation, once no older store can resolve.
+    pub fn unclaim_written_back(&mut self, rob_tag: RobTag) {
+        for slot in &mut self.entries {
+            if slot.valid
+                && slot.rob_tag == rob_tag
+                && matches!(slot.holder, SlotHolder::VectorMicroOp(_))
+                && slot.written_back
+            {
+                *slot = Self::pending(rob_tag, 0, SlotHolder::VectorReserve);
+            }
+        }
+    }
+
+    fn occupy_free_slot(&mut self, rob_tag: RobTag, bytes: usize, holder: SlotHolder) -> bool {
         let Some(slot) = self.entries.iter_mut().find(|e| !e.valid) else {
             return false;
         };
-        *slot = LoadQueueEntry {
+        *slot = Self::pending(rob_tag, bytes, holder);
+        self.valid_count += 1;
+        true
+    }
+
+    const fn pending(rob_tag: RobTag, bytes: usize, holder: SlotHolder) -> LoadQueueEntry {
+        LoadQueueEntry {
             rob_tag,
             vaddr: VirtAddr::new(0),
             paddr: None,
@@ -121,11 +208,10 @@ impl LoadQueue {
             bytes,
             state: LoadState::Pending,
             valid: true,
-            micro_op,
+            holder,
+            written_back: false,
             observed: None,
-        };
-        self.valid_count += 1;
-        true
+        }
     }
 
     /// Fills the translated address for a load after Memory1.
@@ -136,7 +222,7 @@ impl LoadQueue {
         vaddr: VirtAddr,
         paddr: PhysAddr,
     ) {
-        if let Some(entry) = self.find_mut(rob_tag, micro_op) {
+        if let Some(entry) = self.find_mut(rob_tag, SlotHolder::of(micro_op)) {
             entry.vaddr = vaddr;
             entry.paddr = Some(paddr);
             entry.state = LoadState::Translated;
@@ -152,7 +238,7 @@ impl LoadQueue {
         data: u64,
         observed: Option<WriteSeq>,
     ) {
-        if let Some(entry) = self.find_mut(rob_tag, micro_op) {
+        if let Some(entry) = self.find_mut(rob_tag, SlotHolder::of(micro_op)) {
             entry.data = data;
             entry.state = LoadState::Executed;
             entry.observed = observed;
@@ -266,18 +352,6 @@ impl LoadQueue {
         }
     }
 
-    /// Deallocates the entry of one vector load micro-op, which is released
-    /// at its writeback (wave-based reclaim).
-    pub fn deallocate_micro_op(&mut self, rob_tag: RobTag, micro_op: MicroOpIdx) {
-        for entry in &mut self.entries {
-            if entry.valid && entry.rob_tag == rob_tag && entry.micro_op == Some(micro_op) {
-                entry.valid = false;
-                self.valid_count -= 1;
-                return;
-            }
-        }
-    }
-
     /// Flushes all entries (trap / full pipeline flush).
     pub fn flush(&mut self) {
         for entry in &mut self.entries {
@@ -296,12 +370,8 @@ impl LoadQueue {
         }
     }
 
-    fn find_mut(
-        &mut self,
-        rob_tag: RobTag,
-        micro_op: Option<MicroOpIdx>,
-    ) -> Option<&mut LoadQueueEntry> {
-        self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag && e.micro_op == micro_op)
+    fn find_mut(&mut self, rob_tag: RobTag, holder: SlotHolder) -> Option<&mut LoadQueueEntry> {
+        self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag && e.holder == holder)
     }
 }
 
@@ -314,7 +384,7 @@ mod coherence_tests {
     const H1: HartId = HartId::new(1);
 
     fn executed_load(lq: &mut LoadQueue, tag: RobTag, paddr: u64, observed: WriteSeq) {
-        assert!(lq.allocate(tag, 8, None));
+        assert!(lq.allocate(tag, 8));
         lq.fill_address(tag, None, VirtAddr::new(paddr), PhysAddr::new(paddr));
         lq.fill_data(tag, None, 0, Some(observed));
     }
@@ -416,7 +486,7 @@ mod tests {
         assert!(lq.is_empty());
 
         let tag = RobTag::new(1);
-        assert!(lq.allocate(tag, 4, None));
+        assert!(lq.allocate(tag, 4));
         assert_eq!(lq.len(), 1);
 
         lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
@@ -429,10 +499,10 @@ mod tests {
     #[test]
     fn full_queue() {
         let mut lq = LoadQueue::new(2);
-        assert!(lq.allocate(RobTag::new(1), 4, None));
-        assert!(lq.allocate(RobTag::new(2), 4, None));
+        assert!(lq.allocate(RobTag::new(1), 4));
+        assert!(lq.allocate(RobTag::new(2), 4));
         assert!(lq.is_full());
-        assert!(!lq.allocate(RobTag::new(3), 4, None));
+        assert!(!lq.allocate(RobTag::new(3), 4));
     }
 
     #[test]
@@ -440,8 +510,9 @@ mod tests {
         let mut lq = LoadQueue::new(4);
         let load = RobTag::new(2);
         let (first, second) = (MicroOpIdx::new(0), MicroOpIdx::new(1));
-        lq.allocate(load, 4, Some(first));
-        lq.allocate(load, 4, Some(second));
+        lq.reserve(load, 2);
+        lq.claim(load, first, 4);
+        lq.claim(load, second, 4);
         lq.fill_address(load, Some(first), VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_address(load, Some(second), VirtAddr::new(0x1004), PhysAddr::new(0x8000_0004));
 
@@ -455,7 +526,8 @@ mod tests {
     fn a_load_is_checked_over_all_its_bytes() {
         let mut lq = LoadQueue::new(4);
         let load = RobTag::new(2);
-        lq.allocate(load, 32, Some(MicroOpIdx::new(0)));
+        lq.reserve(load, 1);
+        lq.claim(load, MicroOpIdx::new(0), 32);
         lq.fill_address(
             load,
             Some(MicroOpIdx::new(0)),
@@ -469,24 +541,85 @@ mod tests {
         assert_eq!(violation, Some(load));
     }
 
+    /// A vector load `tag` with one micro-op that has read `paddr`.
+    fn vector_load_that_read(lq: &mut LoadQueue, tag: RobTag, micro_op: MicroOpIdx, paddr: u64) {
+        lq.claim(tag, micro_op, 4);
+        lq.fill_address(tag, Some(micro_op), VirtAddr::new(paddr), PhysAddr::new(paddr));
+        lq.fill_data(tag, Some(micro_op), 0, None);
+    }
+
     #[test]
-    fn deallocate_micro_op_reuses_slot_after_middle_invalidation() {
-        // Out-of-order completion: invalidate a middle entry, then allocate.
-        // The freed slot must be reusable. (Regression: the previous circular
-        // FIFO leaked middle slots and deadlocked vec-segment loads.)
+    fn a_reservation_takes_all_its_slots_or_none() {
         let mut lq = LoadQueue::new(3);
-        lq.allocate(RobTag::new(1), 4, Some(MicroOpIdx::new(0)));
-        lq.allocate(RobTag::new(1), 4, Some(MicroOpIdx::new(1)));
-        lq.allocate(RobTag::new(1), 4, Some(MicroOpIdx::new(2)));
-        assert!(lq.is_full());
+        lq.allocate(RobTag::new(1), 8);
 
-        // Free the middle entry, not the head.
-        lq.deallocate_micro_op(RobTag::new(1), MicroOpIdx::new(1));
-        assert!(!lq.is_full());
-        assert_eq!(lq.free_slots(), 1);
+        let reserved = lq.reserve(RobTag::new(2), 3);
 
-        // The freed slot must be reusable.
-        assert!(lq.allocate(RobTag::new(2), 4, Some(MicroOpIdx::new(0))));
+        assert!(!reserved);
+        assert_eq!(lq.free_slots(), 2);
+    }
+
+    #[test]
+    fn a_micro_op_that_read_memory_keeps_its_slot_for_older_stores() {
+        let mut lq = LoadQueue::new(4);
+        let load = RobTag::new(2);
+        lq.reserve(load, 2);
+        vector_load_that_read(&mut lq, load, MicroOpIdx::new(1), 0x8000_0004);
+
+        let violation =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0004), MemWidth::Word, RobTag::new(1));
+
+        assert_eq!(violation, Some(load));
+    }
+
+    #[test]
+    fn a_claim_fails_once_its_load_has_used_its_reservation() {
+        let mut lq = LoadQueue::new(4);
+        let load = RobTag::new(2);
+        lq.reserve(load, 1);
+        assert!(lq.claim(load, MicroOpIdx::new(0), 4));
+
+        let claimed = lq.claim(load, MicroOpIdx::new(1), 4);
+
+        assert!(!claimed);
+    }
+
+    #[test]
+    fn an_unclaimed_micro_op_slot_can_be_claimed_again() {
+        let mut lq = LoadQueue::new(4);
+        let load = RobTag::new(2);
+        lq.reserve(load, 1);
+        lq.claim(load, MicroOpIdx::new(0), 64);
+
+        lq.unclaim(load, MicroOpIdx::new(0));
+
+        assert!(lq.claim(load, MicroOpIdx::new(3), 4));
+    }
+
+    #[test]
+    fn only_slots_whose_micro_ops_wrote_back_return_to_the_reservation() {
+        let mut lq = LoadQueue::new(4);
+        let load = RobTag::new(2);
+        lq.reserve(load, 2);
+        vector_load_that_read(&mut lq, load, MicroOpIdx::new(0), 0x8000_0000);
+        lq.mark_written_back(load, MicroOpIdx::new(0));
+        lq.claim(load, MicroOpIdx::new(1), 4);
+        lq.fill_address(
+            load,
+            Some(MicroOpIdx::new(1)),
+            VirtAddr::new(0x8000_0010),
+            PhysAddr::new(0x8000_0010),
+        );
+
+        lq.unclaim_written_back(load);
+
+        let older_store = RobTag::new(1);
+        let over_read =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0000), MemWidth::Word, older_store);
+        let over_translated =
+            lq.check_ordering_violation(PhysAddr::new(0x8000_0010), MemWidth::Word, older_store);
+        assert_eq!(over_read, None);
+        assert_eq!(over_translated, Some(load));
     }
 
     #[test]
@@ -495,7 +628,7 @@ mod tests {
 
         // Younger load (tag=3) executes before older store (tag=2) resolves
         let load_tag = RobTag::new(3);
-        lq.allocate(load_tag, 4, None);
+        lq.allocate(load_tag, 4);
         lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_data(load_tag, None, 0x12345678, None);
 
@@ -510,7 +643,7 @@ mod tests {
         let mut lq = LoadQueue::new(4);
 
         let load_tag = RobTag::new(3);
-        lq.allocate(load_tag, 4, None);
+        lq.allocate(load_tag, 4);
         lq.fill_address(load_tag, None, VirtAddr::new(0x2000), PhysAddr::new(0x8000_0004));
         lq.fill_data(load_tag, None, 0x12345678, None);
 
@@ -524,7 +657,7 @@ mod tests {
         let mut lq = LoadQueue::new(4);
 
         let load_tag = RobTag::new(1);
-        lq.allocate(load_tag, 4, None);
+        lq.allocate(load_tag, 4);
         lq.fill_address(load_tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
         lq.fill_data(load_tag, None, 0x12345678, None);
 
@@ -536,9 +669,9 @@ mod tests {
     #[test]
     fn flush_after_keeps_older() {
         let mut lq = LoadQueue::new(4);
-        lq.allocate(RobTag::new(1), 4, None);
-        lq.allocate(RobTag::new(2), 4, None);
-        lq.allocate(RobTag::new(3), 4, None);
+        lq.allocate(RobTag::new(1), 4);
+        lq.allocate(RobTag::new(2), 4);
+        lq.allocate(RobTag::new(3), 4);
 
         lq.flush_after(RobTag::new(1));
         assert_eq!(lq.len(), 1);
@@ -547,8 +680,8 @@ mod tests {
     #[test]
     fn flush_clears_all() {
         let mut lq = LoadQueue::new(4);
-        lq.allocate(RobTag::new(1), 4, None);
-        lq.allocate(RobTag::new(2), 4, None);
+        lq.allocate(RobTag::new(1), 4);
+        lq.allocate(RobTag::new(2), 4);
 
         lq.flush();
         assert!(lq.is_empty());
@@ -559,7 +692,7 @@ mod tests {
         let mut lq = LoadQueue::new(2);
         for i in 1..=10 {
             let tag = RobTag::new(i);
-            assert!(lq.allocate(tag, 4, None));
+            assert!(lq.allocate(tag, 4));
             lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
             lq.fill_data(tag, None, i as u64, None);
             lq.deallocate(tag);

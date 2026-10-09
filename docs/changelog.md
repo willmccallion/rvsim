@@ -75,6 +75,16 @@ All notable changes to this project are documented here. The format is based on 
   says no destination element, agnostic or not, is updated then. Now none
   is, except by the instructions that still execute: those writing an `x`
   or `f` register and the whole-register moves.
+- On the O3 backend a vector load could read memory from before an older
+  vector store whose element addresses resolved after the load ran (#184).
+  The load's micro-ops gave up their load-queue slots as they wrote back,
+  so the store's ordering check missed them. A vector load now reserves its
+  slots at rename, one per micro-op it expects (an element, or a window of
+  an aligned unit-stride access), and its micro-ops hold them until it
+  commits. A load with more micro-ops than slots (an oversize load, a
+  misaligned unit-stride load, a span split at a fault) reuses its slots
+  once no older memory access is in flight. Lockstep against spike stopped
+  on this in the RVV `vsoxei16` and `vsseg2e32` tests.
 
 ## Releases
 

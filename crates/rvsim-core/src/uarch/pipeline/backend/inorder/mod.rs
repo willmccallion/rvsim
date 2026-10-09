@@ -253,6 +253,7 @@ impl InOrderEngine {
             pending_micro_ops: micro_ops,
             trimmed_at: None,
             fault: None,
+            outgrew_load_slots: false,
         });
     }
 

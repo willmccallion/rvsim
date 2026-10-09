@@ -13,9 +13,10 @@ use std::collections::VecDeque;
 
 use crate::common::VirtAddr;
 use crate::exec::compute::vector::mem::ElementAccess;
+use crate::exec::signals::ControlSignals;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{ElemIdx, Sew};
+use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
@@ -100,6 +101,9 @@ pub struct VecMemInflight {
     /// The lowest element found faulting so far, which the instruction
     /// reports once every micro-op has finished.
     pub fault: Option<ElementFault>,
+    /// A load with more micro-ops than the load-queue slots it reserved,
+    /// which reuses them only as the oldest memory access in flight.
+    pub outgrew_load_slots: bool,
 }
 
 /// A fault an element of a vector memory instruction met.
@@ -147,6 +151,37 @@ pub const fn moves_in_spans(op: VectorOp) -> bool {
             | VectorOp::VLoadWholeReg
             | VectorOp::VStoreWholeReg
     )
+}
+
+/// The load-queue slots the vector load `ctrl` reserves at rename under
+/// `config`: as many as [`plan_accesses`] makes micro-ops of it when its
+/// elements are naturally aligned, at least one. Masked-off elements only
+/// lower the count; a misaligned unit-stride load can need more.
+#[must_use]
+pub fn expected_load_micro_ops(
+    ctrl: &ControlSignals,
+    config: &VectorConfig,
+    vlen: Vlen,
+    width: usize,
+) -> usize {
+    if parse_vtype(config.vtype).vill {
+        return 1;
+    }
+    let body = config.vl.saturating_sub(config.vstart) as usize;
+    let elements = match ctrl.vec_op {
+        VectorOp::VLoadMask => (config.vl as usize).div_ceil(8),
+        VectorOp::VLoadWholeReg => (ctrl.vec_nf as usize + 1) * vlen.bytes(),
+        _ => body * Nf::from_encoding(ctrl.vec_nf).fields_usize(),
+    };
+    if !moves_in_spans(ctrl.vec_op) {
+        return elements.max(1);
+    }
+    let element_bytes = match ctrl.vec_op {
+        VectorOp::VLoadUnit | VectorOp::VLoadFF => ctrl.vec_eew.bytes(),
+        _ => 1,
+    };
+    let windows = (elements * element_bytes).div_ceil(width) + 1;
+    elements.min(windows).max(1)
 }
 
 /// Plans how `addresses`, an instruction's element accesses in address
@@ -541,5 +576,58 @@ mod tests {
         let planned = plan_accesses(addresses, false, 32);
 
         assert_eq!(planned.len(), 4);
+    }
+
+    fn vector_load(vec_op: VectorOp, vec_eew: Sew, fields: u8) -> ControlSignals {
+        ControlSignals { vec_op, vec_eew, vec_nf: fields - 1, ..ControlSignals::default() }
+    }
+
+    fn config(vtype: u64, vl: u64) -> VectorConfig {
+        VectorConfig { vtype, vl, vstart: 0 }
+    }
+
+    const E8_M8: u64 = 0b011;
+    const E64_M8: u64 = (0b011 << 3) | 0b011;
+    const VLEN: Vlen = Vlen::new_unchecked(128);
+
+    #[test]
+    fn an_aligned_unit_stride_load_reserves_a_slot_for_every_micro_op_it_plans() {
+        for (eew, vtype, max_vl) in [(Sew::E8, E8_M8, 128), (Sew::E64, E64_M8, 16)] {
+            let ctrl = vector_load(VectorOp::VLoadUnit, eew, 1);
+            let eew_bytes = eew.bytes() as u64;
+            for vl in 1..=max_vl {
+                for base in (0x1000..0x1000 + 32).step_by(eew.bytes()) {
+                    let addresses: Vec<_> =
+                        (0..vl).map(|i| access(i, base + eew_bytes * i as u64, eew)).collect();
+
+                    let planned = plan_accesses(addresses, true, 16).len();
+                    let reserved =
+                        expected_load_micro_ops(&ctrl, &config(vtype, vl as u64), VLEN, 16);
+
+                    assert!(
+                        planned <= reserved,
+                        "{eew:?} vl={vl} base={base:#x}: {planned} > {reserved}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_strided_load_reserves_a_slot_for_each_field_of_each_element() {
+        let ctrl = vector_load(VectorOp::VLoadStride, Sew::E32, 2);
+
+        let reserved = expected_load_micro_ops(&ctrl, &config(E8_M8, 5), VLEN, 16);
+
+        assert_eq!(reserved, 10);
+    }
+
+    #[test]
+    fn a_load_with_no_body_reserves_one_slot() {
+        let ctrl = vector_load(VectorOp::VLoadIndexUnord, Sew::E8, 1);
+
+        let reserved = expected_load_micro_ops(&ctrl, &config(E8_M8, 0), VLEN, 16);
+
+        assert_eq!(reserved, 1);
     }
 }

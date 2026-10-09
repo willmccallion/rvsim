@@ -50,15 +50,15 @@ impl O3Engine {
                 scalar_wb.push(wb);
                 continue;
             };
+            if !vme.is_store {
+                self.load_queue.mark_written_back(wb.rob_tag, vme.micro_op);
+            }
             let retired = retire_access(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
             let vlen_bits = self.vec_prf.vlen().bits();
             for write in retired.writes {
                 let elems_per_reg = (vlen_bits / (write.eew.bytes() * 8)).max(1);
                 let local = ElemIdx::new(write.elem_idx.as_usize() % elems_per_reg);
                 self.vec_prf.write_element(write.vd_phys, local, write.eew, write.value);
-            }
-            if !vme.is_store {
-                self.load_queue.deallocate_micro_op(wb.rob_tag, vme.micro_op);
             }
             // Dependents bulk-read all elements, so they wake on full completion only.
             if retired.completed
@@ -147,7 +147,7 @@ impl O3Engine {
             if let Some(micro_op) = expand_span(&span, &mut self.vec_mem_inflight)
                 && is_load
             {
-                self.load_queue.deallocate_micro_op(rob_tag, micro_op);
+                self.load_queue.unclaim(rob_tag, micro_op);
             }
         }
         for store_tag in resolved.resolved_stores {
@@ -182,17 +182,24 @@ impl O3Engine {
         }
     }
 
-    /// Pump pending vec mem element micro-ops into `vec_mem_pending`, bounded by LQ capacity.
+    /// Moves pending vector memory micro-ops into `vec_mem_pending`, each
+    /// load micro-op claiming one of its instruction's load-queue slots. A
+    /// load that has outgrown its slots goes on only as the oldest memory
+    /// access in flight, reusing the slots of micro-ops that have written
+    /// back, since no older store is left to resolve over them.
     pub(super) fn issue_vec_mem_waves(&mut self) {
         for inflight in &mut self.vec_mem_inflight {
+            if inflight.outgrew_load_slots {
+                if self.rob.has_older_memory_access(inflight.rob_tag) {
+                    continue;
+                }
+                self.load_queue.unclaim_written_back(inflight.rob_tag);
+            }
             while let Some(front) = inflight.pending_micro_ops.front() {
                 if !front.is_store
-                    && !self.load_queue.allocate(
-                        front.entry.rob_tag,
-                        front.bytes,
-                        Some(front.micro_op),
-                    )
+                    && !self.load_queue.claim(front.entry.rob_tag, front.micro_op, front.bytes)
                 {
+                    inflight.outgrew_load_slots = true;
                     break;
                 }
                 let Some(mop) = inflight.pending_micro_ops.pop_front() else { break };
