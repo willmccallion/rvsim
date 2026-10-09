@@ -48,8 +48,9 @@ wrong value even though no test checks that value.
 Values the ISA leaves to the implementation are taken from rvsim's log
 rather than compared: counter, timer and ID CSR reads, device reads,
 interrupt arrival, WFI wake-up, a reservation rvsim lost, accesses to
-`tcontrol` (which spike lacks), and `medeleg`'s misaligned-fetch bit, which
-the two models choose differently. The driver reports how
+`tcontrol` (which spike lacks), a `misa` write (rvsim's `misa` is
+read-only, spike's is not), and `medeleg`'s misaligned-fetch bit, which the
+two models choose differently. The driver reports how
 many of each it took. Vector register and vector memory effects are not
 compared yet.
 
