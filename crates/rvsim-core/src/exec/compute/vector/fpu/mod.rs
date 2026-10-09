@@ -172,7 +172,7 @@ fn vec_fp_dispatch(
             let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
             let start = if ctx.vl > 0 { 1 } else { 0 };
             for i in start..vlmax {
-                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
         }
         return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };

@@ -1,10 +1,12 @@
 //! Dispatch into the issue queue, and select and issue out of it.
 
+use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{
     check_vec_mem_emul, element_accesses, is_vec_store, vec_mem_dst_count,
 };
 use crate::isa::rvv::{VRegIdx, parse_vtype};
+use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
@@ -172,8 +174,10 @@ impl O3Engine {
             mapping[0] = entry.mask_phys;
         }
 
+        let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
+        let mut recorder = AgnosticRecorder::new(&mut view, commit_log_open(state));
         let executed = execute_vec_op_on(
-            &mut VecPrfView::new(&mut self.vec_prf, mapping),
+            &mut recorder,
             entry.vec_vtype,
             entry.vec_vl,
             entry.vec_vstart,
@@ -183,6 +187,8 @@ impl O3Engine {
             state.config.isa.vector.zvfh,
             &entry.inst,
         );
+        #[cfg(feature = "commit-log")]
+        let fills = recorder.into_fills();
         let vec_result = match executed {
             Ok(r) => r,
             Err(trap) => {
@@ -190,6 +196,10 @@ impl O3Engine {
                 return;
             }
         };
+        #[cfg(feature = "commit-log")]
+        if let Some(fills) = fills {
+            self.rob.set_vec_agnostic(result.rob_tag, fills);
+        }
         if !vec_result.fp_flags.is_empty() {
             self.rob.set_fp_flags(result.rob_tag, vec_result.fp_flags.bits());
         }

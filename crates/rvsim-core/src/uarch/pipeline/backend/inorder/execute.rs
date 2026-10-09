@@ -3,11 +3,13 @@
 //! This stage performs arithmetic, branch resolution, and system instruction
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
+use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
 use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
+use crate::soc::uncore::commit_log_open;
 use crate::trace_execute;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
@@ -164,8 +166,9 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
     let csrs = &state.hart().csrs;
     let vector = &state.config.isa.vector;
     let mut shadow = ShadowVpr::new(state.hart().regs.vpr());
+    let mut recorder = AgnosticRecorder::new(&mut shadow, commit_log_open(state));
     let result = execute_vec_op_on(
-        &mut shadow,
+        &mut recorder,
         csrs.vtype,
         csrs.vl,
         csrs.vstart,
@@ -175,6 +178,10 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         vector.zvfh,
         &id.inst,
     )?;
+    #[cfg(feature = "commit-log")]
+    if let Some(fills) = recorder.into_fills() {
+        rob.set_vec_agnostic(id.rob_tag, fills);
+    }
     rob.set_vec_writes(id.rob_tag, shadow.into_writes());
     if !result.fp_flags.is_empty() {
         rob.set_fp_flags(id.rob_tag, result.fp_flags.bits());

@@ -49,13 +49,13 @@ pub(super) fn exec_fp_widening(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
             }
             continue;
         }
@@ -239,13 +239,13 @@ pub(super) fn exec_fp_widening_fma(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, wsew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
             }
             continue;
         }
@@ -323,13 +323,13 @@ pub(super) fn exec_fp_narrowing(
         }
         if i >= ctx.vl {
             if ctx.vta.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }
         if !ctx.vm && !mask_active(vpr, i) {
             if ctx.vma.is_agnostic() {
-                vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, ctx.sew.ones());
+                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
             continue;
         }

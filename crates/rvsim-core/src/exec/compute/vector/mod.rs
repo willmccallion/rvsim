@@ -5,6 +5,8 @@
 
 pub mod vsetvl;
 
+pub mod agnostic;
+
 pub mod alu;
 
 pub mod context;

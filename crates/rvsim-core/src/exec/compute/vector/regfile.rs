@@ -29,6 +29,17 @@ pub trait VectorRegFile {
 
     /// Returns the configured VLEN.
     fn vlen(&self) -> Vlen;
+
+    /// Fills an element the tail- or mask-agnostic policy leaves free with
+    /// ones.
+    fn fill_agnostic_element(&mut self, vreg: VRegIdx, index: ElemIdx, sew: Sew) {
+        self.write_element(vreg, index, sew, sew.ones());
+    }
+
+    /// Sets a mask bit the tail- or mask-agnostic policy leaves free.
+    fn fill_agnostic_mask_bit(&mut self, vreg: VRegIdx, index: ElemIdx) {
+        self.write_mask_bit(vreg, index, true);
+    }
 }
 
 impl VectorRegFile for crate::arch::regs::vpr::Vpr {
