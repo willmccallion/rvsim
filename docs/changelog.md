@@ -11,6 +11,15 @@ All notable changes to this project are documented here. The format is based on 
   physical address, size and value), and each trap taken. An FP destination
   was logged as an `x` register. Vector register and vector memory effects
   are not logged yet.
+- `make lockstep` (`tests/conformance/lockstep.py`, `make lockstep-smoke`
+  for the smoke configs) replays rvsim's commit log on spike one instruction
+  at a time for every riscv-test, program and benchmark on every single-hart
+  pipeline config, and stops at the first instruction whose PC, privilege
+  mode, destination, CSR write, FP flags or memory access differs. Values the
+  ISA leaves to the implementation (counters, timers, IDs, device reads,
+  interrupt arrival, WFI wake-up, lost reservations) are taken from rvsim's
+  log. The driver is `tools/lockstep/spike_lockstep.cc`, built against the
+  pinned spike. `make test-all` runs it; the smoke run does not.
 
 ## Releases
 

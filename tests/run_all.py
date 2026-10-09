@@ -5,11 +5,12 @@ Runs in order:
   1. tests/conformance/riscv_tests.py     — riscv-tests across all PIPELINES
   2. tests/conformance/vector_tests.py    — RVV cosim across all PIPELINES
   3. tests/conformance/multicore_tests.py — multi-hart programs at 2 and 4 harts
+  4. tests/conformance/lockstep.py        — programs replayed on spike in lockstep
 
 With --smoke, riscv-tests run on SMOKE_PIPELINES, the vector suite runs the
-sample `make vector-smoke-build` builds on VECTOR_SMOKE_PIPELINES, and the
-multicore suite runs 4 harts on fewer configs: a few minutes on four cores,
-and what CI runs.
+sample `make vector-smoke-build` builds on VECTOR_SMOKE_PIPELINES, the
+multicore suite runs 4 harts on fewer configs, and lockstep is left out: a
+few minutes on four cores, and what CI runs.
 
 Each child runner streams its own JSON to tests/builds/results/. This
 script tails their stdout, captures pass/fail counts from those JSONs at
@@ -91,7 +92,7 @@ def main():
         "--skip",
         action="append",
         default=[],
-        choices=["riscv-tests", "vector", "multicore"],
+        choices=["riscv-tests", "vector", "multicore", "lockstep"],
         help="Skip a suite (repeat for multiple)",
     )
     ap.add_argument(
@@ -144,6 +145,18 @@ def main():
         if args.smoke:
             cmd += ["--smoke"]
         suites.append(("multicore", cmd, out))
+
+    if "lockstep" not in args.skip and not args.smoke:
+        out = os.path.join(RESULTS_DIR, "lockstep.json")
+        cmd = [
+            PYTHON,
+            os.path.join(ROOT, "tests/conformance/lockstep.py"),
+            "--out",
+            out,
+        ]
+        if args.pipelines:
+            cmd += ["--pipelines", args.pipelines]
+        suites.append(("lockstep against spike", cmd, out))
 
     if not suites:
         sys.exit("nothing to run (everything was skipped)")

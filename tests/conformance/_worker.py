@@ -8,7 +8,10 @@ Used as a subprocess by the multi-config runners so a single panic / segfault
 in the simulator only kills one test, never the whole sweep.
 
 Usage:
-    _worker.py <elf> <pipeline_label> [<sig_out_path>]
+    _worker.py <elf> <pipeline_label> [<sig_out_path>] [--commit-log PATH]
+
+With --commit-log, every retired instruction is written to PATH (see
+Simulator.open_commit_log) for tests/conformance/lockstep.py to replay on spike.
 
 Exit codes:
     0   pass (cpu.run() returned 0)
@@ -17,6 +20,7 @@ Exit codes:
     2   bad usage / unknown pipeline label
 """
 
+import argparse
 import os
 import struct
 import subprocess
@@ -50,13 +54,16 @@ def get_signature_range(elf_path):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("usage: _worker.py <elf> <pipeline_label> [<sig_out>]", file=sys.stderr)
-        sys.exit(2)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("elf")
+    parser.add_argument("pipeline_label")
+    parser.add_argument("sig_out", nargs="?")
+    parser.add_argument("--commit-log")
+    args = parser.parse_args()
 
-    elf_path = sys.argv[1]
-    label = sys.argv[2]
-    sig_out = sys.argv[3] if len(sys.argv) > 3 else None
+    elf_path = args.elf
+    label = args.pipeline_label
+    sig_out = args.sig_out
 
     cfg = next((c for lbl, c in PIPELINES if lbl == label), None)
     if cfg is None:
@@ -84,6 +91,8 @@ def main():
     with open(elf_path, "rb") as f:
         elf_data = f.read()
     cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
+    if args.commit_log:
+        cpu.open_commit_log(args.commit_log)
     exit_code = cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
 
     if sig_out:
@@ -94,6 +103,9 @@ def main():
                 for i in range(0, len(sig_bytes), 4):
                     word = struct.unpack_from("<I", sig_bytes, i)[0]
                     f.write(f"{word:08x}\n")
+
+    # Dropping the simulator flushes the commit log.
+    del cpu
 
     if exit_code is None:
         sys.exit(124)
