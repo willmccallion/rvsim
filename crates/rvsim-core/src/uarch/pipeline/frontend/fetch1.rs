@@ -50,21 +50,27 @@ use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, Wal
 /// Timing-only: instruction bytes are always read from the RAM fast path,
 /// so the buffer never needs invalidating for correctness. It is emptied
 /// when a new line request is issued and refilled when that line's
-/// response drains to the fetch1→fetch2 latch.
+/// response drains to the fetch1→fetch2 latch. It is a copy of one of the
+/// I-cache's lines, so it holds nothing once the cache has been
+/// invalidated since it was filled (FENCE.I).
 #[derive(Debug, Default)]
 pub struct FetchBuffer {
     line: Option<LineAddr>,
+    /// The I-cache's invalidation count when the line was filled.
+    filled_after: u64,
 }
 
 impl FetchBuffer {
-    /// True if `line` can be fetched from without an I-cache access.
+    /// True if `line` can be fetched from without an I-cache access, given
+    /// the I-cache's current invalidation count.
     #[must_use]
-    pub fn holds(&self, line: LineAddr) -> bool {
-        self.line == Some(line)
+    pub fn holds(&self, line: LineAddr, invalidations: u64) -> bool {
+        self.line == Some(line) && self.filled_after == invalidations
     }
 
-    const fn fill(&mut self, line: LineAddr) {
+    const fn fill(&mut self, line: LineAddr, invalidations: u64) {
         self.line = Some(line);
+        self.filled_after = invalidations;
     }
 
     const fn invalidate(&mut self) {
@@ -226,15 +232,16 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
     latch: &mut Latch<Fetch1Fetch2Entry>,
     group: OutstandingFetch,
 ) {
+    let invalidations = state.core().l1_i_cache.invalidations();
     match group.line {
-        Some(line) if !fetch_buffer.holds(line) => {
+        Some(line) if !fetch_buffer.holds(line, invalidations) => {
             issue_line_fetch(state, engine, fetch_buffer, line, group);
         }
         _ => {
             let now = state.cycle;
             let common = engine.common_mut();
             let _ = common.fetch_reorder.insert(group.fetch_seq, group);
-            drain_fetch_reorder(now, common, fetch_buffer, latch);
+            drain_fetch_reorder(now, common, fetch_buffer, latch, invalidations);
         }
     }
 }
@@ -279,12 +286,14 @@ fn issue_line_fetch<E: ExecutionEngine>(
 /// Releases completed groups into the fetch1→fetch2 latch in program order.
 ///
 /// Stops at the first gap (an older group still waiting on its line). A
-/// drained group's line becomes the fetch buffer's content.
+/// drained group's line becomes the fetch buffer's content, filled under
+/// the I-cache's current invalidation count.
 pub fn drain_fetch_reorder(
     now: u64,
     common: &mut BackendCommon,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Latch<Fetch1Fetch2Entry>,
+    invalidations: u64,
 ) {
     loop {
         let next_seq = common.next_emit_fetch_seq;
@@ -293,7 +302,7 @@ pub fn drain_fetch_reorder(
         };
         common.next_emit_fetch_seq = next_seq.wrapping_add(1);
         if let Some(line) = group.line {
-            fetch_buffer.fill(line);
+            fetch_buffer.fill(line, invalidations);
         }
         latch.push(now, group.entries);
     }
@@ -390,7 +399,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             if !group.entries.is_empty() {
                 break;
             }
-            if !fetch_buffer.holds(line) {
+            if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
                 group.request_line(engine.common_mut(), line);
                 break;
             }
