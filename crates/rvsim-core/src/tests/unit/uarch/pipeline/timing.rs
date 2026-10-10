@@ -4,8 +4,8 @@
 //! resolved misprediction redirects fetch `redirect_latency` cycles later.
 
 use crate::config::BackendKind;
-use crate::config::{BranchPredictorKind, Config, MemDepPredictorKind};
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::config::{BranchPredictorKind, Config, CsrSquash, MemDepPredictorKind};
+use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::TestContext;
 
 const BASE_ADDR: u64 = 0x8000_0000;
@@ -462,4 +462,74 @@ fn o3_control_stalls_include_rename_waiting_out_the_rob_squash() {
     let stalls = mispredict_control_stalls(&config);
 
     assert_eq!(stalls, held);
+}
+
+const MSCRATCH: u32 = 0x340;
+const MTVEC: u32 = 0x305;
+
+/// `inst`, then the done marker: the cycles a squash after `inst` adds.
+fn system_then_done(inst: u32) -> Vec<u32> {
+    let mut program = vec![inst];
+    program.extend(done_marker());
+    program
+}
+
+fn config_with_csr_squash(backend: BackendKind, policy: CsrSquash) -> Config {
+    let mut config = config(backend, 3);
+    config.pipeline.csr_squash = Some(policy);
+    config
+}
+
+/// Cycles `inst` and the marker take under each CSR squash policy.
+fn cycles_under(backend: BackendKind, inst: u32) -> (u64, u64, u64) {
+    let under = |policy| {
+        cycles_to_finish(&config_with_csr_squash(backend, policy), &system_then_done(inst))
+    };
+    (under(CsrSquash::EveryAccess), under(CsrSquash::AffectingWrites), under(CsrSquash::Never))
+}
+
+#[test]
+fn a_csr_read_squashes_only_when_every_access_squashes() {
+    let csrr_mscratch = InstructionBuilder::new().csrrs(3, MSCRATCH, 0).build();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (every, affecting, never) = cycles_under(backend, csrr_mscratch);
+
+        assert!(every > never, "{backend:?}: every access {every}, never {never}");
+        assert_eq!(affecting, never, "{backend:?}: a read does not steer execution");
+    }
+}
+
+#[test]
+fn a_scratch_csr_write_squashes_only_when_every_access_squashes() {
+    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (every, affecting, never) = cycles_under(backend, csrw_mscratch);
+
+        assert!(every > never, "{backend:?}: every access {every}, never {never}");
+        assert_eq!(affecting, never, "{backend:?}: Rocket exempts mscratch from its flush");
+    }
+}
+
+#[test]
+fn a_write_to_a_csr_that_steers_execution_squashes_unless_never() {
+    let csrw_mtvec = InstructionBuilder::new().csrrw(0, MTVEC, 1).build();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (every, affecting, never) = cycles_under(backend, csrw_mtvec);
+
+        assert_eq!(every, affecting, "{backend:?}: an mtvec write flushes under both");
+        assert!(affecting > never, "{backend:?}: affecting {affecting}, never {never}");
+    }
+}
+
+#[test]
+fn a_fence_squashes_at_commit_only_when_configured() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut squashing = config(backend, 3);
+        squashing.pipeline.fence_squash = true;
+
+        let plain = cycles_to_finish(&config(backend, 3), &system_then_done(FENCE_IORW));
+        let squashed = cycles_to_finish(&squashing, &system_then_done(FENCE_IORW));
+
+        assert!(squashed > plain, "{backend:?}: squashing {squashed}, plain {plain}");
+    }
 }

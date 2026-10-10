@@ -3,6 +3,7 @@
 //! releases.
 
 use crate::arch::reservation::LrScRecord;
+use crate::config::BackendKind;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
@@ -256,10 +257,20 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
             deferred = !csr_update.applied,
             "CM: CSR write applied at commit"
         );
-        // SATP redirect: post-execute fetches used old tables; refetch from the next instruction.
-        let satp_redirect = (csr_update.addr == csr::SATP)
+        // SATP redirect: post-execute fetches used old tables; refetch from
+        // the next instruction. The core's own flush after a CSR access
+        // happens here on the out-of-order backend, as BOOM's does when the
+        // access commits; the in-order backend refetched at execute.
+        let squash = csr_update.addr == csr::SATP
+            || squashes_after_csr_at_commit(state, Some(csr_update.addr.as_u32()));
+        let redirect = squash
             .then(|| CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
-        return CommitFlow::Stop(satp_redirect);
+        return CommitFlow::Stop(redirect);
+    }
+    if entry.ctrl.system_op == SystemOp::Csr && squashes_after_csr_at_commit(state, None) {
+        return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
+            entry.pc.wrapping_add(entry.inst_size.as_u64()),
+        )));
     }
 
     match entry.ctrl.system_op {
@@ -337,9 +348,17 @@ fn release_memory_resources(
     }
 }
 
+/// Whether the out-of-order backend squashes after a CSR access that wrote
+/// `written` when it commits; the in-order backend refetched at execute.
+fn squashes_after_csr_at_commit(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
+    state.config.pipeline.backend == BackendKind::OutOfOrder
+        && state.config.pipeline.csr_squash().squashes(written)
+}
+
 /// Applies a FENCE.I or SFENCE.VMA, whose older stores have all been
 /// written (commit waited for them), and returns the squash of the
-/// younger instructions fetched or translated before it.
+/// younger instructions fetched or translated before it; a FENCE squashes
+/// them too on a core that flushes after one.
 fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent> {
     let squash_younger = CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64()));
     if entry.ctrl.system_op == SystemOp::FenceI {
@@ -349,6 +368,9 @@ fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent
     if let Some(info) = entry.sfence_vma {
         state.core.mmu.sfence_vma(&info);
         state.clear_reservation();
+        return Some(squash_younger);
+    }
+    if entry.ctrl.system_op == SystemOp::Fence && state.config.pipeline.fence_squash {
         return Some(squash_younger);
     }
     None
