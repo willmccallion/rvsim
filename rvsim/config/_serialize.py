@@ -445,7 +445,7 @@ def _backend_to_pipeline_fields(be) -> dict:
         "store_ports": 1,
         "prf_gpr_size": 64,
         "prf_fpr_size": 64,
-        "fu_config": _fu_config_to_dict(Fu()),
+        "fu_config": _fu_config_to_dict(be.fu_config),
         "prf_vpr_size": 64,
         "vec_chaining": True,
         "vec_store_buffer_size": 8,

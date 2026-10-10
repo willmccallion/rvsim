@@ -8,8 +8,10 @@ import pickle
 import unittest
 
 from rvsim import (
+    Backend,
     Cache,
     Config,
+    Fu,
     LoadPrefetcher,
     PageBoundary,
     Simulator,
@@ -134,3 +136,14 @@ class Validation(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown field `widht`"):
             Simulator(config)
+
+
+class InOrderBackend(unittest.TestCase):
+    def test_its_unit_pool_reaches_the_core(self):
+        pool = Fu([Fu.IntAlu(count=1, latency=1), Fu.IntMul(count=1, latency=8)])
+
+        config = Config(backend=Backend.InOrder(fu_config=pool)).to_dict()
+
+        self.assertEqual(config["pipeline"]["fu_config"]["num_int_mul"], 1)
+        self.assertEqual(config["pipeline"]["fu_config"]["int_mul_latency"], 8)
+        self.assertEqual(config["pipeline"]["fu_config"]["num_fp_add"], 0)
