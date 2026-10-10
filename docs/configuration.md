@@ -96,13 +96,13 @@ Backend.OutOfOrder(
 ### Backend: In-Order
 
 ```python
-Backend.InOrder()
+Backend.InOrder(fu_config=None)
 ```
 
-The in-order backend takes no parameters of its own. It issues in program
-order, up to `issue_width` per cycle, with a scoreboard tracking operands;
-its functional units are the default `Fu()` pool, and it has a 64-entry
-ROB and a 16-entry store buffer.
+The in-order backend issues in program order, up to `issue_width` per
+cycle, with a scoreboard tracking operands. `fu_config` is its functional
+unit pool (the default `Fu()` when `None`), described under Functional
+Units below; it has a 64-entry ROB and a 16-entry store buffer.
 
 ### Functional Units
 
