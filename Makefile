@@ -33,7 +33,7 @@ endif
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
 .PHONY: lockstep lockstep-build lockstep-smoke
-.PHONY: rtl-build rtl-compare
+.PHONY: rtl-build rtl-compare embench-build
 .PHONY: test-all test-all-smoke conformance-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
@@ -68,6 +68,7 @@ help:
 	@printf "    %-$(HELP_W)s  Lockstep against spike on the smoke configs\n" "make lockstep-smoke"
 	@printf "    %-$(HELP_W)s  Build the Rocket and BOOM Verilator simulators (one-time, ~1 h; nix develop .#rtl)\n" "make rtl-build"
 	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (CORE=rocket|boom)\n" "make rtl-compare"
+	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
@@ -284,6 +285,19 @@ rtl-build: $(SPIKE_LOCAL)
 
 rtl-compare: rtl-build software python
 	.venv/bin/python tools/diag/rtl_compare.py --core $(RTL_CORE)
+
+# Embench-IoT as static riscv64 Linux programs (tools/embench/build.sh,
+# pinned in tests/conformance/sources.mk), for SE mode and its
+# verification against qemu-riscv64.
+EMBENCH_STAMP := $(TEST_BUILDS)/embench/bin/.built
+
+embench-build: $(EMBENCH_STAMP)
+
+$(EMBENCH_STAMP):
+	@printf "$(GREEN)Building Embench-IoT…$(RESET)\n"
+	@mkdir -p $(TEST_BUILDS)
+	bash tools/embench/build.sh
+	@touch $@
 
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified

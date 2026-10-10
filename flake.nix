@@ -30,6 +30,15 @@
         # native build and fails with "cannot run C compiled programs".
         riscvGcc = pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc;
         riscvBinutils = pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils;
+        # The Linux (glibc) cross toolchain builds the user programs SE
+        # mode runs: the bundled examples, Embench and whatever a user
+        # brings from a distribution toolchain. Cached by Hydra.
+        riscvLinuxGcc = pkgs.pkgsCross.riscv64.buildPackages.gcc;
+        riscvLinuxBinutils = pkgs.pkgsCross.riscv64.buildPackages.binutils;
+        # nixpkgs keeps glibc's static archives in a separate output; the
+        # compiler wrappers below add it, so `-static` links as it does
+        # with a distribution toolchain.
+        riscvLinuxGlibcStatic = pkgs.pkgsCross.riscv64.glibc.static;
 
         # Buildroot insists on /usr/bin/file (libtool legacy); on NixOS
         # there is no /usr/bin, so building Linux requires a FHS-shaped
@@ -79,6 +88,10 @@
           go
 
           git curl
+
+          # qemu-riscv64 is the reference SE mode is verified against
+          # (make se-verify): the same user binary's output and syscalls.
+          qemu-user
         ];
 
         # Chipyard's Verilator flow for the RTL comparison (tools/rtl): a
@@ -111,12 +124,25 @@
               ln -sf ${riscvBinutils}/bin/riscv64-none-elf-$tool "$TOOLCHAIN_BIN/riscv64-elf-$tool"
             fi
           done
+          for tool in gcc g++; do
+            rm -f "$TOOLCHAIN_BIN/riscv64-linux-gnu-$tool"
+            printf '#!/bin/sh\nexec %s/bin/riscv64-unknown-linux-gnu-%s -L%s/lib "$@"\n' \
+              "${riscvLinuxGcc}" "$tool" "${riscvLinuxGlibcStatic}" > "$TOOLCHAIN_BIN/riscv64-linux-gnu-$tool"
+            chmod +x "$TOOLCHAIN_BIN/riscv64-linux-gnu-$tool"
+          done
+          for tool in as ld objdump objcopy strip ar nm ranlib readelf; do
+            if [ -e ${riscvLinuxBinutils}/bin/riscv64-unknown-linux-gnu-$tool ]; then
+              ln -sf ${riscvLinuxBinutils}/bin/riscv64-unknown-linux-gnu-$tool "$TOOLCHAIN_BIN/riscv64-linux-gnu-$tool"
+            fi
+          done
           export PATH="$TOOLCHAIN_BIN:$PATH"
 
           echo "rvsim devshell ready"
           echo "  rust:      $(rustc --version 2>/dev/null)"
           echo "  go:        $(go version 2>/dev/null)"
           echo "  riscv-gcc: $(command -v riscv64-elf-gcc)"
+          echo "  linux-gcc: $(command -v riscv64-linux-gnu-gcc)"
+          echo "  qemu:      $(command -v qemu-riscv64)"
           echo "  native cc: $(command -v gcc)"
           echo "  dtc:       $(command -v dtc)"
         '';
