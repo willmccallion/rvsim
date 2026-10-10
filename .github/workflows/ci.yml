@@ -78,15 +78,15 @@ jobs:
           echo "spike=$(pin SPIKE_REV)" >> "$GITHUB_OUTPUT"
           echo "riscv_tests=$(pin RISCV_TESTS_REV)" >> "$GITHUB_OUTPUT"
           echo "epoch=$(pin CACHE_EPOCH)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: tests/builds/spike-install
           key: spike-${{ steps.pins.outputs.spike }}-${{ steps.pins.outputs.epoch }}-${{ hashFiles('flake.lock') }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: tests/builds/riscv-tests
           key: riscv-tests-${{ steps.pins.outputs.riscv_tests }}-${{ steps.pins.outputs.epoch }}-${{ hashFiles('flake.lock') }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             tests/builds/riscv-vector-tests
