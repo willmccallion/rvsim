@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `BranchPredictor.Bht` is Rocket's branch history table: a table of one-
+  or two-bit counters indexed by the fetch PC with a hash of the global
+  history placed above the PC bits, advanced, rebuilt and reset as
+  rocket-chip's `BHT` is. The `rocket` preset uses it in place of the
+  fixed `GShare`, which indexed two nearby branches to one counter half
+  the time and mispredicted `br_random`'s loop branch as often as its
+  random one (#222).
 - The in-order backend no longer holds a system instruction in issue until
   it is the oldest. A CSR access, ECALL, MRET, WFI, FENCE.I and SFENCE.VMA
   issue in order and take effect when they retire: the CSR is read and

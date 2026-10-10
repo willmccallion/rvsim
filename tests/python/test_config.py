@@ -9,6 +9,7 @@ import unittest
 
 from rvsim import (
     Backend,
+    BranchPredictor,
     Cache,
     Config,
     Fu,
@@ -83,6 +84,27 @@ class Prefetchers(unittest.TestCase):
         self.assertEqual(cache["load_prefetcher"]["page_boundary"], "CrossWithTlb")
         self.assertEqual(
             cache["store_prefetcher"], {"kind": "Stream", "streams": 4, "l2_lines": 8}
+        )
+
+    def test_the_bht_predictor_reaches_the_core(self):
+        config = Config(
+            branch_predictor=BranchPredictor.Bht(
+                entries=1024, counter_bits=2, history_length=10, history_bits=4
+            )
+        )
+
+        pipeline = config.to_dict()["pipeline"]
+        Simulator(config)
+
+        self.assertEqual(pipeline["branch_predictor"], "Bht")
+        self.assertEqual(
+            pipeline["bht"],
+            {
+                "entries": 1024,
+                "counter_bits": 2,
+                "history_length": 10,
+                "history_bits": 4,
+            },
         )
 
     def test_no_prefetcher_by_default(self):

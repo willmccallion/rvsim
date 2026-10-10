@@ -1,5 +1,6 @@
 //! Branch predictor implementations.
 
+pub mod bht;
 pub mod gshare;
 pub mod perceptron;
 pub mod sc_l_tage;

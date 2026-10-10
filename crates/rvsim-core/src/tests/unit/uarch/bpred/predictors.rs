@@ -5,7 +5,8 @@
 //! commit.
 
 use crate::common::InstSeq;
-use crate::config::{Config, PerceptronConfig, TageConfig, TournamentConfig};
+use crate::config::{BhtConfig, Config, PerceptronConfig, TageConfig, TournamentConfig};
+use crate::uarch::bpred::predictors::bht::BhtPredictor;
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
 use crate::uarch::bpred::predictors::sc_l_tage::ScLTagePredictor;
@@ -113,6 +114,76 @@ fn gshare_learns_not_taken_after_taken() {
     bp.train(PC, true, 10);
     bp.train(PC, false, 20);
     assert!(!bp.predicts_taken(PC));
+}
+
+fn bht() -> BhtPredictor {
+    BhtPredictor::new(&BhtConfig::default())
+}
+
+#[test]
+fn bht_starts_not_taken() {
+    assert!(!Driver::new(bht()).predicts_taken(PC));
+}
+
+/// Each outcome shifts the history the next lookup indexes with: after
+/// eight taken outcomes the history is all ones, and the ninth trains the
+/// counter the next lookup reads.
+#[test]
+fn bht_learns_taken_under_a_history_it_has_been_trained_under() {
+    let mut bp = Driver::new(bht());
+
+    bp.train(PC, true, 9);
+
+    assert!(bp.predicts_taken(PC));
+}
+
+/// `BHT.index`: the PC's word address in the low index bits, the history
+/// multiplied by floor(sqrt(3) / 2 * 2^8) = 221 and the top 3 bits of the
+/// product's low byte placed above them.
+#[test]
+fn bht_indexes_by_the_word_address_with_the_hashed_history_above_it() {
+    let bp = bht();
+    let pc = 0x8000_0010;
+
+    assert_eq!(bp.index(pc, 0), 4);
+    // 221 * 160 = 35360, whose low byte 32 has 1 in its top three bits.
+    assert_eq!(bp.index(pc, 160), 4 ^ (1 << 6));
+}
+
+/// Two branches a few instructions apart never share a counter, whatever
+/// their histories, which a PC-XOR-history index does not guarantee.
+#[test]
+fn bht_keeps_nearby_branches_apart_under_every_history() {
+    let bp = bht();
+    for history in 0..256 {
+        for other in 0..256 {
+            assert_ne!(bp.index(0x8000_0010, history), bp.index(0x8000_0018, other));
+        }
+    }
+}
+
+/// The history keeps its newest outcome in its top bit, and a
+/// misprediction rebuilds it from the branch's fetch-time history.
+#[test]
+fn bht_history_shifts_the_newest_outcome_in_at_the_top() {
+    let mut bp = Driver::new(bht());
+
+    let _ = bp.run_branch(PC, true);
+    assert_eq!(bp.unit.direction().history(), 1 << 7);
+    let _ = bp.run_branch(PC, false);
+    assert_eq!(bp.unit.direction().history(), 1 << 6);
+}
+
+#[test]
+fn bht_resets_the_history_to_a_mispredicted_jumps_fetch_time_history() {
+    let mut bp = Driver::new(bht());
+    bp.train(PC, true, 2);
+    let before = bp.unit.direction().history();
+
+    let (seq, _) = bp.predict(PC + 8, ControlInst::IndirectJump { returns: false, link: None });
+    bp.unit.mispredict(seq, true, TARGET);
+
+    assert_eq!(bp.unit.direction().history(), before);
 }
 
 #[test]

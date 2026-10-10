@@ -235,6 +235,15 @@ pub const PRF_FPR_SIZE: usize = 128;
 pub const TAGE_RESET_INTERVAL: u32 = 256_000;
 
 /// Default Perceptron predictor global history length (32 bits).
+/// Rocket's `BHTParams`: 512 one-bit counters, 8 bits of history hashed
+/// to 3.
+pub const BHT_ENTRIES: usize = 512;
+/// See [`BHT_ENTRIES`].
+pub const BHT_COUNTER_BITS: u32 = 1;
+/// See [`BHT_ENTRIES`].
+pub const BHT_HISTORY_LENGTH: u32 = 8;
+/// See [`BHT_ENTRIES`].
+pub const BHT_HISTORY_BITS: u32 = 3;
 pub const PERCEPTRON_HISTORY: usize = 32;
 
 /// Default Perceptron predictor table size (log2, 1024 entries).
