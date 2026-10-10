@@ -82,14 +82,22 @@ fn fence_i_cycles(backend: BackendKind, with_l2: bool, l1d: L1d) -> u64 {
     ctx.get_reg(S3 as usize) - ctx.get_reg(S2 as usize)
 }
 
+/// The timed window includes refetching the instruction after the FENCE.I
+/// through the invalidated L1I, which costs the same for every L1D state
+/// of one configuration, so each cost is measured against the untouched
+/// L1D of the same configuration.
 #[test]
 fn without_an_l2_fence_i_walks_the_l1d_and_writes_back_each_dirty_line() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let unwalked = fence_i_cycles(backend, true, L1d::OneCleanLine);
+        let skipped = fence_i_cycles(backend, false, L1d::Untouched);
         let clean = fence_i_cycles(backend, false, L1d::OneCleanLine);
         let dirty = fence_i_cycles(backend, false, L1d::Dirty(8));
 
-        assert!(clean >= unwalked + L1D_LINES, "{backend:?}: the walk took {clean} cycles");
+        assert!(
+            clean >= skipped + L1D_LINES,
+            "{backend:?}: the walk took {} cycles",
+            clean - skipped
+        );
         assert!(dirty >= clean + 8, "{backend:?}: 8 writebacks took {} cycles", dirty - clean);
     }
 }
@@ -97,11 +105,14 @@ fn without_an_l2_fence_i_walks_the_l1d_and_writes_back_each_dirty_line() {
 #[test]
 fn without_an_l2_fence_i_skips_the_walk_when_nothing_was_fetched() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let unwalked = fence_i_cycles(backend, true, L1d::Untouched);
+        let walked = fence_i_cycles(backend, false, L1d::OneCleanLine);
 
         let skipped = fence_i_cycles(backend, false, L1d::Untouched);
 
-        assert!(skipped < unwalked + L1D_LINES, "{backend:?}: {skipped} cycles, a walk's worth");
+        assert!(
+            skipped + L1D_LINES <= walked,
+            "{backend:?}: {skipped} cycles with nothing fetched, {walked} with a line to walk"
+        );
     }
 }
 

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- FENCE.I's invalidation of the L1I now reaches the fetch buffer, the copy
+  of the line the I-cache last returned, so the instructions after a FENCE.I
+  refetch through a miss, as Rocket's and BOOM's do (#211). A FENCE.I's
+  cost grows by an L1I miss.
 - The in-order backend forwards a load's value to a dependent the cycle
   memory2 delivers it, as it already did a unit's result and as Rocket
   bypasses its D-cache response into the next instruction's execute, so a
