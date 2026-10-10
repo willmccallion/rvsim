@@ -87,17 +87,31 @@ fn logged_lines_until(
     std::fs::read_to_string(&path).expect("read commit log").lines().map(str::to_owned).collect()
 }
 
-/// The effects logged after each instruction's `priv` field, by PC.
+/// An instruction's line taken apart: its PC, the cycle it retired in and
+/// the effects after its header.
+struct Logged {
+    pc: u64,
+    cycle: u64,
+    effects: String,
+}
+
+/// `line` taken apart when it is an instruction's line retired in M-mode.
+fn parse_instruction(line: &str) -> Option<Logged> {
+    let rest = line.strip_prefix("core   0: 0x")?;
+    let pc = u64::from_str_radix(&rest[..16], 16).ok()?;
+    let after_header = rest.split_once(" priv 3 cycle ")?.1;
+    let (cycle, effects) = after_header.split_once(' ').unwrap_or((after_header, ""));
+    Some(Logged { pc, cycle: cycle.parse().ok()?, effects: effects.trim().to_owned() })
+}
+
+/// The instruction lines of `lines`, in log order.
+fn logged_instructions(lines: &[String]) -> Vec<Logged> {
+    lines.iter().filter_map(|line| parse_instruction(line)).collect()
+}
+
+/// The effects logged after each instruction's header, by PC.
 fn effects_by_pc(lines: &[String]) -> HashMap<u64, String> {
-    lines
-        .iter()
-        .filter_map(|line| {
-            let rest = line.strip_prefix("core   0: 0x")?;
-            let pc = u64::from_str_radix(&rest[..16], 16).ok()?;
-            let effects = rest.split_once(" priv 3")?.1.trim().to_owned();
-            Some((pc, effects))
-        })
-        .collect()
+    logged_instructions(lines).into_iter().map(|logged| (logged.pc, logged.effects)).collect()
 }
 
 fn mem(kind: &str, addr: u64, bytes: u64, value: u64) -> String {
@@ -183,6 +197,15 @@ fn the_log_opens_with_the_state_it_starts_from() {
 }
 
 #[test]
+fn each_instruction_logs_the_cycle_it_retired_in() {
+    let logged = logged_instructions(&logged_lines(BackendKind::InOrder, 1));
+    let cycles: Vec<u64> = logged.iter().map(|entry| entry.cycle).collect();
+
+    assert!(cycles.iter().all(|&cycle| cycle > 0), "retired before the first cycle: {cycles:?}");
+    assert!(cycles.windows(2).all(|pair| pair[0] <= pair[1]), "retire cycles go back: {cycles:?}");
+}
+
+#[test]
 fn a_trap_is_logged_after_the_instruction_that_raised_it() {
     let lines = logged_lines(BackendKind::InOrder, 1);
     let ecall_pc = PROGRAM_BASE + 4 * 19;
@@ -190,20 +213,39 @@ fn a_trap_is_logged_after_the_instruction_that_raised_it() {
         .iter()
         .position(|line| line.starts_with(&format!("core   0: 0x{ecall_pc:016x} ")))
         .expect("the ECALL is logged");
+    let retired = parse_instruction(&lines[ecall]).expect("an instruction line").cycle;
+    let trap =
+        format!("core   0: trap 0x{ECALL_FROM_M:016x} 0x{ecall_pc:016x} 0x{:016x} cycle ", 0);
 
-    assert_eq!(lines[ecall], format!("core   0: 0x{ecall_pc:016x} (0x{ECALL:08x}) priv 3"));
     assert_eq!(
-        lines[ecall + 1],
-        format!("core   0: trap 0x{ECALL_FROM_M:016x} 0x{ecall_pc:016x} 0x{:016x}", 0)
+        lines[ecall],
+        format!("core   0: 0x{ecall_pc:016x} (0x{ECALL:08x}) priv 3 cycle {retired}")
+    );
+    let taken: u64 = lines[ecall + 1]
+        .strip_prefix(&trap)
+        .and_then(|cycle| cycle.parse().ok())
+        .unwrap_or_else(|| panic!("the trap line is {:?}", lines[ecall + 1]));
+    assert!(
+        taken >= retired,
+        "the trap was taken in {taken}, before the ECALL retired in {retired}"
     );
 }
 
-/// The lines up to the handler's first instruction; how often the handler
-/// spins after it depends on timing.
+/// `line` without its `cycle <n>` field, so logs of different timing compare.
+fn without_cycle(line: &str) -> String {
+    let Some((head, tail)) = line.split_once(" cycle ") else { return line.to_owned() };
+    match tail.split_once(' ') {
+        Some((_, effects)) => format!("{head} {effects}"),
+        None => head.to_owned(),
+    }
+}
+
+/// The lines up to the handler's first instruction without their cycles;
+/// how often the handler spins after it depends on timing.
 fn up_to_handler(lines: &[String]) -> Vec<String> {
     let handler = format!("core   0: 0x{HANDLER:016x} ");
     let end = lines.iter().position(|line| line.starts_with(&handler)).expect("the handler ran");
-    lines[..=end].to_vec()
+    lines[..=end].iter().map(|line| without_cycle(line)).collect()
 }
 
 #[test]

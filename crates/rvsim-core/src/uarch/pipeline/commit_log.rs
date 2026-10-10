@@ -6,8 +6,9 @@
 //! 0: reset x<n>|f<n>|c<csr> 0x<value>` line for each nonzero register and
 //! for each CSR in [`RESET_CSRS`].
 //!
-//! An instruction's line is `core   0: 0x<pc> (0x<inst>) priv <mode>`
-//! followed by whichever of these it has, in this order: `x<n> 0x<value>`
+//! An instruction's line is `core   0: 0x<pc> (0x<inst>) priv <mode> cycle
+//! <n>`, with `<n>` the cycle it retired in, followed by whichever of these
+//! it has, in this order: `x<n> 0x<value>`
 //! or `f<n> 0x<value>` (its destination register), `c<csr> 0x<value>` (a
 //! CSR it wrote, read back after the write), `c001 0x<fflags>` (when it
 //! raised FP flags), `load 0x<vaddr> 0x<paddr> <bytes> 0x<raw>`, `store
@@ -18,7 +19,8 @@
 //! and `store`) for each element a vector memory instruction accessed, in
 //! element order, and `vec` for a vector instruction. A faulting
 //! instruction has no effects. A trap is `core   0: trap 0x<cause> 0x<epc>
-//! 0x<tval>`, with the interrupt bit in `cause`.
+//! 0x<tval> cycle <n>`, with the interrupt bit in `cause` and `<n>` the
+//! cycle it was taken in.
 
 use std::io::{self, Write};
 
@@ -221,6 +223,7 @@ pub struct Retired {
     pc: u64,
     inst: u32,
     privilege: PrivilegeMode,
+    cycle: u64,
     destination: Option<Destination>,
     csr: Option<CsrAddr>,
     raised_fp_flags: bool,
@@ -262,12 +265,13 @@ impl RegisterFile {
 }
 
 impl Retired {
-    /// Takes `entry`'s effects as it retires in `privilege`; `store` is the
-    /// write a plain store left in the store buffer and `vpr` the vector
-    /// registers after its retirement.
+    /// Takes `entry`'s effects as it retires in `privilege` in `cycle`;
+    /// `store` is the write a plain store left in the store buffer and
+    /// `vpr` the vector registers after its retirement.
     pub fn capture(
         entry: &RobEntry,
         privilege: PrivilegeMode,
+        cycle: u64,
         store: Option<MemEffect>,
         vpr: &Vpr,
     ) -> Self {
@@ -283,6 +287,7 @@ impl Retired {
             pc: entry.pc,
             inst: entry.inst,
             privilege,
+            cycle,
             destination,
             csr: entry.csr_update.as_ref().map(|update| update.addr),
             raised_fp_flags: entry.fp_flags != 0,
@@ -318,7 +323,7 @@ impl Retired {
         csr_value: Option<u64>,
         fflags: Option<u64>,
     ) -> io::Result<()> {
-        write_header(out, self.pc, self.inst, self.privilege)?;
+        write_header(out, self.pc, self.inst, self.privilege, self.cycle)?;
         if let Some(dest) = self.destination {
             write!(out, " {}{} 0x{:016x}", dest.file.prefix(), dest.index, dest.value)?;
         }
@@ -403,7 +408,7 @@ fn write_bytes_last_first(out: &mut impl Write, bytes: &[u8]) -> io::Result<()> 
     Ok(())
 }
 
-/// Writes the line of an instruction that faulted at `pc`.
+/// Writes the line of an instruction that faulted at `pc` in `cycle`.
 ///
 /// # Errors
 ///
@@ -413,19 +418,26 @@ pub fn write_faulted(
     pc: u64,
     inst: u32,
     privilege: PrivilegeMode,
+    cycle: u64,
 ) -> io::Result<()> {
-    write_header(out, pc, inst, privilege)?;
+    write_header(out, pc, inst, privilege, cycle)?;
     writeln!(out)
 }
 
 /// Writes the line of a trap taken with `cause` (interrupt bit included)
-/// at `epc`.
+/// at `epc` in `cycle`.
 ///
 /// # Errors
 ///
 /// Returns the error writing to `out` raised.
-pub fn write_trap(out: &mut impl Write, cause: u64, epc: u64, tval: u64) -> io::Result<()> {
-    writeln!(out, "core   0: trap 0x{cause:016x} 0x{epc:016x} 0x{tval:016x}")
+pub fn write_trap(
+    out: &mut impl Write,
+    cause: u64,
+    epc: u64,
+    tval: u64,
+    cycle: u64,
+) -> io::Result<()> {
+    writeln!(out, "core   0: trap 0x{cause:016x} 0x{epc:016x} 0x{tval:016x} cycle {cycle}")
 }
 
 fn write_header(
@@ -433,6 +445,7 @@ fn write_header(
     pc: u64,
     inst: u32,
     privilege: PrivilegeMode,
+    cycle: u64,
 ) -> io::Result<()> {
-    write!(out, "core   0: 0x{pc:016x} (0x{inst:08x}) priv {}", privilege.to_u8())
+    write!(out, "core   0: 0x{pc:016x} (0x{inst:08x}) priv {} cycle {cycle}", privilege.to_u8())
 }

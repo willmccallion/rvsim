@@ -208,6 +208,10 @@ class CommitLog {
     while (fields >> token) {
       if (token == "priv") {
         fields >> retired.privilege;
+      } else if (token == "cycle") {
+        // The retire cycle is timing, which spike has no view of.
+        std::string cycle;
+        fields >> cycle;
       } else if (token == "load") {
         retired.load = parse_mem(fields);
       } else if (token == "store") {

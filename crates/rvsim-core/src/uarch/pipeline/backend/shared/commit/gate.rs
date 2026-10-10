@@ -188,6 +188,7 @@ fn take_fault(
                 entry.pc,
                 entry.inst,
                 state.hart.privilege,
+                state.uncore.cycle,
             );
         }
     }
