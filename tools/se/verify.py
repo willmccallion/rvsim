@@ -1,0 +1,177 @@
+"""Checks SE mode against qemu-riscv64: the same static Linux program,
+run under both, must print the same output and exit with the same code.
+
+    .venv/bin/python tools/se/verify.py [--embench] [--programs GLOB ...]
+
+The check programs (tools/se/programs, built by `make se-programs`) run
+by default; `--embench` adds the Embench-IoT benchmarks (`make
+embench-build`). Each rvsim run is a subprocess so its stdout is its
+program's alone. Exits non-zero when any program differs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SE_PROGRAMS = ROOT / "tests" / "builds" / "se-programs"
+EMBENCH = ROOT / "tests" / "builds" / "embench" / "bin"
+PYTHON = ROOT / ".venv" / "bin" / "python"
+CYCLE_LIMIT = 2_000_000_000
+
+RUNNER = """
+import os
+import sys
+from rvsim import Config, Simulator
+binary, args = sys.argv[1], sys.argv[2:]
+env = [f"{{name}}={{value}}" for name, value in os.environ.items()]
+cpu = Simulator(Config(), binary=binary, args=[binary, *args], env=env)
+code = cpu.run(limit={limit})
+sys.stdout.flush()
+sys.exit(255 if code is None else int(code))
+"""
+
+
+@dataclass
+class Program:
+    """One program to run under both, with its arguments and environment."""
+
+    elf: Path
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        return self.elf.stem
+
+
+@dataclass
+class Outcome:
+    stdout: bytes
+    exit_code: int
+
+
+def run_qemu(program: Program, workdir: Path) -> Outcome:
+    result = subprocess.run(
+        ["qemu-riscv64", str(program.elf), *program.args],
+        cwd=workdir,
+        env={**os.environ, **program.env},
+        capture_output=True,
+        check=False,
+        timeout=600,
+    )
+    return Outcome(result.stdout, result.returncode)
+
+
+def run_rvsim(program: Program, workdir: Path) -> Outcome:
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            "-c",
+            RUNNER.format(limit=CYCLE_LIMIT),
+            str(program.elf),
+            *program.args,
+        ],
+        cwd=workdir,
+        env={**os.environ, **program.env},
+        capture_output=True,
+        check=False,
+        timeout=3600,
+    )
+    if result.returncode == 255 and b"Traceback" in result.stderr:
+        sys.stderr.write(result.stderr.decode(errors="replace"))
+    return Outcome(result.stdout, result.returncode)
+
+
+def check(program: Program) -> tuple[Program, Outcome, Outcome]:
+    with (
+        tempfile.TemporaryDirectory() as qemu_dir,
+        tempfile.TemporaryDirectory() as rvsim_dir,
+    ):
+        expected = run_qemu(program, Path(qemu_dir))
+        actual = run_rvsim(program, Path(rvsim_dir))
+    return program, expected, actual
+
+
+def check_programs() -> list[Program]:
+    """The check programs with the arguments they expect."""
+    specs = {
+        "hello": (["7", "second argument"], {"SE_GREETING": "hi"}),
+        "files": (["."], {}),
+    }
+    programs = []
+    for elf in sorted(SE_PROGRAMS.glob("*.elf")):
+        args, env = specs.get(elf.stem, ([], {}))
+        programs.append(Program(elf, args, env))
+    return programs
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument(
+        "--embench", action="store_true", help="also run the Embench-IoT benchmarks"
+    )
+    parser.add_argument(
+        "--programs",
+        nargs="*",
+        default=[],
+        help="ELF globs to run instead of the defaults",
+    )
+    parser.add_argument("--jobs", type=int, default=4)
+    args = parser.parse_args()
+
+    programs: list[Program] = []
+    if args.programs:
+        for pattern in args.programs:
+            programs.extend(Program(Path(p)) for p in sorted(glob.glob(pattern)))
+    else:
+        programs = check_programs()
+        if args.embench:
+            programs.extend(Program(elf) for elf in sorted(EMBENCH.glob("*.elf")))
+    if not programs:
+        print(
+            "no programs to run; build them with make se-programs / make embench-build"
+        )
+        return 2
+
+    failures = 0
+    print(f"{'program':<20} {'qemu':>5} {'rvsim':>6}  result")
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        for program, expected, actual in pool.map(check, programs):
+            same = (
+                expected.stdout == actual.stdout
+                and expected.exit_code == actual.exit_code
+            )
+            verdict = "same" if same else "DIFFERS"
+            if not same:
+                failures += 1
+                if expected.stdout != actual.stdout:
+                    verdict += " (stdout)"
+            print(
+                f"{program.name:<20} {expected.exit_code:>5} {actual.exit_code:>6}  {verdict}"
+            )
+            if not same and expected.stdout != actual.stdout:
+                print(
+                    "  qemu : "
+                    + expected.stdout[:300]
+                    .decode(errors="replace")
+                    .replace("\n", "\\n")
+                )
+                print(
+                    "  rvsim: "
+                    + actual.stdout[:300].decode(errors="replace").replace("\n", "\\n")
+                )
+    print(f"\n{len(programs) - failures}/{len(programs)} programs match qemu-riscv64")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

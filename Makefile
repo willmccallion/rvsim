@@ -33,7 +33,7 @@ endif
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
 .PHONY: lockstep lockstep-build lockstep-smoke
-.PHONY: rtl-build rtl-compare embench-build
+.PHONY: rtl-build rtl-compare embench-build se-programs se-verify
 .PHONY: test-all test-all-smoke conformance-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
@@ -69,6 +69,7 @@ help:
 	@printf "    %-$(HELP_W)s  Build the Rocket and BOOM Verilator simulators (one-time, ~1 h; nix develop .#rtl)\n" "make rtl-build"
 	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (CORE=rocket|boom)\n" "make rtl-compare"
 	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
+	@printf "    %-$(HELP_W)s  Check SE mode against qemu-riscv64 (add EMBENCH=1 for the benchmarks)\n" "make se-verify"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
@@ -298,6 +299,20 @@ $(EMBENCH_STAMP):
 	@mkdir -p $(TEST_BUILDS)
 	bash tools/embench/build.sh
 	@touch $@
+
+# SE mode's check programs (tools/se/programs), and the comparison of
+# their output and exit codes, and Embench's, with qemu-riscv64.
+SE_PROGRAMS_STAMP := $(TEST_BUILDS)/se-programs/.built
+
+se-programs: $(SE_PROGRAMS_STAMP)
+
+$(SE_PROGRAMS_STAMP): $(wildcard tools/se/programs/*.c) tools/se/programs/build.sh
+	bash tools/se/programs/build.sh
+	@touch $@
+
+EMBENCH ?=
+se-verify: se-programs $(if $(EMBENCH),embench-build) python
+	.venv/bin/python tools/se/verify.py $(if $(EMBENCH),--embench)
 
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
