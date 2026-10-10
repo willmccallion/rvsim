@@ -238,6 +238,12 @@ pub enum ConfigError {
         /// The smallest value the backend supports.
         least: u64,
     },
+    /// The in-order backend has no rename hold, so a CSR write that steers
+    /// execution must squash what was fetched behind it.
+    #[error(
+        "pipeline.csr_squash Never needs the out-of-order backend's rename hold; use EveryAccess or AffectingWrites"
+    )]
+    InOrderNeverSquashes,
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -305,6 +311,11 @@ impl Config {
                 field: "rename_issue_latency",
                 least: least_rename_issue,
             });
+        }
+        if self.pipeline.backend == BackendKind::InOrder
+            && self.pipeline.csr_squash == Some(CsrSquash::Never)
+        {
+            return Err(ConfigError::InOrderNeverSquashes);
         }
         let levels = [
             ("l1_d", &self.cache.l1_d),

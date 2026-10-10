@@ -1,6 +1,6 @@
 //! Tests for the checks `Config::validate` applies before a system is built.
 
-use crate::config::{CacheConfig, Config, ConfigError};
+use crate::config::{BackendKind, CacheConfig, Config, ConfigError, CsrSquash};
 
 #[test]
 fn default_config_validates() {
@@ -55,4 +55,24 @@ fn an_omitted_cache_resource_count_takes_its_default() {
         (cache.mshr_count.get(), cache.write_buffers.get(), cache.targets_per_mshr.get()),
         (8, 8, 20)
     );
+}
+
+#[test]
+fn an_inorder_core_that_never_squashes_after_a_csr_is_rejected() {
+    let mut config = Config::default();
+    config.pipeline.backend = BackendKind::InOrder;
+    config.pipeline.csr_squash = Some(CsrSquash::Never);
+
+    let err = config.validate().unwrap_err();
+
+    assert!(matches!(err, ConfigError::InOrderNeverSquashes), "{err}");
+}
+
+#[test]
+fn an_out_of_order_core_may_never_squash_after_a_csr() {
+    let mut config = Config::default();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    config.pipeline.csr_squash = Some(CsrSquash::Never);
+
+    assert!(config.validate().is_ok());
 }

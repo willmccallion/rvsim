@@ -137,30 +137,25 @@ fn execute_system(
     Some(match system_effect(state, &id.inst) {
         SystemEffect::NotSystem => return None,
         SystemEffect::Trap(trap) => faulted(state, id, trap),
-        // FENCE.I's I-cache flush waits for commit, so older stores are
-        // visible before the refill.
-        SystemEffect::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id))),
+        // FENCE.I, MRET, SRET and WFI take effect at commit, which squashes
+        // and refetches what follows them, as Rocket's WB does.
+        SystemEffect::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), None),
         // The TLB flush waits for commit, after the store buffer drains.
         SystemEffect::SfenceVma(sfence_vma) => {
             let result = ExMem1Entry {
                 sfence_vma: Some(sfence_vma),
                 ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
             };
-            (result, Some(refetch_after(id)))
+            (result, None)
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
         SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
-        // The refetch is the core's flush after a CSR access, taken as
-        // Rocket takes it when the instruction reaches MEM.
-        SystemEffect::Csr(access) => {
-            let written = access.update.as_ref().map(|update| update.addr.as_u32());
-            if let Some(update) = access.update {
-                rob.set_csr_update(id.rob_tag, update.into());
-            }
-            let refetch =
-                state.config.pipeline.csr_squash().squashes(written).then(|| refetch_after(id));
-            (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), refetch)
+        // The access is performed at the head of the ROB, as Rocket's is in
+        // WB, so it reads what every older instruction wrote.
+        SystemEffect::Csr(request) => {
+            rob.defer_csr(id.rob_tag, request);
+            (ExMem1Entry::from_issue(id, 0, id.inst.rv2), None)
         }
     })
 }

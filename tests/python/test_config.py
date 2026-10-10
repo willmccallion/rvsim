@@ -101,6 +101,11 @@ class Validation(unittest.TestCase):
     def test_a_power_of_two_vlen_in_range_is_accepted(self):
         Simulator(Config(vlen=256))
 
+    def test_never_squashing_after_a_csr_needs_the_out_of_order_backend(self):
+        with self.assertRaisesRegex(ValueError, "csr_squash"):
+            Config(backend=Backend.InOrder(), csr_squash="Never")
+        Config(backend=Backend.OutOfOrder(), csr_squash="Never")
+
     def test_a_cache_with_zero_of_a_resource_is_refused(self):
         for field in ("mshr_count", "write_buffers", "targets_per_mshr"):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):

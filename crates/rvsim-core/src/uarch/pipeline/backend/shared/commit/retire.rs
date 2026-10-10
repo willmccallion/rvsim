@@ -3,8 +3,8 @@
 //! releases.
 
 use crate::arch::reservation::LrScRecord;
-use crate::config::BackendKind;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
+use crate::exec::execute::perform_csr_access;
 use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
@@ -65,6 +65,15 @@ fn log_retired(state: &mut CoreCtx<'_>, retired: &Retired) {
     if let Some(log) = state.commit_log.as_mut() {
         let _ = retired.write(log, csr_value, fflags);
     }
+}
+
+/// Performs the CSR access the in-order backend deferred to the head of
+/// the ROB, where every older instruction has retired, as Rocket's WB does.
+pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry) {
+    let Some(request) = entry.csr_request.take() else { return };
+    let access = perform_csr_access(&state.stage(), &request);
+    entry.result = Some(access.old);
+    entry.csr_update = access.update.map(Into::into);
 }
 
 /// Applies `entry`'s architectural effects and releases what it held.
@@ -259,15 +268,14 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         );
         // SATP redirect: post-execute fetches used old tables; refetch from
         // the next instruction. The core's own flush after a CSR access
-        // happens here on the out-of-order backend, as BOOM's does when the
-        // access commits; the in-order backend refetched at execute.
+        // happens here too: Rocket's from WB, BOOM's when the access commits.
         let squash = csr_update.addr == csr::SATP
-            || squashes_after_csr_at_commit(state, Some(csr_update.addr.as_u32()));
+            || squashes_after_csr(state, Some(csr_update.addr.as_u32()));
         let redirect = squash
             .then(|| CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
         return CommitFlow::Stop(redirect);
     }
-    if entry.ctrl.system_op == SystemOp::Csr && squashes_after_csr_at_commit(state, None) {
+    if entry.ctrl.system_op == SystemOp::Csr && squashes_after_csr(state, None) {
         return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
             entry.pc.wrapping_add(entry.inst_size.as_u64()),
         )));
@@ -348,11 +356,10 @@ fn release_memory_resources(
     }
 }
 
-/// Whether the out-of-order backend squashes after a CSR access that wrote
-/// `written` when it commits; the in-order backend refetched at execute.
-fn squashes_after_csr_at_commit(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
-    state.config.pipeline.backend == BackendKind::OutOfOrder
-        && state.config.pipeline.csr_squash().squashes(written)
+/// Whether the core squashes after a CSR access that wrote `written` when
+/// it commits.
+fn squashes_after_csr(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
+    state.config.pipeline.csr_squash().squashes(written)
 }
 
 /// Applies a FENCE.I or SFENCE.VMA, whose older stores have all been
