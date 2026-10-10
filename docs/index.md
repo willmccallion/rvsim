@@ -36,6 +36,11 @@ difference between them is a difference in timing alone.
     bound by memory or vector code are still 10 to 60% apart, partly from
     gaps in rvsim's memory and vector models and partly from places where
     gem5 differs from hardware (see [Error against gem5](error.md)).
+    Against Chipyard's Rocket and BOOM, run as their RTL, the `rocket()`
+    and `boom()` presets are 17% and 19% off on average, with each
+    remaining difference listed against the issue that names its
+    mechanism (see [Error against Rocket](rtl-rocket.md) and
+    [Error against BOOM](rtl-boom.md)).
     Against hardware, the `p550()` and `cortex_a72()` presets reproduce
     their published cache and memory latencies, and the A72 preset runs
     CoreMark within 6% of a Raspberry Pi 4 (see
