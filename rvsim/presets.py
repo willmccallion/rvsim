@@ -601,9 +601,13 @@ def rocket() -> Config:
     - 32-entry fully associative L1 TLBs and a 512-entry direct-mapped L2
       TLB (``nTLBWays``, ``nL2TLBEntries``); misaligned accesses trap.
     - 512 KiB 8-way inclusive L2 (``WithInclusiveCache`` defaults).
-    - Measured: the handler's first instruction retires 6 cycles after the
-      instruction before a trapping ECALL, the instruction after an MRET 5
-      cycles after it, and the one after a FENCE.I 21 cycles after it.
+    - CSR accesses, exceptions, xRETs and the flush after a CSR write act in
+      WB and redirect fetch the same cycle (``csr.io.rw`` and ``take_pc_wb``
+      in ``rocket/RocketCore.scala``): no trap latency. Measured: the
+      handler's first instruction retires 6 cycles after the instruction
+      before a trapping ECALL, the instruction after an MRET 5 cycles after
+      it, the one after a flushed CSR write 5, and the one after a FENCE.I
+      21; a CSR read's dependent retires 3 cycles after it.
     """
     return Config(
         width=1,
@@ -627,7 +631,7 @@ def rocket() -> Config:
         btb_ways=28,
         ras_size=6,
         redirect_latency=0,
-        trap_latency=1,
+        trap_latency=0,
         decode_rename_latency=0,
         rename_issue_latency=1,
         csr_squash="AffectingWrites",

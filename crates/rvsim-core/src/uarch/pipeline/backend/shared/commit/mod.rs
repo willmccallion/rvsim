@@ -189,7 +189,8 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             event = stop;
             break;
         }
-        let Some(entry) = rob.commit_head() else { break };
+        let Some(mut entry) = rob.commit_head() else { break };
+        retire::perform_deferred_csr(state, &mut entry);
         retired_count += 1;
         youngest_retired = Some(entry.seq);
         let mut targets =

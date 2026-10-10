@@ -117,16 +117,12 @@ impl InOrderIssueUnit {
                 continue;
             }
 
-            // A system instruction reads or writes architectural state, so
-            // it executes only as the oldest instruction; FENCE and the CBOs
-            // have their own checks below. A vector instruction reads the
-            // architectural vector registers, so it waits for the head too,
-            // and so does an atomic that takes effect in the cache.
+            // A vector instruction reads the architectural vector registers,
+            // so it executes only as the oldest instruction, and so does an
+            // atomic that takes effect in the cache. A system instruction
+            // flows: its effect waits for commit.
             let waits_for_head = (entry.inst.ctrl.vec_op != VectorOp::None
                 && !entry.inst.ctrl.vec_op.is_config())
-                || (entry.inst.ctrl.system_op != SystemOp::None
-                    && entry.inst.ctrl.system_op != SystemOp::Fence
-                    && !entry.inst.ctrl.system_op.is_cbo())
                 || entry.inst.ctrl.performs_at_rob_head();
             if waits_for_head && !head.is(entry.rob_tag) {
                 held = Some(IssueHold::Ordering);

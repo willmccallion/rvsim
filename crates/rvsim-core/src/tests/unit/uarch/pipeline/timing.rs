@@ -480,22 +480,43 @@ fn config_with_csr_squash(backend: BackendKind, policy: CsrSquash) -> Config {
     config
 }
 
-/// Cycles `inst` and the marker take under each CSR squash policy.
-fn cycles_under(backend: BackendKind, inst: u32) -> (u64, u64, u64) {
-    let under = |policy| {
-        cycles_to_finish(&config_with_csr_squash(backend, policy), &system_then_done(inst))
-    };
-    (under(CsrSquash::EveryAccess), under(CsrSquash::AffectingWrites), under(CsrSquash::Never))
+/// Cycles `inst` and the marker take under `policy`.
+fn cycles_under(backend: BackendKind, policy: CsrSquash, inst: u32) -> u64 {
+    cycles_to_finish(&config_with_csr_squash(backend, policy), &system_then_done(inst))
+}
+
+/// Cycles `inst` and the marker take when nothing squashes after it: under
+/// `Never` on the out-of-order backend; on the in-order one, which has no
+/// `Never`, the cycles of an ALU instruction, which a system instruction
+/// that does not squash flows through the pipeline like.
+fn cycles_unsquashed(backend: BackendKind, inst: u32) -> u64 {
+    match backend {
+        BackendKind::InOrder => {
+            let addi = InstructionBuilder::new().addi(3, 0, 1).build();
+            cycles_to_finish(&config(backend, 3), &system_then_done(addi))
+        }
+        BackendKind::OutOfOrder => cycles_under(backend, CsrSquash::Never, inst),
+    }
+}
+
+/// `(every, affecting, unsquashed)`: `inst`'s cycles under `EveryAccess`,
+/// under `AffectingWrites`, and with no squash.
+fn cycles_by_policy(backend: BackendKind, inst: u32) -> (u64, u64, u64) {
+    (
+        cycles_under(backend, CsrSquash::EveryAccess, inst),
+        cycles_under(backend, CsrSquash::AffectingWrites, inst),
+        cycles_unsquashed(backend, inst),
+    )
 }
 
 #[test]
 fn a_csr_read_squashes_only_when_every_access_squashes() {
     let csrr_mscratch = InstructionBuilder::new().csrrs(3, MSCRATCH, 0).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let (every, affecting, never) = cycles_under(backend, csrr_mscratch);
+        let (every, affecting, unsquashed) = cycles_by_policy(backend, csrr_mscratch);
 
-        assert!(every > never, "{backend:?}: every access {every}, never {never}");
-        assert_eq!(affecting, never, "{backend:?}: a read does not steer execution");
+        assert!(every > unsquashed, "{backend:?}: every access {every}, unsquashed {unsquashed}");
+        assert_eq!(affecting, unsquashed, "{backend:?}: a read does not steer execution");
     }
 }
 
@@ -503,22 +524,81 @@ fn a_csr_read_squashes_only_when_every_access_squashes() {
 fn a_scratch_csr_write_squashes_only_when_every_access_squashes() {
     let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let (every, affecting, never) = cycles_under(backend, csrw_mscratch);
+        let (every, affecting, unsquashed) = cycles_by_policy(backend, csrw_mscratch);
 
-        assert!(every > never, "{backend:?}: every access {every}, never {never}");
-        assert_eq!(affecting, never, "{backend:?}: Rocket exempts mscratch from its flush");
+        assert!(every > unsquashed, "{backend:?}: every access {every}, unsquashed {unsquashed}");
+        assert_eq!(affecting, unsquashed, "{backend:?}: Rocket exempts mscratch from its flush");
     }
 }
 
 #[test]
-fn a_write_to_a_csr_that_steers_execution_squashes_unless_never() {
+fn a_write_to_a_csr_that_steers_execution_squashes_under_both_policies() {
     let csrw_mtvec = InstructionBuilder::new().csrrw(0, MTVEC, 1).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let (every, affecting, never) = cycles_under(backend, csrw_mtvec);
+        let (every, affecting, unsquashed) = cycles_by_policy(backend, csrw_mtvec);
 
         assert_eq!(every, affecting, "{backend:?}: an mtvec write flushes under both");
-        assert!(affecting > never, "{backend:?}: affecting {affecting}, never {never}");
+        assert!(
+            affecting > unsquashed,
+            "{backend:?}: affecting {affecting}, unsquashed {unsquashed}"
+        );
     }
+}
+
+/// The squash after a CSR access is taken when the access commits on both
+/// backends, so a write that steers execution costs what any squashing
+/// access costs.
+#[test]
+fn a_csr_squash_is_taken_from_commit() {
+    let csrw_mtvec = InstructionBuilder::new().csrrw(0, MTVEC, 1).build();
+    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let steering = cycles_under(backend, CsrSquash::AffectingWrites, csrw_mtvec);
+        let every = cycles_under(backend, CsrSquash::EveryAccess, csrw_mscratch);
+
+        assert_eq!(steering, every, "{backend:?}");
+    }
+}
+
+/// `first`, `second`, then the done marker.
+fn pair_then_done(first: u32, second: u32) -> Vec<u32> {
+    let mut program = vec![first, second];
+    program.extend(done_marker());
+    program
+}
+
+/// The in-order backend issues a system instruction behind a unit's long
+/// operation without waiting for the operation to retire: the instruction
+/// takes effect when it retires, in order, like any other.
+#[test]
+fn an_inorder_system_instruction_does_not_wait_to_be_the_oldest() {
+    let mul = InstructionBuilder::new().mul(4, 1, 2).build();
+    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
+    let addi = InstructionBuilder::new().addi(3, 0, 1).build();
+    let mut config = config_with_csr_squash(BackendKind::InOrder, CsrSquash::AffectingWrites);
+    config.pipeline.fu_config.int_mul_latency = 20;
+
+    let behind_csr = cycles_to_finish(&config, &pair_then_done(mul, csrw_mscratch));
+    let behind_alu = cycles_to_finish(&config, &pair_then_done(mul, addi));
+
+    assert_eq!(behind_csr, behind_alu);
+}
+
+/// A CSR read's value exists when it retires, so its dependent issues the
+/// cycle after, while a unit's result is forwarded the cycle it is
+/// produced: the difference is the stages from execute to commit
+/// (memory1, memory2, writeback, commit).
+#[test]
+fn an_inorder_csr_read_reaches_its_dependent_when_it_retires() {
+    let csrr_mscratch = InstructionBuilder::new().csrrs(3, MSCRATCH, 0).build();
+    let dependent = InstructionBuilder::new().addi(4, 3, 1).build();
+    let independent = InstructionBuilder::new().addi(4, 5, 1).build();
+    let config = config_with_csr_squash(BackendKind::InOrder, CsrSquash::AffectingWrites);
+
+    let chained = cycles_to_finish(&config, &pair_then_done(csrr_mscratch, dependent));
+    let apart = cycles_to_finish(&config, &pair_then_done(csrr_mscratch, independent));
+
+    assert_eq!(chained - apart, 4);
 }
 
 #[test]

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The in-order backend no longer holds a system instruction in issue until
+  it is the oldest. A CSR access, ECALL, MRET, WFI, FENCE.I and SFENCE.VMA
+  issue in order and take effect when they retire: the CSR is read and
+  written at the head of the ROB, where every older write has been
+  applied, as Rocket's WB does and as gem5's MinorCPU executes at commit,
+  and the squash a CSR access, fence or MRET causes is taken from commit
+  rather than from execute (#216). A CSR read's dependent now waits for
+  the read to retire. `csr_squash="Never"` needs the out-of-order
+  backend's rename hold and is rejected on the in-order one.
 - `fetch_decode_latency`, `decode_rename_latency` and `rename_issue_latency`
   set the front end's depth, which was fixed; the defaults keep it. A
   mispredict, a trap and an MRET cost what the configured depth implies,

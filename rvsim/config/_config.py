@@ -161,6 +161,11 @@ class Config:
         self.backend = (
             copy.deepcopy(backend) if backend is not None else Backend.InOrder()
         )
+        if csr_squash == "Never" and isinstance(self.backend, Backend.InOrder):
+            raise ValueError(
+                "csr_squash 'Never' needs the out-of-order backend's rename hold; "
+                "use 'EveryAccess' or 'AffectingWrites'"
+            )
         self.mem_dep_predictor = copy.deepcopy(mem_dep_predictor)
         self.btb_size = btb_size
         self.btb_ways = btb_ways

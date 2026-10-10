@@ -52,13 +52,17 @@ fn a_mispredicted_branch_flushes_once_under_branch(rec: &mut Recorder) {
 }
 
 fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
-    for (backend, system_flushes) in [
+    // The loop branch is taken twice, and resolves taken on the wrong path
+    // behind an ecall before the ecall traps: behind the first two on the
+    // out-of-order backend; on the in-order one, where the ecall no longer
+    // waits to be the oldest, the wrong path runs far enough for one more.
+    for (backend, system_flushes, wrong_path_branches) in [
         // Six CSR accesses in the handlers and the mtvec write refetch what
-        // follows them; each mret flushes at execute and again at commit.
-        (BackendKind::InOrder, 6 + 1 + 3 * 2),
+        // follows them when they commit, and so does each mret.
+        (BackendKind::InOrder, 6 + 1 + 3, 3),
         // CSR accesses serialize rename instead; each mret commits before
         // its execute-stage redirect is due, so only commit's flush is taken.
-        (BackendKind::OutOfOrder, 3),
+        (BackendKind::OutOfOrder, 3, 2),
     ] {
         let context = format!("{backend:?}");
         let (program, handler) = three_handled_ecalls();
@@ -69,9 +73,7 @@ fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
         let [branch, system, memory, coherence, trap] = flushes_by_cause(rec, &ctx.sim, &context);
         assert_eq!(trap, 3 + 1, "{context}: three ecalls and the exit");
         assert_eq!(system, system_flushes, "{context}");
-        // The loop branch is taken twice, and resolves taken twice more on
-        // the wrong path behind the first two ecalls before they trap.
-        assert_eq!((branch, memory, coherence), (2 + 2, 0, 0), "{context}");
+        assert_eq!((branch, memory, coherence), (2 + wrong_path_branches, 0, 0), "{context}");
     }
 }
 
@@ -212,13 +214,19 @@ fn run(config: &Config, (program, end): (Vec<u32>, u64), context: &str) -> TestC
     ctx
 }
 
-fn a_system_op_waits_to_be_oldest_under_ordering(rec: &mut Recorder) {
-    let csr_read = InstructionBuilder::new().csrrs(T2, MHARTID, 0).build();
-    for backend in BACKENDS {
+/// The out-of-order backend holds a system instruction until it is the
+/// oldest; the in-order backend performs one at commit instead, and holds
+/// an atomic, which takes effect in the cache.
+fn an_instruction_that_must_be_oldest_waits_under_ordering(rec: &mut Recorder) {
+    let i = InstructionBuilder::new;
+    for (backend, waits) in [
+        (BackendKind::InOrder, i().amoadd_d(T2, A1, T0).build()),
+        (BackendKind::OutOfOrder, i().csrrs(T2, MHARTID, 0).build()),
+    ] {
         let context = format!("{backend:?}");
         let config = config(backend);
 
-        let waiting = run(&config, behind_a_divide(&[csr_read]), &context);
+        let waiting = run(&config, behind_a_divide(&[waits]), &context);
         let straight = run(&config, straight_line(), &context);
 
         let held = rec.read(&waiting.sim, "core0.pipeline.stalls.ordering");
@@ -458,7 +466,7 @@ accounting_checks!(
     every_flush_counts_the_rob_entries_it_dropped,
     a_dependent_divide_chain_stalls_issue_on_data_and_independent_ops_do_not,
     independent_divides_stall_on_the_one_divider_not_on_data,
-    a_system_op_waits_to_be_oldest_under_ordering,
+    an_instruction_that_must_be_oldest_waits_under_ordering,
     rename_waits_behind_a_csr_access_on_out_of_order_only,
     branches_wait_for_a_checkpoint_only_when_they_run_out,
     rename_waits_for_a_full_rob_under_dispatch,
