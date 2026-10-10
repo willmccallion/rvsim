@@ -389,12 +389,15 @@ fn o3_a_load_does_not_wait_for_an_older_stores_data() {
     assert_eq!(with_store, without);
 }
 
+/// Address generation, then the L1D; the value is bypassed from memory2
+/// into the dependent's issue, as Rocket bypasses its D-cache response
+/// from MEM into the next instruction's EX (`RocketCore.scala`).
 #[test]
-fn inorder_dependent_load_waits_the_l1d_latency_plus_two_cycles() {
+fn inorder_dependent_load_waits_the_l1d_latency_plus_one_cycle() {
     for l1d_latency in [1, 4] {
         assert_eq!(
             load_to_use(BackendKind::InOrder, l1d_latency),
-            l1d_latency + 2,
+            l1d_latency + 1,
             "l1d latency {l1d_latency}"
         );
     }

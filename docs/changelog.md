@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The in-order backend forwards a load's value to a dependent the cycle
+  memory2 delivers it, as it already did a unit's result and as Rocket
+  bypasses its D-cache response into the next instruction's execute, so a
+  dependent load costs the L1D latency plus one cycle rather than two
+  (#210). Every in-order cycle count moves.
 - Each commit-log line ends its header with `cycle <n>`: the cycle the
   instruction retired in, or the cycle a trap was taken in, so the log
   doubles as a retire trace that lines up against an RTL core's (#177).

@@ -54,6 +54,19 @@ struct PendingResult {
 
 /// The value a non-memory result forwards: the link address for a jump,
 /// otherwise the ALU output.
+/// Forwards each scalar load's value the cycle it is known, at memory2 or
+/// when a store forwards it, so a dependent issues then rather than after
+/// writeback, as Rocket bypasses its D-cache response into the next
+/// instruction's execute.
+fn forward_loads(rob: &mut Rob, delivered: &[Mem2WbEntry]) {
+    for wb in delivered {
+        let scalar_load = wb.ctrl.mem_read || wb.ctrl.atomic_op.is_some();
+        if scalar_load && wb.trap.is_none() && wb.vec_mem.is_none() {
+            rob.forward(wb.rob_tag, wb.load_data);
+        }
+    }
+}
+
 const fn forwarded_value(entry: &ExMem1Entry) -> u64 {
     if matches!(entry.ctrl.control_flow, ControlFlow::Jump) {
         entry.pc.wrapping_add(entry.inst_size.as_u64())
@@ -398,6 +411,7 @@ impl ExecutionEngine for InOrderEngine {
             None,
             Some(&mut self.vec_store_buffer),
         );
+        forward_loads(&mut self.rob, &self.mem2_wb);
 
         // Memory1 consumes execute_mem1, emits MemReq packets for misses,
         // and parks parked loads into self.common.outstanding_loads. SB
@@ -408,7 +422,9 @@ impl ExecutionEngine for InOrderEngine {
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
         // A load forwarded at zero latency skips memory2 and writes back next cycle.
-        self.mem2_wb.append(&mut self.common.forwarded_results);
+        let mut forwarded = std::mem::take(&mut self.common.forwarded_results);
+        forward_loads(&mut self.rob, &forwarded);
+        self.mem2_wb.append(&mut forwarded);
         for span in resolved.expanded_spans {
             let _ = expand_span(&span, &mut self.vec_mem_inflight);
         }

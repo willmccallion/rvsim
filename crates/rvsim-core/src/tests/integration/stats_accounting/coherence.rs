@@ -376,20 +376,20 @@ fn lr_sc_increments_on_a_held_line(rounds: i32) -> Vec<u32> {
     ]
 }
 
-/// `rounds` times: store to the shared word, a multiply chain apart, so
-/// some store lands while the other hart's LR waits to retire.
-fn paced_stores_to_the_shared_word(rounds: i32) -> Vec<u32> {
+/// `rounds` times: store to the shared word, a chain of `muls` multiplies
+/// apart. The two harts pace each other through the line's coherence
+/// traffic, so whether a store lands while the other hart's LR waits to
+/// retire depends on the chain's length; the test tries several.
+fn paced_stores_to_the_shared_word(rounds: i32, muls: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![
-        i().addi(T1, 0, rounds).build(),
-        i().mul(T3, T1, T1).build(),
-        i().mul(T3, T3, T1).build(),
-        i().mul(T3, T3, T1).build(),
-        i().mul(T3, T3, T1).build(),
-        i().sd(T2, T3, 0).build(),
-        i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -24).build(),
-    ]
+    let mut program = vec![i().addi(T1, 0, rounds).build(), i().mul(T3, T1, T1).build()];
+    for _ in 1..muls {
+        program.push(i().mul(T3, T3, T1).build());
+    }
+    program.push(i().sd(T2, T3, 0).build());
+    program.push(i().addi(T1, T1, -1).build());
+    program.push(i().bne(T1, 0, -4 * (muls + 2)).build());
+    program
 }
 
 /// The line `racing_loads` reads and `racing_stores` writes.
@@ -440,13 +440,19 @@ fn coherence_squashes(
 fn remote_writes_replay_lrs_and_squash_loads_that_read_too_early(rec: &mut Recorder) {
     for backend in BACKENDS {
         let context = format!("{backend:?}");
-        // Hart 1 writes the word throughout hart 0's LR/SC loop, so some
-        // write lands while an LR waits behind its divide to retire.
-        let lrs =
-            per_hart(&lr_sc_increments_on_a_held_line(60), &paced_stores_to_the_shared_word(600));
+        // Hart 1 writes the word throughout hart 0's LR/SC loop, so at some
+        // pacing a write lands while an LR waits behind its divide to retire.
+        let replays: u64 = (1..=6)
+            .map(|muls| {
+                let lrs = per_hart(
+                    &lr_sc_increments_on_a_held_line(60),
+                    &paced_stores_to_the_shared_word(600, muls),
+                );
+                coherence_squashes(rec, backend, lrs, &format!("{context} LR/SC {muls} muls")).0
+            })
+            .sum();
         let races = per_hart(&racing_loads(200), &racing_stores(200));
 
-        let (replays, _) = coherence_squashes(rec, backend, lrs, &format!("{context} LR/SC"));
         let (_, violations) = coherence_squashes(rec, backend, races, &format!("{context} loads"));
 
         assert!(replays > 0, "{context}: an LR read a line the other hart then wrote");
