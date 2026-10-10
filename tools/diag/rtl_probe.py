@@ -85,6 +85,30 @@ def is_csrr_mscratch(inst: int) -> bool:
     return opcode(inst) == 0x73 and funct3(inst) == 2 and (inst >> 20) == 0x340
 
 
+def is_sd(inst: int) -> bool:
+    """`sd`, as `sd` or as the raw `c.sd` the cores log."""
+    if inst & 0xFFFF == inst:
+        return inst & 0xE003 == 0xE000
+    return opcode(inst) == 0x23 and funct3(inst) == 3
+
+
+def is_ret(inst: int) -> bool:
+    """`ret`, as `jalr x0, 0(ra)` or `c.jr ra`."""
+    return inst == 0x00008067 or inst == 0x8082
+
+
+def is_jalr_call(inst: int) -> bool:
+    """`jalr ra, ...`, as a 32-bit `jalr` or as the raw `c.jalr` Rocket logs."""
+    if inst & 0xFFFF == inst and inst & 0xF07F == 0x9002:
+        return (inst >> 7) & 0x1F != 0
+    return opcode(inst) == 0x67 and rd(inst) == 1
+
+
+def is_csrw_mie(inst: int) -> bool:
+    """`csrw mie, zero`: a write Rocket flushes after."""
+    return inst == 0x30401073
+
+
 def is_fence(inst: int) -> bool:
     return opcode(inst) == 0x0F and funct3(inst) == 0
 
@@ -132,6 +156,18 @@ PROBES = [
     Probe(
         "csr_serialize", "csrr mscratch to next retirement", is_csrr_mscratch, "after"
     ),
+    Probe(
+        "store_stream", "last retirement before an sd to a new line", is_sd, "before"
+    ),
+    Probe("indirect_calls", "jalr call to next retirement", is_jalr_call, "after"),
+    Probe("indirect_calls", "ret to next retirement", is_ret, "after"),
+    Probe("csr_flush", "csrw mie to next retirement", is_csrw_mie, "after"),
+    Probe(
+        "csr_dependent",
+        "csrr mscratch to its dependent's retirement",
+        is_csrr_mscratch,
+        "after",
+    ),
     Probe("fence", "fence to next retirement", is_fence, "after"),
     Probe("fence_i", "fence.i to next retirement", is_fence_i, "after"),
     Probe(
@@ -139,6 +175,7 @@ PROBES = [
     ),
     Probe("trap_return", "mret to next retirement", is_mret, "after"),
     Probe("br_random", "branch to next retirement", is_branch, "after"),
+    Probe("branch_taken", "taken branch to next retirement", is_branch, "after"),
 ]
 
 
