@@ -206,6 +206,9 @@ pub struct Cache {
     /// Maintenance operations waiting for a fetch of their line to fill.
     after_fill: Vec<BlockedRequest>,
     pending_probes: Vec<PendingProbe>,
+    /// How many times every line has been dropped at once (FENCE.I), so a
+    /// copy of a line held outside the cache knows it is stale.
+    invalidations: u64,
     /// Instruction fetches waiting for the caches above to answer the
     /// probes for their line, keyed by the probes' correlator.
     fetches_awaiting_probes: Vec<(ReqId, BlockedRequest)>,
@@ -306,6 +309,7 @@ impl Cache {
             forwarded: Vec::new(),
             after_fill: Vec::new(),
             pending_probes: Vec::new(),
+            invalidations: 0,
             fetches_awaiting_probes: Vec::new(),
             flush: None,
             filled_since_flush: false,
@@ -482,6 +486,13 @@ impl Cache {
         for index in 0..self.lines.len() {
             self.drop_line(index, stats);
         }
+        self.invalidations += 1;
+    }
+
+    /// How many times every line has been dropped at once.
+    #[must_use]
+    pub const fn invalidations(&self) -> u64 {
+        self.invalidations
     }
 
     /// Invalidates the line at `index`, counting a prefetched line that

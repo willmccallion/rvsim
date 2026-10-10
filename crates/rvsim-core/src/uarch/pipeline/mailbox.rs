@@ -67,6 +67,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         pipeline.engine.common_mut(),
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,
+        state.core().l1_i_cache.invalidations(),
     );
 }
 
