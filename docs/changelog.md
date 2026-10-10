@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `make rtl-build` builds Chipyard 1.14.0's Rocket and Medium BOOM V4 as
+  Verilator simulators and `make rtl-compare RTL_CORE=rocket|boom` lines
+  rvsim's retire timing up with theirs instruction by instruction;
+  `tools/diag/rtl_probe.py` measures one mechanism at a time on either.
+  [Error against Rocket](rtl-rocket.md) and [Error against BOOM](rtl-boom.md)
+  record the results and what each remaining difference is (#177).
 - `BranchPredictor.Bht` is Rocket's branch history table: a table of one-
   or two-bit counters indexed by the fetch PC with a hash of the global
   history placed above the PC bits, advanced, rebuilt and reset as

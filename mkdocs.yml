@@ -110,6 +110,8 @@ nav:
       - 13. Split stores: architecture/decisions/0013-stores-issue-address-and-data-separately.md
       - 14. Prefetchers: architecture/decisions/0014-prefetchers-follow-published-hardware.md
   - Error against gem5: error.md
+  - Error against Rocket: rtl-rocket.md
+  - Error against BOOM: rtl-boom.md
   - Examples:
     - Analysis Scripts: examples/analysis-scripts.md
     - Linux Boot: examples/linux-boot.md
