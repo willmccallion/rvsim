@@ -8,7 +8,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 import os
 import unittest
 
-from rvsim import Simulator, presets
+from rvsim import Prefetcher, Simulator, presets
 
 CYCLES = 300_000
 
@@ -25,17 +25,33 @@ def prefetch_counts(stats):
     return caches
 
 
+def prefetches(config):
+    """Whether any of `config`'s caches or its core prefetches at all; the
+    Rocket and BOOM presets do not, as their RTL does not."""
+    caches = [config.l1i, config.l1d, config.l2, config.l3]
+    return (
+        any(
+            c is not None and not isinstance(c.prefetcher, Prefetcher.Off)
+            for c in caches
+        )
+        or config.load_prefetcher is not None
+        or config.store_prefetcher is not None
+    )
+
+
 @unittest.skipUnless(os.path.exists(QSORT), "qsort.elf not built")
 class PrefetchAccounting(unittest.TestCase):
     def test_no_cache_resolves_more_prefetches_than_it_issued(self):
         for name, preset in presets.PRESETS.items():
-            sim = Simulator(preset().replace(uart_quiet=True), binary=QSORT)
+            config = preset().replace(uart_quiet=True)
+            sim = Simulator(config, binary=QSORT)
             sim.run(limit=CYCLES, stats_sections=None)
 
             caches = prefetch_counts(sim.stats)
 
             issued = sum(counts["issued"] for counts in caches.values())
-            self.assertGreater(issued, 0, name)
+            if prefetches(config):
+                self.assertGreater(issued, 0, name)
             for cache, counts in caches.items():
                 with self.subTest(preset=name, cache=cache):
                     resolved = counts["late"] + counts["useful"] + counts["unused"]
