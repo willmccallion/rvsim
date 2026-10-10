@@ -142,12 +142,26 @@ impl Simulator {
     ///
     /// Returns [`SimError::NotAnElf`] when `data` is not an ELF image.
     pub fn load_elf(&mut self, data: &[u8]) -> Result<(), SimError> {
+        self.load_elf_with_args(data, &ProcessArgs::default())
+    }
+
+    /// [`Self::load_elf`], with `args` for the HTIF device to answer
+    /// `getmainvars` with.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::NotAnElf`] when `data` is not an ELF image.
+    pub fn load_elf_with_args(&mut self, data: &[u8], args: &ProcessArgs) -> Result<(), SimError> {
         let loaded =
             loader::try_load_elf(data, &mut self.state.memory).ok_or(SimError::NotAnElf)?;
         self.set_pc(0, loaded.entry);
         if let Some(tohost) = loaded.tohost_addr {
+            if loaded.fromhost_addr.is_some_and(|fromhost| fromhost != tohost + 8) {
+                tracing::warn!(target: "rvsim::htif", tohost, fromhost = ?loaded.fromhost_addr,
+                    "fromhost is not the word after tohost; HTIF syscalls will not complete");
+            }
             let exit_signal = Arc::clone(&self.state.exit_signal);
-            self.state.uncore.add_htif(tohost, &exit_signal);
+            self.state.uncore.add_htif(tohost, &exit_signal, args.argv.clone());
             self.state.direct_mode = false;
             self.state.harts[0].privilege = PrivilegeMode::Machine;
         }
@@ -187,7 +201,7 @@ impl Simulator {
         let kind = ProgramKind::of(data, self.state.config.system.ram_base)?;
         match kind {
             ProgramKind::Process => self.load_process(data, args)?,
-            ProgramKind::BareMetal => self.load_elf(data)?,
+            ProgramKind::BareMetal => self.load_elf_with_args(data, args)?,
         }
         Ok(kind)
     }

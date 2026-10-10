@@ -167,6 +167,8 @@ pub(crate) struct ElfLoadResult {
     pub entry: u64,
     /// Address of the `tohost` symbol, if present.
     pub tohost_addr: Option<u64>,
+    /// Address of the `fromhost` symbol, if present.
+    pub fromhost_addr: Option<u64>,
 }
 
 /// Attempts to load an ELF file into `memory`.
@@ -204,9 +206,11 @@ pub(crate) fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<Elf
         }
     }
 
-    let tohost_addr = file.symbols().find(|s| s.name() == Ok("tohost")).map(|s| s.address());
+    let symbol = |name: &str| file.symbols().find(|s| s.name() == Ok(name)).map(|s| s.address());
+    let tohost_addr = symbol("tohost");
+    let fromhost_addr = symbol("fromhost");
 
-    Some(ElfLoadResult { entry, tohost_addr })
+    Some(ElfLoadResult { entry, tohost_addr, fromhost_addr })
 }
 
 #[cfg(test)]

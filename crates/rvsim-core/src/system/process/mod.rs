@@ -6,7 +6,7 @@
 //! files, clock and memory, as gem5's SE mode does. Syscalls cost the
 //! pipeline a flush and nothing else; there is no kernel to charge for.
 
-mod files;
+pub(crate) mod files;
 pub mod loader;
 mod page_table;
 pub(crate) mod syscall;

@@ -176,7 +176,9 @@ impl PySimulator {
             let loaded = match mode.as_str() {
                 "" => sim.load_program(&data, &process_args),
                 "se" => sim.load_process(&data, &process_args).map(|()| ProgramKind::Process),
-                "bare" => sim.load_elf(&data).map(|()| ProgramKind::BareMetal),
+                "bare" => {
+                    sim.load_elf_with_args(&data, &process_args).map(|()| ProgramKind::BareMetal)
+                }
                 other => {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "mode must be 'se' or 'bare', not {other:?}"

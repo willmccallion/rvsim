@@ -1,5 +1,37 @@
 #include "stdio.h"
 
+#ifdef RVSIM_IO_HTIF
+#include "htif.h"
+
+/* Output goes to the host through HTIF write syscalls, a line at a time. */
+static char out_buf[256];
+static unsigned out_len;
+
+void stdio_flush(void) {
+  if (out_len) {
+    htif_syscall(HTIF_SYS_WRITE, 1, (uint64_t)(uintptr_t)out_buf, out_len);
+    out_len = 0;
+  }
+}
+
+void putchar(char c) {
+  out_buf[out_len++] = c;
+  if (c == '\n' || out_len == sizeof out_buf) {
+    stdio_flush();
+  }
+}
+
+char getchar(void) {
+  char c;
+  stdio_flush();
+  if (htif_syscall(HTIF_SYS_READ, 0, (uint64_t)(uintptr_t)&c, 1) != 1) {
+    return 0;
+  }
+  return c;
+}
+#else
+void stdio_flush(void) {}
+
 // Low-level Output
 void putchar(char c) {
   *(volatile unsigned char *)UART_BASE = (unsigned char)c;
@@ -15,6 +47,7 @@ char getchar(void) {
   // Read from RBR (Receiver Buffer Register) at offset 0
   return *(volatile char *)UART_BASE;
 }
+#endif
 
 void puts(const char *s) {
   while (*s) {

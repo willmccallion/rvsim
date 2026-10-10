@@ -216,8 +216,8 @@ impl Uncore {
     /// Registers an HTIF device at the given tohost address. `exit_signal`
     /// is cloned into the device so HTIF tohost writes propagate up to the
     /// harness.
-    pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &Arc<AtomicU64>) {
-        let htif = Htif::new(tohost_addr, exit_signal.clone());
+    pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &Arc<AtomicU64>, args: Vec<String>) {
+        let htif = Htif::new(tohost_addr, exit_signal.clone(), args);
         self.bus.add_device(Box::new(htif));
     }
 
