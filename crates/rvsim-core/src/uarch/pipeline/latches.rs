@@ -7,6 +7,8 @@
 //! 2. **Superscalar Support:** Multi-entry latches for wide-issue configurations.
 //! 3. **Trap Propagation:** Carrying architectural exceptions and interrupts through the pipeline.
 
+use std::collections::VecDeque;
+
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
@@ -25,15 +27,23 @@ use crate::uarch::pipeline::rob::RobTag;
 
 /// A pipeline register between two stages.
 ///
-/// It holds one bundle of entries. The producer writes only when the
-/// consumer has emptied it, which is how a stall propagates backwards, and
-/// the bundle becomes visible to the consumer `delay` cycles after it was
-/// written: gem5's `TimeBuffer` with a depth of one bundle.
+/// The producer writes a bundle of entries, which becomes visible to the
+/// consumer `delay` cycles after it was written, and the latch holds one
+/// bundle per cycle of delay in flight, as gem5's `TimeBuffer` does, so a
+/// longer delay costs cycles, not throughput. The consumer empties the
+/// oldest visible bundle, and the producer writes only while the latch has
+/// room, which is how a stall propagates backwards. Bundles written in one
+/// cycle form one bundle.
 #[derive(Clone, Debug)]
 pub struct Latch<T> {
-    entries: Vec<T>,
-    ready_at: u64,
+    bundles: VecDeque<Bundle<T>>,
     delay: u64,
+}
+
+#[derive(Clone, Debug)]
+struct Bundle<T> {
+    ready_at: u64,
+    entries: Vec<T>,
 }
 
 impl<T> Latch<T> {
@@ -41,48 +51,83 @@ impl<T> Latch<T> {
     /// they are written.
     #[must_use]
     pub const fn new(delay: u64) -> Self {
-        Self { entries: Vec::new(), ready_at: 0, delay }
+        Self { bundles: VecDeque::new(), delay }
     }
 
-    /// True when no bundle is held.
+    /// Cycles a bundle takes to become visible.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+    pub const fn delay(&self) -> u64 {
+        self.delay
+    }
+
+    /// True when no entry is held.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.bundles.iter().all(|bundle| bundle.entries.is_empty())
+    }
+
+    /// True when the producer may write this cycle: fewer bundles are in
+    /// flight than the delay (one, for a delay of 0 or 1).
+    #[must_use]
+    pub fn has_room(&self) -> bool {
+        let in_flight = self.bundles.iter().filter(|bundle| !bundle.entries.is_empty()).count();
+        in_flight < usize::try_from(self.delay.max(1)).unwrap_or(usize::MAX)
     }
 
     #[cfg(test)]
     /// Entries held, visible or not.
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.entries.len()
+    pub fn len(&self) -> usize {
+        self.bundles.iter().map(|bundle| bundle.entries.len()).sum()
     }
 
-    /// Adds `entries` to the bundle, visible from `now + delay`.
+    /// Adds `entries`, visible from `now + delay`, to the bundle written
+    /// this cycle or as a new one.
     pub fn push(&mut self, now: u64, entries: impl IntoIterator<Item = T>) {
-        self.entries.extend(entries);
-        self.ready_at = now.saturating_add(self.delay);
+        let ready_at = now.saturating_add(self.delay);
+        match self.bundles.back_mut() {
+            Some(bundle) if bundle.ready_at == ready_at => bundle.entries.extend(entries),
+            _ => {
+                let entries: Vec<T> = entries.into_iter().collect();
+                if !entries.is_empty() {
+                    self.bundles.push_back(Bundle { ready_at, entries });
+                }
+            }
+        }
     }
 
-    /// The bundle, if the consumer may see it at `now`.
+    /// The oldest bundle, if the consumer may see it at `now`.
     #[must_use]
     pub fn ready(&mut self, now: u64) -> Option<&mut Vec<T>> {
-        (!self.entries.is_empty() && self.ready_at <= now).then_some(&mut self.entries)
+        self.drop_consumed();
+        self.bundles
+            .front_mut()
+            .filter(|bundle| bundle.ready_at <= now)
+            .map(|bundle| &mut bundle.entries)
     }
 
-    /// Takes the bundle if the consumer may see it at `now`.
+    /// Takes the oldest bundle if the consumer may see it at `now`.
     pub fn take(&mut self, now: u64) -> Vec<T> {
-        self.ready(now).map(std::mem::take).unwrap_or_default()
+        let taken = self.ready(now).map(std::mem::take).unwrap_or_default();
+        self.drop_consumed();
+        taken
     }
 
-    /// Drops the bundle.
+    /// Drops every bundle.
     pub fn clear(&mut self) {
-        self.entries.clear();
+        self.bundles.clear();
     }
 
-    /// The entries held, for a snapshot.
-    #[must_use]
-    pub fn entries(&self) -> &[T] {
-        &self.entries
+    /// The entries held, oldest first, for a snapshot.
+    pub fn entries(&self) -> impl Iterator<Item = &T> {
+        self.bundles.iter().flat_map(|bundle| bundle.entries.iter())
+    }
+
+    /// Forgets the bundles the consumer has emptied.
+    fn drop_consumed(&mut self) {
+        while self.bundles.front().is_some_and(|bundle| bundle.entries.is_empty()) {
+            let _ = self.bundles.pop_front();
+        }
     }
 }
 
@@ -568,6 +613,20 @@ mod latch_tests {
         let _ = latch.ready(1).map(|bundle| bundle.drain(..2));
 
         assert_eq!(latch.take(1), vec![3]);
+    }
+
+    #[test]
+    fn a_two_cycle_latch_carries_a_bundle_per_cycle() {
+        let mut latch = Latch::new(2);
+        latch.push(0, [1]);
+        assert!(latch.has_room(), "a second bundle is in flight behind the first");
+        latch.push(1, [2]);
+        assert!(!latch.has_room(), "two cycles of delay hold two bundles");
+
+        assert_eq!(latch.take(2), vec![1]);
+        assert!(latch.has_room());
+        assert_eq!(latch.take(3), vec![2]);
+        assert!(latch.is_empty());
     }
 
     #[test]

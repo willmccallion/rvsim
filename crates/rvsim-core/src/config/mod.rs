@@ -230,6 +230,14 @@ pub enum ConfigError {
     /// A statistical corrector setting outside what it can be built with.
     #[error("sc: {0}")]
     StatCorrector(#[from] ScConfigError),
+    /// A stage latency below what the backend's stages can hand on in.
+    #[error("pipeline.{field} must be at least {least} on this backend")]
+    StageLatency {
+        /// The latency field.
+        field: &'static str,
+        /// The smallest value the backend supports.
+        least: u64,
+    },
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -284,6 +292,19 @@ impl Config {
         }
         if self.memory.simple_bandwidth_bytes_per_second().is_none() {
             return Err(ConfigError::SimpleBandwidth);
+        }
+        if self.pipeline.fetch_decode_latency == 0 {
+            return Err(ConfigError::StageLatency { field: "fetch_decode_latency", least: 1 });
+        }
+        let least_rename_issue = match self.pipeline.backend {
+            BackendKind::InOrder => 1,
+            BackendKind::OutOfOrder => 2,
+        };
+        if self.pipeline.rename_issue_latency < least_rename_issue {
+            return Err(ConfigError::StageLatency {
+                field: "rename_issue_latency",
+                least: least_rename_issue,
+            });
         }
         let levels = [
             ("l1_d", &self.cache.l1_d),

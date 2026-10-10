@@ -20,6 +20,7 @@ pub mod fetch2;
 pub mod rename;
 
 use crate::common::PhysAddr;
+use crate::config::PipelineConfig;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::frontend::fetch1::FetchBuffer;
@@ -27,9 +28,6 @@ use crate::uarch::pipeline::latches::{
     Fetch1Fetch2Entry, IdExEntry, IfIdEntry, Latch, RenameIssueEntry,
 };
 use std::marker::PhantomData;
-
-/// Cycles from a stage writing its latch to the next stage reading it.
-pub const STAGE_DELAY: u64 = 1;
 
 /// The fetch1→fetch2 latch is the I-cache's landing point: its response
 /// already carried the access latency, so fetch2 reads it the same cycle.
@@ -57,21 +55,23 @@ pub struct Frontend<E: ExecutionEngine> {
 }
 
 impl<E: ExecutionEngine> Frontend<E> {
-    /// Creates a new frontend fetching from `pc`.
-    pub fn new(pc: u64) -> Self {
+    /// Creates a new frontend fetching from `pc`, with the stage latencies
+    /// `pipeline` configures.
+    pub fn new(pc: u64, pipeline: &PipelineConfig) -> Self {
         Self {
             fetch_pc: pc,
             fetch1_fetch2: Latch::new(FETCH_LANDING_DELAY),
             fetch_buffer: FetchBuffer::default(),
-            fetch2_decode: Latch::new(STAGE_DELAY),
-            decode_rename: Latch::new(STAGE_DELAY),
+            fetch2_decode: Latch::new(pipeline.fetch_decode_latency),
+            decode_rename: Latch::new(pipeline.decode_rename_latency),
             _marker: PhantomData,
         }
     }
 
     /// Executes one cycle of all frontend stages (reverse order). Each
     /// stage runs only when the latch it writes is empty, which is how a
-    /// stall propagates back to fetch.
+    /// stall propagates back to fetch. A latch with no delay hands its
+    /// bundle on within the cycle: its consumer runs again after it.
     pub fn tick(
         &mut self,
         state: &mut StageCtx<'_>,
@@ -80,13 +80,9 @@ impl<E: ExecutionEngine> Frontend<E> {
     ) {
         let now = state.cycle;
 
-        if let Some(decoded) = self.decode_rename.ready(now) {
-            let mut renamed = Vec::new();
-            rename::rename_stage(state, decoded, engine, &mut renamed);
-            rename_output.push(now, renamed);
-        }
+        self.rename_pass(state, engine, rename_output);
 
-        if self.decode_rename.is_empty()
+        if self.decode_rename.has_room()
             && !engine.common().vector_config_unresolved
             && let Some(fetched) = self.fetch2_decode.ready(now)
         {
@@ -101,6 +97,9 @@ impl<E: ExecutionEngine> Frontend<E> {
             );
             engine.common_mut().vector_config_unresolved = outcome.ended_at_vsetvl;
             self.decode_rename.push(now, decoded);
+            if self.decode_rename.delay() == 0 {
+                self.rename_pass(state, engine, rename_output);
+            }
             if let Some(pc) = outcome.redirect {
                 // What was fetched after the redirecting instruction is
                 // wrong-path; fetch restarts at `pc` next cycle.
@@ -112,7 +111,7 @@ impl<E: ExecutionEngine> Frontend<E> {
             }
         }
 
-        if self.fetch2_decode.is_empty()
+        if self.fetch2_decode.has_room()
             && let Some(mut landed) = self.fetch1_fetch2.ready(now).map(std::mem::take)
         {
             let mut decoded = Vec::new();
@@ -138,8 +137,26 @@ impl<E: ExecutionEngine> Frontend<E> {
         }
     }
 
+    /// Renames the bundle decode has handed on, if any and if the backend
+    /// has taken the last one.
+    fn rename_pass(
+        &mut self,
+        state: &mut StageCtx<'_>,
+        engine: &mut E,
+        rename_output: &mut Latch<RenameIssueEntry>,
+    ) {
+        let now = state.cycle;
+        if rename_output.has_room()
+            && let Some(decoded) = self.decode_rename.ready(now)
+        {
+            let mut renamed = Vec::new();
+            rename::rename_stage(state, decoded, engine, &mut renamed);
+            rename_output.push(now, renamed);
+        }
+    }
+
     /// True when no instruction sits in any latch between fetch and rename.
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.fetch1_fetch2.is_empty()
             && self.fetch2_decode.is_empty()
             && self.decode_rename.is_empty()

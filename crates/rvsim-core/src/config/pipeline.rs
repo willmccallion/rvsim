@@ -51,6 +51,23 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub redirect_latency: Option<u64>,
 
+    /// Cycles from fetch2 writing a bundle to decode reading it: one stage
+    /// boundary, two for a front end with a stage between its cache
+    /// response and decode (BOOM's F3). At least 1.
+    #[serde(default = "PipelineConfig::default_stage_latency")]
+    pub fetch_decode_latency: u64,
+
+    /// Cycles from decode writing a bundle to rename reading it; `0` runs
+    /// both in one stage, as Rocket's ID decodes and reads the registers
+    /// together.
+    #[serde(default = "PipelineConfig::default_stage_latency")]
+    pub decode_rename_latency: u64,
+
+    /// Cycles from rename writing a bundle to the backend issuing from it:
+    /// gem5's two from rename to IEW, Rocket's one from ID to EX. At least 1.
+    #[serde(default = "PipelineConfig::default_rename_issue_latency")]
+    pub rename_issue_latency: u64,
+
     /// Which CSR accesses squash the instructions fetched behind them and
     /// refetch; the backend's gem5 behaviour when unset (every access on
     /// the in-order backend, none on the out-of-order one, which holds
@@ -389,6 +406,15 @@ impl PipelineConfig {
         defaults::TRAP_LATENCY
     }
 
+    const fn default_stage_latency() -> u64 {
+        1
+    }
+
+    /// gem5's two cycles from rename to IEW.
+    const fn default_rename_issue_latency() -> u64 {
+        2
+    }
+
     /// Returns the default vector PRF size.
     const fn default_prf_vpr_size() -> usize {
         64
@@ -411,6 +437,9 @@ impl Default for PipelineConfig {
             width: defaults::PIPELINE_WIDTH,
             trap_latency: defaults::TRAP_LATENCY,
             redirect_latency: None,
+            fetch_decode_latency: 1,
+            decode_rename_latency: 1,
+            rename_issue_latency: 2,
             csr_squash: None,
             fence_squash: false,
             store_forward_latency: None,

@@ -14,7 +14,7 @@ use crate::soc::topology::{CoreTopology, PrivateCache};
 use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;
-use crate::uarch::pipeline::frontend::{Frontend, STAGE_DELAY};
+use crate::uarch::pipeline::frontend::Frontend;
 use crate::uarch::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
@@ -658,16 +658,16 @@ impl PipelineDispatch {
         let l1d = core.cache(PrivateCache::L1D);
         match config.pipeline.backend {
             BackendKind::InOrder => Self::InOrder(Box::new(Pipeline {
-                frontend: Frontend::new(pc),
+                frontend: Frontend::new(pc, &config.pipeline),
                 engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
-                rename_output: Latch::new(STAGE_DELAY),
+                rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
                 redirect: None,
                 recovering_from_redirect: false,
             })),
             BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
-                frontend: Frontend::new(pc),
+                frontend: Frontend::new(pc, &config.pipeline),
                 engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
-                rename_output: Latch::new(STAGE_DELAY),
+                rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
                 redirect: None,
                 recovering_from_redirect: false,
             })),
@@ -768,10 +768,10 @@ impl PipelineDispatch {
     pub fn snapshot(&self, width: usize) -> LatchSnapshot {
         match self {
             Self::InOrder(p) => LatchSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
-                fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
-                decode_rename: p.frontend.decode_rename.entries().to_vec(),
-                rename_issue: p.rename_output.entries().to_vec(),
+                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().cloned().collect(),
+                fetch2_decode: p.frontend.fetch2_decode.entries().cloned().collect(),
+                decode_rename: p.frontend.decode_rename.entries().cloned().collect(),
+                rename_issue: p.rename_output.entries().cloned().collect(),
                 issue_queue: p.engine.issuer.queue_snapshot(),
                 execute_mem1: p.engine.execute_mem1.clone(),
                 mem1_mem2: p.engine.mem1_mem2.clone(),
@@ -779,10 +779,10 @@ impl PipelineDispatch {
                 width,
             },
             Self::OutOfOrder(p) => LatchSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().to_vec(),
-                fetch2_decode: p.frontend.fetch2_decode.entries().to_vec(),
-                decode_rename: p.frontend.decode_rename.entries().to_vec(),
-                rename_issue: p.rename_output.entries().to_vec(),
+                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().cloned().collect(),
+                fetch2_decode: p.frontend.fetch2_decode.entries().cloned().collect(),
+                decode_rename: p.frontend.decode_rename.entries().cloned().collect(),
+                rename_issue: p.rename_output.entries().cloned().collect(),
                 issue_queue: p.engine.issue_queue.queue_snapshot(),
                 execute_mem1: p.engine.execute_mem1.clone(),
                 mem1_mem2: p.engine.mem1_mem2.clone(),
@@ -874,13 +874,13 @@ mod tests {
         let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
-        let frontend = Frontend::new(state.hart.pc);
+        let frontend = Frontend::new(state.hart.pc, &config.pipeline);
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         let pipeline = Pipeline {
             frontend,
             engine,
-            rename_output: Latch::new(crate::uarch::pipeline::frontend::STAGE_DELAY),
+            rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
             redirect: None,
             recovering_from_redirect: false,
         };
