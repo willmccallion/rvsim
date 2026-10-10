@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `fetch_decode_latency`, `decode_rename_latency` and `rename_issue_latency`
+  set the front end's depth, which was fixed; the defaults keep it. A
+  mispredict, a trap and an MRET cost what the configured depth implies,
+  so the `rocket` preset, which collapses decode and rename into Rocket's
+  ID stage and issues the cycle after it, pays Rocket's three cycles for a
+  mispredict rather than nine (#213).
 - `csr_squash` and `fence_squash` say which CSR accesses and whether a
   FENCE squash the instructions fetched behind them, as the modelled core's
   decoder has it; the defaults keep gem5's behaviour (every CSR access on
