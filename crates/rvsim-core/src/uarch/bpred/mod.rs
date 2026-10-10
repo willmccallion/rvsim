@@ -24,8 +24,9 @@ pub mod ras;
 pub mod unit;
 
 use self::predictors::{
-    gshare::GSharePredictor, perceptron::PerceptronPredictor, sc_l_tage::ScLTagePredictor,
-    static_bp::StaticPredictor, tage::TagePredictor, tournament::TournamentPredictor,
+    bht::BhtPredictor, gshare::GSharePredictor, perceptron::PerceptronPredictor,
+    sc_l_tage::ScLTagePredictor, static_bp::StaticPredictor, tage::TagePredictor,
+    tournament::TournamentPredictor,
 };
 use crate::common::InstSeq;
 use crate::config::{BranchPredictorKind, Config};
@@ -38,6 +39,8 @@ pub enum BranchPredictor {
     Static(BranchPredUnit<StaticPredictor>),
     /// Global history (gshare) predictor.
     GShare(BranchPredUnit<GSharePredictor>),
+    /// Rocket's branch history table.
+    Bht(BranchPredUnit<BhtPredictor>),
     /// Tournament predictor combining local and global histories.
     Tournament(BranchPredUnit<TournamentPredictor>),
     /// TAGE predictor with geometric history lengths.
@@ -60,6 +63,7 @@ macro_rules! dispatch {
         match $wrapper {
             BranchPredictor::Static($unit) => $call,
             BranchPredictor::GShare($unit) => $call,
+            BranchPredictor::Bht($unit) => $call,
             BranchPredictor::Tournament($unit) => $call,
             BranchPredictor::Tage($unit) => $call,
             BranchPredictor::Perceptron($unit) => $call,
@@ -77,6 +81,9 @@ impl BranchPredictor {
         match pipeline.branch_predictor {
             BranchPredictorKind::Static => Self::Static(unit_for(config, StaticPredictor::new())),
             BranchPredictorKind::GShare => Self::GShare(unit_for(config, GSharePredictor::new())),
+            BranchPredictorKind::Bht => {
+                Self::Bht(unit_for(config, BhtPredictor::new(&pipeline.bht)))
+            }
             BranchPredictorKind::Tournament => {
                 Self::Tournament(unit_for(config, TournamentPredictor::new(&pipeline.tournament)))
             }

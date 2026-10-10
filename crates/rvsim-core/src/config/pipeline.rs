@@ -3,8 +3,8 @@
 
 use super::defaults;
 use crate::config::{
-    BranchPredictorKind, IttageConfig, LoopConfig, PerceptronConfig, ScConfig, TageConfig,
-    TournamentConfig,
+    BhtConfig, BranchPredictorKind, IttageConfig, LoopConfig, PerceptronConfig, ScConfig,
+    TageConfig, TournamentConfig,
 };
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::rvv::Vlen;
@@ -143,6 +143,10 @@ pub struct PipelineConfig {
     /// Perceptron predictor configuration
     #[serde(default)]
     pub perceptron: PerceptronConfig,
+
+    /// Rocket's BHT configuration
+    #[serde(default)]
+    pub bht: BhtConfig,
 
     /// Tournament predictor configuration
     #[serde(default)]
@@ -456,6 +460,7 @@ impl Default for PipelineConfig {
             misa_override: None,
             tage: TageConfig::default(),
             perceptron: PerceptronConfig::default(),
+            bht: BhtConfig::default(),
             tournament: TournamentConfig::default(),
             sc: ScConfig::default(),
             ittage: IttageConfig::default(),

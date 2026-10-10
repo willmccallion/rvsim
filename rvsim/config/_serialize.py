@@ -44,6 +44,8 @@ def _bp_name(bp) -> str:
         return "Static"
     if isinstance(bp, BranchPredictor.GShare):
         return "GShare"
+    if isinstance(bp, BranchPredictor.Bht):
+        return "Bht"
     if isinstance(bp, BranchPredictor.TAGE):
         return "TAGE"
     if isinstance(bp, BranchPredictor.Perceptron):
@@ -81,6 +83,13 @@ def _bp_sub_dict(bp) -> dict:
         return {
             "history_length": bp.history_length,
             "table_bits": bp.table_bits,
+        }
+    if isinstance(bp, BranchPredictor.Bht):
+        return {
+            "entries": bp.entries,
+            "counter_bits": bp.counter_bits,
+            "history_length": bp.history_length,
+            "history_bits": bp.history_bits,
         }
     if isinstance(bp, BranchPredictor.Tournament):
         return {
@@ -502,6 +511,13 @@ _PERCEPTRON_DEFAULTS = {
     "table_bits": 10,
 }
 
+_BHT_DEFAULTS = {
+    "entries": 512,
+    "counter_bits": 1,
+    "history_length": 8,
+    "history_bits": 3,
+}
+
 
 _TOURNAMENT_DEFAULTS = {
     "global_size_bits": 12,
@@ -607,6 +623,9 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         if isinstance(bp, BranchPredictor.Tournament)
         else _TOURNAMENT_DEFAULTS
     )
+    bht_dict = (
+        _bp_sub_dict(bp) if isinstance(bp, BranchPredictor.Bht) else _BHT_DEFAULTS
+    )
     sc_dict = _sc_sub_dict(bp)
     ittage_dict = _ittage_sub_dict(bp)
     loop_dict = _loop_sub_dict(bp)
@@ -643,6 +662,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "tage": tage_dict,
         "perceptron": perceptron_dict,
         "tournament": tournament_dict,
+        "bht": bht_dict,
         "sc": sc_dict,
         "ittage": ittage_dict,
         "loop_predictor": loop_dict,

@@ -151,6 +151,12 @@ below).
 ```python
 BranchPredictor.Static()          # Always predicts not-taken
 BranchPredictor.GShare()          # PC XOR global history, 2-bit counters
+BranchPredictor.Bht(              # Rocket's BHT: counters indexed by the PC, hashed history above the PC bits
+    entries=512,
+    counter_bits=1,
+    history_length=8,
+    history_bits=3,
+)
 BranchPredictor.Tournament(       # gem5's TournamentBP (Alpha 21264): local, global, choice
     global_size_bits=12,
     local_hist_bits=10,

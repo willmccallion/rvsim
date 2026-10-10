@@ -15,10 +15,10 @@ mod prefetch;
 mod system;
 
 pub use bpred::{
-    BranchPredictorKind, GehlConfig, IttageConfig, LocalGehlConfig, LoopConfig, MAX_GEHL_TABLES,
-    MAX_LOCAL_HISTORIES, MAX_TAGE_BANKS, MAX_TAGE_HISTORY, PerceptronConfig, ScConfig,
-    ScConfigError, TageAllocation, TageBanking, TageConfig, TageHashing, TageHistoryMode,
-    TageUpdate, TournamentConfig,
+    BhtConfig, BhtConfigError, BranchPredictorKind, GehlConfig, IttageConfig, LocalGehlConfig,
+    LoopConfig, MAX_GEHL_TABLES, MAX_LOCAL_HISTORIES, MAX_TAGE_BANKS, MAX_TAGE_HISTORY,
+    PerceptronConfig, ScConfig, ScConfigError, TageAllocation, TageBanking, TageConfig,
+    TageHashing, TageHistoryMode, TageUpdate, TournamentConfig,
 };
 pub use cache::{
     CacheConfig, CacheHierarchyConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind,
@@ -230,6 +230,9 @@ pub enum ConfigError {
     /// A statistical corrector setting outside what it can be built with.
     #[error("sc: {0}")]
     StatCorrector(#[from] ScConfigError),
+    /// A BHT setting the table cannot be built with.
+    #[error("{0}")]
+    Bht(#[from] BhtConfigError),
     /// A stage latency below what the backend's stages can hand on in.
     #[error("pipeline.{field} must be at least {least} on this backend")]
     StageLatency {
@@ -370,6 +373,7 @@ impl Config {
             });
         }
         self.pipeline.sc.validate()?;
+        self.pipeline.bht.validate()?;
         let vector_mem_width = self.pipeline.vector_mem_width_bytes();
         if !vector_mem_width.is_power_of_two()
             || !(8..=MAX_VECTOR_MEM_WIDTH).contains(&vector_mem_width)

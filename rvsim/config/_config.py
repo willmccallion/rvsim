@@ -78,6 +78,7 @@ class Config:
         store_forward_latency: int | None = None,
         branch_predictor: BranchPredictor.Static
         | BranchPredictor.GShare
+        | BranchPredictor.Bht
         | BranchPredictor.TAGE
         | BranchPredictor.Perceptron
         | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,

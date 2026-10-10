@@ -18,6 +18,11 @@ pub enum BranchPredictorKind {
     ///
     /// Uses global branch history to index a pattern history table.
     GShare,
+    /// Rocket's branch history table.
+    ///
+    /// Counters indexed by the fetch PC with a hash of the global history
+    /// placed above the PC bits.
+    Bht,
     /// Perceptron-based neural branch predictor.
     ///
     /// Uses a neural network (perceptron) to learn branch patterns.
@@ -38,12 +43,14 @@ pub enum BranchPredictorKind {
     ScLTage,
 }
 
+mod bht;
 mod ittage;
 mod loop_predictor;
 mod sc;
 mod simple;
 mod tage;
 
+pub use bht::{BhtConfig, BhtConfigError};
 pub use ittage::IttageConfig;
 pub use loop_predictor::LoopConfig;
 pub use sc::{

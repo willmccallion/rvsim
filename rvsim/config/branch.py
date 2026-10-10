@@ -115,6 +115,32 @@ class BranchPredictor:
         def __repr__(self) -> str:
             return "BranchPredictor.GShare()"
 
+    class Bht:
+        """Rocket's branch history table: ``entries`` counters of
+        ``counter_bits`` bits indexed by the fetch PC, with
+        ``history_length`` bits of global history hashed to ``history_bits``
+        bits placed above the PC bits of the index."""
+
+        def __init__(
+            self,
+            entries: int = 512,
+            counter_bits: int = 1,
+            history_length: int = 8,
+            history_bits: int = 3,
+        ):
+            self.entries = entries
+            self.counter_bits = counter_bits
+            self.history_length = history_length
+            self.history_bits = history_bits
+
+        def __repr__(self) -> str:
+            return (
+                f"BranchPredictor.Bht(entries={self.entries}, "
+                f"counter_bits={self.counter_bits}, "
+                f"history_length={self.history_length}, "
+                f"history_bits={self.history_bits})"
+            )
+
     class TageBanking:
         """TAGE-SC-L's banked tables: banks before ``first_long_bank``
         share an array of ``short_factor`` slices of ``table_size``

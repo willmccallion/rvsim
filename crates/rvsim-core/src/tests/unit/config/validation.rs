@@ -1,6 +1,6 @@
 //! Tests for the checks `Config::validate` applies before a system is built.
 
-use crate::config::{BackendKind, CacheConfig, Config, ConfigError, CsrSquash};
+use crate::config::{BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash};
 
 #[test]
 fn default_config_validates() {
@@ -75,4 +75,31 @@ fn an_out_of_order_core_may_never_squash_after_a_csr() {
     config.pipeline.csr_squash = Some(CsrSquash::Never);
 
     assert!(config.validate().is_ok());
+}
+
+#[test]
+fn a_bht_whose_hashed_history_is_wider_than_its_index_is_rejected() {
+    let mut config = Config::default();
+    config.pipeline.bht.entries = 16;
+    config.pipeline.bht.history_bits = 5;
+
+    let err = config.validate().unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            ConfigError::Bht(BhtConfigError::HistoryBits { bits: 5, length: 8, index_bits: 4 })
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_bht_with_three_bit_counters_is_rejected() {
+    let mut config = Config::default();
+    config.pipeline.bht.counter_bits = 3;
+
+    let err = config.validate().unwrap_err();
+
+    assert!(matches!(err, ConfigError::Bht(BhtConfigError::CounterBits(3))), "{err}");
 }

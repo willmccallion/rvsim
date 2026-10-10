@@ -595,9 +595,9 @@ def rocket() -> Config:
       the L1D, 18 from the L2, 24 to 29 from Chipyard's zero-latency memory
       model.
     - 28-entry BTB and 6-entry return stack (``BTBParams``); a 512-entry BHT
-      of 1-bit counters with 8 bits of global history (``BHTParams``), which
-      rvsim's ``GShare`` (4096 2-bit counters, 12 bits of history) stands in
-      for. Measured: a mispredict costs 3 cycles.
+      of 1-bit counters indexed by the fetch PC with 8 bits of global
+      history hashed to 3 bits above the PC bits (``BHTParams``,
+      ``BHT.index``). Measured: a mispredict costs 3 cycles.
     - 32-entry fully associative L1 TLBs and a 512-entry direct-mapped L2
       TLB (``nTLBWays``, ``nL2TLBEntries``); misaligned accesses trap.
     - 512 KiB 8-way inclusive L2 (``WithInclusiveCache`` defaults).
@@ -626,7 +626,9 @@ def rocket() -> Config:
                 ]
             )
         ),
-        branch_predictor=BranchPredictor.GShare(),
+        branch_predictor=BranchPredictor.Bht(
+            entries=512, counter_bits=1, history_length=8, history_bits=3
+        ),
         btb_size=28,
         btb_ways=28,
         ras_size=6,
