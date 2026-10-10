@@ -15,6 +15,12 @@ export VECTOR_TESTS_REV
 # builds as Verilator simulators; not built in CI.
 CHIPYARD_REV     := 0acc1e1de2d3284bcd4d876956932a013ffe1949
 
+# Embench-IoT 2.0rc2, built as static Linux programs for SE mode
+# (tools/embench/build.sh). GPL-3.0: cloned and built on demand, never
+# distributed.
+EMBENCH_REV      := 0be80d44227d73c732a0de596d6b00b59fdf805e
+export EMBENCH_REV
+
 # A sample of every vector instruction class: integer, fixed-point, widening
 # and narrowing, FP and conversions, reductions, masks, permutes, every load
 # and store addressing mode, segments, whole registers and the crypto
