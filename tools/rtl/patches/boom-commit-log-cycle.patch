@@ -1,0 +1,14 @@
+diff --git a/src/main/scala/v4/exu/core.scala b/src/main/scala/v4/exu/core.scala
+index 68cbe86a..432cb9f1 100644
+--- a/src/main/scala/v4/exu/core.scala
++++ b/src/main/scala/v4/exu/core.scala
+@@ -1302,7 +1302,8 @@ class BoomCore(roccCSRs: Seq[Seq[CustomCSR]])(implicit p: Parameters) extends Bo
+       }
+ 
+       when (rob.io.commit.arch_valids(w)) {
+-        printf("%d 0x%x ",
++        printf("%d %d 0x%x ",
++          debug_tsc_reg,
+           priv,
+           Sext(rob.io.commit.uops(w).debug_pc(vaddrBits-1,0), xLen))
+         printf_inst(rob.io.commit.uops(w))
