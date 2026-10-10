@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 class Fu:
-    """Functional unit pool configuration for the O3 backend.
+    """Functional unit pool configuration, for either backend.
 
     Instantiate ``Fu`` with a list of unit descriptors (the inner classes).
     Any FU type omitted will be absent from the pool, so include every type
@@ -186,8 +186,13 @@ class Backend:
     """Namespace for pipeline backend configurations."""
 
     class InOrder:
+        """In-order issue from a FIFO onto ``fu_config``'s unit pool."""
+
+        def __init__(self, fu_config=None):
+            self.fu_config = fu_config if fu_config is not None else Fu()
+
         def __repr__(self) -> str:
-            return "Backend.InOrder()"
+            return f"Backend.InOrder(fu_config={self.fu_config!r})"
 
     class OutOfOrder:
         def __init__(
