@@ -85,6 +85,12 @@ All notable changes to this project are documented here. The format is based on 
   misaligned unit-stride load, a span split at a fault) reuses its slots
   once no older memory access is in flight. Lockstep against spike stopped
   on this in the RVV `vsoxei16` and `vsseg2e32` tests.
+- The vector float-to-integer conversions at a 16-bit width, `vfwcvt.x[u].f.v`
+  at SEW=16 (f16 to 32-bit integer) and `vfncvt.x[u].f.w` at SEW=16 (f32 to
+  16-bit integer) and their `rtz` forms, truncated whatever `frm` said and
+  raised NV only for a NaN (#181). They now round in `frm` (the `rtz` forms
+  toward zero) and raise NX for an inexact result and NV for one out of
+  range, as the 32- and 64-bit conversions do.
 
 ## Releases
 
