@@ -386,6 +386,91 @@ mod tests {
         assert!(flags.contains(FpFlags::NV));
     }
 
+    /// The value and flags a conversion `op` gives `vs2[0]` (at `src_sew`)
+    /// written at `dst_sew`, at element width `sew` under `frm`.
+    fn convert_one(
+        op: VectorOp,
+        sew: Sew,
+        (src_sew, src): (Sew, u64),
+        dst_sew: Sew,
+        frm: RoundingMode,
+    ) -> (u64, FpFlags) {
+        let mut vpr = vpr128();
+        let ctx = VecExecCtx { zvfh: true, frm, ..make_ctx(sew, 1) };
+        let (v2, v4) = (VRegIdx::new(2), VRegIdx::new(4));
+        vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
+        let flags = vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
+        (vpr.read_element(v4, ElemIdx::new(0), dst_sew), flags)
+    }
+
+    const F16_THREE_AND_A_HALF: u64 = 0x4300;
+    const F16_MINUS_TWO: u64 = 0xc000;
+
+    #[test]
+    fn a_zvfh_widening_conversion_to_signed_rounds_per_frm_and_is_inexact() {
+        let (value, flags) = convert_one(
+            VectorOp::VFWCvtXF,
+            Sew::E16,
+            (Sew::E16, F16_THREE_AND_A_HALF),
+            Sew::E32,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((value, flags.bits()), (4, FpFlags::NX.bits()));
+    }
+
+    #[test]
+    fn a_zvfh_widening_conversion_of_a_negative_value_to_unsigned_is_invalid() {
+        let (value, flags) = convert_one(
+            VectorOp::VFWCvtXuF,
+            Sew::E16,
+            (Sew::E16, F16_MINUS_TWO),
+            Sew::E32,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((value, flags.bits()), (0, FpFlags::NV.bits()));
+    }
+
+    #[test]
+    fn a_narrowing_conversion_to_signed_rounds_per_frm_and_is_inexact() {
+        let (value, flags) = convert_one(
+            VectorOp::VFNCvtXF,
+            Sew::E16,
+            (Sew::E32, u64::from(3.5f32.to_bits())),
+            Sew::E16,
+            RoundingMode::Rup,
+        );
+
+        assert_eq!((value, flags.bits()), (4, FpFlags::NX.bits()));
+    }
+
+    #[test]
+    fn a_narrowing_conversion_out_of_range_saturates_and_is_invalid() {
+        let (value, flags) = convert_one(
+            VectorOp::VFNCvtXF,
+            Sew::E16,
+            (Sew::E32, u64::from(70_000f32.to_bits())),
+            Sew::E16,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((value, flags.bits()), (0x7fff, FpFlags::NV.bits()));
+    }
+
+    #[test]
+    fn a_narrowing_round_toward_zero_conversion_ignores_frm_and_is_inexact() {
+        let (value, flags) = convert_one(
+            VectorOp::VFNCvtRtzXuF,
+            Sew::E16,
+            (Sew::E32, u64::from(3.75f32.to_bits())),
+            Sew::E16,
+            RoundingMode::Rup,
+        );
+
+        assert_eq!((value, flags.bits()), (3, FpFlags::NX.bits()));
+    }
+
     #[test]
     fn a_zvfh_widening_add_whose_sum_needs_more_than_single_precision_is_inexact() {
         let mut vpr = vpr128();

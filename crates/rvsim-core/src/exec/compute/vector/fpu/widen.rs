@@ -1,7 +1,8 @@
 //! Widening and narrowing operations, including widening FMA.
 
 use super::convert::{
-    f32_to_i64_frm, f32_to_u64_frm, f64_to_f32_round_to_odd, f64_to_i32_frm, f64_to_u32_frm,
+    f32_to_i32_frm, f32_to_i64_frm, f32_to_u32_frm, f32_to_u64_frm, f64_to_f32_round_to_odd,
+    f64_to_i16_frm, f64_to_i32_frm, f64_to_u16_frm, f64_to_u32_frm,
 };
 use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
@@ -144,38 +145,33 @@ pub(super) fn exec_fp_widening(
                     | VectorOp::VFWCvtFXu
                     | VectorOp::VFWCvtFX
             ) {
-                clear_host_fp_flags();
-                let a16 = vs2_raw as u16;
-                let a_f = f16_to_f32(a16);
-                let bits = match op {
-                    VectorOp::VFWCvtXuF | VectorOp::VFWCvtRtzXuF => {
-                        if a_f.is_nan() {
-                            u32::MAX as u64
-                        } else {
-                            a_f as u32 as u64
-                        }
+                let a_f = f16_to_f32(vs2_raw as u16);
+                let (bits, f) = match op {
+                    VectorOp::VFWCvtXuF => {
+                        let (r, f) = f32_to_u32_frm(a_f, ctx.frm);
+                        (u64::from(r), f)
                     }
-                    VectorOp::VFWCvtXF | VectorOp::VFWCvtRtzXF => {
-                        if a_f.is_nan() {
-                            i32::MAX as u64
-                        } else {
-                            a_f as i32 as u32 as u64
-                        }
+                    VectorOp::VFWCvtRtzXuF => {
+                        let (r, f) = f32_to_u32_frm(a_f, RoundingMode::Rtz);
+                        (u64::from(r), f)
                     }
-                    VectorOp::VFWCvtFXu => (vs2_raw as u16 as f32).to_bits() as u64,
+                    VectorOp::VFWCvtXF => {
+                        let (r, f) = f32_to_i32_frm(a_f, ctx.frm);
+                        (u64::from(r as u32), f)
+                    }
+                    VectorOp::VFWCvtRtzXF => {
+                        let (r, f) = f32_to_i32_frm(a_f, RoundingMode::Rtz);
+                        (u64::from(r as u32), f)
+                    }
+                    VectorOp::VFWCvtFXu => {
+                        (u64::from(f32::from(vs2_raw as u16).to_bits()), FpFlags::NONE)
+                    }
                     VectorOp::VFWCvtFX => {
-                        (sign_extend(vs2_raw, Sew::E16) as i16 as f32).to_bits() as u64
+                        let signed = sign_extend(vs2_raw, Sew::E16) as i16;
+                        (u64::from(f32::from(signed).to_bits()), FpFlags::NONE)
                     }
-                    _ => 0,
+                    _ => (0, FpFlags::NONE),
                 };
-                let nan_input = matches!(
-                    op,
-                    VectorOp::VFWCvtXuF
-                        | VectorOp::VFWCvtXF
-                        | VectorOp::VFWCvtRtzXuF
-                        | VectorOp::VFWCvtRtzXF
-                ) && a_f.is_nan();
-                let f = read_host_fp_flags() | if nan_input { FpFlags::NV } else { FpFlags::NONE };
                 flags = flags | f;
                 vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
                 continue;
@@ -449,40 +445,20 @@ pub(super) fn exec_fp_narrowing(
                     (jammed as u64, flags_no_nx)
                 }
                 VectorOp::VFNCvtXuF => {
-                    clear_host_fp_flags();
-                    let r = if a32.is_nan() { u16::MAX as u64 } else { a32 as u16 as u64 };
-                    let f = read_host_fp_flags()
-                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
-                    (r, f)
+                    let (r, f) = f64_to_u16_frm(f64::from(a32), ctx.frm);
+                    (u64::from(r), f)
                 }
                 VectorOp::VFNCvtXF => {
-                    clear_host_fp_flags();
-                    let r = if a32.is_nan() { i16::MAX as u64 } else { a32 as i16 as u16 as u64 };
-                    let f = read_host_fp_flags()
-                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
-                    (r, f)
+                    let (r, f) = f64_to_i16_frm(f64::from(a32), ctx.frm);
+                    (u64::from(r as u16), f)
                 }
                 VectorOp::VFNCvtRtzXuF => {
-                    clear_host_fp_flags();
-                    let r = if a32.is_nan() {
-                        u16::MAX as u64
-                    } else {
-                        std::hint::black_box(a32) as u16 as u64
-                    };
-                    let f = read_host_fp_flags()
-                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
-                    (r, f)
+                    let (r, f) = f64_to_u16_frm(f64::from(a32), RoundingMode::Rtz);
+                    (u64::from(r), f)
                 }
                 VectorOp::VFNCvtRtzXF => {
-                    clear_host_fp_flags();
-                    let r = if a32.is_nan() {
-                        i16::MAX as u64
-                    } else {
-                        std::hint::black_box(a32) as i16 as u16 as u64
-                    };
-                    let f = read_host_fp_flags()
-                        | if a32.is_nan() { FpFlags::NV } else { FpFlags::NONE };
-                    (r, f)
+                    let (r, f) = f64_to_i16_frm(f64::from(a32), RoundingMode::Rtz);
+                    (u64::from(r as u16), f)
                 }
                 VectorOp::VFNCvtFXu => {
                     // 2*SEW unsigned int (u32) → f16
