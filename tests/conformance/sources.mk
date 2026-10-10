@@ -11,6 +11,10 @@ RISCV_TESTS_REV  := 1eb47d946c55f55cab8653c224c2993acc0276bd
 VECTOR_TESTS_REV := b30515ed611177fd7688fc8129d877698237481a
 export VECTOR_TESTS_REV
 
+# Chipyard 1.14.0, whose Rocket and BOOM the RTL comparison (tools/rtl)
+# builds as Verilator simulators; not built in CI.
+CHIPYARD_REV     := 0acc1e1de2d3284bcd4d876956932a013ffe1949
+
 # A sample of every vector instruction class: integer, fixed-point, widening
 # and narrowing, FP and conversions, reductions, masks, permutes, every load
 # and store addressing mode, segments, whole registers and the crypto
