@@ -51,6 +51,18 @@ pub struct PipelineConfig {
     #[serde(default)]
     pub redirect_latency: Option<u64>,
 
+    /// Which CSR accesses squash the instructions fetched behind them and
+    /// refetch; the backend's gem5 behaviour when unset (every access on
+    /// the in-order backend, none on the out-of-order one, which holds
+    /// rename instead).
+    #[serde(default)]
+    pub csr_squash: Option<CsrSquash>,
+
+    /// Whether a FENCE squashes the instructions fetched behind it when it
+    /// commits, as BOOM's `flush_on_commit` does.
+    #[serde(default)]
+    pub fence_squash: bool,
+
     /// Cycles from a load matching a store in the store buffer to its data
     /// reaching writeback, where a load the L1D answers takes the L1D hit
     /// latency. The L1D hit latency when unset, as a core whose forwarding
@@ -272,6 +284,18 @@ impl PipelineConfig {
         }
     }
 
+    /// Which CSR accesses squash the instructions fetched behind them.
+    #[must_use]
+    pub const fn csr_squash(&self) -> CsrSquash {
+        match self.csr_squash {
+            Some(policy) => policy,
+            None => match self.backend {
+                BackendKind::InOrder => CsrSquash::EveryAccess,
+                BackendKind::OutOfOrder => CsrSquash::Never,
+            },
+        }
+    }
+
     const fn stage_width(configured: Option<usize>, width: usize) -> usize {
         match configured {
             Some(stage) => stage,
@@ -387,6 +411,8 @@ impl Default for PipelineConfig {
             width: defaults::PIPELINE_WIDTH,
             trap_latency: defaults::TRAP_LATENCY,
             redirect_latency: None,
+            csr_squash: None,
+            fence_squash: false,
             store_forward_latency: None,
             fetch_width: None,
             decode_width: None,
@@ -624,6 +650,45 @@ pub enum BackendKind {
     InOrder,
     /// Out-of-order pipeline (future).
     OutOfOrder,
+}
+
+/// Which CSR accesses squash the instructions fetched behind them and
+/// refetch, as the modelled core's decoder has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum CsrSquash {
+    /// Every CSR instruction: gem5's `MinorCPU`, and BOOM, whose decoder
+    /// marks each one `flush_on_commit` (`v4/exu/decode.scala`).
+    EveryAccess,
+    /// A write to a CSR whose value steers execution and never a read:
+    /// Rocket's `write_flush` (`rocket/CSR.scala`), which exempts the
+    /// scratch, epc, cause and tval CSRs.
+    AffectingWrites,
+    /// None: gem5's O3, which holds rename after the access instead.
+    Never,
+}
+
+impl CsrSquash {
+    /// Whether an access that writes CSR `written` (`None` for a read)
+    /// squashes what follows it.
+    #[must_use]
+    pub const fn squashes(self, written: Option<u32>) -> bool {
+        match self {
+            Self::EveryAccess => true,
+            Self::AffectingWrites => match written {
+                Some(addr) => write_affects_execution(addr),
+                None => false,
+            },
+            Self::Never => false,
+        }
+    }
+}
+
+/// Rocket's `write_flush`: a CSR write flushes unless the CSR, taken as
+/// its M-mode counterpart, is mscratch, mepc, mcause or mtval.
+const fn write_affects_execution(addr: u32) -> bool {
+    let as_machine = addr | 0x300;
+    !(as_machine >= 0x340 && as_machine <= 0x343)
 }
 
 /// Forwarding policy. Selects how `forward_load` reacts to in-flight vec stores.

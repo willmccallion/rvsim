@@ -151,11 +151,16 @@ fn execute_system(
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
         SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
+        // The refetch is the core's flush after a CSR access, taken as
+        // Rocket takes it when the instruction reaches MEM.
         SystemEffect::Csr(access) => {
+            let written = access.update.as_ref().map(|update| update.addr.as_u32());
             if let Some(update) = access.update {
                 rob.set_csr_update(id.rob_tag, update.into());
             }
-            (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), Some(refetch_after(id)))
+            let refetch =
+                state.config.pipeline.csr_squash().squashes(written).then(|| refetch_after(id));
+            (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), refetch)
         }
     })
 }

@@ -49,6 +49,8 @@ the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 | `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
 | `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |
+| `csr_squash` | `str` | `"EveryAccess"` (in-order), `"Never"` (O3) | Which CSR accesses squash the instructions fetched behind them and refetch: `"EveryAccess"` (gem5's MinorCPU; BOOM, whose decoder flushes after every CSR instruction), `"AffectingWrites"` (Rocket: a write to any CSR but the scratch, epc, cause and tval ones, never a read) or `"Never"` (gem5's O3, which holds rename after one instead). The in-order backend refetches when the access executes, the out-of-order one when it commits |
+| `fence_squash` | `bool` | `False` | Whether a FENCE squashes the instructions fetched behind it when it commits, as BOOM's does |
 | `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
 | `backend` | `Backend.*` | `OutOfOrder()` | `Backend.OutOfOrder(...)` or `Backend.InOrder()` |
 | `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Direction predictor (see below) |

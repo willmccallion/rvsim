@@ -629,6 +629,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "writeback_width": cfg.writeback_width,
         "trap_latency": cfg.trap_latency,
         "redirect_latency": cfg.redirect_latency,
+        "csr_squash": cfg.csr_squash,
+        "fence_squash": cfg.fence_squash,
         "store_forward_latency": cfg.store_forward_latency,
         "branch_predictor": _bp_name(bp),
         "btb_size": cfg.btb_size,

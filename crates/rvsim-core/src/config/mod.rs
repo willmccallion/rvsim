@@ -29,7 +29,7 @@ pub use coherence::{
 pub use general::{Console, GeneralConfig};
 pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
 pub use pipeline::{
-    BackendKind, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
+    BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
     StoreSetConfig, VecStoreForwarding,
 };
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};

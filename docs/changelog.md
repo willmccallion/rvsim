@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `csr_squash` and `fence_squash` say which CSR accesses and whether a
+  FENCE squash the instructions fetched behind them, as the modelled core's
+  decoder has it; the defaults keep gem5's behaviour (every CSR access on
+  the in-order backend, none on the out-of-order one). The `rocket` preset
+  squashes after writes to the CSRs Rocket's `write_flush` names and never
+  after a read; the `boom` preset after every CSR instruction and every
+  FENCE, which BOOM commits with `flush_on_commit` (#212).
 - FENCE.I's invalidation of the L1I now reaches the fetch buffer, the copy
   of the line the I-cache last returned, so the instructions after a FENCE.I
   refetch through a miss, as Rocket's and BOOM's do (#211). A FENCE.I's
