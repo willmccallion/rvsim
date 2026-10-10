@@ -50,7 +50,7 @@ pub(super) fn retire_entry(
     #[cfg(feature = "commit-log")]
     if state.commit_log.is_some() {
         let store = targets.store_buffer.committed_write(entry.tag);
-        let retired = Retired::capture(entry, privilege, store, state.hart.regs.vpr());
+        let retired = Retired::capture(entry, privilege, state.cycle, store, state.hart.regs.vpr());
         log_retired(state, &retired);
     }
     flow
