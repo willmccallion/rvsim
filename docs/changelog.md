@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Each commit-log line ends its header with `cycle <n>`: the cycle the
+  instruction retired in, or the cycle a trap was taken in, so the log
+  doubles as a retire trace that lines up against an RTL core's (#177).
 - `Simulator.open_commit_log` writes what a reference model needs to replay
   the run: the architectural state the log starts from, each retired
   instruction's privilege mode, destination register, the CSR it wrote (as

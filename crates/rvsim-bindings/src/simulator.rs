@@ -404,10 +404,11 @@ impl PySimulator {
     }
 
     /// Open a commit log file. Each retired instruction is a line
-    /// ``core   0: 0x<pc> (0x<inst>) priv <mode>`` followed by its effects:
-    /// ``x<n>``/``f<n> 0x<value>``, ``c<csr> 0x<value>``, and ``load``/``store
-    /// 0x<vaddr> 0x<paddr> <bytes> 0x<value>``. Each trap taken is a line
-    /// ``core   0: trap 0x<cause> 0x<epc> 0x<tval>``. Requires the
+    /// ``core   0: 0x<pc> (0x<inst>) priv <mode> cycle <n>`` (``<n>`` the
+    /// cycle it retired in) followed by its effects: ``x<n>``/``f<n>
+    /// 0x<value>``, ``c<csr> 0x<value>``, and ``load``/``store 0x<vaddr>
+    /// 0x<paddr> <bytes> 0x<value>``. Each trap taken is a line ``core   0:
+    /// trap 0x<cause> 0x<epc> 0x<tval> cycle <n>``. Requires the
     /// ``commit-log`` feature.
     #[cfg(feature = "commit-log")]
     fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
