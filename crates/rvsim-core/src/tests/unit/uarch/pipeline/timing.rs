@@ -533,3 +533,51 @@ fn a_fence_squashes_at_commit_only_when_configured() {
         assert!(squashed > plain, "{backend:?}: squashing {squashed}, plain {plain}");
     }
 }
+
+/// `redirect_config` with the front end's three latencies set.
+fn depth_config(
+    backend: BackendKind,
+    fetch_decode: u64,
+    decode_rename: u64,
+    rename_issue: u64,
+) -> Config {
+    let mut config = redirect_config(backend, 1, 1);
+    config.pipeline.fetch_decode_latency = fetch_decode;
+    config.pipeline.decode_rename_latency = decode_rename;
+    config.pipeline.rename_issue_latency = rename_issue;
+    config
+}
+
+/// The refill after a redirect runs from fetch to rename once, so the
+/// control stalls it costs move by exactly the front end's depth.
+#[test]
+fn each_cycle_from_fetch_to_decode_lengthens_the_refill_a_cycle() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let one = mispredict_control_stalls(&depth_config(backend, 1, 1, 2));
+        let three = mispredict_control_stalls(&depth_config(backend, 3, 1, 2));
+
+        assert_eq!(three - one, 2.0, "{backend:?}");
+    }
+}
+
+#[test]
+fn decode_and_rename_in_one_stage_shorten_the_refill_a_cycle() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let shared = mispredict_control_stalls(&depth_config(backend, 1, 0, 2));
+        let latched = mispredict_control_stalls(&depth_config(backend, 1, 1, 2));
+
+        assert_eq!(latched - shared, 1.0, "{backend:?}");
+    }
+}
+
+/// The target is reached after two passes from rename to issue: the first
+/// fill and the refill after the redirect.
+#[test]
+fn each_cycle_from_rename_to_issue_delays_the_refetched_target_twice() {
+    for (backend, least) in [(BackendKind::InOrder, 1), (BackendKind::OutOfOrder, 2)] {
+        let short = cycles_to_reach_target(&depth_config(backend, 1, 1, least));
+        let long = cycles_to_reach_target(&depth_config(backend, 1, 1, least + 2));
+
+        assert_eq!(long - short, 4, "{backend:?}");
+    }
+}

@@ -70,6 +70,9 @@ class Config:
         writeback_width: int | None = None,
         trap_latency: int = 13,
         redirect_latency: int | None = None,
+        fetch_decode_latency: int = 1,
+        decode_rename_latency: int = 1,
+        rename_issue_latency: int = 2,
         csr_squash: str | None = None,
         fence_squash: bool = False,
         store_forward_latency: int | None = None,
@@ -144,6 +147,9 @@ class Config:
         self.writeback_width = writeback_width
         self.trap_latency = trap_latency
         self.redirect_latency = redirect_latency
+        self.fetch_decode_latency = fetch_decode_latency
+        self.decode_rename_latency = decode_rename_latency
+        self.rename_issue_latency = rename_issue_latency
         if csr_squash not in (None, "EveryAccess", "AffectingWrites", "Never"):
             raise ValueError(
                 f"csr_squash must be 'EveryAccess', 'AffectingWrites' or 'Never', not {csr_squash!r}"

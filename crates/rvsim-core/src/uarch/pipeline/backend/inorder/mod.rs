@@ -116,6 +116,9 @@ pub struct InOrderEngine {
     cycle: u64,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
+    /// Whether a renamed bundle issues the cycle it reaches the backend
+    /// (`rename_issue_latency` of 1): dispatch runs before issue.
+    dispatch_before_issue: bool,
     /// This cycle's redirect came from commit, which fetch learns of the
     /// cycle after.
     redirected_at_commit: bool,
@@ -345,6 +348,7 @@ impl InOrderEngine {
             common,
             cycle: 0,
             redirect_latency: config.pipeline.redirect_latency(),
+            dispatch_before_issue: config.pipeline.rename_issue_latency == 1,
             redirected_at_commit: false,
         }
     }
@@ -435,6 +439,11 @@ impl ExecutionEngine for InOrderEngine {
             state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
         }
 
+        // A core whose rename hands straight to issue (Rocket's ID to EX)
+        // dispatches before issue, so the bundle issues this cycle.
+        if self.dispatch_before_issue {
+            self.issuer.dispatch(std::mem::take(rename_output));
+        }
         self.deliver_ready_results(now);
 
         let (results, units) = if backpressured {
@@ -482,10 +491,7 @@ impl ExecutionEngine for InOrderEngine {
         self.issue_vec_mem_elements(state);
 
         // Dispatch even during backpressure: skipping it lets rename_output outgrow issue capacity.
-        let rename_entries = std::mem::take(rename_output);
-        if !rename_entries.is_empty() {
-            self.issuer.dispatch(rename_entries);
-        }
+        self.issuer.dispatch(std::mem::take(rename_output));
     }
 
     fn can_accept(&self) -> usize {
