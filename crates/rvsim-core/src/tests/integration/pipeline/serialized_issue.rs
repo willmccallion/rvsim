@@ -1,6 +1,8 @@
-//! An instruction that must be the oldest learns that it is a cycle after
-//! the instruction ahead of it retires: the retirement is registered before
-//! the issue logic sees it, so the two never happen in the same cycle.
+//! On the out-of-order backend an instruction that must be the oldest
+//! learns that it is a cycle after the instruction ahead of it retires: the
+//! retirement is registered before the issue logic sees it, so the two
+//! never happen in the same cycle. The in-order backend issues a CSR read
+//! in order and performs it when it retires.
 
 use crate::config::BackendKind;
 use crate::config::Config;
@@ -13,7 +15,7 @@ const PROGRAM_BASE: u64 = 0x8000_0000;
 const MSCRATCH: u32 = 0x340;
 const ADDS: u64 = 8;
 
-/// Adds, then a CSR read, which issues only as the oldest instruction.
+/// Adds, then a CSR read.
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> = (0..ADDS).map(|_| i().addi(T0, T0, 1).build()).collect();
@@ -22,9 +24,9 @@ fn program() -> Vec<u32> {
     program
 }
 
-/// The cycle the last add retired and the cycle the CSR read left the
-/// issue queue.
-fn retire_and_issue_cycles(backend: BackendKind) -> (u64, u64) {
+/// The cycle the last add retired, if it had when the CSR read left the
+/// issue queue, and the cycle the read left it.
+fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
@@ -42,8 +44,7 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (u64, u64) {
         let snapshot = ctx.sim.state.cores[0].pipeline.snapshot(1);
         let in_queue = snapshot.issue_queue.iter().any(|e| e.inst.pc == csr_pc);
         if queued && !in_queue {
-            let retired = last_add_retired.expect("the CSR read issued before the adds retired");
-            return (retired, cycle);
+            return (last_add_retired, cycle);
         }
         queued |= in_queue;
     }
@@ -51,15 +52,15 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (u64, u64) {
 }
 
 #[test]
-fn a_csr_read_issues_the_cycle_after_the_last_older_instruction_retires_inorder() {
-    let (retired, issued) = retire_and_issue_cycles(BackendKind::InOrder);
+fn a_csr_read_issues_before_the_older_instructions_retire_inorder() {
+    let (retired, _) = retire_and_issue_cycles(BackendKind::InOrder);
 
-    assert_eq!(issued, retired + 1);
+    assert_eq!(retired, None);
 }
 
 #[test]
 fn a_csr_read_issues_the_cycle_after_the_last_older_instruction_retires_o3() {
     let (retired, issued) = retire_and_issue_cycles(BackendKind::OutOfOrder);
 
-    assert_eq!(issued, retired + 1);
+    assert_eq!(Some(issued), retired.map(|cycle| cycle + 1));
 }

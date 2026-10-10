@@ -150,8 +150,9 @@ pub enum SystemEffect {
     /// A permitted cache-block operation on the block at `rs1`; memory1
     /// evaluates its effect when it translates the block.
     Cbo,
-    /// A permitted CSR access.
-    Csr(CsrAccess),
+    /// A permitted CSR access, for the backend to perform once every older
+    /// CSR write has been applied.
+    Csr(CsrRequest),
 }
 
 /// What the system instruction `id` does at the current privilege level.
@@ -178,8 +179,8 @@ pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
             }
         }
         SystemOp::Ecall => SystemEffect::Trap(ecall_trap(state.hart())),
-        SystemOp::Csr => match csr_access(state, inst) {
-            Ok(access) => SystemEffect::Csr(access),
+        SystemOp::Csr => match csr_access_permitted(state, inst) {
+            Ok(()) => SystemEffect::Csr(CsrRequest::of(inst)),
             Err(trap) => SystemEffect::Trap(trap),
         },
     }
@@ -196,6 +197,32 @@ pub struct CsrWrite {
     pub new: u64,
 }
 
+/// A permitted CSR instruction's operation, performed where the backend
+/// has every older CSR write applied.
+#[derive(Clone, Copy, Debug)]
+pub struct CsrRequest {
+    /// The instruction's PC, for the trace.
+    pub pc: u64,
+    /// The CSR.
+    pub addr: CsrAddr,
+    /// The form of access.
+    pub op: CsrOp,
+    /// The source operand: `rs1`'s value or the immediate.
+    pub src: u64,
+}
+
+impl CsrRequest {
+    /// The operation `inst` requests.
+    #[must_use]
+    pub const fn of(inst: &Inst) -> Self {
+        let src = match inst.ctrl.csr_op {
+            CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (inst.rs1.as_u8() & 0x1f) as u64,
+            _ => inst.rv1,
+        };
+        Self { pc: inst.pc, addr: inst.ctrl.csr_addr, op: inst.ctrl.csr_op, src }
+    }
+}
+
 /// What a permitted CSR instruction reads, and the write it makes when it
 /// retires.
 #[derive(Clone, Debug)]
@@ -206,16 +233,16 @@ pub struct CsrAccess {
     pub update: Option<CsrWrite>,
 }
 
-/// Checks the CSR instruction `id` against the current privilege and
-/// counter enables, and computes the value it reads and the write it makes.
+/// Checks the CSR instruction `inst` against the current privilege and
+/// counter enables.
 ///
 /// # Errors
 ///
 /// The illegal-instruction trap when the access is not permitted.
-pub fn csr_access(state: &impl ArchState, inst: &Inst) -> Result<CsrAccess, Trap> {
+pub fn csr_access_permitted(state: &impl ArchState, inst: &Inst) -> Result<(), Trap> {
     let addr = inst.ctrl.csr_addr;
-    let illegal = Trap::IllegalInstruction(inst.bits);
-    let writes = csr_op_writes(inst);
+    let request = CsrRequest::of(inst);
+    let writes = csr_op_writes(request.op, request.src);
     let privilege = state.hart().privilege;
 
     let satp_trapped = addr == csr::SATP
@@ -228,42 +255,43 @@ pub fn csr_access(state: &impl ArchState, inst: &Inst) -> Result<CsrAccess, Trap
         || u32::from(privilege.to_u8()) < addr.privilege_level() as u32
         || (addr.is_read_only() && writes)
     {
-        return Err(illegal);
+        return Err(Trap::IllegalInstruction(inst.bits));
     }
+    Ok(())
+}
 
+/// Reads the CSR `request` names and computes the write it makes.
+pub fn perform_csr_access(state: &impl ArchState, request: &CsrRequest) -> CsrAccess {
+    let CsrRequest { pc, addr, op, src } = *request;
     let old = state.csr_read(addr);
     let base = state.csr_read_for_update(addr);
-    let src = match inst.ctrl.csr_op {
-        CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => u64::from(inst.rs1.as_u8() & 0x1f),
-        _ => inst.rv1,
-    };
-    let new = match inst.ctrl.csr_op {
+    let new = match op {
         CsrOp::Rw | CsrOp::Rwi => src,
         CsrOp::Rs | CsrOp::Rsi => base | src,
         CsrOp::Rc | CsrOp::Rci => base & !src,
         CsrOp::None => old,
     };
+    let writes = csr_op_writes(op, src);
     trace_csr!(state.tracing();
         op        = "write-deferred",
-        pc        = %crate::common::trace::Hex(inst.pc),
+        pc        = %crate::common::trace::Hex(pc),
         csr_addr  = %crate::common::trace::Hex32(addr.as_u32()),
-        csr_op    = ?inst.ctrl.csr_op,
+        csr_op    = ?op,
         old_val   = %crate::common::trace::Hex(old),
         new_val   = %crate::common::trace::Hex(new),
         writes,
-        "EX: CSR access"
+        "CSR access"
     );
     let update = writes.then_some(CsrWrite { addr, old, new });
-    Ok(CsrAccess { old, update })
+    CsrAccess { old, update }
 }
 
 /// Whether the CSR form writes: CSRRS/CSRRC with rs1=x0 and CSRRSI/CSRRCI
 /// with uimm=0 only read.
-const fn csr_op_writes(inst: &Inst) -> bool {
-    match inst.ctrl.csr_op {
+const fn csr_op_writes(op: CsrOp, src: u64) -> bool {
+    match op {
         CsrOp::Rw | CsrOp::Rwi => true,
-        CsrOp::Rs | CsrOp::Rc => !inst.rs1.is_zero(),
-        CsrOp::Rsi | CsrOp::Rci => (inst.rs1.as_u8() & 0x1f) != 0,
+        CsrOp::Rs | CsrOp::Rc | CsrOp::Rsi | CsrOp::Rci => src != 0,
         CsrOp::None => false,
     }
 }

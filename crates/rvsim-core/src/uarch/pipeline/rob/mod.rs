@@ -16,7 +16,7 @@ use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::InstSeq;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
-use crate::exec::execute::CsrWrite;
+use crate::exec::execute::{CsrRequest, CsrWrite};
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
 use crate::isa::instruction::InstSize;
@@ -179,6 +179,9 @@ pub struct RobEntry {
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was first detected.
     pub exception_stage: Option<ExceptionStage>,
+    /// A CSR access the in-order backend performs when the entry reaches
+    /// the head of the ROB; the entry has no result until then.
+    pub csr_request: Option<CsrRequest>,
     /// Deferred CSR write, if this is a CSR instruction.
     pub csr_update: Option<CsrUpdate>,
     /// The vector configuration a `vsetvl` sets, written to the CSRs at commit.
@@ -339,6 +342,7 @@ impl Rob {
             state: RobState::Issued,
             trap: None,
             exception_stage: None,
+            csr_request: None,
             csr_update: None,
             vec_csr_update: None,
             fault_vstart: None,
@@ -383,7 +387,9 @@ impl Rob {
             && entry.state != RobState::Faulted
         {
             entry.state = RobState::Completed;
-            entry.result = Some(result);
+            if entry.csr_request.is_none() {
+                entry.result = Some(result);
+            }
         }
     }
 
@@ -392,8 +398,17 @@ impl Rob {
     pub fn forward(&mut self, tag: RobTag, result: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
             && entry.state == RobState::Issued
+            && entry.csr_request.is_none()
         {
             entry.result = Some(result);
+        }
+    }
+
+    /// Defers `tag`'s CSR access to its retirement, where every older CSR
+    /// write has been applied; dependents wait for its result until then.
+    pub fn defer_csr(&mut self, tag: RobTag, request: CsrRequest) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.csr_request = Some(request);
         }
     }
 

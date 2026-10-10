@@ -28,3 +28,15 @@ cause and tval ones and never after a read (`write_flush` in
 (`flush_on_commit` in `v4/exu/decode.scala`). The in-order backend takes
 the flush when the access executes, the out-of-order one when it commits,
 on top of its rename hold.
+
+**Amended (#216).** The in-order backend no longer issues system
+instructions only from the ROB head. They issue in order and take effect
+when they retire: a CSR instruction's read and write are performed at the
+head of the ROB, where every older CSR write has been applied, and its
+dependents wait for that; the squash a CSR access, a fence, an xRET or a
+WFI causes is taken from commit. That is where Rocket performs them
+(`csr.io.rw` and `take_pc_wb` in `rocket/RocketCore.scala` are driven from
+WB) and where MinorCPU executes an instruction and forces its branch
+(`Execute::commit` in `cpu/minor/execute.cc`). `Never` is only valid on the
+out-of-order backend: without a rename hold, a CSR write that steers
+execution must squash what was fetched behind it.

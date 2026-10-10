@@ -4,7 +4,9 @@
 //! [`shared::execute`](crate::uarch::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
-use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
+use crate::exec::execute::{
+    SystemEffect, evaluate, operands, perform_csr_access, system_effect, unit_disabled,
+};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::uarch::ctx::StageCtx;
@@ -136,7 +138,10 @@ fn execute_system(
         SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
         // Nothing younger is renamed until this commits (serialize-after),
         // so the write needs no squash.
-        SystemEffect::Csr(access) => {
+        // Rename held everything younger until the ROB drained, so the
+        // access reads what every older instruction wrote.
+        SystemEffect::Csr(request) => {
+            let access = perform_csr_access(state, &request);
             if let Some(update) = access.update {
                 rob.set_csr_update(id.rob_tag, update.into());
             }
