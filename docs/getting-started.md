@@ -48,6 +48,14 @@ The programs land in `software/bin/programs/`, the benchmarks in
 `software/bin/multicore/`. `make linux` builds the Linux image (see
 [Linux Boot](examples/linux-boot.md)).
 
+Each program is built a second time into `software/bin-htif/` with a
+start-up and libc that print and exit through HTIF, the `tohost` and
+`fromhost` protocol spike's proxy and the Chipyard RTL harness serve
+and rvsim's HTIF device serves the same way: one ELF then behaves
+identically on all three, which is how the bundled programs are checked
+against spike. The default build prints through the UART instead.
+Linux user programs need neither; see [SE mode](se-mode.md).
+
 ## Your First Simulation
 
 ### Using the Python API

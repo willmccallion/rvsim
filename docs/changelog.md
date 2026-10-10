@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The HTIF device serves the syscall protocol spike's proxy (fesvr) and
+  Chipyard's harness speak: a bare-metal program hands the host an
+  eight-word block through `tohost`, the host performs the call (the
+  file calls, `write` to the console, `getmainvars` for the arguments
+  it was run with) and answers through `fromhost`. `make software` now
+  also builds every bundled program with an HTIF start-up and libc into
+  `software/bin-htif`, so one ELF prints and exits the same way on rvsim,
+  spike and the RTL simulators (#205).
 - SE mode runs a static Linux user program without a kernel: the
   simulator loads the ELF, builds its page tables (Sv39 by default,
   `page_mode` selects Sv48 or Sv57) and stack, runs it in user mode and

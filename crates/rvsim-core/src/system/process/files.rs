@@ -155,6 +155,21 @@ impl Default for FileTable {
 }
 
 impl FileTable {
+    /// A table whose descriptor 2 is the host's stdout, as fesvr's proxy
+    /// maps the target's stderr.
+    #[must_use]
+    pub fn with_stderr_on_stdout() -> Self {
+        Self { slots: vec![Some(HostFile::Stdin), Some(HostFile::Stdout), Some(HostFile::Stdout)] }
+    }
+
+    /// `ftruncate`.
+    pub fn truncate(&mut self, fd: i64, len: u64) -> Result<(), i64> {
+        match self.slot(fd)? {
+            HostFile::File { file, .. } => file.set_len(len).map_err(|e| io_errno(&e)),
+            _ => Err(-errno::EINVAL),
+        }
+    }
+
     fn slot(&mut self, fd: i64) -> Result<&mut HostFile, i64> {
         usize::try_from(fd)
             .ok()

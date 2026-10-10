@@ -6,6 +6,8 @@
 #define UART_BASE 0x10000000UL
 
 void putchar(char c);
+/* Writes buffered output to the host (a no-op on the UART). */
+void stdio_flush(void);
 void puts(const char *s);
 void printf(const char *fmt, ...);
 

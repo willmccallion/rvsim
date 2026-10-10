@@ -93,6 +93,8 @@ build: python
 software:
 	@printf "$(GREEN)Building libc and example programs…$(RESET)\n"
 	$(MAKE) -C software
+	@printf "$(GREEN)Building the HTIF variant (software/bin-htif)…$(RESET)\n"
+	$(MAKE) -C software IO=htif BIN=bin-htif BUILD_DIR=build-htif
 
 examples: software
 

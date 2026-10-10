@@ -194,7 +194,7 @@ impl SystemState {
         bus.add_device(Box::new(rtc));
 
         if config.system.tohost_addr != 0 {
-            let htif = Htif::new(config.system.tohost_addr, exit_signal.clone());
+            let htif = Htif::new(config.system.tohost_addr, exit_signal.clone(), Vec::new());
             bus.add_device(Box::new(htif));
         }
 

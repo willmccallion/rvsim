@@ -25,6 +25,10 @@ SECTIONS {
   }
 
   /* BSS Section: Must be zeroed by crt0.s */
+  .tohost : ALIGN(16) {
+    *(.tohost)
+  }
+
   .bss : ALIGN(8) {
     . = ALIGN(8);
     _bss_start = .;
@@ -39,4 +43,7 @@ SECTIONS {
   . = ALIGN(8);
   heap_top = .;
   _end = .;
+
+  /* Where rvsim's direct mode also puts the stack: 16 MiB above the base. */
+  _stack_top = 0x81000000;
 }
