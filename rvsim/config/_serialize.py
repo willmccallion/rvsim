@@ -533,6 +533,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "trace_instructions": cfg.trace,
         "start_pc": _START_PC_DEFAULT,
         "direct_mode": True,
+        "page_mode": cfg.page_mode,
+        "clock_hz": cfg.clock_hz,
     }
     if cfg.initial_sp is not None:
         general["initial_sp"] = cfg.initial_sp

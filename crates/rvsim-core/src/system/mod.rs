@@ -9,6 +9,7 @@ pub mod checkpoint;
 pub mod coherence_audit;
 pub mod dtb;
 pub mod loader;
+pub mod process;
 pub mod simulator;
 pub mod snapshot;
 pub(crate) mod state;

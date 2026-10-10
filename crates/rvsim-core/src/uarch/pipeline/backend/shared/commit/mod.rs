@@ -27,7 +27,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::checkpoint::{CheckpointId, CheckpointTable};
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::map::RenameMap;
-use crate::uarch::pipeline::rename::prf::PhysReg;
+use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
@@ -95,6 +95,8 @@ pub enum CommitRegisters<'a> {
     /// frees the previous mapping and releases the per-instruction slots
     /// only a renaming backend allocates.
     Renamed {
+        /// The physical registers, for a result that exists only at commit.
+        prf: &'a mut PhysRegFile,
         /// The committed architectural-to-physical mapping.
         rename_map: &'a mut RenameMap,
         /// Free scalar physical registers.
@@ -111,6 +113,15 @@ pub enum CommitRegisters<'a> {
 }
 
 impl CommitRegisters<'_> {
+    /// Writes a result that exists only at commit where dependents read
+    /// it: the physical register on the renamed backend; the in-order
+    /// backend's dependents read the architectural file commit writes.
+    fn write_result(&mut self, entry: &RobEntry, value: u64) {
+        if let Self::Renamed { prf, .. } = self {
+            prf.write(entry.phys_dst, value);
+        }
+    }
+
     fn retire_scalar(&mut self, entry: &RobEntry, is_fp: bool) {
         match self {
             Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(entry.rd, is_fp, entry.tag),
@@ -191,11 +202,12 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         }
         let Some(mut entry) = rob.commit_head() else { break };
         retire::perform_deferred_csr(state, &mut entry);
+        let syscall = retire::perform_syscall(state, &mut entry);
         retired_count += 1;
         youngest_retired = Some(entry.seq);
         let mut targets =
             RetireTargets { common, store_buffer, vec_store_buffer, registers: &mut registers };
-        if let CommitFlow::Stop(stop) = retire_entry(state, &mut targets, &entry) {
+        if let CommitFlow::Stop(stop) = retire_entry(state, &mut targets, &entry, syscall) {
             event = stop;
             break;
         }

@@ -371,6 +371,7 @@ impl SystemState {
                 commit_log: None,
                 exit_signal,
                 direct_mode,
+                process: None,
                 event_queue: EventQueue::new(),
                 stats,
                 stats_epoch: StatsEpoch::default(),

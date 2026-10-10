@@ -36,6 +36,19 @@ class Environment:
     load_addr: int = 0x8000_0000
     """Load address for the binary."""
 
+    args: list[str] = field(default_factory=list)
+    """The program's command line after its name, for a Linux user program
+    run in SE mode (its ``argv[0]`` is ``binary``)."""
+
+    env: list[str] | None = None
+    """The program's environment as ``NAME=value`` entries, for SE mode;
+    empty by default."""
+
+    mode: str | None = None
+    """``"se"`` to run a Linux user program with its syscalls served by the
+    simulator, ``"bare"`` for a bare-metal image; ``None`` decides from the
+    ELF (an entry below RAM with no ``tohost`` symbol is a user program)."""
+
     def get_config(self) -> dict[str, Any]:
         """Returns the config as a dict for the Rust backend."""
         if self.config is not None:
@@ -63,7 +76,14 @@ class Environment:
         try:
             with open(self.binary, "rb") as f:
                 elf_data = f.read()
-            cpu = Simulator(config, elf_data=elf_data, disk=self.disk)
+            cpu = Simulator(
+                config,
+                elf_data=elf_data,
+                args=[self.binary, *self.args],
+                env=list(self.env or []),
+                mode=self.mode,
+                disk=self.disk,
+            )
             exit_code = cpu.run(limit=limit, progress=progress)
             if exit_code is None and limit is None:
                 raise RuntimeError(

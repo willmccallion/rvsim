@@ -26,6 +26,39 @@ pub struct GeneralConfig {
     /// Initial stack pointer (only used when `direct_mode` is true). Defaults to `ram_base` + 16MiB if not set.
     #[serde(default)]
     pub initial_sp: Option<u64>,
+
+    /// The paging mode a user program runs under in SE mode.
+    #[serde(default)]
+    pub page_mode: SePagingMode,
+
+    /// The core clock, which SE mode's time syscalls divide cycles by.
+    #[serde(default = "GeneralConfig::default_clock_hz")]
+    pub clock_hz: u64,
+}
+
+/// The paging modes SE mode builds a user program's tables for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+pub enum SePagingMode {
+    /// Three-level tables over 39 bits, Linux's default on riscv64.
+    #[default]
+    Sv39,
+    /// Four levels over 48 bits.
+    Sv48,
+    /// Five levels over 57 bits.
+    Sv57,
+}
+
+impl SePagingMode {
+    /// The MMU's mode.
+    #[must_use]
+    pub const fn paging_mode(self) -> crate::isa::privileged::PagingMode {
+        use crate::isa::privileged::PagingMode;
+        match self {
+            Self::Sv39 => PagingMode::Sv39,
+            Self::Sv48 => PagingMode::Sv48,
+            Self::Sv57 => PagingMode::Sv57,
+        }
+    }
 }
 
 impl GeneralConfig {
@@ -38,6 +71,11 @@ impl GeneralConfig {
     const fn default_direct_mode() -> bool {
         true
     }
+
+    /// 1 GHz.
+    const fn default_clock_hz() -> u64 {
+        1_000_000_000
+    }
 }
 
 impl Default for GeneralConfig {
@@ -47,6 +85,8 @@ impl Default for GeneralConfig {
             start_pc: defaults::RAM_BASE,
             direct_mode: true,
             initial_sp: None,
+            page_mode: SePagingMode::default(),
+            clock_hz: Self::default_clock_hz(),
         }
     }
 }

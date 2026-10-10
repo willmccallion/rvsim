@@ -8,8 +8,10 @@
 
 use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::inst::Inst;
+use crate::exec::state::ArchState;
 use crate::isa::instruction::InstructionBits;
-use crate::isa::reg::RegIdx;
+use crate::isa::op::SystemOp;
+use crate::isa::reg::{self, RegIdx};
 use crate::isa::rvv::VectorConfig;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
@@ -54,8 +56,15 @@ pub fn decode_stage(
 
         let inst = if_entry.inst;
 
-        let DecodedInst { fields: d, ctrl, trap } = decode_inst(inst, if_entry.pc, vector.vtype);
+        let DecodedInst { fields: mut d, mut ctrl, trap } =
+            decode_inst(inst, if_entry.pc, vector.vtype);
         let ex_stage = trap.as_ref().map(|_| ExceptionStage::Decode);
+        // In SE mode a user program's ecall returns its syscall's result in
+        // a0, which is its destination so that dependents wait for it.
+        if ctrl.system_op == SystemOp::Ecall && state.serves_syscalls() {
+            d.rd = reg::REG_A0;
+            ctrl.reg_write = true;
+        }
 
         // O3 rename resolves RAW hazards via PRF, so this check applies only in-order.
         let rs3_idx = inst.rs3();

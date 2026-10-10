@@ -178,6 +178,13 @@ pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
                 Err(trap) => SystemEffect::Trap(trap),
             }
         }
+        // In SE mode a user program's ecall is a syscall the simulator
+        // serves when the instruction retires.
+        SystemOp::Ecall
+            if state.serves_syscalls() && state.hart().privilege == PrivilegeMode::User =>
+        {
+            SystemEffect::AtRetire
+        }
         SystemOp::Ecall => SystemEffect::Trap(ecall_trap(state.hart())),
         SystemOp::Csr => match csr_access_permitted(state, inst) {
             Ok(()) => SystemEffect::Csr(CsrRequest::of(inst)),

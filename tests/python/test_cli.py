@@ -108,3 +108,23 @@ class Bench(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UserPrograms(unittest.TestCase):
+    """A Linux user program gets the command line after its name."""
+
+    def test_the_programs_arguments_follow_its_name(self):
+        from tests.python.test_se_mode import EXIT_WITH_ARGC, user_elf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            result = subprocess.run(
+                [sys.executable, "-m", "rvsim", path, "--quiet", "--", "-x", "two"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 3, result.stderr)

@@ -15,6 +15,7 @@ use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
+use rvsim_core::system::simulator::{ProcessArgs, ProgramKind};
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -151,11 +152,15 @@ impl PySimulator {
         reason = "Google-style Args: names are bare for the docs generator"
     )]
     #[new]
-    #[pyo3(signature = (config_dict, *, elf_data=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None))]
+    #[allow(clippy::too_many_arguments, reason = "the constructor's keyword arguments")]
+    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None))]
     fn new(
         py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
         elf_data: Option<Vec<u8>>,
+        args: Option<Vec<String>>,
+        env: Option<Vec<String>>,
+        mode: Option<String>,
         kernel_path: Option<String>,
         firmware_path: Option<String>,
         dtb_path: Option<String>,
@@ -165,7 +170,20 @@ impl PySimulator {
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let mut sim = Simulator::build(&config, &disk_path.unwrap_or_default());
         if let Some(data) = elf_data {
-            sim.load_elf(&data).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let process_args =
+                ProcessArgs { argv: args.unwrap_or_default(), envp: env.unwrap_or_default() };
+            let mode = mode.unwrap_or_default();
+            let loaded = match mode.as_str() {
+                "" => sim.load_program(&data, &process_args),
+                "se" => sim.load_process(&data, &process_args).map(|()| ProgramKind::Process),
+                "bare" => sim.load_elf(&data).map(|()| ProgramKind::BareMetal),
+                other => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "mode must be 'se' or 'bare', not {other:?}"
+                    )));
+                }
+            };
+            let _ = loaded.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         }
         if let Some(kernel) = kernel_path {
             let boot = KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };

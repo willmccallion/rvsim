@@ -240,6 +240,18 @@ pub struct RobEntry {
     pub vec_mem_effects: Vec<crate::uarch::pipeline::commit_log::VectorElementAccess>,
 }
 
+impl RobEntry {
+    /// True when the entry's result exists only once it commits: a CSR
+    /// access the in-order backend deferred, or a syscall (an `ecall` with
+    /// `a0` as its destination in SE mode).
+    #[must_use]
+    pub const fn result_at_commit(&self) -> bool {
+        self.csr_request.is_some()
+            || (matches!(self.ctrl.system_op, crate::isa::op::SystemOp::Ecall)
+                && self.ctrl.reg_write)
+    }
+}
+
 /// Reorder Buffer — circular buffer for in-order commit.
 #[derive(Debug)]
 pub struct Rob {
@@ -387,7 +399,7 @@ impl Rob {
             && entry.state != RobState::Faulted
         {
             entry.state = RobState::Completed;
-            if entry.csr_request.is_none() {
+            if !entry.result_at_commit() {
                 entry.result = Some(result);
             }
         }
@@ -398,7 +410,7 @@ impl Rob {
     pub fn forward(&mut self, tag: RobTag, result: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
             && entry.state == RobState::Issued
-            && entry.csr_request.is_none()
+            && !entry.result_at_commit()
         {
             entry.result = Some(result);
         }

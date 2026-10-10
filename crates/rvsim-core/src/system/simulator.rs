@@ -28,6 +28,8 @@ use crate::sim::packet::Packet;
 use crate::sim::stats::Stats;
 use crate::soc::devices::Uart;
 use crate::soc::topology::{CacheSlot, PrivateCache};
+use crate::system::process;
+pub use crate::system::process::loader::ProcessArgs;
 use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
 use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
@@ -151,6 +153,43 @@ impl Simulator {
         }
         self.sync_arch_regs();
         Ok(())
+    }
+
+    /// Loads `data`, a static Linux ELF, as a user process (SE mode): its
+    /// pages and tables go into RAM, hart 0 starts at its entry in user
+    /// mode with `args` on its stack, and its syscalls are served by the
+    /// simulator.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::NotAnElf`], [`SimError::UnsupportedProgram`] or
+    /// [`SimError::ProcessMemory`].
+    pub fn load_process(&mut self, data: &[u8], args: &ProcessArgs) -> Result<(), SimError> {
+        let general = &self.state.config.general;
+        let (mode, clock_hz) = (general.page_mode.paging_mode(), general.clock_hz);
+        process::loader::load_process(&mut self.state, data, args, mode, clock_hz)?;
+        self.sync_arch_regs();
+        Ok(())
+    }
+
+    /// Loads `data` as a user process when it is linked as one (an
+    /// executable whose entry lies below RAM, with no `tohost`), otherwise
+    /// as a bare-metal image, and says which.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load_process`] and [`Self::load_elf`].
+    pub fn load_program(
+        &mut self,
+        data: &[u8],
+        args: &ProcessArgs,
+    ) -> Result<ProgramKind, SimError> {
+        let kind = ProgramKind::of(data, self.state.config.system.ram_base)?;
+        match kind {
+            ProgramKind::Process => self.load_process(data, args)?,
+            ProgramKind::BareMetal => self.load_elf(data)?,
+        }
+        Ok(kind)
     }
 
     /// Places firmware, a kernel and a device tree in RAM as `boot` says
@@ -940,5 +979,29 @@ fn dispatch_to_cache(state: &mut SystemState, id: CacheId, packet: Packet, sourc
             cache.handle(packet, source, &mut ctx);
         }
         CacheSlot::Llc => uncore.l3_cache.handle(packet, source, &mut ctx),
+    }
+}
+
+/// How an ELF is run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramKind {
+    /// A Linux user program under SE mode.
+    Process,
+    /// A bare-metal image at its link address.
+    BareMetal,
+}
+
+impl ProgramKind {
+    /// Reads the ELF header: an executable whose entry lies below RAM and
+    /// that has no `tohost` symbol is a user program.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::NotAnElf`] when `data` is not an ELF image.
+    pub fn of(data: &[u8], ram_base: u64) -> Result<Self, SimError> {
+        use object::{Object, ObjectSymbol};
+        let file = object::File::parse(data).map_err(|_| SimError::NotAnElf)?;
+        let has_tohost = file.symbols().any(|s| s.name() == Ok("tohost"));
+        if file.entry() < ram_base && !has_tohost { Ok(Self::Process) } else { Ok(Self::BareMetal) }
     }
 }
