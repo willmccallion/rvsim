@@ -42,6 +42,9 @@ class Simulator(_CoreSimulator):
         *,
         binary: str | None = None,
         elf_data: bytes | None = None,
+        args: list[str] | None = None,
+        env: list[str] | None = None,
+        mode: str | None = None,
         kernel: str | None = None,
         firmware: str | None = None,
         disk: str | None = None,
@@ -58,10 +61,15 @@ class Simulator(_CoreSimulator):
             with open(binary, "rb") as f:
                 elf_data = f.read()
 
+        if args is None and binary is not None:
+            args = [binary]
         return _CoreSimulator.__new__(
             cls,
             config_dict,
             elf_data=elf_data,
+            args=args,
+            env=env,
+            mode=mode,
             kernel_path=kernel,
             firmware_path=firmware,
             dtb_path=dtb,

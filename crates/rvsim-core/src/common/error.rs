@@ -44,6 +44,15 @@ pub enum SimError {
     /// The bytes given as a program are not an ELF image.
     #[error("not an ELF image")]
     NotAnElf,
+    /// A program SE mode cannot run.
+    #[error("cannot run this program in SE mode: {reason}")]
+    UnsupportedProgram {
+        /// What about it.
+        reason: String,
+    },
+    /// RAM could not hold the process.
+    #[error("the program's memory could not be set up: {0:?}")]
+    ProcessMemory(crate::system::process::SpaceError),
 
     /// A kernel panic was detected via the `tohost`/panic sentinel mechanism.
     ///

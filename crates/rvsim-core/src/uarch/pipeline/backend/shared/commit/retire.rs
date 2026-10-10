@@ -12,6 +12,7 @@ use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
+use crate::system::process::syscall::{self, Outcome};
 use crate::trace_branch;
 use crate::trace_commit;
 use crate::trace_csr;
@@ -44,10 +45,11 @@ pub(super) fn retire_entry(
     state: &mut CoreCtx<'_>,
     targets: &mut RetireTargets<'_, '_>,
     entry: &RobEntry,
+    syscall: Option<Outcome>,
 ) -> CommitFlow {
     #[cfg(feature = "commit-log")]
     let privilege = state.hart.privilege;
-    let flow = apply_retirement(state, targets, entry);
+    let flow = apply_retirement(state, targets, entry, syscall);
     #[cfg(feature = "commit-log")]
     if state.commit_log.is_some() {
         let store = targets.store_buffer.committed_write(entry.tag);
@@ -76,18 +78,34 @@ pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry
     entry.csr_update = access.update.map(Into::into);
 }
 
+/// Serves the syscall a user program's `ecall` asks for (SE mode) now
+/// that every older instruction has retired and every older store has
+/// been written; the result becomes the entry's, destined for `a0`.
+pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> Option<Outcome> {
+    if entry.ctrl.system_op != SystemOp::Ecall || state.uncore.process.is_none() {
+        return None;
+    }
+    let outcome = syscall::serve_ecall(state, entry.pc);
+    entry.result = Some(match outcome {
+        Outcome::Continue { a0 } => a0,
+        Outcome::Exit(code) => code,
+    });
+    Some(outcome)
+}
+
 /// Applies `entry`'s architectural effects and releases what it held.
 fn apply_retirement(
     state: &mut CoreCtx<'_>,
     targets: &mut RetireTargets<'_, '_>,
     entry: &RobEntry,
+    syscall: Option<Outcome>,
 ) -> CommitFlow {
     advance_pc(state, entry);
     count_retired(state, entry);
     write_destinations(state, targets.registers, entry);
     apply_deferred_updates(state, targets.common, entry);
 
-    if let CommitFlow::Stop(event) = retire_system(state, entry) {
+    if let CommitFlow::Stop(event) = retire_system(state, entry, syscall) {
         return CommitFlow::Stop(event);
     }
     release_memory_resources(state, targets, entry);
@@ -188,6 +206,9 @@ fn write_destinations(
         );
     } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
         retire::write_int(state.hart, entry.rd, val);
+        if entry.result_at_commit() {
+            registers.write_result(entry, val);
+        }
         registers.retire_scalar(entry, false);
         trace_commit!(state.config.general.trace_instructions;
             pc       = %crate::common::trace::Hex(entry.pc),
@@ -245,7 +266,11 @@ fn apply_deferred_updates(state: &mut CoreCtx<'_>, common: &mut BackendCommon, e
 }
 
 /// Applies a CSR write, xRET or WFI, each of which ends the retire group.
-fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
+fn retire_system(
+    state: &mut CoreCtx<'_>,
+    entry: &RobEntry,
+    syscall: Option<Outcome>,
+) -> CommitFlow {
     if let Some(csr_update) = &entry.csr_update {
         // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
         if !csr_update.applied {
@@ -314,6 +339,21 @@ fn retire_system(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
             (!retire::wfi(state.hart))
                 .then(|| CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64()))),
         ),
+        // The instructions fetched behind a served ecall read registers and
+        // mappings it changed, so they are refetched, as after a CSR write.
+        SystemOp::Ecall => match syscall {
+            Some(Outcome::Exit(code)) => {
+                state.signal_exit(code);
+                CommitFlow::Stop(None)
+            }
+            Some(Outcome::Continue { .. }) => {
+                state.core.mmu.sfence_vma(&syscall::flush_all());
+                CommitFlow::Stop(Some(CommitEvent::SquashAfter(
+                    entry.pc.wrapping_add(entry.inst_size.as_u64()),
+                )))
+            }
+            None => CommitFlow::Continue,
+        },
         _ => CommitFlow::Continue,
     }
 }

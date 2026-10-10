@@ -5,4 +5,5 @@ pub mod checkpoint_resume;
 pub mod commit_log;
 pub mod exit;
 pub mod run_to;
+pub mod se_mode;
 pub mod sim_control;

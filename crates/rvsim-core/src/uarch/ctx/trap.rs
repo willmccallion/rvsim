@@ -13,6 +13,40 @@ impl CoreCtx<'_> {
     pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.clear_reservation();
 
+        if self.uncore.process.is_some() {
+            // There is no kernel to take it: the program dies as it would
+            // under Linux, with the signal's exit status.
+            let signal = match cause {
+                Trap::IllegalInstruction(_) => 4,
+                Trap::Breakpoint(_) => 5,
+                Trap::InstructionAddressMisaligned(_)
+                | Trap::LoadAddressMisaligned(_)
+                | Trap::StoreAddressMisaligned(_) => 7,
+                _ => 11,
+            };
+            tracing::error!(target: "rvsim::trap", ?cause, pc = %crate::common::trace::Hex(epc), "the program faulted in SE mode");
+            // Left for a post-mortem: what faulted, where, and on what.
+            let (_, code) = cause.cause();
+            self.hart.csrs.mcause = code;
+            self.hart.csrs.mepc = epc;
+            self.hart.csrs.mtval = match *cause {
+                Trap::InstructionAddressMisaligned(a)
+                | Trap::InstructionAccessFault(a)
+                | Trap::Breakpoint(a)
+                | Trap::LoadAddressMisaligned(a)
+                | Trap::LoadAccessFault(a)
+                | Trap::StoreAddressMisaligned(a)
+                | Trap::StoreAccessFault(a)
+                | Trap::InstructionPageFault(a)
+                | Trap::LoadPageFault(a)
+                | Trap::StorePageFault(a) => a,
+                Trap::IllegalInstruction(i) => u64::from(i),
+                _ => 0,
+            };
+            self.signal_exit(128 + signal);
+            return;
+        }
+
         if self.direct_mode && self.hart.csrs.mtvec == 0 {
             // In direct mode with no trap handler installed (mtvec == 0),
             // handle traps directly: ecall triggers SYS_EXIT and everything

@@ -294,12 +294,14 @@ fn advance_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon)
 
 /// True when `head` must not retire before every older store's write has
 /// completed: SFENCE.VMA (the walker must see earlier PTE stores), FENCE.I,
-/// and a FENCE whose predecessor set includes writes. An atomic that needs
+/// a FENCE whose predecessor set includes writes, and a syscall, which
+/// reads the program's memory. An atomic that needs
 /// older stores written waits for them before it issues, and a CBO is
 /// ordered with them in the store buffer.
 fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
         || (head.ctrl.system_op == SystemOp::Fence && Fence::decode(head.inst).pred.w)
+        || head.result_at_commit() && head.ctrl.system_op == SystemOp::Ecall
 }
 
 /// True while a committed scalar or vector store has not finished writing.

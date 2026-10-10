@@ -109,6 +109,8 @@ pub struct Uncore {
     /// `config.general.direct_mode` and runtime-mutable (the ELF loader
     /// writes it after init).
     pub direct_mode: bool,
+    /// The user process SE mode is running, when it is.
+    pub process: Option<crate::system::process::Process>,
     /// Global event queue: every inter-component message lands here.
     pub event_queue: EventQueue,
     /// Hierarchical statistics tree; sim-side perf observability counters.

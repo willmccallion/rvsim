@@ -17,4 +17,8 @@ pub trait ArchState {
 
     /// Whether instruction tracing is on.
     fn tracing(&self) -> bool;
+
+    /// Whether the simulator serves a user program's `ecall` as a
+    /// syscall (SE mode) rather than letting it trap.
+    fn serves_syscalls(&self) -> bool;
 }

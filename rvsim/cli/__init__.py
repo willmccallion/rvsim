@@ -240,6 +240,7 @@ def main() -> None:
         epilog=(
             "examples:\n"
             "  rvsim mandelbrot.elf               run with default config, print stats\n"
+            "  rvsim prog -- a b                   run a static Linux user program with arguments\n"
             "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
             "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
             "  rvsim mandelbrot.elf --preset fast   run on the M4-class preset\n"
@@ -305,6 +306,20 @@ def main() -> None:
         default=None,
         help="run with N harts (overrides the config's hart_count)",
     )
+    parser.add_argument(
+        "--env",
+        metavar="NAME=VALUE",
+        action="append",
+        default=[],
+        help="an environment entry for a Linux user program (SE mode); repeatable",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["se", "bare"],
+        default=None,
+        help="run the ELF as a Linux user program (se) or a bare-metal image (bare); "
+        "by default an entry below RAM with no tohost symbol means se",
+    )
     parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
 
     args, remaining = parser.parse_known_args()
@@ -315,10 +330,17 @@ def main() -> None:
 
     target = args.positional_args[0]
     mode = _detect_mode(target)
+    # What follows the program (after `--` when it starts with a dash) is
+    # the program's own command line.
     extra_args = args.positional_args[1:] + remaining
+    if extra_args[:1] == ["--"]:
+        extra_args = extra_args[1:]
 
-    if mode != "script" and extra_args:
+    if mode == "kernel" and extra_args:
         parser.error(f"unrecognized arguments: {' '.join(extra_args)}")
+    for entry in args.env:
+        if "=" not in entry:
+            parser.error(f"--env takes NAME=VALUE, not {entry!r}")
 
     # ── Execute ───────────────────────────────────────────────────────────────
 
@@ -364,7 +386,13 @@ def main() -> None:
             sim = (
                 Simulator(cfg, kernel=target)
                 if mode == "kernel"
-                else Simulator(cfg, binary=target)
+                else Simulator(
+                    cfg,
+                    binary=target,
+                    args=[target, *extra_args],
+                    env=args.env,
+                    mode=args.mode,
+                )
             )
         finally:
             sys.stderr = _real_stderr
@@ -380,7 +408,13 @@ def main() -> None:
         sim = (
             Simulator(cfg, kernel=target)
             if mode == "kernel"
-            else Simulator(cfg, binary=target)
+            else Simulator(
+                cfg,
+                binary=target,
+                args=[target, *extra_args],
+                env=args.env,
+                mode=args.mode,
+            )
         )
         exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 

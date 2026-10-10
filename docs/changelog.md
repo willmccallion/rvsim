@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode runs a static Linux user program without a kernel: the
+  simulator loads the ELF, builds its page tables (Sv39 by default,
+  `page_mode` selects Sv48 or Sv57) and stack, runs it in user mode and
+  serves its syscalls against the host, as gem5's SE mode does, so
+  anything built with a Linux toolchain and linked `-static` runs
+  unchanged: `python -m rvsim ./prog -- args`, or `Environment(binary,
+  args=[...], env=[...])`. A syscall costs the pipeline a flush and
+  nothing else; `clock_hz` sets the clock the time calls read. `make
+  se-verify` checks the output and exit code of a set of programs, and
+  Embench-IoT with `EMBENCH=1`, against `qemu-riscv64`. One hart, static
+  non-PIE executables, no threads, no checkpoints yet (see
+  [SE mode](se-mode.md)).
 - `make rtl-build` builds Chipyard 1.14.0's Rocket and Medium BOOM V4 as
   Verilator simulators and `make rtl-compare RTL_CORE=rocket|boom` lines
   rvsim's retire timing up with theirs instruction by instruction;

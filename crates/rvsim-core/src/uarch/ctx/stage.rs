@@ -69,6 +69,10 @@ impl ArchState for StageCtx<'_> {
     fn tracing(&self) -> bool {
         self.uncore.config.general.trace_instructions
     }
+
+    fn serves_syscalls(&self) -> bool {
+        self.uncore.process.is_some()
+    }
 }
 
 impl Deref for StageCtx<'_> {

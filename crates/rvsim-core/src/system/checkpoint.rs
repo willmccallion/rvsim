@@ -42,6 +42,9 @@ pub enum CheckpointError {
     /// The file is not an rvsim checkpoint.
     #[error("not an rvsim checkpoint")]
     NotACheckpoint,
+    /// What is running cannot be checkpointed yet.
+    #[error("checkpoints are not supported {0}")]
+    Unsupported(&'static str),
     /// The checkpoint was written by an incompatible version.
     #[error("checkpoint version {found} cannot be restored; this build restores version {VERSION}")]
     Version {
@@ -177,6 +180,9 @@ impl Simulator {
     ///
     /// Returns [`CheckpointError`] when writing fails.
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
+        if self.state.process.is_some() {
+            return Err(CheckpointError::Unsupported("in SE mode"));
+        }
         self.drain();
         let state = &self.state;
         let ram = state.memory.ram();

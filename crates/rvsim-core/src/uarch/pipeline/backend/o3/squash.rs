@@ -61,6 +61,7 @@ impl O3Engine {
                 vec_store_buffer: &mut self.vec_store_buffer,
                 width: self.commit_width,
                 registers: CommitRegisters::Renamed {
+                    prf: &mut self.prf,
                     rename_map: &mut self.committed_rename_map,
                     free_list: &mut self.free_list,
                     load_queue: &mut self.load_queue,
