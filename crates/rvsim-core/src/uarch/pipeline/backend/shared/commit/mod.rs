@@ -195,6 +195,11 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     let mut youngest_retired = None;
     let rob_empty_at_start = rob.peek_head().is_none();
     for _ in 0..width {
+        if retired_count > 0
+            && rob.peek_head().is_some_and(|head| state.core.stop_pcs.contains(&head.pc))
+        {
+            break;
+        }
         let gate = gate_head(state, common, rob, store_buffer, vec_store_buffer, &mut registers);
         if let CommitFlow::Stop(stop) = gate {
             event = stop;
