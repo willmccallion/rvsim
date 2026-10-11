@@ -242,12 +242,15 @@ pub struct RobEntry {
 
 impl RobEntry {
     /// True when the entry's result exists only once it commits: a CSR
-    /// access the in-order backend deferred, or a syscall (an `ecall` with
-    /// `a0` as its destination in SE mode).
+    /// access the in-order backend deferred, a syscall (an `ecall` with
+    /// `a0` as its destination in SE mode) or a pseudo-operation that
+    /// returns a value.
     #[must_use]
     pub const fn result_at_commit(&self) -> bool {
+        use crate::isa::op::SystemOp;
+
         self.csr_request.is_some()
-            || (matches!(self.ctrl.system_op, crate::isa::op::SystemOp::Ecall)
+            || (matches!(self.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo)
                 && self.ctrl.reg_write)
     }
 }

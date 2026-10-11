@@ -109,6 +109,9 @@ pub struct Uncore {
     pub exit_signal: Arc<AtomicU64>,
     /// The user process SE mode is running, when it is.
     pub process: Option<crate::system::process::Process>,
+    /// The script file and output directory the guest reaches with the
+    /// readfile and writefile pseudo-operations.
+    pub host_files: crate::system::host_files::HostFiles,
     /// The console every device and proxy prints to and reads from.
     pub terminal: SharedTerminal,
     /// Where the pipeline reports each instruction's progress, when a

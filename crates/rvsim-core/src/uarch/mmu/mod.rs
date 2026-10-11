@@ -354,7 +354,36 @@ impl Mmu {
     }
 }
 
-/// Returns true if `va` is a canonical virtual address for `mode`.
+/// Translates `vaddr` for a data `access` at `privilege` now, reading each
+/// PTE with `read_pte`, as the host reaches the program's memory for a
+/// pseudo-operation: the hart's permissions apply, but the TLBs are
+/// neither consulted nor filled and no A or D bit is set or required.
+///
+/// # Errors
+///
+/// The fault the access would take.
+pub fn translate_now(
+    vaddr: VirtAddr,
+    access: AccessType,
+    privilege: PrivilegeMode,
+    csrs: &Csrs,
+    read_pte: impl Fn(PhysAddr) -> Option<u64>,
+) -> Result<PhysAddr, Trap> {
+    use crate::isa::csr::{SATP_MODE_MASK, SATP_MODE_SHIFT};
+
+    let Some(paging) = PagingMode::from_satp_mode((csrs.satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK)
+    else {
+        return Err(Trap::access_fault(access, vaddr.val()));
+    };
+    if privilege == PrivilegeMode::Machine || paging == PagingMode::Bare {
+        return Ok(PhysAddr::new(vaddr.val()));
+    }
+    if !is_canonical_va(vaddr.val(), paging) {
+        return Err(Trap::page_fault(access, vaddr.val()));
+    }
+    ptw::walk_now(WalkRequest { access, privilege, mode: paging }, vaddr, csrs, read_pte)
+}
+
 /// Whether a load at `privilege` may read the page `hit` maps, under the
 /// MXR and SUM bits of `mstatus`.
 const fn readable(hit: &TlbHit, privilege: PrivilegeMode, mstatus: u64) -> bool {

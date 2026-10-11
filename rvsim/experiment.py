@@ -49,6 +49,13 @@ class Environment:
     simulator, ``"bare"`` for a bare-metal image; ``None`` decides from the
     ELF (an entry below RAM with no ``tohost`` symbol is a user program)."""
 
+    script: str | None = None
+    """The file the program's readfile pseudo-operation reads."""
+
+    outdir: str | None = None
+    """The directory the program's writefile pseudo-operation writes into,
+    created if missing."""
+
     def get_config(self) -> dict[str, Any]:
         """Returns the config as a dict for the Rust backend."""
         if self.config is not None:
@@ -83,6 +90,8 @@ class Environment:
                 env=list(self.env or []),
                 mode=self.mode,
                 disk=self.disk,
+                script=self.script,
+                outdir=self.outdir,
             )
             exit_code = cpu.run(limit=limit, progress=progress)
             if exit_code is None and limit is None:

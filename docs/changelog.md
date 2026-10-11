@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- gem5's `readfile` and `writefile` pseudo-operations (`m5_read_file`,
+  `m5_write_file`; `rvsim_read_file` and `rvsim_write_file` in
+  `rvsim.h`): a guest reads the host's script file into its memory and
+  writes a file into the host's output directory, named by
+  `Simulator(script=..., outdir=...)`, `Environment(script=, outdir=)`
+  or `--script` and `--outdir`. They retire like a syscall in SE mode,
+  reach the program's memory through the hart's own translation, and
+  return a count or a negated `errno` in `a0`, in a bare-metal image, a
+  user program and a Linux guest alike. See
+  [Pseudo-operations](pseudo-ops.md#files).
+- The Linux image's `rvsim` tool issues the pseudo-instruction instead
+  of writing the sim-control device through `/dev/mem`, and gains
+  `rvsim readfile` and `rvsim writefile FILE [NAME]`, like gem5's `m5`.
+- The Linux image sets `kernel.perf_user_access = 2`, so `rdcycle` works
+  from user space on Linux 6.6.
+- The Linux image's Buildroot configuration lives in
+  `software/guest/buildroot.defconfig`, with a kernel fragment,
+  `software/guest/linux.fragment`, that states the vector, Zicbom,
+  Zicboz and perf options instead of relying on the kernel's default.
+- `Simulator.vmem32` and `vmem64` walk the page tables without filling
+  the TLBs, so reading guest memory from Python no longer changes what
+  the hart's translation caches hold.
 - The HTIF device serves the syscall protocol spike's proxy (fesvr) and
   Chipyard's harness speak: a bare-metal program hands the host an
   eight-word block through `tohost`, the host performs the call (the

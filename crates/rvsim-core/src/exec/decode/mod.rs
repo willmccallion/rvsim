@@ -10,8 +10,10 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::signals::{ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
-use crate::isa::op::{AluOp, VectorOp};
+use crate::isa::op::pseudo::PseudoOp;
+use crate::isa::op::{AluOp, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
+use crate::isa::reg;
 use crate::isa::rvv::{VtypeFields, parse_vtype};
 
 /// Vector load/store width encoding for EEW=8.
@@ -60,11 +62,17 @@ pub struct DecodedInst {
 /// illegal when its register groups are misaligned for it.
 #[must_use]
 pub fn decode_inst(inst: u32, pc: u64, vtype_bits: u64) -> DecodedInst {
-    let fields = instruction_decode(inst);
+    let mut fields = instruction_decode(inst);
     let (mut ctrl, mut trap) = match decode_instruction(inst, pc, &fields) {
         Ok(ctrl) => (ctrl, None),
         Err(trap) => (ControlSignals::default(), Some(trap)),
     };
+    // A pseudo-operation that returns a value leaves it in a0, which is
+    // its destination so that dependents wait for it.
+    if ctrl.system_op == SystemOp::Pseudo && PseudoOp::of(inst).returns_value() {
+        fields.rd = reg::REG_A0;
+        ctrl.reg_write = true;
+    }
     let vtype = parse_vtype(vtype_bits);
     if ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config() && !vtype.vill {
         ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();

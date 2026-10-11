@@ -14,6 +14,7 @@ use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::soc::devices::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
+use crate::system::host_files;
 use crate::system::process::syscall::{self, Outcome};
 use crate::trace_branch;
 use crate::trace_commit;
@@ -94,6 +95,22 @@ pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> 
         Outcome::Exit(code) => code,
     });
     Some(outcome)
+}
+
+/// Performs the pseudo-operation that returns a value, readfile or
+/// writefile, now that every older instruction has retired and every
+/// older store has been written; the result becomes the entry's,
+/// destined for `a0`.
+pub(super) fn perform_file_op(state: &mut CoreCtx<'_>, entry: &mut RobEntry) {
+    if entry.ctrl.system_op != SystemOp::Pseudo || !entry.ctrl.reg_write {
+        return;
+    }
+    let result = match PseudoOp::of(entry.inst) {
+        PseudoOp::ReadFile => host_files::read_file(state),
+        PseudoOp::WriteFile => host_files::write_file(state),
+        _ => return,
+    };
+    entry.result = Some(result as u64);
 }
 
 /// Applies `entry`'s architectural effects and releases what it held.
@@ -367,7 +384,9 @@ fn retire_system(
 /// Performs the pseudo-operation `entry` asks for, as gem5 performs an
 /// m5op when it commits, with `a0` and `a1` as its arguments; the stats
 /// and break requests take effect at the end of the cycle, with the
-/// sim-control device's.
+/// sim-control device's. A file operation was performed before the
+/// entry's result was written; the instructions fetched behind it may
+/// have read the memory it changed, so they are refetched.
 fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
     let a0 = state.hart.regs.read(crate::isa::reg::REG_A0);
     let a1 = state.hart.regs.read(crate::isa::reg::REG_A1);
@@ -379,6 +398,11 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         PseudoOp::Fail => {
             state.signal_exit(a1);
             return CommitFlow::Stop(None);
+        }
+        PseudoOp::ReadFile | PseudoOp::WriteFile => {
+            return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
+                entry.pc.wrapping_add(entry.inst_size.as_u64()),
+            )));
         }
         PseudoOp::ResetStats => state.uncore.request(SimOp::ResetStats),
         PseudoOp::DumpStats => state.uncore.request(SimOp::DumpStats { label: a0 }),

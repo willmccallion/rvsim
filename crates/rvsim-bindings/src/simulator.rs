@@ -147,13 +147,17 @@ impl PySimulator {
     ///         mode). Optional; found under ``software/linux/output`` if absent.
     ///     dtb_path: Path to a DTB file (kernel mode). Optional.
     ///     disk_path: Path to a disk image. Optional.
+    ///     script_path: The file the guest's readfile pseudo-operation
+    ///         reads. Optional.
+    ///     outdir: The directory the guest's writefile pseudo-operation
+    ///         writes into, created if missing. Optional.
     #[allow(
         clippy::doc_markdown,
         reason = "Google-style Args: names are bare for the docs generator"
     )]
     #[new]
     #[allow(clippy::too_many_arguments, reason = "the constructor's keyword arguments")]
-    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None))]
+    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None, script_path=None, outdir=None))]
     fn new(
         py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
@@ -165,10 +169,18 @@ impl PySimulator {
         firmware_path: Option<String>,
         dtb_path: Option<String>,
         disk_path: Option<String>,
+        script_path: Option<String>,
+        outdir: Option<String>,
     ) -> PyResult<Self> {
         let config = py_dict_to_config(py, config_dict)?;
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let mut sim = Simulator::build(&config, &disk_path.unwrap_or_default());
+        if let Some(script) = script_path {
+            sim.set_script_file(&script).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        }
+        if let Some(dir) = outdir {
+            sim.set_output_dir(&dir).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        }
         if let Some(data) = elf_data {
             let process_args =
                 ProcessArgs { argv: args.unwrap_or_default(), envp: env.unwrap_or_default() };

@@ -158,6 +158,8 @@ class Simulator:
         firmware_path: str | None = None,
         dtb_path: str | None = None,
         disk_path: str | None = None,
+        script_path: str | None = None,
+        outdir: str | None = None,
     ) -> Self: ...
     @property
     def pc(self) -> int:

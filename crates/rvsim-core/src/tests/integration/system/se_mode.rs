@@ -40,7 +40,7 @@ const RAM_BASE: u64 = 0x8000_0000;
 
 /// A static riscv64 executable holding `code` in one readable, writable
 /// and executable segment at `LOAD_ADDRESS`.
-fn user_elf(code: &[u32], e_type: u16) -> Vec<u8> {
+pub(super) fn user_elf(code: &[u32], e_type: u16) -> Vec<u8> {
     let mut image = Vec::new();
     image.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0]);
     image.extend_from_slice(&[0u8; 8]);

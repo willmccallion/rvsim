@@ -128,3 +128,41 @@ class UserPrograms(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 3, result.stderr)
+
+
+class HostFiles(unittest.TestCase):
+    """``--script`` and ``--outdir`` give the guest's readfile and writefile
+    pseudo-operations their host files."""
+
+    def test_script_and_outdir_reach_the_program(self):
+        from tests.python.test_se_mode import SCRIPT, file_exchange, user_elf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(file_exchange()))
+            script = os.path.join(tmp, "script.sh")
+            with open(script, "wb") as f:
+                f.write(SCRIPT)
+            outdir = os.path.join(tmp, "m5out")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "rvsim",
+                    path,
+                    "--quiet",
+                    "--script",
+                    script,
+                    "--outdir",
+                    outdir,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            with open(os.path.join(outdir, "out.txt"), "rb") as f:
+                written = f.read()
+
+        self.assertEqual(result.returncode, len(SCRIPT), result.stderr)
+        self.assertEqual(written, SCRIPT)

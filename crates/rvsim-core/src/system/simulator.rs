@@ -34,7 +34,6 @@ pub use crate::system::process::loader::ProcessArgs;
 use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
 use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
-use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::pipeline::trace::PipelineTrace;
 pub use crate::uarch::pipeline::trace::PipelineTraceFormat;
@@ -280,7 +279,8 @@ impl Simulator {
     }
 
     /// Translates `vaddr` for a read on `hart` through its current page
-    /// tables, walking them now rather than through the pipeline.
+    /// tables, walking them now rather than through the pipeline and
+    /// leaving its TLBs as they are.
     ///
     /// # Errors
     ///
@@ -294,19 +294,33 @@ impl Simulator {
         let Some(core) = self.state.topology.core_of_hart(hart_id) else {
             return Ok(PhysAddr::new(vaddr.val()));
         };
-        let core = core.as_index();
-        let mut outcome = self.state.core_ctx(core).translate(vaddr, AccessType::Read, 8);
-        loop {
-            match outcome {
-                TranslateOutcome::Ready(result) => {
-                    return result.trap.map_or(Ok(result.paddr), Err);
-                }
-                TranslateOutcome::NeedPte { pte_addr, state } => {
-                    let raw_pte = self.probe_mem_load(pte_addr, 8);
-                    outcome = self.state.core_ctx(core).translate_continue(state, raw_pte, 0);
-                }
-            }
-        }
+        self.state.core_ctx(core.as_index()).translate_now(vaddr, AccessType::Read)
+    }
+
+    /// Makes the file at `path` what the guest's readfile pseudo-operation
+    /// reads, as gem5's `--script`.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::FileRead`] when the file cannot be read.
+    pub fn set_script_file(&mut self, path: &str) -> Result<(), SimError> {
+        let script = loader::load_binary(path)?;
+        self.state.uncore.host_files.set_script(script);
+        Ok(())
+    }
+
+    /// Makes `path` the directory the guest's writefile pseudo-operation
+    /// writes into, as gem5's output directory, creating it.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::OutputDir`] when it cannot be created.
+    pub fn set_output_dir(&mut self, path: &str) -> Result<(), SimError> {
+        self.state
+            .uncore
+            .host_files
+            .set_output_dir(std::path::Path::new(path))
+            .map_err(|source| SimError::OutputDir { path: path.to_owned(), source })
     }
 
     /// Cycles since the system started, carried across checkpoints. Once
