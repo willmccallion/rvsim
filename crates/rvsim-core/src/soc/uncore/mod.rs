@@ -21,7 +21,7 @@ use crate::sim::stats::paths::HartPaths;
 use crate::soc::bus::Bus;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::CoherenceFabric;
-use crate::soc::devices::{Htif, SimOp};
+use crate::soc::devices::Htif;
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::soc::topology::Topology;
@@ -66,6 +66,24 @@ impl TraceControl {
     pub fn trap_visible(&self, code: u64, routine: bool) -> bool {
         if self.trap_causes.is_empty() { !routine } else { self.trap_causes.contains(&code) }
     }
+}
+
+/// A request from the guest that the simulator carries out at the end
+/// of the cycle the pseudo-instruction asking for it retires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SimOp {
+    /// Zero every stat and start counting from here.
+    ResetStats,
+    /// Keep a copy of the stats, labelled.
+    DumpStats {
+        /// The guest's label for this dump.
+        label: u64,
+    },
+    /// Stop the host's run here, so it can inspect, save or switch.
+    Break {
+        /// The guest's label for this point.
+        label: u64,
+    },
 }
 
 /// The uncore: everything shared by all cores.
@@ -128,7 +146,7 @@ pub struct Uncore {
     /// The label of a guest break the host has not yet stopped for.
     pub pending_break: Option<u64>,
     /// Requests retired pseudo-instructions made, applied at the end of
-    /// the cycle with the devices'.
+    /// the cycle.
     pub pending_sim_ops: Vec<SimOp>,
     /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
     pub hart_stat_paths: Vec<HartPaths>,

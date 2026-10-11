@@ -60,7 +60,6 @@ _GUEST_VISIBLE = (
     ("system", "disk_base"),
     ("system", "clint_base"),
     ("system", "syscon_base"),
-    ("system", "sim_control_base"),
     ("memory", "ram_size"),
     ("memory", "misaligned_access_trap"),
     ("memory", "paging_mode_max"),

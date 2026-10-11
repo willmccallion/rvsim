@@ -25,9 +25,9 @@ Its arguments are in `a0` to `a3`, as gem5's are, and the two operations
 that return a value leave it in `a0`. The instruction is legal at every
 privilege level, costs one issue slot, retires non-speculatively like a
 system instruction, and its effect lands at the end of the cycle it
-retires, together with the sim-control device's commands. Spike and real
-hardware trap on it as an illegal instruction, so a program meant to run
-there too should keep its pseudo-operations behind a build flag.
+retires. Spike and real hardware trap on it as an illegal instruction, so
+a program meant to run there too should keep its pseudo-operations behind
+a build flag.
 
 `software/include/rvsim.h` emits it from C:
 
@@ -120,21 +120,3 @@ Linux returns them.
 - An exit ends `run()` with the code.
 - A file the guest wrote is in the output directory under the name it
   gave; what it read came from the script file.
-
-## The sim-control device
-
-The same operations exist as an MMIO device at `sim_control_base`
-(default `0x0010_2000`), outside the device tree, with two 64-bit
-registers:
-
-| Offset | Register | Access |
-|---|---|---|
-| `0x00` | `COMMAND` | write `1` to reset the stats, `2` to dump them labelled with `ARG`, `3` to end the simulation with `ARG` as the exit code, `4` to stop the host's `run_to` here with `ARG` as the label |
-| `0x08` | `ARG` | read/write: the argument of the next command |
-
-A guest writes `ARG`, then `COMMAND`, and the command takes effect at the
-end of the cycle the write reaches the device. Nothing in the repository
-uses it any more: the Linux image's `rvsim` tool (`rvsim dump-stats
-LABEL`, `rvsim break LABEL`, `rvsim run START END CMD`, `rvsim readfile`,
-`rvsim writefile FILE`) issues the pseudo-instruction, so it needs
-neither `/dev/mem` nor root.

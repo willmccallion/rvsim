@@ -543,7 +543,6 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "disk_base": cfg.disk_base,
         "clint_base": cfg.clint_base,
         "syscon_base": cfg.syscon_base,
-        "sim_control_base": cfg.sim_control_base,
         "kernel_offset": cfg.kernel_offset,
         "bus_width": cfg.bus_width,
         "bus_latency": cfg.bus_latency,

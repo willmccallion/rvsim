@@ -8,6 +8,6 @@ pub mod exit;
 pub mod host_files;
 pub mod htif_syscalls;
 pub mod pipeline_trace;
+pub mod pseudo_ops;
 pub mod run_to;
 pub mod se_mode;
-pub mod sim_control;

@@ -1,6 +1,5 @@
-//! Guest software marks its region of interest through the sim-control
-//! device or the pseudo-instruction: it resets the stats, dumps them
-//! labelled, and ends the run.
+//! Guest software marks its region of interest with the pseudo-instruction:
+//! it resets the stats, dumps them labelled, and ends the run.
 
 use crate::config::Config;
 use crate::isa::op::pseudo::PseudoOp;
@@ -8,8 +7,6 @@ use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
-const SIM_CONTROL: u32 = 5;
-const VALUE: u32 = 6;
 const COUNTER: u32 = 7;
 const LOOPS: i32 = 50;
 const A0: u32 = 10;
@@ -18,55 +15,39 @@ const M5_FAIL: u32 = 0x22;
 const M5_RESET_STATS: u32 = 0x40;
 const M5_DUMP_STATS: u32 = 0x41;
 
-/// How the guest asks: through the device's registers, or with the
-/// pseudo-instruction.
+/// What the guest asks for before the loop.
 #[derive(Clone, Copy)]
-enum Mechanism {
-    Device,
-    Instruction,
+enum Before {
+    Reset,
+    Dump { label: i32 },
 }
 
-/// A command (the device's number) with `arg`, by either mechanism.
-fn request(program: &mut Vec<u32>, mechanism: Mechanism, arg: i32, command: i32) {
-    match mechanism {
-        Mechanism::Device => device_command(program, arg, command),
-        Mechanism::Instruction => {
-            let i = InstructionBuilder::new;
-            let (op, label, code) = match command {
-                1 => (M5_RESET_STATS, arg, 0),
-                2 => (M5_DUMP_STATS, arg, 0),
-                3 => (M5_FAIL, 0, arg),
-                other => panic!("no pseudo-op for command {other}"),
-            };
-            program.push(i().addi(A0, 0, label).build());
-            program.push(i().addi(A1, 0, code).build());
-            program.push(PseudoOp::encode(op));
-        }
-    }
-}
-
-fn device_command(program: &mut Vec<u32>, arg: i32, command: i32) {
+/// Pushes the pseudo-operation `op` with `a0` and `a1` set to `label` and
+/// `code`.
+fn request(program: &mut Vec<u32>, op: u32, label: i32, code: i32) {
     let i = InstructionBuilder::new;
-    program.push(i().addi(VALUE, 0, arg).build());
-    program.push(i().sd(SIM_CONTROL, VALUE, 8).build());
-    program.push(i().addi(VALUE, 0, command).build());
-    program.push(i().sd(SIM_CONTROL, VALUE, 0).build());
+    program.push(i().addi(A0, 0, label).build());
+    program.push(i().addi(A1, 0, code).build());
+    program.push(PseudoOp::encode(op));
 }
 
-/// Warms up, then runs a counted loop between guest commands `before`
-/// (with `before_arg`) and a dump labelled 42, then exits with code 5.
-fn marked_program(mechanism: Mechanism, before: i32, before_arg: i32) -> Vec<u32> {
+/// Warms up, then runs a counted loop between `before` and a dump
+/// labelled 42, then exits with code 5.
+fn marked_program(before: Before) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().lui(SIM_CONTROL, 0x102).build()];
+    let mut program = Vec::new();
     for _ in 0..40 {
         program.push(i().addi(0, 0, 0).build());
     }
-    request(&mut program, mechanism, before_arg, before);
+    match before {
+        Before::Reset => request(&mut program, M5_RESET_STATS, 0, 0),
+        Before::Dump { label } => request(&mut program, M5_DUMP_STATS, label, 0),
+    }
     program.push(i().addi(COUNTER, 0, LOOPS).build());
     program.push(i().addi(COUNTER, COUNTER, -1).build());
     program.push(i().bne(COUNTER, 0, -4).build());
-    request(&mut program, mechanism, 42, 2);
-    request(&mut program, mechanism, 5, 3);
+    request(&mut program, M5_DUMP_STATS, 42, 0);
+    request(&mut program, M5_FAIL, 0, 5);
     program.push(i().jal(0, 0).build());
     program
 }
@@ -88,12 +69,8 @@ fn is_the_loop(instructions: u64) -> bool {
 
 #[test]
 fn two_dumps_subtract_to_the_region_between_them_and_keep_the_whole_run() {
-    for mechanism in [Mechanism::Device, Mechanism::Instruction] {
-        assert_two_dumps_bracket_the_loop(&run(&marked_program(mechanism, 2, 1)));
-    }
-}
+    let ctx = run(&marked_program(Before::Dump { label: 1 }));
 
-fn assert_two_dumps_bracket_the_loop(ctx: &TestContext) {
     let dumps = &ctx.sim.state.stats_dumps;
     assert_eq!(dumps.iter().map(|d| d.label).collect::<Vec<_>>(), vec![1, 42]);
     let region = dumps[1].instructions_retired - dumps[0].instructions_retired;
@@ -107,12 +84,8 @@ fn assert_two_dumps_bracket_the_loop(ctx: &TestContext) {
 
 #[test]
 fn a_guest_reset_starts_the_dumped_window_at_the_region() {
-    for mechanism in [Mechanism::Device, Mechanism::Instruction] {
-        assert_the_window_is_the_region(&run(&marked_program(mechanism, 1, 0)));
-    }
-}
+    let ctx = run(&marked_program(Before::Reset));
 
-fn assert_the_window_is_the_region(ctx: &TestContext) {
     let dumps = &ctx.sim.state.stats_dumps;
     assert_eq!(dumps.len(), 1);
     assert_eq!(dumps[0].label, 42);

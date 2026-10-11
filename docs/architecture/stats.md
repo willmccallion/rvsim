@@ -255,8 +255,8 @@ part of interest, leaving the whole run's statistics intact:
     print(region.ipc, region["core0.bp.committed.accuracy"])
     ```
 
-- **Let the guest mark it.** Software writes to the
-  [sim-control device](soc.md#sim-control) to dump labelled snapshots;
+- **Let the guest mark it.** Software issues the dump
+  [pseudo-operation](../pseudo-ops.md) for labelled snapshots;
   `cpu.stats_dumps()` returns them and `cpu.stats_between(start, end)`
   subtracts a pair. `Session.measure()` and `rvsim bench` measure a Linux
   command this way, bracketing its whole process lifetime.

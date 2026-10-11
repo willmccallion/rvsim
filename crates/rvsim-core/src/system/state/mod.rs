@@ -22,9 +22,7 @@ use crate::sim::stats::{StatSource, Stats};
 use crate::soc::bus::Bus;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
-use crate::soc::devices::{
-    Clint, GoldfishRtc, Htif, Plic, SimControl, SimOp, SysCon, Uart, VirtioBlock,
-};
+use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
 use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
@@ -32,7 +30,7 @@ use crate::soc::memory::ddr5::Ddr5Controller;
 use crate::soc::terminal::Terminal;
 use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
-use crate::soc::uncore::{StatsDump, StatsEpoch, TraceControl, Uncore};
+use crate::soc::uncore::{SimOp, StatsDump, StatsEpoch, TraceControl, Uncore};
 use crate::system::host_files::HostFiles;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
@@ -118,8 +116,7 @@ impl SystemState {
         };
     }
 
-    /// Carries out a request the guest made through the sim-control device
-    /// or a pseudo-instruction.
+    /// Carries out a request the guest made with a pseudo-instruction.
     pub fn apply_sim_op(&mut self, op: SimOp) {
         match op {
             SimOp::ResetStats => self.reset_stats(),
@@ -190,10 +187,6 @@ impl SystemState {
         bus.add_device(Box::new(clint));
         bus.add_device(Box::new(plic));
         bus.add_device(Box::new(syscon));
-        bus.add_device(Box::new(SimControl::new(
-            config.system.sim_control_base,
-            exit_signal.clone(),
-        )));
         bus.add_device(Box::new(rtc));
 
         if config.system.tohost_addr != 0 {

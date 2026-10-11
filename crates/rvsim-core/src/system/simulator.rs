@@ -52,7 +52,8 @@ pub struct StopAt {
     /// When any hart's next instruction to retire is at one of these
     /// addresses.
     pub pcs: Vec<u64>,
-    /// When guest software asks to stop (the sim-control break command).
+    /// When guest software asks to stop (a work-marker or checkpoint
+    /// pseudo-operation).
     pub guest_breaks: bool,
     /// When a captured console holds output the host has not taken.
     pub console_output: bool,
@@ -359,7 +360,7 @@ impl Simulator {
         self.state.reset_stats();
     }
 
-    /// The stats the guest dumped through the sim-control device, oldest
+    /// The stats the guest dumped with the dump pseudo-operation, oldest
     /// first.
     #[must_use]
     pub fn stats_dumps(&self) -> &[StatsDump] {
@@ -794,9 +795,6 @@ impl Simulator {
             self.scoped_to_hart(core, |sim| sim.state.core_ctx(core).post_tick(prev));
         }
         self.leave_hart_scope();
-        for op in self.state.bus.take_sim_ops() {
-            self.state.apply_sim_op(op);
-        }
         for op in std::mem::take(&mut self.state.uncore.pending_sim_ops) {
             self.state.apply_sim_op(op);
         }

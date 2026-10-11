@@ -12,7 +12,7 @@ use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
-use crate::soc::devices::SimOp;
+use crate::soc::uncore::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
 use crate::system::host_files;
 use crate::system::process::syscall::{self, Outcome};
@@ -383,8 +383,8 @@ fn retire_system(
 
 /// Performs the pseudo-operation `entry` asks for, as gem5 performs an
 /// m5op when it commits, with `a0` and `a1` as its arguments; the stats
-/// and break requests take effect at the end of the cycle, with the
-/// sim-control device's. A file operation was performed before the
+/// and break requests take effect at the end of the cycle. A file
+/// operation was performed before the
 /// entry's result was written; the instructions fetched behind it may
 /// have read the memory it changed, so they are refetched.
 fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {

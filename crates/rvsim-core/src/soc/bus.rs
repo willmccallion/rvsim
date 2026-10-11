@@ -4,9 +4,9 @@
 //! folds CLINT and PLIC state into one set of interrupt lines per hart, and
 //! says which addresses are plain RAM.
 
+use super::devices::Device;
 use super::devices::clint::Clint;
 use super::devices::uart::Uart;
-use super::devices::{Device, SimOp};
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -202,12 +202,6 @@ impl Bus {
     }
 
     /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].
-    #[must_use]
-    /// Requests the guest made of the simulator since the last call.
-    pub fn take_sim_ops(&mut self) -> Vec<SimOp> {
-        self.devices.iter_mut().flat_map(|d| d.take_sim_ops()).collect()
-    }
-
     /// Finishes every device's work in flight before a checkpoint.
     pub fn drain_devices(&mut self, memory: &mut GlobalMemory) {
         for device in &mut self.devices {

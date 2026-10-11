@@ -324,7 +324,7 @@ impl PySimulator {
         self.inner.reset_stats();
     }
 
-    /// The stats the guest dumped through the sim-control device, oldest
+    /// The stats the guest dumped with the dump pseudo-operation, oldest
     /// first, as ``(label, Stats)`` pairs; each covers the window since the
     /// last reset before it. Software running in the guest marks its own
     /// regions this way; `stats_between` subtracts two dumps.

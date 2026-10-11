@@ -414,7 +414,6 @@ console.
 | `disk_base` | `int` | `0x9000_0000` | VirtIO disk base address |
 | `clint_base` | `int` | `0x0200_0000` | CLINT base address |
 | `syscon_base` | `int` | `0x0010_0000` | SYSCON base address |
-| `sim_control_base` | `int` | `0x0010_2000` | Sim-control device base address (guest statistics reset, dump and exit) |
 | `kernel_offset` | `int` | `0x0020_0000` | Kernel load offset from `ram_base` |
 
 ---
