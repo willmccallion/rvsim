@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A GDB remote stub: `python -m rvsim prog.elf --gdb 1234` waits for GDB
+  and `Simulator.gdb(port)` serves it from wherever a run is. Breakpoints
+  are stops at a PC, so no guest code is patched; a step retires one
+  instruction; registers include the floating-point registers and the
+  common CSRs by name; memory is read and written through the selected
+  hart's translation; each hart is a thread; Ctrl-C interrupts; the
+  guest's exit ends the session with its code. A stop drains the
+  pipelines as a hardware halt does, so a debugged run takes more cycles
+  ([Debugging with GDB](gdb.md)).
 - `run_to(pc=...)` and the Session API's `Pc` stop land exactly on the
   address: an out-of-order core no longer retires the instruction there
   in the same cycle as the ones before it, which could carry a run past

@@ -247,29 +247,24 @@ impl O3Engine {
         }
     }
 
-    /// Copy initial architectural register values into the identity-mapped PRF slots.
-    ///
-    /// Must be called after CPU register init but before the first pipeline tick.
+    /// Copies the hart's architectural registers into the physical
+    /// registers its committed rename map names: at reset, and whenever a
+    /// debugger changes a register while nothing is in flight.
     pub fn sync_arch_regs(&mut self, state: &crate::uarch::ctx::CoreCtx<'_>) {
         use crate::isa::reg::RegIdx;
         use crate::isa::rvv::VRegIdx;
-        use crate::uarch::pipeline::rename::prf::PhysReg;
         for i in 1u8..32 {
-            let val = state.hart.regs.read(RegIdx::new(i));
-            if val != 0 {
-                self.prf.write(PhysReg(i as u16), val);
-            }
+            let reg = RegIdx::new(i);
+            self.prf.write(self.committed_rename_map.get(reg, false), state.hart.regs.read(reg));
         }
         for i in 0u8..32 {
-            let val = state.hart.regs.read_f(RegIdx::new(i));
-            if val != 0 {
-                self.prf.write(PhysReg((32 + i) as u16), val);
-            }
+            let reg = RegIdx::new(i);
+            self.prf.write(self.committed_rename_map.get(reg, true), state.hart.regs.read_f(reg));
         }
         for i in 0u8..32 {
             let vreg = VRegIdx::new(i);
             let bytes = state.hart.regs.vpr().read_bytes(vreg);
-            self.vec_prf.write_bytes(VecPhysReg::new(i as u16), bytes);
+            self.vec_prf.write_bytes(self.committed_rename_map.get_vec(vreg), bytes);
         }
     }
 }

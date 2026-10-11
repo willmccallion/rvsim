@@ -102,6 +102,7 @@ parameter with its default.
 | `stats.txt` | `result.stats`, a dict keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`, `ipc`) with `query(regex)` and `compare(other)`; `--json FILE` from the command line |
 | `--debug-flags=Exec` | `Config(trace=True)` with `RUST_LOG=rvsim::commit=trace`, or the commit log (`open_commit_log`) a lockstep checker replays on spike |
 | `--debug-flags=O3PipeView` and `o3-pipeview.py` | `--pipeline-trace FILE`, a Kanata log Konata opens ([Pipeline trace](pipeline-trace.md)) |
+| `--remote-gdb-port=N`, `wait_for_remote_gdb`, `m5 debugbreak` | `--gdb N`, or `Simulator.gdb(N)` from a script; each hart is a thread to GDB, and `m5_debug_break` stops in it ([Debugging with GDB](gdb.md)) |
 
 ## Checkpoints and switching CPUs
 

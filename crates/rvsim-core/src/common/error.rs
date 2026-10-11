@@ -51,6 +51,13 @@ pub enum SimError {
         source: std::io::Error,
     },
 
+    /// The connection to a debugger failed.
+    #[error("debugger connection: {source}")]
+    Debugger {
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+
     /// The bytes given as a program are not an ELF image.
     #[error("not an ELF image")]
     NotAnElf,

@@ -114,6 +114,7 @@ nav:
   - SE mode: se-mode.md
   - Pseudo-operations: pseudo-ops.md
   - Pipeline trace: pipeline-trace.md
+  - Debugging with GDB: gdb.md
   - Error against gem5: error.md
   - Error against Rocket: rtl-rocket.md
   - Error against BOOM: rtl-boom.md

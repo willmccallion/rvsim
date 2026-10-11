@@ -60,6 +60,12 @@ ends it, or exchanges files with the host with
 API's markers; the files come from `Simulator(script=...)` and go to
 `Simulator(outdir=...)`.
 
+### Debugging
+
+`Simulator.gdb(port)` serves GDB's remote protocol until the debugger
+detaches, kills the run, or the guest exits; `python -m rvsim prog.elf
+--gdb PORT` does the same before a run ([Debugging with GDB](gdb.md)).
+
 ::: rvsim.Instruction
 
 ::: rvsim.PipelineSnapshot
