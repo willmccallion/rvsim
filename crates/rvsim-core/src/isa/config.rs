@@ -6,9 +6,9 @@
 //! per-extension gating (Zvk*, Zvfbfmin, Sstc, H, …), new fields and
 //! sub-structs are added here, grouped by extension family.
 //!
-//! Currently only the vector family has runtime gating; other extensions
-//! (M/A/F/D/C/Zicboz/Zk*/Zb*/…) are always implemented at full strength.
-//! The struct documents the intent so future gating has an obvious home.
+//! The ISA string names what the hart implements: `misa`, the decoder and
+//! the device tree all follow it. Without one, the hart implements
+//! everything the simulator has.
 
 use serde::Deserialize;
 
@@ -16,6 +16,12 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IsaConfig {
+    /// The ISA string, such as `rv64gcv_zba_zbb_zbs_zicbom`, naming the
+    /// single-letter extensions and every multi-letter one the hart
+    /// implements; `None` means everything the simulator has.
+    #[serde(default)]
+    pub string: Option<String>,
+
     /// Vector extension capabilities.
     #[serde(default)]
     pub vector: VectorIsa,

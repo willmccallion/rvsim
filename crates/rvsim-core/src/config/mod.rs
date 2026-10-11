@@ -36,7 +36,8 @@ pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::SystemConfig;
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
-use crate::isa::extension::{Extension, Extensions};
+use crate::isa::extension::{Extension, Extensions, Isa, ParsedIsa};
+use crate::isa::misa::IsaStringError;
 use serde::Deserialize;
 
 /// Root configuration structure containing all simulator settings.
@@ -163,8 +164,19 @@ pub enum ConfigError {
     /// The Simple controller's bandwidth must be positive.
     #[error("simple_bandwidth_gib_s must be a positive number")]
     SimpleBandwidth,
-    /// `misa_override` sets V, which needs ELEN = 64.
-    #[error("misa_override sets V, but vlen {vlen} / elen {elen} is not the full V extension")]
+    /// The ISA string does not describe a hart the simulator implements.
+    #[error("{0}")]
+    IsaString(IsaStringError),
+    /// The ISA string names a vector register length other than `vlen`.
+    #[error("the ISA string names zvl{named}b, but vlen is {configured}")]
+    VlenMismatch {
+        /// The length the string names.
+        named: usize,
+        /// The configured VLEN.
+        configured: usize,
+    },
+    /// The ISA string sets V, which needs ELEN = 64.
+    #[error("the ISA string sets V, but vlen {vlen} / elen {elen} is not the full V extension")]
     VWithoutFullVector {
         /// Configured VLEN in bits.
         vlen: usize,
@@ -260,13 +272,20 @@ pub enum ConfigError {
 }
 
 impl Config {
-    /// The hart's `misa`: the override when one is given, otherwise
-    /// RV64IMAFDC with B, plus V when the vector unit is the full V extension.
+    /// The hart's `misa`: what the ISA string names, otherwise RV64IMAFDC
+    /// with B, plus V when the vector unit is the full V extension.
     #[must_use]
     pub fn misa(&self) -> crate::isa::misa::Misa {
-        self.pipeline
-            .misa_override
-            .unwrap_or_else(|| crate::isa::misa::Misa::rv64gcb(self.implements_full_v()))
+        self.isa_set().misa
+    }
+
+    /// The ISA string parsed, when the configuration has one.
+    ///
+    /// # Errors
+    ///
+    /// [`IsaStringError`] for a string the simulator cannot implement.
+    fn parsed_isa(&self) -> Result<Option<ParsedIsa>, IsaStringError> {
+        self.isa.string.as_deref().map(Isa::parse).transpose()
     }
 
     /// True when the vector unit meets V's minimum: ELEN = 64 (Zve64d);
@@ -275,25 +294,32 @@ impl Config {
         self.isa.vector.elen == 64
     }
 
-    /// The multi-letter extensions the hart implements: every one the
-    /// simulator has, less those the `misa` letters or the ISA options
-    /// leave out.
+    /// The multi-letter extensions the hart implements: what the ISA
+    /// string names, or everything the simulator has, less what the
+    /// `zvfh` and `svadu` options leave out.
     #[must_use]
     pub fn extensions(&self) -> Extensions {
-        let misa = self.misa();
-        let mut set = Extensions::all();
-        for ext in Extension::ALL {
-            if ext.builds_on().is_some_and(|letter| !misa.has(letter)) {
-                set = set.without(ext);
-            }
-        }
+        self.isa_set().extensions
+    }
+
+    /// The ISA the hart implements, which `misa`, decode and the device
+    /// tree follow: the ISA string's when there is one (an unparsable
+    /// string, which `validate` refuses, counts as none), else everything.
+    #[must_use]
+    pub fn isa_set(&self) -> Isa {
+        let mut isa = match self.parsed_isa() {
+            Ok(Some(parsed)) => parsed.isa,
+            Ok(None) | Err(_) => Isa::everything(self.implements_full_v()),
+        };
         if !self.isa.vector.zvfh {
-            set = set.without(Extension::Zvfh);
+            isa.extensions = isa.extensions.without(Extension::Zvfh);
         }
-        if !self.isa.svadu {
-            set = set.without(Extension::Svadu);
+        if self.isa.svadu {
+            isa.extensions = isa.extensions.with(Extension::Svadu);
+        } else if self.isa.string.is_none() {
+            isa.extensions = isa.extensions.without(Extension::Svadu);
         }
-        set
+        isa
     }
 
     /// The names of the multi-letter extensions the hart implements, in
@@ -332,6 +358,12 @@ impl Config {
     ///
     /// Returns the first [`ConfigError`] found.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(parsed) = self.parsed_isa().map_err(ConfigError::IsaString)?
+            && let Some(named) = parsed.vlen
+            && named != self.pipeline.vlen.bits()
+        {
+            return Err(ConfigError::VlenMismatch { named, configured: self.pipeline.vlen.bits() });
+        }
         let harts = self.system.hart_count.max(1);
         if harts > 64 {
             return Err(ConfigError::TooManyHarts(harts));

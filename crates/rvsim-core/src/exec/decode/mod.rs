@@ -1,6 +1,7 @@
 //! Instruction decoding: an instruction word to the control signals that
 //! say what it does.
 
+pub mod requirement;
 mod scalar;
 mod vector;
 

@@ -6,13 +6,13 @@ use crate::isa::csr::{
     MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_EXT_V, MISA_XLEN_64,
 };
 
-/// A `misa` value parsed from an ISA string such as `"RV64IMAFDC"` or
-/// `"rv64gcv"`.
+/// A `misa` value parsed from the single-letter part of an ISA string
+/// such as `"RV64IMAFDC"` or `"rv64gcv"`.
 ///
 /// The string names XLEN 64 and single-letter extensions (`G` is `IMAFD`),
 /// case-insensitively. S and U are always set because the hart implements
-/// both modes, and B because it implements Zba, Zbb and Zbs whatever the
-/// string names.
+/// both modes; B is set when the string names it, and
+/// [`Isa`](crate::isa::extension::Isa) settles it from Zba, Zbb and Zbs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Misa(u64);
 
@@ -27,6 +27,13 @@ impl Misa {
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
+    }
+
+    /// This value with B set or clear: B stands for Zba, Zbb and Zbs
+    /// together.
+    #[must_use]
+    pub const fn with_b(self, on: bool) -> Self {
+        if on { Self(self.0 | MISA_EXT_B) } else { Self(self.0 & !MISA_EXT_B) }
     }
 
     /// True when V is set.
@@ -75,7 +82,7 @@ impl std::str::FromStr for Misa {
         let Some(extensions) = upper.strip_prefix("RV64") else {
             return Err(IsaStringError::NotRv64(isa.to_string()));
         };
-        let mut bits = MISA_XLEN_64 | MISA_EXT_B | MISA_EXT_S | MISA_EXT_U;
+        let mut bits = MISA_XLEN_64 | MISA_EXT_S | MISA_EXT_U;
         for ext in extensions.chars() {
             bits |= match ext {
                 'G' => MISA_EXT_I | MISA_EXT_M | MISA_EXT_A | MISA_EXT_F | MISA_EXT_D,
@@ -111,6 +118,30 @@ pub enum IsaStringError {
     Unsupported(String, char),
     /// The string names D without F, which D requires.
     DWithoutF(String),
+    /// The string names a multi-letter extension the hart does not implement.
+    UnknownExtension(String, String),
+    /// The string names an extension without the single-letter one it builds on.
+    Requires(String, String, char),
+    /// The string names a vector register length that is not a number of bits.
+    MalformedVlen(String, String),
+}
+
+impl IsaStringError {
+    /// The same error, naming `text`: the whole string a part of which
+    /// was parsed.
+    #[must_use]
+    pub fn for_string(self, text: &str) -> Self {
+        let text = text.to_owned();
+        match self {
+            Self::NotRv64(_) => Self::NotRv64(text),
+            Self::NoBase(_) => Self::NoBase(text),
+            Self::Unsupported(_, ext) => Self::Unsupported(text, ext),
+            Self::DWithoutF(_) => Self::DWithoutF(text),
+            Self::UnknownExtension(_, name) => Self::UnknownExtension(text, name),
+            Self::Requires(_, name, letter) => Self::Requires(text, name, letter),
+            Self::MalformedVlen(_, name) => Self::MalformedVlen(text, name),
+        }
+    }
 }
 
 impl std::fmt::Display for IsaStringError {
@@ -122,6 +153,15 @@ impl std::fmt::Display for IsaStringError {
                 write!(f, "ISA string {isa:?} names unsupported extension {ext:?}")
             }
             Self::DWithoutF(isa) => write!(f, "ISA string {isa:?} has D without F"),
+            Self::UnknownExtension(isa, name) => {
+                write!(f, "ISA string {isa:?} names unsupported extension {name:?}")
+            }
+            Self::Requires(isa, name, letter) => {
+                write!(f, "ISA string {isa:?} names {name} without {letter}, which it needs")
+            }
+            Self::MalformedVlen(isa, name) => {
+                write!(f, "ISA string {isa:?} names {name:?}, which is not a zvl<bits>b")
+            }
         }
     }
 }

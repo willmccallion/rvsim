@@ -241,6 +241,15 @@ class Config:
             copy.deepcopy(coherence) if coherence is not None else Coherence()
         )
 
+    def isa_string(self) -> str:
+        """The ISA string the hart implements, as the device tree advertises
+        it: ``isa`` resolved, or everything the simulator has when ``isa`` is
+        ``None``. Raises ``ValueError`` for an ``isa`` the simulator cannot
+        implement."""
+        from .._core import isa_string
+
+        return isa_string(self.to_dict())
+
     def to_dict(self) -> dict[str, Any]:
         """Produce the nested dict expected by the Rust backend."""
         return _config_to_dict_impl(self)

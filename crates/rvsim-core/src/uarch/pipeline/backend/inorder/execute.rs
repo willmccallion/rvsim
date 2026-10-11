@@ -7,6 +7,7 @@ use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
 use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
+use crate::isa::extension::Extension;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
 use crate::soc::uncore::commit_log_open;
@@ -177,7 +178,7 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         csrs.vxrm,
         csrs.frm,
         vector.elen,
-        vector.zvfh,
+        state.core().isa.extensions.contains(Extension::Zvfh),
         &id.inst,
     )?;
     #[cfg(feature = "commit-log")]

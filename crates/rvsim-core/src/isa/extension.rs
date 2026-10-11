@@ -1,6 +1,8 @@
 //! The multi-letter extensions a hart implements, named as an ISA string,
 //! the device tree and Linux name them.
 
+use crate::isa::misa::{IsaStringError, Misa};
+
 /// A multi-letter extension the hart can implement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Extension {
@@ -159,6 +161,195 @@ impl Extension {
     }
 }
 
+/// What an instruction needs the hart to implement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Requirement {
+    /// The base ISA, which every hart has.
+    Base,
+    /// The single-letter extension (lowercase) of `misa`.
+    Letter(char),
+    /// Any one of these extensions, each of which has the instruction.
+    AnyOf(Extensions),
+}
+
+impl Requirement {
+    /// Any one of `extensions`.
+    #[must_use]
+    pub fn any_of(extensions: &[Extension]) -> Self {
+        Self::AnyOf(extensions.iter().fold(Extensions::EMPTY, |set, &ext| set.with(ext)))
+    }
+}
+
+/// The ISA a hart implements: its `misa` letters and its multi-letter
+/// extensions, which decode checks instructions against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Isa {
+    /// The single-letter extensions.
+    pub misa: Misa,
+    /// The multi-letter extensions.
+    pub extensions: Extensions,
+}
+
+/// An ISA string parsed: the ISA it names, and the vector register length
+/// it names with `zvl<bits>b`, if any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParsedIsa {
+    /// The ISA.
+    pub isa: Isa,
+    /// The VLEN named, to check against the vector unit's.
+    pub vlen: Option<usize>,
+}
+
+/// The extensions every hart implements, which an ISA string need not name.
+const ALWAYS: [Extension; 5] = [
+    Extension::Zicsr,
+    Extension::Zifencei,
+    Extension::Zicntr,
+    Extension::Zihintpause,
+    Extension::Zihpm,
+];
+
+/// The shorthand names an ISA string may use for groups of vector crypto
+/// extensions, and what each stands for.
+const GROUPS: [(&str, &[Extension]); 6] = [
+    (
+        "zvkn",
+        &[
+            Extension::Zvkned,
+            Extension::Zvknha,
+            Extension::Zvknhb,
+            Extension::Zvkb,
+            Extension::Zvkt,
+        ],
+    ),
+    (
+        "zvknc",
+        &[
+            Extension::Zvkned,
+            Extension::Zvknha,
+            Extension::Zvknhb,
+            Extension::Zvkb,
+            Extension::Zvkt,
+            Extension::Zvbc,
+        ],
+    ),
+    (
+        "zvkng",
+        &[
+            Extension::Zvkned,
+            Extension::Zvknha,
+            Extension::Zvknhb,
+            Extension::Zvkb,
+            Extension::Zvkt,
+            Extension::Zvkg,
+        ],
+    ),
+    ("zvks", &[Extension::Zvksed, Extension::Zvksh, Extension::Zvkb, Extension::Zvkt]),
+    (
+        "zvksc",
+        &[Extension::Zvksed, Extension::Zvksh, Extension::Zvkb, Extension::Zvkt, Extension::Zvbc],
+    ),
+    (
+        "zvksg",
+        &[Extension::Zvksed, Extension::Zvksh, Extension::Zvkb, Extension::Zvkt, Extension::Zvkg],
+    ),
+];
+
+impl Isa {
+    /// Everything the simulator implements: RV64IMAFDCB, V when
+    /// `with_v`, and every multi-letter extension that builds on them.
+    #[must_use]
+    pub fn everything(with_v: bool) -> Self {
+        let misa = Misa::rv64gcb(with_v);
+        let extensions = Extension::ALL
+            .into_iter()
+            .filter(|ext| ext.builds_on().is_none_or(|letter| misa.has(letter)))
+            .fold(Extensions::EMPTY, Extensions::with);
+        Self { misa, extensions }
+    }
+
+    /// Parses an ISA string such as `rv64gcv_zba_zbb_zbs_zicbom`: the
+    /// single letters (`g` is `imafd`, `b` is Zba, Zbb and Zbs), then the
+    /// multi-letter extensions and vector crypto groups (`zvkn`, `zvks`,
+    /// ...) the hart implements, each needing the letter it builds on.
+    /// Zicsr, Zifencei, Zicntr, Zihintpause, Zihpm, Sstc and, with V,
+    /// Zvkt are always implemented and need not be named.
+    ///
+    /// # Errors
+    ///
+    /// [`IsaStringError`] for a string that does not describe a hart this
+    /// simulator implements.
+    pub fn parse(text: &str) -> Result<ParsedIsa, IsaStringError> {
+        let lower = text.to_ascii_lowercase();
+        let (letters, names) = lower.split_once('_').unwrap_or((&lower, ""));
+        let mut misa: Misa = letters.parse().map_err(|e: IsaStringError| e.for_string(text))?;
+        let mut extensions = if misa.has('b') {
+            Requirement::any_of(&[Extension::Zba, Extension::Zbb, Extension::Zbs])
+        } else {
+            Requirement::Base
+        };
+        let mut set = match extensions {
+            Requirement::AnyOf(set) => set,
+            _ => Extensions::EMPTY,
+        };
+        let mut vlen = None;
+        for name in names.split('_').filter(|name| !name.is_empty()) {
+            if let Some(bits) = name.strip_prefix("zvl").and_then(|rest| rest.strip_suffix('b')) {
+                vlen = Some(bits.parse().map_err(|_| {
+                    IsaStringError::MalformedVlen(text.to_owned(), name.to_owned())
+                })?);
+                continue;
+            }
+            if name == "zve64d" {
+                continue;
+            }
+            if let Some((_, members)) = GROUPS.iter().find(|(group, _)| *group == name) {
+                set = members.iter().fold(set, |set, &ext| set.with(ext));
+                continue;
+            }
+            let ext =
+                Extension::ALL.into_iter().find(|ext| ext.name() == name).ok_or_else(|| {
+                    IsaStringError::UnknownExtension(text.to_owned(), name.to_owned())
+                })?;
+            set = set.with(ext);
+        }
+        extensions = Requirement::Base;
+        let _ = extensions;
+        for ext in ALWAYS {
+            set = set.with(ext);
+        }
+        set = set.with(Extension::Sstc);
+        if misa.has('v') {
+            set = set.with(Extension::Zvkt);
+        }
+        for ext in set.iter() {
+            if let Some(letter) = ext.builds_on()
+                && !misa.has(letter)
+            {
+                return Err(IsaStringError::Requires(
+                    text.to_owned(),
+                    ext.name().to_owned(),
+                    letter,
+                ));
+            }
+        }
+        let has_b =
+            [Extension::Zba, Extension::Zbb, Extension::Zbs].iter().all(|&ext| set.contains(ext));
+        misa = misa.with_b(has_b);
+        Ok(ParsedIsa { isa: Self { misa, extensions: set }, vlen })
+    }
+
+    /// Whether the hart implements what an instruction needs.
+    #[must_use]
+    pub fn permits(&self, requirement: Requirement) -> bool {
+        match requirement {
+            Requirement::Base => true,
+            Requirement::Letter(letter) => self.misa.has(letter),
+            Requirement::AnyOf(extensions) => self.extensions.intersects(extensions),
+        }
+    }
+}
+
 /// A set of extensions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Extensions(u32);
@@ -195,6 +386,12 @@ impl Extensions {
     pub fn iter(self) -> impl Iterator<Item = Extension> {
         Extension::ALL.into_iter().filter(move |&ext| self.contains(ext))
     }
+
+    /// Whether the set has any of `others`.
+    #[must_use]
+    pub const fn intersects(self, others: Self) -> bool {
+        self.0 & others.0 != 0
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +404,65 @@ mod tests {
             Extension::ALL.iter().map(|ext| ext.name()).collect();
         assert_eq!(names.len(), Extension::ALL.len());
         assert!(Extension::ALL.iter().all(|ext| (ext.bit().trailing_zeros() as usize) < 32));
+    }
+
+    fn parsed(text: &str) -> Isa {
+        Isa::parse(text).expect("a valid ISA string").isa
+    }
+
+    #[test]
+    fn letters_alone_give_the_always_implemented_extensions_and_no_more() {
+        let isa = parsed("rv64gc");
+
+        let names: Vec<&str> = isa.extensions.iter().map(Extension::name).collect();
+        assert_eq!(names, ["zicntr", "zicsr", "zifencei", "zihintpause", "zihpm", "sstc"]);
+        assert!(!isa.misa.has('b') && !isa.misa.has('v'));
+    }
+
+    #[test]
+    fn b_is_the_three_bit_manipulation_extensions_together() {
+        assert!(parsed("rv64gcb").extensions.contains(Extension::Zbs));
+        assert!(parsed("rv64gc_zba_zbb_zbs").misa.has('b'));
+        assert!(!parsed("rv64gc_zba_zbb").misa.has('b'));
+    }
+
+    #[test]
+    fn a_vector_crypto_group_stands_for_its_members() {
+        let isa = parsed("rv64gcv_zvkng");
+
+        for ext in [
+            Extension::Zvkned,
+            Extension::Zvknhb,
+            Extension::Zvkb,
+            Extension::Zvkt,
+            Extension::Zvkg,
+        ] {
+            assert!(isa.extensions.contains(ext), "{ext:?}");
+        }
+        assert!(!isa.extensions.contains(Extension::Zvbc));
+    }
+
+    #[test]
+    fn everything_is_what_the_full_string_parses_to() {
+        let everything = Isa::everything(true);
+        let names: Vec<String> =
+            everything.extensions.iter().map(|ext| ext.name().to_owned()).collect();
+        let text = format!("rv64imafdcbv_{}", names.join("_"));
+
+        assert_eq!(parsed(&text), everything);
+        assert_eq!(Isa::parse("rv64gcv_zvl256b").expect("valid").vlen, Some(256));
+    }
+
+    #[test]
+    fn an_unknown_name_or_a_missing_base_is_refused() {
+        assert!(
+            matches!(Isa::parse("rv64gc_zxyz"), Err(IsaStringError::UnknownExtension(_, name)) if name == "zxyz")
+        );
+        assert!(
+            matches!(Isa::parse("rv64imac_zfh"), Err(IsaStringError::Requires(_, name, 'f')) if name == "zfh")
+        );
+        assert!(matches!(Isa::parse("rv64gc_zvbb"), Err(IsaStringError::Requires(_, _, 'v'))));
+        assert!(matches!(Isa::parse("rv64gcv_zvlxb"), Err(IsaStringError::MalformedVlen(..))));
     }
 
     #[test]

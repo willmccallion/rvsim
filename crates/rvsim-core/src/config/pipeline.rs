@@ -131,11 +131,6 @@ pub struct PipelineConfig {
     #[serde(default = "PipelineConfig::default_ras_size")]
     pub ras_size: usize,
 
-    /// `misa` from an ISA string such as `"RV64IMAFDC"`, instead of the
-    /// default RV64IMAFDC.
-    #[serde(default, deserialize_with = "deserialize_misa")]
-    pub misa_override: Option<crate::isa::misa::Misa>,
-
     /// TAGE predictor configuration
     #[serde(default)]
     pub tage: TageConfig,
@@ -457,7 +452,6 @@ impl Default for PipelineConfig {
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,
             ras_size: defaults::RAS_SIZE,
-            misa_override: None,
             tage: TageConfig::default(),
             perceptron: PerceptronConfig::default(),
             bht: BhtConfig::default(),
@@ -533,15 +527,6 @@ impl StoreSetConfig {
     const fn default_clear_period() -> u64 {
         250_000
     }
-}
-
-fn deserialize_misa<'de, D>(deserializer: D) -> Result<Option<crate::isa::misa::Misa>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer)?
-        .map(|isa| isa.parse().map_err(serde::de::Error::custom))
-        .transpose()
 }
 
 /// Configuration for the functional unit pool.

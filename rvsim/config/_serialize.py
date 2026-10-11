@@ -673,12 +673,13 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         pipeline["num_vec_lanes"] = cfg.num_vec_lanes
     if cfg.vector_mem_width is not None:
         pipeline["vector_mem_width"] = cfg.vector_mem_width
+    isa: dict[str, Any] = {"svadu": cfg.svadu}
     if cfg.isa is not None:
-        pipeline["misa_override"] = cfg.isa
+        isa["string"] = cfg.isa
 
     return {
         "general": general,
-        "isa": {"svadu": cfg.svadu},
+        "isa": isa,
         "system": system,
         "memory": memory,
         "cache": cache,
