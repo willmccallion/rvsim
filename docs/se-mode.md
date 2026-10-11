@@ -89,9 +89,13 @@ mappings as a copy), `munmap`, `mremap`, `mprotect`, `madvise`; `exit`,
 `prlimit64`, `getrandom`; `getpid`, `gettid`, `getppid` and the uid and
 gid calls; `set_tid_address`, `set_robust_list`, `futex`,
 `rt_sigaction`, `rt_sigprocmask`, `sched_yield` and `riscv_flush_icache`
-as a single thread needs them. `clone`, `clone3`, `execve`, `statx`,
-`rseq` and `riscv_hwprobe` return `ENOSYS`, which glibc falls back from;
-so threads are not supported yet. Anything else returns `ENOSYS` with a
+as a single thread needs them; `riscv_hwprobe`, answered as the 6.6 kernel
+`uname` reports would answer for this hart (the base behaviour, the
+extension bits that kernel knows from the hart's ISA string, and whether
+misaligned accesses are fast), so glibc selects the same routines it
+would under Linux on rvsim. `clone`, `clone3`, `execve`, `statx` and
+`rseq` return `ENOSYS`, which glibc falls back from; so threads are not
+supported yet. Anything else returns `ENOSYS` with a
 warning. Files are the host's, relative to the working directory, as in
 gem5.
 

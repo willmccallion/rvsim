@@ -5,6 +5,7 @@
 use super::files::{Stat, errno, io_errno};
 use super::{PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
+use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
 use crate::uarch::ctx::CoreCtx;
@@ -99,6 +100,26 @@ const RLIMIT_NOFILE: u64 = 7;
 const RLIM_INFINITY: u64 = u64::MAX;
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_CMD_MASK: u64 = 0x7f;
+/// `riscv_hwprobe` keys and values as Linux 6.6 defines them
+/// (`asm/hwprobe.h`), the kernel SE mode's `uname` claims to be.
+const HWPROBE_KEY_MVENDORID: i64 = 0;
+const HWPROBE_KEY_MARCHID: i64 = 1;
+const HWPROBE_KEY_MIMPID: i64 = 2;
+const HWPROBE_KEY_BASE_BEHAVIOR: i64 = 3;
+const HWPROBE_BASE_BEHAVIOR_IMA: u64 = 1;
+const HWPROBE_KEY_IMA_EXT_0: i64 = 4;
+const HWPROBE_IMA_FD: u64 = 1 << 0;
+const HWPROBE_IMA_C: u64 = 1 << 1;
+const HWPROBE_IMA_V: u64 = 1 << 2;
+const HWPROBE_EXT_ZBA: u64 = 1 << 3;
+const HWPROBE_EXT_ZBB: u64 = 1 << 4;
+const HWPROBE_EXT_ZBS: u64 = 1 << 5;
+const HWPROBE_KEY_CPUPERF_0: i64 = 5;
+const HWPROBE_MISALIGNED_FAST: u64 = 3;
+const HWPROBE_MISALIGNED_UNSUPPORTED: u64 = 4;
+/// The key the kernel writes back for one it does not know.
+const HWPROBE_KEY_UNKNOWN: i64 = -1;
+const HWPROBE_PAIR_BYTES: u64 = 16;
 const EAGAIN: i64 = 11;
 /// The epoch `CLOCK_REALTIME` starts from: 2023-11-14, so dates are sane
 /// and every run sees the same clock.
@@ -115,12 +136,15 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
     let args: [u64; 6] = std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8)));
     let cycle = state.uncore.cycle;
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
+    let isa = state.core.isa;
+    let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;
     let Some(process) = uncore.process.as_mut() else {
         return Outcome::Exit(1);
     };
     *process.syscall_counts.entry(number).or_insert(0) += 1;
-    let mut sys = Sys { process, memory: &mut uncore.memory, cycle, ram_bytes };
+    let mut sys =
+        Sys { process, memory: &mut uncore.memory, cycle, ram_bytes, isa, misaligned_traps };
     let result = sys.dispatch(number, args);
     tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), number, name = name_of(number),
         a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
@@ -148,6 +172,10 @@ struct Sys<'a> {
     memory: &'a mut GlobalMemory,
     cycle: u64,
     ram_bytes: u64,
+    /// What the hart implements, for `riscv_hwprobe`.
+    isa: Isa,
+    /// Whether a misaligned access traps instead of being performed.
+    misaligned_traps: bool,
 }
 
 #[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]
@@ -232,10 +260,9 @@ impl Sys<'_> {
             SYS_GETPID | SYS_GETTID => ok(PID),
             SYS_PRLIMIT64 => self.prlimit(a[1], a[3]),
             SYS_GETRANDOM => self.getrandom(a[0], a[1]),
+            SYS_RISCV_HWPROBE => self.hwprobe(a[0], a[1], a[4]),
             // What a kernel without them answers; glibc falls back.
-            SYS_CLONE | SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ | SYS_RISCV_HWPROBE => {
-                Err(-errno::ENOSYS)
-            }
+            SYS_CLONE | SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ => Err(-errno::ENOSYS),
             _ => {
                 tracing::warn!(target: "rvsim::syscall", number, "unimplemented syscall; returning ENOSYS");
                 Err(-errno::ENOSYS)
@@ -557,6 +584,63 @@ impl Sys<'_> {
         bytes[8..16].copy_from_slice(&((us % 1_000_000) as u64).to_le_bytes());
         self.write_user(addr, &bytes)?;
         ok(0)
+    }
+
+    /// Answers `riscv_hwprobe` as Linux 6.6 does for this hart: the base
+    /// behaviour, the extension bits that kernel knows (from the ISA
+    /// string) and whether misaligned accesses are fast. The CPU set
+    /// arguments are accepted as given, the system having one hart. A key
+    /// the kernel does not know comes back as -1.
+    fn hwprobe(&mut self, pairs: u64, count: u64, flags: u64) -> Result {
+        if flags != 0 {
+            return Err(-errno::EINVAL);
+        }
+        for i in 0..count {
+            let addr = pairs.wrapping_add(i.wrapping_mul(HWPROBE_PAIR_BYTES));
+            let pair = self.read_user(addr, HWPROBE_PAIR_BYTES)?;
+            let key = i64::from_le_bytes(pair[..8].try_into().map_err(|_| -errno::EFAULT)?);
+            let (key, value) = match key {
+                HWPROBE_KEY_MVENDORID | HWPROBE_KEY_MARCHID | HWPROBE_KEY_MIMPID => (key, 0),
+                HWPROBE_KEY_BASE_BEHAVIOR => (key, HWPROBE_BASE_BEHAVIOR_IMA),
+                HWPROBE_KEY_IMA_EXT_0 => (key, self.hwprobe_extensions()),
+                HWPROBE_KEY_CPUPERF_0 => {
+                    let misaligned = if self.misaligned_traps {
+                        HWPROBE_MISALIGNED_UNSUPPORTED
+                    } else {
+                        HWPROBE_MISALIGNED_FAST
+                    };
+                    (key, misaligned)
+                }
+                _ => (HWPROBE_KEY_UNKNOWN, 0),
+            };
+            let mut bytes = [0u8; HWPROBE_PAIR_BYTES as usize];
+            bytes[..8].copy_from_slice(&key.to_le_bytes());
+            bytes[8..].copy_from_slice(&value.to_le_bytes());
+            self.write_user(addr, &bytes)?;
+        }
+        ok(0)
+    }
+
+    /// The `RISCV_HWPROBE_KEY_IMA_EXT_0` bits of Linux 6.6 the hart has.
+    fn hwprobe_extensions(&self) -> u64 {
+        let misa = self.isa.misa;
+        let letters = [
+            (misa.has('f') && misa.has('d'), HWPROBE_IMA_FD),
+            (misa.has('c'), HWPROBE_IMA_C),
+            (misa.has('v'), HWPROBE_IMA_V),
+        ];
+        let extensions = [
+            (Extension::Zba, HWPROBE_EXT_ZBA),
+            (Extension::Zbb, HWPROBE_EXT_ZBB),
+            (Extension::Zbs, HWPROBE_EXT_ZBS),
+        ];
+        letters
+            .into_iter()
+            .chain(
+                extensions.into_iter().map(|(ext, bit)| (self.isa.extensions.contains(ext), bit)),
+            )
+            .filter(|(has, _)| *has)
+            .fold(0, |bits, (_, bit)| bits | bit)
     }
 
     fn uname(&mut self, addr: u64) -> Result {
