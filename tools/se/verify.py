@@ -1,7 +1,7 @@
 """Checks SE mode against qemu-riscv64: the same static Linux program,
 run under both, must print the same output and exit with the same code.
 
-    .venv/bin/python tools/se/verify.py [--embench] [--bundled [--slow]] [--programs GLOB ...]
+    .venv/bin/python tools/se/verify.py [--embench] [--bundled [--slow]] [--programs GLOB ... [--harts N]]
 
 The check programs (tools/se/programs, built by `make se-programs`) run
 by default; `--embench` adds the Embench-IoT benchmarks (`make
@@ -42,9 +42,9 @@ RUNNER = """
 import os
 import sys
 from rvsim import Config, Simulator
-binary, args = sys.argv[1], sys.argv[2:]
+harts, binary, args = int(sys.argv[1]), sys.argv[2], sys.argv[3:]
 env = [f"{{name}}={{value}}" for name, value in os.environ.items()]
-cpu = Simulator(Config(), binary=binary, args=[binary, *args], env=env)
+cpu = Simulator(Config(hart_count=harts), binary=binary, args=[binary, *args], env=env)
 code = cpu.run(limit={limit})
 sys.stdout.flush()
 sys.exit(255 if code is None else int(code))
@@ -53,11 +53,13 @@ sys.exit(255 if code is None else int(code))
 
 @dataclass
 class Program:
-    """One program to run under both, with its arguments and environment."""
+    """One program to run under both, with its arguments, its environment
+    and, under rvsim, a hart for each thread it runs at once."""
 
     elf: Path
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    harts: int = 1
 
     @property
     def name(self) -> str:
@@ -97,6 +99,7 @@ def run_rvsim(program: Program, workdir: Path) -> Outcome:
             str(PYTHON),
             "-c",
             RUNNER.format(limit=CYCLE_LIMIT),
+            str(program.harts),
             str(program.elf),
             *program.args,
         ],
@@ -123,16 +126,18 @@ def check(program: Program) -> tuple[Program, Outcome, Outcome]:
 
 
 def check_programs() -> list[Program]:
-    """The check programs with the arguments they expect."""
+    """The check programs with the arguments, environment and harts they
+    expect: threads runs four workers beside its first thread."""
     specs = {
-        "hello": (["7", "second argument"], {"SE_GREETING": "hi"}),
-        "hello_pie": (["7", "second argument"], {"SE_GREETING": "hi"}),
-        "files": (["."], {}),
+        "hello": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
+        "hello_pie": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
+        "files": Program(Path(), ["."]),
+        "threads": Program(Path(), harts=5),
     }
     programs = []
     for elf in sorted(SE_PROGRAMS.glob("*.elf")):
-        args, env = specs.get(elf.stem, ([], {}))
-        programs.append(Program(elf, args, env))
+        spec = specs.get(elf.stem, Program(Path()))
+        programs.append(Program(elf, spec.args, spec.env, spec.harts))
     return programs
 
 
@@ -155,6 +160,12 @@ def main() -> int:
         default=[],
         help="ELF globs to run instead of the defaults",
     )
+    parser.add_argument(
+        "--harts",
+        type=int,
+        default=1,
+        help="harts to give the --programs runs, one per thread they run at once",
+    )
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
 
@@ -162,7 +173,8 @@ def main() -> int:
     if args.programs:
         for pattern in args.programs:
             programs.extend(
-                Program(Path(p).resolve()) for p in sorted(glob.glob(pattern))
+                Program(Path(p).resolve(), harts=args.harts)
+                for p in sorted(glob.glob(pattern))
             )
     else:
         programs = check_programs()

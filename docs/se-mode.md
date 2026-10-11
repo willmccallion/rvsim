@@ -199,7 +199,10 @@ result, like `strace`.
 
 `make se-verify` runs the check programs in `tools/se/programs` (argv
 and the environment, the heap through `brk`, `mmap` and `mremap`, host
-files, the clocks) under rvsim and under `qemu-riscv64`, and requires
+files, the clocks, and pthreads on five harts: a contended mutex, a
+condition variable, a barrier, thread-local storage, joins, a second
+round of threads on the harts the first freed, and a timed wait) under
+rvsim and under `qemu-riscv64`, and requires
 the same output and exit code from both; `EMBENCH=1` adds the 19
 Embench-IoT benchmarks (`make embench-build`), each of which verifies
 its own result and exits 0, and `BUNDLED=1` the bundled programs and

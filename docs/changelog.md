@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `make se-verify` also compares a static pthreads program with
+  `qemu-riscv64`: a contended mutex, a condition variable, a barrier,
+  thread-local storage, joins and a timed wait, on five harts.
+  `tools/se/verify.py --programs GLOB --harts N` runs threaded programs of
+  one's own.
 - SE mode runs threads, as gem5's SE mode does: `clone` starts a thread
   on the lowest-numbered free hart, where it stays, one thread per hart
   with no time-slicing, and fails with `EAGAIN` when no hart is free, so
