@@ -3,8 +3,8 @@
 A test runner imports `PIPELINES` from here and iterates over (label, cfg)
 tuples. Each Config exercises a different rvsim configuration: pipeline width,
 backend, branch predictor, ROB sizing, FU pool, cache hierarchy, prefetcher,
-replacement policy, memory controller, mem-dep predictor, TLB, and the four
-reference machine configs (cortex-a72, p550, m1, linux).
+replacement policy, memory controller, mem-dep predictor, TLB, and the three
+reference machine configs (cortex-a72, p550, linux).
 
 If you add or remove a Config here, every runner picks it up automatically —
 this is the single source of truth.
@@ -384,7 +384,6 @@ PIPELINES = [
                                    coherence=Coherence(home_agent=HomeAgent.SnoopFilter(capacity_factor=0.05, ways=2)))),
 
     ("ref p550",            presets.p550()),
-    ("ref m1",              presets.m1()),
     ("ref linux",           presets.linux()),
 ]
 # fmt: on

@@ -24,7 +24,7 @@ test-all-smoke` runs the same set locally.
 
 ## On demand and before a release
 
-`make test-all` runs every suite on every one of the 73 pipeline
+`make test-all` runs every suite on every one of the 72 pipeline
 configurations in `tests/conformance/configs/pipelines.py` (backends,
 widths, reorder-buffer and register-file sizes, predictors, functional
 unit mixes, cache arrangements). It takes several CPU-hours. `make
@@ -32,7 +32,7 @@ prerelease` runs it and boots Linux.
 
 | Check | What it compares | Result |
 |---|---|---|
-| riscv-tests, all configurations | As above | 134 of 134 on all 73 |
+| riscv-tests, all configurations | As above | 134 of 134 on all 72 |
 | riscv-vector-tests, full set | 3,023 programs, every element of every vector register and every memory access against spike | 3,023 of 3,023 at VLEN 128 (2026-09-28) |
 | Lockstep against spike (`make lockstep`) | Every retired instruction's PC, privilege, destination register, CSR write and memory access, replayed on spike one instruction at a time, over the riscv-tests, the bundled programs, the benchmarks and the vector tests | clean on all configurations (2026-10-10); vector register contents are not yet compared, interrupts are taken from rvsim |
 | Multi-core programs | As above, on 2, 4 and 8 harts | clean |

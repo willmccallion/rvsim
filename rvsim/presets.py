@@ -8,9 +8,8 @@ Built-in configuration presets.
 - ``linux`` — a multi-core ``fast`` system with the memory map the
   bundled Linux image expects, kept coherent over an interconnect, with
   DDR5 memory.
-- ``cortex_a72``, ``m1``, ``p550`` — models of the Arm Cortex-A72, an
-  Apple M1-class core and the SiFive P550, from their published
-  microarchitecture.
+- ``cortex_a72``, ``p550`` — models of the Arm Cortex-A72 and the SiFive
+  P550, from their published microarchitecture.
 - ``rocket``, ``boom`` — Chipyard's Rocket and Medium BOOM as their RTL
   builds them, the reference cores of the RTL comparison
   (``docs/rtl-rocket.md``, ``docs/rtl-boom.md``).
@@ -51,7 +50,6 @@ __all__ = [
     "cortex_a72",
     "fast",
     "linux",
-    "m1",
     "p550",
     "rocket",
 ]
@@ -385,53 +383,6 @@ def cortex_a72():
     )
 
 
-def m1(
-    *,
-    branch_predictor=None,
-    ram_size_bytes=0x1000_0000,
-    pipeline_width=4,
-):
-    """M1-style: 4-wide, 128KB L1-I/D, 4MB L2."""
-    if branch_predictor is None:
-        branch_predictor = BranchPredictor.TAGE(
-            num_banks=4,
-            table_size=4096,
-            reset_interval=2000,
-            history_lengths=[5, 15, 44, 130],
-            tag_widths=[9, 9, 10, 10],
-        )
-
-    return Config(
-        width=pipeline_width,
-        branch_predictor=branch_predictor,
-        btb_size=8192,
-        ras_size=64,
-        ram_size=ram_size_bytes,
-        l1i=Cache(
-            size="128KB",
-            line="64B",
-            ways=8,
-            latency=1,
-            prefetcher=Prefetcher.NextLine(degree=2),
-        ),
-        l1d=Cache(
-            size="128KB",
-            line="64B",
-            ways=8,
-            latency=1,
-            mshr_count=12,
-            prefetcher=Prefetcher.Stride(degree=2, table_size=128),
-        ),
-        l2=Cache(
-            size="4MB",
-            line="64B",
-            ways=16,
-            latency=12,
-            mshr_count=32,
-        ),
-    )
-
-
 def p550(
     *,
     branch_predictor=None,
@@ -744,7 +695,6 @@ PRESETS = {
     "basic": basic,
     "fast": fast,
     "cortex_a72": cortex_a72,
-    "m1": m1,
     "p550": p550,
     "rocket": rocket,
     "boom": boom,

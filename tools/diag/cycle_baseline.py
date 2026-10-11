@@ -62,7 +62,6 @@ CONFIGS = [
     "preset basic",
     "preset fast",
     "preset cortex_a72",
-    "preset m1",
     "preset p550",
     "preset linux",
 ]

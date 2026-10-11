@@ -10,7 +10,6 @@
 | `fast()` | An Apple M4 P-core class core, the default core of the Linux system |
 | `p550()` | SiFive's Performance P550, calibrated to measured hardware |
 | `cortex_a72()` | Arm's Cortex-A72 at the Raspberry Pi 4's clock, calibrated to measured hardware |
-| `m1()` | A 4-wide core with Apple M1-sized caches |
 | `linux(harts, core=...)` | A core placed in the system that boots the bundled Linux image |
 
 ### Fast (Apple M4 P-core class)
@@ -101,24 +100,6 @@ config = presets.cortex_a72()
 
 The latencies are the ones Chips and Cheese measured on the Cortex-A72 (Graviton), at the Pi 4's clock; `tools/diag/latency_probe.py --preset cortex_a72` reproduces them.
 
-### Apple M1
-
-Modeled after Apple's Firestorm (performance) core.
-
-```python
-from rvsim import presets
-
-config = presets.m1()
-```
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Width | 4 | Quad-issue |
-| Branch Predictor | TAGE | 4 banks, 4096-entry tables |
-| L1I | 128KB, 8-way | NextLine prefetch (degree=2) |
-| L1D | 128KB, 8-way | 12 MSHRs, stride prefetch (degree=2) |
-| L2 | 4MB, 16-way, 12cy | 32 MSHRs |
-
 ## Using Benchmark Configs
 
 ### With Environment
@@ -144,7 +125,7 @@ results = Sweep(
     configs={
         "P550": presets.p550(),
         "A72": presets.cortex_a72(),
-        "M1": presets.m1(),
+        "fast": presets.fast(),
     },
 ).run(parallel=True)
 
