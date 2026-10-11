@@ -231,6 +231,68 @@ fn hex_le(value: u64) -> String {
     value.to_le_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// `ld t3, 0x100(t2)`.
+const LD_T3_T2_0X100: u32 = 0x1003_BE03;
+
+/// Stores 7, loads it back into `t3`, then exits with 3.
+fn store_then_load() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T0, 0, 7).build(),
+        i().auipc(T2, 0).build(),
+        i().sd(T2, T0, 0x100).build(),
+        LD_T3_T2_0X100,
+        i().addi(A1, 0, 3).build(),
+        M5_FAIL,
+        JAL_SELF,
+    ]
+}
+
+#[test]
+fn a_write_watchpoint_stops_after_the_store_and_a_read_one_after_the_load() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut config = Config::default();
+        config.pipeline.backend = backend;
+        config.system.console = Console::Quiet;
+        let mut ctx =
+            TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &store_then_load());
+
+        let (seen, outcome) = debug_session(&mut ctx.sim, |mut gdb| {
+            vec![
+                gdb.ask(&format!("Z2,{STORED_AT:x},8")),
+                gdb.ask("c"),
+                gdb.ask(&format!("m{STORED_AT:x},8")),
+                gdb.ask(&format!("z2,{STORED_AT:x},8")),
+                gdb.ask(&format!("Z3,{STORED_AT:x},8")),
+                gdb.ask("c"),
+                gdb.ask("p1c"),
+                gdb.ask("c"),
+            ]
+        });
+
+        assert_eq!(seen[0], "OK", "{backend:?}");
+        assert!(
+            seen[1].starts_with("T05")
+                && seen[1].contains(&format!("watch:{STORED_AT:x};"))
+                && seen[1].contains(&format!("20:{};", hex_le(PROGRAM_BASE + 12))),
+            "{backend:?}: stopped after the store: {}",
+            seen[1]
+        );
+        assert_eq!(seen[2], "0700000000000000", "{backend:?}: the store took effect");
+        assert_eq!(seen[3], "OK", "{backend:?}");
+        assert_eq!(seen[4], "OK", "{backend:?}");
+        assert!(
+            seen[5].contains(&format!("rwatch:{STORED_AT:x};"))
+                && seen[5].contains(&format!("20:{};", hex_le(PROGRAM_BASE + 16))),
+            "{backend:?}: stopped after the load: {}",
+            seen[5]
+        );
+        assert_eq!(seen[6], "0700000000000000", "{backend:?}: t3 holds the loaded 7");
+        assert_eq!(seen[7], "W03", "{backend:?}");
+        assert_eq!(outcome, Outcome::Exited(3), "{backend:?}");
+    }
+}
+
 #[test]
 fn every_hart_is_a_thread() {
     let mut ctx = context(BackendKind::InOrder, 2);

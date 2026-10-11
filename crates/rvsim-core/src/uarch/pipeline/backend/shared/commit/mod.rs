@@ -218,6 +218,10 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
             event = stop;
             break;
         }
+        if let Some(hit) = entry.mem_access.and_then(|access| state.core.watch_hit_for(&access)) {
+            state.core.watch_hit = Some(hit);
+            break;
+        }
     }
 
     if let Some(seq) = youngest_retired {

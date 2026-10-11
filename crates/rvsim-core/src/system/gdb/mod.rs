@@ -19,7 +19,7 @@ use std::net::TcpStream;
 use crate::common::{CoreId, SimError};
 use crate::isa::csr::CsrAddr;
 use crate::isa::reg::RegIdx;
-use crate::system::simulator::{Simulator, StopAt, StopReason};
+use crate::system::simulator::{Simulator, StopAt, StopReason, Watch, WatchKind};
 use packet::{Incoming, Transport};
 use target::{FIRST_CSR_REGNUM, FIRST_FP_REGNUM, PC_REGNUM};
 
@@ -82,6 +82,7 @@ pub fn serve(
         transport: Transport::new(stream),
         selected: 0,
         breakpoints: BTreeMap::new(),
+        watches: Vec::new(),
     };
     loop {
         match session.transport.receive().map_err(debugger)? {
@@ -107,6 +108,7 @@ struct Session<'a> {
     /// The hart register and memory packets address: GDB's selected thread.
     selected: usize,
     breakpoints: BTreeMap<u64, Breakpoint>,
+    watches: Vec<Watch>,
 }
 
 impl Session<'_> {
@@ -120,7 +122,7 @@ impl Session<'_> {
             return Ok(Flow::Continue);
         };
         let reply: Vec<u8> = match head {
-            b'?' => self.stop_reply(self.selected, SIGTRAP),
+            b'?' => self.stop_reply(self.selected, SIGTRAP, ""),
             b'!' => b"OK".to_vec(),
             b'g' => self.read_general_registers(),
             b'G' => self.write_general_registers(rest),
@@ -164,12 +166,12 @@ impl Session<'_> {
         self.transport.send(payload).map_err(debugger)
     }
 
-    /// `T<signal>thread:<id>;<pc regnum>:<pc>;` with the breakpoint kind
-    /// when the hart sits on one.
-    fn stop_reply(&self, hart: usize, signal: u8) -> Vec<u8> {
+    /// `T<signal>thread:<id>;<pc regnum>:<pc>;`, then `extra` and the
+    /// breakpoint kind when the hart sits on one.
+    fn stop_reply(&self, hart: usize, signal: u8, extra: &str) -> Vec<u8> {
         let pc = self.sim.hart(hart).pc;
         let mut reply =
-            format!("T{signal:02x}thread:{:x};{PC_REGNUM:x}:{};", hart + 1, hex_le(pc, 8));
+            format!("T{signal:02x}thread:{:x};{PC_REGNUM:x}:{};{extra}", hart + 1, hex_le(pc, 8));
         match self.breakpoints.get(&pc) {
             Some(Breakpoint::Software) if signal == SIGTRAP => reply.push_str("swbreak:;"),
             Some(Breakpoint::Hardware) if signal == SIGTRAP => reply.push_str("hwbreak:;"),
@@ -316,23 +318,45 @@ impl Session<'_> {
         self.sim.state.topology.core_of_hart(hart_id).map(CoreId::as_index)
     }
 
+    /// `Z`/`z` `type,addr,kind`: breakpoints (types 0 and 1) and write,
+    /// read and access watchpoints (2, 3 and 4), `kind` being the length
+    /// for a watchpoint.
     fn breakpoint(&mut self, insert: bool, rest: &[u8]) -> Vec<u8> {
         let mut fields = rest.split(|&b| b == b',');
-        let (Some(kind), Some(addr)) = (fields.next(), fields.next()) else {
+        let (Some(kind), Some(addr), Some(len)) = (fields.next(), fields.next(), fields.next())
+        else {
             return E_MEMORY.to_vec();
         };
-        let kind = match kind {
-            b"0" => Breakpoint::Software,
-            b"1" => Breakpoint::Hardware,
-            _ => return Vec::new(),
+        let (Some(addr), Some(len)) = (parse_hex_u64(addr), parse_hex_u64(len)) else {
+            return E_MEMORY.to_vec();
         };
-        let Some(addr) = parse_hex_u64(addr) else { return E_MEMORY.to_vec() };
+        match kind {
+            b"0" => self.set_breakpoint(insert, addr, Breakpoint::Software),
+            b"1" => self.set_breakpoint(insert, addr, Breakpoint::Hardware),
+            b"2" => self.set_watch(insert, Watch { addr, len, kind: WatchKind::Write }),
+            b"3" => self.set_watch(insert, Watch { addr, len, kind: WatchKind::Read }),
+            b"4" => self.set_watch(insert, Watch { addr, len, kind: WatchKind::Access }),
+            _ => return Vec::new(),
+        }
+        b"OK".to_vec()
+    }
+
+    fn set_breakpoint(&mut self, insert: bool, addr: u64, kind: Breakpoint) {
         if insert {
             let _ = self.breakpoints.insert(addr, kind);
         } else {
             let _ = self.breakpoints.remove(&addr);
         }
-        b"OK".to_vec()
+    }
+
+    fn set_watch(&mut self, insert: bool, watch: Watch) {
+        if insert {
+            if !self.watches.contains(&watch) {
+                self.watches.push(watch);
+            }
+        } else {
+            self.watches.retain(|w| *w != watch);
+        }
     }
 
     fn select_thread(&mut self, rest: &[u8]) -> Vec<u8> {
@@ -446,7 +470,7 @@ impl Session<'_> {
     ) -> Result<Flow, SimError> {
         let mut host_stopped = false;
         let reason = {
-            let Session { sim, transport, breakpoints, .. } = &mut *self;
+            let Session { sim, transport, breakpoints, watches, .. } = &mut *self;
             let mut going = || {
                 if transport.interrupted() {
                     return false;
@@ -457,7 +481,7 @@ impl Session<'_> {
                 host_stopped = true;
                 false
             };
-            run(sim, breakpoints, actions, &mut going)?
+            run(sim, breakpoints, watches, actions, &mut going)?
         };
         if host_stopped {
             return Ok(Flow::End(Outcome::Interrupted));
@@ -467,9 +491,20 @@ impl Session<'_> {
             return Ok(Flow::End(Outcome::Exited(code)));
         }
         self.sim.drain();
+        let mut extra = String::new();
         let signal = match reason {
             StopReason::Pc { hart } => {
                 self.selected = hart;
+                SIGTRAP
+            }
+            StopReason::Watch { hart, addr, kind } => {
+                self.selected = hart;
+                let key = match kind {
+                    WatchKind::Write => "watch",
+                    WatchKind::Read => "rwatch",
+                    WatchKind::Access => "awatch",
+                };
+                extra = format!("{key}:{addr:x};");
                 SIGTRAP
             }
             StopReason::Cancelled => SIGINT,
@@ -479,7 +514,7 @@ impl Session<'_> {
             | StopReason::GuestBreak { .. }
             | StopReason::ConsoleOutput => SIGTRAP,
         };
-        let reply = self.stop_reply(self.selected, signal);
+        let reply = self.stop_reply(self.selected, signal, &extra);
         self.send(&reply)?;
         Ok(Flow::Continue)
     }
@@ -494,6 +529,7 @@ impl Session<'_> {
 fn run(
     sim: &mut Simulator,
     breakpoints: &BTreeMap<u64, Breakpoint>,
+    watches: &[Watch],
     actions: &[Action],
     going: &mut impl FnMut() -> bool,
 ) -> Result<StopReason, SimError> {
@@ -503,7 +539,7 @@ fn run(
     for (hart, action) in actions.iter().enumerate() {
         sim.set_single_step(hart, *action == Action::Step);
     }
-    let result = run_from(sim, breakpoints, actions, &starts, going);
+    let result = run_from(sim, breakpoints, watches, actions, &starts, going);
     for hart in 0..sim.hart_count() {
         sim.set_single_step(hart, false);
     }
@@ -533,11 +569,17 @@ impl Start {
 fn run_from(
     sim: &mut Simulator,
     breakpoints: &BTreeMap<u64, Breakpoint>,
+    watches: &[Watch],
     actions: &[Action],
     starts: &[Start],
     going: &mut impl FnMut() -> bool,
 ) -> Result<StopReason, SimError> {
-    let one_cycle = StopAt { cycles: Some(1), guest_breaks: true, ..StopAt::default() };
+    let one_cycle = StopAt {
+        cycles: Some(1),
+        guest_breaks: true,
+        watches: watches.to_vec(),
+        ..StopAt::default()
+    };
     loop {
         let cycle_by_cycle = starts.iter().enumerate().any(|(hart, start)| {
             actions[hart] == Action::Step || (start.on_breakpoint && !start.moved(sim, hart))
@@ -545,6 +587,7 @@ fn run_from(
         if !cycle_by_cycle {
             let stop = StopAt {
                 pcs: breakpoints.keys().copied().collect(),
+                watches: watches.to_vec(),
                 guest_breaks: true,
                 ..StopAt::default()
             };

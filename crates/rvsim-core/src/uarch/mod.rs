@@ -30,6 +30,7 @@ use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::pipeline::engine::PipelineDispatch;
+use crate::uarch::pipeline::latches::MemAccess;
 use crate::uarch::pipeline::lsq::write_buffer::WriteCombiningBuffer;
 use crate::uarch::prefetch::LoadPrefetcher;
 
@@ -80,6 +81,10 @@ pub struct CoreUnits {
     /// PCs the run stops at: commit does not retire past one within a
     /// cycle, so the hart's next instruction is at it when the cycle ends.
     pub stop_pcs: Vec<u64>,
+    /// Ranges the run stops after an access to.
+    pub watches: Vec<Watch>,
+    /// The access to a watched range the core just retired.
+    pub watch_hit: Option<WatchHit>,
 }
 
 impl CoreUnits {
@@ -136,6 +141,8 @@ impl CoreUnits {
             isa: config.isa_set(),
             single_step: false,
             stop_pcs: Vec::new(),
+            watches: Vec::new(),
+            watch_hit: None,
         }
     }
 }
@@ -154,4 +161,63 @@ fn load_prefetcher(config: &Config) -> Option<LoadPrefetcher> {
             ))
         }
     }
+}
+
+impl CoreUnits {
+    /// The first watched range `access` touched, if any.
+    #[must_use]
+    pub fn watch_hit_for(&self, access: &MemAccess) -> Option<WatchHit> {
+        self.watches.iter().find_map(|watch| watch.hit(access))
+    }
+}
+
+/// Which accesses a watched range stops on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WatchKind {
+    /// Stores and the write half of atomics.
+    Write,
+    /// Loads and the read half of atomics.
+    Read,
+    /// Either.
+    Access,
+}
+
+/// A range of virtual addresses a run stops after an access to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Watch {
+    /// First address of the range.
+    pub addr: u64,
+    /// Length of the range in bytes.
+    pub len: u64,
+    /// The accesses that count.
+    pub kind: WatchKind,
+}
+
+impl Watch {
+    /// The hit `access` scores on this range, if it touches it the way the
+    /// range watches for.
+    #[must_use]
+    pub fn hit(&self, access: &MemAccess) -> Option<WatchHit> {
+        let wanted = match self.kind {
+            WatchKind::Write => access.write,
+            WatchKind::Read => access.read,
+            WatchKind::Access => access.read || access.write,
+        };
+        let start = access.vaddr.val();
+        let end = start.saturating_add(access.bytes);
+        let watch_end = self.addr.saturating_add(self.len);
+        if !wanted || start >= watch_end || end <= self.addr {
+            return None;
+        }
+        Some(WatchHit { addr: start.max(self.addr), kind: self.kind })
+    }
+}
+
+/// An access that touched a watched range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WatchHit {
+    /// The first watched byte the access touched.
+    pub addr: u64,
+    /// The kind of the range it hit.
+    pub kind: WatchKind,
 }

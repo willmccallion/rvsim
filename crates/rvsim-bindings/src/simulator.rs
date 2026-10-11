@@ -791,7 +791,8 @@ impl PySimulator {
             Some(PcStop::One(pc)) => vec![pc],
             Some(PcStop::Any(pcs)) => pcs,
         };
-        let stop = StopAt { cycles, instructions, pcs, guest_breaks, console_output };
+        let stop =
+            StopAt { cycles, instructions, pcs, guest_breaks, console_output, ..StopAt::default() };
         let mut interrupted = None;
         let reason = self
             .inner
@@ -809,6 +810,7 @@ impl PySimulator {
             StopReason::Cycles => ("cycles".into(), None),
             StopReason::Instructions => ("instructions".into(), None),
             StopReason::Pc { hart } => ("pc".into(), Some(hart as u64)),
+            StopReason::Watch { addr, .. } => ("watch".into(), Some(addr)),
             StopReason::GuestBreak { label } => ("break".into(), Some(label)),
             StopReason::ConsoleOutput => ("console".into(), None),
             StopReason::Cancelled => {
