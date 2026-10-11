@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `presets.m1()` is removed: only its cache sizes came from Apple's core,
+  so it modelled no core in particular. The conformance matrix runs 72
+  configurations.
 - A multithreaded bundled program, `raytracer_mt`: a scene of spheres
   over a checkered floor, with shadows and a reflection bounce, its rows
   shared out between N threads (one per CPU by default), printed with the

@@ -360,7 +360,7 @@ last free MSHR; each level's prefetcher works independently.
 |--------|-----------------|
 | `cortex_a72()` | Load prefetcher, `l2_lines=22` and `CrossWithTlb` (the reset values of `CPUECTLR_EL1[33:32]` and `CPUACTLR_EL1[43]`); store prefetcher into the L2. The L1D distance (1 line), table size (32) and store run length (8 lines, 4 runs) are not published |
 | `p550()` | SiFive has not published the P550's prefetchers: a load prefetcher that keeps to the page (`Stop`, 1 line ahead, no L2 stream) and no store prefetcher, as the cautious reading |
-| `fast()`, `m1()`, `basic()` | The cache-side stride prefetcher on the L1D, as before; Apple's prefetchers are not published either |
+| `fast()`, `basic()` | The cache-side stride prefetcher on the L1D, as before; Apple's prefetchers are not published either |
 
 ## DRAM Controller
 

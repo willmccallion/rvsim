@@ -9,7 +9,7 @@ Categorizes execution cycles into four main buckets:
 
 Usage:
   rvsim examples/analysis/top_down.py [binary]
-  rvsim examples/analysis/top_down.py --config m1
+  rvsim examples/analysis/top_down.py --config p550
 """
 
 import argparse
@@ -22,7 +22,6 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 
 CONFIGS = {
     "p550": presets.p550,
-    "m1": presets.m1,
     "a72": presets.cortex_a72,
 }
 

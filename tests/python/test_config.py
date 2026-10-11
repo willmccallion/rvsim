@@ -58,7 +58,7 @@ class Ownership(unittest.TestCase):
 
 class Pickle(unittest.TestCase):
     def test_round_trips_a_config_with_vector_units(self):
-        config = presets.m1()
+        config = presets.fast()
 
         restored = pickle.loads(pickle.dumps(config))
 
