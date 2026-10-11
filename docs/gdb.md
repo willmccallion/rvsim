@@ -91,6 +91,53 @@ The control registers GDB can name: `fflags`, `frm`, `fcsr`, `sstatus`,
 `mepc`, `mcause`, `mtval`, `mip`, `cycle`, `time`, `instret` and
 `mhartid`. Any other CSR is read from Python through a hart's `csrs`.
 
+## Debugging a kernel
+
+A Linux kernel is debugged the same way, with `vmlinux` as GDB's symbol
+file. Boot the image from Python and serve GDB:
+
+```python
+from rvsim import Simulator, presets
+
+cpu = Simulator(
+    presets.linux(1),
+    kernel="software/linux/output/Image",
+    disk="software/linux/output/disk.img",
+)
+cpu.gdb(1234)
+```
+
+```
+$ gdb-multiarch software/linux/buildroot-2024.08/output/build/linux-6.6.44/vmlinux
+(gdb) target remote :1234
+0x0000000080000000 in ?? ()
+(gdb) break start_kernel
+Breakpoint 1 at 0xffffffff80a006b6
+(gdb) continue
+Breakpoint 1, 0xffffffff80a006b6 in start_kernel ()
+(gdb) bt
+#0  0xffffffff80a006b6 in start_kernel ()
+#1  0xffffffff80001158 in _start_kernel ()
+(gdb) break rest_init
+(gdb) continue
+Breakpoint 2, 0xffffffff808e380c in rest_init ()
+(gdb) bt
+#0  0xffffffff808e380c in rest_init ()
+#1  0xffffffff80a0067a in arch_call_rest_init ()
+#2  0xffffffff80a00e1a in start_kernel ()
+#3  0xffffffff80001158 in _start_kernel ()
+```
+
+The run starts in OpenSBI at the reset vector; the breakpoints are at
+kernel virtual addresses and hit once paging is on, `rest_init` about
+16 million cycles into the boot. Disassembly, backtraces and `x` go
+through the kernel's page tables, as the hart's own loads would. The
+bundled kernel is built without debug info, so GDB knows the symbols but
+not their types: cast a variable to print it, or add
+`CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y` to
+`software/guest/linux.fragment` and rebuild the image for types and line
+numbers. Detaching lets the boot go on.
+
 ## A stop costs cycles
 
 A stop is a halt as a hardware debug module makes one: every pipeline
