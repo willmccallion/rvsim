@@ -69,7 +69,7 @@ help:
 	@printf "    %-$(HELP_W)s  Build the Rocket and BOOM Verilator simulators (one-time, ~1 h; nix develop .#rtl)\n" "make rtl-build"
 	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (CORE=rocket|boom)\n" "make rtl-compare"
 	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
-	@printf "    %-$(HELP_W)s  Check SE mode against qemu-riscv64 (EMBENCH=1, BUNDLED=1 add those programs)\n" "make se-verify"
+	@printf "    %-$(HELP_W)s  Check SE mode against qemu-riscv64 (EMBENCH=1, BUNDLED=1 add programs; SLOW=1 the long ones)\n" "make se-verify"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
 	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
@@ -312,7 +312,7 @@ $(SE_PROGRAMS_STAMP): $(wildcard tools/se/programs/*.c) tools/se/programs/build.
 
 EMBENCH ?=
 se-verify: se-programs $(if $(EMBENCH),embench-build) $(if $(BUNDLED),software) python
-	.venv/bin/python tools/se/verify.py $(if $(EMBENCH),--embench) $(if $(BUNDLED),--bundled)
+	.venv/bin/python tools/se/verify.py $(if $(EMBENCH),--embench) $(if $(BUNDLED),--bundled) $(if $(SLOW),--slow)
 
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
