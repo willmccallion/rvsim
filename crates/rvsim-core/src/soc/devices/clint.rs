@@ -24,9 +24,6 @@ const MSIP_BASE: u64 = 0x0000;
 const MTIMECMP_BASE: u64 = 0x4000;
 /// Offset of the MTIME register.
 const MTIME_OFFSET: u64 = 0xBFF8;
-/// Size of the device's MMIO window.
-const CLINT_SIZE: u64 = 0x10000;
-
 const MSIP_STRIDE: u64 = 4;
 const MTIMECMP_STRIDE: u64 = 8;
 
@@ -246,7 +243,7 @@ impl Device for Clint {
     }
 
     fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, CLINT_SIZE)
+        (self.base_addr, crate::config::CLINT_REGION_BYTES)
     }
 
     /// Advances `mtime` by one divider step. Timer and software interrupt

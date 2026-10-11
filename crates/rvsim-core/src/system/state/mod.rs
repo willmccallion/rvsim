@@ -166,7 +166,7 @@ impl SystemState {
         let uart =
             Uart::new(config.system.uart_base, terminal.clone(), config.system.cpu_clock_mhz);
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
-        let plic = Plic::new(0x0c00_0000, hart_count);
+        let plic = Plic::new(crate::config::PLIC_BASE, hart_count);
 
         let mut disk = VirtioBlock::new(config.system.disk_base);
         if !disk_path.is_empty()
@@ -178,7 +178,7 @@ impl SystemState {
 
         let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
         let rtc = GoldfishRtc::new(
-            0x101000,
+            crate::config::RTC_BASE,
             config.system.rtc_epoch_seconds.saturating_mul(1_000_000_000),
             config.system.cpu_clock_mhz,
         );

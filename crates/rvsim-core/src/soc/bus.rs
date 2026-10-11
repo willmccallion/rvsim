@@ -148,6 +148,15 @@ impl Bus {
         });
     }
 
+    /// Each device's name and register window, in address order.
+    #[cfg(test)]
+    pub(crate) fn device_windows(&self) -> impl Iterator<Item = (&str, u64, u64)> {
+        self.devices.iter().map(|d| {
+            let (base, size) = d.address_range();
+            (d.name(), base, size)
+        })
+    }
+
     /// Tells the bus that `ctrl` serves the `size` bytes of RAM at `base`.
     pub const fn attach_ram(&mut self, ctrl: MemCtrlId, base: u64, size: u64) {
         self.ram = Some(RamWindow { ctrl, start: base, end: base + size });

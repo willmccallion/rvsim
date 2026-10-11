@@ -35,7 +35,10 @@ pub use pipeline::{
     StoreSetConfig, VecStoreForwarding,
 };
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
-pub use system::SystemConfig;
+pub use system::{
+    CLINT_REGION_BYTES, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE, RTC_REGION_BYTES,
+    SYSCON_REGION_BYTES, SystemConfig, UART_REGION_BYTES, VIRTIO_REGION_BYTES,
+};
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::extension::{Extension, Extensions, Isa, ParsedIsa};

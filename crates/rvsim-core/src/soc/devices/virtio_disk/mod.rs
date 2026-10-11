@@ -494,7 +494,7 @@ impl Device for VirtioBlock {
     }
 
     fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, 0x1000)
+        (self.base_addr, crate::config::VIRTIO_REGION_BYTES)
     }
 
     fn tick(&mut self) -> bool {

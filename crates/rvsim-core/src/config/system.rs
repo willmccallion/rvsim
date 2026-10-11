@@ -4,6 +4,48 @@ use super::defaults;
 use crate::config::Console;
 use serde::{Deserialize, Serialize};
 
+/// A device's register window in the physical address map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeviceRegion {
+    /// The device's name, as its statistics and latency overrides spell it.
+    pub name: &'static str,
+    /// The window's first address.
+    pub base: u64,
+    /// The window's length in bytes.
+    pub size: u64,
+}
+
+impl DeviceRegion {
+    /// One past the window's last address.
+    #[must_use]
+    pub const fn end(self) -> u64 {
+        self.base.saturating_add(self.size)
+    }
+
+    /// True when the two windows share an address.
+    #[must_use]
+    pub const fn overlaps(self, other: Self) -> bool {
+        self.base < other.end() && other.base < self.end()
+    }
+}
+
+/// The UART's register window in bytes.
+pub const UART_REGION_BYTES: u64 = 0x100;
+/// The `VirtIO` block device's register window in bytes.
+pub const VIRTIO_REGION_BYTES: u64 = 0x1000;
+/// The CLINT's register window in bytes.
+pub const CLINT_REGION_BYTES: u64 = 0x1_0000;
+/// The PLIC's fixed base address.
+pub const PLIC_BASE: u64 = 0x0c00_0000;
+/// The PLIC's register window in bytes.
+pub const PLIC_REGION_BYTES: u64 = 0x400_0000;
+/// The system controller's register window in bytes.
+pub const SYSCON_REGION_BYTES: u64 = 0x1000;
+/// The Goldfish RTC's fixed base address.
+pub const RTC_BASE: u64 = 0x10_1000;
+/// The Goldfish RTC's register window in bytes.
+pub const RTC_REGION_BYTES: u64 = 0x1000;
+
 /// System memory map and bus configuration.
 ///
 /// Defines memory-mapped I/O base addresses, RAM configuration,
@@ -84,6 +126,20 @@ pub struct SystemConfig {
 }
 
 impl SystemConfig {
+    /// Every device's register window but HTIF's, which a program's
+    /// `tohost` places inside RAM.
+    #[must_use]
+    pub const fn device_regions(&self) -> [DeviceRegion; 6] {
+        [
+            DeviceRegion { name: "UART0", base: self.uart_base, size: UART_REGION_BYTES },
+            DeviceRegion { name: "VirtIO-Blk", base: self.disk_base, size: VIRTIO_REGION_BYTES },
+            DeviceRegion { name: "CLINT", base: self.clint_base, size: CLINT_REGION_BYTES },
+            DeviceRegion { name: "PLIC", base: PLIC_BASE, size: PLIC_REGION_BYTES },
+            DeviceRegion { name: "SysCon", base: self.syscon_base, size: SYSCON_REGION_BYTES },
+            DeviceRegion { name: "GoldfishRTC", base: RTC_BASE, size: RTC_REGION_BYTES },
+        ]
+    }
+
     /// Returns the default UART MMIO base address.
     const fn default_uart_base() -> u64 {
         defaults::UART_BASE
