@@ -116,7 +116,9 @@ newlib programs use it: `read`, `write`, `readv`, `writev`, `pread64`,
 `faccessat`, `readlinkat`, `mkdirat`, `unlinkat`, `renameat`,
 `renameat2`, `getcwd`, `fcntl` and `ioctl` (the console answers
 `TCGETS` and `TIOCGWINSZ`); `brk`, `mmap` (anonymous, and private file
-mappings as a copy), `munmap`, `mremap`, `mprotect`, `madvise`; `exit`,
+mappings as a copy), `munmap`, `mremap`, `mprotect`, `madvise` (the
+advice a 6.6 kernel knows is accepted and does nothing; other advice is
+refused, as glibc 2.42's guard-page request is by that kernel); `exit`,
 `exit_group`, `kill`, `tkill` and `tgkill` (the signal's exit status);
 `clock_gettime`, `clock_getres`, `gettimeofday`, `times`, `getrusage`,
 `nanosleep` and `clock_nanosleep` (no time passes); `uname`, `sysinfo`,

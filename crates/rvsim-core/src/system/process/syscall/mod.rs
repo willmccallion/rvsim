@@ -7,7 +7,7 @@
 mod thread;
 
 use super::files::{Stat, errno, io_errno};
-use super::{FrameAllocator, Permissions, Process, SpaceError, Tid, page_ceil};
+use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, Tid, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
 use crate::isa::extension::{Extension, Isa};
@@ -103,6 +103,9 @@ const TIOCGWINSZ: u32 = 0x5413;
 const RLIMIT_STACK: u64 = 3;
 const RLIMIT_NOFILE: u64 = 7;
 const RLIM_INFINITY: u64 = u64::MAX;
+/// The `madvise` advice a 6.6 kernel without KSM, transparent huge pages
+/// or memory-failure handling accepts.
+const MADVISE_ADVICE: [u64; 18] = [0, 1, 2, 3, 4, 8, 9, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24];
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_CMD_MASK: u64 = 0x7f;
 /// `riscv_hwprobe` keys and values as Linux 6.6 defines them
@@ -258,7 +261,6 @@ impl Sys<'_> {
             | SYS_GETEUID
             | SYS_GETGID
             | SYS_GETEGID
-            | SYS_MADVISE
             | SYS_RISCV_FLUSH_ICACHE
             | SYS_SCHED_YIELD
             | SYS_NANOSLEEP
@@ -269,6 +271,7 @@ impl Sys<'_> {
                 // value changed; a wake wakes nobody.
                 if a[1] & FUTEX_CMD_MASK == FUTEX_WAIT { Err(-EAGAIN) } else { ok(0) }
             }
+            SYS_MADVISE => self.madvise(at(0), a[1], a[2]),
             SYS_RT_SIGACTION => self.zero_if_given(user_pointer(a[2]), 24),
             SYS_RT_SIGPROCMASK => self.zero_if_given(user_pointer(a[2]), a[3] as usize),
             SYS_CLOCK_GETTIME => self.clock_gettime(a[0], at(1)),
@@ -554,6 +557,20 @@ impl Sys<'_> {
             .space
             .map_range(self.memory, self.frames, addr, len, Permissions::from_prot(prot))
             .map_err(fault)?;
+        ok(0)
+    }
+
+    /// Accepts the advice a 6.6 kernel knows for a mapped range and does
+    /// nothing with it; other advice, such as glibc 2.42's guard-page
+    /// request, is refused as that kernel refuses it.
+    fn madvise(&self, addr: VirtAddr, len: u64, advice: u64) -> Result {
+        let fits = len.checked_next_multiple_of(PAGE_SIZE).and_then(|len| addr.checked_add(len));
+        if !addr.is_page_aligned() || fits.is_none() || !MADVISE_ADVICE.contains(&advice) {
+            return Err(-errno::EINVAL);
+        }
+        if !self.process.space.is_mapped(addr, len) {
+            return Err(-errno::ENOMEM);
+        }
         ok(0)
     }
 
