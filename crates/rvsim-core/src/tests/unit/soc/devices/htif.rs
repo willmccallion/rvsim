@@ -1,25 +1,31 @@
+use crate::config::Console;
 use crate::soc::devices::{Device, Htif};
+use crate::soc::terminal::{SharedTerminal, Terminal};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+fn quiet() -> SharedTerminal {
+    Terminal::shared(Console::Quiet)
+}
 
 #[test]
 fn test_htif_name() {
     let exit_signal = Arc::new(AtomicU64::new(0));
-    let htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
     assert_eq!(htif.name(), "HTIF");
 }
 
 #[test]
 fn test_htif_address_range() {
     let exit_signal = Arc::new(AtomicU64::new(0));
-    let htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
     assert_eq!(htif.address_range(), (0x1000, 16));
 }
 
 #[test]
 fn test_htif_read_returns_zero() {
     let exit_signal = Arc::new(AtomicU64::new(0));
-    let mut htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
 
     assert_eq!(
         crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 1)
@@ -45,7 +51,7 @@ fn test_htif_read_returns_zero() {
 #[test]
 fn test_htif_write_u8_u16_ignored() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 1);
     assert_eq!(exit_signal.load(Ordering::Relaxed), 0xff);
@@ -57,7 +63,7 @@ fn test_htif_write_u8_u16_ignored() {
 #[test]
 fn test_htif_write_to_non_zero_offset_ignored() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(
         &mut htif,
@@ -74,7 +80,7 @@ fn test_htif_write_to_non_zero_offset_ignored() {
 #[test]
 fn test_htif_pass() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1, 8);
     assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
@@ -83,7 +89,7 @@ fn test_htif_pass() {
 #[test]
 fn test_htif_fail() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     // value 3 is test number 1 (3 >> 1)
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 3, 8);
@@ -97,7 +103,7 @@ fn test_htif_fail() {
 #[test]
 fn test_htif_zero_ignored() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 0, 8);
     assert_eq!(exit_signal.load(Ordering::Relaxed), 0xff);
@@ -108,7 +114,7 @@ fn test_htif_zero_ignored() {
 #[test]
 fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 42, 8);
     assert_eq!(exit_signal.load(Ordering::Relaxed), 0xff);
@@ -117,7 +123,7 @@ fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
 #[test]
 fn test_htif_write_u32() {
     let exit_signal = Arc::new(AtomicU64::new(0xff));
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
     // U32 pass
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 4);
@@ -129,7 +135,7 @@ fn test_htif_write_u32() {
 #[test]
 fn fromhost_survives_a_checkpoint() {
     let exit_signal = Arc::new(AtomicU64::new(0));
-    let mut htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let mut htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
     let state = serde_json::json!({ "fromhost": 5, "host_files_open": 0 });
 
     htif.restore(&state).expect("the state restores");
@@ -146,7 +152,7 @@ fn fromhost_survives_a_checkpoint() {
 #[test]
 fn a_checkpoint_with_host_files_open_is_refused() {
     let exit_signal = Arc::new(AtomicU64::new(0));
-    let htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
     let state = serde_json::json!({ "fromhost": 0, "host_files_open": 2 });
 
     let refused = htif.check_restore(&state);

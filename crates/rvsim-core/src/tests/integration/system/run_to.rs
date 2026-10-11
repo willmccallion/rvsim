@@ -119,6 +119,5 @@ fn console_output_stops_the_run_once_the_guest_prints() {
 
     assert_eq!(reason, StopReason::ConsoleOutput);
     assert_eq!(ctx.get_reg(COUNTER as usize), 0, "the spin before the print has finished");
-    let uart = ctx.sim.state.bus.uart_mut().expect("the system has a console");
-    assert_eq!(uart.take_output(), b"!");
+    assert_eq!(ctx.sim.take_console_output(), b"!");
 }

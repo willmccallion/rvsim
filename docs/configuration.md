@@ -496,7 +496,7 @@ each private cache counts its snoops under
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
 | `initial_sp` | `int` or `None` | `None` | Stack pointer a bare-metal program starts with; `ram_base + 16 MiB` when unset |
-| `console` | `str` or `None` | `None` | Where the UART connects: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
+| `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
 | `uart_quiet` | `bool` | `False` | Shorthand for `console="quiet"` |
 | `uart_to_stderr` | `bool` | `False` | Shorthand for `console="stderr"` |
 

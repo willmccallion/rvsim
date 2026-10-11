@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- A user program's stdin, stdout and stderr, and the console HTIF's
+  syscalls serve, are the simulator's console: `console="quiet"` and
+  `"captured"`, `read_console()`, `write_console()` and the Session API's
+  console stops apply to them as they do to the UART, instead of the
+  output going straight to the host's stdout. Input goes to the UART
+  until a program that talks to the host directly is loaded.
 - The bundled programs and benchmarks are static Linux user binaries
   built with the glibc toolchain and run under SE mode, as a gem5 user
   would run them; `software/bin-htif` keeps the bare-metal build. The

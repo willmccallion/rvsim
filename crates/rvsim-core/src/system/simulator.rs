@@ -26,7 +26,6 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::Packet;
 use crate::sim::stats::Stats;
-use crate::soc::devices::Uart;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::process;
 pub use crate::system::process::loader::ProcessArgs;
@@ -427,13 +426,18 @@ impl Simulator {
     /// What the guest has printed to a captured console since the last
     /// call; empty when the console is not captured.
     pub fn take_console_output(&mut self) -> Vec<u8> {
-        self.state.uncore.bus.uart_mut().map(Uart::take_output).unwrap_or_default()
+        self.state
+            .uncore
+            .terminal
+            .lock()
+            .map(|mut terminal| terminal.take_output())
+            .unwrap_or_default()
     }
 
     /// Types `bytes` into the console.
     pub fn send_console_input(&mut self, bytes: &[u8]) {
-        if let Some(uart) = self.state.uncore.bus.uart_mut() {
-            uart.send_input(bytes);
+        if let Ok(mut terminal) = self.state.uncore.terminal.lock() {
+            terminal.type_input(bytes);
         }
     }
 
@@ -599,7 +603,7 @@ impl Simulator {
             && state.event_queue.is_empty()
             && state.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))
             && !(stop.guest_breaks && state.uncore.pending_break.is_some())
-            && !(stop.console_output && state.bus.console_has_output())
+            && !(stop.console_output && state.uncore.console_has_output())
             && !state.harts.iter().any(|hart| stop.pcs.contains(&hart.pc));
         if !settled || !(0..self.core_count()).all(|core| self.core_is_idle(core)) {
             return 0;
@@ -649,7 +653,7 @@ impl Simulator {
         {
             return Some(StopReason::GuestBreak { label });
         }
-        if stop.console_output && self.state.bus.console_has_output() {
+        if stop.console_output && self.state.uncore.console_has_output() {
             return Some(StopReason::ConsoleOutput);
         }
         if !stop.pcs.is_empty()

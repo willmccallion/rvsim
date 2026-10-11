@@ -17,6 +17,7 @@ const A1: u32 = 11;
 const A2: u32 = 12;
 const FENCE: u32 = 0x0ff0_000f;
 const SYS_EXIT: i32 = 93;
+const SYS_WRITE: i32 = 64;
 const SYS_GETMAINVARS: i32 = 2011;
 
 /// `t0` = tohost, `t1` = the syscall block, `t2` = a buffer, each a page
@@ -55,10 +56,17 @@ fn syscall(number: i32, args: &[(u32, Option<i32>)]) -> Vec<u32> {
     code
 }
 
-fn run(backend: BackendKind, program: &[u32], args: &[&str]) -> StopReason {
+/// Runs `program` with the HTIF device serving it; returns why the run
+/// stopped and what the console captured.
+fn run_on(
+    backend: BackendKind,
+    console: Console,
+    program: &[u32],
+    args: &[&str],
+) -> (StopReason, Vec<u8>) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.system.console = Console::Quiet;
+    config.system.console = console;
     let mut tc = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     let exit_signal = std::sync::Arc::clone(&tc.sim.state.exit_signal);
     tc.sim.state.uncore.add_htif(
@@ -66,7 +74,35 @@ fn run(backend: BackendKind, program: &[u32], args: &[&str]) -> StopReason {
         &exit_signal,
         args.iter().map(ToString::to_string).collect(),
     );
-    tc.sim.run_to(&StopAt { cycles: Some(50_000), ..StopAt::default() }).expect("the program runs")
+    let stop = tc
+        .sim
+        .run_to(&StopAt { cycles: Some(50_000), ..StopAt::default() })
+        .expect("the program runs");
+    (stop, tc.sim.take_console_output())
+}
+
+fn run(backend: BackendKind, program: &[u32], args: &[&str]) -> StopReason {
+    run_on(backend, Console::Quiet, program, args).0
+}
+
+/// A `write` to descriptor 1 through the block prints to the console.
+#[test]
+fn a_write_through_the_block_reaches_the_console() {
+    let i = InstructionBuilder::new;
+    let mut program = addresses();
+    program.extend([
+        i().lui(A0, 0xa7).build(),
+        i().addi(A0, A0, -0x698).build(),
+        i().sw(T2, A0, 0).build(),
+    ]);
+    program.extend(syscall(SYS_WRITE, &[(0, Some(1)), (T2, None), (0, Some(3))]));
+    program.extend(syscall(SYS_EXIT, &[(0, Some(0))]));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (stop, output) = run_on(backend, Console::Captured, &program, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+        assert_eq!(output, b"hi\n", "{backend:?}");
+    }
 }
 
 /// `getmainvars` writes `argc` first; the program exits with it through

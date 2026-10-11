@@ -8,16 +8,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::{IrqId, LineAddr};
-use crate::config::Console;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::terminal::SharedTerminal;
 use std::collections::VecDeque;
-use std::io::{self, Read, Write};
-use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, channel};
-use std::thread;
 
 /// Receiver Buffer Register (Read) / Divisor Latch Low (DLAB=1).
 const REG_RBR: u64 = 0;
@@ -88,8 +84,8 @@ pub struct Uart {
     base_addr: u64,
     /// Queue for received bytes (from stdin).
     rx_queue: VecDeque<u8>,
-    /// Channel receiver for stdin thread. Wrapped in Mutex for Sync.
-    rx_receiver: Mutex<Receiver<u8>>,
+    /// The console it transmits to and receives from.
+    terminal: SharedTerminal,
     /// Interrupt Enable Register.
     ier: u8,
     /// Line Control Register.
@@ -114,10 +110,6 @@ pub struct Uart {
     thre_ip: bool,
     /// Received data has been announced by the receive interrupt.
     rx_ready: bool,
-    /// Where output goes and input comes from.
-    console: Console,
-    /// Output a captured console has written that the host has not read.
-    captured: Vec<u8>,
     /// State machine index for panic detection.
     panic_match_state: usize,
     /// Flag indicating if a kernel panic string was detected.
@@ -189,23 +181,11 @@ impl Uart {
     /// Creates a new UART device on `console`; a terminal console spawns a
     /// thread reading stdin. `cpu_clock_mhz` sizes the interrupt delay in
     /// cycles.
-    pub fn new(base_addr: u64, console: Console, cpu_clock_mhz: u64) -> Self {
-        let (tx, rx) = channel();
-        if matches!(console, Console::Stdout | Console::Stderr) {
-            let _ = thread::spawn(move || {
-                let mut buffer = [0u8; 1];
-                let stdin = io::stdin();
-                let mut handle = stdin.lock();
-                while handle.read_exact(&mut buffer).is_ok() {
-                    let _ = tx.send(buffer[0]);
-                }
-            });
-        }
-
+    pub const fn new(base_addr: u64, terminal: SharedTerminal, cpu_clock_mhz: u64) -> Self {
         Self {
             base_addr,
             rx_queue: VecDeque::new(),
-            rx_receiver: Mutex::new(rx),
+            terminal,
             ier: 0,
             lcr: 0,
             mcr: 0,
@@ -218,41 +198,29 @@ impl Uart {
             rx_interrupt_at: None,
             thre_ip: true,
             rx_ready: false,
-            console,
-            captured: Vec::new(),
             panic_match_state: 0,
             panic_detected: false,
         }
     }
 
-    /// Whether a captured console holds output the host has not taken.
-    #[must_use]
-    pub const fn has_output(&self) -> bool {
-        !self.captured.is_empty()
-    }
-
-    /// Takes the output a captured console has written since the last call.
-    pub fn take_output(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.captured)
-    }
-
-    /// Queues `bytes` as typed input, as a captured console's host gives it.
+    /// Types `bytes` into the console and receives them at once.
     pub fn send_input(&mut self, bytes: &[u8]) {
-        self.rx_queue.extend(bytes);
-        if !bytes.is_empty() && !self.rx_ready && self.rx_interrupt_at.is_none() {
-            self.rx_interrupt_at = Some(self.cycle + self.interrupt_delay);
+        if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.type_input(bytes);
         }
+        self.check_stdin();
     }
 
-    /// Polls the stdin receiver and populates the RX queue; newly arrived
-    /// data raises the receive interrupt after the delay.
+    /// Takes the console's input into the RX queue; newly arrived data
+    /// raises the receive interrupt after the delay.
     fn check_stdin(&mut self) {
-        let Ok(rx) = self.rx_receiver.lock() else { return };
+        let Ok(mut terminal) = self.terminal.lock() else { return };
         let mut arrived = false;
-        while let Ok(byte) = rx.try_recv() {
+        while let Some(byte) = terminal.poll_input() {
             self.rx_queue.push_back(byte);
             arrived = true;
         }
+        drop(terminal);
         if arrived && !self.rx_ready && self.rx_interrupt_at.is_none() {
             self.rx_interrupt_at = Some(self.cycle + self.interrupt_delay);
         }
@@ -365,17 +333,8 @@ impl Uart {
                 return;
             }
 
-            match self.console {
-                Console::Stdout => {
-                    print!("{}", val as char);
-                    let _ = io::stdout().flush();
-                }
-                Console::Stderr => {
-                    eprint!("{}", val as char);
-                    let _ = io::stderr().flush();
-                }
-                Console::Quiet => {}
-                Console::Captured => self.captured.push(val),
+            if let Ok(mut terminal) = self.terminal.lock() {
+                let _ = terminal.write(&[val]);
             }
 
             self.schedule_tx_interrupt();
@@ -476,7 +435,10 @@ impl Device for Uart {
 
     fn quiet_ticks(&self) -> Option<u64> {
         let until = |at: Option<u64>| at.map(|at| at.saturating_sub(self.cycle).saturating_sub(1));
-        let stdin_poll = matches!(self.console, Console::Stdout | Console::Stderr)
+        let stdin_poll = self
+            .terminal
+            .lock()
+            .is_ok_and(|terminal| terminal.uart_may_receive())
             .then(|| u64::from(u8::MAX - self.tick_count));
         [until(self.tx_interrupt_at), until(self.rx_interrupt_at), stdin_poll]
             .into_iter()

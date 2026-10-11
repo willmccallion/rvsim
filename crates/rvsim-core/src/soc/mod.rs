@@ -16,6 +16,8 @@ pub mod devices;
 
 pub mod memory;
 
+pub mod terminal;
+
 pub mod topology;
 
 pub mod traits;

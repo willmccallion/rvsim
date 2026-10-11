@@ -29,6 +29,7 @@ use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
+use crate::soc::terminal::Terminal;
 use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
 use crate::soc::uncore::{StatsDump, StatsEpoch, TraceControl, Uncore};
@@ -162,8 +163,9 @@ impl SystemState {
         let ram_base = config.system.ram_base;
         let ram_size = config.memory.ram_size;
 
+        let terminal = Terminal::shared(config.system.console);
         let uart =
-            Uart::new(config.system.uart_base, config.system.console, config.system.cpu_clock_mhz);
+            Uart::new(config.system.uart_base, terminal.clone(), config.system.cpu_clock_mhz);
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
         let plic = Plic::new(0x0c00_0000, hart_count);
 
@@ -194,7 +196,12 @@ impl SystemState {
         bus.add_device(Box::new(rtc));
 
         if config.system.tohost_addr != 0 {
-            let htif = Htif::new(config.system.tohost_addr, exit_signal.clone(), Vec::new());
+            let htif = Htif::new(
+                config.system.tohost_addr,
+                exit_signal.clone(),
+                Vec::new(),
+                terminal.clone(),
+            );
             bus.add_device(Box::new(htif));
         }
 
@@ -372,6 +379,7 @@ impl SystemState {
                 exit_signal,
                 direct_mode,
                 process: None,
+                terminal,
                 event_queue: EventQueue::new(),
                 stats,
                 stats_epoch: StatsEpoch::default(),

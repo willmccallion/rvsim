@@ -268,7 +268,9 @@ impl Simulator {
             }
         }
         state.uncore.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
-        state.uncore.process = header.process.clone().map(Process::from_checkpoint);
+        let terminal = state.uncore.terminal.clone();
+        state.uncore.process =
+            header.process.clone().map(|process| Process::from_checkpoint(process, terminal));
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all(&mut state.uncore.stats);
