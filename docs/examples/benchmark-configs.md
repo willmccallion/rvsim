@@ -1,48 +1,67 @@
 # Benchmark Configurations
 
-`rvsim.presets` holds complete machines to start experiments from. The analysis examples use them; `replace()` derives your own.
+`Config()` is the default machine, and `rvsim.presets` holds the others. The analysis examples use them; `replace()` derives your own, so a variant names only what it changes.
 
 ## Available Configurations
 
-| Preset | What it is |
+| Configuration | What it is |
 |--------|------------|
-| `basic()` | `Config()`: a modest 4-wide out-of-order core with 32 KiB L1s and a 256 KiB L2 |
-| `fast()` | An Apple M4 P-core class core, the default core of the Linux system |
-| `rocket()`, `boom()` | Chipyard's Rocket and Medium BOOM as their RTL builds them ([Error against Rocket](../rtl-rocket.md), [Error against BOOM](../rtl-boom.md)) |
-| `linux(harts, core=...)` | A core placed in the system that boots the bundled Linux image |
+| `Config()` | A desktop out-of-order core of the mid-2020s, with three cache levels, every prefetcher and DDR5-5600 |
+| `presets.inorder()` | The same machine around a dual-issue in-order core |
+| `presets.rocket()`, `presets.boom()` | Chipyard's Rocket and Medium BOOM as their RTL builds them ([Error against Rocket](../rtl-rocket.md), [Error against BOOM](../rtl-boom.md)) |
+| `presets.linux(harts, core=...)` | A core, `Config()` by default, placed in the system that boots the bundled Linux image |
 
-### Fast (Apple M4 P-core class)
+`--preset` names them on the command line: `default`, `inorder`, `rocket`
+and `boom`.
+
+### The default machine
 
 ```python
-from rvsim import presets
+from rvsim import BranchPredictor, Config
 
-config = presets.fast()
+config = Config()
+variant = Config(l3=None, branch_predictor=BranchPredictor.GShare())
 ```
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| Width | 8 | 4.4 GHz |
-| Backend | OutOfOrder | 630-entry ROB, 160-entry IQ, 140-entry LQ, 108-entry SQ, 3 load and 2 store ports, 64 branch checkpoints |
-| Functional units | 6 ALU, 2 MUL, 4 each of FP add, multiply and FMA, 4 address units | Vector: VLEN 256, 4 lanes, chaining |
-| Branch Predictor | 64KB TAGE-SC-L with ITTAGE | 16K-entry 8-way BTB, 48-entry RAS |
-| L1I | 192KB, 6-way, PLRU | NextLine prefetch (degree 3), 10 MSHRs |
-| L1D | 128KB, 8-way, PLRU | 4-cycle load-to-use, 20 MSHRs, stride prefetch (degree 4) |
-| L2 | 4MB, 16-way | 12 cycles, 32 MSHRs, stream prefetch |
-| L3 | 36MB, 16-way | 35 cycles, 64 MSHRs, tagged prefetch |
-| TLBs | 160-entry L1, 4096-entry 8-way L2 TLB | |
-| Memory | Row-buffer DRAM | 16-entry write-combining buffer |
+| Clock | 4.0 GHz | `cpu_clock_mhz` and `clock_hz` |
+| Width | 6 | Every stage; a mispredicted branch costs 14 cycles |
+| Backend | OutOfOrder | 320-entry ROB, 128-entry IQ, 128-entry LQ, 72-entry SQ, 3 load and 2 store ports, 224 integer, 192 FP and 96 vector physical registers |
+| Functional units | 4 ALU (1 cycle), 1 MUL (3), 1 DIV (14), 2 each of FP add (3), multiply (4) and FMA (4), 1 FP divide/sqrt (13), 2 branch, 3 address units | Vector: VLEN 256, 4 lanes, 2 integer, 2 FP, 2 memory and 1 permute pipe |
+| Branch predictor | 64KB TAGE-SC-L with ITTAGE | 8K-entry 8-way BTB, 32-entry RAS, store-set memory dependence predictor |
+| L1I | 32 KiB, 8-way, PLRU | Next-line prefetch, 8 MSHRs |
+| L1D | 48 KiB, 12-way, PLRU | 5-cycle load-to-use, 16 MSHRs, next-line prefetch, 16-entry write-combining buffer |
+| L2 | 1 MiB, 8-way, private | 14-cycle load-to-use, 32 MSHRs, stream prefetch |
+| L3 | 32 MiB, 16-way, shared | 49-cycle load-to-use, 64 MSHRs, non-inclusive |
+| Load/store prefetch | Load/store unit | Loads 4 lines ahead into the L1D and 16 into the L2, crossing pages through the TLB; store misses streamed into the L2 |
+| TLBs | 64-entry L1 TLBs, 2048-entry 8-way L2 TLB | |
+| Memory | DDR5-5600, two channels | 90 ns random-access load-to-use |
 
-The parameters follow public descriptions of the M4 Everest core; Apple
-publishes none, so this preset is a large modern core rather than a
-calibrated M4.
+The values are typical of a current desktop core rather than taken from
+any one chip; the load-to-use latencies are what
+`tools/diag/latency_probe.py --preset default` measures.
+
+### In-order
+
+```python
+from rvsim import presets
+
+config = presets.inorder()
+```
+
+`Config(width=2, backend=Backend.InOrder())`: the default machine's clock,
+front end, predictors, caches, prefetchers, TLBs and memory around a
+dual-issue in-order core with two integer ALUs and one of every other
+unit, so comparing it with `Config()` compares only the cores.
 
 ### Linux system
 
 ```python
 from rvsim import presets
 
-config = presets.linux(harts=8)                       # fast() cores
-config = presets.linux(harts=1, core=presets.basic())  # any core
+config = presets.linux(harts=8)                          # Config() cores
+config = presets.linux(harts=1, core=presets.inorder())  # any core
 ```
 
 `linux()` keeps the core's pipeline, predictors and caches and replaces
@@ -107,11 +126,11 @@ The latencies are the ones Chips and Cheese measured on the Cortex-A72 (Graviton
 ### With Environment
 
 ```python
-from rvsim import Environment, presets
+from rvsim import Config, Environment
 
 result = Environment(
     binary="software/bin/programs/qsort.elf",
-    config=presets.basic(),
+    config=Config(),
 ).run()
 
 print(result.stats.query("ipc|stall|miss"))
@@ -120,13 +139,13 @@ print(result.stats.query("ipc|stall|miss"))
 ### With Sweep
 
 ```python
-from rvsim import Sweep, presets
+from rvsim import Config, Sweep, presets
 
 results = Sweep(
     binaries=["software/bin/programs/qsort.elf"],
     configs={
-        "basic": presets.basic(),
-        "fast": presets.fast(),
+        "default": Config(),
+        "inorder": presets.inorder(),
         "boom": presets.boom(),
     },
 ).run(parallel=True)
@@ -141,11 +160,12 @@ results.compare(
 Use `replace()` to create variants of a benchmark config:
 
 ```python
-from rvsim import Cache, presets
+from rvsim import Cache, Config
 
-base = presets.basic()
+base = Config()
 wide = base.replace(width=8)
 big_cache = base.replace(l1d=Cache("64KB", ways=8, latency=3, mshr_count=8))
+no_l3 = base.replace(l3=None)
 ```
 
 ## Creating Your Own Config

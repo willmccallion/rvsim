@@ -58,7 +58,7 @@ class Ownership(unittest.TestCase):
 
 class Pickle(unittest.TestCase):
     def test_round_trips_a_config_with_vector_units(self):
-        config = presets.fast()
+        config = Config()
 
         restored = pickle.loads(pickle.dumps(config))
 
@@ -107,11 +107,35 @@ class Prefetchers(unittest.TestCase):
             },
         )
 
-    def test_no_prefetcher_by_default(self):
-        cache = Config().to_dict()["cache"]
+    def test_none_turns_the_default_prefetchers_off(self):
+        cache = Config(load_prefetcher=None, store_prefetcher=None).to_dict()["cache"]
 
         self.assertEqual(cache["load_prefetcher"], {"kind": "None"})
         self.assertEqual(cache["store_prefetcher"], {"kind": "None"})
+
+
+class Presets(unittest.TestCase):
+    def test_the_in_order_preset_changes_only_the_core(self):
+        default = Config().to_dict()
+        in_order = presets.inorder().to_dict()
+
+        machine = {s: v for s, v in default.items() if s != "pipeline"}
+        in_order_machine = {s: v for s, v in in_order.items() if s != "pipeline"}
+
+        self.assertEqual(in_order_machine, machine)
+        self.assertEqual(in_order["pipeline"]["backend"], "InOrder")
+        self.assertEqual(in_order["pipeline"]["width"], 2)
+
+    def test_the_linux_system_runs_default_cores(self):
+        default = Config().to_dict()
+
+        linux = presets.linux(harts=2).to_dict()
+
+        self.assertEqual(linux["pipeline"], default["pipeline"])
+        self.assertEqual(linux["cache"], default["cache"])
+
+    def test_the_default_preset_is_config(self):
+        self.assertEqual(presets.PRESETS["default"]().to_dict(), Config().to_dict())
 
 
 class Validation(unittest.TestCase):

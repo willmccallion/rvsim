@@ -10,7 +10,7 @@ its own statistics region on the configuration under study (see
 ## `rvsim bench`
 
 ```bash
-rvsim bench                                  # every benchmark, fast preset, 8 harts
+rvsim bench                                  # every benchmark, Config() cores, 8 harts
 rvsim bench coremark dhrystone --harts 1     # two of them on one hart
 rvsim bench --config my_core.py --warm       # your core, each benchmark warmed first
 rvsim bench --memory dram --interconnect ring --json out.json
@@ -20,7 +20,7 @@ rvsim bench --list                           # the benchmarks and their commands
 | Option | Meaning |
 |--------|---------|
 | `NAME ...` | Benchmarks to run: `coremark`, `dhrystone`, `whetstone`, `stream`, `mbw`, `lat_mem_rd`, `stress-ng` (default: all) |
-| `--preset NAME` | Core configuration placed in the Linux system: `basic`, `fast` (default), `rocket` or `boom` |
+| `--preset NAME` | Core configuration placed in the Linux system: `default` (`Config()`, the default), `inorder`, `rocket` or `boom` |
 | `--config FILE` | A Python file whose `config` variable, `get_config()` or function named after the file gives the core to use instead |
 | `--harts N` | Harts (default 8) |
 | `--memory ddr5\|dram` | JEDEC DDR5 or the row-buffer DRAM model |
@@ -36,8 +36,9 @@ L1D, L2 and LLC misses per thousand instructions.
 ## Scores per MHz
 
 `tools/diag/linux_bench.py` boots a core, one of the configurations
-calibrated to measured hardware (`tools/diag/calibration.py`) or the
-`fast` preset, to the login shell from the cached checkpoint, runs them through the guest shell, and reports
+calibrated to measured hardware (`tools/diag/calibration.py`) or a preset,
+to the login shell from the cached checkpoint, runs them through the guest
+shell, and reports
 each one's score from the cycles it took, in the per-MHz figures hardware
 is quoted in. The first run on a core boots Linux (minutes); later runs
 start from the cache.

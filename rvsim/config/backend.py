@@ -136,8 +136,10 @@ class Fu:
             },
         )
 
-    # Default pool matching Skylake-class hardware
+    # The out-of-order default core's pool.
     _DEFAULTS: list
+    # The in-order backend's default: a dual-issue core's pool.
+    _IN_ORDER_DEFAULTS: list
 
     def __init__(self, units=None):
         self.units = list(units) if units is not None else list(Fu._DEFAULTS)
@@ -164,19 +166,39 @@ for _name, _doc, _count, _lat in [
 Fu._DEFAULTS = [
     Fu.IntAlu(count=4, latency=1),
     Fu.IntMul(count=1, latency=3),
-    Fu.IntDiv(count=1, latency=35),
-    Fu.FpAdd(count=2, latency=4),
-    Fu.FpMul(count=2, latency=5),
-    Fu.FpFma(count=2, latency=5),
-    Fu.FpDivSqrt(count=1, latency=21),
+    Fu.IntDiv(count=1, latency=14),
+    Fu.FpAdd(count=2, latency=3),
+    Fu.FpMul(count=2, latency=4),
+    Fu.FpFma(count=2, latency=4),
+    Fu.FpDivSqrt(count=1, latency=13),
     Fu.Branch(count=2, latency=1),
-    Fu.Mem(count=2, latency=1),
+    Fu.Mem(count=3, latency=1),
+    Fu.VecIntAlu(count=2, latency=1),
+    Fu.VecIntMul(count=1, latency=3),
+    Fu.VecIntDiv(count=1, latency=14),
+    Fu.VecFpAlu(count=2, latency=3),
+    Fu.VecFpFma(count=2, latency=4),
+    Fu.VecFpDivSqrt(count=1, latency=13),
+    Fu.VecMem(count=2, latency=1),
+    Fu.VecPermute(count=1, latency=1),
+]
+
+Fu._IN_ORDER_DEFAULTS = [
+    Fu.IntAlu(count=2, latency=1),
+    Fu.IntMul(count=1, latency=3),
+    Fu.IntDiv(count=1, latency=14),
+    Fu.FpAdd(count=1, latency=3),
+    Fu.FpMul(count=1, latency=4),
+    Fu.FpFma(count=1, latency=4),
+    Fu.FpDivSqrt(count=1, latency=13),
+    Fu.Branch(count=1, latency=1),
+    Fu.Mem(count=1, latency=1),
     Fu.VecIntAlu(count=1, latency=1),
     Fu.VecIntMul(count=1, latency=3),
-    Fu.VecIntDiv(count=1, latency=20),
-    Fu.VecFpAlu(count=1, latency=4),
-    Fu.VecFpFma(count=1, latency=5),
-    Fu.VecFpDivSqrt(count=1, latency=20),
+    Fu.VecIntDiv(count=1, latency=14),
+    Fu.VecFpAlu(count=1, latency=3),
+    Fu.VecFpFma(count=1, latency=4),
+    Fu.VecFpDivSqrt(count=1, latency=13),
     Fu.VecMem(count=1, latency=1),
     Fu.VecPermute(count=1, latency=1),
 ]
@@ -186,10 +208,13 @@ class Backend:
     """Namespace for pipeline backend configurations."""
 
     class InOrder:
-        """In-order issue from a FIFO onto ``fu_config``'s unit pool."""
+        """In-order issue from a FIFO onto ``fu_config``'s unit pool, a
+        dual-issue core's by default."""
 
         def __init__(self, fu_config=None):
-            self.fu_config = fu_config if fu_config is not None else Fu()
+            self.fu_config = (
+                fu_config if fu_config is not None else Fu(Fu._IN_ORDER_DEFAULTS)
+            )
 
         def __repr__(self) -> str:
             return f"Backend.InOrder(fu_config={self.fu_config!r})"
@@ -197,18 +222,18 @@ class Backend:
     class OutOfOrder:
         def __init__(
             self,
-            rob_size: int = 128,
-            store_buffer_size: int = 32,
-            issue_queue_size: int = 32,
-            load_queue_size: int = 32,
-            load_ports: int = 2,
-            store_ports: int = 1,
-            prf_gpr_size: int = 256,
-            prf_fpr_size: int = 128,
+            rob_size: int = 320,
+            store_buffer_size: int = 72,
+            issue_queue_size: int = 128,
+            load_queue_size: int = 128,
+            load_ports: int = 3,
+            store_ports: int = 2,
+            prf_gpr_size: int = 224,
+            prf_fpr_size: int = 192,
             fu_config=None,
             checkpoint_count: int = 0,
             squash_width: int = 8,
-            prf_vpr_size: int = 64,
+            prf_vpr_size: int = 96,
             vec_chaining: bool = True,
             vec_store_buffer_size: int = 8,
             vec_store_forwarding: str = "byte_mask",

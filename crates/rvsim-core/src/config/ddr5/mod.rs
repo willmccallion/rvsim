@@ -237,6 +237,12 @@ impl TryFrom<Ddr5ParamsRaw> for Ddr5Params {
 }
 
 impl Ddr5Params {
+    /// The default parameters at `speed_bin`.
+    #[must_use]
+    pub fn at_speed_bin(speed_bin: Ddr5SpeedBinName) -> Self {
+        Self { raw: Ddr5ParamsRaw { speed_bin, ..Ddr5ParamsRaw::default() } }
+    }
+
     /// Resolves the parameters into a controller configuration.
     #[must_use]
     pub fn to_config(&self) -> Ddr5Config {

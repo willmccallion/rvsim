@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Config()` is a complete machine, a desktop out-of-order core of the
+  mid-2020s: 6-wide at 4 GHz with a 320-entry ROB, the 64KB TAGE-SC-L
+  with ITTAGE, a 48 KiB L1D, a 1 MiB L2 and a 32 MiB L3, the load/store
+  unit's load and store prefetchers, DDR5-5600 and VLEN 256 (see
+  [Benchmark Configs](examples/benchmark-configs.md)). A parameter a
+  configuration leaves out takes this machine's value, so a partial
+  `Config(...)` runs on a different machine than before; `rocket()`,
+  `boom()`, the calibrated configurations, the gem5 comparison and the
+  conformance matrix name their values and are unchanged.
+  `Backend.OutOfOrder()` and `Fu()` default to this core's structures, and
+  `Backend.InOrder()` to a dual-issue core's units.
+- `presets.inorder()` is the default machine around a dual-issue in-order
+  core, so comparing it with `Config()` compares only the cores.
+  `presets.basic()` and `presets.fast()` are removed; `presets.linux()`,
+  `rvsim bench` and `make run-linux` boot `Config()` cores, and
+  `--preset default` names `Config()`. The conformance matrix runs both
+  default machines, on 74 configurations.
 - The `cortex_a72()` and `p550()` presets move to
   `tools/diag/calibration.py`, beside the latency probe and the Linux
   benchmark runner that compare them with the hardware they are fitted

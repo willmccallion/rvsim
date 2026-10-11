@@ -46,7 +46,7 @@ BENCHMARKS = {
 
 PRESETS = {
     **CALIBRATED,
-    "fast": presets.fast,
+    **presets.PRESETS,
 }
 
 

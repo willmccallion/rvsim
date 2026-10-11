@@ -100,7 +100,7 @@ rvsim bench coremark dhrystone                   # run benchmarks inside Linux
 |--------|---------|
 | `--limit N` | Stop after `N` cycles (`5M`, `500K` and `1G` are accepted) |
 | `--watch` | Live dashboard: IPC, cache hit rates, branch accuracy, stalls |
-| `--preset NAME` | Use a built-in configuration: `basic`, `fast`, `rocket` or `boom` |
+| `--preset NAME` | Use a built-in configuration: `default` (`Config()`, what a run uses without one), `inorder`, `rocket` or `boom` |
 | `--config FILE` | Use the `config` (or `get_config()`) a Python file exports |
 | `--harts N` | Run with `N` harts |
 | `--json FILE` | Write the statistics as JSON |

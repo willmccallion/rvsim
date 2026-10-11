@@ -60,15 +60,20 @@ gem5 builds a tree of `SimObject`s in a Python script. rvsim's `Config`
 is a flat object of components, each a class with named variants, and
 `replace()` derives one configuration from another. A preset is a
 complete machine, the way `--cpu-type` plus a cache script is in gem5:
-`presets.basic()` and `presets.fast()`, `presets.rocket()` and
-`presets.boom()` as Chipyard's RTL builds them, and `presets.linux()` for
-the bundled image.
+`Config()` itself, a desktop out-of-order core with three cache levels,
+every prefetcher and DDR5; `presets.inorder()`, the same machine around a
+dual-issue in-order core; `presets.rocket()` and `presets.boom()` as
+Chipyard's RTL builds them; and `presets.linux()` for the bundled image.
+Where gem5's stdlib composes a board from a processor, a cache hierarchy
+and a memory, rvsim starts from the whole default machine and a
+configuration names only what differs: `Config(l3=None)`,
+`presets.inorder().replace(branch_predictor=BranchPredictor.GShare())`.
 
 | gem5 | rvsim |
 |---|---|
 | `O3CPU` / `DerivO3CPU` | `Backend.OutOfOrder(...)` |
 | `MinorCPU` | `Backend.InOrder()` |
-| `AtomicSimpleCPU`, `TimingSimpleCPU` | none: every run is cycle-level; `presets.fast()` is the quick configuration |
+| `AtomicSimpleCPU`, `TimingSimpleCPU` | none: every run is cycle-level |
 | `fetchWidth`, `decodeWidth`, `issueWidth`, `commitWidth` | `Config(width=N)`, one width through the pipeline; `load_ports` and `store_ports` for the memory ports |
 | `numROBEntries`, `numIQEntries`, `LQEntries`, `SQEntries` | `rob_size`, `issue_queue_size`, `load_queue_size`, `store_buffer_size` |
 | `numPhysIntRegs`, `numPhysFloatRegs` | `prf_gpr_size`, `prf_fpr_size` |

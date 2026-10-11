@@ -170,7 +170,7 @@ def _print_help() -> None:
     ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
     ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
     ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
-    ex_table.add_row("rvsim qsort.elf --preset fast", "run on the M4-class preset")
+    ex_table.add_row("rvsim qsort.elf --preset inorder", "run on the in-order preset")
     ex_table.add_row(
         "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
     )
@@ -259,7 +259,7 @@ def main() -> None:
             "  rvsim prog -- a b                   run a static Linux user program with arguments\n"
             "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
             "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
-            "  rvsim mandelbrot.elf --preset fast   run on the M4-class preset\n"
+            "  rvsim mandelbrot.elf --preset inorder   run on the in-order preset\n"
             "  rvsim spinlock.elf --harts 4         run a multi-hart program on four harts\n"
             "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
             "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"

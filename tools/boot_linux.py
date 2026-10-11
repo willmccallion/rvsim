@@ -17,10 +17,11 @@ benchmark suite (CoreMark, CoreMark-PRO, Dhrystone, Whetstone, lmbench, mbw,
 ramspeed, stress-ng, STREAM, perf) and the ``rvsim`` guest tool that marks
 regions for the simulator's stats and exchanges files with the host.
 
-The default boot is the showcase system: eight out-of-order M-class cores
-from the ``fast`` preset (64KB TAGE-SC-L), a MESI snoop-filter home agent
-over a 2-D mesh, and four channels of DDR5-5600. ``--harts``, ``--memory``, ``--speed-bin`` and
-``--interconnect`` trim it down.
+The default boot is the showcase system: eight of the default machine's
+out-of-order cores (``Config()``, with the 64KB TAGE-SC-L), a MESI
+snoop-filter home agent over a 2-D mesh, and four channels of DDR5-5600.
+``--harts``, ``--memory``, ``--speed-bin`` and ``--interconnect`` trim it
+down.
 """
 
 import argparse

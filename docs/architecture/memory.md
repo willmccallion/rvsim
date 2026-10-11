@@ -354,13 +354,13 @@ dropped when its line is already present, already being fetched or being
 written back, so no level fetches a line twice, and when it would take the
 last free MSHR; each level's prefetcher works independently.
 
-### In the presets and calibrated configurations
+### In the default machine and calibrated configurations
 
 | Configuration | L1D prefetching |
 |--------|-----------------|
 | `cortex_a72`, calibrated | Load prefetcher, `l2_lines=22` and `CrossWithTlb` (the reset values of `CPUECTLR_EL1[33:32]` and `CPUACTLR_EL1[43]`); store prefetcher into the L2. The L1D distance (1 line), table size (32) and store run length (8 lines, 4 runs) are not published |
 | `p550`, calibrated | SiFive has not published the P550's prefetchers: a load prefetcher that keeps to the page (`Stop`, 1 line ahead, no L2 stream) and no store prefetcher, as the cautious reading |
-| `fast()`, `basic()` | The cache-side stride prefetcher on the L1D, as before |
+| `Config()`, `presets.inorder()` | Load prefetcher, 4 lines ahead in the L1D and 16 in the L2, `CrossWithTlb`; store prefetcher into the L2; a cache-side next-line prefetcher on the L1D, as Intel's L1D pairs a PC-indexed stride prefetcher with a next-line one (§9.5.2), and a stream prefetcher on the L2 |
 
 ## DRAM Controller
 

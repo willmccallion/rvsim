@@ -88,8 +88,8 @@ rvsim tools/boot_linux.py --speed-bin 4800B      # a slower DDR5 bin
 | `--no-boot` | Build only |
 | `--rebuild` | Rebuild the image even if one exists |
 
-The machine is `presets.linux()`: `fast()` cores (an Apple M4 P-core class
-8-wide out-of-order core with Seznec's 64KB TAGE-SC-L), private L1 and L2
+The machine is `presets.linux()`: `Config()` cores (the default machine's
+6-wide out-of-order core with Seznec's 64KB TAGE-SC-L), private L1 and L2
 caches kept coherent by a snoop-filter home agent, a shared L3, and DDR5.
 The console is the terminal: log in as `root` with no password.
 
@@ -124,9 +124,9 @@ place of the generated one. Any core works inside the Linux system,
 including the in-order backend:
 
 ```python
-from rvsim import Backend, presets
+from rvsim import presets
 
-in_order = presets.linux(harts=1, core=presets.fast().replace(backend=Backend.InOrder()))
+in_order = presets.linux(harts=1, core=presets.inorder())
 boom = presets.linux(harts=1, core=presets.boom())
 ```
 
@@ -136,11 +136,11 @@ boom = presets.linux(harts=1, core=presets.boom())
 is the practical way to study software running on Linux:
 
 ```python
-from rvsim import Backend, Session, presets
+from rvsim import Session, presets
 
 s = Session.linux(harts=1)
 s.fast_forward(until=Session.LOGIN_SHELL)        # boots once, then restored from the cache
-s.switch(presets.linux(harts=1, core=presets.fast().replace(backend=Backend.InOrder())))
+s.switch(presets.linux(harts=1, core=presets.inorder()))
 s.warm_up(command="coremark 0x0 0x0 0x66 20 7 1 2000")
 r = s.measure("coremark 0x0 0x0 0x66 20 7 1 2000")
 print(r.cycles, r.instructions, r.ipc, r.exit_code)

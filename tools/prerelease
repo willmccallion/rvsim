@@ -348,9 +348,9 @@ if [[ -n "$WHEEL" ]]; then
     if logged smoke-install sh -c "python3 -m venv '$SMOKE_VENV' && '$SMOKE_VENV/bin/pip' install -q '$WHEEL'" \
         && logged smoke-run sh -c "cd '$LOG_DIR' && '$SMOKE_VENV/bin/python' -c '
 import rvsim
-from rvsim import Simulator, presets
+from rvsim import Config, Simulator
 assert rvsim.version() == \"$CARGO_VER\", rvsim.version()
-sim = Simulator(presets.basic().replace(uart_quiet=True), binary=\"$ROOT/software/bin/programs/fib.elf\")
+sim = Simulator(Config(uart_quiet=True), binary=\"$ROOT/software/bin/programs/fib.elf\")
 assert sim.run(stats_sections=None) == 0
 '"; then
         pass "the wheel installs, reports $CARGO_VER and runs fib.elf"

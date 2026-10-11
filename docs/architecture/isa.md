@@ -60,7 +60,7 @@ written, and take effect in the L1D.
 ## Vector extension
 
 RVV 1.0 with ELEN 64 and VLEN a power of two from 128 to 2048 bits
-(default 128): loads and stores (unit-stride, strided, indexed ordered and
+(default 256): loads and stores (unit-stride, strided, indexed ordered and
 unordered, segment, fault-only-first, mask and whole-register), integer,
 fixed-point (with `vxrm` rounding and `vxsat`), floating point including
 half precision (**Zvfh**), widening and narrowing forms, reductions, mask

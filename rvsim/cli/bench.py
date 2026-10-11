@@ -83,8 +83,8 @@ def _parser() -> argparse.ArgumentParser:
     core.add_argument(
         "--preset",
         choices=list(presets.PRESETS),
-        default="fast",
-        help="core configuration (default fast)",
+        default="default",
+        help="core configuration (default: Config())",
     )
     core.add_argument(
         "--config",

@@ -12,7 +12,15 @@ from ._units import _parse_size
 from .backend import Backend
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence
-from .memory import Cache, LoadPrefetcher, MemoryController, Prefetcher, StorePrefetcher
+from .memory import (
+    Cache,
+    LoadPrefetcher,
+    MemoryController,
+    PageBoundary,
+    Prefetcher,
+    ReplacementPolicy,
+    StorePrefetcher,
+)
 
 _PAGING_MODES = ("bare", "sv39", "sv48", "sv57")
 
@@ -27,18 +35,44 @@ def _validate_paging_mode(value: str) -> str:
     return normalized
 
 
-# Templates for Config's defaults; every Config stores its own copy.
-_DEFAULT_BRANCH_PREDICTOR = BranchPredictor.TAGE()
+# Templates for Config's defaults, a desktop core of the mid-2020s; every
+# Config stores its own copy.
+_DEFAULT_BRANCH_PREDICTOR = BranchPredictor.ScLTage()
 _DEFAULT_BACKEND = Backend.OutOfOrder()
 _DEFAULT_MEM_DEP_PREDICTOR = MemDepPredictor.StoreSet()
 _DEFAULT_L1I = Cache(
-    "32KB", ways=4, latency=1, prefetcher=Prefetcher.NextLine(degree=1)
+    "32KB",
+    ways=8,
+    policy=ReplacementPolicy.PLRU(),
+    latency=1,
+    prefetcher=Prefetcher.NextLine(degree=1),
+    mshr_count=8,
 )
 _DEFAULT_L1D = Cache(
-    "32KB", ways=4, latency=1, prefetcher=Prefetcher.Stride(degree=1, table_size=64)
+    "48KB",
+    ways=12,
+    policy=ReplacementPolicy.PLRU(),
+    latency=4,
+    prefetcher=Prefetcher.NextLine(degree=1),
+    mshr_count=16,
 )
-_DEFAULT_L2 = Cache("256KB", ways=8, latency=10)
+_DEFAULT_L2 = Cache(
+    "1MB",
+    ways=8,
+    policy=ReplacementPolicy.PLRU(),
+    latency=10,
+    prefetcher=Prefetcher.Stream(degree=4),
+    mshr_count=32,
+)
+_DEFAULT_L3 = Cache(
+    "32MB", ways=16, policy=ReplacementPolicy.PLRU(), latency=37, mshr_count=64
+)
 _DEFAULT_INCLUSION_POLICY = Cache.NINE()
+_DEFAULT_LOAD_PREFETCHER = LoadPrefetcher.Stride(
+    table_size=64, l1_lines=4, l2_lines=16, page_boundary=PageBoundary.CrossWithTlb()
+)
+_DEFAULT_STORE_PREFETCHER = StorePrefetcher.Stream(streams=4, l2_lines=8)
+_DEFAULT_MEMORY_CONTROLLER = MemoryController.DDR5(speed_bin="5600B", channels=2)
 
 
 class Config:
@@ -61,7 +95,7 @@ class Config:
     def __init__(
         self,
         # Pipeline
-        width: int = 4,
+        width: int = 6,
         fetch_width: int | None = None,
         decode_width: int | None = None,
         rename_width: int | None = None,
@@ -80,44 +114,45 @@ class Config:
         | BranchPredictor.GShare
         | BranchPredictor.Bht
         | BranchPredictor.TAGE
+        | BranchPredictor.ScLTage
         | BranchPredictor.Perceptron
         | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,
         backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND,
         mem_dep_predictor: MemDepPredictor.Blind
         | MemDepPredictor.StoreSet = _DEFAULT_MEM_DEP_PREDICTOR,
-        btb_size: int = 4096,
-        btb_ways: int = 4,
+        btb_size: int = 8192,
+        btb_ways: int = 8,
         ras_size: int = 32,
         # Caches (None = disabled)
         l1i: Cache | None = _DEFAULT_L1I,
         l1d: Cache | None = _DEFAULT_L1D,
         l2: Cache | None = _DEFAULT_L2,
-        l3: Cache | None = None,
+        l3: Cache | None = _DEFAULT_L3,
         inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY,
-        wcb_entries: int = 0,
-        load_prefetcher: LoadPrefetcher.Stride | None = None,
-        store_prefetcher: StorePrefetcher.Stream | None = None,
+        wcb_entries: int = 16,
+        load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER,
+        store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER,
         # Memory
         ram_size="256MB",
-        memory_controller=None,
+        memory_controller: Any = _DEFAULT_MEMORY_CONTROLLER,
         tlb_size: int = 64,
         tlb_ways: int = 0,
-        l2_tlb_size: int = 0,
-        l2_tlb_ways: int = 4,
-        l2_tlb_latency: int = 4,
+        l2_tlb_size: int = 2048,
+        l2_tlb_ways: int = 8,
+        l2_tlb_latency: int = 7,
         misaligned_access_trap: bool = False,
         paging_mode_max: str = "sv57",
         # ISA extensions
         isa: str | None = None,
         svadu: bool = False,
         # Vector ISA
-        vlen: int = 128,
+        vlen: int = 256,
         num_vec_lanes: int | None = None,
         vector_mem_width: int | None = None,
         # General
         trace: bool = False,
         page_mode: str = "Sv39",
-        clock_hz: int = 1_000_000_000,
+        clock_hz: int = 4_000_000_000,
         # System (advanced)
         ram_base: int = 0x8000_0000,
         uart_base: int = 0x1000_0000,
@@ -126,9 +161,9 @@ class Config:
         syscon_base: int = 0x0010_0000,
         kernel_offset: int = 0x0020_0000,
         bus_width: int = 8,
-        bus_latency: int = 4,
+        bus_latency: int = 1,
         clint_divider: int = 10,
-        cpu_clock_mhz: int = 2400,
+        cpu_clock_mhz: int = 4000,
         device_latency_ns: int = 100,
         device_latency_ns_overrides: dict[str, int] | None = None,
         rtc_epoch_seconds: int = 1_767_225_600,

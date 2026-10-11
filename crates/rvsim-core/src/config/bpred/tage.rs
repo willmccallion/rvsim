@@ -182,6 +182,44 @@ impl Default for TageConfig {
 }
 
 impl TageConfig {
+    /// The TAGE component of Seznec's 64KB TAGE-SC-L (CBP-5): 36 banked
+    /// 1024-entry tables over paired history lengths 6 to 3000, CBP-5
+    /// allocation and update with 1-bit useful counters, PC-bit history with
+    /// a 27-bit path and an 8K-entry bimodal table.
+    #[must_use]
+    pub fn tage_sc_l_64kb() -> Self {
+        const ENABLED_BANKS: [usize; 21] =
+            [1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 31, 35];
+        const BANKS: usize = 36;
+        Self {
+            num_banks: BANKS,
+            table_size: 1024,
+            reset_interval: 1024,
+            history_lengths: vec![
+                6, 6, 9, 9, 12, 12, 18, 18, 26, 26, 37, 37, 54, 54, 78, 78, 112, 112, 161, 161, 232,
+                232, 335, 335, 482, 482, 695, 695, 1002, 1002, 1444, 1444, 2081, 2081, 3000, 3000,
+            ],
+            tag_widths: [vec![8; 12], vec![12; 24]].concat(),
+            use_alt_counters: 16,
+            use_alt_bits: 5,
+            useful_bits: 1,
+            max_allocations: 2,
+            allocation: TageAllocation::Cbp5,
+            update: TageUpdate::Cbp5,
+            history: TageHistoryMode::PcBits,
+            path_history_bits: 27,
+            bimodal_entries: Some(8192),
+            bimodal_hysteresis_share_log: Self::default_bimodal_hysteresis_share_log(),
+            hashing: TageHashing::TageScL,
+            banking: Some(TageBanking {
+                short_factor: 10,
+                long_factor: 20,
+                first_long_bank: 12,
+                enabled: (0..BANKS).map(|bank| ENABLED_BANKS.contains(&bank)).collect(),
+            }),
+        }
+    }
+
     /// Returns the default number of TAGE predictor banks.
     const fn default_banks() -> usize {
         defaults::TAGE_BANKS

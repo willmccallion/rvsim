@@ -92,7 +92,7 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
 
-The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES, SHA-256 and SHA-512), Zvks (SM4 and SM3), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
+The vector extension supports configurable VLEN (default 256) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES, SHA-256 and SHA-512), Zvks (SM4 and SM3), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
 Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite.
 
@@ -191,7 +191,7 @@ make -C software
 ## Linux Boot
 
 Boots Linux 6.6 through OpenSBI to a BusyBox shell on both backends. The
-default boot is eight out-of-order cores from the `fast` preset (64KB
+default boot is eight of the default machine's out-of-order cores (64KB
 TAGE-SC-L) with coherent private caches over a mesh and four channels of
 DDR5-5600.
 

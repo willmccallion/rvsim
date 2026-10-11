@@ -77,7 +77,7 @@ help:
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
-	@printf "    %-$(HELP_W)s  Boot SMP Linux: 8 M-class O3 cores, TAGE-SC-L, snoop filter, mesh, 4-ch DDR5 (HARTS=N)\n" "make run-linux"
+	@printf "    %-$(HELP_W)s  Boot SMP Linux: 8 default O3 cores, TAGE-SC-L, snoop filter, mesh, 4-ch DDR5 (HARTS=N)\n" "make run-linux"
 	@printf "\n  $(CYAN)Profiling$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build with profiling symbols\n" "make profile-build"
 	@printf "    %-$(HELP_W)s  Generate flamegraph (ARGS=…)\n" "make flamegraph"
