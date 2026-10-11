@@ -323,6 +323,18 @@ def main() -> None:
         "by default an entry below RAM with no tohost symbol means se",
     )
     parser.add_argument(
+        "--script",
+        metavar="FILE",
+        default=None,
+        help="the file the guest's readfile pseudo-operation reads",
+    )
+    parser.add_argument(
+        "--outdir",
+        metavar="DIR",
+        default=None,
+        help="the directory the guest's writefile pseudo-operation writes into",
+    )
+    parser.add_argument(
         "--pipeline-trace",
         metavar="FILE",
         help="write where every instruction is each cycle, as a Kanata log for Konata",
@@ -381,6 +393,19 @@ def main() -> None:
     elif mode == "kernel":
         cfg.uart_to_stderr = True
 
+    def build_simulator() -> Simulator:
+        host_files = {"script": args.script, "outdir": args.outdir}
+        if mode == "kernel":
+            return Simulator(cfg, kernel=target, **host_files)
+        return Simulator(
+            cfg,
+            binary=target,
+            args=[target, *extra_args],
+            env=args.env,
+            mode=args.mode,
+            **host_files,
+        )
+
     if args.watch:
         import io
 
@@ -390,17 +415,7 @@ def main() -> None:
         _real_stderr = sys.stderr
         sys.stderr = io.StringIO()
         try:
-            sim = (
-                Simulator(cfg, kernel=target)
-                if mode == "kernel"
-                else Simulator(
-                    cfg,
-                    binary=target,
-                    args=[target, *extra_args],
-                    env=args.env,
-                    mode=args.mode,
-                )
-            )
+            sim = build_simulator()
         finally:
             sys.stderr = _real_stderr
         if args.pipeline_trace:
@@ -414,17 +429,7 @@ def main() -> None:
         )
     else:
         stats_sections = None if (args.quiet or args.no_stats) else []
-        sim = (
-            Simulator(cfg, kernel=target)
-            if mode == "kernel"
-            else Simulator(
-                cfg,
-                binary=target,
-                args=[target, *extra_args],
-                env=args.env,
-                mode=args.mode,
-            )
-        )
+        sim = build_simulator()
         if args.pipeline_trace:
             sim.open_pipeline_trace(args.pipeline_trace)
         exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)

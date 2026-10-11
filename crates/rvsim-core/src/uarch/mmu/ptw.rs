@@ -206,6 +206,36 @@ pub fn start_walk(
     request_pte(state, pmp)
 }
 
+/// Translates `vaddr` for `request` now, reading each PTE with `read_pte`,
+/// for the host's access to the program's memory: the hart's permissions
+/// apply, but no TLB is filled and no A or D bit is set or required.
+///
+/// # Errors
+///
+/// The page fault the access would take, or an access fault when a PTE
+/// lies outside RAM.
+pub fn walk_now(
+    request: WalkRequest,
+    vaddr: VirtAddr,
+    csrs: &Csrs,
+    read_pte: impl Fn(PhysAddr) -> Option<u64>,
+) -> Result<PhysAddr, Trap> {
+    let mut step = start_walk(request, vaddr, csrs, None);
+    loop {
+        let (pte_addr, state) = match step {
+            WalkStep::Done(result) => return result.trap.map_or(Ok(result.paddr), Err),
+            WalkStep::NeedPte { pte_addr, state } => (pte_addr, state),
+        };
+        let raw_pte =
+            read_pte(pte_addr).ok_or_else(|| Trap::access_fault(request.access, vaddr.val()))?;
+        step = match classify(state, PageTableEntry::new(raw_pte), csrs) {
+            PteStep::Pointer(state) => request_pte(state, None),
+            PteStep::Leaf { state, pte } => return Ok(PhysAddr::new(leaf_address(&state, pte))),
+            PteStep::Fault(_) => return Err(Trap::page_fault(request.access, vaddr.val())),
+        };
+    }
+}
+
 /// Continues an in-flight walk after the caller has read the requested PTE
 /// from memory.
 pub fn continue_walk(
@@ -217,71 +247,18 @@ pub fn continue_walk(
     bus_transit_cycles: u64,
 ) -> WalkStep {
     state.cycles += bus_transit_cycles;
-    let pte = PageTableEntry::new(raw_pte);
-
-    if !pte.is_valid() {
-        return WalkStep::Done(TranslationResult::fault(
-            Trap::page_fault(state.access, state.vaddr.val()),
-            state.cycles,
-        ));
-    }
-
-    if pte.has_reserved_bits() {
-        return WalkStep::Done(TranslationResult::fault(
-            Trap::page_fault(state.access, state.vaddr.val()),
-            state.cycles,
-        ));
-    }
-
-    if pte.is_pointer() {
-        if state.level == 0 {
-            return WalkStep::Done(TranslationResult::fault(
-                Trap::page_fault(state.access, state.vaddr.val()),
-                state.cycles,
-            ));
-        }
-        state.level -= 1;
-        state.ppn_raw = pte.ppn_raw();
-        return request_pte(state, pmp);
-    }
-
-    // Leaf PTE: validate, set A/D, install in TLB, return success.
-    if pte.can_write() && !pte.can_read() {
-        return WalkStep::Done(TranslationResult::fault(
-            Trap::page_fault(state.access, state.vaddr.val()),
-            state.cycles,
-        ));
-    }
-
-    if state.level > 0 {
-        let ppn_mask = (1u64 << (u64::from(state.level) * VPN_BITS_PER_LEVEL)) - 1;
-        if (pte.ppn_raw() & ppn_mask) != 0 {
-            return WalkStep::Done(TranslationResult::fault(
-                Trap::page_fault(state.access, state.vaddr.val()),
-                state.cycles,
-            ));
-        }
-    }
-
-    if check_permissions(pte, state.access, state.privilege, csrs).is_err() {
-        return WalkStep::Done(TranslationResult::fault(
-            Trap::page_fault(state.access, state.vaddr.val()),
-            state.cycles,
-        ));
-    }
+    let (mut state, pte) = match classify(state, PageTableEntry::new(raw_pte), csrs) {
+        PteStep::Pointer(state) => return request_pte(state, pmp),
+        PteStep::Leaf { state, pte } => (state, pte),
+        PteStep::Fault(state) => return WalkStep::Done(page_fault(&state)),
+    };
 
     if csrs.menvcfg & MENVCFG_ADUE == 0 {
         if !pte.is_accessed() {
-            return WalkStep::Done(TranslationResult::fault(
-                Trap::page_fault(state.access, state.vaddr.val()),
-                state.cycles,
-            ));
+            return WalkStep::Done(page_fault(&state));
         }
         if state.access == AccessType::Write && !pte.is_dirty() {
-            return WalkStep::Done(TranslationResult::fault(
-                Trap::page_fault(state.access, state.vaddr.val()),
-                state.cycles,
-            ));
+            return WalkStep::Done(page_fault(&state));
         }
     }
 
@@ -290,20 +267,13 @@ pub fn continue_walk(
         state.cycles += PTE_UPDATE_CYCLES;
     }
 
-    let final_ppn = pte.ppn();
-    let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
-    let offset_mask = (1u64 << vpn_shift) - 1;
-    let final_paddr = final_ppn.to_addr() | (state.vaddr.val() & offset_mask);
-
+    let final_paddr = leaf_address(&state, pte);
     let specific_4kb_ppn = Ppn::new(final_paddr >> PAGE_SHIFT);
     let vpn = Vpn::new((state.vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
 
     let pte_raw = pte.raw();
     let Some(size) = PageSize::from_level(state.level) else {
-        return WalkStep::Done(TranslationResult::fault(
-            Trap::page_fault(state.access, state.vaddr.val()),
-            state.cycles,
-        ));
+        return WalkStep::Done(page_fault(&state));
     };
     if state.access == AccessType::Fetch {
         mmu.itlb.insert(vpn, specific_4kb_ppn, pte_raw, state.asid, size);
@@ -320,6 +290,69 @@ pub fn continue_walk(
         accessed_update,
     };
     WalkStep::Done(result)
+}
+
+/// What a walk makes of the PTE it read.
+enum PteStep {
+    /// A pointer to the next level, which the walk goes on to.
+    Pointer(WalkState),
+    /// A leaf that permits the access.
+    Leaf {
+        /// The walk, at the leaf's level.
+        state: WalkState,
+        /// The leaf.
+        pte: PageTableEntry,
+    },
+    /// The PTE is not valid, is malformed or refuses the access.
+    Fault(WalkState),
+}
+
+/// Classifies the PTE a walk at `state` read: a pointer to follow, a leaf
+/// that permits the access, or a fault. The A and D bits are the caller's
+/// concern.
+fn classify(mut state: WalkState, pte: PageTableEntry, csrs: &Csrs) -> PteStep {
+    if !pte.is_valid() || pte.has_reserved_bits() {
+        return PteStep::Fault(state);
+    }
+
+    if pte.is_pointer() {
+        if state.level == 0 {
+            return PteStep::Fault(state);
+        }
+        state.level -= 1;
+        state.ppn_raw = pte.ppn_raw();
+        return PteStep::Pointer(state);
+    }
+
+    if pte.can_write() && !pte.can_read() {
+        return PteStep::Fault(state);
+    }
+
+    if state.level > 0 {
+        let ppn_mask = (1u64 << (u64::from(state.level) * VPN_BITS_PER_LEVEL)) - 1;
+        if (pte.ppn_raw() & ppn_mask) != 0 {
+            return PteStep::Fault(state);
+        }
+    }
+
+    if check_permissions(pte, state.access, state.privilege, csrs).is_err() {
+        return PteStep::Fault(state);
+    }
+
+    PteStep::Leaf { state, pte }
+}
+
+/// The page fault the walk at `state` takes.
+const fn page_fault(state: &WalkState) -> TranslationResult {
+    TranslationResult::fault(Trap::page_fault(state.access, state.vaddr.val()), state.cycles)
+}
+
+/// The physical address `state`'s virtual address maps to through the
+/// leaf `pte` at `state`'s level.
+fn leaf_address(state: &WalkState, pte: PageTableEntry) -> u64 {
+    let vpn_shift = PAGE_SHIFT + u64::from(state.level) * VPN_BITS_PER_LEVEL;
+    let offset_mask = (1u64 << vpn_shift) - 1;
+    pte.ppn().to_addr() | (state.vaddr.val() & offset_mask)
 }
 
 /// Computes the PTE address for the current walk step, checks PMP, and

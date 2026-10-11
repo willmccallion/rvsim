@@ -27,6 +27,10 @@ if TYPE_CHECKING:
 class Simulator(_CoreSimulator):
     """Native simulator.
 
+    ``script`` names the file the guest's readfile pseudo-operation reads
+    and ``outdir`` the directory its writefile pseudo-operation writes
+    into, as gem5's ``--script`` and ``m5out``.
+
     Example::
 
         sim = Simulator(Config(width=4), binary="qsort.elf")
@@ -49,6 +53,8 @@ class Simulator(_CoreSimulator):
         firmware: str | None = None,
         disk: str | None = None,
         dtb: str | None = None,
+        script: str | None = None,
+        outdir: str | None = None,
     ) -> Self:
         if config is None:
             config_dict = _config_to_dict(Config())
@@ -74,4 +80,6 @@ class Simulator(_CoreSimulator):
             firmware_path=firmware,
             dtb_path=dtb,
             disk_path=disk,
+            script_path=script,
+            outdir=outdir,
         )

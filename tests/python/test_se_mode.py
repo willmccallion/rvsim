@@ -154,5 +154,97 @@ class SeMode(unittest.TestCase):
         self.assertEqual(cpu.privilege, "M")
 
 
+M5_READ_FILE = 0x50
+M5_WRITE_FILE = 0x4F
+BUFFER_OFFSET = 0x100
+NAME_OFFSET = 0x180
+SCRIPT = b"echo from the host\n"
+
+
+def file_exchange() -> list[int]:
+    """Reads the script into a buffer past the code, writes the buffer to
+    ``out.txt`` in the output directory, and exits with the bytes written."""
+    code = [
+        auipc(10, 0),
+        addi(10, 10, BUFFER_OFFSET),
+        addi(11, 0, 64),
+        addi(12, 0, 0),
+        0x7B | (M5_READ_FILE << 25),
+        addi(5, 10, 0),
+        auipc(10, 0),
+        addi(10, 10, BUFFER_OFFSET - 6 * 4),
+        addi(11, 5, 0),
+        addi(12, 0, 0),
+        auipc(13, 0),
+        addi(13, 13, NAME_OFFSET - 10 * 4),
+        0x7B | (M5_WRITE_FILE << 25),
+        addi(11, 10, 0),
+        0x7B | (M5_FAIL << 25),
+    ]
+    code += [0] * (NAME_OFFSET // 4 - len(code))
+    name = b"out.txt\0"
+    code += [int.from_bytes(name[i : i + 4], "little") for i in range(0, 8, 4)]
+    return code
+
+
+class HostFiles(unittest.TestCase):
+    """gem5's readfile and writefile pseudo-operations reach the script
+    file and output directory the Simulator was given."""
+
+    def test_a_program_reads_the_script_and_writes_a_file_to_the_outdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "script.sh")
+            with open(script, "wb") as f:
+                f.write(SCRIPT)
+            outdir = os.path.join(tmp, "m5out")
+            cpu = Simulator(
+                Config(),
+                elf_data=user_elf(file_exchange()),
+                script=script,
+                outdir=outdir,
+            )
+
+            exit_code = cpu.run(limit=50_000)
+
+            with open(os.path.join(outdir, "out.txt"), "rb") as f:
+                written = f.read()
+        self.assertEqual(exit_code, len(SCRIPT))
+        self.assertEqual(written, SCRIPT)
+
+    def test_an_environment_passes_the_script_and_the_outdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "script.sh")
+            with open(script, "wb") as f:
+                f.write(SCRIPT)
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(file_exchange()))
+            outdir = os.path.join(tmp, "m5out")
+
+            result = Environment(binary=path, script=script, outdir=outdir).run(
+                limit=50_000
+            )
+
+            with open(os.path.join(outdir, "out.txt"), "rb") as f:
+                written = f.read()
+        self.assertEqual(result.exit_code, len(SCRIPT))
+        self.assertEqual(written, SCRIPT)
+
+    def test_without_a_script_readfile_reads_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cpu = Simulator(Config(), elf_data=user_elf(file_exchange()), outdir=tmp)
+
+            exit_code = cpu.run(limit=50_000)
+
+            with open(os.path.join(tmp, "out.txt"), "rb") as f:
+                written = f.read()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(written, b"")
+
+    def test_a_missing_script_file_is_an_error(self):
+        with self.assertRaisesRegex(RuntimeError, "could not read file"):
+            Simulator(Config(), elf_data=user_elf(file_exchange()), script="/no/such")
+
+
 if __name__ == "__main__":
     unittest.main()

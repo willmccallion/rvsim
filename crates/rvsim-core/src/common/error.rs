@@ -41,6 +41,16 @@ pub enum SimError {
         cycle_count: u64,
     },
 
+    /// The directory the guest's writefile pseudo-operation writes into
+    /// could not be created.
+    #[error("could not create the output directory '{path}': {source}")]
+    OutputDir {
+        /// The directory.
+        path: String,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+
     /// The bytes given as a program are not an ELF image.
     #[error("not an ELF image")]
     NotAnElf,

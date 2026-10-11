@@ -17,7 +17,9 @@ when the first argument starts with a dash. `--env NAME=VALUE` adds to
 its environment, which is empty by default, and `--mode se` or `--mode
 bare` overrides the detection: an executable whose entry lies below RAM
 with no `tohost` symbol is a user program, anything else a bare-metal
-image. From Python:
+image. `--script FILE` and `--outdir DIR` give the program's
+[`readfile` and `writefile` pseudo-operations](pseudo-ops.md#files) their
+host file and directory. From Python:
 
 ```python
 from rvsim import Environment, presets

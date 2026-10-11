@@ -101,5 +101,7 @@ pub const REG_A0: RegIdx = RegIdx::new(10);
 pub const REG_A1: RegIdx = RegIdx::new(11);
 /// Register x12 (third argument, a2).
 pub const REG_A2: RegIdx = RegIdx::new(12);
+/// Register x13 (fourth argument, a3).
+pub const REG_A3: RegIdx = RegIdx::new(13);
 /// Register x17 (system call number, a7).
 pub const REG_A7: RegIdx = RegIdx::new(17);
