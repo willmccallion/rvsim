@@ -47,11 +47,12 @@ multi-programmed load. rvsim does the same with `programs`: one static
 program per hart from hart 0 up, each in its own address space drawn from
 the same RAM, sharing whatever the configuration shares (the L3 and
 memory on `presets.linux`, every cache below the cores otherwise). A hart
-with no program sits parked. The run ends when the last program exits,
-with the first non-zero exit code in program order, and `exit_codes`
-holds each program's, in the order they were given; a program that
-faults ends with its signal's status while the others go on. Each program's stats are under its hart and core
-(`hart1.*`, `core1.*`).
+with no program sits parked until a program's [thread](#threads) takes
+it. The run ends when the last program exits, with the first non-zero
+exit code in program order, and `exit_codes` holds each program's, in the
+order they were given; a program that faults ends with its signal's
+status while the others go on. Each hart's stats are under its hart and
+core (`hart1.*`, `core1.*`).
 
 ```python
 from rvsim import Config, Program, Simulator
@@ -72,6 +73,56 @@ output interleaves as it would on one terminal; `getpid` tells them
 apart (1, 2, ...). A program's `exit` ends that program; a
 [pseudo-operation](pseudo-ops.md) exit (`m5_exit`, `m5_fail`) ends the
 whole run at once, as in gem5.
+
+## Threads
+
+A program's threads run the way gem5's SE mode runs them: `clone` starts
+a thread on the lowest-numbered hart no thread holds, and the thread
+keeps that hart until it exits. A hart runs one thread at a time and
+nothing is time-sliced, so a program needs a hart for each thread it has
+at once; with none free, `clone` fails with `EAGAIN`, which
+`pthread_create` returns. Give the run a hart per thread, as gem5's
+`se.py -n N` gives it CPUs:
+
+```sh
+python -m rvsim ./workers --harts 5 -- 4   # the first thread and four workers
+```
+
+```python
+from rvsim import Config, Simulator
+
+cpu = Simulator(Config(hart_count=5), binary="workers", args=["workers", "4"])
+```
+
+A hart whose thread has exited takes the next new one, of any program.
+A process's threads share its address space, heap, mappings and
+descriptors; each has its own registers, its stack, and the thread
+pointer `clone` gave it, and the memory system keeps the harts' caches
+coherent as it does for any harts. `gettid` gives each thread its own
+id and `getpid` its process's, which is the first thread's.
+`sched_getaffinity` reports every hart.
+
+A thread waiting in `futex`, as `pthread_mutex_lock`, `pthread_cond_wait`,
+`pthread_join` and barriers do, parks its hart until another thread
+wakes it or its timeout passes in simulated time; the parked hart costs
+the run nothing. `sched_yield` returns at once, there being nothing else
+to run on the hart. When every thread waits on a futex with no timeout,
+nothing can wake them: rvsim warns, and the run goes on to its cycle
+limit, as the program would hang under Linux.
+
+`exit`, which `pthread_exit` calls, ends one thread: its
+`set_tid_address` word is zeroed and a waiter on it woken, which is how
+`pthread_join` returns. `exit_group`, which `exit()` and a return from
+`main` call, ends every thread of the process at once, and so does a
+fault or a fatal signal in any of them. When the last thread of a process
+ends with `exit`, the process's exit code is its first thread's, as Linux
+reports it.
+
+When a thread unmaps memory or changes a mapping's permissions, the
+process's other threads drop their translations at their harts' next
+commit, as a kernel's TLB shootdown makes them; the interrupt a real
+shootdown costs is not charged. A checkpoint carries every thread, a
+waiting one with its timeout.
 
 ## What is modelled
 
@@ -116,24 +167,30 @@ newlib programs use it: `read`, `write`, `readv`, `writev`, `pread64`,
 `faccessat`, `readlinkat`, `mkdirat`, `unlinkat`, `renameat`,
 `renameat2`, `getcwd`, `fcntl` and `ioctl` (the console answers
 `TCGETS` and `TIOCGWINSZ`); `brk`, `mmap` (anonymous, and private file
-mappings as a copy), `munmap`, `mremap`, `mprotect`, `madvise` (the
+mappings as a copy), `munmap`, `mremap`, `mprotect`, and `madvise` (the
 advice a 6.6 kernel knows is accepted and does nothing; other advice is
-refused, as glibc 2.42's guard-page request is by that kernel); `exit`,
-`exit_group`, `kill`, `tkill` and `tgkill` (the signal's exit status);
-`clock_gettime`, `clock_getres`, `gettimeofday`, `times`, `getrusage`,
-`nanosleep` and `clock_nanosleep` (no time passes); `uname`, `sysinfo`,
-`prlimit64`, `getrandom`; `getpid`, `gettid`, `getppid` and the uid and
-gid calls; `set_tid_address`, `set_robust_list`, `futex`,
-`rt_sigaction`, `rt_sigprocmask`, `sched_yield` and `riscv_flush_icache`
-as a single thread needs them; `riscv_hwprobe`, answered as the 6.6 kernel
+refused, as glibc 2.42's guard-page request is by that kernel); `clone`
+for threads (`CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+CLONE_THREAD`, with `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
+`CLONE_CHILD_SETTID` and `CLONE_CHILD_CLEARTID`), `exit` and
+`exit_group`; `futex` (`FUTEX_WAIT`, `FUTEX_WAKE` and their bitset forms,
+private or shared, with timeouts on either clock); `kill`, `tkill` and
+`tgkill` (a signal ends the process with its exit status unless it is 0,
+which checks the target exists, or one whose default is to be ignored;
+handlers never run); `clock_gettime`, `clock_getres`, `gettimeofday`,
+`times`, `getrusage`, `nanosleep` and `clock_nanosleep` (no time passes);
+`uname`, `sysinfo`, `prlimit64`, `getrandom`; `getpid`, `gettid`,
+`getppid` and the uid and gid calls; `set_tid_address`,
+`sched_getaffinity` and `sched_yield`; `set_robust_list`,
+`rt_sigaction`, `rt_sigprocmask` and `riscv_flush_icache`, which are
+accepted and do nothing; `riscv_hwprobe`, answered as the 6.6 kernel
 `uname` reports would answer for this hart (the base behaviour, the
 extension bits that kernel knows from the hart's ISA string, and whether
 misaligned accesses are fast), so glibc selects the same routines it
-would under Linux on rvsim. `clone`, `clone3`, `execve`, `statx` and
-`rseq` return `ENOSYS`, which glibc falls back from; so threads are not
-supported yet. Anything else returns `ENOSYS` with a
-warning. Files are the host's, relative to the working directory, as in
-gem5.
+would under Linux on rvsim. `clone3`, `execve`, `statx` and `rseq` return
+`ENOSYS`, which glibc falls back from (`pthread_create` to `clone`).
+Anything else returns `ENOSYS` with a warning. Files are the host's,
+relative to the working directory, as in gem5.
 
 `RUST_LOG=rvsim::syscall=trace` logs every call with its arguments and
 result, like `strace`.
@@ -154,8 +211,13 @@ and the bundled set on every change.
 
 ## Limits
 
-One program per hart, so no threads (`clone` returns `ENOSYS`);
-dynamically linked executables are refused with a message saying to link
-`-static` or `-static-pie`. A checkpoint keeps each process's mappings,
-break and heap but not its host files, so one is refused while a program
-has a file open.
+One thread per hart and no time-slicing, so a program needs as many harts
+as it has threads at once (`clone` fails with `EAGAIN` beyond them).
+`clone` makes threads only, not processes: `fork`, `vfork` and the
+`clone` behind `posix_spawn` and `system` return `ENOSYS`. Signal handlers
+never run, and the futex requeue, wake-op and priority-inheritance
+operations return `ENOSYS` (glibc's default mutexes and condition
+variables do not use them). Dynamically linked executables are refused
+with a message saying to link `-static` or `-static-pie`. A checkpoint
+keeps each process's mappings, break, heap and threads but not its host
+files, so one is refused while a program has a file open.

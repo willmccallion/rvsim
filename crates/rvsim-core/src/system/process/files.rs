@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 /// Linux `errno` values a syscall returns negated.
 pub mod errno {
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const EBADF: i64 = 9;
     pub const EIO: i64 = 5;
+    pub const EAGAIN: i64 = 11;
     pub const ENOMEM: i64 = 12;
     pub const EACCES: i64 = 13;
     pub const EFAULT: i64 = 14;
@@ -23,6 +25,7 @@ pub mod errno {
     pub const ESPIPE: i64 = 29;
     pub const ERANGE: i64 = 34;
     pub const ENOSYS: i64 = 38;
+    pub const ETIMEDOUT: i64 = 110;
 }
 
 /// Linux `open` flags on riscv64 (`asm-generic/fcntl.h`).

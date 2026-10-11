@@ -45,15 +45,28 @@ pub struct CoreCtx<'a> {
 }
 
 impl CoreCtx<'_> {
-    /// Ends the process this hart's thread belongs to with `code`: the
-    /// hart parks as after a `wfi` nothing wakes, and the run ends when the
-    /// last process has, with the first non-zero exit code in load order.
-    pub fn exit_process(&mut self, code: u64) {
+    /// Parks this hart, as after a `wfi` nothing wakes, now that its
+    /// thread has ended or waits; when that ended the last process, the
+    /// run ends with `run_exit`.
+    pub fn park_thread(&mut self, run_exit: Option<u64>) {
         crate::system::process::loader::park(self.hart);
-        let Some(thread) = self.uncore.processes.thread_on(self.hart.hart_id) else { return };
-        if let Some(run_code) = self.uncore.processes.exit_process(thread.tgid, code) {
-            self.signal_exit(run_code);
+        if let Some(code) = run_exit {
+            self.signal_exit(code);
         }
+    }
+
+    /// Ends the process of this hart's thread as a fatal signal does, with
+    /// exit status `status`, and parks the hart.
+    pub fn end_process_by_signal(&mut self, status: u64) {
+        let hart = self.hart.hart_id;
+        let processes = &mut self.uncore.processes;
+        let run_exit = if let Some(thread) = processes.thread_on(hart) {
+            processes.exit_process(thread.tgid, status, Some(thread.tid))
+        } else {
+            processes.release_stopping(hart);
+            None
+        };
+        self.park_thread(run_exit);
     }
 
     /// Reports a fetched instruction to the open pipeline trace, if any.
