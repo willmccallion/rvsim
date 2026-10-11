@@ -20,6 +20,7 @@ pub mod vector;
 
 use crate::common::CoreId;
 use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig, StorePrefetcherConfig};
+use crate::isa::extension::Isa;
 use crate::sim::components::{CacheId, ComponentId};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::CorePaths;
@@ -70,6 +71,9 @@ pub struct CoreUnits {
     pub branch_predictor: BranchPredictor,
     /// Stat paths rooted at `core<N>`.
     pub stat_paths: CorePaths,
+    /// The ISA the hart implements, which decode checks every instruction
+    /// against; derived from the configuration once, since decode is hot.
+    pub isa: Isa,
 }
 
 impl CoreUnits {
@@ -123,6 +127,7 @@ impl CoreUnits {
             load_prefetcher: load_prefetcher(config),
             branch_predictor: BranchPredictor::new(config),
             stat_paths: CorePaths::new(core_id),
+            isa: config.isa_set(),
         }
     }
 }

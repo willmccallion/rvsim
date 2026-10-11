@@ -150,8 +150,24 @@ class Validation(unittest.TestCase):
     def test_an_isa_string_reaches_the_core(self):
         config = Config(isa="RV64IM")
 
-        self.assertEqual(config.to_dict()["pipeline"]["misa_override"], "RV64IM")
+        self.assertEqual(config.to_dict()["isa"]["string"], "RV64IM")
         Simulator(config)
+
+    def test_the_isa_string_resolves_to_what_the_hart_implements(self):
+        everything = Config().isa_string()
+        named = Config(isa="rv64gc_zba").isa_string()
+
+        self.assertTrue(everything.startswith("rv64imafdcbv_zicbom_"), everything)
+        self.assertIn("_zvkned_", everything)
+        self.assertEqual(
+            named, "rv64imafdc_zicntr_zicsr_zifencei_zihintpause_zihpm_zba_sstc"
+        )
+
+    def test_an_unknown_extension_name_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "zxyz"):
+            Config(isa="rv64gc_zxyz").isa_string()
+        with self.assertRaisesRegex(ValueError, "zxyz"):
+            Simulator(Config(isa="rv64gc_zxyz"))
 
     def test_an_isa_the_hart_cannot_implement_is_refused(self):
         with self.assertRaisesRegex(ValueError, "RV64"):

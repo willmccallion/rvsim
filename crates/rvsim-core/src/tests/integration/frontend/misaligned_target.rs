@@ -31,7 +31,7 @@ struct Outcome {
 fn run(backend: BackendKind, program: &[u32]) -> Outcome {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
+    config.isa.string = Some("rv64imafd".to_owned());
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 4 * n as u64), u64::from(*inst), 4);

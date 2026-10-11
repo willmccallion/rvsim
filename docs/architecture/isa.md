@@ -7,11 +7,14 @@ modern compilers emit. Every instruction's behaviour is defined once, in
 the shared execute layer, and both pipelines run that definition
 ([decision 10](decisions/0010-semantics-are-separate-from-timing.md)).
 
-`misa` reads `RV64IMAFDCBSUV`, B standing for Zba, Zbb and Zbs. Every
-extension below is always on except
-Svadu, which `Config(svadu=True)` enables; the vector unit's VLEN is set by
-`Config(vlen=...)`. The generated [device tree](soc.md#device-tree) names
-them all, so a Linux guest enables what the hart has: `/proc/cpuinfo`
+`misa` reads `RV64IMAFDCBSUV` by default, B standing for Zba, Zbb and
+Zbs together. `Config(isa="rv64gcv_zba_zbb_zbs_zicbom")` names what the
+hart implements instead, and `misa`, the decoder and the generated
+[device tree](soc.md#device-tree) follow it: an instruction of an
+extension left out raises an illegal-instruction exception, as on
+hardware without it. Svadu is enabled by `Config(svadu=True)` or by
+naming `_svadu`; the vector unit's VLEN is set by `Config(vlen=...)`.
+With no string a Linux guest sees everything below: `/proc/cpuinfo`
 shows `rv64imafdcbv_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_zvbb_zvbc_zvfh_zvkb_zvkg_zvkned_zvknha_zvknhb_zvksed_zvksh_zvkt_zvl128b_sstc`.
 
 ## Unprivileged extensions

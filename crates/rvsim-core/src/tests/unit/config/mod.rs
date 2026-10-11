@@ -78,7 +78,6 @@ fn test_pipeline_config_defaults() {
     assert_eq!(pipeline.branch_predictor, BranchPredictorKind::Static);
     assert_eq!(pipeline.btb_size, 256);
     assert_eq!(pipeline.ras_size, 8);
-    assert_eq!(pipeline.misa_override, None);
 }
 
 #[test]
@@ -523,8 +522,9 @@ fn test_json_all_branch_predictors() {
 }
 
 #[test]
-fn test_misa_override_option() {
+fn test_isa_string_option() {
     let json = r#"{
+        "isa": { "string": "rv64imafdc_zba_zbb_zbs" },
         "general": {
             "trace_instructions": false,
             "start_pc": 2147483648
@@ -601,7 +601,6 @@ fn test_misa_override_option() {
             "branch_predictor": "Static",
             "btb_size": 256,
             "ras_size": 8,
-            "misa_override": "RV64IMAFDC",
             "tage": {
                 "num_banks": 4,
                 "table_size": 2048,
@@ -622,19 +621,28 @@ fn test_misa_override_option() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        config.pipeline.misa_override.map(crate::isa::misa::Misa::bits),
-        Some(crate::isa::csr::MISA_DEFAULT_RV64GCB)
-    );
+    assert_eq!(config.misa().bits(), crate::isa::csr::MISA_DEFAULT_RV64GCB);
+    assert!(!config.extensions().contains(crate::isa::extension::Extension::Zbc));
 }
 
 #[test]
-fn an_unparsable_misa_override_is_a_config_error() {
-    let json = r#"{ "pipeline": { "misa_override": "RV64IXYZ" } }"#;
+fn an_unparsable_isa_string_is_a_config_error() {
+    let mut config = Config::default();
+    config.isa.string = Some("RV64IXYZ".to_owned());
 
-    let error = serde_json::from_str::<Config>(json).map(|_| ()).unwrap_err().to_string();
+    let error = config.validate().unwrap_err().to_string();
 
     assert!(error.contains("RV64IXYZ"), "error names the bad string: {error}");
+}
+
+#[test]
+fn an_isa_string_naming_another_vlen_is_a_config_error() {
+    let mut config = Config::default();
+    config.isa.string = Some("rv64gcv_zvl256b".to_owned());
+
+    let error = config.validate().unwrap_err().to_string();
+
+    assert!(error.contains("zvl256b") && error.contains("128"), "{error}");
 }
 
 #[test]
@@ -971,10 +979,10 @@ fn a_hart_below_v_s_minimum_elen_does_not_report_v() {
 }
 
 #[test]
-fn a_misa_override_claiming_v_needs_the_full_vector_extension() {
+fn an_isa_string_claiming_v_needs_the_full_vector_extension() {
     let mut config = Config::default();
     config.isa.vector.elen = 32;
-    config.pipeline.misa_override = Some("RV64GCV".parse().expect("valid ISA string"));
+    config.isa.string = Some("rv64gcv".to_owned());
 
     assert!(config.validate().is_err());
 }

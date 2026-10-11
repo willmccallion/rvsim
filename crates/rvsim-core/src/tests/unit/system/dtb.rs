@@ -187,7 +187,7 @@ fn string_list_prop(node: &Node, name: &str) -> Vec<String> {
 #[test]
 fn the_isa_string_names_every_implemented_extension() {
     let mut config = Config::default();
-    config.pipeline.misa_override = Some("RV64IMAC".parse().expect("valid ISA string"));
+    config.isa.string = Some("rv64imac".to_owned());
 
     let (default_isa, without_fdv) = (
         string_prop(&cpu0(&Config::default()), "riscv,isa"),
@@ -195,10 +195,7 @@ fn the_isa_string_names_every_implemented_extension() {
     );
 
     assert_eq!(default_isa, DEFAULT_ISA);
-    assert_eq!(
-        without_fdv,
-        "rv64imacb_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_sstc"
-    );
+    assert_eq!(without_fdv, "rv64imac_zicntr_zicsr_zifencei_zihintpause_zihpm_sstc");
 }
 
 #[test]

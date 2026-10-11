@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Config(isa=...)` names the whole ISA, multi-letter extensions
+  included, and `misa`, the decoder and the device tree follow it: with
+  `isa="rv64gc"` a `clz` is an illegal instruction and the tree names no
+  Zbb, as on a core without it, where before every extension executed
+  whatever the string said. The string is spelt as `-march`, spike's
+  `--isa` and `/proc/cpuinfo` spell it, `G` and `B` expand, the vector
+  crypto groups `zvkn`, `zvks` and their `c`/`g` forms stand for their
+  members, an unknown name is refused, and `Config().isa_string()` gives
+  the resolved string (everything, by default) to derive variants from.
+  The native config's `pipeline.misa_override` key is gone; the string
+  lives under `isa.string` (#77).
 - The generated device tree advertises every extension the hart
   implements, not just `misa`'s letters: `riscv,isa` names Zicbom,
   Zicboz, Zicntr, Zicsr, Zifencei, Zihintpause, Zihpm, Zfh, the Zb and

@@ -29,7 +29,7 @@ fn handler() -> Vec<u32> {
 fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.pipeline.misa_override = Some(isa.parse().expect("a valid ISA string"));
+    config.isa.string = Some(isa.to_owned());
     config.system.console = crate::config::Console::Quiet;
     let program = [TWO_C_NOPS, InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);

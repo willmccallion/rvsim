@@ -112,7 +112,7 @@ fn test_csr_read_write_mepc() {
 /// A hart built without the C extension, so IALIGN=32.
 fn create_test_cpu_without_c() -> SystemState {
     let mut config = Config::default();
-    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
+    config.isa.string = Some("rv64imafd".to_owned());
     SystemState::build(&config, "")
 }
 

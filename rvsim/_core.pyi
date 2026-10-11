@@ -19,6 +19,7 @@ __all__ = [
     "Stats",
     "VirtualMemory",
     "disassemble",
+    "isa_string",
     "version",
 ]
 
@@ -26,6 +27,7 @@ CHECKPOINT_VERSION: int
 
 def version() -> str: ...
 def disassemble(inst: int) -> str: ...
+def isa_string(config_dict: Any) -> str: ...
 
 @final
 class Instruction:

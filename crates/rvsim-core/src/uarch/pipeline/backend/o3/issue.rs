@@ -5,6 +5,7 @@ use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{
     check_vec_mem_emul, element_accesses, is_vec_store, vec_mem_dst_count,
 };
+use crate::isa::extension::Extension;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
@@ -186,7 +187,7 @@ impl O3Engine {
             entry.vec_vxrm,
             entry.vec_frm,
             state.config.isa.vector.elen,
-            state.config.isa.vector.zvfh,
+            state.core.isa.extensions.contains(Extension::Zvfh),
             &entry.inst,
         );
         #[cfg(feature = "commit-log")]
