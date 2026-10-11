@@ -13,6 +13,7 @@ use crate::common::SimError;
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode};
 use crate::isa::reg;
+use crate::soc::terminal::InputReader;
 use crate::system::state::SystemState;
 
 const AT_NULL: u64 = 0;
@@ -100,7 +101,8 @@ pub fn load_process(
         image_end = image_end.max(end);
     }
 
-    let mut process = Process::new(space, page_ceil(image_end), clock_hz);
+    let mut process =
+        Process::new(space, page_ceil(image_end), clock_hz, state.uncore.terminal.clone());
     let stack_top = process.stack_top();
     let stack_bytes = process.stack_bytes();
     process
@@ -112,6 +114,7 @@ pub fn load_process(
     let satp = process.space.satp();
     state.uncore.process = Some(process);
     state.uncore.direct_mode = false;
+    state.uncore.read_console_through(InputReader::Proxy);
     let mut ctx = state.core_ctx(0);
     ctx.hart.pc = image.entry;
     ctx.hart.privilege = PrivilegeMode::User;

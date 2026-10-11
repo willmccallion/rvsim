@@ -23,6 +23,7 @@ use crate::soc::cache::Cache;
 use crate::soc::coherence::CoherenceFabric;
 use crate::soc::devices::Htif;
 use crate::soc::memory::controller::MemoryController;
+use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::soc::topology::Topology;
 use debug::HartDebug;
 
@@ -111,6 +112,8 @@ pub struct Uncore {
     pub direct_mode: bool,
     /// The user process SE mode is running, when it is.
     pub process: Option<crate::system::process::Process>,
+    /// The console every device and proxy prints to and reads from.
+    pub terminal: SharedTerminal,
     /// Global event queue: every inter-component message lands here.
     pub event_queue: EventQueue,
     /// Hierarchical statistics tree; sim-side perf observability counters.
@@ -217,8 +220,23 @@ impl Uncore {
     /// is cloned into the device so HTIF tohost writes propagate up to the
     /// harness.
     pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &Arc<AtomicU64>, args: Vec<String>) {
-        let htif = Htif::new(tohost_addr, exit_signal.clone(), args);
+        let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.terminal.clone());
         self.bus.add_device(Box::new(htif));
+        self.read_console_through(InputReader::Proxy);
+    }
+
+    /// Hands the console's input to `reader`: the UART, or the proxy a
+    /// program that talks to the host directly reads through.
+    pub fn read_console_through(&self, reader: InputReader) {
+        if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.read_input_through(reader);
+        }
+    }
+
+    /// Whether a captured console holds output the host has not taken.
+    #[must_use]
+    pub fn console_has_output(&self) -> bool {
+        self.terminal.lock().is_ok_and(|terminal| terminal.has_output())
     }
 
     /// Places `image` in RAM at `addr` before the system runs.

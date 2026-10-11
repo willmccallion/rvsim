@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
+use crate::soc::terminal::SharedTerminal;
 
 pub use page_table::{AddressSpace, PAGE_SIZE, Permissions, SpaceError};
 
@@ -83,11 +84,16 @@ impl Layout {
 impl Process {
     /// A process over an address space whose heap starts at `brk_start`.
     #[must_use]
-    pub fn new(space: AddressSpace, brk_start: u64, clock_hz: u64) -> Self {
+    pub fn new(
+        space: AddressSpace,
+        brk_start: u64,
+        clock_hz: u64,
+        terminal: SharedTerminal,
+    ) -> Self {
         let layout = Layout::for_space(&space);
         Self {
             space,
-            files: FileTable::default(),
+            files: FileTable::new(terminal),
             brk_start,
             brk: brk_start,
             mmap_next: layout.mmap_base,
@@ -117,10 +123,10 @@ impl Process {
 
     /// The process a checkpoint holds, with only the console open.
     #[must_use]
-    pub fn from_checkpoint(state: ProcessState) -> Self {
+    pub fn from_checkpoint(state: ProcessState, terminal: SharedTerminal) -> Self {
         Self {
             space: state.space,
-            files: FileTable::default(),
+            files: FileTable::new(terminal),
             brk_start: state.brk_start,
             brk: state.brk,
             mmap_next: state.mmap_next,

@@ -12,6 +12,8 @@ const ECALL: u32 = 0x0000_0073;
 const SYS_EXIT: i32 = 93;
 const SYS_BRK: i32 = 214;
 const SYS_OPENAT: i32 = 56;
+const SYS_READ: i32 = 63;
+const SYS_WRITE: i32 = 64;
 const AT_FDCWD: i32 = -100;
 const JAL_SELF: u32 = 0x0000_006f;
 const T0: u32 = 5;
@@ -74,12 +76,74 @@ fn config(backend: BackendKind) -> Config {
     config
 }
 
-/// A simulator with `code` loaded as a process with `argv`.
-fn simulator(backend: BackendKind, code: &[u32], argv: &[&str]) -> Simulator {
-    let mut sim = Simulator::build(&config(backend), "");
+/// A simulator on `config` with `code` loaded as a process with `argv`.
+fn simulator_on(config: &Config, code: &[u32], argv: &[&str]) -> Simulator {
+    let mut sim = Simulator::build(config, "");
     let args = ProcessArgs { argv: argv.iter().map(ToString::to_string).collect(), envp: vec![] };
     sim.load_process(&user_elf(code, ET_EXEC), &args).expect("the program loads");
     sim
+}
+
+/// A simulator with `code` loaded as a process with `argv`.
+fn simulator(backend: BackendKind, code: &[u32], argv: &[&str]) -> Simulator {
+    simulator_on(&config(backend), code, argv)
+}
+
+fn captured(backend: BackendKind) -> Config {
+    let mut config = config(backend);
+    config.system.console = Console::Captured;
+    config
+}
+
+/// What a user program writes to its stdout reaches the simulator's
+/// console, so a captured console hands it to the host.
+#[test]
+fn a_user_programs_output_reaches_the_console() {
+    let i = InstructionBuilder::new;
+    let mut code = vec![
+        i().auipc(A1, 0).build(),
+        i().addi(A1, A1, 8 * 4).build(),
+        i().addi(A0, 0, 1).build(),
+        i().addi(A2, 0, 3).build(),
+        i().addi(A7, 0, SYS_WRITE).build(),
+        ECALL,
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ];
+    code.push(u32::from_le_bytes(*b"hi\n\0"));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_on(&captured(backend), &code, &["prog"]);
+
+        let stop = run_for(&mut sim, 50_000);
+
+        assert_eq!(stop, StopReason::Exited(3), "{backend:?}");
+        assert_eq!(sim.take_console_output(), b"hi\n", "{backend:?}");
+    }
+}
+
+/// A user program's read of its stdin gets what the host typed into the
+/// console.
+#[test]
+fn a_user_program_reads_what_the_host_typed() {
+    let i = InstructionBuilder::new;
+    let code = vec![
+        i().addi(A0, 0, 0).build(),
+        i().addi(A1, SP, -16).build(),
+        i().addi(A2, 0, 1).build(),
+        i().addi(A7, 0, SYS_READ).build(),
+        ECALL,
+        i().lbu(A0, SP, -16).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ];
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_on(&captured(backend), &code, &["prog"]);
+        sim.send_console_input(b"7");
+
+        let stop = run_for(&mut sim, 50_000);
+
+        assert_eq!(stop, StopReason::Exited(u64::from(b'7')), "{backend:?}");
+    }
 }
 
 fn run_for(sim: &mut Simulator, cycles: u64) -> StopReason {

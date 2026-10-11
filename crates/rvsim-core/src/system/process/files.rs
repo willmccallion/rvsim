@@ -1,6 +1,7 @@
 //! The process's file descriptors, served by the host's filesystem as
 //! gem5's SE mode serves them.
 
+use crate::soc::terminal::SharedTerminal;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 pub mod errno {
     pub const ENOENT: i64 = 2;
     pub const EBADF: i64 = 9;
+    pub const EIO: i64 = 5;
     pub const ENOMEM: i64 = 12;
     pub const EACCES: i64 = 13;
     pub const EFAULT: i64 = 14;
@@ -142,24 +144,21 @@ pub enum HostFile {
     File { path: PathBuf, file: File },
 }
 
-/// The descriptor table: 0, 1 and 2 are the host's console.
+/// The descriptor table: 0, 1 and 2 are the simulator's console.
 #[derive(Debug)]
 pub struct FileTable {
     slots: Vec<Option<HostFile>>,
-}
-
-impl Default for FileTable {
-    fn default() -> Self {
-        Self { slots: vec![Some(HostFile::Stdin), Some(HostFile::Stdout), Some(HostFile::Stderr)] }
-    }
+    terminal: SharedTerminal,
 }
 
 impl FileTable {
-    /// A table whose descriptor 2 is the host's stdout, as fesvr's proxy
-    /// maps the target's stderr.
+    /// A table with the console open as descriptors 0, 1 and 2.
     #[must_use]
-    pub fn with_stderr_on_stdout() -> Self {
-        Self { slots: vec![Some(HostFile::Stdin), Some(HostFile::Stdout), Some(HostFile::Stdout)] }
+    pub fn new(terminal: SharedTerminal) -> Self {
+        Self {
+            slots: vec![Some(HostFile::Stdin), Some(HostFile::Stdout), Some(HostFile::Stderr)],
+            terminal,
+        }
     }
 
     /// How many host files, beyond the console, are open.
@@ -236,11 +235,17 @@ impl FileTable {
         }
     }
 
-    /// Reads up to `len` bytes; the console's stdin reads from the host's.
+    /// Reads up to `len` bytes; the console reads what the host typed.
     pub fn read(&mut self, fd: i64, len: usize) -> Result<Vec<u8>, i64> {
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
-            HostFile::Stdin => io::stdin().read(&mut buffer).map_err(|e| io_errno(&e))?,
+            HostFile::Stdin => {
+                return self
+                    .terminal
+                    .lock()
+                    .map(|mut t| t.read_input(len))
+                    .map_err(|_| -errno::EIO);
+            }
             HostFile::Stdout | HostFile::Stderr => return Err(-errno::EBADF),
             HostFile::File { file, .. } => file.read(&mut buffer).map_err(|e| io_errno(&e))?,
         };
@@ -262,17 +267,16 @@ impl FileTable {
         Ok(buffer)
     }
 
+    /// Writes `bytes`; the console's descriptors both print to the console.
     pub fn write(&mut self, fd: i64, bytes: &[u8]) -> Result<usize, i64> {
         match self.slot(fd)? {
             HostFile::Stdin => Err(-errno::EBADF),
-            HostFile::Stdout => {
-                let mut out = io::stdout().lock();
-                out.write_all(bytes).and_then(|()| out.flush()).map_err(|e| io_errno(&e))?;
-                Ok(bytes.len())
-            }
-            HostFile::Stderr => {
-                let mut err = io::stderr().lock();
-                err.write_all(bytes).and_then(|()| err.flush()).map_err(|e| io_errno(&e))?;
+            HostFile::Stdout | HostFile::Stderr => {
+                self.terminal
+                    .lock()
+                    .map_err(|_| -errno::EIO)?
+                    .write(bytes)
+                    .map_err(|e| io_errno(&e))?;
                 Ok(bytes.len())
             }
             HostFile::File { file, .. } => file.write(bytes).map_err(|e| io_errno(&e)),

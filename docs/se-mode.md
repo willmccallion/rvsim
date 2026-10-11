@@ -59,6 +59,14 @@ machine. `CLOCK_REALTIME` starts from a fixed epoch, and `getrandom`
 draws from a fixed-seed generator, so two runs of the same program see
 the same values.
 
+The program's stdin, stdout and stderr are the simulator's console, as
+the UART is for a bare-metal program or a kernel, so `Config(console=...)`
+applies to them: `"quiet"` drops the output, `"captured"` keeps it for
+`read_console()` and makes `read` return what `write_console()` typed,
+and otherwise the host's stdin feeds `read`, which waits for it as it
+would under Linux. A bare-metal program printing through HTIF uses the
+same console.
+
 ## The syscalls served
 
 The Linux riscv64 ABI (`asm-generic/unistd.h`), as static glibc and

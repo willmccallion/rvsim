@@ -26,6 +26,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::terminal::SharedTerminal;
 use crate::system::process::files::{FileTable, Stat, errno, io_errno};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,7 +68,7 @@ pub struct Htif {
     exit_signal: Arc<AtomicU64>,
     /// What the target reads at `fromhost` until it clears it.
     fromhost: u64,
-    /// The host's descriptors; stderr goes to stdout, as fesvr maps it.
+    /// The host's descriptors; 0, 1 and 2 are the simulator's console.
     files: FileTable,
     /// What `getmainvars` hands the target.
     args: Vec<String>,
@@ -77,14 +78,13 @@ impl Htif {
     /// A device at `base_addr`, the `tohost` symbol, sharing `exit_signal`
     /// with the run and answering `getmainvars` with `args`.
     #[must_use]
-    pub fn new(base_addr: u64, exit_signal: Arc<AtomicU64>, args: Vec<String>) -> Self {
-        Self {
-            base_addr,
-            exit_signal,
-            fromhost: 0,
-            files: FileTable::with_stderr_on_stdout(),
-            args,
-        }
+    pub fn new(
+        base_addr: u64,
+        exit_signal: Arc<AtomicU64>,
+        args: Vec<String>,
+        terminal: SharedTerminal,
+    ) -> Self {
+        Self { base_addr, exit_signal, fromhost: 0, files: FileTable::new(terminal), args }
     }
 
     fn handle_tohost(&mut self, val: u64, memory: &mut GlobalMemory) {

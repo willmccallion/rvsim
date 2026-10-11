@@ -15,6 +15,7 @@ LOAD_ADDRESS = 0x1_0000
 CODE_OFFSET = 0x80
 ECALL = 0x0000_0073
 SYS_EXIT = 93
+SYS_WRITE = 64
 
 
 def addi(rd: int, rs1: int, imm: int) -> int:
@@ -23,6 +24,10 @@ def addi(rd: int, rs1: int, imm: int) -> int:
 
 def ld(rd: int, rs1: int, imm: int) -> int:
     return ((imm & 0xFFF) << 20) | (rs1 << 15) | (3 << 12) | (rd << 7) | 0x03
+
+
+def auipc(rd: int, imm: int) -> int:
+    return ((imm & 0xFFFFF) << 12) | (rd << 7) | 0x17
 
 
 def blt(rs1: int, rs2: int, imm: int) -> int:
@@ -58,6 +63,18 @@ def user_elf(code: list[int]) -> bytes:
 
 # argc from the stack into a0, then exit(a0).
 EXIT_WITH_ARGC = [ld(10, 2, 0), addi(17, 0, SYS_EXIT), ECALL]
+# write(1, "hi\n", 3), then exit with what write returned.
+WRITE_HI = [
+    auipc(11, 0),
+    addi(11, 11, 8 * 4),
+    addi(10, 0, 1),
+    addi(12, 0, 3),
+    addi(17, 0, SYS_WRITE),
+    ECALL,
+    addi(17, 0, SYS_EXIT),
+    ECALL,
+    int.from_bytes(b"hi\n\0", "little"),
+]
 # Counts to 300 in t0, then exit(9).
 COUNT_THEN_EXIT = [
     addi(5, 0, 0),
@@ -98,6 +115,12 @@ class SeMode(unittest.TestCase):
     def test_an_unknown_paging_mode_is_refused(self):
         with self.assertRaisesRegex(ValueError, "page_mode"):
             Config(page_mode="Sv32")
+
+    def test_a_captured_console_holds_what_the_program_prints(self):
+        cpu = Simulator(Config(console="captured"), elf_data=user_elf(WRITE_HI))
+
+        self.assertEqual(cpu.run(limit=50_000), 3)
+        self.assertEqual(cpu.read_console(), "hi\n")
 
     def test_a_checkpoint_resumes_a_user_program(self):
         whole = Simulator(Config(), elf_data=user_elf(COUNT_THEN_EXIT))

@@ -10,6 +10,7 @@ use crate::soc::devices::clint::Clint;
 use crate::soc::devices::plic::Plic;
 use crate::soc::devices::uart::Uart;
 use crate::soc::devices::virtio_disk::VirtioBlock;
+use crate::soc::terminal::Terminal;
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
@@ -70,12 +71,12 @@ fn a_plic_keeps_its_priorities_enables_thresholds_and_claims() {
 
 #[test]
 fn a_uart_keeps_its_registers() {
-    let mut uart = Uart::new(UART_BASE, Console::Quiet, 2400);
+    let mut uart = Uart::new(UART_BASE, Terminal::shared(Console::Quiet), 2400);
     write(&mut uart, UART_BASE + 1, 0x01, 1);
     write(&mut uart, UART_BASE + 3, 0x03, 1);
     write(&mut uart, UART_BASE + 7, 0x5a, 1);
 
-    let mut uart = restored(&uart, Uart::new(UART_BASE, Console::Quiet, 2400));
+    let mut uart = restored(&uart, Uart::new(UART_BASE, Terminal::shared(Console::Quiet), 2400));
 
     assert_eq!(read(&mut uart, UART_BASE + 1, 1), 0x01);
     assert_eq!(read(&mut uart, UART_BASE + 3, 1), 0x03);
