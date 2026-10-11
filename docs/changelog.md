@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The Session API's fast-forward cache keys checkpoints on the simulator
+  build as well, so a boot cached under one build is never restored under
+  a later one whose guest would have seen a different device tree or ISA.
 - `Config(isa=...)` names the whole ISA, multi-letter extensions
   included, and `misa`, the decoder and the device tree follow it: with
   `isa="rv64gc"` a `clz` is an illegal instruction and the tree names no

@@ -1,4 +1,5 @@
-"""The cache of fast-forward checkpoints, keyed by everything that led to them."""
+"""The cache of fast-forward checkpoints, keyed by everything that led to
+them, the simulator build included."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import os
 from typing import Any
 
 from .. import _core
+from .workload import _file_digest
 
 _META_FORMAT = 1
 
@@ -21,6 +23,14 @@ def default_cache_dir() -> str:
         os.path.expanduser("~"), ".cache"
     )
     return os.path.join(base, "rvsim", "checkpoints")
+
+
+def build_digest() -> str:
+    """A digest of the native extension the simulator runs on, so a
+    checkpoint made by one build is never restored under another: what a
+    guest sees at boot (the device tree, the ISA) can change between builds
+    with the configuration unchanged."""
+    return _file_digest(_core.__file__)
 
 
 class _Cache:
