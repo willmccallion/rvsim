@@ -94,6 +94,19 @@ from rvsim import Config, Simulator
 cpu = Simulator(Config(hart_count=5), binary="workers", args=["workers", "4"])
 ```
 
+The bundled `raytracer_mt` (`make software`, from
+`examples/programs/threaded`) shares its image's rows out between as
+many threads as it is given, one per CPU `sysconf` reports by default,
+and prints the cycles the render took, so runs on more harts show how it
+scales; the stats show each hart's work and the coherence traffic
+between their caches:
+
+```sh
+for n in 1 2 4 8; do
+  python -m rvsim software/bin/programs/raytracer_mt.elf --harts $n --preset p550 -- $n
+done
+```
+
 A hart whose thread has exited takes the next new one, of any program.
 A process's threads share its address space, heap, mappings and
 descriptors; each has its own registers, its stack, and the thread
