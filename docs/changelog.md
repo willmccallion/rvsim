@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- A [Coming from gem5](from-gem5.md) guide: what each gem5 habit, from
+  `se.py` and `O3CPU` parameters to m5ops, checkpoints, CPU switching
+  and O3PipeView, maps to in rvsim, and what rvsim does not do.
 - A [Validation](validation.md) page: every check rvsim runs against
   spike, qemu, gem5, the Rocket and BOOM RTL and measured hardware, what
   each compares, how often it runs, and where its numbers stand.

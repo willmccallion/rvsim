@@ -95,6 +95,7 @@ print(result.stats.query(r"^ipc$|bp\.committed\.accuracy|l1d\.miss_rate"))
 <div class="grid cards" markdown>
 
 - **[Getting Started](getting-started.md)**: install, run your first simulation, understand the output
+- **[Coming from gem5](from-gem5.md)**: what each gem5 habit maps to, and what differs
 - **[Configuration](configuration.md)**: every parameter, with its default: caches, predictors, backends, functional units, memory, multi-core
 - **[API Reference](api.md)**: `Config`, `Environment`, `Session`, `Simulator`, `Sweep`, `Stats`
 - **[Validation](validation.md)**: what rvsim is checked against, how often, and where the numbers stand
