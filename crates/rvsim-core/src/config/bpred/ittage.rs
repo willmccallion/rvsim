@@ -1,9 +1,9 @@
 //! ITTAGE, the indirect-target predictor.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Indirect Target TAGE configuration (used by SC-L-TAGE).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IttageConfig {
     /// Number of tagged tables

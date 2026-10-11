@@ -1,13 +1,13 @@
 //! Main memory: controller, size and the translation options that depend on it.
 
 use super::defaults;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Memory controller implementation types.
 ///
 /// Specifies the type of memory controller used to model main memory
 /// access timing and behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum MemoryControllerKind {
     /// Simple fixed-latency memory controller.
@@ -36,7 +36,7 @@ pub enum MemoryControllerKind {
 ///
 /// Specifies RAM size, memory controller type, DRAM timing parameters,
 /// and TLB configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryConfig {
     /// RAM size in bytes
@@ -290,7 +290,7 @@ impl Default for MemoryConfig {
 /// Address-bit interleave strategy. Names read high-order to low-order bit,
 /// so `RoRaBaChCo` uses `column` as the lowest-order bits (best for burst
 /// spatial locality on a single channel).
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize, serde::Serialize)]
 pub enum AddressMappingKind {
     /// Row : Rank : Bank(Group+Bank) : Channel : Column.
     /// gem5 default; good spatial locality for sequential streams.

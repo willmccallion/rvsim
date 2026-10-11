@@ -2,14 +2,14 @@
 
 use super::defaults;
 use super::prefetch::{LoadPrefetcherConfig, StorePrefetcherConfig};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 
 /// Cache replacement policy algorithms.
 ///
 /// Specifies the algorithm used to select which cache line to evict
 /// when a new line must be installed in a full cache set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ReplacementPolicyKind {
     /// Least Recently Used replacement policy.
@@ -46,7 +46,7 @@ pub enum ReplacementPolicyKind {
 ///
 /// Controls how evictions at one cache level interact with other levels
 /// to maintain coherence within the same core's cache hierarchy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum InclusionPolicy {
     /// No Inclusion, Non-Exclusive (default).
@@ -73,7 +73,7 @@ pub enum InclusionPolicy {
 ///
 /// Prefetchers predict future memory accesses and fetch data
 /// into the cache before it is needed to reduce miss penalties.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PrefetcherKind {
     /// No prefetching enabled.
@@ -100,7 +100,7 @@ pub enum PrefetcherKind {
 }
 
 /// Cache hierarchy configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheHierarchyConfig {
     /// L1 instruction cache
@@ -136,7 +136,7 @@ impl CacheHierarchyConfig {
 }
 
 /// Individual cache level configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     /// Enable this cache level

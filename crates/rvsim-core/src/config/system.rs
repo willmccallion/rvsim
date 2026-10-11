@@ -2,13 +2,13 @@
 
 use super::defaults;
 use crate::config::Console;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// System memory map and bus configuration.
 ///
 /// Defines memory-mapped I/O base addresses, RAM configuration,
 /// and system bus parameters.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
     /// UART MMIO base address

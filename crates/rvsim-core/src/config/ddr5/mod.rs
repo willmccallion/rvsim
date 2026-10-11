@@ -4,7 +4,7 @@ pub mod timing;
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::AddressMappingKind;
 pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};
@@ -123,7 +123,7 @@ impl Default for Ddr5Config {
 }
 
 /// A JEDEC speed bin selectable from configuration.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum Ddr5SpeedBinName {
     /// DDR5-4800B (40-39-39).
     #[default]
@@ -144,7 +144,7 @@ impl Ddr5SpeedBinName {
 }
 
 /// ECC mode selectable from configuration; scrub cadence is separate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum EccMode {
     /// No ECC.
     #[default]
@@ -158,10 +158,16 @@ pub enum EccMode {
 /// DDR5 parameters as they appear in the configuration file. Validated on
 /// deserialization (see [`Ddr5ParamsError`]) and resolved into a
 /// [`Ddr5Config`] by [`Ddr5Params::to_config`].
-#[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize)]
-#[serde(try_from = "Ddr5ParamsRaw")]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(try_from = "Ddr5ParamsRaw", into = "Ddr5ParamsRaw")]
 pub struct Ddr5Params {
     raw: Ddr5ParamsRaw,
+}
+
+impl From<Ddr5Params> for Ddr5ParamsRaw {
+    fn from(params: Ddr5Params) -> Self {
+        params.raw
+    }
 }
 
 /// Why a DDR5 parameter block was rejected.
@@ -282,7 +288,7 @@ impl Ddr5Params {
 }
 
 /// The on-disk shape of [`Ddr5Params`], before validation.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct Ddr5ParamsRaw {
@@ -381,7 +387,7 @@ pub enum EccKind {
 }
 
 /// Which refresh policy a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 pub enum RefreshKind {
     /// `REFab`: every bank of a rank refreshes at once.
     #[default]
@@ -391,7 +397,7 @@ pub enum RefreshKind {
 }
 
 /// Which request scheduler a controller is built with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 pub enum SchedulerKind {
     /// First come, first served.
     Fcfs,

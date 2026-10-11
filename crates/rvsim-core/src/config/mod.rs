@@ -40,7 +40,7 @@ pub use system::SystemConfig;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::extension::{Extension, Extensions, Isa, ParsedIsa};
 use crate::isa::misa::IsaStringError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Root configuration structure containing all simulator settings.
 ///
@@ -132,7 +132,7 @@ use serde::Deserialize;
 /// assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
 /// assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 /// ```
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// General simulation settings
