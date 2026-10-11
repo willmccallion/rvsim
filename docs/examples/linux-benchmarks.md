@@ -20,7 +20,7 @@ rvsim bench --list                           # the benchmarks and their commands
 | Option | Meaning |
 |--------|---------|
 | `NAME ...` | Benchmarks to run: `coremark`, `dhrystone`, `whetstone`, `stream`, `mbw`, `lat_mem_rd`, `stress-ng` (default: all) |
-| `--preset NAME` | Core configuration placed in the Linux system: `basic`, `fast` (default), `cortex_a72` or `p550` |
+| `--preset NAME` | Core configuration placed in the Linux system: `basic`, `fast` (default), `rocket` or `boom` |
 | `--config FILE` | A Python file whose `config` variable, `get_config()` or function named after the file gives the core to use instead |
 | `--harts N` | Harts (default 8) |
 | `--memory ddr5\|dram` | JEDEC DDR5 or the row-buffer DRAM model |
@@ -35,10 +35,11 @@ L1D, L2 and LLC misses per thousand instructions.
 
 ## Scores per MHz
 
-`tools/diag/linux_bench.py` boots a core preset to the login shell from
-the cached checkpoint, runs them through the guest shell, and reports
+`tools/diag/linux_bench.py` boots a core, one of the configurations
+calibrated to measured hardware (`tools/diag/calibration.py`) or the
+`fast` preset, to the login shell from the cached checkpoint, runs them through the guest shell, and reports
 each one's score from the cycles it took, in the per-MHz figures hardware
-is quoted in. The first run on a preset boots Linux (minutes); later runs
+is quoted in. The first run on a core boots Linux (minutes); later runs
 start from the cache.
 
 ```bash
@@ -55,40 +56,40 @@ timer is too coarse to time them.
 
 ## Scores against hardware
 
-Measured 2026-10-11, one hart, from the Linux boot, with the presets'
-load/store-unit prefetchers. The hardware columns
+Measured 2026-10-11, one hart, from the Linux boot, with the calibrated
+configurations' load/store-unit prefetchers. The hardware columns
 are published single-core figures; Dhrystone varies a lot with the
 compiler, so Arm's quoted figure and a measured Raspberry Pi 4 are both
 given.
 
-| Preset | Benchmark | rvsim | Hardware | Source |
+| Calibrated configuration | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72()` | CoreMark/MHz | 5.23 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
-| `cortex_a72()` | DMIPS/MHz | 4.14 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
-| `p550()` | CoreMark/MHz | 4.80 | not published | |
-| `p550()` | DMIPS/MHz | 3.36 | not published | |
+| `cortex_a72` | CoreMark/MHz | 5.23 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72` | DMIPS/MHz | 4.14 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
+| `p550` | CoreMark/MHz | 4.80 | not published | |
+| `p550` | DMIPS/MHz | 3.36 | not published | |
 
 SiFive publishes only SPECint2006 for the P550 (8.65 per GHz); no public
-CoreMark or Dhrystone figure for the EIC7700X was found. Its preset is
-calibrated on the measured microarchitecture instead, below.
+CoreMark or Dhrystone figure for the EIC7700X was found. Its configuration
+is calibrated on the measured microarchitecture instead, below.
 
 ## Cache latencies
 
 `tools/diag/latency_probe.py` runs a dependent pointer chase over
 footprints that fit each level and reports cycles per load, the load-to-use
-latency hardware reviews measure the same way. Both presets reproduce the
-measurements the presets were built from (Chips and Cheese on the HiFive
-Premier P550 and on a Graviton Cortex-A72).
+latency hardware reviews measure the same way. Both calibrated
+configurations reproduce the measurements they were built from (Chips and
+Cheese on the HiFive Premier P550 and on a Graviton Cortex-A72).
 
-| Preset | Footprint | rvsim cycles/load | Hardware | Level |
+| Calibrated configuration | Footprint | rvsim cycles/load | Hardware | Level |
 |---|---|---:|---:|---|
-| `p550()` | 8 KB | 3.0 | 3 | L1D |
-| `p550()` | 128 KB | 13.1 | 13 | L2 |
-| `p550()` | 2 MB | 39.0 | ~38 | L3 |
-| `p550()` | 16 MB | 267 | 272 (194 ns at 1.4 GHz) | memory |
-| `cortex_a72()` | 8 KB | 4.0 | 4 | L1D |
-| `cortex_a72()` | 128 KB | 20.3 | 21 | L2 |
-| `cortex_a72()` | 16 MB | 242 | 243 (162 ns at 1.5 GHz) | memory |
+| `p550` | 8 KB | 3.0 | 3 | L1D |
+| `p550` | 128 KB | 13.1 | 13 | L2 |
+| `p550` | 2 MB | 39.0 | ~38 | L3 |
+| `p550` | 16 MB | 267 | 272 (194 ns at 1.4 GHz) | memory |
+| `cortex_a72` | 8 KB | 4.0 | 4 | L1D |
+| `cortex_a72` | 128 KB | 20.3 | 21 | L2 |
+| `cortex_a72` | 16 MB | 242 | 243 (162 ns at 1.5 GHz) | memory |
 
 ```bash
 python tools/diag/latency_probe.py --preset p550
@@ -96,7 +97,7 @@ python tools/diag/latency_probe.py --preset cortex_a72 --footprints 16K,512K,8M,
 ```
 
 The probe needs `riscv64-elf-gcc` on `PATH`, as the repo's nix shell
-provides. A 2 MB footprint on the A72 preset mixes L2 hits and memory, so
+provides. A 2 MB footprint on the A72 configuration mixes L2 hits and memory, so
 it is left out of the table.
 
 Sources: Chips and Cheese, "Inside SiFive's P550 Microarchitecture"

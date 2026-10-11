@@ -1,6 +1,6 @@
 # Benchmark Configurations
 
-`rvsim.presets` includes configurations modeled after real hardware. The analysis examples use them, and they make good starting points for your own experiments.
+`rvsim.presets` holds complete machines to start experiments from. The analysis examples use them; `replace()` derives your own.
 
 ## Available Configurations
 
@@ -8,8 +8,7 @@
 |--------|------------|
 | `basic()` | `Config()`: a modest 4-wide out-of-order core with 32 KiB L1s and a 256 KiB L2 |
 | `fast()` | An Apple M4 P-core class core, the default core of the Linux system |
-| `p550()` | SiFive's Performance P550, calibrated to measured hardware |
-| `cortex_a72()` | Arm's Cortex-A72 at the Raspberry Pi 4's clock, calibrated to measured hardware |
+| `rocket()`, `boom()` | Chipyard's Rocket and Medium BOOM as their RTL builds them ([Error against Rocket](../rtl-rocket.md), [Error against BOOM](../rtl-boom.md)) |
 | `linux(harts, core=...)` | A core placed in the system that boots the bundled Linux image |
 
 ### Fast (Apple M4 P-core class)
@@ -43,7 +42,7 @@ calibrated M4.
 from rvsim import presets
 
 config = presets.linux(harts=8)                       # fast() cores
-config = presets.linux(harts=1, core=presets.p550())  # any core
+config = presets.linux(harts=1, core=presets.basic())  # any core
 ```
 
 `linux()` keeps the core's pipeline, predictors and caches and replaces
@@ -54,15 +53,24 @@ keeps the core's controller). With `real_time=True`, the default, the CLINT
 ticks at the device tree's 10 MHz timebase so the guest's clock keeps time.
 See [Linux Boot](linux-boot.md).
 
+## Calibrated configurations
+
+`tools/diag/calibration.py` holds two configurations fitted to measured
+hardware, for the hardware comparisons on the
+[Linux Benchmarks](linux-benchmarks.md) page: their structure sizes are
+the published ones and their latencies the measured ones. They are not
+models of the cores they are named after, whose RTL is not published, so
+they are not presets; from the repository root:
+
+```python
+from tools.diag.calibration import cortex_a72, p550
+
+config = p550()
+```
+
 ### SiFive Performance P550
 
 Based on published microarchitecture analysis (Chips and Cheese, SiFive specs).
-
-```python
-from rvsim import presets
-
-config = presets.p550()
-```
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
@@ -80,12 +88,6 @@ The latencies are the ones Chips and Cheese measured on the HiFive Premier P550;
 ### ARM Cortex-A72
 
 Based on publicly documented microarchitecture.
-
-```python
-from rvsim import presets
-
-config = presets.cortex_a72()
-```
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
@@ -109,7 +111,7 @@ from rvsim import Environment, presets
 
 result = Environment(
     binary="software/bin/programs/qsort.elf",
-    config=presets.p550(),
+    config=presets.basic(),
 ).run()
 
 print(result.stats.query("ipc|stall|miss"))
@@ -123,9 +125,9 @@ from rvsim import Sweep, presets
 results = Sweep(
     binaries=["software/bin/programs/qsort.elf"],
     configs={
-        "P550": presets.p550(),
-        "A72": presets.cortex_a72(),
+        "basic": presets.basic(),
         "fast": presets.fast(),
+        "boom": presets.boom(),
     },
 ).run(parallel=True)
 
@@ -141,8 +143,8 @@ Use `replace()` to create variants of a benchmark config:
 ```python
 from rvsim import Cache, presets
 
-base = presets.p550()
-wide = base.replace(width=4)
+base = presets.basic()
+wide = base.replace(width=8)
 big_cache = base.replace(l1d=Cache("64KB", ways=8, latency=3, mshr_count=8))
 ```
 

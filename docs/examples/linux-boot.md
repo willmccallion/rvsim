@@ -127,7 +127,7 @@ including the in-order backend:
 from rvsim import Backend, presets
 
 in_order = presets.linux(harts=1, core=presets.fast().replace(backend=Backend.InOrder()))
-a72 = presets.linux(harts=1, core=presets.cortex_a72())
+boom = presets.linux(harts=1, core=presets.boom())
 ```
 
 ### Sessions: boot once, measure many times
@@ -136,11 +136,11 @@ a72 = presets.linux(harts=1, core=presets.cortex_a72())
 is the practical way to study software running on Linux:
 
 ```python
-from rvsim import Session, presets
+from rvsim import Backend, Session, presets
 
 s = Session.linux(harts=1)
 s.fast_forward(until=Session.LOGIN_SHELL)        # boots once, then restored from the cache
-s.switch(presets.linux(harts=1, core=presets.p550()))
+s.switch(presets.linux(harts=1, core=presets.fast().replace(backend=Backend.InOrder())))
 s.warm_up(command="coremark 0x0 0x0 0x66 20 7 1 2000")
 r = s.measure("coremark 0x0 0x0 0x66 20 7 1 2000")
 print(r.cycles, r.instructions, r.ipc, r.exit_code)

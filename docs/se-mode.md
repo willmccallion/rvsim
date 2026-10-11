@@ -28,7 +28,7 @@ result = Environment(
     binary="prog",
     args=["--iterations", "100", "input.txt"],
     env=["LANG=C"],
-    config=presets.p550(),
+    config=presets.boom(),
 ).run()
 print(result.exit_code, result.stats["cycles"])
 ```
@@ -103,7 +103,7 @@ between their caches:
 
 ```sh
 for n in 1 2 4 8; do
-  python -m rvsim software/bin/programs/raytracer_mt.elf --harts $n --preset p550 -- $n
+  python -m rvsim software/bin/programs/raytracer_mt.elf --harts $n -- $n
 done
 ```
 

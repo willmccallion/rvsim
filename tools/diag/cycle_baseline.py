@@ -61,17 +61,21 @@ CONFIGS = [
     "inorder w4 ddr5",
     "preset basic",
     "preset fast",
-    "preset cortex_a72",
-    "preset p550",
+    "calibrated cortex_a72",
+    "calibrated p550",
     "preset linux",
 ]
 
 
 def config_for(label):
-    """The config `label` names: ``preset <name>`` or a pipeline label."""
+    """The config `label` names: ``preset <name>``, ``calibrated <name>``
+    or a pipeline label."""
     from rvsim import presets
     from tests.conformance.configs.pipelines import PIPELINES
+    from tools.diag.calibration import CALIBRATED
 
+    if label.startswith("calibrated "):
+        return CALIBRATED[label.removeprefix("calibrated ")]()
     if label.startswith("preset "):
         name = label.removeprefix("preset ")
         if name == "linux":

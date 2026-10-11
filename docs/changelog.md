@@ -4,14 +4,25 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The `cortex_a72()` and `p550()` presets move to
+  `tools/diag/calibration.py`, beside the latency probe and the Linux
+  benchmark runner that compare them with the hardware they are fitted
+  to; their structure sizes are published and their latencies measured,
+  but neither core's design is, so they are not offered as models of
+  those cores. `--preset` takes `basic`, `fast`, `rocket` and `boom`;
+  the conformance matrix runs the two calibrated configurations as before.
+- The Linux session example switches a booted session onto the in-order
+  backend: switching it onto `p550()` failed, since a switch keeps the
+  guest's VLEN and misaligned-access behaviour.
 - `presets.m1()` is removed: only its cache sizes came from Apple's core,
   so it modelled no core in particular. The conformance matrix runs 72
   configurations.
 - A multithreaded bundled program, `raytracer_mt`: a scene of spheres
   over a checkered floor, with shadows and a reflection bounce, its rows
   shared out between N threads (one per CPU by default), printed with the
-  cycles the render took. On the P550 preset it renders in 1.31 M cycles
-  on one hart, 0.70 M on two, 0.37 M on four and 0.24 M on eight.
+  cycles the render took. On the configuration calibrated to the P550 it
+  renders in 1.31 M cycles on one hart, 0.70 M on two, 0.37 M on four and
+  0.24 M on eight.
   Threaded programs live in `examples/programs/threaded` and build for SE
   mode only; `make se-verify BUNDLED=1` compares it with qemu on four
   threads.
