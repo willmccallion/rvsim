@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Building a simulator refuses configurations no machine can have, with a
+  `ValueError` naming the field, where they used to hang, crash or quietly
+  build another machine: zero widths, queues, ports, TLBs, clocks or
+  harts; an out-of-order register file with no register to rename into;
+  a unit pool missing a unit the ISA needs; caches that are not a whole
+  number of sets, have lines of different sizes or more PLRU ways than it
+  tracks; TLBs, stride-prefetcher tables, DRAM rows and buses whose sizes
+  are not powers of two; RAM overlapping a device or too small for the
+  kernel offset; predictor tables too large to allocate; and latency
+  overrides naming no device. The rules are listed in
+  [Configuration](configuration.md#what-a-configuration-must-satisfy). Each
+  device's register window is defined once, in the system config the bus,
+  the device tree and the checks read.
 - Rust's `Config::default()` is the Python API's default machine, and
   `Config::minimal()` the machine every component's own default makes up:
   one-wide and in order, with no caches and fixed-latency memory, which
