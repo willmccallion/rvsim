@@ -34,6 +34,7 @@ const A1: u32 = 11;
 const A2: u32 = 12;
 const A3: u32 = 13;
 const A7: u32 = 17;
+const A5: u32 = 15;
 const SP: u32 = 2;
 const CYCLE: u32 = 0xC00;
 const LOAD_ADDRESS: u64 = 0x1_0000;
@@ -240,6 +241,50 @@ fn a_checkpoint_is_refused_while_a_host_file_is_open() {
     let refused = sim.save_checkpoint(&mut Vec::new());
 
     assert!(matches!(refused, Err(CheckpointError::Unsupported(_))), "{refused:?}");
+}
+
+/// A private mapping of a file is the file's bytes, read-only pages
+/// included: the program reads the first byte of a mapping it may not
+/// write.
+#[test]
+fn a_read_only_file_mapping_holds_the_files_bytes() {
+    const SYS_MMAP: i32 = 222;
+    const PROT_READ: i32 = 1;
+    const MAP_PRIVATE: i32 = 2;
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("m");
+    std::fs::write(&path, b"Z").expect("the file is written");
+    let i = InstructionBuilder::new;
+    let mut code = vec![
+        i().auipc(A1, 0).build(),
+        i().addi(A1, A1, 18 * 4).build(),
+        i().addi(A0, 0, AT_FDCWD).build(),
+        i().addi(A2, 0, 0).build(),
+        i().addi(A3, 0, 0).build(),
+        i().addi(A7, 0, SYS_OPENAT).build(),
+        ECALL,
+        i().addi(A4, A0, 0).build(),
+        i().addi(A0, 0, 0).build(),
+        i().lui(A1, 1).build(),
+        i().addi(A2, 0, PROT_READ).build(),
+        i().addi(A3, 0, MAP_PRIVATE).build(),
+        i().addi(A5, 0, 0).build(),
+        i().addi(A7, 0, SYS_MMAP).build(),
+        ECALL,
+        i().lbu(A0, A0, 0).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ];
+    let mut name = path.to_str().expect("a UTF-8 path").as_bytes().to_vec();
+    name.resize(name.len().next_multiple_of(4) + 4, 0);
+    code.extend(
+        name.chunks(4).map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]])),
+    );
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(u64::from(b'Z')), "{backend:?}");
+    }
 }
 
 fn exit_with(a0: i32) -> Vec<u32> {

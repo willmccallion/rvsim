@@ -517,20 +517,11 @@ impl Sys<'_> {
             return Err(-errno::ENOMEM);
         }
         if flags & MAP_ANONYMOUS == 0 {
-            // A private file mapping is the file's bytes copied in; writes
-            // never reach the file.
+            // A private file mapping is the file's bytes copied in, whatever
+            // the pages' rights; writes never reach the file.
             let len_usize = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
             let bytes = self.process.files.pread(fd, len_usize, offset)?;
-            let writable = permissions.union(Permissions::RW);
-            self.process
-                .space
-                .map_range(self.memory, self.frames, start, len, writable)
-                .map_err(fault)?;
             self.write_user(start, &bytes)?;
-            self.process
-                .space
-                .map_range(self.memory, self.frames, start, len, permissions)
-                .map_err(fault)?;
             self.process.note_file_map(start, page_ceil(len));
         }
         ok(start.val())
