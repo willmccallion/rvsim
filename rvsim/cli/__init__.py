@@ -194,6 +194,20 @@ def _print_help() -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
+def _run_under_gdb(sim, port: int, *, limit, stats_sections) -> int | None:
+    """Serves GDB on ``port``; a run GDB detaches from goes on to its exit."""
+    print(
+        f"waiting for gdb on 127.0.0.1:{port} (in gdb: target remote :{port})",
+        file=sys.stderr,
+    )
+    outcome, code = sim.gdb(port)
+    if outcome == "detached":
+        return sim.run(limit=limit, stats_sections=stats_sections)
+    if stats_sections is not None:
+        print(sim.stats.summary(stats_sections or None))
+    return code
+
+
 def main() -> None:
     if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
         _print_help()
@@ -344,6 +358,13 @@ def main() -> None:
         help="the directory the guest's writefile pseudo-operation writes into",
     )
     parser.add_argument(
+        "--gdb",
+        metavar="PORT",
+        type=int,
+        default=None,
+        help="wait for GDB on this TCP port and run under it (in gdb: target remote :PORT)",
+    )
+    parser.add_argument(
         "--pipeline-trace",
         metavar="FILE",
         help="write where every instruction is each cycle, as a Kanata log for Konata",
@@ -382,6 +403,8 @@ def main() -> None:
 
     if args.config and args.preset:
         parser.error("--config and --preset are mutually exclusive")
+    if args.gdb is not None and args.watch:
+        parser.error("--gdb cannot be combined with --watch")
 
     if args.preset:
         cfg = PRESETS[args.preset]()
@@ -453,7 +476,12 @@ def main() -> None:
         sim = build_simulator()
         if args.pipeline_trace:
             sim.open_pipeline_trace(args.pipeline_trace)
-        exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
+        if args.gdb is not None:
+            exit_code = _run_under_gdb(
+                sim, args.gdb, limit=args.limit, stats_sections=stats_sections
+            )
+        else:
+            exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 
     if args.json and exit_code is not None:
         import json

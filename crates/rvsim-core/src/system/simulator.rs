@@ -29,6 +29,7 @@ use crate::sim::packet::Packet;
 use crate::sim::stats::Stats;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::dtb;
+use crate::system::gdb;
 use crate::system::process;
 pub use crate::system::process::loader::{ProcessArgs, ProgramImage};
 use crate::system::snapshot::PipelineSnapshot;
@@ -301,6 +302,54 @@ impl Simulator {
         ctx.is_valid_csr(addr).then(|| ctx.csr_read(addr))
     }
 
+    /// Writes `addr` on `hart` with `value`, as the hart's own CSR write
+    /// would, and says whether the CSR exists and can be written.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    pub fn write_csr(&mut self, hart: usize, addr: CsrAddr, value: u64) -> bool {
+        let hart_id = self.state.harts[hart].hart_id;
+        let Some(core) = self.state.topology.core_of_hart(hart_id) else { return false };
+        let mut ctx = self.state.core_ctx(core.as_index());
+        if addr.is_read_only() || !ctx.is_valid_csr(addr) {
+            return false;
+        }
+        ctx.csr_write(addr, value);
+        true
+    }
+
+    /// Makes `hart`'s core retire at most one instruction a cycle, so a
+    /// run can stop after exactly one: a debugger's step.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart` is not a hart index.
+    pub fn set_single_step(&mut self, hart: usize, on: bool) {
+        let hart_id = self.state.harts[hart].hart_id;
+        if let Some(core) = self.state.topology.core_of_hart(hart_id) {
+            self.state.cores[core.as_index()].units.single_step = on;
+        }
+    }
+
+    /// Serves a debugger on `stream` with GDB's remote serial protocol
+    /// until it detaches, kills the run, or the guest exits; `keep_going`
+    /// is asked every so often whether to go on, as in [`Self::run_to_with`].
+    /// Every stop the debugger sees is a [`Self::drain`], so what it reads
+    /// is the architectural state and the cycle count moves on a little.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::Debugger`] when the connection fails, or the error a
+    /// tick raised.
+    pub fn serve_gdb(
+        &mut self,
+        stream: std::net::TcpStream,
+        keep_going: impl FnMut() -> bool,
+    ) -> Result<gdb::Outcome, SimError> {
+        gdb::serve(self, stream, keep_going)
+    }
+
     /// Translates `vaddr` for a read on `hart` through its current page
     /// tables, walking them now rather than through the pipeline and
     /// leaving its TLBs as they are.
@@ -561,7 +610,8 @@ impl Simulator {
     /// the register file into the O3 PRF, and the PC into fetch.
     ///
     /// Must be called after all register and PC initialization (loader
-    /// setup, etc.) but before the first pipeline tick.
+    /// setup, etc.) but before the first pipeline tick, or after a
+    /// [`Self::drain`] when a debugger changed registers.
     pub fn sync_arch_regs(&mut self) {
         for core in 0..self.core_count() {
             let (pipeline, ctx) = self.state.pipeline_ctx(core);

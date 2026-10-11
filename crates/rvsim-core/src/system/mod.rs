@@ -8,6 +8,7 @@ pub mod cache_audit;
 pub mod checkpoint;
 pub mod coherence_audit;
 pub mod dtb;
+pub mod gdb;
 pub mod host_files;
 pub mod loader;
 pub mod process;

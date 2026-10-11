@@ -184,6 +184,7 @@ impl CommitRegisters<'_> {
 /// engine's `BackendCommon`.
 pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option<CommitEvent> {
     let CommitResources { common, rob, store_buffer, vec_store_buffer, width, mut registers } = res;
+    let width = if state.core.single_step { 1 } else { width };
     let now = state.cycle;
     common.deliver_commit_notices(&mut state.core.branch_predictor, now);
     if let CommitFlow::Stop(event) = trap_or_interrupt(state, common, rob) {

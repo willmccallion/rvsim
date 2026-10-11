@@ -5,6 +5,7 @@ pub mod checkpoint_resume;
 #[cfg(feature = "commit-log")]
 pub mod commit_log;
 pub mod exit;
+pub mod gdb;
 pub mod host_files;
 pub mod htif_syscalls;
 pub mod isa_gating;

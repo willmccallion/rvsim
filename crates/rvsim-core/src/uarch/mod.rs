@@ -74,6 +74,9 @@ pub struct CoreUnits {
     /// The ISA the hart implements, which decode checks every instruction
     /// against; derived from the configuration once, since decode is hot.
     pub isa: Isa,
+    /// A debugger is stepping this core: commit retires one instruction a
+    /// cycle, so a run can stop after exactly one.
+    pub single_step: bool,
     /// PCs the run stops at: commit does not retire past one within a
     /// cycle, so the hart's next instruction is at it when the cycle ends.
     pub stop_pcs: Vec<u64>,
@@ -131,6 +134,7 @@ impl CoreUnits {
             branch_predictor: BranchPredictor::new(config),
             stat_paths: CorePaths::new(core_id),
             isa: config.isa_set(),
+            single_step: false,
             stop_pcs: Vec::new(),
         }
     }

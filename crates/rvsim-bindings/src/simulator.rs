@@ -9,7 +9,7 @@ use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
@@ -501,6 +501,64 @@ impl PySimulator {
     /// Writes out and closes the pipeline trace, if one is open.
     fn close_pipeline_trace(&mut self) -> PyResult<()> {
         self.inner.close_pipeline_trace().map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Serves a debugger with GDB's remote protocol on ``host:port``:
+    /// waits for it to connect, then runs as it asks until it detaches,
+    /// kills the run, or the guest exits. Each hart is a thread to it;
+    /// breakpoints are stops at a PC, so no guest code is patched.
+    ///
+    /// Returns ``("detached", None)``, ``("killed", None)`` or
+    /// ``("exit", code)``. Ctrl-C in the terminal ends the session with
+    /// ``KeyboardInterrupt``.
+    #[pyo3(signature = (port, *, host = "127.0.0.1"))]
+    fn gdb(&mut self, py: Python<'_>, port: u16, host: &str) -> PyResult<(String, Option<u64>)> {
+        use rvsim_core::system::gdb::Outcome;
+        let listener = std::net::TcpListener::bind((host, port))
+            .map_err(|e| PyOSError::new_err(format!("cannot listen on {host}:{port}: {e}")))?;
+        listener.set_nonblocking(true).map_err(|e| PyOSError::new_err(e.to_string()))?;
+        // The GIL is released while waiting and serving, so other Python
+        // threads run; signals are checked by taking it back briefly.
+        let mut interrupted: Option<PyErr> = None;
+        #[allow(
+            clippy::redundant_closure_for_method_calls,
+            reason = "the method path is not general enough over the GIL's lifetime"
+        )]
+        let mut keep_going = || match Python::with_gil(|py| py.check_signals()) {
+            Ok(()) => true,
+            Err(error) => {
+                interrupted = Some(error);
+                false
+            }
+        };
+        let inner = &mut self.inner;
+        let served = py.allow_threads(move || {
+            let stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if !keep_going() {
+                            return Ok(Outcome::Interrupted);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    Err(e) => return Err(PyOSError::new_err(e.to_string())),
+                }
+            };
+            stream.set_nonblocking(false).map_err(|e| PyOSError::new_err(e.to_string()))?;
+            inner.serve_gdb(stream, keep_going).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        });
+        let _ = std::io::stdout().flush();
+        Ok(match served? {
+            Outcome::Detached => ("detached".into(), None),
+            Outcome::Killed => ("killed".into(), None),
+            Outcome::Exited(code) => ("exit".into(), Some(code)),
+            Outcome::Interrupted => {
+                return Err(
+                    interrupted.unwrap_or_else(|| PyRuntimeError::new_err("debugging cancelled"))
+                );
+            }
+        })
     }
 
     /// Execute until one instruction commits.
