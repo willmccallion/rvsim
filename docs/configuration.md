@@ -500,6 +500,54 @@ each private cache counts its snoops under
 
 ---
 
+## What a configuration must satisfy
+
+Building a simulator checks the whole configuration, and
+`rvsim._core.check_config(config.to_dict())` runs the same checks on their
+own. A configuration that breaks a rule raises `ValueError` naming the
+field, rather than hanging, crashing or quietly building another machine:
+
+- **Room to work.** Every width, the ROB, the issue queue, the load queue,
+  the store buffer, the load and store ports, `squash_width`, the vector
+  store buffer, the L1 TLB, `hart_count`, both clocks, `clint_divider`,
+  the coherence transaction entries and the interconnect's
+  `bytes_per_cycle` are at least 1.
+- **Registers.** On the out-of-order backend `prf_gpr_size` and
+  `prf_fpr_size` each hold their 32 architectural registers and together
+  leave at least one more, and `prf_vpr_size` holds the 32 architectural
+  vector registers and one eight-register group, at least 40.
+- **Units.** The unit pool has an integer ALU, a branch unit and a memory
+  unit, a multiplier and a divider when the ISA has M, and every FP unit
+  when it has F or D. A vector unit type left out gets one unit.
+- **Caches.** An enabled level holds a whole number of sets; its lines are
+  a power of two of at least 64 bytes, the same at every level; PLRU
+  replacement tracks at most 63 ways; a stride prefetcher's table is a
+  power of two and every prefetcher's degree at least 1.
+- **TLBs.** A set-associative TLB fills a power-of-two number of sets;
+  `0` ways is fully associative.
+- **Memory and the address map.** `ram_size` is a non-zero multiple of
+  4 KiB that holds `kernel_offset`, the bus is a power of two bytes wide,
+  and a DRAM controller has banks and power-of-two rows. RAM and the
+  devices' register windows do not overlap: the UART's 256 bytes at
+  `uart_base`, VirtIO's 4 KiB at `disk_base`, the CLINT's 64 KiB at
+  `clint_base`, the system controller's 4 KiB at `syscon_base`, the PLIC's
+  64 MiB at `0x0c00_0000` and the RTC's 4 KiB at `0x10_1000`. With the
+  default map RAM ends where `disk_base` begins, so more than 256 MB of RAM
+  needs `disk_base` moved, as `presets.linux()` does.
+- **Predictors.** The BTB has a power-of-two set count; TAGE and ITTAGE
+  tables are powers of two with one history length and one tag width per
+  bank. Tables stay small enough to allocate: perceptron `table_bits` at
+  most 20 and `history_length` at most 63, tournament tables at most 24
+  bits, the loop predictor at most 2^20 entries and the write-combining
+  buffer at most 1024 entries.
+- **Names.** `device_latency_ns_overrides` names devices the system has.
+
+A BTB or return stack of size 0, zero-latency units or memory, an L2
+smaller than the L1D and a cache with a set count that is not a power of
+two are allowed: they describe machines that work.
+
+---
+
 ## Example Configurations
 
 ### Minimal embedded core

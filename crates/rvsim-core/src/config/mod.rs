@@ -6,6 +6,7 @@
 
 mod bpred;
 mod cache;
+mod checks;
 mod coherence;
 pub mod ddr5;
 mod defaults;
@@ -266,6 +267,146 @@ pub enum ConfigError {
         "pipeline.csr_squash Never needs the out-of-order backend's rename hold; use EveryAccess or AffectingWrites"
     )]
     InOrderNeverSquashes,
+    /// A count or size that must be at least one is zero.
+    #[error("{0} must be at least 1")]
+    Zero(&'static str),
+    /// A size the hardware indexes as a power of two is not one.
+    #[error("{field} {value} must be a power of two")]
+    NotPowerOfTwo {
+        /// The field.
+        field: &'static str,
+        /// Its value.
+        value: usize,
+    },
+    /// A size past what the simulator can allocate.
+    #[error("{field} {value} exceeds {most}")]
+    TooLarge {
+        /// The field.
+        field: &'static str,
+        /// Its value.
+        value: usize,
+        /// The largest the simulator builds.
+        most: usize,
+    },
+    /// A bus whose width is not a power of two bytes.
+    #[error("system.bus_width {0} must be a power of two bytes")]
+    BusWidth(u64),
+    /// RAM that is empty or ends partway through a page.
+    #[error("memory.ram_size {0} must be a non-zero multiple of 4 KiB")]
+    RamSize(usize),
+    /// A kernel load offset outside RAM.
+    #[error("system.kernel_offset {offset:#x} lies past the {ram_size}-byte RAM")]
+    KernelOffset {
+        /// The configured offset.
+        offset: u64,
+        /// The RAM's size.
+        ram_size: usize,
+    },
+    /// Two regions of the address map share an address.
+    #[error("{first} and {second} overlap in the address map")]
+    RegionsOverlap {
+        /// One region.
+        first: &'static str,
+        /// The other.
+        second: &'static str,
+    },
+    /// A device latency override for a device the system does not have.
+    #[error("device_latency_ns_overrides names no device: {0:?}")]
+    UnknownDevice(String),
+    /// A TLB whose entries do not fill a power-of-two number of sets.
+    #[error("{tlb}: {entries} entries do not fill a power-of-two number of {ways}-way sets")]
+    TlbGeometry {
+        /// The TLB.
+        tlb: &'static str,
+        /// Its entries.
+        entries: usize,
+        /// Its associativity.
+        ways: usize,
+    },
+    /// An enabled cache level that is not a whole number of sets.
+    #[error(
+        "cache {level}: {size_bytes} bytes is not a whole number of {ways}-way sets of {line_bytes}-byte lines"
+    )]
+    CacheGeometry {
+        /// The cache level.
+        level: &'static str,
+        /// Its size.
+        size_bytes: usize,
+        /// Its associativity.
+        ways: usize,
+        /// Its line size.
+        line_bytes: usize,
+    },
+    /// PLRU replacement over more ways than it tracks.
+    #[error("cache {level}: PLRU replacement tracks at most 63 ways, not {ways}")]
+    PlruWays {
+        /// The cache level.
+        level: &'static str,
+        /// Its associativity.
+        ways: usize,
+    },
+    /// Cache levels whose lines differ in size.
+    #[error(
+        "cache {level} has {line_bytes}-byte lines but {first} has {first_line_bytes}-byte ones; every level shares one line size"
+    )]
+    LineSizesDiffer {
+        /// The level whose line size differs.
+        level: &'static str,
+        /// Its line size.
+        line_bytes: usize,
+        /// The first enabled level.
+        first: &'static str,
+        /// Its line size.
+        first_line_bytes: usize,
+    },
+    /// An out-of-order register file with no register beyond the
+    /// architectural ones for rename to allocate.
+    #[error(
+        "pipeline.prf_gpr_size {gpr} + prf_fpr_size {fpr} leaves no register beyond the 64 architectural ones"
+    )]
+    NoFreeRegisters {
+        /// Configured integer registers.
+        gpr: usize,
+        /// Configured floating-point registers.
+        fpr: usize,
+    },
+    /// A register file smaller than its 32 architectural registers.
+    #[error("{field} {size} must hold its 32 architectural registers")]
+    ArchitecturalRegisters {
+        /// The register file's field.
+        field: &'static str,
+        /// Its size.
+        size: usize,
+    },
+    /// A vector register file too small for the architectural registers
+    /// and one LMUL=8 group.
+    #[error(
+        "pipeline.prf_vpr_size {0} must hold the 32 architectural vector registers and an eight-register group: at least 40"
+    )]
+    VectorRegisters(usize),
+    /// An instruction class the hart implements with no unit to run it.
+    #[error("pipeline.fu_config has no {unit} unit, which {needed_by} needs")]
+    MissingUnit {
+        /// The unit type.
+        unit: &'static str,
+        /// What needs it.
+        needed_by: &'static str,
+    },
+    /// A per-bank list whose length is not the bank count.
+    #[error("{predictor} {field} has {len} entries for {banks} banks")]
+    BankList {
+        /// The predictor.
+        predictor: &'static str,
+        /// The list.
+        field: &'static str,
+        /// Its length.
+        len: usize,
+        /// The bank count.
+        banks: usize,
+    },
+    /// A snoop filter sized to no entries.
+    #[error("coherence.home_agent.capacity_factor must be a positive number")]
+    SnoopFilterCapacity,
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {
@@ -441,6 +582,12 @@ impl Config {
                 return Err(ConfigError::TageBanking);
             }
         }
+        if !tage.table_size.is_power_of_two() {
+            return Err(ConfigError::NotPowerOfTwo {
+                field: "tage table_size",
+                value: tage.table_size,
+            });
+        }
         let bimodal = tage.bimodal_entries();
         if !bimodal.is_power_of_two() || (bimodal >> tage.bimodal_hysteresis_share_log) == 0 {
             return Err(ConfigError::TageBimodal {
@@ -470,6 +617,6 @@ impl Config {
         {
             return Err(ConfigError::VectorMemWidth(vector_mem_width));
         }
-        Ok(())
+        self.check_machine()
     }
 }

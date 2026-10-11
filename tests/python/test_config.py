@@ -20,6 +20,8 @@ from rvsim import (
     presets,
 )
 from rvsim._core import check_config, default_config, minimal_config
+from tests.conformance.configs.pipelines import PIPELINES
+from tools.diag.calibration import CALIBRATED
 
 
 class Replace(unittest.TestCase):
@@ -125,6 +127,23 @@ class RustMachines(unittest.TestCase):
         enabled = [cache[level]["enabled"] for level in ("l1_i", "l1_d", "l2", "l3")]
 
         self.assertEqual(enabled, [False] * 4)
+
+    def test_every_built_in_configuration_passes_the_cores_checks(self):
+        configs = {
+            "Config()": Config(),
+            "linux(harts=2)": presets.linux(harts=2),
+            **{f"preset {name}": make() for name, make in presets.PRESETS.items()},
+            **{f"calibrated {name}": make() for name, make in CALIBRATED.items()},
+            **{f"matrix {label}": config for label, config in PIPELINES},
+        }
+
+        for name, config in configs.items():
+            with self.subTest(config=name):
+                check_config(config.to_dict())
+
+    def test_a_machine_that_would_hang_is_refused_when_built(self):
+        with self.assertRaisesRegex(ValueError, "pipeline.width must be at least 1"):
+            Simulator(Config(width=0))
 
     def test_a_machine_the_core_refuses_raises_value_error(self):
         config = Config(btb_size=96, btb_ways=4)
