@@ -114,12 +114,14 @@ class StopPoints(SessionTestCase):
 
     def test_a_pc_stop_reports_the_hart(self):
         s = self.session()
-        entry = s.sim.pc
+        # The second instruction of the program: glibc's _start begins
+        # with a four-byte jump to its gp setup.
+        second = s.sim.pc + 4
 
-        stopped = s.run(Pc(0xDEAD_0000, entry + 8))
+        stopped = s.run(Pc(0xDEAD_0000, second))
 
         self.assertEqual(stopped.hart, 0)
-        self.assertEqual(s.sim.pc, entry + 8)
+        self.assertEqual(s.sim.pc, second)
 
     def test_a_predicate_is_checked_every_so_many_cycles(self):
         s = self.session()

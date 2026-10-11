@@ -90,8 +90,10 @@ const MAP_ANONYMOUS: u64 = 0x20;
 const MREMAP_MAYMOVE: u64 = 1;
 const AT_EMPTY_PATH: u64 = 0x1000;
 const AT_REMOVEDIR: u64 = 0x200;
-const TCGETS: u64 = 0x5401;
-const TIOCGWINSZ: u64 = 0x5413;
+const TCGETS: u32 = 0x5401;
+/// `TCGETS2`, which glibc 2.42's `tcgetattr` (and so `isatty`) uses.
+const TCGETS2: u32 = 0x802c_542a;
+const TIOCGWINSZ: u32 = 0x5413;
 const RLIMIT_STACK: u64 = 3;
 const RLIMIT_NOFILE: u64 = 7;
 const RLIM_INFINITY: u64 = u64::MAX;
@@ -412,10 +414,16 @@ impl Sys<'_> {
         if !self.process.files.is_console(fd) {
             return Err(-errno::ENOTTY);
         }
-        match request {
+        // The kernel takes the request as 32 bits, so a sign-extended one
+        // still names its ioctl.
+        match request as u32 {
             // A terminal with default settings, so stdio line-buffers.
             TCGETS => {
                 self.write_user(arg, &[0u8; 36])?;
+                ok(0)
+            }
+            TCGETS2 => {
+                self.write_user(arg, &[0u8; 44])?;
                 ok(0)
             }
             TIOCGWINSZ => {

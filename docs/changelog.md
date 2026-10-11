@@ -32,7 +32,9 @@ All notable changes to this project are documented here. The format is based on 
   `"captured"`, `read_console()`, `write_console()` and the Session API's
   console stops apply to them as they do to the UART, instead of the
   output going straight to the host's stdout. Input goes to the UART
-  until a program that talks to the host directly is loaded.
+  until a program that talks to the host directly is loaded. The console
+  answers `TCGETS2` as well as `TCGETS`, so glibc 2.42's `isatty` holds
+  and a user program's stdout is line-buffered, as on a terminal.
 - The bundled programs and benchmarks are static Linux user binaries
   built with the glibc toolchain and run under SE mode, as a gem5 user
   would run them; `software/bin-htif` keeps the bare-metal build. The
