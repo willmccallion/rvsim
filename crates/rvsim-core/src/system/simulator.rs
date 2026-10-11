@@ -237,8 +237,8 @@ impl Simulator {
         Ok(())
     }
 
-    /// Each hart's program's exit code in SE mode: `None` for a hart with
-    /// no program or whose program is still running.
+    /// Each program's exit code in SE mode, in the order they were loaded:
+    /// `None` for one still running. Empty outside SE mode.
     #[must_use]
     pub fn exit_codes(&self) -> Vec<Option<u64>> {
         self.state.uncore.processes.exit_codes()

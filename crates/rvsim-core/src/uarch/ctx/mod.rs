@@ -45,14 +45,13 @@ pub struct CoreCtx<'a> {
 }
 
 impl CoreCtx<'_> {
-    /// Ends this hart's user program with `code`: the hart parks as after
-    /// a `wfi` nothing wakes, and the run ends when the last program has,
-    /// with the first non-zero exit code in hart order.
+    /// Ends the process this hart's thread belongs to with `code`: the
+    /// hart parks as after a `wfi` nothing wakes, and the run ends when the
+    /// last process has, with the first non-zero exit code in load order.
     pub fn exit_process(&mut self, code: u64) {
-        let every_program_exited = self.uncore.processes.record_exit(self.hart.hart_id, code);
         crate::system::process::loader::park(self.hart);
-        if every_program_exited {
-            let run_code = self.uncore.processes.run_exit_code();
+        let Some(thread) = self.uncore.processes.thread_on(self.hart.hart_id) else { return };
+        if let Some(run_code) = self.uncore.processes.exit_process(thread.tgid, code) {
             self.signal_exit(run_code);
         }
     }

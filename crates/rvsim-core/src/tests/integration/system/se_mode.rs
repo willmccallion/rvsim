@@ -17,6 +17,8 @@ const SYS_OPENAT: i32 = 56;
 const SYS_READ: i32 = 63;
 const SYS_IOCTL: i32 = 29;
 const SYS_RISCV_HWPROBE: i32 = 258;
+const SYS_GETPID: i32 = 172;
+const SYS_GETTID: i32 = 178;
 const A4: u32 = 14;
 const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
@@ -464,10 +466,20 @@ fn hwprobe_reports_misaligned_access_speed_and_unknown_keys() {
     assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(UNSUPPORTED));
 }
 
-/// A simulator with `hart_count` harts running `programs`, one per hart.
+/// A simulator with one hart per program running `programs`.
 fn simulator_with_programs(backend: BackendKind, programs: &[&[u32]]) -> Simulator {
+    simulator_with_programs_on(backend, programs, programs.len())
+}
+
+/// A simulator with `hart_count` harts running `programs`, one per hart
+/// from hart 0.
+fn simulator_with_programs_on(
+    backend: BackendKind,
+    programs: &[&[u32]],
+    hart_count: usize,
+) -> Simulator {
     let mut config = config(backend);
-    config.system.hart_count = programs.len();
+    config.system.hart_count = hart_count;
     let mut sim = Simulator::build(&config, "");
     let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
     let images: Vec<Vec<u8>> = programs.iter().map(|code| user_elf(code, ET_EXEC)).collect();
@@ -529,7 +541,7 @@ fn two_programs_run_to_their_own_exits() {
 }
 
 #[test]
-fn the_runs_exit_code_is_the_first_non_zero_one_in_hart_order() {
+fn the_runs_exit_code_is_the_first_non_zero_one_in_program_order() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut sim =
             simulator_with_programs(backend, &[&exit_with(5), &exit_with(7), &exit_with(0)]);
@@ -568,6 +580,49 @@ fn a_fault_ends_one_program_and_the_other_runs_on() {
 
         assert_eq!(stop, StopReason::Exited(132), "{backend:?}");
         assert_eq!(sim.exit_codes(), vec![Some(132), Some(0)], "{backend:?}");
+    }
+}
+
+/// `exit_codes` names programs, not harts: a hart without a program has
+/// no entry.
+#[test]
+fn exit_codes_hold_one_code_per_program() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_with_programs_on(backend, &[&exit_with(4), &exit_with(6)], 3);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(4), "{backend:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(4), Some(6)], "{backend:?}");
+    }
+}
+
+/// Exits with `16 * getpid() + gettid()`.
+fn exit_with_ids() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(A7, 0, SYS_GETPID).build(),
+        ECALL,
+        i().addi(T1, 0, 16).build(),
+        i().mul(T0, A0, T1).build(),
+        i().addi(A7, 0, SYS_GETTID).build(),
+        ECALL,
+        i().add(A0, A0, T0).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]
+}
+
+/// Each program is a process whose first thread's id is the process's:
+/// 1 for the first program, 2 for the second.
+#[test]
+fn a_programs_first_thread_has_the_programs_id() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_with_programs(backend, &[&exit_with_ids(), &exit_with_ids()]);
+
+        let _ = run_for(&mut sim, 100_000);
+
+        assert_eq!(sim.exit_codes(), vec![Some(16 + 1), Some(2 * 16 + 2)], "{backend:?}");
     }
 }
 

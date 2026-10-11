@@ -87,7 +87,7 @@ pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry
 /// been written; the result becomes the entry's, destined for `a0`.
 pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> Option<Outcome> {
     if entry.ctrl.system_op != SystemOp::Ecall
-        || state.uncore.processes.get(state.hart.hart_id).is_none()
+        || state.uncore.processes.thread_on(state.hart.hart_id).is_none()
     {
         return None;
     }

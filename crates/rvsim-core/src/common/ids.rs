@@ -3,12 +3,17 @@
 //! `HartId` is a RISC-V hardware thread (what `mhartid` reads); `CoreId` is a
 //! physical core that hosts one or more harts via SMT.
 
+use serde::{Deserialize, Serialize};
+
 /// A RISC-V hardware thread identifier.
 ///
 /// Equal to the value the `mhartid` CSR reports for the hart. Globally unique
 /// across the simulated `SoC`: with `harts_per_core > 1`, sibling SMT threads
 /// have distinct `HartId`s within the same `CoreId`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
 pub struct HartId(u32);
 
 impl HartId {

@@ -28,7 +28,7 @@ use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
 /// The checkpoint format this build writes and restores.
-pub const VERSION: u64 = 7;
+pub const VERSION: u64 = 8;
 
 /// RAM is saved in pages of this many bytes; pages of zeros are skipped.
 const PAGE_BYTES: usize = 4096;
@@ -82,7 +82,7 @@ struct Header {
     vlen_bits: u64,
     harts: Vec<HartState>,
     devices: serde_json::Value,
-    /// The user programs, in SE mode.
+    /// The processes and their threads, in SE mode.
     #[serde(default)]
     processes: ProcessesState,
 }

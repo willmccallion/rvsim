@@ -48,8 +48,8 @@ class Simulator(_CoreSimulator):
     ``programs`` runs several static Linux user programs under SE mode at
     once, one per hart from hart 0 up, sharing the memory system, as gem5's
     ``se.py -n N --cmd "a;b"`` does; the run ends when the last of them
-    exits, with the first non-zero exit code in hart order, and
-    ``exit_codes`` holds each hart's.
+    exits, with the first non-zero exit code in program order, and
+    ``exit_codes`` holds each program's.
 
     ``script`` names the file the guest's readfile pseudo-operation reads
     and ``outdir`` the directory its writefile pseudo-operation writes
