@@ -13,10 +13,15 @@ pub const OPCODE: u32 = 0b111_1011;
 /// (`include/gem5/asm/generic/m5ops.h`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PseudoOp {
+    /// `m5_rpns`: `a0` gets the simulated time in nanoseconds.
+    Rpns,
     /// `m5_exit`: the run ends with exit code 0.
     Exit,
     /// `m5_fail(delay, code)`: the run ends with exit code `a1`.
     Fail,
+    /// `m5_sum(a, b, c, d, e, f)`: `a0` gets the sum of `a0` to `a5`, a
+    /// test of the argument passing.
+    Sum,
     /// `m5_reset_stats`: the stats window starts again here.
     ResetStats,
     /// `m5_dump_stats`: a snapshot of the stats, labelled `a0`.
@@ -40,6 +45,13 @@ pub enum PseudoOp {
     /// script file from offset `a2` go to the program's memory at `a0`;
     /// `a0` gets how many, 0 at the end of the file.
     ReadFile,
+    /// `m5_debug_break`: the host's run stops here, labelled 0.
+    DebugBreak,
+    /// `m5_switch_cpu`: the host's run stops here, labelled 0, for it to
+    /// switch configuration.
+    SwitchCpu,
+    /// `m5_panic`: the guest gave up; the run ends with exit code 1.
+    Panic,
     /// An m5op rvsim does not perform.
     Unknown(u32),
 }
@@ -49,14 +61,19 @@ impl PseudoOp {
     #[must_use]
     pub const fn of(inst: u32) -> Self {
         match inst >> 25 {
+            0x07 => Self::Rpns,
             0x21 => Self::Exit,
             0x22 => Self::Fail,
+            0x23 => Self::Sum,
             0x40 => Self::ResetStats,
             0x41 => Self::DumpStats,
             0x42 => Self::DumpResetStats,
             0x43 => Self::Checkpoint,
             0x4f => Self::WriteFile,
             0x50 => Self::ReadFile,
+            0x51 => Self::DebugBreak,
+            0x52 => Self::SwitchCpu,
+            0x54 => Self::Panic,
             0x5a => Self::WorkBegin,
             0x5b => Self::WorkEnd,
             func => Self::Unknown(func),
@@ -67,7 +84,7 @@ impl PseudoOp {
     /// instruction's destination.
     #[must_use]
     pub const fn returns_value(self) -> bool {
-        matches!(self, Self::WriteFile | Self::ReadFile)
+        matches!(self, Self::Rpns | Self::Sum | Self::WriteFile | Self::ReadFile)
     }
 
     /// The instruction word for gem5's function number `func`.
