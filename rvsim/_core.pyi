@@ -18,8 +18,11 @@ __all__ = [
     "Simulator",
     "Stats",
     "VirtualMemory",
+    "check_config",
+    "default_config",
     "disassemble",
     "isa_string",
+    "minimal_config",
     "version",
 ]
 
@@ -28,6 +31,9 @@ CHECKPOINT_VERSION: int
 def version() -> str: ...
 def disassemble(inst: int) -> str: ...
 def isa_string(config_dict: Any) -> str: ...
+def default_config() -> dict[str, Any]: ...
+def minimal_config() -> dict[str, Any]: ...
+def check_config(config_dict: Any) -> dict[str, Any]: ...
 
 @final
 class Instruction:

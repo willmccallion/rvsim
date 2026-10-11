@@ -19,6 +19,7 @@ from rvsim import (
     StorePrefetcher,
     presets,
 )
+from rvsim._core import check_config, default_config, minimal_config
 
 
 class Replace(unittest.TestCase):
@@ -112,6 +113,24 @@ class Prefetchers(unittest.TestCase):
 
         self.assertEqual(cache["load_prefetcher"], {"kind": "None"})
         self.assertEqual(cache["store_prefetcher"], {"kind": "None"})
+
+
+class RustMachines(unittest.TestCase):
+    def test_config_is_the_cores_default_machine(self):
+        self.assertEqual(check_config(Config().to_dict()), default_config())
+
+    def test_the_minimal_machine_has_no_caches(self):
+        cache = minimal_config()["cache"]
+
+        enabled = [cache[level]["enabled"] for level in ("l1_i", "l1_d", "l2", "l3")]
+
+        self.assertEqual(enabled, [False] * 4)
+
+    def test_a_machine_the_core_refuses_raises_value_error(self):
+        config = Config(btb_size=96, btb_ways=4)
+
+        with self.assertRaisesRegex(ValueError, "btb_size"):
+            check_config(config.to_dict())
 
 
 class Validation(unittest.TestCase):

@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Rust's `Config::default()` is the Python API's default machine, and
+  `Config::minimal()` the machine every component's own default makes up:
+  one-wide and in order, with no caches and fixed-latency memory, which
+  the Rust tests start from. The configuration types serialize as well as
+  deserialize, and `rvsim._core` gains `default_config()`,
+  `minimal_config()` and `check_config()`, which return those machines and
+  a checked, complete configuration as dicts. The SE thread tests also run
+  on the default machine.
 - The `cortex_a72()` and `p550()` presets move to
   `tools/diag/calibration.py`, beside the latency probe and the Linux
   benchmark runner that compare them with the hardware they are fitted

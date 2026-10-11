@@ -1,7 +1,7 @@
 //! Python↔Rust configuration conversion.
 //!
-//! Converts Python dicts (e.g., from `SimConfig.to_dict()`) into the core `Config` type
-//! via JSON serialization, so the same schema is used from both Python and CLI.
+//! Converts Python dicts (e.g., from `Config.to_dict()`) to and from the core
+//! `Config` type via JSON, so both sides read and write one schema.
 
 use pyo3::prelude::*;
 use rvsim_core::config::Config;
@@ -24,4 +24,18 @@ pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Co
     })?;
 
     Ok(config)
+}
+
+/// Converts a simulator `Config` to the Python dict `py_dict_to_config`
+/// reads.
+///
+/// # Errors
+///
+/// Returns `ValueError` if the configuration cannot be written as JSON.
+pub fn config_to_py_dict(py: Python<'_>, config: &Config) -> PyResult<PyObject> {
+    let json_str = serde_json::to_string(config).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Unwritable config: {e}"))
+    })?;
+    let json = py.import("json")?;
+    Ok(json.getattr("loads")?.call1((json_str,))?.unbind())
 }

@@ -2,6 +2,8 @@
 
 use pyo3::prelude::*;
 
+/// The core's default and minimal machines and its configuration check.
+pub mod config;
 /// Python dict to Rust `Config` conversion.
 pub mod conversion;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
@@ -40,6 +42,9 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(utils::version, m)?)?;
     m.add_function(wrap_pyfunction!(utils::disassemble, m)?)?;
     m.add_function(wrap_pyfunction!(utils::isa_string, m)?)?;
+    m.add_function(wrap_pyfunction!(config::default_config, m)?)?;
+    m.add_function(wrap_pyfunction!(config::minimal_config, m)?)?;
+    m.add_function(wrap_pyfunction!(config::check_config, m)?)?;
 
     Ok(())
 }
