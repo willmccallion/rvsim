@@ -12,8 +12,6 @@ pub mod htif;
 
 pub mod plic;
 
-pub mod sim_control;
-
 pub mod syscon;
 
 pub mod uart;
@@ -24,7 +22,6 @@ pub use clint::Clint;
 pub use goldfish_rtc::GoldfishRtc;
 pub use htif::Htif;
 pub use plic::Plic;
-pub use sim_control::{SimControl, SimOp};
 pub use syscon::SysCon;
 pub use uart::Uart;
 pub use virtio_disk::VirtioBlock;

@@ -8,7 +8,7 @@
 use crate::common::IrqId;
 use crate::sim::handle::Handle;
 use crate::sim::memory::GlobalMemory;
-use crate::soc::devices::{Clint, Plic, SimOp, Uart};
+use crate::soc::devices::{Clint, Plic, Uart};
 
 /// Trait for memory-mapped I/O devices attached to the system bus.
 ///
@@ -58,11 +58,6 @@ pub trait Device: Handle + Send + Sync {
     /// Returns a mutable reference as `Uart` if this device is a UART.
     fn as_uart_mut(&mut self) -> Option<&mut Uart> {
         None
-    }
-
-    /// Requests the guest made of the simulator since the last call.
-    fn take_sim_ops(&mut self) -> Vec<SimOp> {
-        Vec::new()
     }
 
     /// Finishes the device's work in flight before a checkpoint, the way

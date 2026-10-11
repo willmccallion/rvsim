@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format is based on 
 - The Linux image's `rvsim` tool issues the pseudo-instruction instead
   of writing the sim-control device through `/dev/mem`, and gains
   `rvsim readfile` and `rvsim writefile FILE [NAME]`, like gem5's `m5`.
+- The sim-control MMIO device and its `sim_control_base` setting are
+  gone: the pseudo-instruction is the one way a guest talks to the
+  simulator.
 - The Linux image sets `kernel.perf_user_access = 2`, so `rdcycle` works
   from user space on Linux 6.6.
 - The Linux image's Buildroot configuration lives in
@@ -76,8 +79,7 @@ All notable changes to this project are documented here. The format is based on 
   Linux guest, and a binary instrumented with gem5's libm5 runs
   unchanged: `m5_exit`, `m5_fail`, `m5_reset_stats`, `m5_dump_stats`,
   `m5_dump_reset_stats`, `m5_checkpoint` and the work markers.
-  `regions.elf` is a Linux user binary again. The sim-control MMIO
-  device stays for the Linux image's `rvsim` tool. See
+  `regions.elf` is a Linux user binary again. See
   [Pseudo-operations](pseudo-ops.md).
 - A user program's stdin, stdout and stderr, and the console HTIF's
   syscalls serve, are the simulator's console: `console="quiet"` and

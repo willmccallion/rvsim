@@ -35,9 +35,6 @@ pub const CLINT_BASE: u64 = 0x0200_0000;
 /// Base address of system controller (power/reset) MMIO region.
 pub const SYSCON_BASE: u64 = 0x0010_0000;
 
-/// Base address of the simulator control MMIO region.
-pub const SIM_CONTROL_BASE: u64 = 0x0010_2000;
-
 /// System bus width in bytes (8 bytes = 64-bit bus).
 ///
 /// Determines the maximum transfer size per bus transaction.

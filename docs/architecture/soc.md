@@ -8,7 +8,6 @@ rvsim models a complete system-on-chip based on the QEMU `virt` machine layout. 
 |--------|-------------|------|-------------|
 | SYSCON | `0x0010_0000` | 4KB | System controller (power-off, reset, failure) |
 | Goldfish RTC | `0x0010_1000` | 4KB | Real-time clock |
-| Sim control | `0x0010_2000` | 4KB | Guest control of statistics and the run |
 | CLINT | `0x0200_0000` | 64KB | Core Local Interruptor |
 | PLIC | `0x0C00_0000` | 64MB | Platform-Level Interrupt Controller |
 | UART | `0x1000_0000` | 4KB | 16550A serial port |
