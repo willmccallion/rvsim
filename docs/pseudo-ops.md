@@ -75,7 +75,8 @@ rvsim serves them the same way. The host names a script file and an
 output directory when it builds the simulator, and the guest reaches
 them with the two operations: `rvsim readfile` inside the Linux image
 copies the script to its stdout, `rvsim writefile FILE [NAME]` copies a
-guest file into the output directory, and a program does the same with
+guest file into the output directory (under its base name by default),
+and a program does the same with
 the `rvsim.h` wrappers or gem5's `m5_read_file` and `m5_write_file`.
 
 ```python
