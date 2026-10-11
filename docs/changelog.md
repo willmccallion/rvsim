@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format is based on 
   also builds every bundled program with an HTIF start-up and libc into
   `software/bin-htif`, so one ELF prints and exits the same way on rvsim,
   spike and the RTL simulators (#205).
+- Checkpoints work in SE mode: the process's mappings, break and heap are
+  saved with the hart and RAM, and a run restored from one finishes as
+  the uninterrupted run does. A checkpoint is refused while the program
+  has a host file open, since the descriptor would not come back. The
+  HTIF device's `fromhost` is saved too.
 - SE mode runs a static Linux user program without a kernel: the
   simulator loads the ELF, builds its page tables (Sv39 by default,
   `page_mode` selects Sv48 or Sv57) and stack, runs it in user mode and

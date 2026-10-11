@@ -17,6 +17,8 @@
 //! It shares the exit signal with `SysCon` so the run ends without extra
 //! plumbing.
 
+use serde::{Deserialize, Serialize};
+
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -367,9 +369,46 @@ impl Handle for Htif {
     }
 }
 
+/// The device's state in a checkpoint. The host files the program had
+/// open are counted so a restore can refuse what it cannot give back.
+#[derive(Serialize, Deserialize)]
+struct HtifState {
+    fromhost: u64,
+    host_files_open: usize,
+}
+
+impl HtifState {
+    fn parse(state: &serde_json::Value) -> Result<Self, String> {
+        serde_json::from_value(state.clone()).map_err(|error| format!("HTIF state: {error}"))
+    }
+}
+
 impl Device for Htif {
     fn name(&self) -> &'static str {
         "HTIF"
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        let state =
+            HtifState { fromhost: self.fromhost, host_files_open: self.files.host_files_open() };
+        serde_json::to_value(state).ok()
+    }
+
+    fn check_restore(&self, state: &serde_json::Value) -> Result<(), String> {
+        let state = HtifState::parse(state)?;
+        if state.host_files_open > 0 {
+            return Err(format!(
+                "HTIF: the program had {} host files open at the checkpoint, which a restored run cannot get back",
+                state.host_files_open
+            ));
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+        self.check_restore(state)?;
+        self.fromhost = HtifState::parse(state)?.fromhost;
+        Ok(())
     }
 
     fn address_range(&self) -> (u64, u64) {

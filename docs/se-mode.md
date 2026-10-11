@@ -96,5 +96,6 @@ its own result and exits 0.
 
 One hart; position-independent and dynamically linked executables are
 refused with a message saying to link `-static` (static PIE comes
-next); checkpoints are refused in SE mode until the process's state is
-part of them.
+next). A checkpoint keeps the process's mappings, break and heap but
+not its host files, so one is refused while the program has a file
+open.

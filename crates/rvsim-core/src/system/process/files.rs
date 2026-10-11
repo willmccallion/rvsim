@@ -162,6 +162,12 @@ impl FileTable {
         Self { slots: vec![Some(HostFile::Stdin), Some(HostFile::Stdout), Some(HostFile::Stdout)] }
     }
 
+    /// How many host files, beyond the console, are open.
+    #[must_use]
+    pub fn host_files_open(&self) -> usize {
+        self.slots.iter().flatten().filter(|file| matches!(file, HostFile::File { .. })).count()
+    }
+
     /// `ftruncate`.
     pub fn truncate(&mut self, fd: i64, len: u64) -> Result<(), i64> {
         match self.slot(fd)? {
