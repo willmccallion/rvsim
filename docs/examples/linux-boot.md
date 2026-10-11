@@ -186,21 +186,21 @@ The memory map, devices and device tree are described in
 
 One hart booting from reset to the login shell on `presets.linux(harts=1)`,
 with the `fast()` core and the same core switched to the in-order
-backend, measured 2026-10-04 with `Session.measure(until=Session.LOGIN_SHELL)`
+backend, measured 2026-10-11 with `Session.measure(until=Session.LOGIN_SHELL)`
 and the timer at its real 10 MHz rate:
 
 | | Out-of-order | In-order |
 |---|---:|---:|
-| Cycles to the shell | 693.3 M | 778.7 M |
-| Cycles in `WFI` | 484.3 M (70%) | 446.7 M (57%) |
-| Instructions retired | 375.4 M | 294.9 M |
-| IPC over the boot | 0.54 | 0.38 |
-| IPC outside `WFI` | 1.80 | 0.89 |
-| Cycles in S / U / M mode | 98% / 2% / 0.4% | 95% / 4% / 0.8% |
+| Cycles to the shell | 693.4 M | 785.9 M |
+| Cycles in `WFI` | 484.8 M (70%) | 475.6 M (61%) |
+| Instructions retired | 380.2 M | 315.0 M |
+| IPC over the boot | 0.55 | 0.40 |
+| IPC outside `WFI` | 1.82 | 1.02 |
+| Cycles in S / U / M mode | 98% / 2% / 0.4% | 96% / 3% / 0.7% |
 | Branch accuracy at commit | 98.9% | 98.8% |
-| L1I / L1D / L2 miss rate | 0.7% / 2.0% / 24.5% | 0.6% / 1.6% / 22.7% |
-| Host time | 838 s | 577 s |
-| Simulated cycles per host second | 0.83 M | 1.35 M |
+| L1I / L1D / L2 miss rate | 0.7% / 1.5% / 23.4% | 0.7% / 1.2% / 21.9% |
+| Host time | 902 s | 804 s |
+| Simulated cycles per host second | 0.77 M | 0.98 M |
 
 Most of a boot is spent waiting: the kernel sleeps in `WFI` for timers
 and for the disk, and the simulator skips those idle cycles instead of
@@ -208,9 +208,9 @@ ticking them, so the host time follows the active cycles. The two
 backends retire different instruction counts because the kernel's
 busy-waits and calibration loops run for a time, not a count. The
 out-of-order core's main stalls outside `WFI` are operands not ready
-(53 M cycles) and rename waiting behind serializing CSR accesses (25 M);
-the in-order core's are operands not ready (181 M) and a full issue
-queue (95 M).
+(41 M cycles), no free branch checkpoint (30 M) and rename waiting behind
+serializing instructions (29 M); the in-order core's are operands not
+ready and dispatch into a full issue queue (84 M).
 
 The runs are deterministic: the in-order boot, run twice, gave the same
 cycle count and statistics both times. Every additional hart is another
