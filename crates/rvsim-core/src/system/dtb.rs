@@ -5,6 +5,9 @@
 //! requiring an external `dtc` compilation step.
 
 use crate::config::Config;
+use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::extension::Extension;
+use crate::isa::privileged::PagingMode;
 
 // FDT constants
 const FDT_MAGIC: u32 = 0xd00dfeed;
@@ -79,6 +82,17 @@ impl FdtBuilder {
         while !self.struct_buf.len().is_multiple_of(4) {
             self.struct_buf.push(0);
         }
+    }
+
+    /// A string-list property: every string NUL-terminated, one after
+    /// the other.
+    fn prop_string_list(&mut self, name: &str, values: &[String]) {
+        let mut data = Vec::new();
+        for value in values {
+            data.extend_from_slice(value.as_bytes());
+            data.push(0);
+        }
+        self.prop_bytes(name, &data);
     }
 
     fn prop_bytes(&mut self, name: &str, data: &[u8]) {
@@ -182,19 +196,23 @@ impl Phandles {
     }
 }
 
-/// The ISA string the device tree advertises: `misa`'s letters and the
-/// multi-letter extensions the hart implements.
-fn isa_string(config: &Config) -> String {
-    let misa = config.misa();
-    let mut isa = misa.isa_string();
-    // Every hart with S-mode implements Sstc's stimecmp.
-    if misa.has_s() {
-        isa.push_str("_sstc");
+/// The `riscv,isa-extensions` list: every single-letter extension of
+/// `misa`, then every multi-letter extension the hart implements, each
+/// as Linux names it.
+fn isa_extensions(config: &Config) -> Vec<String> {
+    let mut names: Vec<String> = config.misa().letters().map(String::from).collect();
+    names.extend(config.extension_names());
+    names
+}
+
+/// The `mmu-type` naming the strongest paging mode `satp` accepts.
+const fn mmu_type(paging: PagingMode) -> &'static str {
+    match paging {
+        PagingMode::Bare => "riscv,none",
+        PagingMode::Sv39 => "riscv,sv39",
+        PagingMode::Sv48 => "riscv,sv48",
+        PagingMode::Sv57 => "riscv,sv57",
     }
-    if config.isa.svadu {
-        isa.push_str("_svadu");
-    }
-    isa
 }
 
 /// Generates a DTB binary matching the simulator's `SoC` layout.
@@ -205,7 +223,10 @@ fn isa_string(config: &Config) -> String {
 /// - PLIC at 0x0c000000 with M- and S-mode contexts for every hart
 /// - UART at `uart_base`
 /// - virtio block device at `disk_base`
-/// - One `cpu@N` per hart (the ISA string of its `misa`, SV39 MMU) and a `cpu-map`
+/// - One `cpu@N` per hart (its ISA string, as `riscv,isa` and as the
+///   `riscv,isa-base` and `riscv,isa-extensions` pair, the strongest paging
+///   mode as `mmu-type`, and the block size Zicbom and Zicboz work on)
+///   and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let ram_base = config.system.ram_base;
     let ram_size = config.memory.ram_size as u64;
@@ -224,6 +245,9 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
     let phandles = Phandles { hart_count };
     let plic_phandle = phandles.plic();
+    let isa_string = config.isa_string();
+    let extensions = isa_extensions(config);
+    let cache_block = u32::try_from(CBOZ_BLOCK_SIZE).unwrap_or(u32::MAX);
 
     let mut b = FdtBuilder::new();
 
@@ -252,8 +276,16 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_reg_1_0(hart);
         b.prop_string("status", "okay");
         b.prop_string("compatible", "riscv");
-        b.prop_string("riscv,isa", &isa_string(config));
-        b.prop_string("mmu-type", "riscv,sv39");
+        b.prop_string("riscv,isa", &isa_string);
+        b.prop_string("riscv,isa-base", "rv64i");
+        b.prop_string_list("riscv,isa-extensions", &extensions);
+        b.prop_string("mmu-type", mmu_type(config.memory.paging_mode_max));
+        if config.extensions().contains(Extension::Zicbom) {
+            b.prop_u32("riscv,cbom-block-size", cache_block);
+        }
+        if config.extensions().contains(Extension::Zicboz) {
+            b.prop_u32("riscv,cboz-block-size", cache_block);
+        }
         b.prop_u32("phandle", phandles.cpu(hart));
 
         b.begin_node("interrupt-controller");

@@ -41,15 +41,28 @@ impl Misa {
         self.0 & MISA_EXT_S != 0
     }
 
+    /// Whether the single-letter extension `letter` (lowercase, `s` and
+    /// `u` included) is set.
+    #[must_use]
+    pub fn has(self, letter: char) -> bool {
+        match letter {
+            's' => self.has_s(),
+            'u' => self.0 & MISA_EXT_U != 0,
+            _ => ISA_LETTERS.iter().any(|&(l, bit)| l == letter && self.0 & bit != 0),
+        }
+    }
+
+    /// The single-letter extensions set, in ISA-string order, as an ISA
+    /// string spells them.
+    pub fn letters(self) -> impl Iterator<Item = char> {
+        ISA_LETTERS.into_iter().filter(move |&(_, bit)| self.0 & bit != 0).map(|(letter, _)| letter)
+    }
+
     /// The lowercase ISA string naming these extensions, e.g. `rv64imafdcv`.
     #[must_use]
     pub fn isa_string(self) -> String {
         let mut isa = String::from("rv64");
-        for (letter, bit) in ISA_LETTERS {
-            if self.0 & bit != 0 {
-                isa.push(letter);
-            }
-        }
+        isa.extend(self.letters());
         isa
     }
 }

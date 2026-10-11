@@ -11,6 +11,8 @@ pub mod disasm;
 
 pub mod encoding;
 
+pub mod extension;
+
 pub mod fence;
 
 pub mod fp;
