@@ -30,7 +30,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
 #[test]
 fn one_walk_of_a_megapage_translates_every_page_in_it() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.pipeline.backend = backend;
         let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
         let i = InstructionBuilder::new;

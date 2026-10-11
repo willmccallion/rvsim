@@ -63,7 +63,7 @@ struct TrapTaken {
 }
 
 fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> TrapTaken {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.pipeline.trap_latency = trap_latency;

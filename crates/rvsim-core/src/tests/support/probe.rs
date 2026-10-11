@@ -38,7 +38,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
@@ -78,7 +78,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
@@ -116,7 +116,7 @@ pub fn write_and_run_dma<H: Handle>(
 ) {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
-    let config = Config::default();
+    let config = Config::minimal();
     let mut cycle = 0;
     let mut pending = vec![Packet::MemReq {
         req_id: ReqId::new(u64::MAX),

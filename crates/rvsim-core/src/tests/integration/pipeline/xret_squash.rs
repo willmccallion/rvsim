@@ -93,7 +93,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 
 /// `(t0, t1, t6)`: the target's result, the fault flag, and the ecall count.
 fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;

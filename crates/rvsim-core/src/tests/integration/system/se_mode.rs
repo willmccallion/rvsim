@@ -82,7 +82,7 @@ pub(super) fn user_elf(code: &[u32], e_type: u16) -> Vec<u8> {
 }
 
 fn config(backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config
@@ -892,29 +892,39 @@ fn exit_lines(number: i32, code: i32) -> Vec<Line> {
     lines
 }
 
-/// A machine the thread tests run on: a backend, with or without private
-/// L1 caches and an L2 per core, which the coherence fabric keeps coherent
-/// between harts.
+/// A machine the thread tests run on: the minimal machine on a backend,
+/// with or without private L1 caches and an L2 per core, which the
+/// coherence fabric keeps coherent between harts; or the default machine.
 #[derive(Clone, Copy, Debug)]
-struct Machine {
-    backend: BackendKind,
-    caches: bool,
+enum Machine {
+    Minimal { backend: BackendKind, caches: bool },
+    Default,
 }
 
-const MACHINES: [Machine; 4] = [
-    Machine { backend: BackendKind::InOrder, caches: false },
-    Machine { backend: BackendKind::InOrder, caches: true },
-    Machine { backend: BackendKind::OutOfOrder, caches: false },
-    Machine { backend: BackendKind::OutOfOrder, caches: true },
+const MACHINES: [Machine; 5] = [
+    Machine::Minimal { backend: BackendKind::InOrder, caches: false },
+    Machine::Minimal { backend: BackendKind::InOrder, caches: true },
+    Machine::Minimal { backend: BackendKind::OutOfOrder, caches: false },
+    Machine::Minimal { backend: BackendKind::OutOfOrder, caches: true },
+    Machine::Default,
 ];
 
 impl Machine {
     fn config(self) -> Config {
-        let mut config = config(self.backend);
-        config.cache.l1_i.enabled = self.caches;
-        config.cache.l1_d.enabled = self.caches;
-        config.cache.l2.enabled = self.caches;
-        config
+        match self {
+            Self::Minimal { backend, caches } => {
+                let mut config = config(backend);
+                config.cache.l1_i.enabled = caches;
+                config.cache.l1_d.enabled = caches;
+                config.cache.l2.enabled = caches;
+                config
+            }
+            Self::Default => {
+                let mut config = Config::default();
+                config.system.console = Console::Quiet;
+                config
+            }
+        }
     }
 }
 
@@ -1063,14 +1073,29 @@ fn exit_ends_one_thread_and_the_last_ends_the_process_with_the_first_ones_code()
 }
 
 /// `exit_group` stops the other threads of its process at once and leaves
-/// other programs running.
+/// other programs running: the parent waits until its thread runs, then
+/// exits while the thread loops.
 #[test]
 fn exit_group_stops_its_processes_other_threads_only() {
-    let mut lines = clone_thread(CLONE_THREAD_FLAGS);
-    lines.extend([Line::To(Jump::Beq(A0, 0), "child")]);
-    lines.extend(spin(200, "settle"));
+    let i = InstructionBuilder::new;
+    let mut lines = vec![Line::AddressOf(S0, "running")];
+    lines.extend(clone_thread(CLONE_THREAD_FLAGS));
+    lines.extend([
+        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::Label("wait"),
+        inst(i().lw(A0, S0, 0).build()),
+        Line::To(Jump::Beq(A0, 0), "wait"),
+    ]);
     lines.extend(exit_lines(SYS_EXIT_GROUP, 5));
-    lines.extend([Line::Label("child"), Line::Label("forever"), Line::To(Jump::Jal, "forever")]);
+    lines.extend([
+        Line::Label("child"),
+        inst(i().addi(T1, 0, 1).build()),
+        inst(i().sw(S0, T1, 0).build()),
+        Line::Label("forever"),
+        Line::To(Jump::Jal, "forever"),
+        Line::Label("running"),
+        inst(0),
+    ]);
     let threaded_program = assemble(&lines);
     let counter = count_then_exit(2000, 0);
     for machine in MACHINES {

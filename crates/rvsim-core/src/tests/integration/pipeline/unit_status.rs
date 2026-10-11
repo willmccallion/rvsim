@@ -48,7 +48,7 @@ fn handler() -> Vec<u32> {
 
 /// Runs `inst` followed by a marker write; returns `(mcause, mtval, marker)`.
 fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let i = InstructionBuilder::new;

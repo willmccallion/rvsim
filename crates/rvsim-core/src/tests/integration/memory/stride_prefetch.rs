@@ -51,7 +51,7 @@ enum L1dPrefetcher {
 
 /// Cycles the loop takes.
 fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.prefetcher = PrefetcherKind::None;

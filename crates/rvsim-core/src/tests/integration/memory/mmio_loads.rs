@@ -36,7 +36,7 @@ fn program() -> Vec<u32> {
 }
 
 fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.clint_divider = 1;
@@ -84,7 +84,7 @@ fn uart_receive_after_transmit(fenced: bool) -> Vec<u32> {
 }
 
 fn receive_register_read(backend: BackendKind, width: usize, fenced: bool) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
@@ -117,7 +117,7 @@ fn a_device_load_reads_the_device_not_a_buffered_store_to_it() {
 /// The cycle the instruction before [`program`]'s `mtime` load retired and
 /// the cycle the load's device read was sent.
 fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;

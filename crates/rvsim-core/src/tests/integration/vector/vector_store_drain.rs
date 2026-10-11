@@ -53,7 +53,7 @@ fn copy(with_store: bool) -> Vec<u32> {
 
 /// L1D accesses of `copy(with_store)`, and the context after it finished.
 fn l1d_accesses(backend: BackendKind, with_store: bool) -> (u64, TestContext) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.system.console = crate::config::Console::Quiet;

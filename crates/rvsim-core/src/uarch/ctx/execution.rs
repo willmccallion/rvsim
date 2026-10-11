@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_track_mode_cycles() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_post_tick_zero_reg() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 

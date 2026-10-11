@@ -39,7 +39,7 @@ fn program(nops: usize) -> Vec<u16> {
 
 /// Cycles the loop's third iteration takes, with both lines already cached.
 fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.cache.l1_i.enabled = true;

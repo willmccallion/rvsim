@@ -61,6 +61,6 @@ fn the_memory_section_carries_the_ddr5_block() {
     let memory: MemoryConfig = serde_json::from_str(json).unwrap();
     assert_eq!(memory.controller, MemoryControllerKind::Ddr5);
     assert_eq!(memory.ddr5.to_config().ranks_per_channel, 4);
-    let default = Config::default();
+    let default = Config::minimal();
     assert_eq!(default.system.cpu_clock_mhz, 2400, "1:1 with the DDR5-4800 command clock");
 }

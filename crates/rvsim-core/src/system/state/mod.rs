@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_cpu_reservation() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut sys = SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn a_hart_displays_its_pc_and_registers() {
-        let config = Config::default();
+        let config = Config::minimal();
         let state = SystemState::build(&config, "");
         let text = state.harts[0].to_string();
         assert!(text.starts_with("PC = 0x0000000080000000\n"), "{text}");
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_cpu_take_exit() {
-        let config = Config::default();
+        let config = Config::minimal();
         let state = SystemState::build(&config, "");
 
         assert_eq!(state.take_exit(), None);
@@ -440,7 +440,7 @@ mod tests {
 
     #[test]
     fn every_core_gets_its_own_hart_and_caches() {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.system.hart_count = 2;
         let sys = SystemState::build(&config, "");
         assert_eq!(sys.harts.len(), 2);

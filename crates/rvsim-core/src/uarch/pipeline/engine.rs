@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn a_commit_reaches_the_predictor_a_cycle_later() {
         let mut predictor =
-            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::default());
+            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::minimal());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
 
@@ -844,7 +844,7 @@ mod tests {
     fn a_waiting_squash_holds_commit_notices_back() {
         use crate::uarch::pipeline::squash::SquashCause;
         let mut predictor =
-            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::default());
+            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::minimal());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
         common.request_squash(squash(5, SquashCause::Branch, 0x2000));
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
-        let config = crate::config::Config::default();
+        let config = crate::config::Config::minimal();
         let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 

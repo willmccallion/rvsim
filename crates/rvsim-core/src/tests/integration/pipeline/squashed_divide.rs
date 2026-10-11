@@ -45,7 +45,7 @@ fn program(wrong_path: u32) -> Vec<u32> {
 
 /// The cycle the right path's divide has written its result.
 fn finish_cycle(backend: BackendKind, wrong_path: u32) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
@@ -91,7 +91,7 @@ fn dividing_handler() -> Vec<u32> {
 
 /// The cycle the trap handler's divide has written its result.
 fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;

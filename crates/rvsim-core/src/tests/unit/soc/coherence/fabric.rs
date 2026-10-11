@@ -67,7 +67,7 @@ impl Bench {
             queue: EventQueue::new(),
             stats: Stats::new(),
             memory: GlobalMemory::new(None, 1, 64),
-            config: Config::default(),
+            config: Config::minimal(),
             cycle: 0,
             inbox: Vec::new(),
             llc_requests: Vec::new(),

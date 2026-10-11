@@ -37,7 +37,7 @@ fn handler() -> Vec<u32> {
 }
 
 fn check(backend: BackendKind) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
@@ -79,7 +79,7 @@ fn execute_trigger_raises_a_breakpoint_o3() {
 /// Writes `MCONTROL_EVERY_ACCESS_AND_MODE` to `tdata1` and reads it back.
 fn tdata1_after_writing_every_access_and_mode(backend: BackendKind) -> u64 {
     let i = InstructionBuilder::new;
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let program =
         [i().csrrw(0, TDATA1, A1).build(), i().csrrs(A2, TDATA1, 0).build(), i().jal(0, 0).build()];

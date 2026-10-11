@@ -32,7 +32,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 /// Identity-maps the code's 2 MiB megapage under Sv39 and runs from it in
 /// supervisor mode with a cold TLB.
 fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;

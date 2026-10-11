@@ -50,7 +50,7 @@ fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
 }
 
 fn run(backend: BackendKind) -> (u64, u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

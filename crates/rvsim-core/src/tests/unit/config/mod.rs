@@ -9,7 +9,7 @@ use crate::config::*;
 
 #[test]
 fn test_config_default() {
-    let config = Config::default();
+    let config = Config::minimal();
     assert!(!config.general.trace_instructions);
     assert_eq!(config.general.start_pc, 0x8000_0000);
 }
@@ -627,7 +627,7 @@ fn test_isa_string_option() {
 
 #[test]
 fn an_unparsable_isa_string_is_a_config_error() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.string = Some("RV64IXYZ".to_owned());
 
     let error = config.validate().unwrap_err().to_string();
@@ -637,7 +637,7 @@ fn an_unparsable_isa_string_is_a_config_error() {
 
 #[test]
 fn an_isa_string_naming_another_vlen_is_a_config_error() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.string = Some("rv64gcv_zvl256b".to_owned());
 
     let error = config.validate().unwrap_err().to_string();
@@ -965,14 +965,14 @@ fn test_custom_dram_timings() {
 
 #[test]
 fn the_default_hart_reports_v_when_it_implements_the_full_vector_extension() {
-    let config = Config::default();
+    let config = Config::minimal();
 
     assert_eq!(config.misa().bits() & crate::isa::csr::MISA_EXT_V, crate::isa::csr::MISA_EXT_V);
 }
 
 #[test]
 fn a_hart_below_v_s_minimum_elen_does_not_report_v() {
-    let mut narrow = Config::default();
+    let mut narrow = Config::minimal();
     narrow.isa.vector.elen = 32;
 
     assert_eq!(narrow.misa().bits() & crate::isa::csr::MISA_EXT_V, 0);
@@ -980,7 +980,7 @@ fn a_hart_below_v_s_minimum_elen_does_not_report_v() {
 
 #[test]
 fn an_isa_string_claiming_v_needs_the_full_vector_extension() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.vector.elen = 32;
     config.isa.string = Some("rv64gcv".to_owned());
 
@@ -996,4 +996,16 @@ fn a_vlen_the_vector_unit_cannot_have_is_refused_when_the_config_is_read() {
     }
     let pipeline: PipelineConfig = serde_json::from_str(r#"{"vlen": 256}"#).expect("valid");
     assert_eq!(pipeline.vlen.bits(), 256);
+}
+
+#[test]
+fn the_minimal_machine_is_one_wide_in_order_without_caches() {
+    let config = Config::minimal();
+
+    let caches = [&config.cache.l1_i, &config.cache.l1_d, &config.cache.l2, &config.cache.l3];
+
+    assert_eq!(config.pipeline.width, 1);
+    assert_eq!(config.pipeline.backend, BackendKind::InOrder);
+    assert!(caches.iter().all(|cache| !cache.enabled));
+    assert_eq!(config.memory.controller, MemoryControllerKind::Simple);
 }

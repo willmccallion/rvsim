@@ -26,7 +26,7 @@ fn handler() -> Vec<u32> {
 }
 
 fn run(backend: BackendKind, inst: u32) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let program = [inst, InstructionBuilder::new().jal(0, 0).build()];

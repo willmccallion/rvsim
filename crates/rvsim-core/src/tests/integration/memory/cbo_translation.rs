@@ -45,7 +45,7 @@ const fn cbo(imm: i64, rs1: u32) -> u32 {
 /// Runs `x10 = OPERAND; <cbo> x10; j .` in supervisor mode with the data
 /// page mapped with `data_pte_flags` and not yet in the TLB.
 fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);

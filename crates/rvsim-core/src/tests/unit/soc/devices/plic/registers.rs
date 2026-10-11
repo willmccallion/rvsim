@@ -7,13 +7,13 @@ use crate::system::SystemState;
 
 #[test]
 fn test_plic_name() {
-    let config = Config::default();
+    let config = Config::minimal();
     let _cpu = SystemState::build(&config, "");
 }
 
 #[test]
 fn test_plic_device_integration() {
-    let config = Config::default();
+    let config = Config::minimal();
     let _cpu = SystemState::build(&config, "");
 
     // System should initialize without panicking

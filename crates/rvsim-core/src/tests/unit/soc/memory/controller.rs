@@ -25,7 +25,7 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
@@ -61,7 +61,7 @@ fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,
@@ -112,7 +112,7 @@ fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: &mut queue,
         stats: &mut stats,

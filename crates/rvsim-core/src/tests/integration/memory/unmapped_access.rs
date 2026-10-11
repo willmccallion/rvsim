@@ -18,7 +18,7 @@ const STORE_ACCESS_FAULT: u64 = 7;
 
 /// Runs `x10 = UNMAPPED; <access> x10` in `privilege`, then `j .`.
 fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let i = InstructionBuilder::new;
     let program = [i().lui(10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];

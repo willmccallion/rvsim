@@ -37,7 +37,7 @@ fn alternating_indirect_jump() -> Vec<u32> {
 }
 
 fn committed_mispredicts(backend: BackendKind) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = BranchPredictorKind::GShare;
     let mut ctx = TestContext::new_with_config(&config)

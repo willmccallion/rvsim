@@ -55,7 +55,7 @@ fn program() -> Vec<u32> {
 }
 
 fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
     // A tiny ROB keeps the commit backlog from hiding the delay.

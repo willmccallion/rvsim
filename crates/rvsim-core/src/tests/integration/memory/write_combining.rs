@@ -46,7 +46,7 @@ fn program() -> Vec<u32> {
 }
 
 fn run(backend: BackendKind, wcb_entries: usize) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.cache.wcb_entries = wcb_entries;

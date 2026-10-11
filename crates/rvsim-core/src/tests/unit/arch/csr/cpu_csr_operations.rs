@@ -12,7 +12,7 @@ use crate::system::SystemState;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SystemState {
-    let config = Config::default();
+    let config = Config::minimal();
     SystemState::build(&config, "")
 }
 
@@ -111,7 +111,7 @@ fn test_csr_read_write_mepc() {
 
 /// A hart built without the C extension, so IALIGN=32.
 fn create_test_cpu_without_c() -> SystemState {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.string = Some("rv64imafd".to_owned());
     SystemState::build(&config, "")
 }
@@ -154,7 +154,7 @@ fn menvcfg_keeps_only_the_fields_of_implemented_extensions() {
 
 #[test]
 fn menvcfg_adue_is_writable_on_a_svadu_hart() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.svadu = true;
     let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);
@@ -400,7 +400,7 @@ fn test_csr_stval() {
 
 #[test]
 fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
-    let config = Config::default();
+    let config = Config::minimal();
     let mut sim = crate::Simulator::build(&config, "");
     let mtime = crate::common::PhysAddr::new(config.system.clint_base + 0xBFF8);
     sim.probe_mem_store(mtime, 5000, 8);
@@ -482,7 +482,7 @@ fn test_csr_satp_sv57_accepted_by_default() {
 
 #[test]
 fn a_satp_write_with_a_mode_above_the_paging_cap_has_no_effect() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.memory.paging_mode_max = PagingMode::Sv39;
     let mut sys = SystemState::build(&config, "");
     let mut state = sys.core_ctx(0);

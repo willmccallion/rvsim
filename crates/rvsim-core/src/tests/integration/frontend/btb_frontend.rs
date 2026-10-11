@@ -31,7 +31,7 @@ fn looping_jumps() -> Vec<u32> {
 }
 
 fn decode_redirects(backend: BackendKind, btb_size: usize) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.btb_size = btb_size;
     config.pipeline.btb_ways = 1;

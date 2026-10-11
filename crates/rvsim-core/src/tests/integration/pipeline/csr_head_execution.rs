@@ -23,7 +23,7 @@ fn program() -> Vec<u32> {
 }
 
 fn instret_seen(backend: BackendKind) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

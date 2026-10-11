@@ -25,7 +25,7 @@ pub const MHARTID: u32 = 0xF14;
 pub const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
 pub fn config(backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     config

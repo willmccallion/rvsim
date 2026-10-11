@@ -54,7 +54,7 @@ fn program() -> Vec<u32> {
 
 #[test]
 fn a_scalar_load_forwards_from_an_in_order_vector_store() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;

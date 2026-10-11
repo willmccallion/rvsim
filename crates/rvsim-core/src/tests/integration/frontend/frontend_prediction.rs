@@ -29,7 +29,7 @@ const COMPRESSED: [u16; 34] = [
 const COMPRESSED_RETIRED: u64 = 8 + 8 * 2 + 1;
 
 fn mispredicts_running(backend: BackendKind, program: &[u16], retired: u64) -> f64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 2;
     config.system.console = crate::config::Console::Quiet;

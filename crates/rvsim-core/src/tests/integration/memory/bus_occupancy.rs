@@ -28,7 +28,7 @@ fn program() -> Vec<u32> {
 /// every line, so each load is a line transfer over a bus `bus_width`
 /// bytes wide.
 fn cycles_to_finish(bus_width: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;

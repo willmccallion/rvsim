@@ -70,7 +70,7 @@ struct Outcome {
 }
 
 fn run(backend: BackendKind, first: RobTag) -> Outcome {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

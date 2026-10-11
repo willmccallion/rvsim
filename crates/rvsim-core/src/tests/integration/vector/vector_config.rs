@@ -48,7 +48,7 @@ fn handler() -> Vec<u32> {
 }
 
 fn run(backend: BackendKind) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
@@ -87,7 +87,7 @@ fn vsetivli_sequence() -> Vec<u32> {
 }
 
 fn cycles_to_retire(backend: BackendKind, program: &[u32]) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

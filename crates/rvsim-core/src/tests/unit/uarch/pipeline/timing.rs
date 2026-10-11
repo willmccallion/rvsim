@@ -17,7 +17,7 @@ const DONE_VALUE: u64 = 7;
 /// A single-issue core whose writeback ports never hold a result back, so
 /// only the unit latency shows.
 fn config(backend: BackendKind, int_mul_latency: u64) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.fu_config.int_mul_latency = int_mul_latency;
     config.pipeline.writeback_width = Some(8);
@@ -99,7 +99,7 @@ const TARGET_VALUE: u64 = 42;
 const WRONG_PATH_REG: usize = 4;
 
 fn redirect_config(backend: BackendKind, width: usize, redirect_latency: u64) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.pipeline.branch_predictor = BranchPredictorKind::Static;
@@ -220,7 +220,7 @@ fn load_behind_store(with_store: bool) -> Vec<u32> {
 
 /// Cycles a load waits because an older store's address is unknown.
 fn store_visibility_delay(backend: BackendKind) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
     cycles_to_finish(&config, &load_behind_store(true))
@@ -253,7 +253,7 @@ fn pointer_chase(links: u32) -> Vec<u32> {
 
 /// Cycles each dependent load adds with an L1D of `l1d_latency`.
 fn load_to_use(backend: BackendKind, l1d_latency: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.writeback_width = Some(8);
     config.cache.l1_d.enabled = true;
@@ -289,7 +289,7 @@ fn store_load_chain(links: u32) -> Vec<u32> {
 /// and the given store-forward latency. Every load waits for its store's
 /// address, so the loads never speculate.
 fn forwarded_link(backend: BackendKind, l1d_latency: u64, forward_latency: Option<u64>) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 2;
     config.pipeline.writeback_width = Some(8);
@@ -377,7 +377,7 @@ fn load_past_a_store_of_slow_data(with_store: bool) -> Vec<u32> {
 /// address, runs alongside the divide.
 #[test]
 fn o3_a_load_does_not_wait_for_an_older_stores_data() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;

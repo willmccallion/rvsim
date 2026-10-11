@@ -36,7 +36,7 @@ const S2: u32 = 18;
 const MHARTID: u32 = 0xF14;
 
 fn cached(harts: usize, backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = harts;
     config.system.console = crate::config::Console::Quiet;
     config.pipeline.backend = backend;
@@ -259,7 +259,7 @@ fn a_shared_llc_serves_the_home_agent() {
 
 #[test]
 fn cores_without_caches_take_no_part_in_coherence() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = crate::config::Console::Quiet;
     let mut system = MultiHart::with_config(&config, &shared_line_stores(2, 20));

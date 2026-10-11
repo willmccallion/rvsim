@@ -34,7 +34,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 /// A context whose code pages map `CODE_VA` to `FIRST_PA` and the page
 /// after to `SECOND_PA`, cold in the TLB, running from `CODE_VA + 0xFFE`.
 fn straddling_context(backend: BackendKind) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

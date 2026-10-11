@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_inorder_engine_new() {
-        let config = Config::default();
+        let config = Config::minimal();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         assert_eq!(engine.can_accept(), config.pipeline.width);
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_inorder_engine_flush() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         let mut sys = crate::system::SystemState::build(&config, "");

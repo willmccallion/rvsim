@@ -58,7 +58,7 @@ fn program(l1d: L1d) -> Vec<u32> {
 }
 
 fn config(backend: BackendKind, with_l2: bool) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let l1_d = &mut config.cache.l1_d;

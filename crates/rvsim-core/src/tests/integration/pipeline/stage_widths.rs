@@ -25,7 +25,7 @@ fn program() -> Vec<u32> {
 
 /// Cycles the loop's third iteration takes, with the caches warm.
 fn warm_iteration_cycles(backend: BackendKind, narrow: impl Fn(&mut Config)) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.cache.l1_i.enabled = true;

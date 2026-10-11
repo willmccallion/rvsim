@@ -31,7 +31,7 @@ fn program() -> Vec<u32> {
 
 #[test]
 fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     // The UART's transmit-empty interrupt, enabled for hart 0's S context, holds SEIP high.

@@ -115,7 +115,7 @@ fn deliver(
     packet: Packet,
 ) {
     let mut stats = Stats::new();
-    let config = Config::default();
+    let config = Config::minimal();
     let mut ctx = HandleCtx {
         scheduler: queue,
         stats: &mut stats,

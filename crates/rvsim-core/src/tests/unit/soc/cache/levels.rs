@@ -71,7 +71,7 @@ impl Bench {
             queue: EventQueue::new(),
             stats,
             memory: GlobalMemory::new(Some(Ram::new(0, RAM_BYTES)), 1, 64),
-            config: Config::default(),
+            config: Config::minimal(),
             cycle: 100,
         }
     }

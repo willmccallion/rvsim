@@ -26,7 +26,7 @@ const NOP: u32 = 0x0000_0013;
 /// reproduced the bug at width=4 / InOrder, where the rename-to-issue
 /// distance is large enough for forwarding/serialization races to surface.
 fn wide_inorder_config() -> Config {
-    let mut c = Config::default();
+    let mut c = Config::minimal();
     c.pipeline.width = 4;
     c
 }
@@ -102,7 +102,7 @@ fn vsetvli_consumes_immediately_preceding_li_width1() {
         .chain([SPIN])
         .collect();
 
-    let ctx = run_program(&Config::default(), &program, 500);
+    let ctx = run_program(&Config::minimal(), &program, 500);
 
     assert_eq!(ctx.get_reg(5), 4);
     assert_eq!(ctx.cpu().harts[0].csrs.vl, 4, "got vl={}", ctx.cpu().harts[0].csrs.vl);
@@ -155,7 +155,7 @@ fn vsetvli_after_flushing_vsetvli_then_li_width1() {
         .chain([SPIN])
         .collect();
 
-    let ctx = run_program(&Config::default(), &program, 500);
+    let ctx = run_program(&Config::minimal(), &program, 500);
 
     assert_eq!(ctx.get_reg(5), 12);
     assert_eq!(

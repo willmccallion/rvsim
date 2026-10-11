@@ -90,7 +90,7 @@ enum Load {
 /// What `store_then_load(load)` copied to `OUT` on the out-of-order
 /// backend with `load_queue_size` load-queue slots.
 fn copied(load: Load, load_queue_size: usize) -> Vec<u64> {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.load_queue_size = load_queue_size;
     config.system.console = crate::config::Console::Quiet;

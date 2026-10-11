@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_setup_kernel_load_fallback() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut state = SystemState::build(&config, "");
 
         setup_kernel_load(&mut state, &config, &KernelBoot::default()).unwrap();

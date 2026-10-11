@@ -43,7 +43,7 @@ fn running_squares() -> Vec<u32> {
 }
 
 fn config(backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     config

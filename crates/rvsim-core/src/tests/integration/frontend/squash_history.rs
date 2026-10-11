@@ -29,7 +29,7 @@ fn program() -> Vec<u32> {
 }
 
 fn mispredicts(backend: BackendKind) -> f64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());

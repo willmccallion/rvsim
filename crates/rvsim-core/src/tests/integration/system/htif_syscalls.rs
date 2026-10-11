@@ -64,7 +64,7 @@ fn run_on(
     program: &[u32],
     args: &[&str],
 ) -> (StopReason, Vec<u8>) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = console;
     let mut tc = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);

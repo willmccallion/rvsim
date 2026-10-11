@@ -99,7 +99,7 @@ fn a_virtio_disk_keeps_its_queue_configuration() {
 
 #[test]
 fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = Console::Quiet;
     let mut sim = Simulator::build(&config, "");

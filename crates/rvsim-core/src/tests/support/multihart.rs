@@ -20,7 +20,7 @@ impl MultiHart {
     /// Builds a `hart_count`-hart system on `backend` with the program
     /// loaded at [`PROGRAM_BASE`] and every hart's PC pointing at it.
     pub fn new(hart_count: usize, backend: BackendKind, program: &[u32]) -> Self {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.system.hart_count = hart_count;
         config.system.console = crate::config::Console::Quiet;
         config.pipeline.backend = backend;
