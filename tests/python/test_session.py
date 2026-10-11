@@ -7,6 +7,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from rvsim import (
     LOGIN_SHELL,
@@ -169,6 +170,14 @@ class FastForwardCache(SessionTestCase):
         self.assertEqual(cached.console, uncached.console)
         self.assertEqual(cached.instructions, uncached.instructions)
         self.assertEqual(cached.cycle, uncached.cycle)
+
+    def test_a_different_simulator_build_misses_the_cache(self):
+        self.session().fast_forward(Marker(RESUME_POINT))
+
+        with mock.patch("rvsim.session.session.build_digest", return_value="other"):
+            s = self.session().fast_forward(Marker(RESUME_POINT))
+
+        self.assertFalse(s.last_fast_forward.cached)
 
     def test_a_different_history_misses_the_cache(self):
         self.session().fast_forward(Marker(RESUME_POINT))

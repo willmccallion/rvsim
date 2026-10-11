@@ -153,8 +153,9 @@ print(out.output)
 - **`fast_forward(until=...)`** reaches a stop quickly: on the first run it
   boots on a fast-forward configuration whose timer ticks every cycle,
   which shortens the boot's sleeps, and saves a checkpoint; later runs
-  restore it. The cache key covers the image files, everything the session
-  did before, the configuration and the stop.
+  restore it. The cache key covers the simulator build, the image files,
+  everything the session did before, the configuration and the stop, so a
+  boot made by one build is never restored under another.
 - **`switch(config)`** continues on another core configuration of the same
   system (same memory map, harts and RAM); its caches, TLBs and predictors
   start cold.

@@ -4,9 +4,9 @@ the configuration under study, warm it up, and measure regions.
 A `Session` owns the running simulator and keeps its console, so a
 script can type into a guest shell and wait for output. Fast-forwards are
 cached: the checkpoint at the stop is saved under a key made of the
-workload's files, everything the session did before, the fast-forward
-configuration and the stop, so the next session with the same history
-restores it in seconds instead of running again."""
+simulator build, the workload's files, everything the session did before,
+the fast-forward configuration and the stop, so the next session with the
+same history restores it in seconds instead of running again."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from .. import _core, presets
 from ..config import Config
 from ..config._config import _config_to_dict
 from ..simulator import Simulator
-from .cache import _META_FORMAT, _Cache, _read_meta, default_cache_dir
+from .cache import _META_FORMAT, _Cache, _read_meta, build_digest, default_cache_dir
 from .stops import (
     LOGIN_SHELL,
     Console,
@@ -574,6 +574,7 @@ class Session:
         return _digest_json(
             {
                 "checkpoint_version": _core.CHECKPOINT_VERSION,
+                "simulator": build_digest(),
                 "workload": self.workload.digests(),
                 "history": self._history,
                 "fast_forward_config": _digest_json(self._fast_forward_config),
