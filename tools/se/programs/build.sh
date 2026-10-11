@@ -12,7 +12,7 @@ cc="${CC_RISCV_LINUX:-riscv64-linux-gnu-gcc}"
 mkdir -p "$out"
 for src in "$here"/*.c; do
     name="$(basename "$src" .c)"
-    "$cc" -std=gnu17 -O2 -static -march=rv64gc -mabi=lp64d -Wall "$src" -o "$out/$name.elf"
+    "$cc" -std=gnu17 -O2 -static -pthread -march=rv64gc -mabi=lp64d -Wall "$src" -o "$out/$name.elf"
 done
 # hello again as a static position-independent executable, which the
 # loader places at its own base.
