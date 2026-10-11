@@ -643,6 +643,22 @@ impl Simulator {
     fn run_to_unflushed(
         &mut self,
         stop: &StopAt,
+        keep_going: impl FnMut() -> bool,
+    ) -> Result<StopReason, SimError> {
+        for core in &mut self.state.cores {
+            core.units.stop_pcs.clone_from(&stop.pcs);
+        }
+        let reason = self.run_to_armed(stop, keep_going);
+        for core in &mut self.state.cores {
+            core.units.stop_pcs.clear();
+        }
+        reason
+    }
+
+    /// [`Self::run_to_unflushed`] with every core told the PCs to stop at.
+    fn run_to_armed(
+        &mut self,
+        stop: &StopAt,
         mut keep_going: impl FnMut() -> bool,
     ) -> Result<StopReason, SimError> {
         if let Some(code) = self.take_exit() {

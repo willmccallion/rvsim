@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `run_to(pc=...)` and the Session API's `Pc` stop land exactly on the
+  address: an out-of-order core no longer retires the instruction there
+  in the same cycle as the ones before it, which could carry a run past
+  the stop.
 - SE mode runs several programs at once, one per hart, as gem5's
   `se.py -n N --cmd "a;b"` does: `Simulator(programs=[Program(...),
   ...])` or `python -m rvsim a.elf --program "b.elf arg"`. Each program

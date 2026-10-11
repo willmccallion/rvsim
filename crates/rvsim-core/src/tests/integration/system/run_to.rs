@@ -2,8 +2,9 @@
 //! instruction count, at a PC, at a guest's break, or when the console
 //! prints.
 
-use crate::config::{Config, Console};
+use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
@@ -121,4 +122,34 @@ fn console_output_stops_the_run_once_the_guest_prints() {
     assert_eq!(reason, StopReason::ConsoleOutput);
     assert_eq!(ctx.get_reg(COUNTER as usize), 0, "the spin before the print has finished");
     assert_eq!(ctx.sim.take_console_output(), b"!");
+}
+
+/// Independent `addi`s an out-of-order core retires several of a cycle.
+fn independent_adds() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(5, 0, 1).build(),
+        i().addi(6, 0, 2).build(),
+        i().addi(7, 0, 3).build(),
+        i().addi(28, 0, 4).build(),
+        0x0000_006f,
+    ]
+}
+
+#[test]
+fn a_pc_stop_lands_before_its_instruction_inside_a_commit_group() {
+    let mut config = Config::default();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    config.system.console = Console::Quiet;
+    let mut ctx =
+        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &independent_adds());
+    let third = PROGRAM_BASE + 8;
+    let stop = StopAt { pcs: vec![third], cycles: Some(10_000), ..StopAt::default() };
+
+    let reason = ctx.sim.run_to_with(&stop, || true).expect("the run stops");
+
+    assert_eq!(reason, StopReason::Pc { hart: 0 });
+    assert_eq!(ctx.sim.hart(0).pc, third);
+    assert_eq!(ctx.sim.hart(0).regs.read(RegIdx::new(6)), 2, "the add before it retired");
+    assert_eq!(ctx.sim.hart(0).regs.read(RegIdx::new(7)), 0, "the add at the stop did not");
 }
