@@ -20,10 +20,18 @@ This downloads Buildroot and builds, into `software/linux/output/`:
 | `Image` | The Linux 6.6 kernel, loaded at `0x8020_0000` |
 | `disk.img` | The root filesystem: BusyBox, the benchmark suite and the guest `rvsim` tool, mounted from the VirtIO disk |
 
-The first build takes 15 to 30 minutes; later builds reuse Buildroot's
-cache. Outside the Nix development shell, `make linux` runs the build in
-the repository's FHS environment. `rvsim tools/boot_linux.py --rebuild`
-rebuilds the image after a change to its package list.
+The image is described by three files in `software/guest/`:
+`buildroot.defconfig` (Buildroot 2024.08, kernel 6.6.44, OpenSBI and the
+packages), `linux.fragment` (the kernel options the simulated machine
+relies on, applied over the kernel's default configuration: the vector
+extension, Zicbom and Zicboz, perf events and the SBI PMU driver) and
+`post_build.sh` (compiles the guest tool and STREAM into the root
+filesystem and sets `kernel.perf_user_access = 2` so `rdcycle` works
+from user space). The first build takes 15 to 30 minutes; later builds
+reuse Buildroot's cache. Outside the Nix development shell, `make linux`
+runs the build in the repository's FHS environment. `rvsim
+tools/boot_linux.py --rebuild` rebuilds the image after a change to
+these files.
 
 ### The guest tool
 

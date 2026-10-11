@@ -10,9 +10,12 @@ Run from repo root:
   sim script tools/boot_linux.py --no-build # boot only (fail if no Image)
   sim script tools/boot_linux.py --rebuild --no-boot  # rebuild after package changes
 
-The root filesystem carries the benchmark suite (CoreMark, CoreMark-PRO,
-Dhrystone, Whetstone, lmbench, mbw, ramspeed, stress-ng, STREAM, perf) and
-the ``rvsim`` guest tool that marks regions for the simulator's stats.
+The Buildroot configuration is software/guest/buildroot.defconfig, with
+software/guest/linux.fragment applied over the kernel's default config and
+software/guest/post_build.sh finishing the root filesystem. It carries the
+benchmark suite (CoreMark, CoreMark-PRO, Dhrystone, Whetstone, lmbench, mbw,
+ramspeed, stress-ng, STREAM, perf) and the ``rvsim`` guest tool that marks
+regions for the simulator's stats and exchanges files with the host.
 
 The default boot is the showcase system: eight out-of-order M-class cores
 from the ``fast`` preset (64KB TAGE-SC-L), a MESI snoop-filter home agent
@@ -33,33 +36,7 @@ from rvsim.presets import INTERCONNECTS
 
 BUILDROOT_VER = "2024.08"
 BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.gz"
-DEFCONFIG = """BR2_riscv=y
-BR2_RISCV_64=y
-BR2_RISCV_ISA_RVC=y
-BR2_RISCV_ISA_RVV=y
-BR2_RISCV_ABI_LP64D=y
-BR2_LINUX_KERNEL=y
-BR2_LINUX_KERNEL_CUSTOM_VERSION=y
-BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.6.44"
-BR2_LINUX_KERNEL_USE_ARCH_DEFAULT_CONFIG=y
-BR2_TARGET_OPENSBI=y
-BR2_TARGET_OPENSBI_PLAT="generic"
-BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="PLATFORM_RISCV_ISA=rv64imafdcv_zifencei"
-BR2_TARGET_ROOTFS_EXT2=y
-BR2_TARGET_ROOTFS_EXT2_SIZE="256M"
-BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_6=y
-BR2_ROOTFS_POST_BUILD_SCRIPT="{guest}/post_build.sh"
-BR2_GLOBAL_PATCH_DIR="{guest}/buildroot-patches"
-BR2_PACKAGE_COREMARK=y
-BR2_PACKAGE_COREMARK_PRO=y
-BR2_PACKAGE_DHRYSTONE=y
-BR2_PACKAGE_WHETSTONE=y
-BR2_PACKAGE_LMBENCH=y
-BR2_PACKAGE_MBW=y
-BR2_PACKAGE_RAMSPEED=y
-BR2_PACKAGE_STRESS_NG=y
-BR2_PACKAGE_LINUX_TOOLS_PERF=y
-"""
+DEFCONFIG = os.path.join("software", "guest", "buildroot.defconfig")
 
 
 HOST_TOOLS = (
@@ -112,12 +89,13 @@ def download_buildroot(linux_dir: str, buildroot_dir: str) -> None:
 
 
 def write_defconfig(buildroot_dir: str) -> None:
+    """Installs ``software/guest/buildroot.defconfig`` as the tree's
+    ``riscv_emu_defconfig``; its paths are relative to the tree's
+    ``$(TOPDIR)``, which Buildroot expands."""
     configs_dir = os.path.join(buildroot_dir, "configs")
     os.makedirs(configs_dir, exist_ok=True)
     path = os.path.join(configs_dir, "riscv_emu_defconfig")
-    guest = os.path.join(repo_root(), "software", "guest")
-    with open(path, "w") as f:
-        f.write(DEFCONFIG.format(guest=guest))
+    shutil.copyfile(os.path.join(repo_root(), DEFCONFIG), path)
     print("[Linux] Wrote", path)
 
 

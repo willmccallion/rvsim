@@ -1,0 +1,10 @@
+# Applied over the kernel's arch default configuration: what the simulated
+# machine implements and the guest tools rely on, stated so a change to
+# the default cannot drop them.
+CONFIG_RISCV_ISA_V=y
+CONFIG_RISCV_ISA_V_DEFAULT_ENABLE=y
+CONFIG_RISCV_ISA_ZICBOM=y
+CONFIG_RISCV_ISA_ZICBOZ=y
+CONFIG_PERF_EVENTS=y
+CONFIG_RISCV_PMU=y
+CONFIG_RISCV_PMU_SBI=y
