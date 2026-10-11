@@ -63,7 +63,7 @@ given.
 
 | Preset | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72()` | CoreMark/MHz | 5.19 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72()` | CoreMark/MHz | 5.23 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
 | `cortex_a72()` | DMIPS/MHz | 4.14 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
 | `p550()` | CoreMark/MHz | 4.80 | not published | |
 | `p550()` | DMIPS/MHz | 3.36 | not published | |
