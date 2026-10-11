@@ -515,6 +515,35 @@ fn hwprobe_reports_misaligned_access_speed_and_unknown_keys() {
     assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(UNSUPPORTED));
 }
 
+/// `madvise` takes the advice Linux 6.6 knows and refuses the rest, as
+/// that kernel refuses glibc 2.42's guard-page request (102), so glibc
+/// falls back to `mprotect` for a thread's stack guard as it does there.
+#[test]
+fn madvise_refuses_advice_linux_6_6_does_not_know() {
+    const SYS_MADVISE: i32 = 233;
+    const MADV_DONTNEED: i32 = 4;
+    const MADV_GUARD_INSTALL: i32 = 102;
+    let i = InstructionBuilder::new;
+    let advise = |advice: i32| {
+        [
+            i().lui(A0, (LOAD_ADDRESS >> 12) as i32).build(),
+            i().lui(A1, 1).build(),
+            i().addi(A2, 0, advice).build(),
+            i().addi(A7, 0, SYS_MADVISE).build(),
+            ECALL,
+        ]
+    };
+    let mut code = advise(MADV_GUARD_INSTALL).to_vec();
+    code.push(i().sub(T1, 0, A0).build());
+    code.extend(advise(MADV_DONTNEED));
+    code.extend([i().add(A0, A0, T1).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL]);
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(22), "{backend:?}: EINVAL, then 0");
+    }
+}
+
 /// A simulator with one hart per program running `programs`.
 fn simulator_with_programs(backend: BackendKind, programs: &[&[u32]]) -> Simulator {
     simulator_with_programs_on(backend, programs, programs.len())

@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode's `madvise` refuses advice Linux 6.6 does not know, as that
+  kernel does, so glibc 2.42 guards a thread's stack with `mprotect`
+  rather than taking a guard it never got.
 - `Simulator.exit_codes` holds one exit code per SE program, in the
   order the programs were given, where it held one per hart: a hart
   without a program no longer has a `None` entry. Checkpoints are format
