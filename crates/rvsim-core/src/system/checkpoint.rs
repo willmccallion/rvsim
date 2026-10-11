@@ -23,12 +23,12 @@ use crate::common::PhysAddr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
-use crate::system::process::{Process, ProcessState};
+use crate::system::process::{Processes, ProcessesState};
 use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
 /// The checkpoint format this build writes and restores.
-pub const VERSION: u64 = 6;
+pub const VERSION: u64 = 7;
 
 /// RAM is saved in pages of this many bytes; pages of zeros are skipped.
 const PAGE_BYTES: usize = 4096;
@@ -82,8 +82,9 @@ struct Header {
     vlen_bits: u64,
     harts: Vec<HartState>,
     devices: serde_json::Value,
-    /// The user process, in SE mode.
-    process: Option<ProcessState>,
+    /// The user programs, in SE mode.
+    #[serde(default)]
+    processes: ProcessesState,
 }
 
 /// One hart's architectural state.
@@ -184,7 +185,7 @@ impl Simulator {
     ///
     /// Returns [`CheckpointError`] when writing fails.
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
-        if self.state.process.as_ref().is_some_and(|process| process.files.host_files_open() > 0) {
+        if self.state.processes.host_files_open() > 0 {
             return Err(CheckpointError::Unsupported("while the program has host files open"));
         }
         self.drain();
@@ -205,7 +206,7 @@ impl Simulator {
                 .map(|hart| HartState::of(hart, reservations.reserved(hart.hart_id)))
                 .collect(),
             devices: state.bus.checkpoint_devices(),
-            process: state.process.as_ref().map(Process::checkpoint),
+            processes: state.processes.checkpoint(),
         };
         let header = serde_json::to_vec(&header)?;
         out.write_all(&(header.len() as u64).to_le_bytes())?;
@@ -266,8 +267,7 @@ impl Simulator {
         }
         state.uncore.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
         let terminal = state.uncore.terminal.clone();
-        state.uncore.process =
-            header.process.clone().map(|process| Process::from_checkpoint(process, terminal));
+        state.uncore.processes = Processes::from_checkpoint(header.processes.clone(), &terminal);
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all(&mut state.uncore.stats);

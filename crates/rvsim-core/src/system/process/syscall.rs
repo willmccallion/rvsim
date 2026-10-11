@@ -3,7 +3,7 @@
 //! the value or the negated `errno`, as the kernel returns them.
 
 use super::files::{Stat, errno, io_errno};
-use super::{PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
+use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
@@ -125,8 +125,6 @@ const EAGAIN: i64 = 11;
 /// and every run sees the same clock.
 const REALTIME_EPOCH_SECONDS: u64 = 1_700_000_000;
 const PATH_MAX: usize = 4096;
-const PID: u64 = 1;
-const TID: u64 = 1;
 
 /// Serves the `ecall` that retired at `pc` on `state`'s hart: performs
 /// the syscall in `a7` with the arguments in `a0` to `a5`, leaves the
@@ -138,13 +136,21 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
     let isa = state.core.isa;
     let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
+    let hart = state.hart.hart_id;
     let uncore = &mut *state.uncore;
-    let Some(process) = uncore.process.as_mut() else {
+    let Some((process, frames)) = uncore.processes.program_and_frames(hart) else {
         return Outcome::Exit(1);
     };
     *process.syscall_counts.entry(number).or_insert(0) += 1;
-    let mut sys =
-        Sys { process, memory: &mut uncore.memory, cycle, ram_bytes, isa, misaligned_traps };
+    let mut sys = Sys {
+        process,
+        frames,
+        memory: &mut uncore.memory,
+        cycle,
+        ram_bytes,
+        isa,
+        misaligned_traps,
+    };
     let result = sys.dispatch(number, args);
     tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), number, name = name_of(number),
         a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
@@ -169,6 +175,8 @@ type Result = std::result::Result<Reply, i64>;
 /// Everything a handler touches.
 struct Sys<'a> {
     process: &'a mut Process,
+    /// The frames every program's pages come from.
+    frames: &'a mut FrameAllocator,
     memory: &'a mut GlobalMemory,
     cycle: u64,
     ram_bytes: u64,
@@ -217,7 +225,7 @@ impl Sys<'_> {
             SYS_GETCWD => self.getcwd(a[0], a[1]),
             SYS_IOCTL => self.ioctl(a[0] as i64, a[1], a[2]),
             SYS_BRK => {
-                let brk = self.process.set_brk(self.memory, a[0]);
+                let brk = self.process.set_brk(self.memory, self.frames, a[0]);
                 ok(brk)
             }
             SYS_MMAP => self.mmap(a[0], a[1], a[2], a[3], a[4] as i64, a[5]),
@@ -241,7 +249,7 @@ impl Sys<'_> {
             | SYS_SET_ROBUST_LIST => ok(0),
             SYS_SET_TID_ADDRESS => {
                 self.process.clear_child_tid = a[0];
-                ok(TID)
+                ok(self.process.pid)
             }
             SYS_FUTEX => {
                 // One thread: a wait would never be woken, so it reports the
@@ -257,7 +265,7 @@ impl Sys<'_> {
             SYS_GETRUSAGE => self.getrusage(a[1]),
             SYS_UNAME => self.uname(a[0]),
             SYS_SYSINFO => self.sysinfo(a[0]),
-            SYS_GETPID | SYS_GETTID => ok(PID),
+            SYS_GETPID | SYS_GETTID => ok(self.process.pid),
             SYS_PRLIMIT64 => self.prlimit(a[1], a[3]),
             SYS_GETRANDOM => self.getrandom(a[0], a[1]),
             SYS_RISCV_HWPROBE => self.hwprobe(a[0], a[1], a[4]),
@@ -476,8 +484,10 @@ impl Sys<'_> {
         if flags & MAP_FIXED != 0 {
             self.process.unmap(self.memory, addr, page_ceil(len));
         }
-        let start =
-            self.process.map_anonymous(self.memory, hint, len, permissions).map_err(fault)?;
+        let start = self
+            .process
+            .map_anonymous(self.memory, self.frames, hint, len, permissions)
+            .map_err(fault)?;
         if flags & MAP_FIXED != 0 && start != addr {
             return Err(-errno::ENOMEM);
         }
@@ -487,9 +497,15 @@ impl Sys<'_> {
             let len_usize = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
             let bytes = self.process.files.pread(fd, len_usize, offset)?;
             let writable = permissions.union(Permissions::RW);
-            self.process.space.map_range(self.memory, start, len, writable).map_err(fault)?;
+            self.process
+                .space
+                .map_range(self.memory, self.frames, start, len, writable)
+                .map_err(fault)?;
             self.write_user(start, &bytes)?;
-            self.process.space.map_range(self.memory, start, len, permissions).map_err(fault)?;
+            self.process
+                .space
+                .map_range(self.memory, self.frames, start, len, permissions)
+                .map_err(fault)?;
             self.process.note_file_map(start, page_ceil(len));
         }
         ok(start)
@@ -502,8 +518,10 @@ impl Sys<'_> {
         let keep = old_len.min(new_len);
         let bytes = self.read_user(old_addr, keep)?;
         let permissions = self.process.space.permissions(old_addr).unwrap_or(Permissions::RW);
-        let start =
-            self.process.map_anonymous(self.memory, None, new_len, permissions).map_err(fault)?;
+        let start = self
+            .process
+            .map_anonymous(self.memory, self.frames, None, new_len, permissions)
+            .map_err(fault)?;
         self.write_user(start, &bytes)?;
         self.process.unmap(self.memory, old_addr, old_len);
         ok(start)
@@ -518,7 +536,7 @@ impl Sys<'_> {
         }
         self.process
             .space
-            .map_range(self.memory, addr, len, Permissions::from_prot(prot))
+            .map_range(self.memory, self.frames, addr, len, Permissions::from_prot(prot))
             .map_err(fault)?;
         ok(0)
     }

@@ -125,8 +125,8 @@ pub struct Uncore {
     /// Atomic slot bus-resident devices (HTIF, `SysCon`) write the harness
     /// termination value into. `u64::MAX` means "no exit pending".
     pub exit_signal: Arc<AtomicU64>,
-    /// The user process SE mode is running, when it is.
-    pub process: Option<crate::system::process::Process>,
+    /// The user programs SE mode is running, one per hart; empty otherwise.
+    pub processes: crate::system::process::Processes,
     /// The script file and output directory the guest reaches with the
     /// readfile and writefile pseudo-operations.
     pub host_files: crate::system::host_files::HostFiles,

@@ -15,7 +15,10 @@ use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
-use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramKind};
+use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage, ProgramKind};
+
+/// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
+type PyProgram = (Vec<u8>, Vec<String>, Vec<String>);
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -142,6 +145,9 @@ impl PySimulator {
     /// Args:
     ///     config_dict: The nested config dict (from ``Config.to_dict()``).
     ///     elf_data: Raw bytes of an ELF binary (bare-metal mode). Optional.
+    ///     programs: Several static Linux user programs to run under SE
+    ///         mode, one per hart from hart 0 up, each as ``(elf_data,
+    ///         argv, envp)``. Optional; exclusive with ``elf_data``.
     ///     kernel_path: Path to a kernel image (kernel mode). Optional.
     ///     firmware_path: Path to an `OpenSBI` ``fw_jump`` image (kernel
     ///         mode). Optional; found under ``software/linux/output`` if absent.
@@ -157,7 +163,7 @@ impl PySimulator {
     )]
     #[new]
     #[allow(clippy::too_many_arguments, reason = "the constructor's keyword arguments")]
-    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None, script_path=None, outdir=None))]
+    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, programs=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None, script_path=None, outdir=None))]
     fn new(
         py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
@@ -165,6 +171,7 @@ impl PySimulator {
         args: Option<Vec<String>>,
         env: Option<Vec<String>>,
         mode: Option<String>,
+        programs: Option<Vec<PyProgram>>,
         kernel_path: Option<String>,
         firmware_path: Option<String>,
         dtb_path: Option<String>,
@@ -180,6 +187,23 @@ impl PySimulator {
         }
         if let Some(dir) = outdir {
             sim.set_output_dir(&dir).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        }
+        if let Some(programs) = programs {
+            if elf_data.is_some() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "pass programs or a binary, not both",
+                ));
+            }
+            let process_args: Vec<ProcessArgs> = programs
+                .iter()
+                .map(|(_, argv, envp)| ProcessArgs { argv: argv.clone(), envp: envp.clone() })
+                .collect();
+            let images: Vec<ProgramImage<'_>> = programs
+                .iter()
+                .zip(&process_args)
+                .map(|((data, _, _), args)| ProgramImage { data, args })
+                .collect();
+            sim.load_processes(&images).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         }
         if let Some(data) = elf_data {
             let process_args =
@@ -211,6 +235,14 @@ impl PySimulator {
     #[getter]
     fn pc(&self) -> u64 {
         self.inner.hart(0).pc
+    }
+
+    /// In SE mode, each hart's program's exit code: ``None`` for a hart
+    /// with no program or whose program is still running. The run's own
+    /// exit code is the first non-zero one in hart order, else 0.
+    #[getter]
+    fn exit_codes(&self) -> Vec<Option<u64>> {
+        self.inner.exit_codes()
     }
 
     #[setter]

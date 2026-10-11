@@ -30,7 +30,7 @@ use crate::sim::stats::Stats;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::dtb;
 use crate::system::process;
-pub use crate::system::process::loader::ProcessArgs;
+pub use crate::system::process::loader::{ProcessArgs, ProgramImage};
 use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
 use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
@@ -200,11 +200,33 @@ impl Simulator {
     /// [`SimError::NotAnElf`], [`SimError::UnsupportedProgram`] or
     /// [`SimError::ProcessMemory`].
     pub fn load_process(&mut self, data: &[u8], args: &ProcessArgs) -> Result<(), SimError> {
+        self.load_processes(&[ProgramImage { data, args }])
+    }
+
+    /// Loads `programs`, static Linux ELFs, as user processes (SE mode),
+    /// one per hart from hart 0 up: each gets its own address space from
+    /// RAM's frames and starts at its entry in user mode with its
+    /// arguments on its stack; a hart beyond them is parked. The run ends
+    /// when the last program exits, with the first non-zero exit code.
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::NotAnElf`], [`SimError::UnsupportedProgram`] (more
+    /// programs than harts, among other things) or
+    /// [`SimError::ProcessMemory`].
+    pub fn load_processes(&mut self, programs: &[ProgramImage<'_>]) -> Result<(), SimError> {
         let general = &self.state.config.general;
         let (mode, clock_hz) = (general.page_mode.paging_mode(), general.clock_hz);
-        process::loader::load_process(&mut self.state, data, args, mode, clock_hz)?;
+        process::loader::load_processes(&mut self.state, programs, mode, clock_hz)?;
         self.sync_arch_regs();
         Ok(())
+    }
+
+    /// Each hart's program's exit code in SE mode: `None` for a hart with
+    /// no program or whose program is still running.
+    #[must_use]
+    pub fn exit_codes(&self) -> Vec<Option<u64>> {
+        self.state.uncore.processes.exit_codes()
     }
 
     /// Loads `data` as a user process when it is linked as one (an

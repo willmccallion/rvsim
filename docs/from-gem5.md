@@ -20,6 +20,7 @@ This page maps what you do in gem5 to what you do here.
 | `Process(cmd=[...], env=[...])` in a script | `Environment(binary="./prog", args=["./prog", "a", "b"], env=["K=V"]).run()` |
 | `fs.py --kernel ... --disk-image ...` | `make run-linux`, or `Simulator(presets.linux(), kernel="...")` |
 | `--num-cpus=N` | `Config(hart_count=N)` |
+| `se.py -n 4 --cmd "a;b;c;d" --options "x;y"` | `Simulator(Config(hart_count=4), programs=[Program("a", ["x"]), Program("b", ["y"]), ...])`, or `python -m rvsim a x --program "b y"`; the run ends when the last program exits ([SE mode](se-mode.md#several-programs-at-once)) |
 
 SE mode takes a static Linux binary, position-independent or not, as
 gem5's does, and serves its syscalls in the simulator. Three differences

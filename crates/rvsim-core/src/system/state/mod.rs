@@ -32,6 +32,7 @@ use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
 use crate::soc::uncore::{SimOp, StatsDump, StatsEpoch, TraceControl, Uncore};
 use crate::system::host_files::HostFiles;
+use crate::system::process::Processes;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
@@ -348,7 +349,7 @@ impl SystemState {
                 #[cfg(feature = "commit-log")]
                 commit_log: None,
                 exit_signal,
-                process: None,
+                processes: Processes::default(),
                 host_files: HostFiles::default(),
                 terminal,
                 pipeline_trace: None,

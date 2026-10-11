@@ -11,7 +11,10 @@ The simulator.
 
 from __future__ import annotations
 
-__all__ = ["Instruction", "PipelineSnapshot", "Simulator"]
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+__all__ = ["Instruction", "PipelineSnapshot", "Program", "Simulator"]
 
 from typing import TYPE_CHECKING
 
@@ -24,8 +27,29 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
+@dataclass(frozen=True)
+class Program:
+    """A static Linux user program for SE mode: its binary, its command
+    line after its name, and its environment as ``NAME=value`` entries."""
+
+    binary: str
+    args: Sequence[str] = ()
+    env: Sequence[str] = ()
+
+    def _loaded(self) -> tuple[bytes, list[str], list[str]]:
+        with open(self.binary, "rb") as f:
+            data = f.read()
+        return data, [self.binary, *self.args], list(self.env)
+
+
 class Simulator(_CoreSimulator):
     """Native simulator.
+
+    ``programs`` runs several static Linux user programs under SE mode at
+    once, one per hart from hart 0 up, sharing the memory system, as gem5's
+    ``se.py -n N --cmd "a;b"`` does; the run ends when the last of them
+    exits, with the first non-zero exit code in hart order, and
+    ``exit_codes`` holds each hart's.
 
     ``script`` names the file the guest's readfile pseudo-operation reads
     and ``outdir`` the directory its writefile pseudo-operation writes
@@ -49,6 +73,7 @@ class Simulator(_CoreSimulator):
         args: list[str] | None = None,
         env: list[str] | None = None,
         mode: str | None = None,
+        programs: Sequence[Program] | None = None,
         kernel: str | None = None,
         firmware: str | None = None,
         disk: str | None = None,
@@ -69,6 +94,7 @@ class Simulator(_CoreSimulator):
 
         if args is None and binary is not None:
             args = [binary]
+        loaded = [program._loaded() for program in programs] if programs else None
         return _CoreSimulator.__new__(
             cls,
             config_dict,
@@ -76,6 +102,7 @@ class Simulator(_CoreSimulator):
             args=args,
             env=env,
             mode=mode,
+            programs=loaded,
             kernel_path=kernel,
             firmware_path=firmware,
             dtb_path=dtb,

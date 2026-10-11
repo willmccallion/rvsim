@@ -39,6 +39,40 @@ status (139 for a page fault, 132 for an illegal instruction) and leaves
 the cause, address and PC in `mcause`, `mtval` and `mepc` for a
 post-mortem.
 
+## Several programs at once
+
+gem5's `se.py -n 4 --cmd "a;b;c;d"` runs one program per CPU with the
+memory system between them, the usual way to study caches under a
+multi-programmed load. rvsim does the same with `programs`: one static
+program per hart from hart 0 up, each in its own address space drawn from
+the same RAM, sharing whatever the configuration shares (the L3 and
+memory on `presets.linux`, every cache below the cores otherwise). A hart
+with no program sits parked. The run ends when the last program exits,
+with the first non-zero exit code in hart order, and `exit_codes` holds
+each hart's; a program that faults ends with its signal's status while
+the others go on. Each program's stats are under its hart and core
+(`hart1.*`, `core1.*`).
+
+```python
+from rvsim import Config, Program, Simulator
+
+cpu = Simulator(
+    Config(hart_count=2),
+    programs=[Program("stream.elf", args=["-n", "1000000"]), Program("qsort.elf")],
+)
+print(cpu.run(), cpu.exit_codes)
+```
+
+```sh
+python -m rvsim stream.elf --program qsort.elf -- -n 1000000   # the same, two harts
+```
+
+Every program sees the console as its stdin, stdout and stderr, so their
+output interleaves as it would on one terminal; `getpid` tells them
+apart (1, 2, ...). A program's `exit` ends that program; a
+[pseudo-operation](pseudo-ops.md) exit (`m5_exit`, `m5_fail`) ends the
+whole run at once, as in gem5.
+
 ## What is modelled
 
 The program runs under real paging: the loader builds Sv39 tables by
@@ -118,7 +152,8 @@ and the bundled set on every change.
 
 ## Limits
 
-One hart; dynamically linked executables are refused with a message
-saying to link `-static` or `-static-pie`. A checkpoint keeps the process's mappings, break and heap but
-not its host files, so one is refused while the program has a file
-open.
+One program per hart, so no threads (`clone` returns `ENOSYS`);
+dynamically linked executables are refused with a message saying to link
+`-static` or `-static-pie`. A checkpoint keeps each process's mappings,
+break and heap but not its host files, so one is refused while a program
+has a file open.

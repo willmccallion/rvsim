@@ -73,7 +73,7 @@ impl ArchState for StageCtx<'_> {
     }
 
     fn serves_syscalls(&self) -> bool {
-        self.uncore.process.is_some()
+        self.uncore.processes.get(self.hart.hart_id).is_some()
     }
 }
 

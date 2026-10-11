@@ -156,6 +156,7 @@ class Simulator:
         args: list[str] | None = None,
         env: list[str] | None = None,
         mode: str | None = None,
+        programs: list[tuple[bytes, list[str], list[str]]] | None = None,
         kernel_path: str | None = None,
         firmware_path: str | None = None,
         dtb_path: str | None = None,
@@ -170,6 +171,8 @@ class Simulator:
     def pc(self, value: int) -> None: ...
     @property
     def privilege(self) -> str: ...
+    @property
+    def exit_codes(self) -> list[int | None]: ...
     @property
     def trace(self) -> bool: ...
     @trace.setter
