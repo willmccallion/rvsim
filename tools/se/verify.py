@@ -126,6 +126,7 @@ def check_programs() -> list[Program]:
     """The check programs with the arguments they expect."""
     specs = {
         "hello": (["7", "second argument"], {"SE_GREETING": "hi"}),
+        "hello_pie": (["7", "second argument"], {"SE_GREETING": "hi"}),
         "files": (["."], {}),
     }
     programs = []

@@ -5,7 +5,7 @@
 //! the auxiliary vector), and hart 0 starts at the entry in user mode.
 
 use object::Endianness;
-use object::elf::{EM_RISCV, ET_EXEC, PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, PT_PHDR};
+use object::elf::{EM_RISCV, ET_DYN, ET_EXEC, PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, PT_PHDR};
 use object::read::elf::{ElfFile64, FileHeader, ProgramHeader};
 
 use super::{AddressSpace, PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
@@ -42,6 +42,9 @@ const CLOCK_TICKS_PER_SECOND: u64 = 100;
 const PMP_NAPOT_EVERYTHING: u64 = (1 << 54) - 1;
 /// `pmpcfg` entry 0: readable, writable, executable, NAPOT.
 const PMP_RWX_NAPOT: u64 = 0x1F;
+/// Where a static position-independent executable is loaded: the address
+/// static executables are linked at.
+pub const PIE_BASE: u64 = 0x1_0000;
 /// Every counter readable from user mode, as under gem5 and qemu.
 const COUNTERS_ALL: u64 = 0xFFFF_FFFF;
 
@@ -59,8 +62,9 @@ pub struct ProcessArgs {
 ///
 /// # Errors
 ///
-/// [`SimError::UnsupportedProgram`] for anything but a static `ET_EXEC`
-/// RISC-V image, [`SimError::ProcessMemory`] when RAM cannot hold it.
+/// [`SimError::UnsupportedProgram`] for anything but a static RISC-V
+/// executable, position-independent or not; [`SimError::ProcessMemory`]
+/// when RAM cannot hold it.
 pub fn load_process(
     state: &mut SystemState,
     data: &[u8],
@@ -165,11 +169,14 @@ impl<'a> Image<'a> {
         if header.e_machine(endian) != EM_RISCV {
             return Err(unsupported("not a RISC-V ELF"));
         }
-        if header.e_type(endian) != ET_EXEC {
-            return Err(unsupported(
-                "not a static executable: link with -static (position-independent executables are not supported yet)",
-            ));
-        }
+        // A static PIE's addresses are relative to wherever it is loaded;
+        // it goes where a static executable is linked, so both share one
+        // layout.
+        let bias = match header.e_type(endian) {
+            ET_EXEC => 0,
+            ET_DYN => PIE_BASE,
+            _ => return Err(unsupported("not an executable: link with -static or -static-pie")),
+        };
         let phdrs = header.program_headers(endian, data).map_err(|_| SimError::NotAnElf)?;
         let mut segments = Vec::new();
         let mut phdr_vaddr = None;
@@ -177,13 +184,15 @@ impl<'a> Image<'a> {
         for phdr in phdrs {
             match phdr.p_type(endian) {
                 PT_INTERP => {
-                    return Err(unsupported("a dynamically linked program: link with -static"));
+                    return Err(unsupported(
+                        "a dynamically linked program: link with -static or -static-pie",
+                    ));
                 }
-                PT_PHDR => phdr_vaddr = Some(phdr.p_vaddr(endian)),
+                PT_PHDR => phdr_vaddr = Some(phdr.p_vaddr(endian) + bias),
                 PT_LOAD => {
                     let offset = phdr.p_offset(endian);
                     let filesz = phdr.p_filesz(endian);
-                    let vaddr = phdr.p_vaddr(endian);
+                    let vaddr = phdr.p_vaddr(endian) + bias;
                     if phdr_vaddr.is_none() && offset <= e_phoff && e_phoff < offset + filesz {
                         phdr_vaddr = Some(vaddr + (e_phoff - offset));
                     }
@@ -207,7 +216,7 @@ impl<'a> Image<'a> {
             return Err(unsupported("no loadable segment"));
         }
         Ok(Self {
-            entry: header.e_entry(endian),
+            entry: header.e_entry(endian) + bias,
             segments,
             phdr_vaddr: phdr_vaddr.unwrap_or(0),
             phent: u64::from(header.e_phentsize(endian)),

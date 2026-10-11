@@ -21,8 +21,9 @@ This page maps what you do in gem5 to what you do here.
 | `fs.py --kernel ... --disk-image ...` | `make run-linux`, or `Simulator(presets.linux(), kernel="...")` |
 | `--num-cpus=N` | `Config(hart_count=N)` |
 
-SE mode takes a static, non-PIE Linux binary, as gem5's does, and serves
-its syscalls in the simulator. Three differences matter:
+SE mode takes a static Linux binary, position-independent or not, as
+gem5's does, and serves its syscalls in the simulator. Three differences
+matter:
 
 - The program runs under real page tables (Sv39 by default; Sv48 and Sv57
   are a setting), so TLB misses and page walks have their full timing.
@@ -122,8 +123,7 @@ with the same harts, RAM and VLEN.
   interconnect are the choices.
 - KVM or any native acceleration; a fast-forward runs on a lighter
   configuration, still cycle by cycle.
-- Threads in SE mode, dynamically linked or position-independent
-  executables.
+- Threads in SE mode, and dynamically linked executables.
 - GPUs, PCI, network devices, SystemC, Garnet, DRAMsim3.
 
 ## What it does that gem5 does not

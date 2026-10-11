@@ -4,7 +4,8 @@ SE mode runs a static Linux user program without a kernel, the way
 gem5's SE mode and QEMU's user mode do: the simulator loads the ELF,
 builds its page tables and stack, runs it in user mode, and serves its
 syscalls itself against the host's files, clock and memory. Anything
-built with a Linux cross toolchain and linked `-static` runs unchanged:
+built with a Linux cross toolchain and linked `-static` or `-static-pie`
+runs unchanged:
 
 ```sh
 riscv64-linux-gnu-gcc -O2 -static -march=rv64gc -mabi=lp64d prog.c -o prog
@@ -111,8 +112,7 @@ and the bundled set on every change.
 
 ## Limits
 
-One hart; position-independent and dynamically linked executables are
-refused with a message saying to link `-static` (static PIE comes
-next). A checkpoint keeps the process's mappings, break and heap but
+One hart; dynamically linked executables are refused with a message
+saying to link `-static` or `-static-pie`. A checkpoint keeps the process's mappings, break and heap but
 not its host files, so one is refused while the program has a file
 open.

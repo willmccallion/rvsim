@@ -2,10 +2,10 @@
 //! are served as syscalls, and a fault ends it the way a signal would.
 
 use crate::Simulator;
-use crate::common::SimError;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
 use crate::system::checkpoint::CheckpointError;
+use crate::system::process::loader::PIE_BASE;
 use crate::system::simulator::{ProcessArgs, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 
@@ -383,14 +383,19 @@ fn a_fault_ends_the_program_with_the_signals_exit_status() {
     }
 }
 
+/// A static position-independent executable loads at the PIE base, its
+/// entry moved with it, and runs.
 #[test]
-fn a_position_independent_executable_is_refused() {
-    let mut sim = Simulator::build(&config(BackendKind::InOrder), "");
+fn a_static_position_independent_executable_loads_and_runs() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = Simulator::build(&config(backend), "");
 
-    let err =
-        sim.load_process(&user_elf(&exit_with(0), ET_DYN), &ProcessArgs::default()).unwrap_err();
+        sim.load_process(&user_elf(&exit_with(3), ET_DYN), &ProcessArgs::default())
+            .expect("a static PIE loads");
 
-    assert!(matches!(err, SimError::UnsupportedProgram { .. }), "{err}");
+        assert_eq!(sim.state.harts[0].pc, PIE_BASE + LOAD_ADDRESS + CODE_OFFSET, "{backend:?}");
+        assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(3), "{backend:?}");
+    }
 }
 
 #[test]

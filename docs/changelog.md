@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- SE mode loads static position-independent executables (`-static-pie`),
+  placing one at the address static executables are linked at; only
+  dynamically linked programs are refused. `make se-verify` checks a
+  static PIE against qemu with the other check programs.
 - A [Coming from gem5](from-gem5.md) guide: what each gem5 habit, from
   `se.py` and `O3CPU` parameters to m5ops, checkpoints, CPU switching
   and O3PipeView, maps to in rvsim, and what rvsim does not do.
