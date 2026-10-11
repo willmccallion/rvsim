@@ -100,7 +100,11 @@ descriptors; each has its own registers, its stack, and the thread
 pointer `clone` gave it, and the memory system keeps the harts' caches
 coherent as it does for any harts. `gettid` gives each thread its own
 id and `getpid` its process's, which is the first thread's.
-`sched_getaffinity` reports every hart.
+`sched_getaffinity` reports every hart, and so do the CPU lists a
+program sizes its thread pool by: `/sys/devices/system/cpu/online`,
+`possible` and `present` name the simulated harts, not the host's CPUs,
+as gem5 serves them, so `sysconf(_SC_NPROCESSORS_ONLN)` and
+`get_nprocs()` return the hart count.
 
 A thread waiting in `futex`, as `pthread_mutex_lock`, `pthread_cond_wait`,
 `pthread_join` and barriers do, parks its hart until another thread
@@ -190,7 +194,8 @@ misaligned accesses are fast), so glibc selects the same routines it
 would under Linux on rvsim. `clone3`, `execve`, `statx` and `rseq` return
 `ENOSYS`, which glibc falls back from (`pthread_create` to `clone`).
 Anything else returns `ENOSYS` with a warning. Files are the host's,
-relative to the working directory, as in gem5.
+relative to the working directory, as in gem5, except the CPU lists under
+`/sys/devices/system/cpu`, which describe the simulated machine.
 
 `RUST_LOG=rvsim::syscall=trace` logs every call with its arguments and
 result, like `strace`.

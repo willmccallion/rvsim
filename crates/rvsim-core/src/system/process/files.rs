@@ -31,6 +31,7 @@ pub mod errno {
 /// Linux `open` flags on riscv64 (`asm-generic/fcntl.h`).
 pub mod open_flags {
     pub const O_ACCMODE: u64 = 3;
+    pub const O_RDONLY: u64 = 0;
     pub const O_WRONLY: u64 = 1;
     pub const O_RDWR: u64 = 2;
     pub const O_CREAT: u64 = 0o100;
@@ -89,6 +90,12 @@ impl Stat {
         }
     }
 
+    /// A read-only file of `size` bytes, as a generated file reports itself.
+    #[must_use]
+    pub const fn read_only_file(size: i64) -> Self {
+        Self { mode: 0o100_444, nlink: 1, size, blksize: 4096, ..Self::character_device() }
+    }
+
     /// A character device, which is what the console descriptors report.
     #[must_use]
     pub const fn character_device() -> Self {
@@ -144,7 +151,15 @@ pub enum HostFile {
     Stdin,
     Stdout,
     Stderr,
-    File { path: PathBuf, file: File },
+    File {
+        path: PathBuf,
+        file: File,
+    },
+    /// A read-only file whose contents the simulator made, at `position`.
+    Generated {
+        contents: Vec<u8>,
+        position: u64,
+    },
 }
 
 /// The descriptor table: 0, 1 and 2 are the simulator's console.
@@ -164,10 +179,15 @@ impl FileTable {
         }
     }
 
-    /// How many host files, beyond the console, are open.
+    /// How many files, beyond the console, are open: what a checkpoint
+    /// cannot carry.
     #[must_use]
     pub fn host_files_open(&self) -> usize {
-        self.slots.iter().flatten().filter(|file| matches!(file, HostFile::File { .. })).count()
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|file| matches!(file, HostFile::File { .. } | HostFile::Generated { .. }))
+            .count()
     }
 
     /// `ftruncate`.
@@ -219,11 +239,22 @@ impl FileTable {
             return Err(-errno::ENOTDIR);
         }
         let file = options.open(&path).map_err(|e| io_errno(&e))?;
+        self.install(HostFile::File { path, file })
+    }
+
+    /// Opens a read-only file holding `contents` and returns its
+    /// descriptor.
+    pub fn open_generated(&mut self, contents: Vec<u8>) -> Result<i64, i64> {
+        self.install(HostFile::Generated { contents, position: 0 })
+    }
+
+    /// Puts `file` in the lowest free descriptor and returns it.
+    fn install(&mut self, file: HostFile) -> Result<i64, i64> {
         let fd = self.slots.iter().position(Option::is_none).unwrap_or_else(|| {
             self.slots.push(None);
             self.slots.len() - 1
         });
-        self.slots[fd] = Some(HostFile::File { path, file });
+        self.slots[fd] = Some(file);
         i64::try_from(fd).map_err(|_| -errno::EMFILE)
     }
 
@@ -251,6 +282,11 @@ impl FileTable {
             }
             HostFile::Stdout | HostFile::Stderr => return Err(-errno::EBADF),
             HostFile::File { file, .. } => file.read(&mut buffer).map_err(|e| io_errno(&e))?,
+            HostFile::Generated { contents, position } => {
+                let read = copy_from(contents, *position, &mut buffer);
+                *position += read as u64;
+                read
+            }
         };
         buffer.truncate(read);
         Ok(buffer)
@@ -264,6 +300,7 @@ impl FileTable {
             HostFile::File { file, .. } => {
                 file.read_at(&mut buffer, offset).map_err(|e| io_errno(&e))?
             }
+            HostFile::Generated { contents, .. } => copy_from(contents, offset, &mut buffer),
             _ => return Err(-errno::ESPIPE),
         };
         buffer.truncate(read);
@@ -273,7 +310,7 @@ impl FileTable {
     /// Writes `bytes`; the console's descriptors both print to the console.
     pub fn write(&mut self, fd: i64, bytes: &[u8]) -> Result<usize, i64> {
         match self.slot(fd)? {
-            HostFile::Stdin => Err(-errno::EBADF),
+            HostFile::Stdin | HostFile::Generated { .. } => Err(-errno::EBADF),
             HostFile::Stdout | HostFile::Stderr => {
                 self.terminal
                     .lock()
@@ -290,6 +327,7 @@ impl FileTable {
         use std::os::unix::fs::FileExt;
         match self.slot(fd)? {
             HostFile::File { file, .. } => file.write_at(bytes, offset).map_err(|e| io_errno(&e)),
+            HostFile::Generated { .. } => Err(-errno::EBADF),
             _ => Err(-errno::ESPIPE),
         }
     }
@@ -304,6 +342,15 @@ impl FileTable {
         };
         match self.slot(fd)? {
             HostFile::File { file, .. } => file.seek(target).map_err(|e| io_errno(&e)),
+            HostFile::Generated { contents, position } => {
+                let moved = match target {
+                    SeekFrom::Start(offset) => Some(offset),
+                    SeekFrom::Current(offset) => position.checked_add_signed(offset),
+                    SeekFrom::End(offset) => (contents.len() as u64).checked_add_signed(offset),
+                };
+                *position = moved.ok_or(-errno::EINVAL)?;
+                Ok(*position)
+            }
             _ => Err(-errno::ESPIPE),
         }
     }
@@ -314,6 +361,9 @@ impl FileTable {
             HostFile::File { file, .. } => {
                 file.metadata().map(|meta| Stat::from_metadata(&meta)).map_err(|e| io_errno(&e))
             }
+            HostFile::Generated { contents, .. } => {
+                Ok(Stat::read_only_file(i64::try_from(contents.len()).unwrap_or(i64::MAX)))
+            }
         }
     }
 
@@ -321,6 +371,15 @@ impl FileTable {
     pub fn is_console(&mut self, fd: i64) -> bool {
         matches!(self.slot(fd), Ok(HostFile::Stdin | HostFile::Stdout | HostFile::Stderr))
     }
+}
+
+/// Copies `contents` from `offset` into `buffer`, as far as both go, and
+/// returns how many bytes it copied.
+fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
+    let rest = usize::try_from(offset).ok().and_then(|start| contents.get(start..)).unwrap_or(&[]);
+    let count = rest.len().min(buffer.len());
+    buffer[..count].copy_from_slice(&rest[..count]);
+    count
 }
 
 /// A host I/O error as the guest's negated `errno`.
