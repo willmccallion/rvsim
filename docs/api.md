@@ -46,22 +46,14 @@ See [Configuration](configuration.md) for every parameter.
 
 ::: rvsim.Simulator
 
-### The sim-control device
+### Pseudo-operations
 
-A simulator-only MMIO device at `sim_control_base` (default `0x0010_2000`),
-not in the device tree, with two 64-bit registers:
-
-| Offset | Register | Access |
-|---|---|---|
-| `0x00` | `COMMAND` | write `1` to reset the stats, `2` to dump them labelled with `ARG`, `3` to end the simulation with `ARG` as the exit code, `4` to stop the host's `run_to` here with `ARG` as the label |
-| `0x08` | `ARG` | read/write: the argument of the next command |
-
-A guest writes `ARG`, then `COMMAND`. Under Linux, map the page through
-`/dev/mem`, or use the image's `rvsim` tool (`rvsim dump-stats LABEL`,
-`rvsim break LABEL`, `rvsim run START END CMD`); bare-metal programs
-include `software/include/rvsim.h` (`rvsim_dump_stats`, `rvsim_break`,
-`rvsim_reset_stats`, `rvsim_exit`). The command takes effect at the end of
-the cycle the write reaches the device.
+A program marks regions, dumps or resets the stats, stops the host's run
+or ends it with [pseudo-operations](pseudo-ops.md): gem5's m5op
+instruction, which `software/include/rvsim.h` wraps as `rvsim_dump_stats`,
+`rvsim_reset_stats`, `rvsim_break` and `rvsim_exit`. The dumps come back
+through `Simulator.stats_dumps()`, the stops through `run_to` and the
+Session API's markers.
 
 ::: rvsim.Instruction
 

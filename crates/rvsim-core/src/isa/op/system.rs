@@ -40,6 +40,10 @@ pub enum SystemOp {
     /// `ECALL` — environment call.
     Ecall,
 
+    /// gem5's m5op pseudo-instruction (opcode `0x7b`): the simulator
+    /// performs the operation its funct7 names when it retires.
+    Pseudo,
+
     /// `CSRRW`/`CSRRS`/`CSRRC` and their immediate forms; `csr_op` says which.
     Csr,
 }
@@ -52,6 +56,7 @@ impl SystemOp {
             self,
             Self::Csr
                 | Self::Ecall
+                | Self::Pseudo
                 | Self::Mret
                 | Self::Sret
                 | Self::Wfi

@@ -17,6 +17,16 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- Pseudo-operations are an instruction: gem5's m5op (opcode `0x7b`, the
+  operation in bits 31:25, arguments in `a0` and `a1`), performed when it
+  retires in any mode and at any privilege, so one `rvsim.h` serves a
+  bare-metal image, a user program under SE mode and a program inside a
+  Linux guest, and a binary instrumented with gem5's libm5 runs
+  unchanged: `m5_exit`, `m5_fail`, `m5_reset_stats`, `m5_dump_stats`,
+  `m5_dump_reset_stats`, `m5_checkpoint` and the work markers.
+  `regions.elf` is a Linux user binary again. The sim-control MMIO
+  device stays for the Linux image's `rvsim` tool. See
+  [Pseudo-operations](pseudo-ops.md).
 - A user program's stdin, stdout and stderr, and the console HTIF's
   syscalls serve, are the simulator's console: `console="quiet"` and
   `"captured"`, `read_console()`, `write_console()` and the Session API's

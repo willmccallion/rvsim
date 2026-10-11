@@ -2,6 +2,7 @@
 
 mod alu;
 mod memory;
+pub mod pseudo;
 mod system;
 mod vector;
 

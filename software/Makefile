@@ -35,15 +35,8 @@ COMPLETE_SRCS = $(wildcard $(BENCH_DIR)/complete_prog/*.c)
 BENCH_SRCS = $(MICRO_SRCS) $(SYNTH_SRCS) $(KERN_SRCS) $(COMPLETE_SRCS)
 MULTICORE_SRCS = $(wildcard $(BENCH_DIR)/multicore/*.c)
 
-# regions.c drives the sim-control device at its physical address, which a
-# user program cannot reach, so it stays bare-metal: on the UART here, as
-# the Session API's console stops expect, and over HTIF in bin-htif.
-UART_PROG_SRCS = $(PROG_DIR)/regions.c
-SE_PROG_C_SRCS = $(filter-out $(UART_PROG_SRCS), $(PROG_C_SRCS))
-
-UART_PROG_ELFS = $(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(UART_PROG_SRCS))
 SE_ELFS = \
-	$(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(SE_PROG_C_SRCS)) \
+	$(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(PROG_C_SRCS)) \
 	$(patsubst $(PROG_DIR)/%.s, $(BIN)/programs/%.elf, $(PROG_S_SRCS)) \
 	$(patsubst %.c, $(BIN)/benchmarks/%.elf, $(notdir $(BENCH_SRCS)))
 MULTICORE_ELFS = $(patsubst $(BENCH_DIR)/multicore/%.c, $(BIN)/multicore/%.elf, $(MULTICORE_SRCS))
@@ -54,15 +47,14 @@ HTIF_ELFS = \
 UART_LIB_DIR = $(BUILD_DIR)/libc-uart
 HTIF_LIB_DIR = $(BUILD_DIR)/libc-htif
 LIBC_HEADERS = $(LIB_DIR)/stdio.h $(LIB_DIR)/stdlib.h $(LIB_DIR)/htif.h
-UART_CRT0 = $(UART_LIB_DIR)/crt0.o
 UART_CRT0_SMP = $(UART_LIB_DIR)/crt0_smp.o
 UART_LIBC = $(UART_LIB_DIR)/stdio.o $(UART_LIB_DIR)/stdlib.o
 HTIF_LIBC = $(HTIF_LIB_DIR)/crt0_htif.o $(HTIF_LIB_DIR)/stdio.o $(HTIF_LIB_DIR)/stdlib.o $(HTIF_LIB_DIR)/htif.o
 
 .PHONY: all dirs linux clean clean-no-linux
 
-all: $(SE_ELFS) $(UART_PROG_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)
-	@echo "  Built $(words $(SE_ELFS) $(UART_PROG_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)) ELFs"
+all: $(SE_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)
+	@echo "  Built $(words $(SE_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)) ELFs"
 	@echo "  SE mode:    $(BIN)/programs/ $(BIN)/benchmarks/"
 	@echo "  Bare-metal: $(BIN)/multicore/ $(BARE_BIN)/programs/ $(BARE_BIN)/benchmarks/"
 
@@ -112,11 +104,6 @@ $(HTIF_LIB_DIR)/%.o: $(LIB_DIR)/%.c $(LIBC_HEADERS) | dirs
 $(HTIF_LIB_DIR)/%.o: $(LIB_DIR)/%.s | dirs
 	@echo "  AS (libc, HTIF) $<"
 	@$(CC) $(HTIF_CFLAGS) -c $< -o $@
-
-# --- Bare-metal programs on the UART ---
-$(UART_PROG_ELFS): $(BIN)/programs/%.elf: $(PROG_DIR)/%.c $(UART_CRT0) $(UART_LIBC) | dirs
-	@echo "  CC (UART) $<"
-	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(UART_CRT0) $(UART_LIBC) $< -o $@
 
 # --- Multi-core programs (every hart runs smp_main) ---
 $(BIN)/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(UART_CRT0_SMP) $(UART_LIBC) | dirs

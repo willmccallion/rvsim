@@ -117,7 +117,8 @@ impl SystemState {
         };
     }
 
-    /// Carries out a request the guest made through the sim-control device.
+    /// Carries out a request the guest made through the sim-control device
+    /// or a pseudo-instruction.
     pub fn apply_sim_op(&mut self, op: SimOp) {
         match op {
             SimOp::ResetStats => self.reset_stats(),
@@ -385,6 +386,7 @@ impl SystemState {
                 stats_epoch: StatsEpoch::default(),
                 stats_dumps: Vec::new(),
                 pending_break: None,
+                pending_sim_ops: Vec::new(),
                 hart_stat_paths,
             },
         }

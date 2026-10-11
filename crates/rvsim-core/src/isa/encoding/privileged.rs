@@ -7,6 +7,10 @@
 /// Used for CSR instructions, ECALL, EBREAK, xRET, WFI, etc.
 pub const OP_SYSTEM: u32 = 0b1110011;
 
+/// The pseudo-instruction opcode gem5's m5ops use (custom-3); see
+/// [`crate::isa::op::pseudo`].
+pub const OP_PSEUDO: u32 = crate::isa::op::pseudo::OPCODE;
+
 /// Environment Call (ECALL).
 /// Traps to a higher privilege level.
 pub const ECALL: u32 = 0x0000_0073;
