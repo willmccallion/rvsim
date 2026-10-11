@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Run the rootfs's userspace benchmarks on a core preset, from the cached
-boot, and print each one's score, derived from the cycles it took, next to
-its cycles, instructions and IPC.
+"""Run the rootfs's userspace benchmarks on a core, from the cached boot, and print each one's score, derived from the cycles it took, next to
+its cycles, instructions and IPC. The cores are the configurations
+calibrated to measured hardware (`calibration.py`) and the presets the
+comparison tracks.
 
 Usage:
     python tools/diag/linux_bench.py                    # p550, one hart
@@ -21,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rvsim import Session, presets
+from tools.diag.calibration import CALIBRATED
 
 # Each benchmark's command, how many of its units the command runs, and
 # how its score follows from that count and the cycles the run took. The
@@ -43,8 +45,7 @@ BENCHMARKS = {
 }
 
 PRESETS = {
-    "p550": presets.p550,
-    "cortex_a72": presets.cortex_a72,
+    **CALIBRATED,
     "fast": presets.fast,
 }
 

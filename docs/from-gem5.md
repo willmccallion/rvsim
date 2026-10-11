@@ -59,11 +59,10 @@ spike and the RTL, which is how the simulator is cross-checked.
 gem5 builds a tree of `SimObject`s in a Python script. rvsim's `Config`
 is a flat object of components, each a class with named variants, and
 `replace()` derives one configuration from another. A preset is a
-complete machine, the way `--cpu-type` plus a cache script is in gem5,
-except that each preset is a real core: `presets.p550()` (SiFive P550),
-`presets.cortex_a72()`, `presets.rocket()` and `presets.boom()` as
-Chipyard's RTL builds them, `presets.linux()` for the bundled image, and
-`presets.fast()` when you want a quick run rather than a particular core.
+complete machine, the way `--cpu-type` plus a cache script is in gem5:
+`presets.basic()` and `presets.fast()`, `presets.rocket()` and
+`presets.boom()` as Chipyard's RTL builds them, and `presets.linux()` for
+the bundled image.
 
 | gem5 | rvsim |
 |---|---|
@@ -146,7 +145,7 @@ with the same harts, RAM and VLEN.
 ```bash
 pip install rvsim                                       # or make python in a checkout
 python -m rvsim software/bin/programs/qsort.elf         # SE mode, default machine
-python -m rvsim software/bin/programs/qsort.elf --preset p550 --json qsort.json
+python -m rvsim software/bin/programs/qsort.elf --preset boom --json qsort.json
 python -m rvsim software/bin/programs/qsort.elf --pipeline-trace qsort.kanata
 make run-linux                                          # boot the bundled image
 ```
@@ -154,6 +153,6 @@ make run-linux                                          # boot the bundled image
 ```python
 from rvsim import Environment, presets
 
-result = Environment(binary="software/bin/programs/qsort.elf", config=presets.p550()).run()
+result = Environment(binary="software/bin/programs/qsort.elf", config=presets.boom()).run()
 print(result.stats.query(r"^ipc$|bp\.committed\.accuracy|l1d\.miss_rate"))
 ```

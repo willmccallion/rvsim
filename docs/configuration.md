@@ -32,11 +32,11 @@ narrow = base.replace(width=2)
 wide = base.replace(width=8)
 ```
 
-`rvsim.presets` holds complete machines: `basic()`, `fast()`, `p550()`,
-`cortex_a72()`, `rocket()` and `boom()` for Chipyard's Rocket and
-Medium BOOM as their RTL builds them ([Error against Rocket](rtl-rocket.md),
-[Error against BOOM](rtl-boom.md)), and `linux()` for a system that boots
-the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
+`rvsim.presets` holds complete machines: `basic()`, `fast()`, `rocket()`
+and `boom()` for Chipyard's Rocket and Medium BOOM as their RTL builds them
+([Error against Rocket](rtl-rocket.md), [Error against BOOM](rtl-boom.md)),
+and `linux()` for a system that boots the bundled Linux image. See
+[Benchmark Configs](examples/benchmark-configs.md).
 
 ---
 

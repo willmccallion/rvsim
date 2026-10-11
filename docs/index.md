@@ -41,9 +41,9 @@ difference between them is a difference in timing alone.
     remaining difference listed against the issue that names its
     mechanism (see [Error against Rocket](rtl-rocket.md) and
     [Error against BOOM](rtl-boom.md)).
-    Against hardware, the `p550()` and `cortex_a72()` presets reproduce
-    their published cache and memory latencies, and the A72 preset runs
-    CoreMark within 6% of a Raspberry Pi 4 (see
+    Against hardware, configurations calibrated to the SiFive P550 and
+    the Cortex-A72 reproduce their published cache and memory latencies,
+    and the A72 one runs CoreMark within 6% of a Raspberry Pi 4 (see
     [Linux Benchmarks](examples/linux-benchmarks.md)). We are working to
     close the remaining gaps.
 

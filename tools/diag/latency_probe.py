@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Measure a preset's load-to-use latency at each cache level.
+"""Measure a core's load-to-use latency at each cache level: a configuration
+calibrated to measured hardware (`calibration.py`) or a preset.
 
 Builds a dependent pointer chase over footprints that fit the L1D, L2, L3
 and memory, runs each twice with different step counts, and reports the
@@ -20,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rvsim import Environment, presets
+from tools.diag.calibration import CALIBRATED
 
 SRC = Path(__file__).parent / "latency_probe" / "chase.c"
 OUT = ROOT / "tests" / "builds" / "latency-probe"
@@ -34,7 +36,7 @@ CFLAGS = [
     "-nostdlib",
     "-O2",
 ]
-PRESETS = {"p550": presets.p550, "cortex_a72": presets.cortex_a72, "fast": presets.fast}
+PRESETS = {**CALIBRATED, "fast": presets.fast}
 STEPS = (10_000, 20_000)
 
 

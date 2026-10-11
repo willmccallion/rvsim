@@ -9,7 +9,7 @@ Categorizes execution cycles into four main buckets:
 
 Usage:
   rvsim examples/analysis/top_down.py [binary]
-  rvsim examples/analysis/top_down.py --config p550
+  rvsim examples/analysis/top_down.py --config fast
 """
 
 import argparse
@@ -20,10 +20,7 @@ from rvsim import Simulator, Stats, presets
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
-CONFIGS = {
-    "p550": presets.p550,
-    "a72": presets.cortex_a72,
-}
+CONFIGS = presets.PRESETS
 
 
 def analyze_top_down(stats, width):
@@ -92,7 +89,7 @@ def main():
         help="Path to ELF binary",
     )
     parser.add_argument(
-        "--config", choices=CONFIGS.keys(), default="a72", help="CPU Configuration"
+        "--config", choices=CONFIGS.keys(), default="basic", help="CPU Configuration"
     )
     args = parser.parse_args()
 

@@ -3,8 +3,9 @@
 A test runner imports `PIPELINES` from here and iterates over (label, cfg)
 tuples. Each Config exercises a different rvsim configuration: pipeline width,
 backend, branch predictor, ROB sizing, FU pool, cache hierarchy, prefetcher,
-replacement policy, memory controller, mem-dep predictor, TLB, and the three
-reference machine configs (cortex-a72, p550, linux).
+replacement policy, memory controller, mem-dep predictor, TLB, the two
+configurations calibrated to measured hardware (cortex-a72, p550; see
+tools/diag/calibration.py) and the Linux system.
 
 If you add or remove a Config here, every runner picks it up automatically —
 this is the single source of truth.
@@ -25,6 +26,7 @@ from rvsim import (
     ReplacementPolicy,
     presets,
 )
+from tools.diag import calibration
 
 # fmt: off
 PIPELINES = [
@@ -368,7 +370,7 @@ PIPELINES = [
     ("inorder w4 sv48-cap", Config(width=4, backend=Backend.InOrder(), paging_mode_max="sv48")),
 
     # ── Reference machine configs ──────────────────────────────────────────────
-    ("ref cortex-a72",      presets.cortex_a72()),
+    ("ref cortex-a72",      calibration.cortex_a72()),
     # ── Coherence fabric (only matters with hart_count > 1) ──────────────────
     ("smp broadcast",       Config(width=4, backend=Backend.OutOfOrder(),
                                    coherence=Coherence(home_agent=HomeAgent.Broadcast()))),
@@ -383,15 +385,15 @@ PIPELINES = [
     ("smp tiny-filter",     Config(width=4, backend=Backend.OutOfOrder(),
                                    coherence=Coherence(home_agent=HomeAgent.SnoopFilter(capacity_factor=0.05, ways=2)))),
 
-    ("ref p550",            presets.p550()),
+    ("ref p550",            calibration.p550()),
     ("ref linux",           presets.linux()),
 ]
 # fmt: on
 
 # The configs `--smoke` runs every riscv-test on: both backends at the
 # narrowest and widest widths, no caches, an L3, every prefetcher, DDR5,
-# capped paging modes, a coherent multi-core fabric, and the calibrated
-# presets.
+# capped paging modes, a coherent multi-core fabric, and the two calibrated
+# configurations.
 SMOKE_PIPELINES = [
     "inorder w1",
     "inorder w4",
