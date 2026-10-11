@@ -1,12 +1,14 @@
 """Checks SE mode against qemu-riscv64: the same static Linux program,
 run under both, must print the same output and exit with the same code.
 
-    .venv/bin/python tools/se/verify.py [--embench] [--bundled] [--programs GLOB ...]
+    .venv/bin/python tools/se/verify.py [--embench] [--bundled [--slow]] [--programs GLOB ...]
 
 The check programs (tools/se/programs, built by `make se-programs`) run
 by default; `--embench` adds the Embench-IoT benchmarks (`make
 embench-build`) and `--bundled` the bundled programs and benchmarks
-(`make software`), whose cycle counts are left out of the comparison.
+(`make software`), whose cycle counts are left out of the comparison,
+whose minutes-long members only run with `--slow`, and whose `regions`
+qemu cannot run, since it uses the pseudo-instruction.
 Each rvsim run is a subprocess so its stdout is its program's alone.
 Exits non-zero when any program differs.
 """
@@ -27,6 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SE_PROGRAMS = ROOT / "tests" / "builds" / "se-programs"
 EMBENCH = ROOT / "tests" / "builds" / "embench" / "bin"
 BUNDLED = ROOT / "software" / "bin"
+# Bundled programs that take minutes under rvsim: sand about fifteen, life
+# about five. --bundled leaves them to --slow.
+LONG_RUNNING = {"life", "sand"}
+# Bundled programs qemu cannot run: regions uses the pseudo-instruction,
+# which qemu traps on as illegal.
+NOT_UNDER_QEMU = {"regions"}
 PYTHON = ROOT / ".venv" / "bin" / "python"
 CYCLE_LIMIT = 2_000_000_000
 
@@ -74,6 +82,7 @@ def run_qemu(program: Program, workdir: Path) -> Outcome:
     result = subprocess.run(
         ["qemu-riscv64", str(program.elf), *program.args],
         cwd=workdir,
+        stdin=subprocess.DEVNULL,
         env={**os.environ, **program.env},
         capture_output=True,
         check=False,
@@ -92,6 +101,7 @@ def run_rvsim(program: Program, workdir: Path) -> Outcome:
             *program.args,
         ],
         cwd=workdir,
+        stdin=subprocess.DEVNULL,
         env={**os.environ, **program.env},
         capture_output=True,
         check=False,
@@ -134,6 +144,11 @@ def main() -> int:
         "--bundled", action="store_true", help="also run the bundled programs"
     )
     parser.add_argument(
+        "--slow",
+        action="store_true",
+        help="include the bundled programs that take minutes (life, sand)",
+    )
+    parser.add_argument(
         "--programs",
         nargs="*",
         default=[],
@@ -155,7 +170,10 @@ def main() -> int:
         if args.bundled:
             for subdir in ("programs", "benchmarks"):
                 programs.extend(
-                    Program(elf) for elf in sorted((BUNDLED / subdir).glob("*.elf"))
+                    Program(elf)
+                    for elf in sorted((BUNDLED / subdir).glob("*.elf"))
+                    if elf.stem not in NOT_UNDER_QEMU
+                    and (args.slow or elf.stem not in LONG_RUNNING)
                 )
     if not programs:
         print(

@@ -104,7 +104,10 @@ the same output and exit code from both; `EMBENCH=1` adds the 19
 Embench-IoT benchmarks (`make embench-build`), each of which verifies
 its own result and exits 0, and `BUNDLED=1` the bundled programs and
 benchmarks (`make software`), compared on everything but the cycle
-counts they print.
+counts they print; `life` and `sand` take minutes under rvsim and join
+only with `SLOW=1`, and `regions` is left out because qemu traps on its
+[pseudo-operations](pseudo-ops.md). CI runs the check programs, Embench
+and the bundled set on every change.
 
 ## Limits
 
